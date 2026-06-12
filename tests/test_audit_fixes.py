@@ -1590,42 +1590,139 @@ class TestRule14_A7_HyperstackBuildNotify:
         )
 
 
+# ---------------------------------------------------------------------------
+# protocol_cleanup.run_cleanup behavioral-test builder
+# ---------------------------------------------------------------------------
+
+
+def _run_cleanup_kwargs(**overrides):
+    """Keyword args for protocol_cleanup.run_cleanup with MagicMock deps
+    that complete a normal (non-aborted, no-AF, LEDs-off) cleanup; tests
+    override the step or state under test."""
+    from modules.protocol_callbacks import ProtocolCallbacks
+    from modules.protocol_state_machine import ProtocolState
+
+    kwargs = {
+        'get_state_fn': MagicMock(return_value=ProtocolState.RUNNING),
+        'set_state_fn': MagicMock(),
+        'run_lock': threading.Lock(),
+        'scan_in_progress': threading.Event(),
+        'leds_state_at_end': 'off',
+        'original_led_states': {},
+        'original_autofocus_states': {},
+        'saved_camera_state': {},
+        'return_to_position': None,
+        'disable_saving_artifacts': True,
+        'protocol': MagicMock(),
+        'protocol_execution_record': None,
+        'scope': MagicMock(),
+        'callbacks': ProtocolCallbacks(),
+        'leds_off_fn': MagicMock(),
+        'led_on_fn': MagicMock(),
+        'default_move_fn': MagicMock(),
+        'cancel_scheduled_events_fn': MagicMock(),
+        'io_executor': MagicMock(),
+        'autofocus_thread': None,
+        'file_io_executor': MagicMock(),
+        'camera_executor': MagicMock(),
+        'set_run_in_progress_fn': MagicMock(),
+    }
+    kwargs.update(overrides)
+    return kwargs
+
+
 class TestRule14_A10_ProtocolCleanupErrorCollection:
     """A10: protocol_cleanup must collect cleanup errors and surface a single
     summary notification (Rule 14)."""
 
-    def test_cleanup_collects_errors(self):
-        """run_cleanup must initialize cleanup_errors list and append to it
-        on each step's exception."""
-        import pathlib
+    def test_cleanup_collects_errors(self, monkeypatch):
+        """Every failing cleanup step must be collected; no failure may
+        abort the sweep (fault tolerance -- all steps run regardless)."""
+        from modules.notification_center import notifications
+        from modules.protocol_callbacks import ProtocolCallbacks
+        from modules.protocol_cleanup import run_cleanup
 
-        source = pathlib.Path('modules/protocol_cleanup.py').read_text()
-        assert 'cleanup_errors: list[str] = []' in source, (
-            'run_cleanup must initialize cleanup_errors list (A10)'
-        )
-        # Verify each except branch appends
-        assert source.count('cleanup_errors.append') >= 6, (
-            'Each cleanup step except branch must append to cleanup_errors (A10 -- 6 steps)'
+        captured = []
+        monkeypatch.setattr(notifications, 'warning', lambda *a, **k: captured.append(a))
+        # Invoke UI-scheduled callables immediately so their raise lands in
+        # the cleanup step's try/except (headless schedule_ui swallows).
+        monkeypatch.setattr(
+            'modules.protocol_cleanup._schedule_ui', lambda fn, timeout=0: fn(0)
         )
 
-    def test_cleanup_summary_notify(self):
-        """run_cleanup must surface a single summary notification when
-        cleanup_errors is non-empty."""
-        import pathlib
+        def _raiser(label):
+            def _raise(*a, **k):
+                raise RuntimeError(f'{label} boom')
 
-        source = pathlib.Path('modules/protocol_cleanup.py').read_text()
-        idx = source.find('if cleanup_errors:')
-        assert idx != -1, 'Cleanup-errors summary block must exist'
-        nearby = source[idx : idx + 800]
-        assert 'notifications.warning' in nearby, (
-            'Cleanup-errors block must call notifications.warning (A10 -- summary, not 6 popups)'
+            return _raise
+
+        kwargs = _run_cleanup_kwargs(
+            cancel_scheduled_events_fn=_raiser('cancel'),
+            leds_off_fn=_raiser('led'),
+            callbacks=ProtocolCallbacks(
+                restore_layer_shader=_raiser('shader'),
+                restore_autofocus_state=_raiser('af'),
+            ),
+            original_autofocus_states={'BF': True},
+            saved_camera_state={'tag': 'protocol'},
+            disable_saving_artifacts=False,
+            protocol_execution_record=MagicMock(),
+            return_to_position={'x': 1.0, 'y': 2.0, 'z': 3.0},
+            default_move_fn=_raiser('move'),
         )
-        assert 'Protocol cleanup issues' in nearby, (
-            "Notification title must be 'Protocol cleanup issues' (A10)"
+        kwargs['camera_executor'].protocol_put.side_effect = RuntimeError('camera boom')
+        kwargs['file_io_executor'].protocol_put.side_effect = RuntimeError('record boom')
+        run_cleanup(**kwargs)
+
+        assert captured, 'failing cleanup steps must surface a summary notification'
+        body = captured[0][2]
+        assert '7 cleanup step(s) failed' in body, (
+            f'all seven induced failures must be collected; got: {body}'
         )
-        assert 'Check LED state, camera settings, and stage position.' in nearby, (
-            'Notification body must prompt user to verify hardware state (A10 audit recommendation)'
+        for step in (
+            'Cancel scheduled events',
+            'Restore LED states',
+            'Restore layer shader',
+            'Restore autofocus states',
+            'Restore camera gain/exposure',
+            'Complete protocol record',
+            'Return to position',
+        ):
+            assert step in body, f'step "{step}" missing from the summary; got: {body}'
+        assert kwargs['io_executor'].protocol_end.called, (
+            'the executor teardown must still run after step failures'
         )
+        kwargs['set_run_in_progress_fn'].assert_called_once_with(False)
+
+    def test_cleanup_summary_notify(self, monkeypatch):
+        """A single failing step must produce exactly one summary warning
+        (one popup, not one per step)."""
+        from modules.notification_center import notifications
+        from modules.protocol_cleanup import run_cleanup
+
+        captured = []
+        monkeypatch.setattr(notifications, 'warning', lambda *a, **k: captured.append(a))
+        kwargs = _run_cleanup_kwargs(
+            cancel_scheduled_events_fn=MagicMock(side_effect=RuntimeError('cancel boom'))
+        )
+        run_cleanup(**kwargs)
+        assert len(captured) == 1, f'exactly one summary warning expected; got {captured}'
+        assert captured[0][1] == 'Protocol cleanup issues', (
+            f"notification title must be 'Protocol cleanup issues'; got {captured[0]}"
+        )
+        assert 'Check LED state, camera settings, and stage position.' in captured[0][2], (
+            'notification body must prompt the user to verify hardware state'
+        )
+
+    def test_clean_run_does_not_notify(self, monkeypatch):
+        """Control: a cleanup with no failing step must not warn."""
+        from modules.notification_center import notifications
+        from modules.protocol_cleanup import run_cleanup
+
+        captured = []
+        monkeypatch.setattr(notifications, 'warning', lambda *a, **k: captured.append(a))
+        run_cleanup(**_run_cleanup_kwargs())
+        assert captured == [], f'clean cleanup must not notify; got {captured}'
 
 
 class TestSetBinningSizeFailureNotifies:
@@ -3375,73 +3472,82 @@ class TestProtocolCleanupRestoresLayerShader_ShaderHygiene:
     open).
     """
 
-    def _cleanup_src(self):
-        from pathlib import Path
-
-        return (
-            Path(__file__).resolve().parent.parent / 'modules' / 'protocol_cleanup.py'
-        ).read_text()
-
-    def _callbacks_src(self):
-        from pathlib import Path
-
-        return (
-            Path(__file__).resolve().parent.parent / 'modules' / 'protocol_callbacks.py'
-        ).read_text()
-
     def _protocol_settings_src(self):
         from pathlib import Path
 
         return (Path(__file__).resolve().parent.parent / 'ui' / 'protocol_settings.py').read_text()
 
     def test_callback_field_exists_in_protocol_callbacks(self):
-        """ProtocolCallbacks must declare a restore_layer_shader field
-        so the cleanup module can invoke it through the typed contract
-        (not a magic-string dict)."""
-        src = self._callbacks_src()
-        assert 'restore_layer_shader' in src, (
-            'ProtocolCallbacks must declare restore_layer_shader (the '
-            'sibling-of-LED-state shader-hygiene-at-transition fix)'
+        """ProtocolCallbacks must carry a restore_layer_shader callback
+        through the typed contract (not a magic-string dict)."""
+        from modules.protocol_callbacks import ProtocolCallbacks
+
+        cb = ProtocolCallbacks()
+        assert hasattr(cb, 'restore_layer_shader') and cb.restore_layer_shader is None, (
+            'ProtocolCallbacks must declare restore_layer_shader defaulting '
+            'to None (the sibling-of-LED-state shader-hygiene-at-transition fix)'
+        )
+        def wired():
+            return None
+
+        assert ProtocolCallbacks.from_dict(
+            {'restore_layer_shader': wired}
+        ).restore_layer_shader is wired, (
+            'from_dict must accept and carry the restore_layer_shader key'
         )
 
-    def test_cleanup_invokes_restore_layer_shader(self):
-        """protocol_cleanup must call callbacks.restore_layer_shader
-        on UI thread (via _schedule_ui) as part of its restore steps.
+    def test_cleanup_invokes_restore_layer_shader(self, monkeypatch):
+        """run_cleanup must invoke callbacks.restore_layer_shader through
+        the UI scheduler (Rule 15 -- the cleanup module is GUI-agnostic).
         Catches a future revert that drops the call."""
-        src = self._cleanup_src()
-        assert 'callbacks.restore_layer_shader' in src, (
-            'protocol_cleanup must invoke callbacks.restore_layer_shader'
+        from modules.protocol_callbacks import ProtocolCallbacks
+        from modules.protocol_cleanup import run_cleanup
+
+        scheduled = []
+        monkeypatch.setattr(
+            'modules.protocol_cleanup._schedule_ui',
+            lambda fn, timeout=0: scheduled.append(fn) or fn(0),
         )
-        # The invocation must be UI-thread-dispatched (Rule 15 -- the
-        # cleanup module is GUI-agnostic; UI work goes via _schedule_ui).
-        idx = src.find('callbacks.restore_layer_shader')
-        assert idx != -1
-        # The line surrounding the call should include _schedule_ui.
-        nearby = src[max(0, idx - 100) : idx + 150]
-        assert '_schedule_ui' in nearby, (
-            'restore_layer_shader call must be UI-thread-dispatched via _schedule_ui (Rule 15)'
+        shader_restore = MagicMock()
+        run_cleanup(
+            **_run_cleanup_kwargs(
+                callbacks=ProtocolCallbacks(restore_layer_shader=shader_restore)
+            )
+        )
+        assert shader_restore.called, (
+            'run_cleanup must invoke callbacks.restore_layer_shader'
+        )
+        assert scheduled, (
+            'restore_layer_shader must be UI-thread-dispatched via the '
+            'schedule_ui seam, not called inline on the protocol thread'
         )
 
-    def test_cleanup_shader_restore_protected_by_try_except(self):
-        """The shader restore must not abort the rest of cleanup if it
-        raises (fault tolerance -- all restore steps must run
-        regardless of any one failing). Sibling pattern to the LED /
-        AF / camera restore blocks."""
-        src = self._cleanup_src()
-        idx = src.find('callbacks.restore_layer_shader')
-        assert idx != -1
-        # The 200 chars before the call should contain a `try:` and the
-        # 200 chars after should contain a matching except clause that
-        # appends to cleanup_errors.
-        window = src[max(0, idx - 200) : idx + 400]
-        assert 'try:' in window, (
-            'restore_layer_shader call must be inside a try block '
-            '(fault tolerance pattern matching LED / AF / camera blocks)'
+    def test_cleanup_shader_restore_protected_by_try_except(self, monkeypatch):
+        """A raising shader restore must not abort the rest of cleanup
+        (fault tolerance) and must land in the error summary. Sibling
+        pattern to the LED / AF / camera restore blocks."""
+        from modules.notification_center import notifications
+        from modules.protocol_callbacks import ProtocolCallbacks
+        from modules.protocol_cleanup import run_cleanup
+
+        captured = []
+        monkeypatch.setattr(notifications, 'warning', lambda *a, **k: captured.append(a))
+        monkeypatch.setattr(
+            'modules.protocol_cleanup._schedule_ui', lambda fn, timeout=0: fn(0)
         )
-        assert 'cleanup_errors.append' in window, (
-            'restore_layer_shader exception path must append to '
-            'cleanup_errors so the summary notification surfaces the '
-            'failure'
+        kwargs = _run_cleanup_kwargs(
+            callbacks=ProtocolCallbacks(
+                restore_layer_shader=MagicMock(side_effect=RuntimeError('shader boom'))
+            )
+        )
+        run_cleanup(**kwargs)
+        assert kwargs['io_executor'].protocol_end.called, (
+            'cleanup steps after the shader raise must still run'
+        )
+        kwargs['set_run_in_progress_fn'].assert_called_once_with(False)
+        assert captured and 'Restore layer shader' in captured[0][2], (
+            'the shader failure must appear in the cleanup summary; '
+            f'got {captured}'
         )
 
     def test_protocol_settings_wires_restore_layer_shader_callback(self):
@@ -3618,40 +3724,59 @@ class TestPF2_FileIoExecutorClearedOnAbort:
     """
 
     def test_initial_state_captured_before_completing_transition(self):
-        from pathlib import Path
-        import re
+        """The abort/normal decision must read the state BEFORE the
+        COMPLETING transition; reading after would misclassify every
+        cleanup as normal end."""
+        from modules.protocol_cleanup import run_cleanup
+        from modules.protocol_state_machine import ProtocolState
 
-        src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'protocol_cleanup.py'
-        ).read_text()
-        # The capture must precede the COMPLETING transition so ERROR vs other states
-        # is distinguishable. Paren-style agnostic: ruff format may
-        # strip unnecessary parens around the comparison.
-        m = re.search(
-            r'is_aborted\s*=\s*\(?\s*get_state_fn\(\)\s*==\s*ProtocolState\.ERROR\s*\)?',
-            src,
+        order = []
+        state = {'value': ProtocolState.RUNNING}
+
+        def get_state():
+            order.append(('get', state['value']))
+            return state['value']
+
+        def set_state(new_state):
+            order.append(('set', new_state))
+            state['value'] = new_state
+
+        run_cleanup(**_run_cleanup_kwargs(get_state_fn=get_state, set_state_fn=set_state))
+        first_set = next(i for i, entry in enumerate(order) if entry[0] == 'set')
+        assert order[first_set][1] == ProtocolState.COMPLETING, (
+            f'the first transition must be to COMPLETING; got {order}'
         )
-        idx_capture = m.start() if m else -1
-        idx_transition = src.find('set_state_fn(ProtocolState.COMPLETING)')
-        assert idx_capture != -1, 'PF-2: cleanup should capture is_aborted from initial state.'
-        assert idx_capture < idx_transition, (
-            'PF-2: is_aborted must be captured BEFORE the COMPLETING state transition.'
+        assert any(entry[0] == 'get' for entry in order[:first_set]), (
+            'the initial state must be read before the COMPLETING transition '
+            f'so abort (ERROR) is distinguishable from normal end; got {order}'
+        )
+        assert state['value'] == ProtocolState.IDLE, (
+            f'cleanup must transition back to IDLE at the end; got {order}'
         )
 
     def test_file_io_cleared_on_abort_only(self):
-        from pathlib import Path
+        """On abort (ERROR at entry), file_io_executor pending writes are
+        dropped; on normal end they drain. io_executor clears in both."""
+        from modules.protocol_cleanup import run_cleanup
+        from modules.protocol_state_machine import ProtocolState
 
-        src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'protocol_cleanup.py'
-        ).read_text()
-        # The abort-branch clear is gated on is_aborted.
-        assert 'if is_aborted:' in src, 'PF-2: file_io clear should be gated on is_aborted.'
-        assert 'file_io_executor.clear_protocol_pending()' in src, (
-            "PF-2: cleanup should clear file_io_executor's pending queue on abort."
+        aborted = _run_cleanup_kwargs(
+            get_state_fn=MagicMock(return_value=ProtocolState.ERROR)
         )
-        # Existing unconditional clear for io_executor must still be present.
-        assert 'io_executor.clear_protocol_pending()' in src, (
-            'PF-2: io_executor.clear_protocol_pending should still be called unconditionally.'
+        run_cleanup(**aborted)
+        assert aborted['file_io_executor'].clear_protocol_pending.called, (
+            "abort cleanup must clear file_io_executor's pending queue "
+            '(queued frames pin memory and block the next protocol-start)'
+        )
+        assert aborted['io_executor'].clear_protocol_pending.called
+
+        normal = _run_cleanup_kwargs()
+        run_cleanup(**normal)
+        assert not normal['file_io_executor'].clear_protocol_pending.called, (
+            'normal completion must drain pending writes to disk, not drop them'
+        )
+        assert normal['io_executor'].clear_protocol_pending.called, (
+            'io_executor pending clear is unconditional'
         )
 
 
@@ -10369,17 +10494,28 @@ class TestProtocolCleanupLedRestoreKey:
     sentinel migration.
     """
 
-    def test_restore_uses_illumination_ma_key(self):
-        import pathlib
+    def test_restore_uses_illumination_ma_key(self, monkeypatch):
+        """Restoring an enabled LED must send the snapshot's mA value to
+        the LED on-fn; a stale-key read would raise and silently skip
+        the restore (the original swallowed-KeyError bug)."""
+        from modules.notification_center import notifications
+        from modules.protocol_cleanup import run_cleanup
 
-        src = pathlib.Path('modules/protocol_cleanup.py').read_text()
-        assert "color_data['illumination_ma']" in src, (
-            "protocol_cleanup must read the snapshot's "
-            "'illumination_ma' key when restoring LED state."
+        captured = []
+        monkeypatch.setattr(notifications, 'warning', lambda *a, **k: captured.append(a))
+        kwargs = _run_cleanup_kwargs(
+            leds_state_at_end='return_to_original',
+            original_led_states={
+                'Red': {'enabled': True, 'illumination_ma': 250.0},
+                'Green': {'enabled': False, 'illumination_ma': 80.0},
+            },
         )
-        assert "color_data['illumination']" not in src, (
-            "Stale 'illumination' key must not be read -- the snapshot "
-            "shape returns 'illumination_ma'."
+        run_cleanup(**kwargs)
+        kwargs['led_on_fn'].assert_called_once_with(
+            color='Red', illumination=250.0, block=True, force=True
+        )
+        assert captured == [], (
+            f'the snapshot-shape read must not raise into the summary; got {captured}'
         )
 
 
@@ -12195,13 +12331,6 @@ class TestSequentialIoExecutorWaitForIdle_F7:
             Path(__file__).resolve().parent.parent / 'modules' / 'sequential_io_executor.py'
         ).read_text()
 
-    def _cleanup_src(self):
-        from pathlib import Path
-
-        return (
-            Path(__file__).resolve().parent.parent / 'modules' / 'protocol_cleanup.py'
-        ).read_text()
-
     def test_wait_for_idle_method_exists(self):
         """The executor must expose `wait_for_idle(timeout=...)`."""
         import re
@@ -12237,28 +12366,25 @@ class TestSequentialIoExecutorWaitForIdle_F7:
 
     def test_protocol_cleanup_calls_wait_for_idle(self):
         """`protocol_cleanup` must call `wait_for_idle` on the
-        io_executor immediately after `protocol_end`. The order is
-        load-bearing -- protocol_end clears the running flag, then the
-        wait ensures any task that was running before that point
-        completes before downstream state is mutated."""
-        import re
+        io_executor after `protocol_end`. The order is load-bearing --
+        protocol_end clears the running flag, then the wait ensures any
+        task that was running before that point completes before
+        downstream state is mutated."""
+        from modules.protocol_cleanup import run_cleanup
 
-        src = self._cleanup_src()
-        # Search across newlines + intervening lines for the sequence.
-        sequence = re.search(
-            r'io_executor\.protocol_end\s*\(\s*\).*?'
-            r'io_executor\.wait_for_idle\s*\(',
-            src,
-            re.DOTALL,
+        kwargs = _run_cleanup_kwargs()
+        run_cleanup(**kwargs)
+        io_calls = [c[0] for c in kwargs['io_executor'].method_calls]
+        assert 'protocol_end' in io_calls and 'wait_for_idle' in io_calls, (
+            'cleanup must call both protocol_end and wait_for_idle on '
+            f'the io_executor; got {io_calls}'
         )
-        assert sequence is not None, (
-            'F7 regression: protocol_cleanup must call '
-            'io_executor.wait_for_idle(timeout=...) after '
-            'io_executor.protocol_end() so an in-flight task on the '
-            'io_executor worker is given bounded time to finish '
-            'before downstream teardown mutates state the task may '
-            'reference.'
+        assert io_calls.index('protocol_end') < io_calls.index('wait_for_idle'), (
+            'wait_for_idle must follow protocol_end so an in-flight task '
+            'is given bounded time to finish before downstream teardown '
+            f'mutates state the task may reference; got {io_calls}'
         )
+        kwargs['io_executor'].wait_for_idle.assert_called_once_with(timeout=2.0)
 
 
 class TestShowPopupHostWidgetProxy_F9:
