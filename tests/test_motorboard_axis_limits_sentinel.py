@@ -155,26 +155,56 @@ class TestNoErrorLogForExpectedNoLimitsCase:
 
 
 class TestSequencedCaptureRunnerHandlesNoneFromGetAxisLimits:
-    """Lock the caller's None-handling pattern. The try/except wrapping
-    was effectively dead-letter after the driver-side fix; structurally
-    the caller now branches on None instead of catching exceptions."""
+    """Lock the caller's None-handling contract: an axis whose driver
+    returns None (no configured limits -- T is the canonical case) is
+    skipped, not treated as an error, and pre-run validation still runs
+    on the remaining axes."""
 
-    SRC = 'modules/sequenced_capture_runner.py'
+    def test_caller_skips_axes_without_limits(self, monkeypatch):
+        from unittest.mock import MagicMock
 
-    def test_caller_branches_on_none_return(self):
-        path = pathlib.Path(__file__).resolve().parent.parent / self.SRC
-        source = path.read_text()
-        # Locate the run-validation block that calls get_axis_limits
-        # and assert the None-check exists in surrounding context.
-        idx = source.find('get_axis_limits(axis)')
-        assert idx != -1, (
-            'sequenced_capture_runner.py must call self._scope.motion.get_axis_limits(axis).'
+        from modules.notification_center import notifications
+        from modules.sequenced_capture_runner import (
+            SequencedCaptureRunMode,
+            SequencedCaptureRunner,
         )
-        # Look at the 200 chars after the call site
-        window = source[idx : idx + 400]
-        assert 'is not None' in window, (
-            'After calling get_axis_limits, the caller must branch on '
-            'is-not-None to skip axes that have no configured limits. '
-            'Catching a broad Exception is now insufficient: the driver '
-            "no longer raises for the expected 'no limits' case."
+
+        monkeypatch.setattr(notifications, 'error', lambda *a, **k: None)
+        runner = SequencedCaptureRunner(
+            scope=MagicMock(),
+            stage_offset={},
+            io_executor=MagicMock(),
+            protocol_thread=MagicMock(),
+            file_io_executor=MagicMock(),
+            camera_executor=MagicMock(),
+            autofocus_thread=MagicMock(),
+            autofocus_runner=MagicMock(),
+        )
+        runner.file_io_executor.is_protocol_queue_active.return_value = False
+        scope = runner._scope
+        scope.capabilities.axes = ['X', 'Y', 'Z', 'T']
+        per_axis = {
+            'X': {'min': 0, 'max': 100000},
+            'Y': {'min': 0, 'max': 100000},
+            'Z': {'min': 0, 'max': 14000},
+            'T': None,
+        }
+        scope.motion.get_axis_limits.side_effect = lambda axis: per_axis[axis]
+        protocol = MagicMock()
+        protocol.num_steps.return_value = 1
+        # Halt run() right after validation so the test exercises only
+        # the axis-limits collection.
+        protocol.validate_for_run.return_value = ['halt here']
+        runner.run(
+            protocol=protocol,
+            run_trigger_source='test',
+            run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
+            sequence_name='seq',
+            image_capture_config={},
+            autogain_settings={},
+        )
+        passed = protocol.validate_for_run.call_args.kwargs['axis_limits']
+        assert set(passed) == {'X', 'Y', 'Z'}, (
+            'axes with limits must be collected for validation; the None '
+            f'(no-limits) T axis must be skipped, not crash the run; got {passed}'
         )

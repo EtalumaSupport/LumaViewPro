@@ -1381,58 +1381,144 @@ class TestG3_AutofocusFailureNotification:
         )
 
 
+# ---------------------------------------------------------------------------
+# SequencedCaptureRunner behavioral-test builders
+# ---------------------------------------------------------------------------
+
+
+def _bare_capture_runner(**overrides):
+    """SequencedCaptureRunner with MagicMock deps.
+
+    Enough to drive run() headlessly through its pre-run gates and
+    run-start snapshot phase; the run loop itself lands on the mocked
+    protocol_thread, so nothing scans.
+    """
+    from modules.sequenced_capture_runner import SequencedCaptureRunner
+
+    kwargs = {
+        'scope': MagicMock(),
+        'stage_offset': {},
+        'io_executor': MagicMock(),
+        'protocol_thread': MagicMock(),
+        'file_io_executor': MagicMock(),
+        'camera_executor': MagicMock(),
+        'autofocus_thread': MagicMock(),
+        'autofocus_runner': MagicMock(),
+    }
+    kwargs.update(overrides)
+    runner = SequencedCaptureRunner(**kwargs)
+    runner.file_io_executor.is_protocol_queue_active.return_value = False
+    return runner
+
+
+def _scr_run_kwargs(**overrides):
+    """Keyword args for SequencedCaptureRunner.run() with a protocol mock
+    that passes every pre-run gate; tests override the gate or snapshot
+    under test."""
+    from modules.sequenced_capture_runner import SequencedCaptureRunMode
+
+    protocol = MagicMock()
+    protocol.num_steps.return_value = 1
+    protocol.validate_for_run.return_value = []
+    protocol.period.return_value = 0
+    protocol.copy_for_execution.return_value = protocol
+    kwargs = {
+        'protocol': protocol,
+        'run_trigger_source': 'test',
+        'run_mode': SequencedCaptureRunMode.FULL_PROTOCOL,
+        'sequence_name': 'seq',
+        'image_capture_config': {},
+        'autogain_settings': {'target_brightness': 0.3},
+        'parent_dir': None,
+        'disable_saving_artifacts': True,
+        'initial_autofocus_states': {},
+    }
+    kwargs.update(overrides)
+    return kwargs
+
+
+class _LockWatchingSettings(dict):
+    """Settings dict recording whether *lock* was held at each .get of
+    *watched_key* -- proves a read happened under settings_lock and
+    counts how many times it happened."""
+
+    def __init__(self, data, lock, watched_key):
+        super().__init__(data)
+        self._lock = lock
+        self._watched_key = watched_key
+        self.watched_reads = []
+
+    def get(self, key, default=None):
+        if key == self._watched_key:
+            self.watched_reads.append(self._lock.locked())
+        return super().get(key, default)
+
+
 class TestRule14_A4_PreRunValidationNotify:
     """A4: Pre-run validation errors must surface a user notification (Rule 14)."""
 
-    def test_validation_errors_branch_notifies(self):
-        """sequenced_capture_runner must call notifications.error when
-        validation_errors is non-empty before returning."""
-        import pathlib
+    def _run_with_validation_errors(self, monkeypatch, errors):
+        from modules.notification_center import notifications
 
-        source = pathlib.Path('modules/sequenced_capture_runner.py').read_text()
-        idx = source.find(
-            'Protocol has {len(validation_errors)} validation error(s). Cannot start run.'
+        captured = []
+        monkeypatch.setattr(notifications, 'error', lambda *a, **k: captured.append(a))
+        runner = _bare_capture_runner()
+        kwargs = _scr_run_kwargs()
+        kwargs['protocol'].validate_for_run.return_value = errors
+        runner.run(**kwargs)
+        return runner, kwargs['protocol'], captured
+
+    def test_validation_errors_branch_notifies(self, monkeypatch):
+        """A failing pre-run validation must notify the user and abort the run."""
+        runner, protocol, captured = self._run_with_validation_errors(
+            monkeypatch, ['step 1: X position outside axis limits']
         )
-        assert idx != -1, 'Validation-errors return path must exist'
-        nearby = source[idx : idx + 800]
-        assert 'notifications.error' in nearby, (
+        assert captured, (
             'validation_errors return path must call notifications.error (A4 -- Rule 14)'
         )
-        assert 'Validation failed' in nearby, (
-            "notification title must be 'Validation failed' (A4 -- audit recommendation)"
+        assert captured[0][1] == 'Validation failed', (
+            f"notification title must be 'Validation failed'; got {captured[0]}"
         )
+        assert not protocol.copy_for_execution.called, (
+            'run must abort at validation, before snapshotting the protocol'
+        )
+        assert not runner._run_in_progress_event.is_set(), 'run must not start'
 
-    def test_validation_summary_truncates_at_five(self):
+    def test_validation_summary_truncates_at_five(self, monkeypatch):
         """Notification summary must show first 5 errors; mention 'see log' for overflow."""
-        import pathlib
-
-        source = pathlib.Path('modules/sequenced_capture_runner.py').read_text()
-        idx = source.find('validation_errors[:5]')
-        assert idx != -1, (
-            'Notification summary must slice validation_errors[:5] to keep popup readable (A4)'
+        errors = [f'error number {i}' for i in range(1, 8)]
+        _, _, captured = self._run_with_validation_errors(monkeypatch, errors)
+        assert captured, 'seven validation errors must still notify'
+        body = captured[0][2]
+        for i in range(1, 6):
+            assert f'error number {i}' in body, f'first five errors must be listed; got: {body}'
+        assert 'error number 6' not in body and 'error number 7' not in body, (
+            f'errors past the fifth must be truncated from the popup; got: {body}'
         )
-        idx = source.find('more (see log)')
-        assert idx != -1, 'Overflow message must point user to the log for full details (A4)'
+        assert 'and 2 more (see log)' in body, (
+            f'overflow must point the user to the log for full details; got: {body}'
+        )
 
 
 class TestRule14_A5_AreAllConnectedExceptionNotify:
     """A5: are_all_connected() exception branch must notify (Rule 14)."""
 
-    def test_are_all_connected_exception_branch_notifies(self):
-        """sequenced_capture_runner must call notifications.error when the
-        are_all_connected check itself raises, before returning."""
-        import pathlib
+    def test_are_all_connected_exception_branch_notifies(self, monkeypatch):
+        """A raising connectivity check must notify the user and abort the run."""
+        from modules.notification_center import notifications
 
-        source = pathlib.Path('modules/sequenced_capture_runner.py').read_text()
-        idx = source.find('Error checking scope connection')
-        assert idx != -1, 'are_all_connected exception handler must exist'
-        nearby = source[idx : idx + 600]
-        assert 'notifications.error' in nearby, (
+        captured = []
+        monkeypatch.setattr(notifications, 'error', lambda *a, **k: captured.append(a))
+        runner = _bare_capture_runner()
+        runner._scope.are_all_connected.side_effect = RuntimeError('usb tree gone')
+        runner.run(**_scr_run_kwargs())
+        assert captured, (
             'are_all_connected exception path must call notifications.error (A5 -- Rule 14)'
         )
-        assert 'Cannot verify hardware state' in nearby, (
-            "notification title must be 'Cannot verify hardware state' (A5 -- audit recommendation)"
+        assert captured[0][1] == 'Cannot verify hardware state', (
+            f"notification title must be 'Cannot verify hardware state'; got {captured[0]}"
         )
+        assert not runner._run_in_progress_event.is_set(), 'run must not start'
 
 
 class TestRule14_A8_ScopeSessionHelperNotify:
@@ -2946,21 +3032,28 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
             'the constructor-cached false_color_16bit must arrive at save_image'
         )
 
-    def test_sequenced_capture_runner_reads_once_at_run_start(self):
-        from pathlib import Path
+    def test_sequenced_capture_runner_reads_once_at_run_start(self, monkeypatch):
+        """run() must read false_color_16bit exactly once, under
+        settings_lock, and thread the value to the writer it constructs."""
+        from types import SimpleNamespace
 
-        src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'sequenced_capture_runner.py'
-        ).read_text()
-        # The read must happen under the settings_lock and pass through to the writer.
-        assert 'with ctx.settings_lock:' in src, (
-            'PIW-3: false_color_16bit read should be guarded by settings_lock.'
+        import modules.app_context as app_context
+
+        lock = threading.Lock()
+        settings = _LockWatchingSettings(
+            {'false_color_16bit': True}, lock, 'false_color_16bit'
         )
-        assert "false_color_16bit = ctx.settings.get('false_color_16bit', False)" in src, (
-            'PIW-3: expected single read of false_color_16bit from settings.'
+        monkeypatch.setattr(
+            app_context, 'ctx', SimpleNamespace(settings=settings, settings_lock=lock)
         )
-        assert 'false_color_16bit=false_color_16bit' in src, (
-            'PIW-3: cached value should be passed to ProtocolImageWriter.'
+        runner = _bare_capture_runner()
+        runner.run(**_scr_run_kwargs())
+        assert settings.watched_reads == [True], (
+            'PIW-3: false_color_16bit must be read exactly once per run, under '
+            f'settings_lock; reads (lock-held flags): {settings.watched_reads}'
+        )
+        assert runner._image_writer._false_color_16bit is True, (
+            'PIW-3: the run-start value must be threaded to ProtocolImageWriter'
         )
 
 
@@ -10389,11 +10482,6 @@ class TestAutoGainArmedInScanIterate:
 
         return pathlib.Path('modules/protocol_step_runner.py').read_text()
 
-    def _scr_src(self):
-        import pathlib
-
-        return pathlib.Path('modules/sequenced_capture_runner.py').read_text()
-
     def _writer_src(self):
         import pathlib
 
@@ -10405,8 +10493,8 @@ class TestAutoGainArmedInScanIterate:
         return pathlib.Path('modules/protocol_run_loop.py').read_text()
 
     def test_armed_step_attribute_initialized_on_scr(self):
-        src = self._scr_src()
-        assert 'self._auto_gain_armed_step = -1' in src, (
+        runner = _bare_capture_runner()
+        assert runner._auto_gain_armed_step == -1, (
             'SCR.__init__ must initialize _auto_gain_armed_step to -1 '
             'so the first scan_iterate sees a fresh "not yet armed" '
             'state.'
@@ -10966,36 +11054,38 @@ class TestAutogainSettingsSnapshottedAtRunStart:
     the runner.
     """
 
-    def test_autogain_settings_deepcopied_in_run(self):
-        # Drive the runner up to the autogain_settings assignment in run()
-        # by inspecting the source -- a full run() call requires the whole
-        # protocol-thread context. The audit's recommendation is the
-        # 1-line copy.deepcopy(autogain_settings) at assignment site.
-        import pathlib
+    def _run_halted_at_artifact_init(self, monkeypatch, autogain_settings):
+        """Drive run() through the autogain snapshot, halting at the
+        artifact-init stage so no run loop is dispatched."""
+        runner = _bare_capture_runner()
+        monkeypatch.setattr(
+            runner,
+            '_init_for_new_scan',
+            lambda max_scans: {'status': False, 'data': None, 'error': 'test halt'},
+        )
+        runner.run(**_scr_run_kwargs(autogain_settings=autogain_settings))
+        return runner
 
-        src = pathlib.Path('modules/sequenced_capture_runner.py').read_text()
-        idx = src.find('self._autogain_settings =')
-        assert idx >= 0
-        # Look at the next ~150 chars (the assignment + neighborhood).
-        block = src[idx : idx + 150]
-        assert 'copy.deepcopy(autogain_settings)' in block, (
-            'self._autogain_settings must be assigned via copy.deepcopy '
-            'so mid-run UI mutations do not leak into the in-flight scan '
-            '(audit F15). Got: ' + block[:200]
+    def test_autogain_settings_deepcopied_in_run(self, monkeypatch):
+        """Mutating the caller's dict after run() snapshots it must not
+        leak into the in-flight scan (audit F15)."""
+        src = {'target_brightness': 0.3, 'limits': {'max_gain_db': 10}}
+        runner = self._run_halted_at_artifact_init(monkeypatch, src)
+        src['target_brightness'] = 0.9
+        src['limits']['max_gain_db'] = 99
+        assert runner._autogain_settings['target_brightness'] == 0.3, (
+            'top-level mid-run mutation must not reach the runner snapshot'
+        )
+        assert runner._autogain_settings['limits']['max_gain_db'] == 10, (
+            'nested mid-run mutation must not reach the runner snapshot (deepcopy)'
         )
 
-    def test_autogain_settings_none_safe(self):
-        # When the caller passes autogain_settings=None (rare but the
-        # parameter signature allows it), the snapshot must not raise --
-        # falls through to {} so the AG path sees an empty dict.
-        import pathlib
-
-        src = pathlib.Path('modules/sequenced_capture_runner.py').read_text()
-        idx = src.find('self._autogain_settings =')
-        block = src[idx : idx + 200]
-        assert 'autogain_settings is not None' in block or 'autogain_settings or {}' in block, (
-            'autogain_settings None-guard must exist so deepcopy(None) '
-            'cannot raise. Got: ' + block[:200]
+    def test_autogain_settings_none_safe(self, monkeypatch):
+        """autogain_settings=None (the signature allows it) must snapshot
+        to an empty dict, not raise."""
+        runner = self._run_halted_at_artifact_init(monkeypatch, None)
+        assert runner._autogain_settings == {}, (
+            'None must fall through to {} so the AG path sees an empty dict'
         )
 
 
@@ -11084,24 +11174,32 @@ class TestBfAfForFluorescenceSnapshottedAtRunStart:
     the snapshot via getattr(p, '_bf_af_for_fluorescence', False).
     """
 
-    def test_runner_snapshots_bf_af_for_fluorescence_attr(self):
-        # Static-source check: the runner's run() body must contain
-        # a snapshot assignment of self._bf_af_for_fluorescence.
-        import pathlib
+    def test_runner_snapshots_bf_af_for_fluorescence_attr(self, monkeypatch):
+        """run() must snapshot bf_af_for_fluorescence onto the runner,
+        under settings_lock, immune to mid-run toggles."""
+        from types import SimpleNamespace
 
-        src = pathlib.Path('modules/sequenced_capture_runner.py').read_text()
-        assert 'self._bf_af_for_fluorescence' in src, (
-            'SequencedCaptureRunner.run() must snapshot '
-            'bf_af_for_fluorescence onto self for per-tick reads.'
+        import modules.app_context as app_context
+
+        lock = threading.Lock()
+        settings = _LockWatchingSettings(
+            {'protocol': {'bf_af_for_fluorescence': True}}, lock, 'protocol'
         )
-        # The snapshot must take settings_lock (alongside false_color_16bit).
-        idx = src.find('self._bf_af_for_fluorescence =')
-        assert idx >= 0
-        # Look backwards ~300 chars; settings_lock should appear there.
-        ctx_block = src[max(0, idx - 300) : idx + 200]
-        assert 'settings_lock' in ctx_block, (
-            'bf_af_for_fluorescence snapshot must be taken under '
-            'settings_lock for consistent UI/protocol-thread read.'
+        monkeypatch.setattr(
+            app_context, 'ctx', SimpleNamespace(settings=settings, settings_lock=lock)
+        )
+        runner = _bare_capture_runner()
+        runner.run(**_scr_run_kwargs())
+        assert runner._bf_af_for_fluorescence is True, (
+            'run() must snapshot bf_af_for_fluorescence onto self for per-tick reads'
+        )
+        assert settings.watched_reads == [True], (
+            'the protocol-settings read must happen exactly once, under settings_lock; '
+            f'reads (lock-held flags): {settings.watched_reads}'
+        )
+        settings['protocol']['bf_af_for_fluorescence'] = False
+        assert runner._bf_af_for_fluorescence is True, (
+            'mid-run toggles must not retro-affect the run-start snapshot'
         )
 
     def test_protocol_step_runner_reads_from_snapshot(self):
@@ -11136,36 +11234,29 @@ class TestRunPreValidationFiresNotificationOnException:
     error, fire notifications.error popup, return.
     """
 
-    def test_validate_for_run_exception_fires_notification_and_returns(self):
-        # Static-source check: the except branch for validate_for_run
-        # must call notifications.error + return, not just log warning.
-        import pathlib
+    def test_validate_for_run_exception_fires_notification_and_returns(self, monkeypatch):
+        """A raising validate_for_run must pop a user-facing error and
+        abort the run -- not log a warning and proceed anyway."""
+        from modules.notification_center import notifications
 
-        src = pathlib.Path('modules/sequenced_capture_runner.py').read_text()
-        # Find the validate_for_run try block + its except handler.
-        try_idx = src.find('validation_errors = protocol.validate_for_run')
-        assert try_idx >= 0
-        # Look at the next ~2500 chars (the except branch should follow).
-        block = src[try_idx : try_idx + 2500]
-        # The block must contain the notifications.error call AND the
-        # return after the exception is caught.
-        except_idx = block.find('except Exception')
-        assert except_idx >= 0, 'validate_for_run try block must have except handler'
-        except_block = block[except_idx:]
-        assert 'notifications.error' in except_block, (
+        captured = []
+        monkeypatch.setattr(notifications, 'error', lambda *a, **k: captured.append(a))
+        runner = _bare_capture_runner()
+        kwargs = _scr_run_kwargs()
+        kwargs['protocol'].validate_for_run.side_effect = OSError('labware load failed')
+        runner.run(**kwargs)
+        assert captured, (
             'validate_for_run exception path must fire notifications.error '
             '(not just log warning) so the user sees the failure popup.'
         )
-        # Old anti-pattern: "Proceeding anyway." -- must be gone.
-        assert 'Proceeding anyway' not in except_block, (
-            'validate_for_run exception path must NOT proceed past the '
-            'failure (old anti-pattern: log warning + fall through).'
+        assert captured[0][1] == 'Cannot validate protocol', (
+            f"notification title must be 'Cannot validate protocol'; got {captured[0]}"
         )
-        # Must return early so the run does not start.
-        assert (
-            'return' in except_block.split('\n', 30)[0:30].__str__()
-            or 'return' in except_block[:600]
-        ), 'validate_for_run exception path must return early after firing the notification.'
+        assert not runner._scope.are_all_connected.called, (
+            'run must return at the validation failure, not fall through '
+            'to the connectivity check (old anti-pattern: proceed anyway)'
+        )
+        assert not runner._run_in_progress_event.is_set(), 'run must not start'
 
 
 class TestCompositeOrchestrationByteEqualManualVsProtocol:
