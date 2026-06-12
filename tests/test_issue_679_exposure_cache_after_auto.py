@@ -26,9 +26,7 @@ auto-off).
 
 from __future__ import annotations
 
-import re
 import threading
-from pathlib import Path
 
 import numpy as np
 import pytest
@@ -186,58 +184,3 @@ class TestAutoGainOnceRefreshesCache:
             f'cache exposure {imaging.camera_exposure_ms} must match '
             f'drifted hardware 0.014 ms after auto_gain_once refresh'
         )
-
-
-class TestStructuralGuardAGCacheRefresh:
-    """Source-text contract: each off-transition call site must invoke
-    ``_refresh_cache_from_hardware_after_auto``. Catches future revert
-    of the fix without exercising the simulator path."""
-
-    @pytest.fixture
-    def imaging_src(self):
-        return (
-            Path(__file__).resolve().parent.parent
-            / 'modules'
-            / 'lumascope_api'
-            / 'imaging.py'
-        ).read_text(encoding='utf-8')
-
-    def _extract_method_body(self, src, name):
-        # Wide method-body regex: greedy match until next def / class
-        # / EOF, signature-shape-agnostic per the run-tests skill's
-        # method-body-extraction note.
-        m = re.search(
-            rf'def {name}.*?(?=\n    def |\n    @|\nclass |\Z)',
-            src,
-            re.DOTALL,
-        )
-        assert m is not None, f'could not find {name} body in imaging.py'
-        return m.group(0)
-
-    def test_set_auto_gain_body_calls_cache_refresh(self, imaging_src):
-        body = self._extract_method_body(imaging_src, 'set_auto_gain')
-        assert '_refresh_cache_from_hardware_after_auto' in body, (
-            'set_auto_gain must call _refresh_cache_from_hardware_after_auto '
-            'on the off-transition; otherwise hardware-truth drifts from cache.'
-        )
-
-    def test_set_auto_exposure_time_body_calls_cache_refresh(self, imaging_src):
-        body = self._extract_method_body(imaging_src, 'set_auto_exposure_time')
-        assert '_refresh_cache_from_hardware_after_auto' in body, (
-            'set_auto_exposure_time must call _refresh_cache_from_hardware_after_auto '
-            'on the off-transition.'
-        )
-
-    def test_auto_gain_once_body_calls_cache_refresh(self, imaging_src):
-        body = self._extract_method_body(imaging_src, 'auto_gain_once')
-        assert '_refresh_cache_from_hardware_after_auto' in body, (
-            'auto_gain_once must call _refresh_cache_from_hardware_after_auto '
-            'after the one-shot returns; one-shot AG leaves hardware at the '
-            'converged auto value.'
-        )
-
-    def test_refresh_helper_defined(self, imaging_src):
-        # Lock the helper itself in source -- catches a revert that
-        # deletes the helper while leaving the call sites pointing at
-        # a missing symbol.
-        assert 'def _refresh_cache_from_hardware_after_auto' in imaging_src

@@ -1542,24 +1542,29 @@ class TestRule14_A10_ProtocolCleanupErrorCollection:
         )
 
 
-class TestRule14_A9_SetBinningSizeNotify:
-    """A9: set_binning_size exception must surface a user notification (Rule 14)."""
+class TestSetBinningSizeFailureNotifies:
+    """A failed binning change must surface a user notification -- the
+    camera silently staying at the old binning is invisible otherwise."""
 
-    def test_set_binning_size_exception_notifies(self):
-        """lumascope_api.set_binning_size must call notifications.error when
-        the underlying SDK call raises. Body relocated to imaging.py in
-        Wave 7 Phase 4d."""
-        import pathlib
+    def test_set_binning_size_exception_notifies(self, monkeypatch):
+        from modules.notification_center import notifications
 
-        source = pathlib.Path('modules/lumascope_api/imaging.py').read_text()
-        idx = source.find('def set_binning_size(self, size: int) -> bool:')
-        assert idx != -1, 'set_binning_size must exist with `-> bool` annotation'
-        method_body = source[idx : idx + 1500]
-        assert 'notifications.error' in method_body, (
-            'set_binning_size exception path must call notifications.error (A9 -- Rule 14)'
+        imaging, cam = _sim_backed_imaging()
+        captured = []
+        monkeypatch.setattr(
+            notifications, 'error', lambda *args, **kwargs: captured.append(args)
         )
-        assert 'Binning change failed' in method_body, (
-            "notification title must be 'Binning change failed' (A9 -- audit recommendation)"
+
+        def raising_set_binning_size(size):
+            raise RuntimeError('simulated SDK failure')
+
+        monkeypatch.setattr(cam, 'set_binning_size', raising_set_binning_size)
+        assert imaging.set_binning_size(2) is False, (
+            'a raising driver must surface as a False return'
+        )
+        assert captured, 'set_binning_size exception path must notify the user'
+        assert captured[0][1] == 'Binning change failed', (
+            f'notification title must name the failed operation; got {captured[0]}'
         )
 
 
@@ -1584,23 +1589,17 @@ class TestSetBinningSizeReturnsBool:
         )
 
     def test_set_binning_size_returns_driver_value(self):
-        """Method body must capture and return the driver's return value
-        on the success path, not drop it. Body relocated to imaging.py in
-        Wave 7 Phase 4d; driver access switched from self._camera_driver
-        to self._driver (the @property)."""
-        import pathlib
-
-        source = pathlib.Path('modules/lumascope_api/imaging.py').read_text()
-        idx = source.find('def set_binning_size(self, size: int) -> bool:')
-        assert idx != -1
-        # End the slice at the next def at module column 4 to scope the body
-        next_def = source.find('\n    def ', idx + 1)
-        body = source[idx:next_def] if next_def != -1 else source[idx : idx + 2000]
-        assert 'ok = self._driver.set_binning_size(size=size)' in body, (
-            'set_binning_size must capture driver return into `ok`'
+        """The API method must propagate the driver's bool -- dropping it
+        (implicit None) made char-tool's `if not ok:` misreport every
+        successful binning op as a failure."""
+        imaging, _cam = _sim_backed_imaging()
+        assert imaging.set_binning_size(2) is True, (
+            'a driver-accepted binning change must propagate as True'
         )
-        assert 'return ok' in body, 'set_binning_size success path must `return ok` (Wave 1 B1)'
-        assert 'return False' in body, 'set_binning_size exception path must `return False`'
+        assert imaging.set_binning_size(5) is False, (
+            'a driver-rejected binning size (sim supports 1-4) must '
+            'propagate as False'
+        )
 
     def test_set_binning_size_has_returns_docstring_section(self):
         """Rule 38: public methods declare what they return."""
@@ -3466,19 +3465,38 @@ class TestPF5_ImageBufferRetired:
             'PF-5: diagnostic-instance _image_buffer initialization should also be removed.'
         )
 
-    def test_get_image_returns_local_variable(self):
-        # get_image body relocated to imaging.py in Wave 7 Phase 4d.
-        from pathlib import Path
+    def test_get_image_returns_conversion_result(self, monkeypatch):
+        """get_image must return the 8-bit-conversion result, not a
+        pre-conversion shadow buffer."""
+        import numpy as np
 
-        src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'lumascope_api' / 'imaging.py'
-        ).read_text()
-        # The chain must use a local `image` variable.
-        assert 'image = image_utils.add_scale_bar(' in src, (
-            'PF-5: scale-bar step should bind to local `image` instead of self.image_buffer.'
+        imaging, _cam = _sim_backed_imaging()
+        assert imaging.set_pixel_format('Mono12') is True
+        sentinel = np.full((4, 4), 7, dtype=np.uint8)
+        monkeypatch.setattr(
+            'modules.image_utils.convert_12bit_to_8bit',
+            lambda image, **kwargs: sentinel,
         )
-        assert 'image = image_utils.convert_12bit_to_8bit(image)' in src, (
-            'PF-5: 8-bit convert step should bind to local `image`.'
+        out = imaging.get_image(force_to_8bit=True, timeout_s=2.0)
+        assert out is sentinel, (
+            'get_image must return the convert_12bit_to_8bit result'
+        )
+
+    def test_get_image_returns_scale_bar_result(self, monkeypatch):
+        """The scale-bar step's return value must flow into the returned
+        image, not be discarded."""
+        import numpy as np
+
+        imaging, _cam = _sim_backed_imaging()
+        sentinel = np.full((4, 4), 9, dtype=np.uint8)
+        imaging._scale_bar['enabled'] = True
+        imaging._scope.runtime_state._objective = {'magnification': 4}
+        monkeypatch.setattr(
+            'modules.image_utils.add_scale_bar', lambda **kwargs: sentinel
+        )
+        out = imaging.get_image(force_to_8bit=True, timeout_s=2.0)
+        assert out is sentinel, (
+            'get_image must return the add_scale_bar result'
         )
 
 
@@ -3824,7 +3842,8 @@ def _sim_backed_imaging():
     """ImagingAPI on a connected SimulatedCamera with a minimal scope stub.
 
     The API object builds its own locks and frame_validity, so the scope
-    stub only needs the camera-driver slot the _driver property resolves.
+    stub only needs the camera-driver slot the _driver property resolves
+    plus runtime_state (read by get_image's scale-bar gate).
     """
     from drivers.simulated_camera import SimulatedCamera
     from modules.lumascope_api import Lumascope
@@ -3833,6 +3852,7 @@ def _sim_backed_imaging():
     cam.connect()
     scope = Lumascope.__new__(Lumascope)
     scope._camera_driver = cam
+    scope.runtime_state = RuntimeState(scope)
     imaging = ImagingAPI(scope, cam)
     scope.imaging = imaging
     return imaging, cam

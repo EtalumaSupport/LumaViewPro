@@ -141,10 +141,37 @@ def test_auto_gain_forwards_cap_to_bound_helper():
 # --------------------------------------------------------------------------
 
 def test_api_set_auto_gain_forwards_cap_from_settings_dict():
-    src = (REPO / 'modules' / 'lumascope_api' / 'imaging.py').read_text()
-    assert re.search(
-        r"ae_max_exposure_ms\s*=\s*settings\.get\(\s*['\"]max_exposure_ms['\"]", src
-    ), 'imaging.set_auto_gain must forward settings["max_exposure_ms"] as the cap. (#655)'
+    from drivers.simulated_camera import SimulatedCamera
+    from modules.lumascope_api import Lumascope
+    from modules.lumascope_api.imaging import ImagingAPI
+
+    cam = SimulatedCamera()
+    cam.connect()
+    scope = Lumascope.__new__(Lumascope)
+    scope._camera_driver = cam
+    imaging = ImagingAPI(scope, cam)
+
+    recorded = {}
+    orig_auto_gain = cam.auto_gain
+
+    def recording_auto_gain(state, **kwargs):
+        recorded.update(kwargs)
+        return orig_auto_gain(state, **kwargs)
+
+    cam.auto_gain = recording_auto_gain
+    imaging.set_auto_gain(
+        True,
+        {
+            'target_brightness': 0.5,
+            'min_gain_db': 0.0,
+            'max_gain_db': 24.0,
+            'max_exposure_ms': 800.0,
+        },
+    )
+    assert recorded.get('ae_max_exposure_ms') == 800.0, (
+        'imaging.set_auto_gain must forward settings["max_exposure_ms"] '
+        f'to the driver as the AE cap (#655); driver saw {recorded}'
+    )
 
 
 def test_live_caller_injects_per_class_cap():
