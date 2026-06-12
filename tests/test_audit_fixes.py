@@ -3820,6 +3820,24 @@ class TestFrameValidity_AllLedMutatorsInvalidate:
         )
 
 
+def _sim_backed_imaging():
+    """ImagingAPI on a connected SimulatedCamera with a minimal scope stub.
+
+    The API object builds its own locks and frame_validity, so the scope
+    stub only needs the camera-driver slot the _driver property resolves.
+    """
+    from drivers.simulated_camera import SimulatedCamera
+    from modules.lumascope_api import Lumascope
+
+    cam = SimulatedCamera()
+    cam.connect()
+    scope = Lumascope.__new__(Lumascope)
+    scope._camera_driver = cam
+    imaging = ImagingAPI(scope, cam)
+    scope.imaging = imaging
+    return imaging, cam
+
+
 class TestCaptureAndWaitPassesChunksToValidity:
     """capture_and_wait's drain loop reads per-frame chunk metadata and
     passes it to count_frame so chunk-match can short-circuit skip-frames
@@ -3827,19 +3845,33 @@ class TestCaptureAndWaitPassesChunksToValidity:
     cameras without chunks return None and fall back to skip-frames."""
 
     def test_capture_and_wait_passes_chunk_data_to_count_frame(self):
-        from pathlib import Path
+        from types import SimpleNamespace
 
-        src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'lumascope_api' / 'imaging.py'
-        ).read_text()
-        body = _function_source(src, 'capture_and_wait')
-        # Source mentions count_frame call site with chunk_data kwarg.
-        # Whitespace-tolerant: the call site reflows as arguments are added
-        # (frame_ts identity dedupe), so match the kwarg wiring itself.
-        flat = ' '.join(body.split())
-        assert 'count_frame(' in flat and 'chunk_data=self._get_latest_chunks()' in flat, (
-            'capture_and_wait must call count_frame(chunk_data=...) in the '
-            'drain loop so chunk-match can clear gain/exposure pending.'
+        import numpy as np
+
+        imaging, cam = _sim_backed_imaging()
+        chunk = {'Gain': 2.0, 'ExposureTime': 5000.0}
+        cam.cam_image_handler = SimpleNamespace(get_last_chunks=lambda: dict(chunk))
+        imaging.set_gain(2.0)  # pending 'gain' forces the drain loop to run
+
+        recorded = []
+        orig_count_frame = imaging.frame_validity.count_frame
+
+        def recording_count_frame(*args, **kwargs):
+            recorded.append(kwargs)
+            return orig_count_frame(*args, **kwargs)
+
+        imaging.frame_validity.count_frame = recording_count_frame
+        # The drain loop is the contract under test; the final grab is not.
+        imaging.get_image = lambda **kwargs: np.zeros((2, 2), dtype=np.uint8)
+
+        image = imaging.capture_and_wait()
+        assert image is not None, 'drain must settle and return the frame'
+        assert recorded, 'drain loop must call count_frame at least once'
+        assert all(call.get('chunk_data') == chunk for call in recorded), (
+            'capture_and_wait must pass the per-frame chunk metadata to '
+            'count_frame so chunk-match can clear gain/exposure pending; '
+            f'got {recorded}'
         )
 
     def test_get_latest_chunks_helper_exists(self):
@@ -3884,56 +3916,54 @@ class TestLumascopeRecordsTargetForChunkMatch:
     (None) since auto dynamically changes the value and chunk-match
     against a stale manual target would be wrong."""
 
-    def test_set_gain_records_target(self):
-        from pathlib import Path
+    @staticmethod
+    def _recording_imaging():
+        """Sim-backed ImagingAPI whose frame_validity.set_target records calls."""
+        imaging, _cam = _sim_backed_imaging()
+        calls = []
+        orig_set_target = imaging.frame_validity.set_target
 
-        src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'lumascope_api' / 'imaging.py'
-        ).read_text()
-        body = _function_source(src, 'set_gain')
-        assert "self.frame_validity.set_target('gain'" in body, (
-            'set_gain must record gain target via frame_validity.set_target.'
+        def recording_set_target(source, value):
+            calls.append((source, value))
+            return orig_set_target(source, value)
+
+        imaging.frame_validity.set_target = recording_set_target
+        return imaging, calls
+
+    def test_set_gain_records_target(self):
+        imaging, calls = self._recording_imaging()
+        imaging.set_gain(5.0)
+        assert ('gain', 5.0) in calls, (
+            f'set_gain must record the gain target via set_target; got {calls}'
         )
 
     def test_set_exposure_time_records_target_in_microseconds(self):
         """ChunkExposureTime is microseconds; API takes milliseconds.
-        Conversion (* 1000) must happen at the seam so chunk-match's
-        tolerance is in matching units."""
-        from pathlib import Path
-
-        src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'lumascope_api' / 'imaging.py'
-        ).read_text()
-        body = _function_source(src, 'set_exposure_time')
-        assert "self.frame_validity.set_target('exposure'" in body, (
-            'set_exposure_time must record target via set_target.'
-        )
-        assert '1000' in body, (
-            'set_exposure_time must convert ms -> us when recording target '
-            'so chunk-match operates in microseconds.'
+        Conversion must happen at the seam so chunk-match's tolerance
+        is in matching units."""
+        imaging, calls = self._recording_imaging()
+        imaging.set_exposure_time(2.5)
+        assert ('exposure', 2500.0) in calls, (
+            'set_exposure_time must record the target in microseconds '
+            f'(ms * 1000) for chunk-match; got {calls}'
         )
 
     def test_set_auto_gain_clears_target(self):
-        from pathlib import Path
-
-        src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'lumascope_api' / 'imaging.py'
-        ).read_text()
-        body = _function_source(src, 'set_auto_gain')
-        assert "set_target('gain', None)" in body, (
-            "set_auto_gain must clear gain target (None) so chunk-match doesn't "
-            'fire against a stale manual target while auto adjusts.'
+        imaging, calls = self._recording_imaging()
+        imaging.set_auto_gain(
+            True,
+            {'target_brightness': 0.5, 'min_gain_db': 0.0, 'max_gain_db': 24.0},
+        )
+        assert ('gain', None) in calls, (
+            "set_auto_gain must clear the gain target (None) so chunk-match doesn't "
+            f'fire against a stale manual target while auto adjusts; got {calls}'
         )
 
     def test_set_auto_exposure_time_clears_target(self):
-        from pathlib import Path
-
-        src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'lumascope_api' / 'imaging.py'
-        ).read_text()
-        body = _function_source(src, 'set_auto_exposure_time')
-        assert "set_target('exposure', None)" in body, (
-            'set_auto_exposure_time must clear exposure target (None).'
+        imaging, calls = self._recording_imaging()
+        imaging.set_auto_exposure_time(True)
+        assert ('exposure', None) in calls, (
+            f'set_auto_exposure_time must clear the exposure target (None); got {calls}'
         )
 
 
@@ -9592,15 +9622,19 @@ class TestFrameValidityIsL2Stable:
 
     def test_frame_validity_is_publicly_named(self):
         """The attribute is `frame_validity`, not `_frame_validity` --
-        signals 'documented L2 surface' per Rule 27 underscore convention."""
-        from modules.lumascope_api.imaging import ImagingAPI
+        signals 'documented L2 surface' per the underscore convention."""
+        from modules.frame_validity import FrameValidity
+        from modules.lumascope_api import Lumascope
 
-        src = inspect.getsource(ImagingAPI.__init__)
-        assert 'self.frame_validity = FrameValidity()' in src, (
-            'ImagingAPI.frame_validity attribute name must remain public per audit #40 promotion.'
+        scope = Lumascope.__new__(Lumascope)
+        scope._camera_driver = None
+        api = ImagingAPI(scope, None)
+        assert isinstance(api.frame_validity, FrameValidity), (
+            'ImagingAPI must expose a FrameValidity instance under the '
+            'public frame_validity name -- L2 callers depend on it.'
         )
-        assert 'self._frame_validity' not in src, (
-            'frame_validity must not be prefixed -- the audit chose formal '
+        assert not hasattr(api, '_frame_validity'), (
+            'frame_validity must not be prefixed -- the surface is formal '
             'L2 promotion, not internal hiding.'
         )
 
