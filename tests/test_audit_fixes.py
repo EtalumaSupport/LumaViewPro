@@ -3387,6 +3387,7 @@ from tests.camera_fakes import (
     bare_ids_camera as _bare_ids_camera,
     bare_image_handler as _bare_image_handler,
     bare_pylon_camera as _bare_pylon_camera,
+    disconnectable_pylon_camera as _disconnectable_pylon_camera,
 )
 
 
@@ -4332,78 +4333,74 @@ class TestPylonDisconnectDestroyDevice:
     succeeded; without that invariant, the rest of the app sees a
     known-bad camera as still connected.
 
-    Source-shape tests rather than behavioural tests because exercising
-    the path requires either a real Pylon device or mocking the entire
-    pypylon SDK at the C++ binding layer; the source-shape pin matches
-    the existing TestPylonCancelHandlingDefensive style and is enough
-    for Rule 18.
+    Behavioral: drives the REAL disconnect() on a bare PylonCamera with
+    a fake SDK handle and asserts the teardown calls, their order, the
+    failure isolation between steps, and the post-cleanup state.
     """
 
-    def _disconnect_body(self):
-        from pathlib import Path
-
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        return _function_source(src, 'disconnect')
-
-    def test_disconnect_calls_destroy_device(self):
-        """disconnect() must explicitly destroy the SDK-side device
-        handle. Without this, CPython refcount-driven cleanup may leave
-        the handle held past the next reconnect attempt (pypylon #792)."""
-        body = self._disconnect_body()
-        assert 'self.active.DestroyDevice()' in body, (
-            'PylonCamera.disconnect must call self.active.DestroyDevice() '
-            'to explicitly release the SDK-side device handle. Required '
-            "to prevent 'device controlled by another application' on the "
-            'next CreateDevice (pypylon issues #547, #792).'
+    def test_disconnect_detaches_then_destroys_then_clears_active(self):
+        """DetachDevice must run before DestroyDevice (Basler-recommended
+        sequence), and self.active must still hold the device handle when
+        DestroyDevice runs -- clearing active first would lose the pointer
+        before DestroyDevice could release it (pypylon #547, #792)."""
+        cam = _disconnectable_pylon_camera()
+        fake = cam.active
+        order = []
+        fake.DetachDevice.side_effect = lambda: order.append('detach')
+        fake.DestroyDevice.side_effect = lambda: order.append(
+            ('destroy', cam.active is fake)
         )
-
-    def test_disconnect_calls_detach_device(self):
-        """DetachDevice releases the InstantCamera's ownership of the
-        device pointer before DestroyDevice destroys it. Per
-        Basler-recommended canonical reattach sequence."""
-        body = self._disconnect_body()
-        assert 'self.active.DetachDevice()' in body, (
-            'PylonCamera.disconnect must call self.active.DetachDevice() '
-            'before DestroyDevice. Required by Basler-recommended cleanup '
-            'sequence: StopGrabbing -> Close -> DetachDevice -> DestroyDevice.'
+        assert cam.disconnect() is True
+        assert order == ['detach', ('destroy', True)], (
+            f'Expected DetachDevice then DestroyDevice with the handle still '
+            f'held at destroy time; got {order!r}'
         )
+        assert cam.active is None
 
-    def test_disconnect_destroy_device_wrapped_in_try(self):
-        """If DestroyDevice fails (e.g., already-detached device), the
-        exception must NOT prevent self.active = None from running.
-        Otherwise the post-cleanup invariant breaks and the app thinks
-        a known-bad camera is still connected."""
-        body = self._disconnect_body()
-        # Look for the exact pattern: try block containing DestroyDevice
-        assert 'self.active.DestroyDevice()' in body
-        # The DestroyDevice line must be inside a try/except that logs
-        # a warning and continues, not propagates.
-        # Heuristic: there must be at least 3 try blocks in disconnect
-        # (one for stop_grabbing, one for Close, one for DetachDevice,
-        # one for DestroyDevice -- count of "try:" lines must be >= 4).
-        try_count = body.count('try:')
-        assert try_count >= 4, (
-            f'disconnect() must wrap each SDK teardown step (Close, '
-            f'DetachDevice, DestroyDevice) in its own try/except so a '
-            f'failure in one does not skip the others. Currently '
-            f'{try_count} try blocks; expected >= 4 (stop_grabbing + '
-            f'Close + DetachDevice + DestroyDevice).'
-        )
+    def test_close_failure_does_not_block_detach_destroy(self):
+        """A failure in Close (e.g. on an already-removed device) must not
+        short-circuit DetachDevice / DestroyDevice or the active=None
+        invariant."""
+        cam = _disconnectable_pylon_camera()
+        fake = cam.active
+        fake.Close.side_effect = RuntimeError('device gone')
+        assert cam.disconnect() is True
+        assert fake.DetachDevice.called
+        assert fake.DestroyDevice.called
+        assert cam.active is None
 
-    def test_disconnect_clears_active_after_cleanup(self):
-        """self.active = None must come AFTER DestroyDevice, not before.
-        If we cleared active first we would lose the device pointer
-        before destroying it, leaving the SDK handle held."""
-        body = self._disconnect_body()
-        destroy_pos = body.find('self.active.DestroyDevice()')
-        clear_pos = body.find('self.active = None')
-        assert destroy_pos != -1, 'DestroyDevice call missing from disconnect()'
-        assert clear_pos != -1, 'self.active = None missing from disconnect()'
-        assert clear_pos > destroy_pos, (
-            'self.active = None must come AFTER self.active.DestroyDevice(). '
-            'Clearing active first loses the device pointer before '
-            'DestroyDevice can run -> SDK handle stays held.'
-        )
+    def test_detach_failure_does_not_block_destroy(self):
+        cam = _disconnectable_pylon_camera()
+        fake = cam.active
+        fake.DetachDevice.side_effect = RuntimeError('already detached')
+        assert cam.disconnect() is True
+        assert fake.DestroyDevice.called
+        assert cam.active is None
+
+    def test_destroy_failure_still_clears_active(self):
+        """The caller-visible invariant after disconnect() is
+        active is None regardless of SDK call success; otherwise the app
+        sees a known-bad camera as still connected."""
+        cam = _disconnectable_pylon_camera()
+        cam.active.DestroyDevice.side_effect = RuntimeError('boom')
+        assert cam.disconnect() is True
+        assert cam.active is None
+
+    def test_device_removed_path_skips_sdk_stop_calls(self):
+        """When the device is already known removed, the SDK-touching
+        steps (stop_grabbing / idle-wait / Close) are skipped (pypylon
+        #225 abort hazard) while DetachDevice + DestroyDevice still run
+        to release Python-side ownership."""
+        cam = _disconnectable_pylon_camera()
+        cam._device_removed = True
+        fake = cam.active
+        assert cam.disconnect() is True
+        assert not cam.stop_grabbing.called
+        assert not cam._wait_for_acquisition_idle.called
+        assert not fake.Close.called
+        assert fake.DetachDevice.called
+        assert fake.DestroyDevice.called
+        assert cam.active is None
 
 
 class TestPylonDiagnosticProbe:
@@ -4871,38 +4868,36 @@ class TestPylonStateMutationViaMarkDisconnected:
         )
 
     def test_on_image_grabbed_inactive_branch_uses_mark_disconnected(self):
-        """The OnImageGrabbed inactive-fallback branch must call
-        _mark_disconnected so the parent's _state_lock invariants hold."""
-        src = self._pyloncamera_source()
-        # Find the inactive-branch sentinel and confirm the call sequence.
-        marker = 'OnImageGrabbed called but camera is inactive'
-        idx = src.find(marker)
-        assert idx != -1, (
-            'Could not find OnImageGrabbed inactive-branch logger sentinel; '
-            'if the wording changed, update this test.'
-        )
-        # Within ~200 chars after the sentinel, expect the canonical call.
-        window = src[idx : idx + 400]
-        assert '_mark_disconnected()' in window, (
+        """When the callback fires but parent.active has been reset
+        elsewhere, OnImageGrabbed must route through _mark_disconnected
+        (the canonical lock-holding write path) and must not enqueue the
+        frame to Stage B."""
+        handler, parent = _bare_image_handler()
+        parent.active = None
+        handler.OnImageGrabbed(camera=MagicMock(), grabResult=MagicMock())
+        assert parent._mark_disconnected.called, (
             'OnImageGrabbed inactive-branch must call '
             'self._parent._mark_disconnected() to preserve the '
-            '_state_lock invariant. Found instead:\n' + window
+            '_state_lock invariant.'
         )
+        assert not handler._worker.enqueue.called
 
     def test_on_camera_device_removed_uses_mark_disconnected(self):
         """The _CameraRemovalHandler SDK callback must call
-        _mark_disconnected. _mark_disconnected's docstring states it is
-        safe from any thread (including SDK callbacks); the prior
-        comment claiming otherwise was stale."""
-        src = self._pyloncamera_source()
-        marker = 'def OnCameraDeviceRemoved('
-        idx = src.find(marker)
-        assert idx != -1, 'Could not find OnCameraDeviceRemoved method.'
-        window = src[idx : idx + 800]
-        assert '_mark_disconnected()' in window, (
+        _mark_disconnected (safe from any thread per its docstring) and
+        hand the heavy teardown to the async path rather than running it
+        on the SDK callback thread."""
+        from drivers import pyloncamera
+
+        parent = _bare_pylon_camera()
+        parent._schedule_async_teardown = MagicMock()
+        handler = pyloncamera._CameraRemovalHandler(parent)
+        handler.OnCameraDeviceRemoved(camera=MagicMock())
+        assert parent._mark_disconnected.called, (
             'OnCameraDeviceRemoved must call self._parent._mark_disconnected() '
             'to atomically clear _active under _state_lock.'
         )
+        assert parent._schedule_async_teardown.called
 
 
 class TestPylonStatsPollerStopJoin:
@@ -4926,44 +4921,49 @@ class TestPylonStatsPollerStopJoin:
     drops the join fires the regression.
     """
 
-    def _pyloncamera_source(self):
-        from pathlib import Path
-
-        return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-
     def test_stop_stats_poller_captures_thread_before_signalling(self):
         """The thread reference must be read before the event is set;
-        otherwise a concurrent _stats_poller_thread = None elsewhere
-        could cause join() to be called on None."""
-        src = self._pyloncamera_source()
-        idx = src.find('def _stop_stats_poller(self):')
-        assert idx != -1, 'Could not find _stop_stats_poller.'
-        end = src.find('def ', idx + 10)
-        body = src[idx:end]
-        # Order check: thread getattr before event set.
-        thread_get = body.find('_stats_poller_thread')
-        ev_set = body.find('.set()')
-        assert thread_get != -1 and ev_set != -1, (
-            '_stop_stats_poller must reference both _stats_poller_thread and the '
-            'event. Body:\n' + body
+        otherwise a concurrent _stats_poller_thread = None (e.g. a racing
+        second stop) could null the join target out from under us.
+        Simulated by clearing the reference from the event's set()."""
+        cam = _bare_pylon_camera()
+        fake_thread = MagicMock()
+        fake_thread.is_alive.side_effect = [True, False]
+        ev = MagicMock()
+
+        def _clear_reference():
+            cam._stats_poller_thread = None
+
+        ev.set.side_effect = _clear_reference
+        cam._stats_poller_stop = ev
+        cam._stats_poller_thread = fake_thread
+        cam._stop_stats_poller()
+        assert fake_thread.join.called, (
+            '_stop_stats_poller must join the captured thread even when '
+            'the _stats_poller_thread reference is cleared concurrently '
+            'after the stop event is set.'
         )
-        assert thread_get < ev_set, (
-            '_stop_stats_poller must capture the thread reference BEFORE '
-            'signalling the stop event, so the join() target is stable.'
+        _, join_kwargs = fake_thread.join.call_args
+        assert join_kwargs.get('timeout', 0) > 0, (
+            '_stop_stats_poller must join with a bounded timeout so a '
+            'wedged poller cannot block the caller indefinitely.'
         )
 
-    def test_stop_stats_poller_joins_with_timeout(self):
-        """_stop_stats_poller must join the prior thread with a bounded
-        timeout to symmetrise _start_stats_poller's join."""
-        src = self._pyloncamera_source()
-        idx = src.find('def _stop_stats_poller(self):')
-        assert idx != -1
-        end = src.find('def ', idx + 10)
-        body = src[idx:end]
-        assert '.join(timeout=' in body, (
-            '_stop_stats_poller must call .join(timeout=...) on the prior '
-            'stats-poller thread before clearing the reference.'
+    def test_stop_stats_poller_joins_real_thread_to_exit(self):
+        """End-to-end on a real thread parked on the stop event: stop must
+        signal the event, join the thread out, and release the reference
+        -- symmetric with _start_stats_poller's join-on-entry."""
+        cam = _bare_pylon_camera()
+        ev = threading.Event()
+        t = threading.Thread(target=ev.wait, daemon=True)
+        t.start()
+        cam._stats_poller_stop = ev
+        cam._stats_poller_thread = t
+        cam._stop_stats_poller()
+        assert not t.is_alive(), (
+            'stats poller thread still alive after _stop_stats_poller'
         )
+        assert cam._stats_poller_thread is None
 
 
 class TestPylonDisconnectStopGrabbingLogged:
@@ -4983,35 +4983,31 @@ class TestPylonDisconnectStopGrabbingLogged:
     Audit finding A6.
     """
 
-    def _pyloncamera_source(self):
-        from pathlib import Path
+    def test_disconnect_stop_grabbing_failure_is_logged_and_teardown_continues(self):
+        """A stop_grabbing failure during disconnect must produce a
+        warning naming the failed step (a bare `pass` is a Rule 5
+        violation -- zero log evidence) and must not block the rest of
+        teardown."""
+        from drivers import pyloncamera
 
-        return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-
-    def test_disconnect_stop_grabbing_failure_is_logged(self):
-        """The bare `except Exception: pass` on stop_grabbing during
-        disconnect is a Rule 5 violation. The fix logs at warning
-        level."""
-        src = self._pyloncamera_source()
-        # Find the disconnect method body
-        idx = src.find('def disconnect(self) -> bool:')
-        assert idx != -1, 'Could not find PylonCamera.disconnect.'
-        # Walk forward to the stop_grabbing block
-        sg_idx = src.find('self.stop_grabbing()', idx)
-        assert sg_idx != -1, 'Could not find stop_grabbing call in disconnect.'
-        # The except block immediately follows; check the next ~250 chars
-        window = src[sg_idx : sg_idx + 350]
-        assert (
-            'except Exception:' not in window
-            or 'pass' not in window.split('except Exception:')[1].split('\n', 5)[0]
-            if 'except Exception:' in window
-            else True
+        cam = _disconnectable_pylon_camera()
+        cam.is_grabbing = lambda: True
+        cam.stop_grabbing = MagicMock(side_effect=RuntimeError('wedged'))
+        fake = cam.active
+        log = MagicMock()
+        original = pyloncamera._cam_log
+        pyloncamera._cam_log = log
+        try:
+            assert cam.disconnect() is True
+        finally:
+            pyloncamera._cam_log = original
+        warnings = [str(call.args[0]) for call in log.warning.call_args_list]
+        assert any('stop_grabbing' in message for message in warnings), (
+            "disconnect's stop_grabbing except branch must log a warning "
+            f'naming the failed step, not silently pass. Got: {warnings!r}'
         )
-        # Simpler: assert the warning-log phrase is present
-        assert 'stop_grabbing during disconnect' in window, (
-            "disconnect's stop_grabbing except branch must log a warning, "
-            'not silently pass. Found:\n' + window
-        )
+        assert fake.DestroyDevice.called
+        assert cam.active is None
 
 
 class TestPylonOnImageGrabbedExceptionContext:
@@ -5366,17 +5362,18 @@ class TestPylonGainParameterNotShadowingMethod:
     Audit finding A15.
     """
 
-    def _pyloncamera_source(self):
-        from pathlib import Path
-
-        return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-
     def test_gain_method_signature_no_self_param_shadow(self):
-        """Forbid the shadowed signature `def gain(self, gain)`."""
-        src = self._pyloncamera_source()
-        assert 'def gain(self, gain)' not in src, (
-            'PylonCamera.gain(self, gain) shadows the method name with '
-            'the parameter. Use `def gain(self, value)` instead.'
+        """The parameter must not shadow the method name
+        (`def gain(self, gain)`); the de-shadowed name is `value`."""
+        from tests.ast_seams import assert_def
+
+        assert_def(
+            'drivers/pyloncamera.py',
+            'gain',
+            class_name='PylonCamera',
+            params=['self', 'value'],
+            msg='PylonCamera.gain must not shadow the method name with '
+            'its parameter; use `def gain(self, value)`.',
         )
 
 
@@ -5388,18 +5385,11 @@ class TestPylonDisconnectResetsSelfValidationFlag:
     its own probe.
     """
 
-    def _pyloncamera_source(self):
-        from pathlib import Path
-
-        return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-
     def test_disconnect_clears_self_validation_flag(self):
-        src = self._pyloncamera_source()
-        idx = src.find('def disconnect(self) -> bool:')
-        assert idx != -1
-        end = src.find('def ', idx + 10)
-        body = src[idx:end]
-        assert '_pylon_self_validation_done = False' in body, (
+        cam = _disconnectable_pylon_camera()
+        cam._pylon_self_validation_done = True
+        assert cam.disconnect() is True
+        assert cam._pylon_self_validation_done is False, (
             'disconnect() must clear _pylon_self_validation_done so the '
             'next connect re-runs the StreamGrabber probe.'
         )
@@ -7436,24 +7426,21 @@ class TestPylonAcquisitionIdleWait:
         assert_def('drivers/pyloncamera.py', '_wait_for_acquisition_idle')
 
     def test_disconnect_calls_idle_wait_after_stop_grabbing(self):
-        """Pin call-site shape: disconnect() must invoke
-        _wait_for_acquisition_idle AFTER stop_grabbing and BEFORE
-        Close, not before stop_grabbing or after Close (the latter
-        would defeat the purpose -- the device handle is gone)."""
-        from pathlib import Path
-
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        body = _function_source(src, 'disconnect')
-        assert '_wait_for_acquisition_idle' in body, (
-            'disconnect() must call _wait_for_acquisition_idle'
+        """disconnect() must invoke _wait_for_acquisition_idle AFTER
+        stop_grabbing and BEFORE Close -- after Close the device handle
+        is gone and the drain window is meaningless."""
+        cam = _disconnectable_pylon_camera()
+        sequence = []
+        cam.is_grabbing = lambda: True
+        cam.stop_grabbing = lambda: sequence.append('stop_grabbing')
+        cam._wait_for_acquisition_idle = (
+            lambda timeout_s: sequence.append('idle_wait')
         )
-        # Order check: stop_grabbing -> _wait_for_acquisition_idle -> Close
-        idx_stop = body.find('stop_grabbing')
-        idx_wait = body.find('_wait_for_acquisition_idle')
-        idx_close = body.find('.Close()')
-        assert 0 <= idx_stop < idx_wait < idx_close, (
-            f'Order violated in disconnect(): '
-            f'stop_grabbing={idx_stop} wait={idx_wait} Close={idx_close}'
+        cam.active.Close.side_effect = lambda: sequence.append('close')
+        assert cam.disconnect() is True
+        assert sequence == ['stop_grabbing', 'idle_wait', 'close'], (
+            f'Order violated in disconnect(): {sequence!r} (expected '
+            "stop_grabbing -> idle_wait -> Close)"
         )
 
     def test_idle_wait_returns_true_when_inactive(self):

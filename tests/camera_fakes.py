@@ -35,6 +35,23 @@ def bare_pylon_camera():
     return cam
 
 
+def disconnectable_pylon_camera():
+    """bare_pylon_camera prepared so the REAL disconnect() can run.
+
+    Grab-loop, idle-wait, and Stage B worker internals are stubbed so
+    tests can drive disconnect() end-to-end and assert the SDK teardown
+    calls (Close / DetachDevice / DestroyDevice) and state transitions
+    on the fake handle.
+    """
+    cam = bare_pylon_camera()
+    cam._device_removed = False
+    cam.is_grabbing = lambda: False
+    cam.stop_grabbing = MagicMock()
+    cam._wait_for_acquisition_idle = MagicMock(return_value=True)
+    cam._stop_image_grab_worker = MagicMock()
+    return cam
+
+
 def bare_ids_camera():
     """IDSCamera analog of bare_pylon_camera: fake remote_nodemap."""
     from drivers import idscamera
