@@ -1077,21 +1077,88 @@ class MotorBoard(SerialBoard):
             logger.error('[XYZ Class ] MotorBoard.home_status(' + axis + ') inactive')
             raise
 
+    def _record_support(self, command: str, cache_attr: str, resp) -> bool:
+        """Interpret a firmware response as a support verdict and cache it.
+
+        ``not found`` / ``ERROR``-prefixed replies mean the connected
+        firmware does not implement the command; anything else
+        (including no reply at all -- the legacy-firmware contract is
+        a loud ERROR string, never silence) counts as supported.
+        """
+        resp_str = str(resp) if resp is not None else ''
+        supported = not ('not found' in resp_str or resp_str.startswith('ERROR'))
+        setattr(self, cache_attr, supported)
+        if not supported:
+            logger.info(
+                f'[XYZ Class ] {command} not implemented by connected '
+                f'firmware (firmware date '
+                f'{getattr(self, "firmware_date", "unknown")}); caching '
+                'as unsupported -- future sends skip the wire.'
+            )
+        return supported
+
+    def _command_supported(self, command: str, cache_attr: str) -> bool:
+        """Probe-and-cache whether the connected firmware implements
+        ``command``.
+
+        No reply at all is inconclusive (board absent or wedged, not a
+        capability answer): returns False WITHOUT caching so a later
+        healthy connection re-probes.
+        """
+        cached = getattr(self, cache_attr, None)
+        if cached is not None:
+            return cached
+        # expect_unsupported=True suppresses the FIRMWARE ERROR warning
+        # for the probe -- an unsupported command is an expected answer
+        # here, logged at INFO by _record_support instead.
+        resp = self.exchange_command(command, expect_unsupported=True)
+        if resp is None:
+            return False
+        return self._record_support(command, cache_attr, resp)
+
+    def supports_motor_stop(self) -> bool:
+        """Whether the connected firmware implements the STOP
+        emergency-stop command.
+
+        When uncached, the probe sends a real STOP: harmless while
+        motors are idle (STOP sets target=actual on every axis) and
+        idempotent. ScopeCapabilities.from_drivers probes at boot,
+        before any motion is commanded, so steady-state motor_stop
+        calls never re-probe.
+        """
+        return self._command_supported('STOP', '_supports_stop_cached')
+
+    def supports_fan(self) -> bool:
+        """Whether the connected firmware implements the fan commands
+        (FAN:<duty> PWM control + FANSPEED tachometer query).
+
+        Probes with the read-only FANSPEED rather than FAN:<duty> so
+        the probe never changes fan state; both commands ship in the
+        same firmware revisions, so one answer covers the family.
+        """
+        return self._command_supported('FANSPEED', '_supports_fan_cached')
+
+    def supports_diagnostics(self) -> bool:
+        """Whether the connected firmware implements the diagnostic
+        queries (VOLTAGE, DRVSTAT_<axis>).
+
+        Probes with the read-only VOLTAGE; the diagnostic queries ship
+        together, so one answer covers the family.
+        """
+        return self._command_supported('VOLTAGE', '_supports_diagnostics_cached')
+
     def motor_stop(self) -> bool:
-        """LVP-A-1 followup: stop all motors via STOP, with field-firmware fallback.
+        """Stop all motors via STOP, with field-firmware fallback.
 
         Field firmware (e.g. EL-0940-02 2024-09-10) does not implement
         the ``STOP`` command and replies ``ERROR: command 'STOP' not
         found``. Newer firmware (2025-onward) accepts STOP as the
         emergency-stop command (sets target=actual on every axis).
 
-        Behavior:
-        - First call: send STOP. Inspect the response -- if it contains
-          ``not found`` or starts with ``ERROR``, cache the firmware
-          as unsupported and return False (silent skip on future
-          calls). Otherwise return True.
-        - Subsequent calls: skip the wire entirely if cached
-          unsupported.
+        The send doubles as the support probe: the response is
+        interpreted and cached (shared with ``supports_motor_stop``),
+        so firmware without STOP is asked exactly once and every later
+        call skips the wire and returns False.
 
         The caller's shutdown is unaffected when STOP isn't supported:
         the host is about to disconnect anyway, and v3.0.x firmware
@@ -1104,26 +1171,13 @@ class MotorBoard(SerialBoard):
         """
         # Cached "unsupported" -- silently skip the wire (and skip the
         # FIRMWARE ERROR warning that exchange_command would emit).
-        if getattr(self, '_stop_supported', None) is False:
+        if getattr(self, '_supports_stop_cached', None) is False:
             return False
         # expect_unsupported=True suppresses the FIRMWARE ERROR warning
-        # on this first probe -- the unsupported case is handled
-        # immediately below by caching _stop_supported=False and
-        # logging an informational message instead.
+        # when this send turns out to be the first-contact probe of
+        # legacy firmware; _record_support logs that case at INFO.
         resp = self.exchange_command('STOP', expect_unsupported=True)
-        resp_str = str(resp) if resp is not None else ''
-        if 'not found' in resp_str or resp_str.startswith('ERROR'):
-            self._stop_supported = False
-            logger.info(
-                '[XYZ Class ] motor_stop: firmware does not support '
-                f'STOP command (firmware date '
-                f'{getattr(self, "firmware_date", "unknown")}); '
-                'caching capability and silently skipping future STOP '
-                'attempts. Motors latch on host disconnect.'
-            )
-            return False
-        self._stop_supported = True
-        return True
+        return self._record_support('STOP', '_supports_stop_cached', resp)
 
     # return True if current position and target position are the same
     def target_status(self, axis: str) -> bool:

@@ -175,6 +175,23 @@ class ScopeCapabilities:
     pulse train inside the LED firmware with sub-microsecond pulse-edge
     accuracy. Caller gates with `caps.supports('firmware_stim')`."""
 
+    has_motor_stop: bool = False
+    """True when the motor firmware implements the STOP emergency-stop
+    command (sets target=actual on every axis). Probed at boot via
+    `motion.supports_motor_stop()`. Field firmware from 2024 replies
+    ERROR to STOP; the driver returns False from motor_stop there and
+    motors latch on host disconnect instead."""
+
+    has_fan: bool = False
+    """True when the motor firmware implements the fan commands
+    (FAN:<duty> PWM control + FANSPEED tachometer query). Probed at
+    boot via `motion.supports_fan()`."""
+
+    has_diagnostics: bool = False
+    """True when the motor firmware implements the diagnostic queries
+    (VOLTAGE power-rail check, DRVSTAT_<axis> driver status). Probed
+    at boot via `motion.supports_diagnostics()`."""
+
     hardware_features: frozenset[str] = frozenset()
     """Set of hardware-feature tokens this scope advertises. Per Rule 8
     empty-default semantic: empty means 'feature set unknown / no
@@ -267,6 +284,25 @@ class ScopeCapabilities:
             47.8,
         )
 
+        # Motor firmware command families. Probe-and-cache on the
+        # driver: one wire exchange each at boot (motors idle), then
+        # cached for the life of the connection.
+        has_motor_stop = _probe(
+            'motion.supports_motor_stop',
+            lambda: bool(motion.supports_motor_stop()),
+            False,
+        )
+        has_fan = _probe(
+            'motion.supports_fan',
+            lambda: bool(motion.supports_fan()),
+            False,
+        )
+        has_diagnostics = _probe(
+            'motion.supports_diagnostics',
+            lambda: bool(motion.supports_diagnostics()),
+            False,
+        )
+
         # LED
         led_channels = _probe('led.available_channels', lambda: tuple(led.available_channels()), ())
         led_colors = _probe('led.available_colors', lambda: tuple(led.available_colors()), ())
@@ -308,6 +344,9 @@ class ScopeCapabilities:
             has_xy_stage=('X' in axes and 'Y' in axes),
             has_turret='T' in axes,
             motor_model=model,
+            has_motor_stop=has_motor_stop,
+            has_fan=has_fan,
+            has_diagnostics=has_diagnostics,
             axis_travel_limits_um=MappingProxyType(travel_limits),
             pixel_size_um=pixel_size_um,
             lens_focal_length_mm=lens_focal_length_mm,

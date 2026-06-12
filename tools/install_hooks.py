@@ -57,6 +57,14 @@ else
     echo "pre-commit: tools/check_rules.py absent on this branch -- skipping rule gate" >&2
 fi
 
+# Ruff finding-count ratchet: blocks commits that raise the repo-wide
+# ruff count above tools/ruff_baseline.txt; auto-lowers + stages the
+# baseline when cleanup reduces the count. The tool itself skips
+# gracefully when ruff or the baseline file is absent.
+if [ -f "$REPO_ROOT/tools/ruff_ratchet.py" ]; then
+    python3 "$REPO_ROOT/tools/ruff_ratchet.py" --pre-commit
+fi
+
 # version.txt refresh (LVP-specific). 4-line format:
 #   Line 1: release moniker (manual bump on promotion; path-safe)
 #   Line 2: commit timestamp (this hook rewrites)
