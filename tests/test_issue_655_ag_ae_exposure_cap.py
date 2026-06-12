@@ -34,7 +34,6 @@ Bench verification gates the actual stability claim (diag/issue-655).
 from __future__ import annotations
 
 import pathlib
-import re
 from unittest.mock import MagicMock
 
 import modules.config_helpers as config_helpers
@@ -182,17 +181,74 @@ def test_live_caller_injects_per_class_cap():
     )
 
 
-def test_protocol_caller_injects_per_class_cap():
-    src = (REPO / 'modules' / 'protocol_step_runner.py').read_text()
-    assert 'get_ag_ae_max_exposure_ms' in src, (
-        'protocol_step_runner must set the per-class AG/AE cap for the '
-        "step's channel class before arming. (#655)"
+def test_protocol_caller_injects_per_class_cap(monkeypatch):
+    """The AG arm tick must write the per-class cap (resolved via
+    config_helpers) into the settings dict the apply carries. (#655)"""
+    from tests.protocol_drives import protocol_step, scan_ready_runner
+
+    monkeypatch.setattr(
+        'modules.config_helpers.get_ag_ae_max_exposure_ms',
+        lambda color, settings: 456.0,
+    )
+    runner = scan_ready_runner(protocol_step(Auto_Gain=True))
+    runner._step_executor.scan_iterate()
+    applies = [
+        c.args[0]
+        for c in runner._io_executor.protocol_put.call_args_list
+        if c.args[0].action is runner._scope.imaging.apply_layer_camera_settings
+    ]
+    assert applies, 'the AG step must queue the apply on the io executor'
+    assert applies[0].kwargs['auto_gain_settings']['max_exposure_ms'] == 456.0, (
+        "the step's channel-class cap must reach the AG apply. (#655)"
     )
 
 
+def _video_session_autogain_call(autogain_settings):
+    """Drive a zero-duration video capture and return the auto_gain_once
+    kwargs the imaging API received at the first-frame re-arm."""
+    from modules.video_capture import VideoCaptureSession
+
+    scope = MagicMock()
+    scope.imaging.frames_until_valid.return_value = 0
+    step = {
+        'Auto_Gain': True,
+        'Exposure': 10.0,
+        'Video Config': {'duration': 0},
+        'Color': 'BF',
+        'False_Color': False,
+        'Stim_Config': {},
+    }
+    session = VideoCaptureSession(
+        scope,
+        step,
+        autogain_settings,
+        lambda: True,
+        {},
+        MagicMock(),
+    )
+    session.capture()
+    assert scope.imaging.auto_gain_once.called, 'the first-frame AG re-arm must fire'
+    return scope.imaging.auto_gain_once.call_args.kwargs
+
+
 def test_video_capture_rearm_forwards_cap():
-    src = (REPO / 'modules' / 'video_capture.py').read_text()
-    assert re.search(
-        r"ae_max_exposure_ms\s*=\s*self\._autogain_settings\.get\(\s*['\"]max_exposure_ms['\"]",
-        src,
-    ), 'video_capture first-frame AG re-arm must forward the cap. (#655)'
+    kwargs = _video_session_autogain_call(
+        {
+            'target_brightness': 0.5,
+            'min_gain_db': 0.0,
+            'max_gain_db': 24.0,
+            'max_exposure_ms': 777.0,
+        }
+    )
+    assert kwargs.get('ae_max_exposure_ms') == 777.0, (
+        f'video first-frame AG re-arm must forward the cap (#655); got {kwargs}'
+    )
+
+
+def test_video_capture_rearm_tolerates_missing_cap():
+    kwargs = _video_session_autogain_call(
+        {'target_brightness': 0.5, 'min_gain_db': 0.0, 'max_gain_db': 24.0}
+    )
+    assert kwargs.get('ae_max_exposure_ms') is None, (
+        'an install without a per-class cap must re-arm uncapped, not raise'
+    )

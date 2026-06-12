@@ -40,7 +40,6 @@ import pathlib
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 PROTOCOL_SETTINGS_SRC = REPO / 'ui' / 'protocol_settings.py'
-PROTOCOL_SRC = REPO / 'modules' / 'protocol.py'
 
 
 def _method_node(class_name: str, method_name: str) -> ast.FunctionDef:
@@ -121,21 +120,67 @@ def test_empty_step_guard_runs_before_worker_pool_put():
     )
 
 
-def test_protocol_from_config_filters_non_acquire_layers():
-    """Source-level lock on the upstream filter that produces 0 steps.
+def _from_config_input(acquire_by_layer: dict[str, str]) -> dict:
+    """Minimal valid input_config for Protocol.from_config with one layer
+    per entry, each with the given acquire mode."""
+    layer_configs = {
+        layer: {
+            'acquire': acquire,
+            'autofocus': False,
+            'false_color': False,
+            'illumination_ma': 50.0,
+            'gain_db': 1.0,
+            'auto_gain': False,
+            'exposure_ms': 10.0,
+            'sum': 1,
+            'focus': 100.0,
+            'video_config': {'duration': 30},
+            'stim_config': None,
+        }
+        for layer, acquire in acquire_by_layer.items()
+    }
+    return {
+        'labware_id': '96 well microplate',
+        'objective_id': '4x Oly',
+        'zstack_params': {'range': 0, 'step_size': 0, 'z_reference': 'center'},
+        'use_zstacking': False,
+        'tiling': '1x1',
+        'layer_configs': layer_configs,
+        'period': None,
+        'duration': None,
+        'frame_dimensions': {'width': 2048, 'height': 2048},
+        'binning_size': 1,
+        'stim_config': {},
+    }
 
-    Protocol.from_config skips layers whose acquire is not 'image' or
-    'video'. If every enabled layer is filtered out, the resulting
-    Protocol has zero steps -- the precondition the UI guard catches.
-    A change to this filter (e.g. a new acquire mode) would change
-    the precondition; this test makes that change visible.
-    """
-    src = PROTOCOL_SRC.read_text()
-    assert "if layer_config['acquire'] not in ['image', 'video']:" in src, (
-        'Protocol.from_config must skip layers whose acquire is not '
-        '"image" or "video"; if this filter changes, the #680 guard '
-        'in ui/protocol_settings.py::new_protocol may need a matching '
-        'update. (#680)'
+
+def test_protocol_from_config_filters_non_acquire_layers():
+    """The upstream filter that produces 0 steps: layers whose acquire is
+    neither 'image' nor 'video' contribute no steps, so a config where
+    every layer is disabled yields an empty (0-step) Protocol -- the
+    precondition the #680 UI guard catches. A layer set to 'image' still
+    produces steps."""
+    from modules.protocol import Protocol
+
+    tiling_configs = REPO / 'data' / 'tiling.json'
+
+    all_disabled = Protocol.from_config(
+        input_config=_from_config_input({'BF': 'none', 'Blue': 'none'}),
+        tiling_configs_file_loc=tiling_configs,
+    )
+    assert all_disabled.num_steps() == 0, (
+        'every-layer-disabled must construct an EMPTY protocol (the #680 '
+        f'guard precondition); got {all_disabled.num_steps()} steps'
+    )
+
+    one_enabled = Protocol.from_config(
+        input_config=_from_config_input({'BF': 'image', 'Blue': 'none'}),
+        tiling_configs_file_loc=tiling_configs,
+    )
+    assert one_enabled.num_steps() > 0, 'an image layer must still produce steps'
+    step_colors = set(one_enabled.steps()['Color'].unique())
+    assert step_colors == {'BF'}, (
+        f'only the acquiring layer may contribute steps; got {step_colors}'
     )
 
 

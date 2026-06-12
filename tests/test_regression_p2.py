@@ -106,34 +106,33 @@ class TestAFRaceCondition:
     before the final move is finished.
     """
 
-    def test_final_moves_inside_iterate_last_pass(self):
-        """Sanity-check the last-pass block still issues both moves inline.
+    def test_final_moves_complete_before_run_returns(self, monkeypatch):
+        """The fine pass must issue both final moves (approach-from-below,
+        then best) inline, so they are already on the driver when run()
+        returns and the AutofocusThread Future resolves.
 
         AFE.run() is synchronous; protect against a future refactor that
         accidentally offloads the final move to another thread and
         re-introduces the race that the AutofocusThread + Future contract
         currently prevents.
         """
-        import inspect
-        import re
+        from unittest.mock import call
 
-        from modules.autofocus_runner import AutofocusRunner
+        from tests.af_drives import AF_CENTER_Z, af_runner_and_scope, drive_af
 
-        source = inspect.getsource(AutofocusRunner._iterate)
-        last_pass_start = source.index('if self._last_pass:')
-        last_pass_block = source[last_pass_start:]
-        # Locate the first bare `return` (any indent) that terminates the
-        # last-pass branch. Indent-agnostic: earlier versions of this test
-        # hard-coded 16-space indent, which broke when the branch body was
-        # de-nested.
-        m = re.search(r'\n +return\n', last_pass_block)
-        assert m is not None, 'last-pass block must end with a bare return'
-        last_pass_block = last_pass_block[: m.start()]
-
-        move_count = last_pass_block.count('self._move_absolute_position')
-        assert move_count >= 2, (
-            f'Expected at least 2 move_absolute_position calls in the '
-            f'last-pass block, got {move_count}'
+        monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 7.0)
+        runner, scope = af_runner_and_scope()
+        result = drive_af(runner)
+        assert result == AF_CENTER_Z, 'the drive must complete with the pinned best focus'
+        moves = scope.motion.move_absolute_position.call_args_list
+        fine_resolution = runner._params['resolution']
+        assert moves[-2:] == [
+            call('Z', AF_CENTER_Z - fine_resolution),
+            call('Z', AF_CENTER_Z),
+        ], (
+            'the last pass must issue the approach-from-below move and the '
+            'final best-focus move inline before run() returns; '
+            f'recorded moves: {moves}'
         )
 
 

@@ -646,19 +646,62 @@ class TestFinalStepKeepsLedWhenCleanupRestoresIt:
     the LED-off so inter-scan waits stay dark (sample safety).
     """
 
-    def test_keep_led_condition_present_in_scan_iterate(self):
-        import pathlib
+    def _keep_led_for(self, *, leds_state_at_end, original_led_states, n_scans=1):
+        """Drive the final step of a scan and return the keep_led_on flag
+        the capture received."""
+        from unittest.mock import MagicMock
 
-        src = pathlib.Path('modules/protocol_step_runner.py').read_text(encoding='utf-8')
-        flat = ' '.join(src.split())
-        assert 'remaining_scans() <= 1' in flat, (
-            'final-step LED keep must be gated to the FINAL scan so '
-            'inter-scan waits still run dark'
+        from tests.protocol_drives import protocol_step, scan_ready_runner
+
+        runner = scan_ready_runner(
+            protocol_step(),
+            _disable_saving_artifacts=False,
+            _run_dir=MagicMock(),
+            _leds_state_at_end=leds_state_at_end,
+            _original_led_states=original_led_states,
+            _n_scans=n_scans,
         )
-        assert "_leds_state_at_end == 'return_to_original'" in flat.replace('"', "'"), (
-            'final-step LED keep must apply only when cleanup will restore '
-            'the original LED state'
-        )
-        assert '_original_led_states' in flat, (
-            'final-step LED keep must check the channel was lit before the run'
-        )
+        runner._step_executor.scan_iterate()
+        assert runner._image_writer.capture.called, 'the step must reach capture'
+        return runner._image_writer.capture.call_args.kwargs['keep_led_on']
+
+    @staticmethod
+    def _lit_before_run():
+        return {'BF': {'enabled': True, 'illumination_ma': 100.0}}
+
+    def test_final_scan_restore_keeps_lit_channel(self):
+        assert (
+            self._keep_led_for(
+                leds_state_at_end='return_to_original',
+                original_led_states=self._lit_before_run(),
+            )
+            is True
+        ), 'cleanup is about to re-light this channel; turning it off here blinks'
+
+    def test_final_scan_restore_skips_unlit_channel(self):
+        assert (
+            self._keep_led_for(
+                leds_state_at_end='return_to_original',
+                original_led_states={'BF': {'enabled': False, 'illumination_ma': 0.0}},
+            )
+            is False
+        ), 'a channel dark before the run must go dark at the end'
+
+    def test_leds_off_at_end_never_keeps(self):
+        assert (
+            self._keep_led_for(
+                leds_state_at_end='off',
+                original_led_states=self._lit_before_run(),
+            )
+            is False
+        ), "leds_state_at_end='off' must always end dark"
+
+    def test_non_final_scan_stays_dark(self):
+        assert (
+            self._keep_led_for(
+                leds_state_at_end='return_to_original',
+                original_led_states=self._lit_before_run(),
+                n_scans=2,
+            )
+            is False
+        ), 'inter-scan waits must run dark (sample safety) on non-final scans'

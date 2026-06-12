@@ -1331,215 +1331,391 @@ class TestD2_LEDBoardStateCacheHelper:
 
 
 class TestG3_AutofocusFailureNotification:
-    """G3: AF failures must notify the user (Rule 14)."""
+    """G3: AF failures must notify the user (Rule 14), routed through the
+    trigger-source popup gate so unattended-protocol runs are suppressed
+    while interactive runs still notify. Notify-or-suppress edge cases
+    are covered in depth by tests/test_autofocus_notify_gate.py."""
 
-    def test_af_exception_notifies_user(self, _mock_heavy_deps):
-        """AF exception handler must surface a user-facing notification.
+    def test_af_exception_notifies_user(self, monkeypatch):
+        """A raising AF loop must pop 'Autofocus Failed' for an
+        interactive trigger and suppress the popup for a protocol
+        trigger (proves the gate routing, not a bare error call)."""
+        from modules.notification_center import notifications
+        from tests.af_drives import af_runner_and_scope, drive_af
 
-        Post-aceda41 (AF popup gate for issue #649), the direct
-        ``notifications.error`` call routes through
-        ``self._notify_af_failure(...)`` so unattended-protocol runs
-        can suppress the modal popup while non-protocol runs still
-        notify. The G3 / Rule 14 contract -- "AF failure surfaces to
-        the user" -- still holds; the helper is what enforces it.
-        Notify-or-suppress correctness is covered separately by
-        tests/test_autofocus_notify_gate.py.
-        """
-        import pathlib
+        captured = []
+        monkeypatch.setattr(notifications, 'error', lambda *a, **k: captured.append(a))
 
-        source = pathlib.Path('modules/autofocus_runner.py').read_text()
-        idx = source.find('Error during loop')
-        assert idx != -1, 'Exception handler must exist'
-        nearby = source[idx : idx + 400]
-        assert '_notify_af_failure' in nearby, (
-            'AF exception handler must call _notify_af_failure (G3 -- Rule 14)'
+        runner, scope = af_runner_and_scope()
+        scope.imaging.capture_and_wait.side_effect = RuntimeError('camera fault')
+        with pytest.raises(RuntimeError, match='camera fault'):
+            drive_af(runner)
+        assert captured and captured[0][1] == 'Autofocus Failed', (
+            f'interactive AF failure must pop Autofocus Failed; got {captured}'
         )
 
-    def test_af_degenerate_curve_notifies_user(self, _mock_heavy_deps):
-        """AF degenerate curve handler must surface a user-facing notification.
-
-        Same _notify_af_failure routing as the exception path. See
-        test_af_exception_notifies_user for the rationale.
-        """
-        import pathlib
-
-        source = pathlib.Path('modules/autofocus_runner.py').read_text()
-        idx = source.find('degenerate focus curve')
-        assert idx != -1, 'Degenerate curve handler must exist'
-        nearby = source[idx : idx + 500]
-        assert '_notify_af_failure' in nearby, (
-            'AF degenerate curve handler must call _notify_af_failure (G3 -- Rule 14)'
+        captured.clear()
+        with pytest.raises(RuntimeError, match='camera fault'):
+            drive_af(runner, run_trigger_source='protocol')
+        assert captured == [], (
+            'unattended (protocol) AF failure must suppress the modal popup'
         )
 
-    def test_af_imports_notifications(self, _mock_heavy_deps):
-        """autofocus_runner must import notifications module."""
-        import pathlib
+    def test_af_degenerate_curve_notifies_user(self, monkeypatch):
+        """A flat focus curve must pop 'Autofocus Failed' and keep the
+        scan-center Z (no best-focus move)."""
+        from modules.notification_center import notifications
+        from tests.af_drives import AF_CENTER_Z, af_runner_and_scope, drive_af
 
-        source = pathlib.Path('modules/autofocus_runner.py').read_text()
-        assert 'from modules.notification_center import notifications' in source, (
-            'autofocus_runner must import notifications (G3)'
+        captured = []
+        monkeypatch.setattr(notifications, 'error', lambda *a, **k: captured.append(a))
+        monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 0.0)
+
+        runner, _scope = af_runner_and_scope()
+        result = drive_af(runner)
+        assert captured and captured[0][1] == 'Autofocus Failed', (
+            f'degenerate curve must notify the user; got {captured}'
         )
+        assert 'flat or invalid' in captured[0][2], (
+            f'popup must explain the flat/invalid curve; got {captured[0]}'
+        )
+        assert result == AF_CENTER_Z, (
+            'degenerate abort must keep the current (scan-center) Z position'
+        )
+
+
+# ---------------------------------------------------------------------------
+# SequencedCaptureRunner behavioral-test builders
+# (the runner builder itself is shared across test files)
+# ---------------------------------------------------------------------------
+
+from tests.protocol_drives import (
+    bare_capture_runner as _bare_capture_runner,
+    scr_run_kwargs as _scr_run_kwargs,
+)
+
+
+class _LockWatchingSettings(dict):
+    """Settings dict recording whether *lock* was held at each .get of
+    *watched_key* -- proves a read happened under settings_lock and
+    counts how many times it happened."""
+
+    def __init__(self, data, lock, watched_key):
+        super().__init__(data)
+        self._lock = lock
+        self._watched_key = watched_key
+        self.watched_reads = []
+
+    def get(self, key, default=None):
+        if key == self._watched_key:
+            self.watched_reads.append(self._lock.locked())
+        return super().get(key, default)
 
 
 class TestRule14_A4_PreRunValidationNotify:
     """A4: Pre-run validation errors must surface a user notification (Rule 14)."""
 
-    def test_validation_errors_branch_notifies(self):
-        """sequenced_capture_runner must call notifications.error when
-        validation_errors is non-empty before returning."""
-        import pathlib
+    def _run_with_validation_errors(self, monkeypatch, errors):
+        from modules.notification_center import notifications
 
-        source = pathlib.Path('modules/sequenced_capture_runner.py').read_text()
-        idx = source.find(
-            'Protocol has {len(validation_errors)} validation error(s). Cannot start run.'
+        captured = []
+        monkeypatch.setattr(notifications, 'error', lambda *a, **k: captured.append(a))
+        runner = _bare_capture_runner()
+        kwargs = _scr_run_kwargs()
+        kwargs['protocol'].validate_for_run.return_value = errors
+        runner.run(**kwargs)
+        return runner, kwargs['protocol'], captured
+
+    def test_validation_errors_branch_notifies(self, monkeypatch):
+        """A failing pre-run validation must notify the user and abort the run."""
+        runner, protocol, captured = self._run_with_validation_errors(
+            monkeypatch, ['step 1: X position outside axis limits']
         )
-        assert idx != -1, 'Validation-errors return path must exist'
-        nearby = source[idx : idx + 800]
-        assert 'notifications.error' in nearby, (
+        assert captured, (
             'validation_errors return path must call notifications.error (A4 -- Rule 14)'
         )
-        assert 'Validation failed' in nearby, (
-            "notification title must be 'Validation failed' (A4 -- audit recommendation)"
+        assert captured[0][1] == 'Validation failed', (
+            f"notification title must be 'Validation failed'; got {captured[0]}"
         )
+        assert not protocol.copy_for_execution.called, (
+            'run must abort at validation, before snapshotting the protocol'
+        )
+        assert not runner._run_in_progress_event.is_set(), 'run must not start'
 
-    def test_validation_summary_truncates_at_five(self):
+    def test_validation_summary_truncates_at_five(self, monkeypatch):
         """Notification summary must show first 5 errors; mention 'see log' for overflow."""
-        import pathlib
-
-        source = pathlib.Path('modules/sequenced_capture_runner.py').read_text()
-        idx = source.find('validation_errors[:5]')
-        assert idx != -1, (
-            'Notification summary must slice validation_errors[:5] to keep popup readable (A4)'
+        errors = [f'error number {i}' for i in range(1, 8)]
+        _, _, captured = self._run_with_validation_errors(monkeypatch, errors)
+        assert captured, 'seven validation errors must still notify'
+        body = captured[0][2]
+        for i in range(1, 6):
+            assert f'error number {i}' in body, f'first five errors must be listed; got: {body}'
+        assert 'error number 6' not in body and 'error number 7' not in body, (
+            f'errors past the fifth must be truncated from the popup; got: {body}'
         )
-        idx = source.find('more (see log)')
-        assert idx != -1, 'Overflow message must point user to the log for full details (A4)'
+        assert 'and 2 more (see log)' in body, (
+            f'overflow must point the user to the log for full details; got: {body}'
+        )
 
 
 class TestRule14_A5_AreAllConnectedExceptionNotify:
     """A5: are_all_connected() exception branch must notify (Rule 14)."""
 
-    def test_are_all_connected_exception_branch_notifies(self):
-        """sequenced_capture_runner must call notifications.error when the
-        are_all_connected check itself raises, before returning."""
-        import pathlib
+    def test_are_all_connected_exception_branch_notifies(self, monkeypatch):
+        """A raising connectivity check must notify the user and abort the run."""
+        from modules.notification_center import notifications
 
-        source = pathlib.Path('modules/sequenced_capture_runner.py').read_text()
-        idx = source.find('Error checking scope connection')
-        assert idx != -1, 'are_all_connected exception handler must exist'
-        nearby = source[idx : idx + 600]
-        assert 'notifications.error' in nearby, (
+        captured = []
+        monkeypatch.setattr(notifications, 'error', lambda *a, **k: captured.append(a))
+        runner = _bare_capture_runner()
+        runner._scope.are_all_connected.side_effect = RuntimeError('usb tree gone')
+        runner.run(**_scr_run_kwargs())
+        assert captured, (
             'are_all_connected exception path must call notifications.error (A5 -- Rule 14)'
         )
-        assert 'Cannot verify hardware state' in nearby, (
-            "notification title must be 'Cannot verify hardware state' (A5 -- audit recommendation)"
+        assert captured[0][1] == 'Cannot verify hardware state', (
+            f"notification title must be 'Cannot verify hardware state'; got {captured[0]}"
         )
+        assert not runner._run_in_progress_event.is_set(), 'run must not start'
 
 
 class TestRule14_A8_ScopeSessionHelperNotify:
-    """A8: scope_session optional helper failures must notify (Rule 14)."""
+    """A8: scope_session optional helper failures must notify (Rule 14)
+    and must not abort session construction -- a missing helper disables
+    one feature, not the whole session."""
 
-    def test_wellplate_loader_failure_notifies(self):
-        import pathlib
+    def _create_with_failing_loader(self, monkeypatch, patch_target):
+        from modules.notification_center import notifications
+        from modules.scope_session import ScopeSession
 
-        source = pathlib.Path('modules/scope_session.py').read_text()
-        idx = source.find('Could not load wellplate loader:')
-        assert idx != -1, 'Wellplate loader except branch must exist'
-        nearby = source[idx : idx + 500]
-        assert 'notifications.warning' in nearby, (
-            'Wellplate loader exception must call notifications.warning (A8 -- Rule 14)'
+        captured = []
+        monkeypatch.setattr(notifications, 'warning', lambda *a, **k: captured.append(a))
+
+        def raising_loader(*args, **kwargs):
+            raise RuntimeError('config file corrupt')
+
+        monkeypatch.setattr(patch_target, raising_loader)
+        session = ScopeSession.create(
+            settings={},
+            scope=MagicMock(),
+            io_executor=MagicMock(),
+            camera_executor=MagicMock(),
         )
-        assert 'Wellplate loader unavailable' in nearby, (
-            "Notification title must be 'Wellplate loader unavailable' (A8)"
+        return session, captured
+
+    def test_wellplate_loader_failure_notifies(self, monkeypatch):
+        session, captured = self._create_with_failing_loader(
+            monkeypatch, 'modules.labware_loader.WellPlateLoader'
+        )
+        assert session is not None, 'a failed helper must not abort the session'
+        assert captured and captured[0][1] == 'Wellplate loader unavailable', (
+            f'wellplate loader failure must warn the user; got {captured}'
         )
 
-    def test_coord_transformer_failure_notifies(self):
-        import pathlib
-
-        source = pathlib.Path('modules/scope_session.py').read_text()
-        idx = source.find('Could not load coordinate transformer:')
-        assert idx != -1, 'Coordinate transformer except branch must exist'
-        nearby = source[idx : idx + 500]
-        assert 'notifications.warning' in nearby, (
-            'Coordinate transformer exception must call notifications.warning (A8)'
+    def test_coord_transformer_failure_notifies(self, monkeypatch):
+        session, captured = self._create_with_failing_loader(
+            monkeypatch, 'modules.coord_transformations.CoordinateTransformer'
         )
-        assert 'Coordinate transformer unavailable' in nearby, (
-            "Notification title must be 'Coordinate transformer unavailable' (A8)"
+        assert session is not None
+        assert captured and captured[0][1] == 'Coordinate transformer unavailable', (
+            f'coordinate transformer failure must warn the user; got {captured}'
         )
 
-    def test_objective_helper_failure_notifies(self):
-        import pathlib
-
-        source = pathlib.Path('modules/scope_session.py').read_text()
-        idx = source.find('Could not load objective helper:')
-        assert idx != -1, 'Objective helper except branch must exist'
-        nearby = source[idx : idx + 500]
-        assert 'notifications.warning' in nearby, (
-            'Objective helper exception must call notifications.warning (A8)'
+    def test_objective_helper_failure_notifies(self, monkeypatch):
+        session, captured = self._create_with_failing_loader(
+            monkeypatch, 'modules.objectives_loader.ObjectiveLoader'
         )
-        assert 'Objective helper unavailable' in nearby, (
-            "Notification title must be 'Objective helper unavailable' (A8)"
+        assert session is not None
+        assert captured and captured[0][1] == 'Objective helper unavailable', (
+            f'objective helper failure must warn the user; got {captured}'
         )
 
 
 class TestRule14_A7_HyperstackBuildNotify:
     """A7: Hyperstack build background-thread failure must notify (Rule 14)."""
 
-    def test_hyperstack_build_exception_notifies(self):
-        """create_hyperstacks_if_needed _build() must call notifications.error
-        when stack_builder.load_folder raises."""
-        import pathlib
+    def test_hyperstack_build_exception_notifies(self, monkeypatch):
+        """A raising StackBuilder.load_folder in the background build
+        thread must log the traceback AND pop 'Hyperstack build failed'
+        -- without the popup the user only ever sees the optimistic
+        'Saving Hyperstacks' info."""
+        import modules.config_ui_getters as config_ui_getters
+        from modules.notification_center import notifications
 
-        source = pathlib.Path('modules/config_ui_getters.py').read_text()
-        # Quote-style agnostic: ruff format may use single or double
-        # quotes for the message argument.
-        idx = source.find('Error building hyperstacks')
-        assert idx != -1, 'Hyperstack build exception handler must exist'
-        nearby = source[max(0, idx - 200) : idx + 500]
-        assert 'logger.exception(' in nearby, 'Hyperstack build path must call logger.exception'
-        assert 'notifications.error' in nearby, (
-            'Hyperstack build exception path must call notifications.error (A7 -- Rule 14)'
+        popped = threading.Event()
+        captured = []
+
+        def capture_error(*args, **kwargs):
+            captured.append(args)
+            popped.set()
+
+        monkeypatch.setattr(notifications, 'error', capture_error)
+        monkeypatch.setattr(notifications, 'info', lambda *a, **k: None)
+        logger_mock = MagicMock()
+        monkeypatch.setattr(config_ui_getters, 'logger', logger_mock)
+        monkeypatch.setattr(
+            config_ui_getters,
+            'get_image_capture_config_from_ui',
+            lambda: {'output_format': {'sequenced': 'OME-TIFF Hyperstack'}},
         )
-        assert 'Hyperstack build failed' in nearby, (
-            "notification title must be 'Hyperstack build failed' (A7 -- audit recommendation)"
+        monkeypatch.setattr(
+            config_ui_getters,
+            'get_current_objective_info',
+            lambda: (None, {'focal_length': 45.0}),
         )
+        monkeypatch.setattr(config_ui_getters, 'get_binning_from_ui', lambda: 1)
+        builder = MagicMock()
+        builder.return_value.load_folder.side_effect = RuntimeError('corrupt tile map')
+        monkeypatch.setattr(config_ui_getters, 'StackBuilder', builder)
+        fake_ctx = MagicMock()
+        fake_ctx.source_path = '.'
+        monkeypatch.setattr('modules.app_context.ctx', fake_ctx)
+
+        config_ui_getters.create_hyperstacks_if_needed()
+        assert popped.wait(timeout=5.0), (
+            'the background build thread must surface the failure popup'
+        )
+        assert captured[0][1] == 'Hyperstack build failed', (
+            f'notification title must name the failed operation; got {captured[0]}'
+        )
+        assert logger_mock.exception.called, (
+            'the build failure must land in the main log with a traceback'
+        )
+
+
+# ---------------------------------------------------------------------------
+# protocol_cleanup.run_cleanup behavioral-test builder
+# ---------------------------------------------------------------------------
+
+
+def _run_cleanup_kwargs(**overrides):
+    """Keyword args for protocol_cleanup.run_cleanup with MagicMock deps
+    that complete a normal (non-aborted, no-AF, LEDs-off) cleanup; tests
+    override the step or state under test."""
+    from modules.protocol_callbacks import ProtocolCallbacks
+    from modules.protocol_state_machine import ProtocolState
+
+    kwargs = {
+        'get_state_fn': MagicMock(return_value=ProtocolState.RUNNING),
+        'set_state_fn': MagicMock(),
+        'run_lock': threading.Lock(),
+        'scan_in_progress': threading.Event(),
+        'leds_state_at_end': 'off',
+        'original_led_states': {},
+        'original_autofocus_states': {},
+        'saved_camera_state': {},
+        'return_to_position': None,
+        'disable_saving_artifacts': True,
+        'protocol': MagicMock(),
+        'protocol_execution_record': None,
+        'scope': MagicMock(),
+        'callbacks': ProtocolCallbacks(),
+        'leds_off_fn': MagicMock(),
+        'led_on_fn': MagicMock(),
+        'default_move_fn': MagicMock(),
+        'cancel_scheduled_events_fn': MagicMock(),
+        'io_executor': MagicMock(),
+        'autofocus_thread': None,
+        'file_io_executor': MagicMock(),
+        'camera_executor': MagicMock(),
+        'set_run_in_progress_fn': MagicMock(),
+    }
+    kwargs.update(overrides)
+    return kwargs
 
 
 class TestRule14_A10_ProtocolCleanupErrorCollection:
     """A10: protocol_cleanup must collect cleanup errors and surface a single
     summary notification (Rule 14)."""
 
-    def test_cleanup_collects_errors(self):
-        """run_cleanup must initialize cleanup_errors list and append to it
-        on each step's exception."""
-        import pathlib
+    def test_cleanup_collects_errors(self, monkeypatch):
+        """Every failing cleanup step must be collected; no failure may
+        abort the sweep (fault tolerance -- all steps run regardless)."""
+        from modules.notification_center import notifications
+        from modules.protocol_callbacks import ProtocolCallbacks
+        from modules.protocol_cleanup import run_cleanup
 
-        source = pathlib.Path('modules/protocol_cleanup.py').read_text()
-        assert 'cleanup_errors: list[str] = []' in source, (
-            'run_cleanup must initialize cleanup_errors list (A10)'
-        )
-        # Verify each except branch appends
-        assert source.count('cleanup_errors.append') >= 6, (
-            'Each cleanup step except branch must append to cleanup_errors (A10 -- 6 steps)'
+        captured = []
+        monkeypatch.setattr(notifications, 'warning', lambda *a, **k: captured.append(a))
+        # Invoke UI-scheduled callables immediately so their raise lands in
+        # the cleanup step's try/except (headless schedule_ui swallows).
+        monkeypatch.setattr(
+            'modules.protocol_cleanup._schedule_ui', lambda fn, timeout=0: fn(0)
         )
 
-    def test_cleanup_summary_notify(self):
-        """run_cleanup must surface a single summary notification when
-        cleanup_errors is non-empty."""
-        import pathlib
+        def _raiser(label):
+            def _raise(*a, **k):
+                raise RuntimeError(f'{label} boom')
 
-        source = pathlib.Path('modules/protocol_cleanup.py').read_text()
-        idx = source.find('if cleanup_errors:')
-        assert idx != -1, 'Cleanup-errors summary block must exist'
-        nearby = source[idx : idx + 800]
-        assert 'notifications.warning' in nearby, (
-            'Cleanup-errors block must call notifications.warning (A10 -- summary, not 6 popups)'
+            return _raise
+
+        kwargs = _run_cleanup_kwargs(
+            cancel_scheduled_events_fn=_raiser('cancel'),
+            leds_off_fn=_raiser('led'),
+            callbacks=ProtocolCallbacks(
+                restore_layer_shader=_raiser('shader'),
+                restore_autofocus_state=_raiser('af'),
+            ),
+            original_autofocus_states={'BF': True},
+            saved_camera_state={'tag': 'protocol'},
+            disable_saving_artifacts=False,
+            protocol_execution_record=MagicMock(),
+            return_to_position={'x': 1.0, 'y': 2.0, 'z': 3.0},
+            default_move_fn=_raiser('move'),
         )
-        assert 'Protocol cleanup issues' in nearby, (
-            "Notification title must be 'Protocol cleanup issues' (A10)"
+        kwargs['camera_executor'].protocol_put.side_effect = RuntimeError('camera boom')
+        kwargs['file_io_executor'].protocol_put.side_effect = RuntimeError('record boom')
+        run_cleanup(**kwargs)
+
+        assert captured, 'failing cleanup steps must surface a summary notification'
+        body = captured[0][2]
+        assert '7 cleanup step(s) failed' in body, (
+            f'all seven induced failures must be collected; got: {body}'
         )
-        assert 'Check LED state, camera settings, and stage position.' in nearby, (
-            'Notification body must prompt user to verify hardware state (A10 audit recommendation)'
+        for step in (
+            'Cancel scheduled events',
+            'Restore LED states',
+            'Restore layer shader',
+            'Restore autofocus states',
+            'Restore camera gain/exposure',
+            'Complete protocol record',
+            'Return to position',
+        ):
+            assert step in body, f'step "{step}" missing from the summary; got: {body}'
+        assert kwargs['io_executor'].protocol_end.called, (
+            'the executor teardown must still run after step failures'
         )
+        kwargs['set_run_in_progress_fn'].assert_called_once_with(False)
+
+    def test_cleanup_summary_notify(self, monkeypatch):
+        """A single failing step must produce exactly one summary warning
+        (one popup, not one per step)."""
+        from modules.notification_center import notifications
+        from modules.protocol_cleanup import run_cleanup
+
+        captured = []
+        monkeypatch.setattr(notifications, 'warning', lambda *a, **k: captured.append(a))
+        kwargs = _run_cleanup_kwargs(
+            cancel_scheduled_events_fn=MagicMock(side_effect=RuntimeError('cancel boom'))
+        )
+        run_cleanup(**kwargs)
+        assert len(captured) == 1, f'exactly one summary warning expected; got {captured}'
+        assert captured[0][1] == 'Protocol cleanup issues', (
+            f"notification title must be 'Protocol cleanup issues'; got {captured[0]}"
+        )
+        assert 'Check LED state, camera settings, and stage position.' in captured[0][2], (
+            'notification body must prompt the user to verify hardware state'
+        )
+
+    def test_clean_run_does_not_notify(self, monkeypatch):
+        """Control: a cleanup with no failing step must not warn."""
+        from modules.notification_center import notifications
+        from modules.protocol_cleanup import run_cleanup
+
+        captured = []
+        monkeypatch.setattr(notifications, 'warning', lambda *a, **k: captured.append(a))
+        run_cleanup(**_run_cleanup_kwargs())
+        assert captured == [], f'clean cleanup must not notify; got {captured}'
 
 
 class TestSetBinningSizeFailureNotifies:
@@ -2946,21 +3122,28 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
             'the constructor-cached false_color_16bit must arrive at save_image'
         )
 
-    def test_sequenced_capture_runner_reads_once_at_run_start(self):
-        from pathlib import Path
+    def test_sequenced_capture_runner_reads_once_at_run_start(self, monkeypatch):
+        """run() must read false_color_16bit exactly once, under
+        settings_lock, and thread the value to the writer it constructs."""
+        from types import SimpleNamespace
 
-        src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'sequenced_capture_runner.py'
-        ).read_text()
-        # The read must happen under the settings_lock and pass through to the writer.
-        assert 'with ctx.settings_lock:' in src, (
-            'PIW-3: false_color_16bit read should be guarded by settings_lock.'
+        import modules.app_context as app_context
+
+        lock = threading.Lock()
+        settings = _LockWatchingSettings(
+            {'false_color_16bit': True}, lock, 'false_color_16bit'
         )
-        assert "false_color_16bit = ctx.settings.get('false_color_16bit', False)" in src, (
-            'PIW-3: expected single read of false_color_16bit from settings.'
+        monkeypatch.setattr(
+            app_context, 'ctx', SimpleNamespace(settings=settings, settings_lock=lock)
         )
-        assert 'false_color_16bit=false_color_16bit' in src, (
-            'PIW-3: cached value should be passed to ProtocolImageWriter.'
+        runner = _bare_capture_runner()
+        runner.run(**_scr_run_kwargs())
+        assert settings.watched_reads == [True], (
+            'PIW-3: false_color_16bit must be read exactly once per run, under '
+            f'settings_lock; reads (lock-held flags): {settings.watched_reads}'
+        )
+        assert runner._image_writer._false_color_16bit is True, (
+            'PIW-3: the run-start value must be threaded to ProtocolImageWriter'
         )
 
 
@@ -3282,73 +3465,82 @@ class TestProtocolCleanupRestoresLayerShader_ShaderHygiene:
     open).
     """
 
-    def _cleanup_src(self):
-        from pathlib import Path
-
-        return (
-            Path(__file__).resolve().parent.parent / 'modules' / 'protocol_cleanup.py'
-        ).read_text()
-
-    def _callbacks_src(self):
-        from pathlib import Path
-
-        return (
-            Path(__file__).resolve().parent.parent / 'modules' / 'protocol_callbacks.py'
-        ).read_text()
-
     def _protocol_settings_src(self):
         from pathlib import Path
 
         return (Path(__file__).resolve().parent.parent / 'ui' / 'protocol_settings.py').read_text()
 
     def test_callback_field_exists_in_protocol_callbacks(self):
-        """ProtocolCallbacks must declare a restore_layer_shader field
-        so the cleanup module can invoke it through the typed contract
-        (not a magic-string dict)."""
-        src = self._callbacks_src()
-        assert 'restore_layer_shader' in src, (
-            'ProtocolCallbacks must declare restore_layer_shader (the '
-            'sibling-of-LED-state shader-hygiene-at-transition fix)'
+        """ProtocolCallbacks must carry a restore_layer_shader callback
+        through the typed contract (not a magic-string dict)."""
+        from modules.protocol_callbacks import ProtocolCallbacks
+
+        cb = ProtocolCallbacks()
+        assert hasattr(cb, 'restore_layer_shader') and cb.restore_layer_shader is None, (
+            'ProtocolCallbacks must declare restore_layer_shader defaulting '
+            'to None (the sibling-of-LED-state shader-hygiene-at-transition fix)'
+        )
+        def wired():
+            return None
+
+        assert ProtocolCallbacks.from_dict(
+            {'restore_layer_shader': wired}
+        ).restore_layer_shader is wired, (
+            'from_dict must accept and carry the restore_layer_shader key'
         )
 
-    def test_cleanup_invokes_restore_layer_shader(self):
-        """protocol_cleanup must call callbacks.restore_layer_shader
-        on UI thread (via _schedule_ui) as part of its restore steps.
+    def test_cleanup_invokes_restore_layer_shader(self, monkeypatch):
+        """run_cleanup must invoke callbacks.restore_layer_shader through
+        the UI scheduler (Rule 15 -- the cleanup module is GUI-agnostic).
         Catches a future revert that drops the call."""
-        src = self._cleanup_src()
-        assert 'callbacks.restore_layer_shader' in src, (
-            'protocol_cleanup must invoke callbacks.restore_layer_shader'
+        from modules.protocol_callbacks import ProtocolCallbacks
+        from modules.protocol_cleanup import run_cleanup
+
+        scheduled = []
+        monkeypatch.setattr(
+            'modules.protocol_cleanup._schedule_ui',
+            lambda fn, timeout=0: scheduled.append(fn) or fn(0),
         )
-        # The invocation must be UI-thread-dispatched (Rule 15 -- the
-        # cleanup module is GUI-agnostic; UI work goes via _schedule_ui).
-        idx = src.find('callbacks.restore_layer_shader')
-        assert idx != -1
-        # The line surrounding the call should include _schedule_ui.
-        nearby = src[max(0, idx - 100) : idx + 150]
-        assert '_schedule_ui' in nearby, (
-            'restore_layer_shader call must be UI-thread-dispatched via _schedule_ui (Rule 15)'
+        shader_restore = MagicMock()
+        run_cleanup(
+            **_run_cleanup_kwargs(
+                callbacks=ProtocolCallbacks(restore_layer_shader=shader_restore)
+            )
+        )
+        assert shader_restore.called, (
+            'run_cleanup must invoke callbacks.restore_layer_shader'
+        )
+        assert scheduled, (
+            'restore_layer_shader must be UI-thread-dispatched via the '
+            'schedule_ui seam, not called inline on the protocol thread'
         )
 
-    def test_cleanup_shader_restore_protected_by_try_except(self):
-        """The shader restore must not abort the rest of cleanup if it
-        raises (fault tolerance -- all restore steps must run
-        regardless of any one failing). Sibling pattern to the LED /
-        AF / camera restore blocks."""
-        src = self._cleanup_src()
-        idx = src.find('callbacks.restore_layer_shader')
-        assert idx != -1
-        # The 200 chars before the call should contain a `try:` and the
-        # 200 chars after should contain a matching except clause that
-        # appends to cleanup_errors.
-        window = src[max(0, idx - 200) : idx + 400]
-        assert 'try:' in window, (
-            'restore_layer_shader call must be inside a try block '
-            '(fault tolerance pattern matching LED / AF / camera blocks)'
+    def test_cleanup_shader_restore_protected_by_try_except(self, monkeypatch):
+        """A raising shader restore must not abort the rest of cleanup
+        (fault tolerance) and must land in the error summary. Sibling
+        pattern to the LED / AF / camera restore blocks."""
+        from modules.notification_center import notifications
+        from modules.protocol_callbacks import ProtocolCallbacks
+        from modules.protocol_cleanup import run_cleanup
+
+        captured = []
+        monkeypatch.setattr(notifications, 'warning', lambda *a, **k: captured.append(a))
+        monkeypatch.setattr(
+            'modules.protocol_cleanup._schedule_ui', lambda fn, timeout=0: fn(0)
         )
-        assert 'cleanup_errors.append' in window, (
-            'restore_layer_shader exception path must append to '
-            'cleanup_errors so the summary notification surfaces the '
-            'failure'
+        kwargs = _run_cleanup_kwargs(
+            callbacks=ProtocolCallbacks(
+                restore_layer_shader=MagicMock(side_effect=RuntimeError('shader boom'))
+            )
+        )
+        run_cleanup(**kwargs)
+        assert kwargs['io_executor'].protocol_end.called, (
+            'cleanup steps after the shader raise must still run'
+        )
+        kwargs['set_run_in_progress_fn'].assert_called_once_with(False)
+        assert captured and 'Restore layer shader' in captured[0][2], (
+            'the shader failure must appear in the cleanup summary; '
+            f'got {captured}'
         )
 
     def test_protocol_settings_wires_restore_layer_shader_callback(self):
@@ -3525,40 +3717,59 @@ class TestPF2_FileIoExecutorClearedOnAbort:
     """
 
     def test_initial_state_captured_before_completing_transition(self):
-        from pathlib import Path
-        import re
+        """The abort/normal decision must read the state BEFORE the
+        COMPLETING transition; reading after would misclassify every
+        cleanup as normal end."""
+        from modules.protocol_cleanup import run_cleanup
+        from modules.protocol_state_machine import ProtocolState
 
-        src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'protocol_cleanup.py'
-        ).read_text()
-        # The capture must precede the COMPLETING transition so ERROR vs other states
-        # is distinguishable. Paren-style agnostic: ruff format may
-        # strip unnecessary parens around the comparison.
-        m = re.search(
-            r'is_aborted\s*=\s*\(?\s*get_state_fn\(\)\s*==\s*ProtocolState\.ERROR\s*\)?',
-            src,
+        order = []
+        state = {'value': ProtocolState.RUNNING}
+
+        def get_state():
+            order.append(('get', state['value']))
+            return state['value']
+
+        def set_state(new_state):
+            order.append(('set', new_state))
+            state['value'] = new_state
+
+        run_cleanup(**_run_cleanup_kwargs(get_state_fn=get_state, set_state_fn=set_state))
+        first_set = next(i for i, entry in enumerate(order) if entry[0] == 'set')
+        assert order[first_set][1] == ProtocolState.COMPLETING, (
+            f'the first transition must be to COMPLETING; got {order}'
         )
-        idx_capture = m.start() if m else -1
-        idx_transition = src.find('set_state_fn(ProtocolState.COMPLETING)')
-        assert idx_capture != -1, 'PF-2: cleanup should capture is_aborted from initial state.'
-        assert idx_capture < idx_transition, (
-            'PF-2: is_aborted must be captured BEFORE the COMPLETING state transition.'
+        assert any(entry[0] == 'get' for entry in order[:first_set]), (
+            'the initial state must be read before the COMPLETING transition '
+            f'so abort (ERROR) is distinguishable from normal end; got {order}'
+        )
+        assert state['value'] == ProtocolState.IDLE, (
+            f'cleanup must transition back to IDLE at the end; got {order}'
         )
 
     def test_file_io_cleared_on_abort_only(self):
-        from pathlib import Path
+        """On abort (ERROR at entry), file_io_executor pending writes are
+        dropped; on normal end they drain. io_executor clears in both."""
+        from modules.protocol_cleanup import run_cleanup
+        from modules.protocol_state_machine import ProtocolState
 
-        src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'protocol_cleanup.py'
-        ).read_text()
-        # The abort-branch clear is gated on is_aborted.
-        assert 'if is_aborted:' in src, 'PF-2: file_io clear should be gated on is_aborted.'
-        assert 'file_io_executor.clear_protocol_pending()' in src, (
-            "PF-2: cleanup should clear file_io_executor's pending queue on abort."
+        aborted = _run_cleanup_kwargs(
+            get_state_fn=MagicMock(return_value=ProtocolState.ERROR)
         )
-        # Existing unconditional clear for io_executor must still be present.
-        assert 'io_executor.clear_protocol_pending()' in src, (
-            'PF-2: io_executor.clear_protocol_pending should still be called unconditionally.'
+        run_cleanup(**aborted)
+        assert aborted['file_io_executor'].clear_protocol_pending.called, (
+            "abort cleanup must clear file_io_executor's pending queue "
+            '(queued frames pin memory and block the next protocol-start)'
+        )
+        assert aborted['io_executor'].clear_protocol_pending.called
+
+        normal = _run_cleanup_kwargs()
+        run_cleanup(**normal)
+        assert not normal['file_io_executor'].clear_protocol_pending.called, (
+            'normal completion must drain pending writes to disk, not drop them'
+        )
+        assert normal['io_executor'].clear_protocol_pending.called, (
+            'io_executor pending clear is unconditional'
         )
 
 
@@ -3789,90 +4000,47 @@ class TestFrameValidity_SaveLiveImageDrainsBeforeGrab:
         )
 
 
-def _scope_attribute_calls(source: str, func_name: str) -> set[str]:
-    """Return the set of `self._scope.<method>(...)` (or
-    `self._scope.<subapi>.<method>(...)`) attribute calls in a named function's
-    body -- the AF executor's indirect-via-_scope
-    grab pattern. Post-Wave-7 Phase 4: walks through `self._scope.imaging.<method>`
-    too -- the leaf method name is returned regardless of sub-API hop."""
-    import ast
-
-    tree = ast.parse(source)
-    target = None
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == func_name:
-            target = node
-            break
-    if target is None:
-        raise AssertionError(f'function {func_name!r} not found in source')
-    calls: set[str] = set()
-    for sub in ast.walk(target):
-        if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute):
-            value = sub.func.value
-            # match self._scope.<method>
-            if (
-                isinstance(value, ast.Attribute)
-                and value.attr == '_scope'
-                and isinstance(value.value, ast.Name)
-                and value.value.id == 'self'
-            ):
-                calls.add(sub.func.attr)
-            # match self._scope.<subapi>.<method>
-            elif (
-                isinstance(value, ast.Attribute)
-                and isinstance(value.value, ast.Attribute)
-                and value.value.attr == '_scope'
-                and isinstance(value.value.value, ast.Name)
-                and value.value.value.id == 'self'
-            ):
-                calls.add(sub.func.attr)
-    return calls
-
-
 class TestFrameValidity_AutofocusDrainsBeforeScore:
-    """AutofocusRunner._iterate must drain LED/gain/exposure-pending
+    """AutofocusRunner's scan loop must drain LED/gain/exposure-pending
     frames before scoring. Bare get_image after Z arrival can score on a
     mid-LED-warmup or mid-gain-change frame, corrupting the focus curve
     and landing the wrong best-Z. AF excludes z_move because AF is the
     controller of Z moves; once is_moving() reports idle, Z is settled."""
 
-    def test_iterate_calls_capture_and_wait(self):
-        from pathlib import Path
+    def _drive_full_af(self, monkeypatch):
+        from tests.af_drives import af_runner_and_scope, drive_af
 
-        src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'autofocus_runner.py'
-        ).read_text()
-        calls = _scope_attribute_calls(src, '_iterate')
-        assert 'capture_and_wait' in calls, (
-            'AutofocusRunner._iterate must call self._scope.imaging.capture_and_wait(...) '
+        monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 7.0)
+        runner, scope = af_runner_and_scope()
+        result = drive_af(runner)
+        return scope, result
+
+    def test_iterate_calls_capture_and_wait(self, monkeypatch):
+        scope, result = self._drive_full_af(monkeypatch)
+        assert scope.imaging.capture_and_wait.called, (
+            'the AF scan loop must grab via capture_and_wait '
             'to drain LED/gain/exposure pending frames before scoring.'
         )
+        assert result is not None, 'the drive must complete with a best-focus result'
 
-    def test_iterate_does_not_call_bare_get_image(self):
-        from pathlib import Path
-
-        src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'autofocus_runner.py'
-        ).read_text()
-        calls = _scope_attribute_calls(src, '_iterate')
-        assert 'get_image' not in calls, (
-            'AutofocusRunner._iterate must not call self._scope.imaging.get_image(...) '
-            'directly -- bypasses frame_validity. Route through capture_and_wait.'
+    def test_iterate_does_not_call_bare_get_image(self, monkeypatch):
+        scope, _ = self._drive_full_af(monkeypatch)
+        assert not scope.imaging.get_image.called, (
+            'the AF scan loop must not call get_image directly -- it '
+            'bypasses frame_validity. Route through capture_and_wait.'
         )
 
-    def test_iterate_excludes_z_move_in_validity(self):
+    def test_iterate_excludes_z_move_in_validity(self, monkeypatch):
         """AF excludes z_move because is_moving() already gates motion; the
         drain is for LED/gain/exposure transitions only."""
-        from pathlib import Path
-
-        src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'autofocus_runner.py'
-        ).read_text()
-        # both call sites must specify exclude_sources=('z_move',)
-        assert "exclude_sources=('z_move',)" in src, (
-            "AutofocusRunner._iterate's capture_and_wait calls must pass "
-            "exclude_sources=('z_move',) since is_moving() already gates motion."
-        )
+        scope, _ = self._drive_full_af(monkeypatch)
+        grabs = scope.imaging.capture_and_wait.call_args_list
+        assert grabs, 'the drive must reach the camera'
+        for grab in grabs:
+            assert grab.kwargs.get('exclude_sources') == ('z_move',), (
+                'every AF grab must pass exclude_sources=(\'z_move\',) since '
+                f'is_moving() already gates motion; got {grab}'
+            )
 
 
 class TestFrameValidity_CompositeEngineeringBranchDrains:
@@ -10276,17 +10444,28 @@ class TestProtocolCleanupLedRestoreKey:
     sentinel migration.
     """
 
-    def test_restore_uses_illumination_ma_key(self):
-        import pathlib
+    def test_restore_uses_illumination_ma_key(self, monkeypatch):
+        """Restoring an enabled LED must send the snapshot's mA value to
+        the LED on-fn; a stale-key read would raise and silently skip
+        the restore (the original swallowed-KeyError bug)."""
+        from modules.notification_center import notifications
+        from modules.protocol_cleanup import run_cleanup
 
-        src = pathlib.Path('modules/protocol_cleanup.py').read_text()
-        assert "color_data['illumination_ma']" in src, (
-            "protocol_cleanup must read the snapshot's "
-            "'illumination_ma' key when restoring LED state."
+        captured = []
+        monkeypatch.setattr(notifications, 'warning', lambda *a, **k: captured.append(a))
+        kwargs = _run_cleanup_kwargs(
+            leds_state_at_end='return_to_original',
+            original_led_states={
+                'Red': {'enabled': True, 'illumination_ma': 250.0},
+                'Green': {'enabled': False, 'illumination_ma': 80.0},
+            },
         )
-        assert "color_data['illumination']" not in src, (
-            "Stale 'illumination' key must not be read -- the snapshot "
-            "shape returns 'illumination_ma'."
+        run_cleanup(**kwargs)
+        kwargs['led_on_fn'].assert_called_once_with(
+            color='Red', illumination=250.0, block=True, force=True
+        )
+        assert captured == [], (
+            f'the snapshot-shape read must not raise into the summary; got {captured}'
         )
 
 
@@ -10384,59 +10563,69 @@ class TestAutoGainArmedInScanIterate:
     must not re-apply AG (that would restart it mid-grab).
     """
 
-    def _runner_src(self):
-        import pathlib
-
-        return pathlib.Path('modules/protocol_step_runner.py').read_text()
-
-    def _scr_src(self):
-        import pathlib
-
-        return pathlib.Path('modules/sequenced_capture_runner.py').read_text()
-
-    def _writer_src(self):
-        import pathlib
-
-        return pathlib.Path('modules/protocol_image_writer.py').read_text()
-
     def _run_loop_src(self):
         import pathlib
 
         return pathlib.Path('modules/protocol_run_loop.py').read_text()
 
     def test_armed_step_attribute_initialized_on_scr(self):
-        src = self._scr_src()
-        assert 'self._auto_gain_armed_step = -1' in src, (
+        runner = _bare_capture_runner()
+        assert runner._auto_gain_armed_step == -1, (
             'SCR.__init__ must initialize _auto_gain_armed_step to -1 '
             'so the first scan_iterate sees a fresh "not yet armed" '
             'state.'
         )
 
-    def test_run_loop_resets_armed_step_per_scan(self):
-        src = self._run_loop_src()
-        assert 'p._auto_gain_armed_step = -1' in src, (
-            'protocol_run_loop must reset _auto_gain_armed_step '
-            'alongside _auto_gain_deadline at the start of each scan '
-            'so a re-run does not skip AG arming.'
+    @staticmethod
+    def _queued_ag_applies(runner):
+        return [
+            c.args[0]
+            for c in runner._io_executor.protocol_put.call_args_list
+            if c.args[0].action is runner._scope.imaging.apply_layer_camera_settings
+        ]
+
+    def test_run_loop_resets_armed_step_per_scan(self, monkeypatch):
+        """Each scan must re-arm AG: a two-scan run queues the AG apply
+        twice. Without the per-scan armed-step reset, scan 2 would
+        inherit scan 1's arm and skip arming entirely."""
+        from tests.protocol_drives import protocol_step, run_loop_ready_runner
+
+        monkeypatch.setattr(
+            'modules.config_helpers.get_ag_ae_max_exposure_ms',
+            lambda color, settings: 123.0,
+        )
+        runner = run_loop_ready_runner(protocol_step(Auto_Gain=True), n_scans=2)
+        runner._run_loop_executor.run_loop()
+        assert runner._scan_count == 2, 'both scans must complete'
+        assert len(self._queued_ag_applies(runner)) == 2, (
+            'each scan must arm AG once -- the armed-step guard must reset '
+            'at scan start so a re-run does not skip AG arming'
         )
 
-    def test_arm_block_routes_apply_through_io_executor(self):
-        src = self._runner_src()
-        # Bound the arm block from its `if` to the stable marker that follows
-        # it (the autofocus Z-update comment), so the slice tracks the real
-        # block rather than a fixed char count.
-        arm_idx = src.find("if step['Auto_Gain'] and p._auto_gain_armed_step != p._curr_step:")
-        assert arm_idx >= 0, 'AG-arm block must exist in scan_iterate.'
-        end_idx = src.find('# Update Z position with autofocus results', arm_idx)
-        assert end_idx > arm_idx, 'arm block end marker not found after arm block.'
-        block = src[arm_idx:end_idx]
-        assert 'p._scope.imaging.apply_layer_camera_settings' in block, (
-            'Arm block must call apply_layer_camera_settings (the same path live-mode AE/AG uses).'
+    def test_arm_block_routes_apply_through_io_executor(self, monkeypatch):
+        """An Auto_Gain step's arm tick must route the AG apply through
+        io_executor.protocol_put (serialized with other protocol-thread
+        IO) with the step's gain/exposure and the per-class exposure cap
+        set on the shared settings dict."""
+        from tests.protocol_drives import protocol_step, scan_ready_runner
+
+        monkeypatch.setattr(
+            'modules.config_helpers.get_ag_ae_max_exposure_ms',
+            lambda color, settings: 123.0,
         )
-        assert "'auto_gain': True" in block, 'Arm block must pass auto_gain=True.'
-        assert 'IOTask' in block and 'protocol_put' in block, (
-            'Arm block must route through io_executor.protocol_put so '
-            'the apply is serialized with other protocol-thread IO.'
+        runner = scan_ready_runner(protocol_step(Auto_Gain=True))
+        runner._step_executor.scan_iterate()
+        applies = self._queued_ag_applies(runner)
+        assert len(applies) == 1, (
+            'the arm tick must queue exactly one AG apply on the io executor'
+        )
+        task = applies[0]
+        assert task.kwargs['auto_gain'] is True, 'the apply must arm continuous AG'
+        assert task.kwargs['gain_db'] == 2.0 and task.kwargs['exposure_ms'] == 10.0, (
+            "the apply must carry the step's gain/exposure"
+        )
+        assert task.kwargs['auto_gain_settings']['max_exposure_ms'] == 123.0, (
+            'the per-class AG/AE exposure cap must be set before arming'
         )
 
     @staticmethod
@@ -10481,31 +10670,30 @@ class TestAutoGainArmedInScanIterate:
         imaging.set_gain.assert_called_once_with(2.0)
         imaging.set_exposure_time.assert_called_once_with(10.0)
 
-    def test_arm_block_returns_after_arming(self):
-        """The arm block must `return` after arming so the next scan_iterate
-        tick falls through to capture, where the auto_gain settle drain runs
-        against the now-lit scene. Without the return, capture could run in the
-        same tick the LED was just lit.
-        """
-        src = self._runner_src()
-        arm_marker = "if step['Auto_Gain'] and p._auto_gain_armed_step != p._curr_step:"
-        arm_idx = src.find(arm_marker)
-        assert arm_idx >= 0
-        # Bound the arm block by the stable marker that follows it (the
-        # autofocus Z-update comment) so the slice tracks the real block.
-        end_idx = src.find('# Update Z position with autofocus results', arm_idx)
-        assert end_idx > arm_idx, 'arm block end marker not found after arm block.'
-        arm_block = src[arm_idx:end_idx]
-        # Look for a bare `return` on its own indented line inside the arm
-        # block body (indented 12 spaces -- inside an if inside the function).
-        return_lines = [
-            line
-            for line in arm_block.splitlines()
-            if line.strip() == 'return' and line.startswith(' ' * 12)
-        ]
-        assert len(return_lines) >= 1, (
-            'Arm block must `return` after arming AG so the next '
-            'scan_iterate tick falls through to capture.'
+    def test_arm_block_returns_after_arming(self, monkeypatch):
+        """The arm tick must NOT capture -- the next scan_iterate tick
+        falls through to capture, where the auto_gain settle drain runs
+        against the now-lit scene. Without the deferral, capture could
+        run in the same tick the LED was just lit."""
+        from tests.protocol_drives import protocol_step, scan_ready_runner
+
+        monkeypatch.setattr(
+            'modules.config_helpers.get_ag_ae_max_exposure_ms',
+            lambda color, settings: 123.0,
+        )
+        runner = scan_ready_runner(
+            protocol_step(Auto_Gain=True),
+            _disable_saving_artifacts=False,
+            _run_dir=MagicMock(),
+        )
+        runner._step_executor.scan_iterate()
+        assert runner._auto_gain_armed_step == 0, 'the arm must be recorded for the step'
+        assert not runner._image_writer.capture.called, (
+            'the arm tick must return before capture'
+        )
+        runner._step_executor.scan_iterate()
+        assert runner._image_writer.capture.called, (
+            'the tick after arming must fall through to capture'
         )
 
     def test_run_loop_does_not_reset_deadline_at_scan_start(self):
@@ -10939,11 +11127,25 @@ class TestHeadlessSettingsResolutionMatchesGui:
 
         return pathlib.Path('modules/scope_session.py').read_text()
 
-    def test_headless_fallback_uses_resolver(self):
-        assert '_resolve_settings_path' in self._src(), (
-            'create_headless settings fallback must resolve via '
-            '_resolve_settings_path (current.json first) so headless matches '
-            'the GUI; a direct settings.json open ignores live current.json state.'
+    def test_headless_fallback_uses_resolver(self, monkeypatch, tmp_path):
+        """With no settings loaded, create_headless must resolve the same
+        file the GUI reads -- current.json first -- so headless state
+        matches the running app."""
+        import json
+
+        import modules.settings_init as settings_init
+        from modules.scope_session import ScopeSession
+
+        monkeypatch.setattr(settings_init, 'settings', None)
+        (tmp_path / 'data').mkdir()
+        (tmp_path / 'data' / 'current.json').write_text(json.dumps({'marker': 'from-current'}))
+        (tmp_path / 'data' / 'settings.json').write_text(
+            json.dumps({'marker': 'from-settings'})
+        )
+        session = ScopeSession.create_headless(source_path=str(tmp_path))
+        assert session.settings.get('marker') == 'from-current', (
+            'the headless fallback must pick current.json (live state) over '
+            f'settings.json; got {session.settings}'
         )
 
     def test_headless_fallback_does_not_hardcode_settings_json_only(self):
@@ -10966,36 +11168,38 @@ class TestAutogainSettingsSnapshottedAtRunStart:
     the runner.
     """
 
-    def test_autogain_settings_deepcopied_in_run(self):
-        # Drive the runner up to the autogain_settings assignment in run()
-        # by inspecting the source -- a full run() call requires the whole
-        # protocol-thread context. The audit's recommendation is the
-        # 1-line copy.deepcopy(autogain_settings) at assignment site.
-        import pathlib
+    def _run_halted_at_artifact_init(self, monkeypatch, autogain_settings):
+        """Drive run() through the autogain snapshot, halting at the
+        artifact-init stage so no run loop is dispatched."""
+        runner = _bare_capture_runner()
+        monkeypatch.setattr(
+            runner,
+            '_init_for_new_scan',
+            lambda max_scans: {'status': False, 'data': None, 'error': 'test halt'},
+        )
+        runner.run(**_scr_run_kwargs(autogain_settings=autogain_settings))
+        return runner
 
-        src = pathlib.Path('modules/sequenced_capture_runner.py').read_text()
-        idx = src.find('self._autogain_settings =')
-        assert idx >= 0
-        # Look at the next ~150 chars (the assignment + neighborhood).
-        block = src[idx : idx + 150]
-        assert 'copy.deepcopy(autogain_settings)' in block, (
-            'self._autogain_settings must be assigned via copy.deepcopy '
-            'so mid-run UI mutations do not leak into the in-flight scan '
-            '(audit F15). Got: ' + block[:200]
+    def test_autogain_settings_deepcopied_in_run(self, monkeypatch):
+        """Mutating the caller's dict after run() snapshots it must not
+        leak into the in-flight scan (audit F15)."""
+        src = {'target_brightness': 0.3, 'limits': {'max_gain_db': 10}}
+        runner = self._run_halted_at_artifact_init(monkeypatch, src)
+        src['target_brightness'] = 0.9
+        src['limits']['max_gain_db'] = 99
+        assert runner._autogain_settings['target_brightness'] == 0.3, (
+            'top-level mid-run mutation must not reach the runner snapshot'
+        )
+        assert runner._autogain_settings['limits']['max_gain_db'] == 10, (
+            'nested mid-run mutation must not reach the runner snapshot (deepcopy)'
         )
 
-    def test_autogain_settings_none_safe(self):
-        # When the caller passes autogain_settings=None (rare but the
-        # parameter signature allows it), the snapshot must not raise --
-        # falls through to {} so the AG path sees an empty dict.
-        import pathlib
-
-        src = pathlib.Path('modules/sequenced_capture_runner.py').read_text()
-        idx = src.find('self._autogain_settings =')
-        block = src[idx : idx + 200]
-        assert 'autogain_settings is not None' in block or 'autogain_settings or {}' in block, (
-            'autogain_settings None-guard must exist so deepcopy(None) '
-            'cannot raise. Got: ' + block[:200]
+    def test_autogain_settings_none_safe(self, monkeypatch):
+        """autogain_settings=None (the signature allows it) must snapshot
+        to an empty dict, not raise."""
+        runner = self._run_halted_at_artifact_init(monkeypatch, None)
+        assert runner._autogain_settings == {}, (
+            'None must fall through to {} so the AG path sees an empty dict'
         )
 
 
@@ -11084,42 +11288,79 @@ class TestBfAfForFluorescenceSnapshottedAtRunStart:
     the snapshot via getattr(p, '_bf_af_for_fluorescence', False).
     """
 
-    def test_runner_snapshots_bf_af_for_fluorescence_attr(self):
-        # Static-source check: the runner's run() body must contain
-        # a snapshot assignment of self._bf_af_for_fluorescence.
-        import pathlib
+    def test_runner_snapshots_bf_af_for_fluorescence_attr(self, monkeypatch):
+        """run() must snapshot bf_af_for_fluorescence onto the runner,
+        under settings_lock, immune to mid-run toggles."""
+        from types import SimpleNamespace
 
-        src = pathlib.Path('modules/sequenced_capture_runner.py').read_text()
-        assert 'self._bf_af_for_fluorescence' in src, (
-            'SequencedCaptureRunner.run() must snapshot '
-            'bf_af_for_fluorescence onto self for per-tick reads.'
+        import modules.app_context as app_context
+
+        lock = threading.Lock()
+        settings = _LockWatchingSettings(
+            {'protocol': {'bf_af_for_fluorescence': True}}, lock, 'protocol'
         )
-        # The snapshot must take settings_lock (alongside false_color_16bit).
-        idx = src.find('self._bf_af_for_fluorescence =')
-        assert idx >= 0
-        # Look backwards ~300 chars; settings_lock should appear there.
-        ctx_block = src[max(0, idx - 300) : idx + 200]
-        assert 'settings_lock' in ctx_block, (
-            'bf_af_for_fluorescence snapshot must be taken under '
-            'settings_lock for consistent UI/protocol-thread read.'
+        monkeypatch.setattr(
+            app_context, 'ctx', SimpleNamespace(settings=settings, settings_lock=lock)
+        )
+        runner = _bare_capture_runner()
+        runner.run(**_scr_run_kwargs())
+        assert runner._bf_af_for_fluorescence is True, (
+            'run() must snapshot bf_af_for_fluorescence onto self for per-tick reads'
+        )
+        assert settings.watched_reads == [True], (
+            'the protocol-settings read must happen exactly once, under settings_lock; '
+            f'reads (lock-held flags): {settings.watched_reads}'
+        )
+        settings['protocol']['bf_af_for_fluorescence'] = False
+        assert runner._bf_af_for_fluorescence is True, (
+            'mid-run toggles must not retro-affect the run-start snapshot'
         )
 
-    def test_protocol_step_runner_reads_from_snapshot(self):
-        # Static-source check: protocol_step_runner.scan_iterate must
-        # read from p._bf_af_for_fluorescence (the runner snapshot),
-        # not from ctx.settings directly.
-        import pathlib
+    def test_protocol_step_runner_reads_from_snapshot(self, monkeypatch):
+        """scan_iterate must follow the runner's run-start snapshot even
+        when ctx.settings says the opposite -- proving the per-tick read
+        comes from the snapshot, not from ctx.settings."""
+        from types import SimpleNamespace
 
-        src = pathlib.Path('modules/protocol_step_runner.py').read_text()
-        assert "p, '_bf_af_for_fluorescence'" in src or 'p._bf_af_for_fluorescence' in src, (
-            'protocol_step_runner.scan_iterate must read '
-            'bf_af_for_fluorescence from the runner snapshot, '
-            'not from ctx.settings each tick.'
+        import modules.app_context as app_context
+        from tests.protocol_drives import protocol_step, scan_ready_runner
+
+        step = protocol_step(Auto_Focus=True, Color='Red')
+
+        # Snapshot ON, ctx OFF: the fluorescence step must reuse the BF
+        # AF result instead of starting its own AF run.
+        monkeypatch.setattr(
+            app_context,
+            'ctx',
+            SimpleNamespace(
+                settings={'protocol': {'bf_af_for_fluorescence': False}},
+                settings_lock=threading.Lock(),
+            ),
         )
-        # The old per-tick settings.get path must be gone.
-        assert "ctx.settings.get('protocol', {}).get('bf_af_for_fluorescence'" not in src, (
-            'Per-tick ctx.settings read for bf_af_for_fluorescence '
-            'must be removed (replaced by snapshot read).'
+        runner = scan_ready_runner(
+            step, _bf_af_for_fluorescence=True, _update_z_pos_from_autofocus=True
+        )
+        runner._autofocus_runner.best_focus_position.return_value = 555.0
+        runner._step_executor.scan_iterate()
+        assert not runner.autofocus_thread.run_autofocus.called, (
+            'with the snapshot ON, the fluorescence step must skip its own AF'
+        )
+        runner._protocol.modify_step_z_height.assert_called_once_with(step_idx=0, z=555.0)
+
+        # Control -- snapshot OFF, ctx ON: the step runs its own AF.
+        monkeypatch.setattr(
+            app_context,
+            'ctx',
+            SimpleNamespace(
+                settings={'protocol': {'bf_af_for_fluorescence': True}},
+                settings_lock=threading.Lock(),
+            ),
+        )
+        control = scan_ready_runner(step, _bf_af_for_fluorescence=False)
+        control._step_executor.scan_iterate()
+        assert control.autofocus_thread.run_autofocus.called, (
+            'with the snapshot OFF, the step must run its own AF -- the '
+            'opposite ctx value proves ctx.settings is not consulted per tick'
         )
 
 
@@ -11136,36 +11377,29 @@ class TestRunPreValidationFiresNotificationOnException:
     error, fire notifications.error popup, return.
     """
 
-    def test_validate_for_run_exception_fires_notification_and_returns(self):
-        # Static-source check: the except branch for validate_for_run
-        # must call notifications.error + return, not just log warning.
-        import pathlib
+    def test_validate_for_run_exception_fires_notification_and_returns(self, monkeypatch):
+        """A raising validate_for_run must pop a user-facing error and
+        abort the run -- not log a warning and proceed anyway."""
+        from modules.notification_center import notifications
 
-        src = pathlib.Path('modules/sequenced_capture_runner.py').read_text()
-        # Find the validate_for_run try block + its except handler.
-        try_idx = src.find('validation_errors = protocol.validate_for_run')
-        assert try_idx >= 0
-        # Look at the next ~2500 chars (the except branch should follow).
-        block = src[try_idx : try_idx + 2500]
-        # The block must contain the notifications.error call AND the
-        # return after the exception is caught.
-        except_idx = block.find('except Exception')
-        assert except_idx >= 0, 'validate_for_run try block must have except handler'
-        except_block = block[except_idx:]
-        assert 'notifications.error' in except_block, (
+        captured = []
+        monkeypatch.setattr(notifications, 'error', lambda *a, **k: captured.append(a))
+        runner = _bare_capture_runner()
+        kwargs = _scr_run_kwargs()
+        kwargs['protocol'].validate_for_run.side_effect = OSError('labware load failed')
+        runner.run(**kwargs)
+        assert captured, (
             'validate_for_run exception path must fire notifications.error '
             '(not just log warning) so the user sees the failure popup.'
         )
-        # Old anti-pattern: "Proceeding anyway." -- must be gone.
-        assert 'Proceeding anyway' not in except_block, (
-            'validate_for_run exception path must NOT proceed past the '
-            'failure (old anti-pattern: log warning + fall through).'
+        assert captured[0][1] == 'Cannot validate protocol', (
+            f"notification title must be 'Cannot validate protocol'; got {captured[0]}"
         )
-        # Must return early so the run does not start.
-        assert (
-            'return' in except_block.split('\n', 30)[0:30].__str__()
-            or 'return' in except_block[:600]
-        ), 'validate_for_run exception path must return early after firing the notification.'
+        assert not runner._scope.are_all_connected.called, (
+            'run must return at the validation failure, not fall through '
+            'to the connectivity check (old anti-pattern: proceed anyway)'
+        )
+        assert not runner._run_in_progress_event.is_set(), 'run must not start'
 
 
 class TestCompositeOrchestrationByteEqualManualVsProtocol:
@@ -12104,23 +12338,26 @@ class TestSequentialIoExecutorWaitForIdle_F7:
             Path(__file__).resolve().parent.parent / 'modules' / 'sequential_io_executor.py'
         ).read_text()
 
-    def _cleanup_src(self):
-        from pathlib import Path
+    def test_wait_for_idle_bounds_the_drain_wait(self):
+        """wait_for_idle must report False within the timeout while the
+        worker is mid-task (bounded, never indefinite) and True promptly
+        once the worker is idle."""
+        import time as _time
 
-        return (
-            Path(__file__).resolve().parent.parent / 'modules' / 'protocol_cleanup.py'
-        ).read_text()
+        from modules.sequential_io_executor import SequentialIOExecutor
 
-    def test_wait_for_idle_method_exists(self):
-        """The executor must expose `wait_for_idle(timeout=...)`."""
-        import re
-
-        src = self._executor_src()
-        assert re.search(r'def wait_for_idle\s*\(self', src), (
-            'F7 regression: SequentialIOExecutor must expose '
-            'wait_for_idle(timeout=...) so callers can bound the '
-            'mid-task drain wait instead of relying on a magic-number '
-            'sleep in protocol_end.'
+        executor = SequentialIOExecutor(name='F7-TEST')
+        executor.running_task = object()
+        start = _time.monotonic()
+        assert executor.wait_for_idle(timeout=0.05) is False, (
+            'a worker still mid-task at the timeout must report False'
+        )
+        assert _time.monotonic() - start < 2.0, (
+            'the wait must be bounded by the timeout, not block teardown'
+        )
+        executor.running_task = None
+        assert executor.wait_for_idle(timeout=0.5) is True, (
+            'an idle worker must report True'
         )
 
     def test_protocol_end_does_not_sleep(self):
@@ -12146,28 +12383,25 @@ class TestSequentialIoExecutorWaitForIdle_F7:
 
     def test_protocol_cleanup_calls_wait_for_idle(self):
         """`protocol_cleanup` must call `wait_for_idle` on the
-        io_executor immediately after `protocol_end`. The order is
-        load-bearing -- protocol_end clears the running flag, then the
-        wait ensures any task that was running before that point
-        completes before downstream state is mutated."""
-        import re
+        io_executor after `protocol_end`. The order is load-bearing --
+        protocol_end clears the running flag, then the wait ensures any
+        task that was running before that point completes before
+        downstream state is mutated."""
+        from modules.protocol_cleanup import run_cleanup
 
-        src = self._cleanup_src()
-        # Search across newlines + intervening lines for the sequence.
-        sequence = re.search(
-            r'io_executor\.protocol_end\s*\(\s*\).*?'
-            r'io_executor\.wait_for_idle\s*\(',
-            src,
-            re.DOTALL,
+        kwargs = _run_cleanup_kwargs()
+        run_cleanup(**kwargs)
+        io_calls = [c[0] for c in kwargs['io_executor'].method_calls]
+        assert 'protocol_end' in io_calls and 'wait_for_idle' in io_calls, (
+            'cleanup must call both protocol_end and wait_for_idle on '
+            f'the io_executor; got {io_calls}'
         )
-        assert sequence is not None, (
-            'F7 regression: protocol_cleanup must call '
-            'io_executor.wait_for_idle(timeout=...) after '
-            'io_executor.protocol_end() so an in-flight task on the '
-            'io_executor worker is given bounded time to finish '
-            'before downstream teardown mutates state the task may '
-            'reference.'
+        assert io_calls.index('protocol_end') < io_calls.index('wait_for_idle'), (
+            'wait_for_idle must follow protocol_end so an in-flight task '
+            'is given bounded time to finish before downstream teardown '
+            f'mutates state the task may reference; got {io_calls}'
         )
+        kwargs['io_executor'].wait_for_idle.assert_called_once_with(timeout=2.0)
 
 
 class TestShowPopupHostWidgetProxy_F9:
