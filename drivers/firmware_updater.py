@@ -1072,6 +1072,10 @@ def nuke_board(
     After nuke, the board will appear as RPI-RP2 USB mass storage
     and is ready for a fresh UF2 flash.
 
+    No caller exists on the 4.0 line; the full-reflash recovery flow
+    on the 4.1 development line calls this. Not dead code -- a caller
+    search in this branch alone is misleading.
+
     Args:
         board_type: BoardType.LED or BoardType.MOTOR
         nuke_uf2_path: Path to flash_nuke UF2 (RP2040 or RP2350)

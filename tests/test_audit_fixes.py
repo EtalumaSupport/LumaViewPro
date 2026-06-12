@@ -1221,17 +1221,21 @@ class TestIssue605_AccordionLEDProtocol:
     Fix: skip leds_off when protocol_led_on setting is active.
     """
 
-    def test_accordion_collapse_has_protocol_led_on_guard(self):
-        """accordion_collapse source must check protocol_led_on setting."""
+    def test_accordion_collapse_skips_led_cleanup_during_protocol(self):
+        """accordion_collapse must skip its LED cleanup while a protocol is
+        running, so a step's LED (turned on for 'Protocol LEDs On') is not
+        killed by the accordion-collapse event that fires when the step's
+        channel is expanded (#605). The cleanup is gated on
+        protocol_running.is_set()."""
         import pathlib
 
         source = pathlib.Path('ui/image_settings.py').read_text()
-        # Find the accordion_collapse method body
-        assert 'protocol_led_on' in source, (
-            'accordion_collapse must check protocol_led_on setting (#605)'
-        )
-        assert 'scope_leds_off' in source, (
-            'accordion_collapse must still call scope_leds_off when protocol_led_on is False'
+        idx = source.find('def _do_accordion_collapse')
+        assert idx != -1
+        body = source[idx : idx + 2500]
+        assert 'protocol_running.is_set()' in body, (
+            'accordion_collapse must skip LED cleanup when a protocol is '
+            'running so the step LED stays on (#605)'
         )
 
 
@@ -3568,8 +3572,11 @@ class TestCaptureAndWaitPassesChunksToValidity:
             Path(__file__).resolve().parent.parent / 'modules' / 'lumascope_api' / 'imaging.py'
         ).read_text()
         body = _function_source(src, 'capture_and_wait')
-        # Source mentions count_frame call site with chunk_data kwarg
-        assert 'count_frame(chunk_data=' in body, (
+        # Source mentions count_frame call site with chunk_data kwarg.
+        # Whitespace-tolerant: the call site reflows as arguments are added
+        # (frame_ts identity dedupe), so match the kwarg wiring itself.
+        flat = ' '.join(body.split())
+        assert 'count_frame(' in flat and 'chunk_data=self._get_latest_chunks()' in flat, (
             'capture_and_wait must call count_frame(chunk_data=...) in the '
             'drain loop so chunk-match can clear gain/exposure pending.'
         )
@@ -8516,11 +8523,44 @@ class TestSCEResetSignalsAbort:
         runner.reset()
 
         runner.protocol_thread.abort.assert_called_once()
+
+    def test_reset_defers_cleanup_to_protocol_thread_when_running(self):
+        """Cleanup (queued LED-off, camera restore, return-to-position
+        futures) must NOT run on the caller while the run loop is alive --
+        a UI abort calls reset() on the Kivy main thread, and running the
+        teardown inline froze the GUI for the duration of the queued moves.
+        The run loop's finally-block owns cleanup on the protocol thread."""
+        runner = self._make_runner()
+        runner._run_in_progress_event.set()
+        runner.protocol_thread.is_running = True
+        runner._cleanup = MagicMock()
+
+        runner.reset()
+
+        runner.protocol_thread.abort.assert_called_once()
+        runner._cleanup.assert_not_called()
+
+    def test_reset_falls_back_inline_when_thread_not_running(self):
+        """With the run flagged in progress but no live run loop (dispatch
+        failed / thread died before its finally), reset() must still clean
+        up so run state is not orphaned."""
+        runner = self._make_runner()
+        runner._run_in_progress_event.set()
+        runner.protocol_thread.is_running = False
+        runner._cleanup = MagicMock()
+
+        runner.reset()
+
         runner._cleanup.assert_called_once()
 
     def test_reset_abort_called_before_cleanup(self):
+        """Abort must precede any teardown so cleanup never races the
+        in-flight scan step (exercised on the inline-fallback path; the
+        deferred path orders abort before the run loop's own cleanup by
+        construction)."""
         runner = self._make_runner()
         runner._run_in_progress_event.set()
+        runner.protocol_thread.is_running = False
 
         order: list[str] = []
         runner.protocol_thread.abort.side_effect = lambda: order.append('abort')
@@ -8529,6 +8569,23 @@ class TestSCEResetSignalsAbort:
         runner.reset()
 
         assert order == ['abort', 'cleanup'], f'abort must be called before cleanup; got {order}'
+
+    def test_wait_for_run_idle_returns_true_when_idle(self):
+        runner = self._make_runner()
+        assert runner.wait_for_run_idle(timeout_s=0.2) is True
+
+    def test_wait_for_run_idle_times_out_while_run_unwinds(self):
+        runner = self._make_runner()
+        runner._run_in_progress_event.set()
+        assert runner.wait_for_run_idle(timeout_s=0.2) is False
+
+    def test_wait_for_run_idle_returns_when_cleanup_clears_flag(self):
+        import threading
+
+        runner = self._make_runner()
+        runner._run_in_progress_event.set()
+        threading.Timer(0.1, runner._run_in_progress_event.clear).start()
+        assert runner.wait_for_run_idle(timeout_s=2.0) is True
 
     def test_reset_noop_when_no_run_in_progress(self):
         runner = self._make_runner()

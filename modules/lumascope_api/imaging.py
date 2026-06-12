@@ -173,6 +173,11 @@ class ImagingAPI:
         self._capture_return = None
         self._autofocus_return = None
 
+        # Evidence about the most recent capture_and_wait (hold duration,
+        # drained frame count, chunk-verified exposure / gain). Read via
+        # last_capture_info by callers that log per-capture provenance.
+        self._last_capture_info = None
+
         # When True, programmatic value-range warnings (sub-0.1ms exposure,
         # future similar setters) are silenced. Internal callers that sweep
         # full ranges (camera characterization, dynamic-range tests) enter
@@ -390,6 +395,29 @@ class ImagingAPI:
         except Exception:
             return None
 
+    def _chunk_target_mismatch(self) -> str | None:
+        """Name the first chunk-validatable source whose latest frame chunk
+        does not match its recorded target, or None if all match.
+
+        None also covers every can't-verify case (no chunk support, chunk
+        key absent, no target recorded) -- absence of evidence is not a
+        mismatch, and cameras without chunks rely on skip-count settling.
+        """
+        chunks = self._get_latest_chunks()
+        if not chunks:
+            return None
+        fv = self.frame_validity
+        for source in fv.CHUNK_VALIDATABLE_SOURCES:
+            key = fv.CHUNK_KEY_FOR_SOURCE.get(source)
+            value = chunks.get(key) if key else None
+            if value is None:
+                continue
+            if fv.target(source) is None:
+                continue
+            if not fv.chunk_match(source, value):
+                return source
+        return None
+
     # --- Setters ---
     def set_gain(self, gain_db: float) -> None:
         """Set the camera gain.
@@ -407,16 +435,30 @@ class ImagingAPI:
         # listener + info log, where a missed redundant update is harmless.
         changed = abs(float(gain_db) - self.camera_gain) >= 0.001
         with self._cam_lock:
-            self._driver.gain(gain_db)
+            ok = self._driver.gain(gain_db)
         self.frame_validity.invalidate('gain')
-        # Record requested gain so capture_and_wait's chunk-match can clear
-        # the pending source once a frame's ChunkGain matches.
-        self.frame_validity.set_target('gain', float(gain_db))
-        with self._camera_cache_lock:
-            self._camera_cache['gain_db'] = float(gain_db)
-        if changed:
-            _api_log.info(f'set_gain {gain_db}dB')
-            self._fire_camera_listeners('gain', float(gain_db))
+        if ok is False:
+            # Confirmed hardware rejection (drivers without a confirmation
+            # signal return None). Frames keep streaming at the OLD gain,
+            # and IDS has no chunk backstop to catch the mismatch
+            # downstream -- surface it instead of recording the requested
+            # value as truth in the cache.
+            notifications.error(
+                'Camera',
+                'Camera Setting Not Applied',
+                f'The camera rejected the gain change to {float(gain_db):.1f} dB. '
+                'Captures will continue at the previous gain. Check that '
+                'the value is within the camera limits.',
+            )
+        else:
+            # Record requested gain so capture_and_wait's chunk-match can
+            # clear the pending source once a frame's ChunkGain matches.
+            self.frame_validity.set_target('gain', float(gain_db))
+            with self._camera_cache_lock:
+                self._camera_cache['gain_db'] = float(gain_db)
+            if changed:
+                _api_log.info(f'set_gain {gain_db}dB')
+                self._fire_camera_listeners('gain', float(gain_db))
 
     def set_exposure_time(self, exposure_ms: float) -> None:
         """Set the camera exposure time.
@@ -449,17 +491,32 @@ class ImagingAPI:
                 f'Call stack:\n{_caller}'
             )
         with self._cam_lock:
-            self._driver.exposure_t(exposure_ms)
+            ok = self._driver.exposure_t(exposure_ms)
         self.frame_validity.invalidate('exposure')
-        # Record requested exposure for chunk-match. ChunkExposureTime is
-        # microseconds; the API takes milliseconds. Convert at the seam so
-        # the chunk value and frame_validity's tolerance share units.
-        self.frame_validity.set_target('exposure', float(exposure_ms) * 1000.0)
-        with self._camera_cache_lock:
-            self._camera_cache['exposure_ms'] = float(exposure_ms)
-        if changed:
-            _api_log.info(f'set_exposure {exposure_ms}ms')
-            self._fire_camera_listeners('exposure', float(exposure_ms))
+        if ok is False:
+            # Confirmed hardware rejection (drivers without a confirmation
+            # signal return None). Frames keep streaming at the OLD
+            # exposure, and IDS has no chunk backstop to catch the
+            # mismatch downstream -- surface it instead of recording the
+            # requested value as truth in the cache.
+            notifications.error(
+                'Camera',
+                'Camera Setting Not Applied',
+                f'The camera rejected the exposure change to {float(exposure_ms):g} ms. '
+                'Captures will continue at the previous exposure. Check '
+                'that the value is within the camera limits.',
+            )
+        else:
+            # Record requested exposure for chunk-match. ChunkExposureTime
+            # is microseconds; the API takes milliseconds. Convert at the
+            # seam so the chunk value and frame_validity's tolerance share
+            # units.
+            self.frame_validity.set_target('exposure', float(exposure_ms) * 1000.0)
+            with self._camera_cache_lock:
+                self._camera_cache['exposure_ms'] = float(exposure_ms)
+            if changed:
+                _api_log.info(f'set_exposure {exposure_ms}ms')
+                self._fire_camera_listeners('exposure', float(exposure_ms))
 
     def set_auto_gain(self, state: bool, settings: dict) -> None:
         """Enable or disable automatic gain adjustment.
@@ -1351,6 +1408,7 @@ class ImagingAPI:
         if not self._driver or not self._driver.active:
             return None
 
+        hold_start = time.monotonic()
         exposure_s = self.get_exposure_time() / 1000
         grab_timeout_s = max(exposure_s * 3, 1.0)
 
@@ -1358,12 +1416,16 @@ class ImagingAPI:
         # Per-frame chunk metadata flows into count_frame so chunks short-
         # circuit skip-frames for chunk-validatable sources (gain, exposure).
         # Cameras without chunks return None and fall back to the existing
-        # skip-frames + settle-check path.
+        # skip-frames + settle-check path. Each drained grab passes its frame
+        # timestamp so a frame concurrently counted by the preview poller is
+        # not counted twice.
         drain_iterations = 0
         while self.frame_validity.frames_until_valid(exclude_sources=exclude_sources) > 0:
-            status, _ = self._driver.grab_new_capture(timeout_s=grab_timeout_s)
+            status, drain_frame_ts = self._driver.grab_new_capture(timeout_s=grab_timeout_s)
             if status:
-                self.frame_validity.count_frame(chunk_data=self._get_latest_chunks())
+                self.frame_validity.count_frame(
+                    chunk_data=self._get_latest_chunks(), frame_ts=drain_frame_ts
+                )
                 drain_iterations += 1
             else:
                 remaining = self.frame_validity.frames_until_valid(exclude_sources=exclude_sources)
@@ -1381,7 +1443,7 @@ class ImagingAPI:
                 )
                 return False
 
-        return self.get_image(
+        image = self.get_image(
             force_to_8bit=force_to_8bit,
             earliest_image_ts=earliest_image_ts,
             all_ones_check=all_ones_check,
@@ -1391,7 +1453,21 @@ class ImagingAPI:
             sum_iteration_callback=sum_iteration_callback,
             force_new_capture=True,
             new_capture_timeout_s=grab_timeout_s,
+            verify_chunk_targets=True,
         )
+
+        # Record per-capture evidence for the caller's log line (protocol
+        # captures log brightness + the chunk-verified settings per frame so
+        # a support bundle shows what each saved frame was exposed with).
+        chunks = self._get_latest_chunks() or {}
+        with self._state_lock:
+            self._last_capture_info = {
+                'hold_ms': (time.monotonic() - hold_start) * 1000.0,
+                'drained': drain_iterations,
+                'chunk_exposure_us': chunks.get('ExposureTime'),
+                'chunk_gain_db': chunks.get('Gain'),
+            }
+        return image
 
     def capture_and_wait_async(
         self,
@@ -1515,6 +1591,7 @@ class ImagingAPI:
         sum_iteration_callback=None,
         force_new_capture: bool = False,
         new_capture_timeout_s: float = 5.0,
+        verify_chunk_targets: bool = False,
     ) -> np.ndarray | None:
         """Grab and return an image from the camera.
 
@@ -1542,6 +1619,14 @@ class ImagingAPI:
                 historical bare name `new_capture_timeout` claimed "ms" in
                 docs while the value flowed unchanged into a seconds API;
                 the unit-suffix rename closes the contract ambiguity.
+            verify_chunk_targets: Reject frames whose per-frame chunk
+                metadata (ChunkExposureTime / ChunkGain) does not match the
+                most recently requested exposure / gain targets, retrying
+                until a matching frame arrives or timeout_s expires. This is
+                the deterministic backstop against saving a frame that was
+                still exposing when the settings changed. No-op for cameras
+                without chunk support or when no target is recorded (e.g.
+                hardware auto-gain owns the value).
 
         Returns:
             numpy.ndarray | None: Captured image array, or None on failure
@@ -1584,7 +1669,9 @@ class ImagingAPI:
                         grab_status, grab_image_ts = self._driver.grab()
 
                     if grab_status:
-                        self.frame_validity.count_frame()
+                        self.frame_validity.count_frame(
+                            chunk_data=self._get_latest_chunks(), frame_ts=grab_image_ts
+                        )
                         tmp = self._driver.get_array()  # thread-safe copy
 
                 if not grab_status:
@@ -1614,13 +1701,15 @@ class ImagingAPI:
                     # silently (the prior behavior) hid real data corruption.
                     retry_frame = None
                     with self._cam_lock:
-                        retry_status, _ = (
+                        retry_status, retry_image_ts = (
                             self._driver.grab_new_capture(new_capture_timeout_s)
                             if force_new_capture
                             else self._driver.grab()
                         )
                         if retry_status:
-                            self.frame_validity.count_frame()
+                            self.frame_validity.count_frame(
+                                chunk_data=self._get_latest_chunks(), frame_ts=retry_image_ts
+                            )
                             retry_frame = self._driver.get_array()
                     # Saturation walk is outside cam_lock -- no camera state needed,
                     # and the walk would otherwise block concurrent set_gain/set_exposure.
@@ -1639,6 +1728,44 @@ class ImagingAPI:
                             f'saturated -- likely over-exposure or a stale camera gain; '
                             f'the frame may be unusable.'
                         )
+
+                if verify_chunk_targets:
+                    # The frame must prove its own settings: its chunk
+                    # exposure / gain must match the requested targets.
+                    # Skip-count settling is a heuristic; a frame that
+                    # started exposing before a long->short exposure change
+                    # can arrive after the counter says valid, and saving it
+                    # produces a saturated or mis-exposed image. Targets are
+                    # set by the same thread that captures, so they are
+                    # stable for the duration of this call -- a newer frame
+                    # racing in here was exposed under the same settings and
+                    # is equally acceptable.
+                    stale_source = self._chunk_target_mismatch()
+                    if stale_source is not None:
+                        if datetime.datetime.now() > stop_time:
+                            chunks = self._get_latest_chunks() or {}
+                            chunk_key = self.frame_validity.CHUNK_KEY_FOR_SOURCE.get(stale_source)
+                            logger.warning(
+                                f'[SCOPE API ] get_image: frame chunk for '
+                                f'{stale_source} never matched the requested '
+                                f'target within {timeout_s:.1f}s '
+                                f'(chunk={chunks.get(chunk_key)}, '
+                                f'target={self.frame_validity.target(stale_source)}) -- '
+                                f'either the camera is still delivering frames '
+                                f'exposed under the previous settings, or it '
+                                f'clamped the requested value. Capture rejected.'
+                            )
+                            return None
+                        logger.debug(
+                            f'[SCOPE API ] get_image: rejecting frame exposed '
+                            f'under stale {stale_source}; waiting for a frame '
+                            f'matching the requested value'
+                        )
+                        if not force_new_capture:
+                            # Buffered grabs return the same frame until a new
+                            # one arrives; pace the retry instead of spinning.
+                            time.sleep(0.05)
+                        continue
 
                 # Accept the frame
                 if earliest_image_ts is None:
@@ -1739,7 +1866,14 @@ class ImagingAPI:
         grab_status, tmp, grab_image_ts = self._driver.grab_latest()
         if not grab_status or tmp is None:
             return None, None
-        self.frame_validity.count_frame()
+        # grab_latest() returns the same buffered frame on every poll, and
+        # this preview path can poll faster than the camera delivers. The
+        # frame timestamp dedupes the count so validity skip counts expire
+        # against real frames, not poll rate -- counting polls let a capture
+        # accept a frame exposed under the previous gain/exposure/LED state.
+        self.frame_validity.count_frame(
+            chunk_data=self._get_latest_chunks(), frame_ts=grab_image_ts
+        )
 
         with self._state_lock:
             self._frame_buffer = tmp
@@ -2115,6 +2249,19 @@ class ImagingAPI:
         Delegates to frame_validity (no driver call).
         """
         self.frame_validity.count_frame()
+
+    @property
+    def last_capture_info(self) -> dict | None:
+        """Evidence about the most recent capture_and_wait on this scope.
+
+        Returns:
+            dict | None: ``{'hold_ms', 'drained', 'chunk_exposure_us',
+                'chunk_gain_db'}`` for the latest capture, or None before
+                the first capture. Chunk values are None on cameras
+                without chunk support.
+        """
+        with self._state_lock:
+            return dict(self._last_capture_info) if self._last_capture_info else None
 
     # --- Scale bar ---
     @property

@@ -372,11 +372,15 @@ class AutofocusRunner:
                         'Could not restore Z position after autofocus stopped. '
                         'Move Z manually if needed.',
                     )
-            if self._keep_led_on:
+            if self._keep_led_on and completed_successfully:
                 # Skip the off + restore cycle so the downstream capture
-                # inherits the AF LED state. The caller has guaranteed
-                # the next operation will use the same channel +
-                # illumination (#612).
+                # inherits the AF LED state -- the caller guarantees the
+                # capture that follows AF in the same step uses the same
+                # channel + illumination. Success-only: on abort or error
+                # that capture never runs, so inheriting would leave the
+                # LED lit with no owner to ever turn it off (overnight
+                # sample damage); the restore/off branch below covers
+                # those exits.
                 _af_log.info('[AF] keep_led_on -- skipping LED off + restore')
             else:
                 if self._saved_led_state:
@@ -393,12 +397,13 @@ class AutofocusRunner:
                     # No snapshot to restore -- just release AF's own channel.
                     self._led_off()
             if self._saved_camera_state:
+                restore = self._camera_state_to_restore()
                 _af_log.info(
-                    f'[AF DIAG] Restoring pre-AF camera state: '
-                    f'gain={self._saved_camera_state.get("gain_db", "?")} '
-                    f'exp={self._saved_camera_state.get("exposure_ms", "?")}'
+                    f'[AF DIAG] Post-AF camera: keeping step targets '
+                    f'gain={self._camera_gain} exp={self._camera_exposure}; '
+                    f'restoring {restore or "nothing"} from pre-AF snapshot'
                 )
-                self._scope.imaging.restore_camera_state(self._saved_camera_state)
+                self._scope.imaging.restore_camera_state(restore)
             _af_log.info(
                 f'[AF DIAG] Clearing _af_in_progress -- '
                 f'camera now at gain={self._scope.imaging.get_gain()} '
@@ -409,6 +414,23 @@ class AutofocusRunner:
             # finishes, matching _af_in_progress lifecycle.
             self._scope.imaging.is_focusing = False
             self._abort_event = None
+
+    def _camera_state_to_restore(self) -> dict:
+        """Pre-AF snapshot minus the fields this run explicitly targeted.
+
+        The gain/exposure targets handed to AF are the committed layer or
+        step values; the camera must keep them after AF ends. Reverting
+        them to the pre-AF snapshot silently undid an exposure the user
+        committed by clicking away from the text box just before starting
+        AF, leaving the widget and the camera disagreeing. Only fields AF
+        never explicitly set fall back to the snapshot.
+        """
+        restore = dict(self._saved_camera_state or {})
+        if self._camera_gain is not None:
+            restore.pop('gain_db', None)
+        if self._camera_exposure is not None:
+            restore.pop('exposure_ms', None)
+        return restore
 
     def get_status(self) -> dict:
         """Get current autofocus status.

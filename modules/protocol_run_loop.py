@@ -30,6 +30,17 @@ MIN_REQUIRED_DISK_MB = 2048  # Minimum free disk space to start a scan (2 GB)
 # --- Hardware health check ---
 HW_CHECK_INTERVAL_S = 30  # Seconds between hardware connection checks
 
+# --- Persistent-failure escalation ---
+# Transient scan failures (one bad LED ack, one frame timeout) are retried
+# on the next period by design -- a periodic protocol should ride out a
+# blip. But "transient" failures that recur every period are not transient:
+# without a ceiling, a persistently-failing overnight run retries forever,
+# producing an empty dataset with only warning-level log lines. After this
+# many CONSECUTIVE failed scans (no successful scan between), the run
+# aborts loudly instead. Per PERFORMANCE_BUDGETS.md row
+# protocol_consecutive_scan_failures.
+MAX_CONSECUTIVE_SCAN_FAILURES = 3
+
 
 class ProtocolRunLoop:
     """Manages scan timing and the outer run loop for protocol execution."""
@@ -77,8 +88,34 @@ class ProtocolRunLoop:
         p = self._p
         last_connection_check = time.monotonic()
 
+        consecutive_scan_failures = 0
+
         while p._run_in_progress_event.is_set() and not p._aborted.is_set():
             try:
+                # ERROR is terminal for the run: a step-level failure (e.g.
+                # motion timeout) already set it and notified the user, and
+                # only cleanup may transition ERROR back to IDLE. Without
+                # this gate the next period re-entered the scan path, the
+                # ERROR->SCANNING transition raised, and the transient-
+                # failure classifier below retried forever -- a wedged
+                # multi-day run that delivers zero captures after one
+                # timeout.
+                if p._state == ProtocolState.ERROR:
+                    logger.error(
+                        '[PROTOCOL] Run is in ERROR state -- stopping protocol and cleaning up'
+                    )
+                    from modules.notification_center import notifications
+
+                    notifications.error(
+                        'Protocol',
+                        'Protocol Stopped',
+                        'The protocol stopped after an unrecoverable step '
+                        'failure. Review the log for the cause, then restart '
+                        'the scan.',
+                    )
+                    p._cleanup()
+                    break
+
                 # Periodic hardware connection check (every 30 seconds)
                 now = time.monotonic()
                 if now - last_connection_check > HW_CHECK_INTERVAL_S:
@@ -166,18 +203,13 @@ class ProtocolRunLoop:
                 except Exception as e:
                     logger.debug(f'[PROTOCOL] Disk space check failed (proceeding anyway): {e}')
 
-                # Clean LED state before step 0 runs. Without this, a
-                # Live-mode LED enabled by the user before pressing Scan
-                # stays lit when step 0's led_on fires -- both channels
-                # illuminate the sample simultaneously and the first
-                # step's image is blown out. led_on is additive at the
-                # API + driver layers; the leds_off-before-led_on
-                # convention is documented at modules/step_navigation.py
-                # and modules/composite_capture.py. Inter-step transitions
-                # already do this in protocol_image_writer; step 0 had no
-                # previous step, so the convention was silently skipped.
-                p._step_executor.leds_off()
-
+                # No nuclear leds_off before step 0: each step's capture makes
+                # its channel exclusive (turns off every OTHER channel, leaves
+                # an already-correct channel untouched). That still kills a
+                # stray Live-mode LED so step 0 is not double-illuminated, but
+                # WITHOUT clearing the LED-state cache. Clearing the cache here
+                # forced the following same-color led_on to re-fire, blinking
+                # the LED off->on at the start of every scan.
                 p._step_executor.go_to_step(step_idx=p._curr_step)
                 # Guard: if cleanup already ran (e.g. button spam), don't proceed
                 if p._aborted.is_set() or p._state == ProtocolState.IDLE:
@@ -209,6 +241,7 @@ class ProtocolRunLoop:
                     p._set_state(ProtocolState.RUNNING)
 
                 self._return_to_first_step_between_scans()
+                consecutive_scan_failures = 0
 
             except Exception as ex:
                 # Classify: hardware disconnected = fatal (abort +
@@ -270,6 +303,25 @@ class ProtocolRunLoop:
                         p._set_state(ProtocolState.RUNNING)
                     except ValueError:
                         pass
+
+                consecutive_scan_failures += 1
+                if consecutive_scan_failures >= MAX_CONSECUTIVE_SCAN_FAILURES:
+                    logger.error(
+                        f'[PROTOCOL] {consecutive_scan_failures} consecutive '
+                        'scan failures with no successful scan between -- '
+                        'aborting protocol'
+                    )
+                    from modules.notification_center import notifications
+
+                    notifications.error(
+                        'Protocol',
+                        'Protocol Aborted',
+                        f'The scan failed {consecutive_scan_failures} times '
+                        'in a row. Check hardware connections and the log '
+                        'for the cause, then restart the scan.',
+                    )
+                    p._cleanup()
+                    break
 
         # Ensure cleanup runs when exiting the while loop
         p._cleanup()

@@ -116,13 +116,17 @@ class ProtocolStepRunner:
         if remaining_scans <= 0:
             return
 
-        step = p._protocol.step(idx=p._curr_step)
-
-        # Check motion timeout
+        # Check motion timeout. The timer bounds ONE continuous motion:
+        # it starts when motion is first observed in flight and resets
+        # whenever the stage reports idle, so time spent in an in-step
+        # autofocus run never counts against a later move's budget.
         if p._scope.motion.is_moving():
-            if time.monotonic() - p._step_start_time > p.STEP_TIMEOUT_SECONDS:
+            if p._motion_wait_start is None:
+                p._motion_wait_start = time.monotonic()
+            if time.monotonic() - p._motion_wait_start > p.MOTION_TIMEOUT_SECONDS:
                 timeout_msg = (
-                    f'Step {p._curr_step} timed out waiting for motion ({p.STEP_TIMEOUT_SECONDS}s).'
+                    f'Step {p._curr_step} timed out waiting for motion '
+                    f'({p.MOTION_TIMEOUT_SECONDS}s).'
                 )
                 logger.error(f'[PROTOCOL] {timeout_msg} -- transitioning to ERROR state')
                 from modules.notification_center import notifications
@@ -134,12 +138,20 @@ class ProtocolStepRunner:
                 except ValueError:
                     pass
             return
+        p._motion_wait_start = None
 
         if not p._grease_redistribution_event.is_set():
             return
 
         if p._aborted.is_set() or not p._scan_in_progress.is_set():
             return
+
+        # Fetch the step row only after the early-return gates above.
+        # scan_iterate polls at up to ~1 kHz while motion is in flight,
+        # and protocol.step() builds a fresh pandas Series per call --
+        # fetching before the is_moving gate burned that allocation on
+        # every poll of every move.
+        step = p._protocol.step(idx=p._curr_step)
 
         # AF already pushed the Z UI to best_focus_position; do not
         # overwrite with the pre-AF step['Z']. AFE.complete() being
@@ -283,16 +295,26 @@ class ProtocolStepRunner:
 
                 # Keep LED on between consecutive steps of the same channel
                 # (e.g., Z-stack slices). Avoids unnecessary LED cycling.
-                # Last step of a scan always evaluates _keep_led=False: the
-                # lookahead is gated on `_curr_step < num_steps - 1`, so the
-                # inter-scan period runs with LEDs off (correct). At the start
-                # of the next scan, run_loop fires leds_off again before step 0
-                # -- redundant but harmless; no data integrity impact.
+                # On non-final scans the last step always evaluates
+                # _keep_led=False so the inter-scan period runs with LEDs
+                # off (sample safety during long waits).
                 _keep_led = False
                 num_steps = p._protocol.num_steps()
                 if p._curr_step < num_steps - 1:
                     next_step = p._protocol.step(idx=p._curr_step + 1)
                     if next_step['Color'] == step['Color']:
+                        _keep_led = True
+                elif p.remaining_scans() <= 1 and p._leds_state_at_end == 'return_to_original':
+                    # Final step of the final scan: if cleanup is about to
+                    # re-light this same channel (it was lit before the run),
+                    # turning it off here produces a visible off->on blink a
+                    # few ms later -- the end-of-acquire flicker on a
+                    # live-view-lit z-stack. Hold it; cleanup's restore
+                    # adjusts the current without a dark gap and turns off
+                    # anything that should not stay lit.
+                    _orig = getattr(p, '_original_led_states', None) or {}
+                    _orig_channel = _orig.get(step['Color'])
+                    if _orig_channel and _orig_channel.get('enabled'):
                         _keep_led = True
 
                 _t_capture_start = time.monotonic()
@@ -439,6 +461,7 @@ class ProtocolStepRunner:
         """Move to the position for a given protocol step."""
         p = self._p
         p._step_start_time = time.monotonic()
+        p._motion_wait_start = None
         if p._aborted.is_set():
             return
 

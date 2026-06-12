@@ -117,6 +117,39 @@ class ProtocolImageWriter:
         except Exception as ex:
             logger.error(f'[Protocol-Writer] Failed to record dropped capture: {ex}')
 
+    def _capture_evidence(self, image) -> str:
+        """One-line provenance for a captured frame: brightness statistics
+        plus the chunk-verified exposure / gain and capture-hold timing.
+
+        Saved-frame defects (a frame exposed under the previous channel's
+        settings saturates or mis-exposes) previously left no log trace at
+        all; this line makes every protocol capture auditable from a
+        support bundle. Brightness is computed on a strided sample so the
+        cost stays negligible at full frame rate.
+        """
+        try:
+            parts = []
+            if image is not None and getattr(image, 'size', 0) > 0:
+                sample = image[::8, ::8]
+                max_value = np.iinfo(image.dtype).max
+                sat_fraction = float(np.count_nonzero(sample >= 0.99 * max_value)) / sample.size
+                parts.append(f'mean={float(sample.mean()):.1f}')
+                parts.append(f'sat={sat_fraction * 100.0:.1f}%')
+            info = self._scope.imaging.last_capture_info or {}
+            exp_us = info.get('chunk_exposure_us')
+            gain_db = info.get('chunk_gain_db')
+            parts.append(f'exp_ms={exp_us / 1000.0:.2f}' if exp_us is not None else 'exp_ms=na')
+            parts.append(f'gain_db={gain_db:.2f}' if gain_db is not None else 'gain_db=na')
+            if info.get('hold_ms') is not None:
+                parts.append(f'hold_ms={info["hold_ms"]:.0f}')
+            if info.get('drained') is not None:
+                parts.append(f'drained={info["drained"]}')
+            return ' '.join(parts)
+        except Exception as ex:
+            # Evidence is best-effort; never let it break the capture path.
+            logger.debug(f'[Protocol-Writer] capture evidence unavailable: {ex}')
+            return ''
+
     def _get_convert_buf_12to16(self, array):
         """Get-or-allocate the 12->16 conversion buffer matching array's shape/dtype."""
         if (
@@ -431,7 +464,9 @@ class ProtocolImageWriter:
                         return
 
                     self._consecutive_capture_failures = 0  # Reset on success
-                    logger.info(f'Protocol Image Captured: {name}')
+                    logger.info(
+                        f'Protocol Image Captured: {name} {self._capture_evidence(captured_image)}'
+                    )
 
                     # DISPLAY-1: hold the captured image on screen for at
                     # least 500 ms so the user can see the saved frame
@@ -577,14 +612,30 @@ class ProtocolImageWriter:
 
         if enable_image_saving:
             if is_video:
-                capture_result = write_video(
-                    result=video_result,
-                    save_folder=save_folder,
-                    name=name,
-                    video_as_frames=video_as_frames,
-                    step=step,
-                    callbacks=self._callbacks.to_dict(),
-                )
+                # A write failure must still leave a row in the execution
+                # record -- the record is what post-processing and run
+                # accounting key off. The queue-full and capture-failed
+                # legs already record their failures; image-on-disk
+                # missing AND row missing was the last silent-gap leg.
+                try:
+                    capture_result = write_video(
+                        result=video_result,
+                        save_folder=save_folder,
+                        name=name,
+                        video_as_frames=video_as_frames,
+                        step=step,
+                        callbacks=self._callbacks.to_dict(),
+                    )
+                except Exception:
+                    self._record_dropped_capture(
+                        step=step,
+                        step_index=step_index,
+                        scan_count=scan_count,
+                        capture_time=capture_time,
+                        name=name,
+                        reason='save_failed',
+                    )
+                    raise
 
                 captured_frames = video_result.captured_frames
                 duration_sec = video_result.duration_sec
@@ -617,27 +668,41 @@ class ProtocolImageWriter:
                     and getattr(captured_image, 'ndim', 0) == 2
                 )
                 out_12to16 = self._get_convert_buf_12to16(captured_image) if is_uint16_2d else None
-                capture_result = save_image(
-                    self._scope,
-                    array=captured_image,
-                    save_folder=save_folder,
-                    file_root=None,
-                    append=name,
-                    color=use_color,
-                    # Defense-in-depth against duplicate step Names that
-                    # slip past load-time validation (#636). Plain
-                    # filename when no file exists; numeric suffix only
-                    # on actual collision.
-                    tail_id_mode='if_collision',
-                    output_format=output_format,
-                    jpeg_quality=jpeg_quality,
-                    true_color=step['Color'],
-                    x=step['X'],
-                    y=step['Y'],
-                    z=step['Z'],
-                    use_false_color_16bit=self._false_color_16bit,
-                    out_12to16=out_12to16,
-                )
+                # Same failure-row contract as the video leg above: a
+                # raise from save_image must not leave the record without
+                # a row for this step.
+                try:
+                    capture_result = save_image(
+                        self._scope,
+                        array=captured_image,
+                        save_folder=save_folder,
+                        file_root=None,
+                        append=name,
+                        color=use_color,
+                        # Defense-in-depth against duplicate step Names that
+                        # slip past load-time validation (#636). Plain
+                        # filename when no file exists; numeric suffix only
+                        # on actual collision.
+                        tail_id_mode='if_collision',
+                        output_format=output_format,
+                        jpeg_quality=jpeg_quality,
+                        true_color=step['Color'],
+                        x=step['X'],
+                        y=step['Y'],
+                        z=step['Z'],
+                        use_false_color_16bit=self._false_color_16bit,
+                        out_12to16=out_12to16,
+                    )
+                except Exception:
+                    self._record_dropped_capture(
+                        step=step,
+                        step_index=step_index,
+                        scan_count=scan_count,
+                        capture_time=capture_time,
+                        name=name,
+                        reason='save_failed',
+                    )
+                    raise
 
             if capture_result is None:
                 capture_result_filepath_name = 'unsaved'

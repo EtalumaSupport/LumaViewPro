@@ -699,15 +699,6 @@ class TestIntegrationStateAssertions:
         # Camera grabbing state is managed externally, should still be active
         assert scope._camera_driver.is_grabbing()
 
-    @pytest.mark.skip(
-        reason='Executor reuse bug: second run() starts but run_complete callback '
-        'never fires. Debug shows: run enters, _reset_vars clears state, '
-        "protocol_start sets flags, run_loop task submitted -- but cleanup's "
-        "run_complete callback doesn't reach the test's done.set(). "
-        'Two fixes applied (is_protocol_queue_active, protocol_start clears '
-        'stale protocol_finish), but deeper issue remains in cleanup callback '
-        'dispatch. Needs executor simplification in 4.1.'
-    )
     def test_second_run_after_first(self, executor, scope, tmp_path):
         """A second protocol run completes after the first finishes."""
         protocol = _make_protocol([{'color': 'BF', 'illumination_ma': 50.0}])
@@ -1154,3 +1145,41 @@ class TestRestAPIPrep:
         assert settings['rest_api']['enabled'] is False
         assert settings['rest_api']['host'] == '127.0.0.1'
         assert settings['rest_api']['port'] == 8000
+
+
+class TestAbortedAutofocusRestoresLeds:
+    """An aborted AF run must never leave its LED lit, even when the
+    caller requested keep_led_on. keep_led_on exists so the capture
+    that follows AF in the same protocol step inherits the LED state;
+    on abort that capture never runs, so honoring keep_led_on would
+    leave the LED on with no owner to ever turn it off (overnight
+    sample damage). The LED skip applies on success only."""
+
+    def test_aborted_af_turns_led_off_despite_keep_led_on(self, scope, executors):
+        from modules.exceptions import AutofocusAborted
+
+        af = AutofocusRunner(
+            scope=scope,
+            camera_executor=executors['camera'],
+            io_executor=executors['io'],
+            file_io_executor=executors['file_io'],
+        )
+        abort = threading.Event()
+        abort.set()  # abort lands before the first AF iteration
+
+        with pytest.raises(AutofocusAborted):
+            af.run(
+                objective_id='10x Oly',
+                led_color='BF',
+                led_illumination=20.0,
+                abort_event=abort,
+                keep_led_on=True,
+            )
+
+        # AF setup lit the BF channel via leds_exclusive before the
+        # abort was observed; the aborted exit must have turned it off.
+        state = scope.illumination.get_led_state('BF')
+        assert not state['enabled'], (
+            'Aborted AF left its LED lit: keep_led_on must skip the LED '
+            'restore only when AF completes successfully.'
+        )

@@ -470,6 +470,46 @@ class PluginRegistry:
             self._loaded_plugins.clear()
         return out
 
+    def attribute_exception(self, exc_tb) -> str | None:
+        """Name the loaded plugin whose code appears in a traceback, or None.
+
+        Walks the traceback frames and matches each frame's file against
+        the package directory of every loaded plugin module. Used by the
+        app-level crash guard to contain plugin exceptions (popup + log,
+        app continues) instead of letting them take down the host --
+        plugins are separately versioned and may not be ours to fix, so
+        the host cannot assume their handlers are safe.
+
+        Args:
+            exc_tb: A traceback object (``sys.exc_info()[2]``).
+
+        Returns:
+            str | None: The plugin name when any traceback frame lives
+                under a loaded plugin's package directory; None when the
+                exception is not attributable to plugin code.
+        """
+        import os
+        import traceback
+
+        with self._loaded_lock:
+            roots = []
+            for name, module in self._loaded_plugins:
+                module_file = getattr(module, '__file__', None)
+                if module_file:
+                    roots.append((name, os.path.dirname(os.path.abspath(module_file))))
+        if not roots:
+            return None
+        try:
+            frames = traceback.extract_tb(exc_tb)
+        except Exception:
+            return None
+        for frame in frames:
+            frame_path = os.path.abspath(frame.filename)
+            for name, root in roots:
+                if frame_path.startswith(root + os.sep):
+                    return name
+        return None
+
     def all_health(self) -> tuple[NamespaceHealth, ...]:
         """Return per-namespace health snapshots for tech-support reports."""
         return (

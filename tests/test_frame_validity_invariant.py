@@ -278,3 +278,46 @@ class TestNoCacheEqualitySkipInSetters:
             'set_exposure_time must have exactly one return (the '
             f'driver-inactive guard). Found {len(returns)}.'
         )
+
+
+class TestRejectedSettingNotifiesAndKeepsCache:
+    """A driver that CONFIRMS a settings-write rejection (returns False;
+    drivers with no confirmation signal return None) must produce a user
+    notification, and the requested value must NOT be recorded in the
+    camera cache as if it took. IDS has no chunk data, so without this
+    the camera streams at the old setting while the cache claims the
+    new one -- the silent stale-settings shape."""
+
+    def test_rejected_gain_notifies_and_keeps_cache(self, sim_imaging, monkeypatch):
+        imaging, cam = sim_imaging
+        captured = []
+        monkeypatch.setattr(
+            'modules.lumascope_api.imaging.notifications.error',
+            lambda *a, **kw: captured.append(a),
+        )
+        imaging.set_gain(2.0)  # establish a known cache value
+        monkeypatch.setattr(cam, 'gain', lambda v: False)
+
+        imaging.set_gain(7.0)
+
+        assert captured, 'A confirmed gain rejection must notify the user'
+        assert imaging.camera_gain == 2.0, (
+            'A rejected gain write must not be recorded in the cache'
+        )
+
+    def test_rejected_exposure_notifies_and_keeps_cache(self, sim_imaging, monkeypatch):
+        imaging, cam = sim_imaging
+        captured = []
+        monkeypatch.setattr(
+            'modules.lumascope_api.imaging.notifications.error',
+            lambda *a, **kw: captured.append(a),
+        )
+        imaging.set_exposure_time(20.0)  # establish a known cache value
+        monkeypatch.setattr(cam, 'exposure_t', lambda v: False)
+
+        imaging.set_exposure_time(50.0)
+
+        assert captured, 'A confirmed exposure rejection must notify the user'
+        assert imaging.camera_exposure_ms == 20.0, (
+            'A rejected exposure write must not be recorded in the cache'
+        )

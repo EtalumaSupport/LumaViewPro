@@ -912,3 +912,72 @@ def test_fire_settings_save_hooks_none_ctx_is_noop():
     from modules.plugins import fire_settings_save_hooks
 
     fire_settings_save_hooks(None, {'a': 1})  # no exception expected
+
+
+class TestAttributeException:
+    """attribute_exception names the plugin whose code appears in a
+    traceback, so the app-level crash guard can contain plugin
+    exceptions (popup + log, app continues) while non-plugin crashes
+    keep their normal loud failure path. One bad plugin button handler
+    must never take down the host.
+    """
+
+    def _make_plugin_module(self, tmp_path, pkg_name):
+        import sys
+        import textwrap
+
+        pkg_dir = tmp_path / pkg_name
+        pkg_dir.mkdir()
+        (pkg_dir / '__init__.py').write_text(
+            textwrap.dedent("""
+            def boom():
+                raise RuntimeError('plugin blew up')
+            """)
+        )
+        sys.path.insert(0, str(tmp_path))
+        try:
+            import importlib
+
+            return importlib.import_module(pkg_name)
+        finally:
+            sys.path.remove(str(tmp_path))
+
+    def test_names_plugin_for_plugin_frame(self, tmp_path):
+        import sys
+
+        from modules.plugins import PluginRegistry
+
+        module = self._make_plugin_module(tmp_path, 'fake_bench_plugin')
+        registry = PluginRegistry()
+        registry._track('fake-bench-plugin', module)
+
+        try:
+            module.boom()
+        except RuntimeError:
+            tb = sys.exc_info()[2]
+            assert registry.attribute_exception(tb) == 'fake-bench-plugin'
+
+    def test_none_for_non_plugin_frame(self):
+        import sys
+
+        from modules.plugins import PluginRegistry
+
+        registry = PluginRegistry()
+        try:
+            raise RuntimeError('host code failure')
+        except RuntimeError:
+            tb = sys.exc_info()[2]
+            assert registry.attribute_exception(tb) is None
+
+    def test_none_when_no_plugins_loaded(self, tmp_path):
+        import sys
+
+        from modules.plugins import PluginRegistry
+
+        module = self._make_plugin_module(tmp_path, 'fake_unloaded_plugin')
+        registry = PluginRegistry()  # nothing tracked
+        try:
+            module.boom()
+        except RuntimeError:
+            tb = sys.exc_info()[2]
+            assert registry.attribute_exception(tb) is None

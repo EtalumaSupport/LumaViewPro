@@ -136,20 +136,21 @@ class ZProjectionControls(BoxLayout):
 
         popup.progress = 100
         if result is None:
-            popup.text = 'Generating Z-Projection images - FAILED'
+            # On failure the notification is the single user-facing
+            # surface; leaving the failure text on the progress popup as
+            # well stacked two popups for one failure.
+            Clock.schedule_once(lambda dt: popup.dismiss(), 0)
             notifications.warning(
                 'Z-Projection',
                 'Z-Projection failed',
                 'Z-Projection task returned no result. Check lumaviewpro.log '
                 'for details and retry.',
             )
-            Clock.schedule_once(lambda dt: popup.dismiss(), 5)
             return
 
-        final_text = f'Generating Z-Projection images - {status_map[result["status"]]}'
         if result['status'] is False:
-            final_text += f'\n{result["message"]}'
-            popup.text = final_text
+            # Same single-surface contract as the no-result branch above.
+            Clock.schedule_once(lambda dt: popup.dismiss(), 0)
             if result.get('reason') == 'error':
                 # The projection itself failed (not a bad-folder case);
                 # don't send the user off to pick a different folder.
@@ -167,10 +168,9 @@ class ZProjectionControls(BoxLayout):
                     f"manual Z-stack, or a 'ProtocolData/<timestamp>/' folder "
                     f'whose protocol included Z-stack steps.',
                 )
-            Clock.schedule_once(lambda dt: popup.dismiss(), 5)
             return
 
-        popup.text = final_text
+        popup.text = f'Generating Z-Projection images - {status_map[result["status"]]}'
         Clock.schedule_once(lambda dt: popup.dismiss(), 2)
         return
 

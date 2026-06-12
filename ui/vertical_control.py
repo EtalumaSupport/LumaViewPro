@@ -337,6 +337,15 @@ class VerticalControl(BoxLayout):
                     with ctx.settings_lock:
                         ctx.settings[layer]['focus'] = focus_z
                     logger.info(f'[AF] Updated {layer} focus to {focus_z:.2f}um')
+                    # AF restored the camera from committed settings; an
+                    # uncommitted text edit (typed, no Enter) would keep
+                    # showing a value the hardware no longer has. Re-point
+                    # the widgets at the truth.
+                    try:
+                        layer_obj = ctx.image_settings.layer_lookup(layer=layer)
+                        layer_obj.sync_camera_widgets_from_settings()
+                    except Exception as e:
+                        logger.warning(f'[AF] Widget sync after AF failed: {e}')
                     break
         except Exception as e:
             logger.warning(f'[AF] Failed to update layer focus after AF: {e}')

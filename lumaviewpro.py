@@ -397,6 +397,13 @@ class LumaViewProApp(TooltipMixin, App):
 
     kv_file = 'ui/lumaviewpro.kv'
 
+    # UI mirror of ctx.protocol_running (a worker-thread Event) so kv
+    # `disabled:` bindings can react to it -- a threading.Event cannot be
+    # bound in kv. The Event stays authoritative for worker-thread reads;
+    # this property is written only on the Kivy main thread when a run
+    # starts and stops, so widgets grey out for the duration of a scan.
+    protocol_running = BooleanProperty(False)
+
     def on_start(self) -> None:
         """Kivy lifecycle hook: fires after build() and before the main loop runs."""
         # Read scope through ctx so widget rebuilds (LS850 <-> LS620) don't strand it.
@@ -746,6 +753,9 @@ class LumaViewProApp(TooltipMixin, App):
             Window.bind(on_keyboard=self._on_window_keyboard)
             # SDL2-only events: minimize / maximize / restore. Bind under
             # try/except so non-SDL2 window providers (rare) don't crash.
+            # Handler names are constructed dynamically here, so
+            # _on_window_minimize/_maximize/_restore have no static
+            # references -- dead-code scanners must not flag them.
             for _evt in ('on_minimize', 'on_maximize', 'on_restore'):
                 try:
                     Window.bind(**{_evt: getattr(self, f'_on_window_{_evt[3:]}')})
@@ -920,6 +930,48 @@ class LumaViewProApp(TooltipMixin, App):
         from modules.plugins.builtin import register_builtins
 
         register_builtins(ctx)
+
+        # A plugin exception reaching the Kivy event loop must not take
+        # down the host: plugins are separately versioned (and may not be
+        # written by us), and one bad button handler in one crashed the
+        # whole app at the bench. Exceptions whose traceback enters a
+        # loaded plugin's package are contained -- logged, recorded in
+        # the plugin's health ledger, surfaced as a popup -- and the app
+        # continues. Anything NOT attributable to plugin code re-raises,
+        # so core defects keep their full crash post-mortem.
+        from kivy.base import ExceptionHandler, ExceptionManager
+
+        class _PluginCrashGuard(ExceptionHandler):
+            def handle_exception(self, inst):
+                plugin_name = None
+                try:
+                    plugin_name = ctx.plugins.attribute_exception(sys.exc_info()[2])
+                except Exception as e:
+                    logger.debug(f'[Plugins ] crash attribution failed: {e}')
+                if plugin_name is None:
+                    return ExceptionManager.RAISE
+                logger.exception(
+                    f'[Plugins ] contained a crash from plugin {plugin_name!r}: {inst}'
+                )
+                try:
+                    ctx.plugins.ui.record_runtime_error(plugin_name, 'ui_event', inst)
+                except Exception as e:
+                    logger.debug(f'[Plugins ] runtime-error record failed: {e}')
+                try:
+                    from modules.notification_center import notifications
+
+                    notifications.error(
+                        'Plugins',
+                        'Plugin Error',
+                        f'The "{plugin_name}" plugin hit an error and the action '
+                        'was cancelled. The rest of the application is '
+                        'unaffected. See the log for details.',
+                    )
+                except Exception as e:
+                    logger.debug(f'[Plugins ] plugin-error popup failed: {e}')
+                return ExceptionManager.PASS
+
+        ExceptionManager.add_handler(_PluginCrashGuard())
 
         # Attach UI-namespace plugin mounts now that the widget tree
         # exists. Each registered (name, mount, builder) tuple is
@@ -1102,6 +1154,22 @@ class LumaViewProApp(TooltipMixin, App):
             logger.warning(f'[LVP Main  ] metrics_logger stop failed during shutdown: {e}')
 
         ctx.motion_settings.ids['protocol_settings_id'].cancel_all_protocols()
+        # The abort above only signals; the hardware teardown (LED off,
+        # camera restore, return-to-position) runs on the protocol thread.
+        # Shutdown tears the executors down right after this block, so wait
+        # -- bounded -- for that cleanup to finish before proceeding. Per
+        # PERFORMANCE_BUDGETS.md row shutdown_protocol_cleanup_wait_s. The
+        # leds_off drain below is the belt-and-suspenders if it times out.
+        try:
+            if ctx.sequenced_capture_runner is not None and not (
+                ctx.sequenced_capture_runner.wait_for_run_idle(timeout_s=30.0)
+            ):
+                logger.warning(
+                    '[LVP Main  ] protocol cleanup still in flight after 30 s '
+                    'shutdown wait; proceeding with teardown anyway'
+                )
+        except Exception as e:  # grain: ignore NAKED_EXCEPT
+            logger.warning(f'[LVP Main  ] shutdown cleanup wait failed: {e}')
 
         # Stop the scope-display thread BEFORE the executor cascade --
         # otherwise the FPS-paced loop submits work against a half-
@@ -1134,8 +1202,25 @@ class LumaViewProApp(TooltipMixin, App):
             if fut is not None:
                 try:
                     fut.result(timeout=2.0)
+                except TimeoutError:
+                    # The io_executor can still be draining protocol-abort
+                    # cleanup at exit, and that cleanup turns LEDs off
+                    # itself -- this expiry does not mean LEDs were left
+                    # on. Log the cached channel state so the post-mortem
+                    # answers that question directly.
+                    states = lumaview.scope.illumination.get_led_states()
+                    lit = sorted(c for c, s in states.items() if s.get('enabled'))
+                    state_text = (
+                        'channels still ON: ' + ', '.join(lit) if lit
+                        else 'all channels OFF'
+                    )
+                    logger.warning(
+                        f'[LVP Main  ] shutdown leds_off still queued on '
+                        f'io_executor after 2.0s; LED state cache reports '
+                        f'{state_text}'
+                    )
                 except Exception as e:
-                    logger.warning(f'[LVP Main  ] leds_off via io_executor timed out / failed: {e}')
+                    logger.warning(f'[LVP Main  ] shutdown leds_off failed: {e}')
             else:
                 logger.warning('[LVP Main  ] io_executor unavailable for shutdown leds_off')
         except Exception as e:  # grain: ignore NAKED_EXCEPT

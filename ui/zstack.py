@@ -97,7 +97,18 @@ class ZStack(FloatLayout):
 
     def _cleanup_at_end_of_acquire(self):
         ctx = _app_ctx.ctx
-        ctx.sequenced_capture_runner.reset()
+        runner = ctx.sequenced_capture_runner
+        # On an abort, reset() returns immediately and the hardware
+        # teardown runs on the protocol thread; _zstack_run_complete
+        # (fired by cleanup) resets the button when it ends. Restoring
+        # the button here on the abort flavor would invite a new acquire
+        # while the old one is still tearing down (the start guard
+        # refuses it, but the label would lie about readiness).
+        deferred_to_cleanup = runner.run_in_progress()
+        runner.reset()
+        if deferred_to_cleanup:
+            self.ids['zstack_aqr_btn'].text = 'Stopping...'
+            return
         self._reset_run_zstack_acquire_button()
         live_histo_reverse()
 

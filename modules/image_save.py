@@ -244,11 +244,14 @@ def generate_image_metadata(scope: Lumascope, color, x, y, z) -> dict:
 
     # Per-frame camera chunk metadata, captured at grab-time for THIS frame
     # (Pylon ace 2 / dart M / dart R carry ExposureTime + Gain + FrameID +
-    # Timestamp every frame; IDS carries ExposureTime + Gain). These are the
-    # same chunk values frame_validity checks the camera settled to, so they
-    # are the authoritative, race-free source for the frame's gain/exposure
-    # metadata. The live get_exposure_time / get_gain calls are only the
-    # fallback for cameras / frames without chunk data (simulator, legacy).
+    # Timestamp every frame). These are the same chunk values frame_validity
+    # checks the camera settled to, so they are the authoritative, race-free
+    # source for the frame's gain/exposure metadata. The live
+    # get_exposure_time / get_gain calls are the fallback for cameras /
+    # frames without chunk data (IDS stores frames without chunks; also
+    # simulator and legacy). Both sources report what the hardware is
+    # ACTUALLY set to, never the requested value -- so even if a settings
+    # write silently failed, the recorded metadata stays truthful.
     try:
         handler = getattr(scope._camera_driver, 'cam_image_handler', None)
         chunks = handler.get_last_chunks() if handler is not None else None

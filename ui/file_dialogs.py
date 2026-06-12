@@ -17,6 +17,21 @@ from modules import gui_logger
 logger = logging.getLogger('LVP.ui.file_dialogs')
 
 
+# Folder-picker contexts that hand work to the file IO executor for
+# post-processing. The executor refuses new work while a protocol owns it,
+# so these are blocked up front with a message -- otherwise the action's
+# progress popup opens but never completes (the task is silently dropped).
+# The disabled buttons are the primary stop; this is the backstop for any
+# path that reaches the funnel anyway (e.g. an async dialog callback).
+_POST_PROCESSING_CONTEXTS = (
+    'apply_cell_count_method_to_folder',
+    'apply_stitching_to_folder',
+    'apply_composite_gen_to_folder',
+    'apply_video_gen_to_folder',
+    'apply_zprojection_to_folder',
+)
+
+
 def _zprojection_picker_default_path(live_folder: pathlib.Path) -> str:
     """Return the Z-stack folder the projection picker should open at.
 
@@ -340,6 +355,17 @@ class FolderChooseBTN(HoverBehavior, Button):
                 'FOLDER_CHOOSE', f'context={self.context} path={path}'
             )
         else:
+            return
+
+        if self.context in _POST_PROCESSING_CONTEXTS and ctx.protocol_running.is_set():
+            from modules.notification_center import notifications
+
+            notifications.warning(
+                'Post-Processing',
+                'Protocol running',
+                'Post-processing cannot run while a protocol scan is in '
+                'progress. Stop or finish the protocol first, then retry.',
+            )
             return
 
         if self.context == 'live_folder':

@@ -1346,10 +1346,13 @@ class TestResetWhenNotRunning:
 class TestBackToBackRuns:
     """Run a protocol, wait for completion, then immediately run another.
 
-    NOTE: There is a real timing gap between run_complete callback and the
-    file_io_executor fully draining its protocol_finish flag (~0.2s).
-    The second run() will abort if is_protocol_queue_active() is still True.
-    We wait for that flag to clear before starting the next run.
+    Completion is two-phase by design: run_complete fires as soon as the
+    scan finishes, while queued file writes drain afterward (files_complete).
+    A second run() started while files are still writing is deliberately
+    rejected with a user-facing "Files Still Writing" notification, so any
+    correct back-to-back test must synchronize on the file queue draining --
+    that is what _wait_for_file_queue does. This is the designed contract,
+    not a workaround for an executor bug.
     """
 
     @staticmethod
@@ -1864,15 +1867,15 @@ class TestCaptureFailure:
 
 
 class TestStepTimeout:
-    """P1-4: Steps that exceed STEP_TIMEOUT_SECONDS are skipped."""
+    """P1-4: Steps that exceed MOTION_TIMEOUT_SECONDS are skipped."""
 
     def test_stuck_motion_skips_step(self, executor, scope, tmp_path):
         """If motion never completes, the step times out and protocol continues."""
         from modules.sequenced_capture_runner import SequencedCaptureRunner
 
         # Use a very short timeout for the test
-        original_timeout = SequencedCaptureRunner.STEP_TIMEOUT_SECONDS
-        SequencedCaptureRunner.STEP_TIMEOUT_SECONDS = 1  # 1 second
+        original_timeout = SequencedCaptureRunner.MOTION_TIMEOUT_SECONDS
+        SequencedCaptureRunner.MOTION_TIMEOUT_SECONDS = 1  # 1 second
 
         protocol = _make_multi_step_protocol(
             [
@@ -1896,7 +1899,7 @@ class TestStepTimeout:
 
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         # Restore
-        SequencedCaptureRunner.STEP_TIMEOUT_SECONDS = original_timeout
+        SequencedCaptureRunner.MOTION_TIMEOUT_SECONDS = original_timeout
         scope.motion.get_target_status = original_get_target
 
         assert completed
@@ -2129,3 +2132,136 @@ class TestCleanupCorrectness:
         # Should restore to 2.0/20.0, NOT to 8.0/80.0 from run A
         assert scope.imaging.get_gain() == pytest.approx(2.0, abs=0.1)
         assert scope.imaging.get_exposure_time() == pytest.approx(20.0, abs=0.1)
+
+
+class TestProtocolLedNoFlash:
+    """The capture path lights its channel exclusively (idempotent), so the
+    pre-step nuclear leds_off is unnecessary: a stray Live-mode LED on another
+    channel is killed without blinking the target off->on. This is the fix for
+    the LED flash on a protocol / Z-stack run.
+    """
+
+    def test_capture_kills_a_stray_led_as_it_lights_its_own_channel(
+        self, executor, scope, tmp_path
+    ):
+        # A stray channel lit before the run (e.g. a Live-mode LED left on a
+        # different color when the user pressed Scan).
+        stray = scope.illumination.color2ch('Red')
+        scope.illumination.led_on(channel=stray, mA=80, owner='ui')
+        assert scope.illumination.led_enabled('Red')
+
+        events = []
+        scope.illumination.add_led_listener(
+            lambda color, enabled, mA, owner: events.append((color, enabled))
+        )
+
+        protocol = _make_single_step_protocol(color='Green', illumination=60.0)
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+
+        green_on = next((i for i, (c, e) in enumerate(events) if c == 'Green' and e), None)
+        red_off = next((i for i, (c, e) in enumerate(events) if c == 'Red' and not e), None)
+        assert green_on is not None, f'Green never lit during the scan: {events}'
+        assert red_off is not None and red_off < green_on, (
+            'the stray Red LED must be turned off as the step lights Green '
+            f'(exclusive capture), not left double-illuminating the step: {events}'
+        )
+
+    def test_already_lit_channel_is_not_blinked_by_the_scan(self, executor, scope, tmp_path):
+        """A channel already lit at the step's current before Scan (the user
+        pressed Scan with the matching Live LED on) is left lit -- no off->on
+        blink at run start. The pre-step nuclear leds_off used to clear the
+        cache and force the re-light; this is the protocol/Z-stack flash.
+        """
+        color, mA = 'Green', 60.0
+        scope.illumination.led_on(channel=scope.illumination.color2ch(color), mA=mA, owner='ui')
+        assert scope.illumination.led_enabled(color)
+
+        events = []
+        scope.illumination.add_led_listener(
+            lambda c, enabled, m, owner: events.append((c, enabled))
+        )
+
+        protocol = _make_single_step_protocol(color=color, illumination=mA)
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed
+
+        # No "off then later on" pair on the already-lit channel == no blink.
+        # (The cleanup leds_off at the very end has no following on, so it is
+        # correctly not counted as a blink.)
+        seen_off = False
+        blinked = False
+        for c, enabled in events:
+            if c == color and not enabled:
+                seen_off = True
+            elif c == color and enabled and seen_off:
+                blinked = True
+                break
+        assert not blinked, (
+            f'already-lit {color} was blinked off->on at run start: {events}'
+        )
+
+
+class TestMotionTimeoutEndsRunInsteadOfWedging:
+    """A motion timeout mid-run must END the protocol (ERROR -> cleanup ->
+    run_complete), not wedge it. Previously the timed-out scan was counted
+    complete and every later period raised an invalid ERROR->SCANNING
+    transition that the transient-failure classifier retried forever -- a
+    multi-day timelapse silently delivering nothing after one timeout."""
+
+    def test_run_completes_after_motion_timeout(self, executor, scope, tmp_path, monkeypatch):
+        from modules.protocol_state_machine import ProtocolState
+
+        executor.MOTION_TIMEOUT_SECONDS = 0.3
+        # Stage reports moving forever -> the step's motion wait must trip
+        # the timeout instead of completing.
+        monkeypatch.setattr(scope.motion, 'is_moving', lambda *a, **kw: True)
+
+        protocol = _make_single_step_protocol(color='BF')
+        completed, _ = _run_and_wait(
+            executor,
+            protocol,
+            tmp_path,
+            run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
+            max_scans=3,
+        )
+
+        assert completed, (
+            'Protocol wedged after a motion timeout: run_complete never '
+            'fired. ERROR state must terminate the run, not be retried '
+            'as a transient failure every period.'
+        )
+        assert executor._state == ProtocolState.IDLE, (
+            f'Expected IDLE after cleanup, got {executor._state}'
+        )
+
+
+class TestSaveFailureRecordsRow:
+    """A disk-write failure must still leave a row in the execution
+    record. The queue-full and capture-failed legs already record their
+    failures; a save_image raise previously escaped before add_step ran,
+    leaving image AND record-row silently missing -- the worst silent-
+    data-gap shape for record-keyed post-processing and run accounting."""
+
+    def test_save_image_raise_records_save_failed_row(
+        self, executor, scope, tmp_path, monkeypatch
+    ):
+        import modules.protocol_image_writer as piw
+
+        def boom(*args, **kwargs):
+            raise OSError('disk write failed (injected)')
+
+        monkeypatch.setattr(piw, 'save_image', boom)
+
+        protocol = _make_single_step_protocol(color='BF')
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed, 'Protocol should complete despite the save failure'
+
+        records = list((tmp_path / 'output').rglob('*.tsv'))
+        assert records, 'No execution record file was written'
+        contents = '\n'.join(r.read_text() for r in records)
+        assert 'save_failed' in contents, (
+            'A save_image failure left no row in the execution record; '
+            'the save_failed row must be written when the disk write '
+            'raises.'
+        )

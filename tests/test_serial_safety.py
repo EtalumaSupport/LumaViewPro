@@ -1533,7 +1533,12 @@ class TestSerialDesyncRecovery:
             board.leds_off()
 
         # Most cycles should succeed (some may fail due to simulated timeouts)
-        # The key is: no crashes, no permanent desync cascade
+        # The key is: no crashes, no permanent desync cascade.
+        # The floor of 15 is calibrated to the fault injection above (every
+        # 7th readline fails -> ~3-4 expected failures of 25); it does NOT
+        # bless command failures in production, where they log errors and set
+        # last_command_error. The fault-free contract (correct state on every
+        # cycle) is asserted by test_rapid_led_on_off_state_consistent.
         assert successes > 15, f'Only {successes}/25 cycles succeeded -- desync cascade?'
 
 

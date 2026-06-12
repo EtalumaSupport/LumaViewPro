@@ -81,7 +81,10 @@ from lvp_logger import logger
 try:
     from lvp_logger import camera_logger as _cam_log
 except ImportError:
-    _cam_log = None
+    # Fall back to the main logger so every _cam_log call site stays
+    # safe -- the dedicated camera log is an enhancement, not a
+    # dependency, and dozens of call sites use _cam_log unguarded.
+    _cam_log = logger
 from drivers.camera import Camera, ImageHandlerBase
 from drivers.registry import camera_registry, led_registry
 
@@ -1716,7 +1719,13 @@ class FX2Camera(Camera):
             try:
                 transfer.submit()
             except Exception as e:
-                logger.debug(
+                # A dead transfer is one fewer in flight; when all are
+                # gone the stream silently freezes (the preview keeps
+                # showing the last frame). ERROR level so a frozen-
+                # preview post-mortem finds the cause next to the
+                # display-stall watchdog warning. Bounded by the
+                # transfer count -- this is not a per-frame loop.
+                logger.error(
                     '[FX2 Cam   ] _iso_callback: transfer resubmit failed; '
                     'grab loop will stall if this persists: %s: %s',
                     type(e).__name__,
@@ -1739,7 +1748,12 @@ class FX2Camera(Camera):
                 time.sleep(0.01)
 
     def _usb_event_loop(self):
-        """Pump libusb1 events in a dedicated thread."""
+        """Pump libusb1 events in a dedicated thread.
+
+        handleEventsTimeout(tv=0.1) blocks up to 100 ms per call, so even
+        when the device dies and every call raises, this loop degrades to
+        a ~10 Hz idle poll -- it does not hot-spin.
+        """
         while self._grabbing:
             try:
                 self._iso_ctx.handleEventsTimeout(tv=0.1)

@@ -1009,6 +1009,37 @@ class LayerControl(BoxLayout):
         finally:
             self._initializing = False
 
+    def sync_camera_widgets_from_settings(self):
+        """Re-point the exposure / gain / illumination widgets at the
+        committed settings values.
+
+        An uncommitted text edit (typed, no Enter) survives in the widget
+        while autofocus or a protocol restores the camera from settings --
+        leaving widget, settings, and hardware three-way divergent (the
+        slider says 40 while the camera runs 10). Restore paths call this
+        so the widgets tell the truth again; the uncommitted edit is
+        deliberately dropped.
+        """
+        settings = _app_ctx.ctx.settings
+        layer_settings = settings.get(self.layer, {})
+        try:
+            if 'exp_ms' in layer_settings:
+                exp = float(layer_settings['exp_ms'])
+                self.ids['exp_text'].text = str(round(exp, 2))
+                self.ids['exp_slider'].value = exp
+            if 'gain_db' in layer_settings:
+                gain = float(layer_settings['gain_db'])
+                self.ids['gain_text'].text = str(round(gain, 1))
+                self.ids['gain_slider'].value = gain
+            if 'ill_ma' in layer_settings:
+                ill = float(layer_settings['ill_ma'])
+                self.ids['ill_text'].text = str(ill)
+                self.ids['ill_slider'].value = ill
+        except Exception as e:
+            logger.warning(
+                f'[LVP Main  ] {self.layer} widget sync from settings failed: {e}'
+            )
+
     def apply_settings(self, ignore_auto_gain=False, update_led=True, protocol=False):
 
         # Skip apply_settings if layer is still initializing
@@ -1018,6 +1049,22 @@ class LayerControl(BoxLayout):
         logger.debug(f'[LVP Main  ] {self.layer}_LayerControl.apply_settings()')
 
         ctx = _app_ctx.ctx
+
+        # While autofocus owns the camera, a live UI apply -- e.g. the
+        # exposure field losing focus because the AF button itself was
+        # clicked -- must not push values to the camera mid-scan. The LED
+        # leaf (update_led_state) carries the same guard; gating the shared
+        # funnel covers every input that routes through here (exposure /
+        # gain / illumination text and sliders, stim fields). Programmatic
+        # protocol applies are exempt: the runner coordinates with AF
+        # itself.
+        if not protocol and ctx.scope.imaging.is_focusing:
+            logger.debug(
+                f'[LVP Main  ] {self.layer}_LayerControl.apply_settings '
+                'suppressed -- autofocus owns the camera'
+            )
+            return
+
         settings = ctx.settings
         protocol_running_global = ctx.protocol_running
         camera_executor = ctx.camera_executor
@@ -1033,23 +1080,24 @@ class LayerControl(BoxLayout):
 
         def disable_leds_for_other_layers(dt=None):
             if self.ids['enable_led_btn'].state == 'down':
-                # Only cycle the LED bus (leds_off + led_on) when another
-                # layer's LED is actually physically on. Without this check,
-                # every apply_settings on the current layer fires a redundant
-                # leds_off/led_on cycle, causing visible LED flicker on every
-                # slider move (#617). The guarded cycle still runs on real
-                # layer switches, preserving #614 semantics (one LED at a
-                # time at the hardware level).
+                # Turn off any OTHER layer's LED so only this layer's channel
+                # stays lit (one LED on at a time at the hardware level).
+                # Switch the others off individually rather than blanking all
+                # LEDs and re-lighting this one: the nuclear leds_off clears
+                # the LED-state cache, which forces this channel to re-fire
+                # and blink off then on on every slider move. led_off self-
+                # skips a channel that is already off, so this loop touches
+                # the bus only for a layer that is actually on -- no cycle on
+                # a plain slider move, and this layer's own LED is never
+                # disturbed (its current is owned by update_led_state).
                 if not protocol_running_global.is_set():
-                    any_other_on = False
                     for layer in common_utils.get_layers():
                         if layer == self.layer:
                             continue
                         try:
                             state = ctx.scope.illumination.get_led_state(color=layer)
                             if state.get('enabled', False):
-                                any_other_on = True
-                                break
+                                ctx.scope.illumination.led_off_async(layer)
                         except Exception as e:
                             # Defensive: if get_led_state fails for any
                             # layer (e.g. null driver, hardware fault),
@@ -1061,13 +1109,6 @@ class LayerControl(BoxLayout):
                                 f'[LVP Main  ] get_led_state({layer}) '
                                 f'failed during disable_leds_for_other_layers: {e}'
                             )
-                    if any_other_on:
-                        ctx.scope.illumination.leds_off_async()
-                        # Re-enable this layer's LED (leds_off turned it off too)
-                        ctx.scope.illumination.led_on_async(
-                            self.layer,
-                            settings[self.layer]['ill_ma'],
-                        )
                 # Update button states (visual only -- hardware already handled)
                 LayerControl._suppressing_led_log = True
                 try:
