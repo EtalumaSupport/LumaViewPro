@@ -1,12 +1,18 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
+import ctypes
 import enum
+import gc
 import json
 import os
 import pathlib
+import platform
 import re
+import threading
+import time as _time
 
 import numpy as np
+import psutil
 
 from lvp_logger import logger
 
@@ -14,7 +20,7 @@ from lvp_logger import logger
 # ---------------------------------------------------------------------------
 # Hardware defaults (fallbacks when motorconfig/scope not available)
 # ---------------------------------------------------------------------------
-# LS850 full travel range — used as default stage limits when scope is not connected.
+# LS850 full travel range -- used as default stage limits when scope is not connected.
 DEFAULT_STAGE_TRAVEL_UM = {'x': 120000.0, 'y': 80000.0}
 
 # ---------------------------------------------------------------------------
@@ -43,7 +49,7 @@ class PostFunction(enum.Enum):
 
     @classmethod
     def list_values(cls):
-        return list(map(lambda c: c.value, cls))
+        return [c.value for c in cls]
 
 
 # ---------------------------------------------------------------------------
@@ -89,7 +95,7 @@ def generate_default_step_name(
         name = f'{name}_{color}'
 
     if tile_label not in (None, '', -1):
-        if not f'_T{tile_label}' in name:
+        if f'_T{tile_label}' not in name:
             name = f'{name}_T{tile_label}'
 
     if objective_short_name not in (None, '', -1):
@@ -99,7 +105,7 @@ def generate_default_step_name(
         name = f'{name}_Turret{turret_position}'
 
     if z_height_idx not in (None, '', -1):
-        if not f'_Z{z_height_idx}' in name:
+        if f'_Z{z_height_idx}' not in name:
             name = f'{name}_Z{z_height_idx}'
 
     DESIRED_SCAN_COUNT_DIGITS = 4
@@ -122,6 +128,28 @@ def generate_default_step_name(
         name = f'{name}_hyperstack'
 
     return name
+
+
+def resolve_step_rename(raw_text: str, sanitize) -> str | None:
+    """Resolve a step-name field value to the name to persist, or None.
+
+    Auto-named custom steps blank the name field so the default name shows
+    as a hint placeholder rather than editable text. A blank field
+    therefore means "no rename intended": persisting the empty string
+    would wipe the auto-assigned name, leaving added steps unnamed and
+    colliding on the same default name. Returns None for a blank field so
+    callers keep the existing name; a non-empty entry is a real rename and
+    is returned sanitized.
+
+    Args:
+        raw_text: the raw text from the step-name input field.
+        sanitize: callable that cleans a name (e.g. strips invalid chars).
+
+    Returns:
+        The sanitized name to persist, or None if the field is blank.
+    """
+    cleaned = sanitize(raw_text)
+    return cleaned if cleaned else None
 
 
 def get_tile_label_from_name(name: str) -> str | None:
@@ -153,11 +181,6 @@ def get_layer_from_name(name: str) -> str | None:
 
 
 def replace_layer_in_step_name(step_name: str, new_layer_name: str) -> str | None:
-
-    # Extract basename in case we are handling protocol with separate folders per channel
-    base_name = os.path.basename(step_name)
-    # if is_custom_name(name=base_name):
-    #     return None
 
     # This replaces the parent folder when using per-channel folders for protocol runs
     split_name = list(os.path.split(step_name))
@@ -196,10 +219,7 @@ def is_custom_name(name: str) -> bool:
         return True
 
     color = name[1]
-    if color not in get_layers():
-        return True
-
-    return False
+    return color not in get_layers()
 
 
 def get_z_slice_from_name(name: str) -> int | None:
@@ -234,6 +254,26 @@ def convert_zstack_reference_position_setting_to_config(text_label: str) -> str:
     raise Exception(f'Unknown Z-stack position reference: {text_label}')
 
 
+def raw_bytes_per_pixel(pixel_format: str, is_color_native: bool = False) -> int:
+    """Bytes per pixel of the RAW camera buffer (for data-rate readouts).
+
+    Mono8 is one byte; every other Mono format (Mono10 / Mono12 / Mono16 and
+    the packed variants such as Mono10g40IDS) is delivered in a uint16
+    container, so two bytes. Color-native cameras (none in the shipping fleet)
+    carry three channels.
+
+    Args:
+        pixel_format: SDK pixel-format name (e.g. 'Mono8', 'Mono12', 'Mono16').
+        is_color_native: Whether the camera delivers 3-channel color frames.
+
+    Returns:
+        Bytes occupied by one pixel of the raw camera frame.
+    """
+    bytes_per_channel = 1 if pixel_format == 'Mono8' else 2
+    channels = 3 if is_color_native else 1
+    return bytes_per_channel * channels
+
+
 def get_layers() -> list[str]:
     return ['BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi']
 
@@ -244,6 +284,16 @@ def get_transmitted_layers() -> list[str]:
 
 def get_fluorescence_layers() -> list[str]:
     return ['Blue', 'Green', 'Red']
+
+
+def get_bright_background_layers() -> list[str]:
+    """Layers whose field of view is bright, so overlays drawn on them
+    (scale bar, annotation text) must be dark to stay visible. Brightfield
+    and phase contrast have a bright background; darkfield does not -- it
+    shows bright subjects on a dark field -- so it is excluded here even
+    though it is a transmitted-light mode.
+    """
+    return ['BF', 'PC']
 
 
 def get_luminescence_layers() -> list[str]:
@@ -284,7 +334,7 @@ def get_opened_layer_obj(lumaview_imagesettings):
 
 def to_bool(val) -> bool:
     if isinstance(val, str):
-        return True if val.lower() == 'true' else False
+        return val.lower() == 'true'
     elif val in ('', None):
         return False
     else:
@@ -352,19 +402,11 @@ def max_decimal_precision(parameter: str) -> int:
     return PRECISION_MAP.get(parameter, DEFAULT_PRECISION)
 
 
-import ctypes
-import gc
-import os
-import platform
-import threading
-
-import psutil
-
 _IS_WINDOWS = platform.system() == 'Windows'
 
 
 # ---------------------------------------------------------------------------
-# Windows perf-counter query (PDH) — TEMPORARY INSTRUMENTATION (2026-04-30)
+# Windows perf-counter query (PDH) -- TEMPORARY INSTRUMENTATION (2026-04-30)
 #
 # Added on branch `perf-instrumentation-4.0.0-beta` to capture standby cache
 # growth, nonpaged pool, and system file cache as part of the buffer-churn
@@ -388,8 +430,8 @@ class _PdhCountersOnce:
     disabled so subsequent calls return {} without retry overhead.
     """
 
-    # Counter paths — match `Get-Counter` PowerShell paths exactly.
-    # `\Memory\Available Bytes` is what Windows considers "available" — equals
+    # Counter paths -- match `Get-Counter` PowerShell paths exactly.
+    # `\Memory\Available Bytes` is what Windows considers "available" -- equals
     # standby + free + zero pages. Useful as a sanity check against the breakdown.
     _COUNTERS = {
         'standby_normal_bytes': r'\Memory\Standby Cache Normal Priority Bytes',
@@ -444,13 +486,13 @@ class _PdhCountersOnce:
                 ret = self._PdhAddCounterW(query, path, 0, ctypes.byref(handle))
                 if ret != self._ERROR_SUCCESS:
                     # Some counters (e.g. Standby Cache Core) may be absent
-                    # on older Windows builds — mark this one missing and
+                    # on older Windows builds -- mark this one missing and
                     # continue. PdhCollectQueryData still works on the rest.
                     continue
                 self._handles[name] = handle
 
             # First collect "primes" the counters; second collect gives real
-            # values. Some counters (rate-based) need 2 samples — for the byte
+            # values. Some counters (rate-based) need 2 samples -- for the byte
             # counters we use, a single collect is enough.
             self._PdhCollectQueryData(query)
 
@@ -495,7 +537,7 @@ def query_windows_perf_counters():
     """One-shot snapshot of selected Windows memory perf counters.
 
     Returns dict mapping field name to bytes value. Returns {} on non-Windows
-    or if PDH is unavailable. TEMPORARY — see `_PdhCountersOnce` docstring.
+    or if PDH is unavailable. TEMPORARY -- see `_PdhCountersOnce` docstring.
     """
     if _pdh_counters_singleton is None:
         return {}
@@ -503,14 +545,175 @@ def query_windows_perf_counters():
 
 
 # ---------------------------------------------------------------------------
-# Rate-tracker for cumulative counters — TEMPORARY INSTRUMENTATION (2026-04-30)
+# Windows GPU utilization + memory via PDH "GPU Engine" counters
+#
+# Vendor-agnostic: the GPU Engine / GPU Process Memory counter sets are
+# populated by the WDDM driver model for ANY adapter -- AMD integrated, Intel,
+# NVIDIA alike -- the same data Task Manager's GPU column reads. No vendor SDK
+# (pynvml / GPUtil are NVIDIA-only and would be dead on an AMD box).
+#
+# Unlike the fixed memory counters above, GPU Engine is a WILDCARD counter:
+# one instance per (process, adapter, engine), named like
+# "pid_12345_luid_0x0..._phys_0_eng_0_engtype_3D". We add the wildcard path and
+# enumerate matching instances each collect via PdhGetFormattedCounterArray,
+# then keep only THIS process's pid and aggregate. engtype_3D is the OpenGL /
+# Kivy render engine; on an integrated GPU there is no dedicated VRAM, so
+# Shared Usage is the meaningful memory figure (Dedicated reads ~0).
+# ---------------------------------------------------------------------------
+
+_PDH_MORE_DATA = 0x800007D2
+
+
+class _GpuPdhCountersOnce:
+    _UTIL_PATH = r'\GPU Engine(*)\Utilization Percentage'
+    _SHARED_MEM_PATH = r'\GPU Process Memory(*)\Shared Usage'
+    _DEDICATED_MEM_PATH = r'\GPU Process Memory(*)\Dedicated Usage'
+
+    _PDH_FMT_DOUBLE = 0x00000200
+    _ERROR_SUCCESS = 0
+
+    def __init__(self):
+        self._initialized = False
+        self._disabled = False
+        self._query = None
+        self._counters = {}  # name -> counter handle
+        self._pid_tag = f'pid_{os.getpid()}_'
+
+    def _init(self):
+        try:
+            pdh = ctypes.WinDLL('pdh')
+            self._PdhOpenQueryW = pdh.PdhOpenQueryW
+            self._PdhAddCounterW = pdh.PdhAddCounterW
+            self._PdhCollectQueryData = pdh.PdhCollectQueryData
+            self._PdhGetFormattedCounterArrayW = pdh.PdhGetFormattedCounterArrayW
+
+            class _PDH_FMT_COUNTERVALUE(ctypes.Structure):
+                _fields_ = [
+                    ('CStatus', ctypes.c_ulong),
+                    ('doubleValue', ctypes.c_double),
+                ]
+
+            class _PDH_FMT_COUNTERVALUE_ITEM_W(ctypes.Structure):
+                _fields_ = [
+                    ('szName', ctypes.c_wchar_p),
+                    ('FmtValue', _PDH_FMT_COUNTERVALUE),
+                ]
+
+            self._ITEM = _PDH_FMT_COUNTERVALUE_ITEM_W
+
+            query = ctypes.c_void_p()
+            ret = self._PdhOpenQueryW(None, 0, ctypes.byref(query))
+            if ret != self._ERROR_SUCCESS:
+                raise OSError(f'PdhOpenQueryW failed: 0x{ret & 0xffffffff:08x}')
+            self._query = query
+
+            for name, path in (
+                ('util', self._UTIL_PATH),
+                ('shared_mem', self._SHARED_MEM_PATH),
+                ('dedicated_mem', self._DEDICATED_MEM_PATH),
+            ):
+                handle = ctypes.c_void_p()
+                ret = self._PdhAddCounterW(query, path, 0, ctypes.byref(handle))
+                if ret == self._ERROR_SUCCESS:
+                    self._counters[name] = handle
+
+            if not self._counters:
+                raise OSError('no GPU PDH counters available')
+
+            # Prime: utilization is rate-based and needs two collects before
+            # the first real value.
+            self._PdhCollectQueryData(query)
+            self._initialized = True
+        except Exception:
+            self._disabled = True
+
+    def _read_array(self, handle):
+        """Return [(instance_name, value), ...] for a wildcard counter."""
+        size = ctypes.c_ulong(0)
+        count = ctypes.c_ulong(0)
+        # First pass with a null buffer reports the required size.
+        ret = self._PdhGetFormattedCounterArrayW(
+            handle, self._PDH_FMT_DOUBLE,
+            ctypes.byref(size), ctypes.byref(count), None,
+        )
+        if (ret & 0xffffffff) != _PDH_MORE_DATA or size.value == 0:
+            return []
+        buf = (ctypes.c_byte * size.value)()
+        ret = self._PdhGetFormattedCounterArrayW(
+            handle, self._PDH_FMT_DOUBLE,
+            ctypes.byref(size), ctypes.byref(count),
+            ctypes.cast(buf, ctypes.POINTER(self._ITEM)),
+        )
+        if ret != self._ERROR_SUCCESS:
+            return []
+        items = ctypes.cast(buf, ctypes.POINTER(self._ITEM * count.value)).contents
+        out = []
+        for it in items:
+            # CStatus 0 (VALID_DATA) / 1 (NEW_DATA) both carry a usable value.
+            if it.FmtValue.CStatus in (0, 1):
+                out.append((it.szName or '', float(it.FmtValue.doubleValue)))
+        return out
+
+    def query(self):
+        """Return GPU metrics dict for this process, or {} if unavailable."""
+        if self._disabled:
+            return {}
+        if not self._initialized:
+            self._init()
+            if self._disabled:
+                return {}
+        try:
+            if self._PdhCollectQueryData(self._query) != self._ERROR_SUCCESS:
+                return {}
+            out = {}
+            if 'util' in self._counters:
+                util_total = 0.0
+                util_3d = 0.0
+                for name, val in self._read_array(self._counters['util']):
+                    if self._pid_tag in name:
+                        util_total += val
+                        if name.endswith('engtype_3D'):
+                            util_3d += val
+                out['gpu_util_total_percent'] = util_total
+                out['gpu_util_3d_percent'] = util_3d
+            for key, field in (
+                ('shared_mem', 'gpu_shared_mem_mb'),
+                ('dedicated_mem', 'gpu_dedicated_mem_mb'),
+            ):
+                if key in self._counters:
+                    total = sum(
+                        v for n, v in self._read_array(self._counters[key])
+                        if self._pid_tag in n
+                    )
+                    out[field] = total / (1024 * 1024)
+            return out
+        except Exception:
+            return {}
+
+
+_gpu_pdh_singleton = _GpuPdhCountersOnce() if _IS_WINDOWS else None
+
+
+def query_gpu_metrics():
+    """Vendor-agnostic GPU utilization + memory for this process.
+
+    Returns {} on non-Windows or if GPU PDH counters are unavailable. Keys when
+    present: gpu_util_total_percent, gpu_util_3d_percent, gpu_shared_mem_mb,
+    gpu_dedicated_mem_mb. Works for AMD / Intel / NVIDIA via the WDDM GPU Engine
+    counters (the source Task Manager's GPU column reads).
+    """
+    if _gpu_pdh_singleton is None:
+        return {}
+    return _gpu_pdh_singleton.query()
+
+
+# ---------------------------------------------------------------------------
+# Rate-tracker for cumulative counters -- TEMPORARY INSTRUMENTATION (2026-04-30)
 #
 # Several metrics we want (page faults/sec, IO write/sec, MsMpEng read/sec)
 # come from cumulative counters. Cache the last value+timestamp and compute
 # a delta-rate on each call. Per-key state.
 # ---------------------------------------------------------------------------
-
-import time as _time
 
 _rate_state = {}  # {key: (last_value, last_ts)}
 
@@ -532,7 +735,83 @@ def _delta_rate(key, current_value, now=None):
 
 
 # ---------------------------------------------------------------------------
-# Defender (MsMpEng.exe) metrics — TEMPORARY INSTRUMENTATION (2026-04-30)
+# Per-thread CPU attribution
+#
+# psutil.Process.threads() returns cumulative (user + system) CPU seconds per
+# OS thread id. Caching the previous snapshot and dividing the delta by the
+# wall-clock interval gives each thread's average CPU fraction since the last
+# call. Percentages are per-core-normalized like psutil.cpu_percent (100.0 =
+# one full logical core), so the per-thread values sum to roughly the
+# [PROCESS METRICS] process CPU figure -- a built-in cross-check. OS thread
+# ids map back to Python thread names via threading.enumerate() native_id, so
+# the output lines up with the names in [THREAD METRICS]. Module-level state
+# mirrors _rate_state.
+#
+# Per-thread detail is available on Windows and Linux. macOS psutil reports
+# only a single aggregate thread (id=1), so on Mac this collapses to one
+# entry -- acceptable, since the deployment + bench target is Windows.
+# ---------------------------------------------------------------------------
+
+_thread_cpu_state = {}  # {tid: (cpu_seconds, wall_ts)}
+
+
+def thread_cpu_percentages(proc=None, now=None):
+    """Per-thread CPU percent averaged over the interval since the last call.
+
+    Returns {thread_label: percent}. Empty on the first call (no baseline yet)
+    or on error. Same-named threads (e.g. pool workers) are summed under one
+    label. 100.0 means one full logical core; the sum across threads can
+    exceed 100 on a multi-core host.
+    """
+    if proc is None:
+        proc = psutil.Process(os.getpid())
+    if now is None:
+        now = _time.monotonic()
+    try:
+        threads = proc.threads()
+    except Exception:
+        return {}
+
+    # native_id -> python thread name; native threads with no Python wrapper
+    # fall back to tid_<id>.
+    name_by_tid = {}
+    try:
+        for t in threading.enumerate():
+            nid = getattr(t, 'native_id', None)
+            if nid is not None:
+                name_by_tid[nid] = t.name
+    except Exception:
+        pass
+
+    out = {}
+    seen = set()
+    for th in threads:
+        tid = th.id
+        seen.add(tid)
+        cpu = th.user_time + th.system_time
+        prev = _thread_cpu_state.get(tid)
+        _thread_cpu_state[tid] = (cpu, now)
+        if prev is None:
+            continue
+        last_cpu, last_ts = prev
+        dt = now - last_ts
+        if dt < 0.5:  # avoid divide-by-near-zero on rapid back-to-back calls
+            continue
+        pct = (cpu - last_cpu) / dt * 100.0
+        if pct < 0.0:  # counter reset or tid reuse -- treat as no sample
+            pct = 0.0
+        label = name_by_tid.get(tid, f'tid_{tid}')
+        out[label] = out.get(label, 0.0) + pct
+
+    # Drop state for threads that exited so the cache can't grow unbounded.
+    for dead in [tid for tid in _thread_cpu_state if tid not in seen]:
+        del _thread_cpu_state[dead]
+
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Defender (MsMpEng.exe) metrics -- TEMPORARY INSTRUMENTATION (2026-04-30)
 #
 # Direct signal on the "Defender memory-maps every TIFF write" hypothesis.
 # If MsMpEng's IO read rate climbs proportional to our save rate, that's
@@ -597,7 +876,7 @@ def query_defender_metrics():
 
 
 # ---------------------------------------------------------------------------
-# tracemalloc top-N allocators — TEMPORARY INSTRUMENTATION (2026-04-30)
+# tracemalloc top-N allocators -- TEMPORARY INSTRUMENTATION (2026-04-30)
 #
 # Off by default. Enable via tracemalloc_enabled: true in data/settings.json.
 # When on, tracemalloc is started at first call and a snapshot is taken;
@@ -625,6 +904,9 @@ def _read_tracemalloc_gate():
     return load_tracemalloc_setting(base_dir)
 
 
+# Read once at import from the tracemalloc_enabled setting. This is a
+# diagnostic gate, not the runtime-toggleable debug_mode shape: there is no
+# setter, so flipping the setting takes effect only on the next restart.
 _tracemalloc_enabled = _read_tracemalloc_gate()
 
 
@@ -741,7 +1023,7 @@ def system_metrics(path='/'):
     # --- Process I/O bytes (cumulative + rates, per-process) ---
     # Distinguishes "we wrote 50 GB this hour" from "Windows Defender did".
     # Both bytes counters reset only when the process restarts.
-    # Rates added 2026-04-30 (TEMPORARY) — at 60 s sampling interval, the
+    # Rates added 2026-04-30 (TEMPORARY) -- at 60 s sampling interval, the
     # rate gives MB/sec of TIFF writes; cross-reference with Defender IO
     # read rate to confirm "Defender mmaps every TIFF" hypothesis.
     try:
@@ -758,7 +1040,7 @@ def system_metrics(path='/'):
 
     # --- Page faults (rate) ---
     # Sustained > 1000 pf/sec on a desktop = real memory pressure (paging
-    # working set in/out). Useful as a sanity signal — if pf/sec stays low
+    # working set in/out). Useful as a sanity signal -- if pf/sec stays low
     # while standby grows, the slowdown is allocator/standby-cache, not
     # real paging. If pf/sec spikes during slow state, real paging.
     try:
@@ -770,7 +1052,7 @@ def system_metrics(path='/'):
     except Exception:
         pass
 
-    # --- GDI / USER objects (Windows only — main long-run-stability concern) ---
+    # --- GDI / USER objects (Windows only -- main long-run-stability concern) ---
     # GDI is what causes Windows-wide slowdown after 24h+ runs. Every
     # `Texture.create()` and unclosed matplotlib figure adds a GDI handle.
     # Process limit is 10,000; Windows desktop degrades around 5,000.
@@ -813,7 +1095,7 @@ def system_metrics(path='/'):
 
     # --- Python GC (catches reference-cycle / closure-capture leaks) ---
     # `gc.get_objects()` is somewhat expensive (iterates all tracked
-    # objects) — fine at hourly cadence. Steady linear growth indicates
+    # objects) -- fine at hourly cadence. Steady linear growth indicates
     # accumulation, typically from observers/callbacks holding refs.
     try:
         metrics['gc_objects'] = len(gc.get_objects())
@@ -846,7 +1128,7 @@ def system_metrics(path='/'):
 
     # --- Live GC depth (uncollected objects per generation) ---
     # Existing gc_genN_collections counts collections-since-start (a counter).
-    # gc.get_count() is the CURRENT depth — pairs with the counter to show
+    # gc.get_count() is the CURRENT depth -- pairs with the counter to show
     # both rate (collections/min) and steady-state pressure (depth growing
     # = generation 2 leaks).
     try:

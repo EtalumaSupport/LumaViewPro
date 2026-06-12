@@ -1,6 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """
-Simulated Camera — drop-in replacement for PylonCamera / IDSCamera.
+Simulated Camera -- drop-in replacement for PylonCamera / IDSCamera.
 
 No camera hardware required. Generates synthetic images, tracks all
 camera state (exposure, gain, binning, frame size, pixel format), and
@@ -12,7 +12,7 @@ import datetime
 import pathlib
 import threading
 import time
-from typing import Callable
+from collections.abc import Callable
 
 import numpy as np
 from scipy.ndimage import uniform_filter
@@ -49,6 +49,14 @@ class SimulatedCamera(Camera):
         z_position_func: Callable[[], float] | None = None,
         timing: str = 'fast',
     ):
+        # Native (unbinned) sensor size -- the fixed ceiling. _width/_height
+        # below are the CURRENT frame size in post-binning (displayed) pixels,
+        # matching the Pylon driver's convention: set_frame_size takes the
+        # post-binning ROI, and the grabbed image is exactly that size (the
+        # sensor delivers native/binning pixels). At binning 1 the frame
+        # equals the native size.
+        self._native_width = width
+        self._native_height = height
         self._width = width
         self._height = height
         self._grab_delay = grab_delay
@@ -80,7 +88,7 @@ class SimulatedCamera(Camera):
         self._pump_thread: threading.Thread | None = None
         self._pump_stop = threading.Event()
 
-        # Synthetic image state — can be set externally for test scenarios
+        # Synthetic image state -- can be set externally for test scenarios
         # 'gradient', 'black', 'white', 'noise', 'focus_target', 'image_cycle'
         self._test_pattern = 'gradient'
 
@@ -155,8 +163,8 @@ class SimulatedCamera(Camera):
                         for fp in sorted(image_dir.glob(ext)):
                             try:
                                 pil_img = PILImage.open(fp).convert('L')
-                                h = self._height // self._binning
-                                w = self._width // self._binning
+                                h = self._height
+                                w = self._width
                                 pil_img = pil_img.resize((w, h), PILImage.LANCZOS)
                                 images.append(np.array(pil_img, dtype=np.uint8))
                                 logger.info(f'[SimCamera ] Loaded cycle image: {fp.name}')
@@ -167,8 +175,8 @@ class SimulatedCamera(Camera):
 
         if not images:
             # Generate 4 synthetic patterns as fallback
-            h = self._height // self._binning
-            w = self._width // self._binning
+            h = self._height
+            w = self._width
             # 1: Horizontal gradient
             images.append(np.tile(np.linspace(0, 255, w, dtype=np.uint8), (h, 1)))
             # 2: Vertical gradient
@@ -238,9 +246,7 @@ class SimulatedCamera(Camera):
         """
         if self.active in (False, None):
             return False
-        if self._device_removed:
-            return False
-        return True
+        return not self._device_removed
 
     # ------------------------------------------------------------------
     # Config
@@ -339,7 +345,7 @@ class SimulatedCamera(Camera):
 
         Generates a fresh image per tick so the callback gets a unique
         ``(image, ts, chunks=None)`` triple. SimulatedCamera has no
-        chunk surface, so chunks is always None — recording callers
+        chunk surface, so chunks is always None -- recording callers
         already treat None as "skip chunk-derived metadata."
         """
         while not self._pump_stop.is_set():
@@ -373,15 +379,21 @@ class SimulatedCamera(Camera):
     def set_frame_size(self, w: int, h: int) -> None:
         """Set the simulated camera frame size, clamped to valid ranges.
 
+        ``w`` and ``h`` are post-binning (displayed) pixels, so the ceiling is
+        the native sensor size divided by the current binning factor -- the
+        same constraint Pylon enforces via ``Width.Max`` at the active binning.
+
         Args:
-            w: Target width in pixels (snapped to multiple of 48,
-                clamped to [48, 4096]).
-            h: Target height in pixels (snapped to multiple of 4,
-                clamped to [4, 4096]).
+            w: Target width in pixels (snapped to a multiple of 48,
+                clamped to [48, native_width / binning]).
+            h: Target height in pixels (snapped to a multiple of 4,
+                clamped to [4, native_height / binning]).
         """
         with self._lock:
-            self._width = max(48, min(4096, int(w / 48) * 48))
-            self._height = max(4, min(4096, int(h / 4) * 4))
+            max_w = self._native_width // self._binning
+            max_h = self._native_height // self._binning
+            self._width = max(48, min(max_w, int(w / 48) * 48))
+            self._height = max(4, min(max_h, int(h / 4) * 4))
             if _cam_log is not None:
                 _cam_log.info(f'sim set_frame_size({self._width}x{self._height})')
 
@@ -394,12 +406,18 @@ class SimulatedCamera(Camera):
         return {'width': 48, 'height': 4}
 
     def get_max_frame_size(self) -> dict:
-        """Return the simulator's maximum supported frame size.
+        """Return the maximum frame size at the current binning.
+
+        Post-binning ceiling = native sensor size / binning, matching Pylon's
+        binning-dependent ``Width.Max`` / ``Height.Max``.
 
         Returns:
-            dict: ``{'width': 4096, 'height': 4096}``.
+            dict: ``{'width': int, 'height': int}``.
         """
-        return {'width': 4096, 'height': 4096}
+        return {
+            'width': self._native_width // self._binning,
+            'height': self._native_height // self._binning,
+        }
 
     def get_frame_size(self) -> dict:
         """Return the simulated camera's current frame size.
@@ -478,7 +496,7 @@ class SimulatedCamera(Camera):
                 _cam_log.info(
                     f'sim ExposureTime.SetValue({float(exposure_ms) * 1000.0:.0f}us) (={exposure_ms}ms)'
                 )
-            logger.info(f'[CAM Sim   ] Exposure set to {exposure_ms}ms')
+            logger.debug(f'[CAM Sim   ] Exposure set to {exposure_ms}ms')
 
     def get_exposure_t(self) -> float:
         """Return exposure time in milliseconds.
@@ -549,6 +567,13 @@ class SimulatedCamera(Camera):
             return False
         with self._lock:
             self._binning = size
+            # Frame is in post-binning pixels, so a larger binning shrinks the
+            # post-binning ceiling (native / binning); clamp the current frame
+            # down to it, the same way Pylon clamps Width to the reduced
+            # Width.Max. The UI re-pushes set_frame_size after a binning change,
+            # but isolated binning changes (no frame re-push) still stay valid.
+            self._width = min(self._width, self._native_width // size)
+            self._height = min(self._height, self._native_height // size)
             if _cam_log is not None:
                 _cam_log.info(f'sim set_binning_size({size})')
         return True
@@ -620,7 +645,7 @@ class SimulatedCamera(Camera):
 
         img = np.zeros((h, w), dtype=np.float32)
 
-        # Grid of fine lines (high frequency — most sensitive to defocus)
+        # Grid of fine lines (high frequency -- most sensitive to defocus)
         grid_spacing = 8
         img[::grid_spacing, :] = max_val * 0.4
         img[:, ::grid_spacing] = max_val * 0.4
@@ -672,8 +697,8 @@ class SimulatedCamera(Camera):
 
     def _generate_image(self) -> np.ndarray:
         """Generate a synthetic image based on current settings."""
-        h = self._height // self._binning
-        w = self._width // self._binning
+        h = self._height
+        w = self._width
 
         if self._pixel_format in ('Mono10', 'Mono12'):
             dtype = np.uint16
@@ -686,7 +711,7 @@ class SimulatedCamera(Camera):
         raw = (self._exposure_us / 1_000_000.0) * max(1.0, self._gain) * 10.0
         brightness = min(1.0, raw)
         # For image cycling, apply a floor so patterns are visible even at
-        # short default exposures (2ms → raw=0.02, floor lifts to 0.5)
+        # short default exposures (2ms -> raw=0.02, floor lifts to 0.5)
         if self._test_pattern == 'image_cycle':
             brightness = max(0.5, brightness)
 
@@ -717,7 +742,7 @@ class SimulatedCamera(Camera):
             img = self._apply_defocus_blur(base * brightness, max_val)
             img = img.astype(dtype)
         else:
-            # Default gradient — also apply defocus blur if Z tracking is active
+            # Default gradient -- also apply defocus blur if Z tracking is active
             row = np.linspace(0, max_val * brightness, w, dtype=np.float32)
             img = np.tile(row, (h, 1)).astype(dtype)
 
@@ -746,7 +771,7 @@ class SimulatedCamera(Camera):
             now = time.monotonic()
             last = getattr(self, '_last_frame_time', 0.0)
             if now - last < exposure_s:
-                # Not enough time has passed — return the previous frame
+                # Not enough time has passed -- return the previous frame
                 return True, self._last_grab_ts
             self._last_frame_time = now
 
@@ -838,7 +863,7 @@ class SimulatedCamera(Camera):
             self._gain = float(gain)
             if _cam_log is not None:
                 _cam_log.info(f'sim Gain.SetValue({float(gain):.3f})')
-            logger.info(f'[CAM Sim   ] Gain set to {gain}')
+            logger.debug(f'[CAM Sim   ] Gain set to {gain}')
 
     def init_auto_gain_focus(
         self,
@@ -870,6 +895,7 @@ class SimulatedCamera(Camera):
         target_brightness: float = 0.5,
         min_gain_db: float | None = None,
         max_gain_db: float | None = None,
+        ae_max_exposure_ms: float | None = None,
     ) -> bool:
         """Enable or disable simulated continuous auto-gain.
 
@@ -881,6 +907,8 @@ class SimulatedCamera(Camera):
             target_brightness: Normalized brightness target (0.0-1.0).
             min_gain_db: Optional lower bound in dB.
             max_gain_db: Optional upper bound in dB.
+            ae_max_exposure_ms: Accepted for interface parity; the
+                simulator has no auto-exposure bound to apply.
 
         Returns:
             bool: Always True.
@@ -907,6 +935,7 @@ class SimulatedCamera(Camera):
         target_brightness: float = 0.5,
         min_gain_db: float | None = None,
         max_gain_db: float | None = None,
+        ae_max_exposure_ms: float | None = None,
     ) -> bool:
         """Run a single simulated auto-gain iteration.
 

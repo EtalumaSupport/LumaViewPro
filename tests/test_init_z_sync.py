@@ -10,7 +10,7 @@ Static-source regression: assert ``complete_initialization`` in
 ``lumaviewpro.py`` invokes ``_handle_ui_update_for_axis('Z')``. The bug
 was that the call was missing, so the test must fail when the call is
 missing. (Functional coverage of ``_handle_ui_update_for_axis`` itself
-lives elsewhere — that helper is exercised on every motion end in
+lives elsewhere -- that helper is exercised on every motion end in
 production and any breakage is caught by the existing motion tests.)
 """
 

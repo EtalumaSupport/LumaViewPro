@@ -2,7 +2,7 @@
 
 """Protocol execution state machine.
 
-Pure logic — no threading, no I/O.  Extracted from
+Pure logic -- no threading, no I/O.  Extracted from
 ``sequenced_capture_runner.py`` during the protocol-decomposition refactor.
 """
 
@@ -55,7 +55,7 @@ def validate_transition(
     new_state: ProtocolState,
     logger_name: str = 'SequencedCaptureRunner',
 ) -> None:
-    """Raise ``ValueError`` if *old_state* → *new_state* is not allowed."""
+    """Raise ``ValueError`` if *old_state* -> *new_state* is not allowed."""
     if old_state == new_state:
         return  # no-op
     allowed = PROTOCOL_STATE_TRANSITIONS.get(old_state, set())

@@ -9,7 +9,7 @@ import os
 
 # Suppress Kivy's own file/console logging before any Kivy import can fire.
 # LVP routes the `kivy` logger into its file_handler / error_handler below,
-# so Kivy diagnostics still land in the main LVP logs — just not in
+# so Kivy diagnostics still land in the main LVP logs -- just not in
 # ~/.kivy/logs/. The app entry point (lumaviewpro.py) sets the same vars,
 # but lvp_logger is imported earlier by most code paths (tests, scripts,
 # standalone imports), so set them here too.
@@ -25,6 +25,11 @@ import threading
 
 global windows_machine
 
+# Platform flag derived here independently of modules.app_environment's
+# identical os.name check, by design: lvp_logger is the lowest-level module
+# (imported before app_environment runs), so it owns its own check rather
+# than importing one. The predicate is identical in both, so the two copies
+# cannot disagree -- it is a constant, not divergent state.
 windows_machine = False
 
 # Thread-local storage for tracking paused threads
@@ -78,7 +83,7 @@ if windows_machine and lvp_installed:
     documents_folder = platformdirs.user_documents_dir()
     lvp_appdata = os.path.join(documents_folder, f'LumaViewPro {version}')
 
-    # Do NOT os.chdir() here — it changes global CWD as a side effect of import.
+    # Do NOT os.chdir() here -- it changes global CWD as a side effect of import.
     # Use absolute paths instead.
     pass
 
@@ -112,6 +117,7 @@ API_LOG_FILE = os.path.join(log_dir, 'api.log')
 CAMERA_LOG_FILE = os.path.join(log_dir, 'camera.log')
 GUI_LOG_FILE = os.path.join(log_dir, 'gui_interactions.log')
 METRICS_LOG_FILE = os.path.join(log_dir, 'metrics.log')
+PROTOCOL_LOG_FILE = os.path.join(log_dir, 'protocol.log')
 
 
 # CustomFormatter class enables change in log format depending on log level
@@ -189,21 +195,28 @@ def custom_except_hook(exc_type, exc_value, exc_traceback):
 # ensures logger is specific to the file importing lvp_logger
 logger = logging.getLogger(__name__)
 
-# Set up the 'LVP' parent logger so all LVP.* child loggers (used throughout the
-# codebase) inherit handlers and don't propagate to root/Kivy console.
+# Single source of truth for the verbosity floor: debug_mode picks DEBUG vs
+# INFO, and that one level is the ONLY thing gating DEBUG output. The level is
+# applied to both logger trees that write to the main log -- the 'LVP' parent
+# (all LVP.* child loggers, incl. the preview [PERF] line) and lvp_logger's own
+# logger. Loggers that want a fixed floor regardless of debug_mode set their own
+# level (e.g. LVP.camera stays DEBUG -- the always-on camera.log firehose).
+# Note: do NOT reintroduce a global logging.disable() here -- it overrides every
+# logger's own level (it was silently starving camera.log of DEBUG) and split
+# the toggle into two gates. The per-logger level is the canonical mechanism.
+_log_level = logging.DEBUG if debug else logging.INFO
+
 _lvp_parent = logging.getLogger('LVP')
-_lvp_parent.setLevel(logging.INFO)
+_lvp_parent.setLevel(_log_level)
+logger.setLevel(_log_level)
 
 # Prevent logs from propagating to root (and the console)
 if not debug:
     logger.propagate = False
     _lvp_parent.propagate = False
 
-# determines lowest level of messages to log (DEBUG < INFO < WARNING < ERROR < CRITICAL)
-logger.setLevel(logging.INFO)
-
 # obtains name of the module (file) importing lvp_logger
-filename = '%s' % __file__
+filename = f'{__file__}'
 file_handler = RotatingFileHandler(
     LOG_FILE,
     mode='a',
@@ -253,7 +266,7 @@ class ErrorOrForcedFilter(logging.Filter):
 
 error_file_handler.addFilter(ErrorOrForcedFilter())
 
-# REST API log handler — captures records marked with extra={'api_request': True}
+# REST API log handler -- captures records marked with extra={'api_request': True}
 rest_api_handler = RotatingFileHandler(
     REST_API_LOG_FILE,
     mode='a',
@@ -276,7 +289,7 @@ class RestAPIFilter(logging.Filter):
 
 rest_api_handler.addFilter(RestAPIFilter())
 
-# Serial log — dedicated file for all serial command/response traffic with timing.
+# Serial log -- dedicated file for all serial command/response traffic with timing.
 # Uses its own logger (LVP.serial) with propagate=False so serial traffic
 # does NOT appear in the main log.  Errors still go to the errors log.
 serial_logger = logging.getLogger('LVP.serial')
@@ -285,7 +298,7 @@ serial_logger.propagate = False  # Keep serial traffic out of the main log
 
 
 class SerialFormatter(logging.Formatter):
-    """Compact format for serial log: timestamp board command → response (timing)."""
+    """Compact format for serial log: timestamp board command -> response (timing)."""
 
     def __init__(self):
         super().__init__(
@@ -294,11 +307,15 @@ class SerialFormatter(logging.Formatter):
         )
 
 
+# Firehose trace logs (serial, camera, protocol, api) stay fully verbose
+# through the beta, but their rotation footprint is capped at 5MB x 3 files
+# so a long-soak support bundle stays small. Revisit the verbosity itself
+# (demote routine per-command traffic to DEBUG) at the 4.0.0 GA release.
 serial_file_handler = RotatingFileHandler(
     SERIAL_LOG_FILE,
     mode='a',
-    maxBytes=20 * 1024 * 1024,
-    backupCount=5,
+    maxBytes=5 * 1024 * 1024,
+    backupCount=2,
     encoding=None,
     delay=False,
 )
@@ -309,7 +326,7 @@ serial_logger.addHandler(serial_file_handler)
 # Also send serial errors/warnings to the errors log
 serial_logger.addHandler(error_file_handler)
 
-# Camera log — dedicated file for all camera SDK command traffic with
+# Camera log -- dedicated file for all camera SDK command traffic with
 # timing. Same shape as serial.log but for Pylon / IDS / FX2 / simulator
 # camera drivers. Captures every meaningful SDK call (Gain, ExposureTime,
 # StartGrabbing, StopGrabbing, PixelFormat, Binning, Width/Height, etc).
@@ -340,8 +357,8 @@ class CameraFormatter(logging.Formatter):
 camera_file_handler = RotatingFileHandler(
     CAMERA_LOG_FILE,
     mode='a',
-    maxBytes=20 * 1024 * 1024,
-    backupCount=5,
+    maxBytes=5 * 1024 * 1024,
+    backupCount=2,
     encoding=None,
     delay=False,
 )
@@ -359,7 +376,7 @@ camera_logger.addHandler(error_file_handler)
 # real log_to.
 from lib.log_helpers import log_to  # noqa: E402
 
-# Metrics log — dedicated file for periodic runtime-health snapshots
+# Metrics log -- dedicated file for periodic runtime-health snapshots
 # (system metrics, handle/GC counts, buffer churn, frame-interval
 # percentiles). Routed here instead of errors.log so errors.log stays
 # signal-only. Uses standard CustomFormatter so existing log-parsing
@@ -383,8 +400,33 @@ metrics_logger.addHandler(metrics_file_handler)
 # Metrics errors/warnings still hit the errors log
 metrics_logger.addHandler(error_file_handler)
 
-# Autofocus log — dedicated file for AF sweep data, scores, timing.
-# Engineering mode only — handler attached via enable_engineering_logs().
+# Protocol log -- dedicated file for the per-step protocol-execution
+# narrative (step records, per-channel LED/illumination, image-captured
+# events). A long protocol soak emits tens of thousands of these per run;
+# routing them here keeps the main log readable while preserving the full
+# run history. propagate=False keeps protocol detail out of the main log;
+# warnings/errors still mirror to the errors log.
+protocol_logger = logging.getLogger('LVP.protocol')
+protocol_logger.setLevel(logging.INFO)
+protocol_logger.propagate = False  # Keep protocol detail out of the main log
+
+protocol_file_handler = RotatingFileHandler(
+    PROTOCOL_LOG_FILE,
+    mode='a',
+    maxBytes=5 * 1024 * 1024,
+    backupCount=2,
+    encoding=None,
+    delay=False,
+)
+protocol_file_handler.namer = lambda name: name.replace('.log', '') + '.log'
+protocol_file_handler.setFormatter(CustomFormatter())
+protocol_file_handler.addFilter(ThreadPauseFilter())
+protocol_logger.addHandler(protocol_file_handler)
+# Protocol errors/warnings still hit the errors log
+protocol_logger.addHandler(error_file_handler)
+
+# Autofocus log -- dedicated file for AF sweep data, scores, timing.
+# Engineering mode only -- handler attached via enable_engineering_logs().
 af_logger = logging.getLogger('LVP.autofocus')
 af_logger.setLevel(logging.INFO)
 af_logger.propagate = False  # Keep AF data out of the main log
@@ -414,8 +456,8 @@ _af_file_handler.namer = lambda name: name.replace('.log', '') + '.log'
 _af_file_handler.setFormatter(AFFormatter())
 _af_file_handler.addFilter(ThreadPauseFilter())
 
-# API log — internal Lumascope API calls (state-changing operations).
-# Engineering mode only — handler attached via enable_engineering_logs().
+# API log -- internal Lumascope API calls (state-changing operations).
+# Engineering mode only -- handler attached via enable_engineering_logs().
 api_logger = logging.getLogger('LVP.api')
 api_logger.setLevel(logging.INFO)
 api_logger.propagate = False  # Keep API traffic out of the main log
@@ -436,8 +478,8 @@ class APIFormatter(logging.Formatter):
 _api_file_handler = RotatingFileHandler(
     API_LOG_FILE,
     mode='a',
-    maxBytes=20 * 1024 * 1024,
-    backupCount=5,
+    maxBytes=5 * 1024 * 1024,
+    backupCount=2,
     encoding=None,
     delay=True,  # Don't create file until first write
 )
@@ -478,7 +520,7 @@ logger.addHandler(file_handler)
 logger.addHandler(error_file_handler)
 logger.addHandler(rest_api_handler)
 
-# GUI interaction log — every user action for crash forensics
+# GUI interaction log -- every user action for crash forensics
 # WORKAROUND: INFO level during beta. Move to DEBUG once stable.
 gui_handler = RotatingFileHandler(
     GUI_LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=2, encoding='utf-8'
@@ -512,18 +554,45 @@ if not debug:
 sys.excepthook = custom_except_hook
 
 
-def log_environment_banner(source_path: str, version_str: str):
-    """LVP-A-9: emit the standard launch-time environment fingerprint.
+def _collect_installed_packages() -> dict:
+    """Map distribution name -> version for every installed package.
+
+    Uses importlib.metadata (stdlib) instead of shelling out to
+    `pip freeze`: works inside the frozen exe, needs no subprocess, and
+    doesn't depend on pip being importable. Sorted case-insensitively;
+    duplicate names (rare, from overlapping metadata dirs) keep the
+    first seen.
+    """
+    import importlib.metadata as _imeta
+
+    packages: dict = {}
+    for _dist in _imeta.distributions():
+        try:
+            _name = _dist.metadata['Name']
+        except Exception:
+            _name = None
+        if not _name or _name in packages:
+            continue
+        packages[_name] = _dist.version or 'unknown'
+    return dict(sorted(packages.items(), key=lambda kv: kv[0].lower()))
+
+
+def log_environment_banner(install_path: str, version_str: str):
+    """Emit the standard launch-time environment fingerprint.
+
+    ``install_path`` is the directory the executable runs from -- where
+    version.txt and .git_archival.txt ship. On an installed build this is
+    the install root, NOT the per-user data directory; on a source/dev run
+    the two coincide.
 
     Logs git hash, run time, host/OS, Python interpreter + version, Kivy,
     and camera SDK versions (pypylon binding + Pylon SDK runtime,
     ids_peak). Every entry point that ships should call this on startup
     so support bundles always identify the exact environment that
-    produced the log (Rule 22).
+    produced the log.
 
-    Originally inline at lumaviewpro.py:587-666 -- moved here so REST
-    API, headless test runner, CLI tools all get the same fingerprint
-    without copy-paste.
+    Centralized here so REST API, headless test runner, CLI tools all
+    get the same fingerprint without copy-paste.
     """
     import sys as _sys
 
@@ -542,7 +611,7 @@ def log_environment_banner(source_path: str, version_str: str):
     _branch = ''
     _build_guid = ''
     try:
-        with open(os.path.join(source_path, 'version.txt')) as _vf:
+        with open(os.path.join(install_path, 'version.txt')) as _vf:
             _lines = _vf.read().splitlines()
             if len(_lines) >= 2:
                 _built = _lines[1].strip()
@@ -550,8 +619,8 @@ def log_environment_banner(source_path: str, version_str: str):
                 _branch = _lines[2].strip()
             if len(_lines) >= 4:
                 _build_guid = _lines[3].strip()
-    except Exception:
-        pass
+    except Exception as _e:
+        logger.debug(f'[LVP Main  ] version.txt not read from {install_path}: {_e}')
     logger.info(f'[LVP Main  ] Built:     {_built or "unknown"}')
     logger.info(f'[LVP Main  ] Branch:    {_branch or "unknown"}')
     logger.info(f'[LVP Main  ] BuildGUID: {_build_guid or "unknown"}')
@@ -574,7 +643,7 @@ def log_environment_banner(source_path: str, version_str: str):
     # Branch + Built + BuildGUID for triage.
     _git_hash = None
     try:
-        with open(os.path.join(source_path, '.git_archival.txt')) as _af:
+        with open(os.path.join(install_path, '.git_archival.txt')) as _af:
             for _line in _af:
                 if _line.startswith('node: ') and not _line.startswith('node: $Format'):
                     _git_hash = _line.split(': ', 1)[1].strip()[:12]
@@ -588,7 +657,7 @@ def log_environment_banner(source_path: str, version_str: str):
             _git_hash = (
                 subprocess.check_output(
                     ['git', 'rev-parse', '--short', 'HEAD'],
-                    cwd=source_path,
+                    cwd=install_path,
                     stderr=subprocess.DEVNULL,
                     timeout=2,
                 )
@@ -599,6 +668,18 @@ def log_environment_banner(source_path: str, version_str: str):
             pass
     logger.info(
         f'[LVP Main  ] Git:       {_git_hash or "unknown (use BuildGUID or Branch + Built)"}'
+    )
+
+    # debug_mode gates all DEBUG-level output (including the preview [PERF]
+    # lines). State the resolved value AND which file it came from so a
+    # support bundle alone answers "was debug on, and where is it set?" --
+    # the live value is read from current.json once that exists, so editing
+    # settings.json has no effect on an established install.
+    from modules import settings_init as _si
+
+    logger.info(
+        f'[LVP Main  ] Debug:     debug_mode={debug} '
+        f'(from {_si.debug_setting_source or "default -- settings file unread"})'
     )
 
     # Host + OS + Python + key library versions.
@@ -617,7 +698,7 @@ def log_environment_banner(source_path: str, version_str: str):
     except Exception as e:
         logger.info(f'[LVP Main  ] Kivy: unavailable ({e})')
 
-    # Camera SDKs — log both the Python binding version AND the
+    # Camera SDKs -- log both the Python binding version AND the
     # underlying SDK runtime. Binding/SDK mismatch has bitten us before.
     try:
         import importlib.metadata as _imeta
@@ -629,7 +710,7 @@ def log_environment_banner(source_path: str, version_str: str):
         from pypylon import pylon as _pylon
 
         # Prefer the dotted string (e.g. "10.2.1.0471") over the raw
-        # list form GetPylonVersion() returns — the list renders as
+        # list form GetPylonVersion() returns -- the list renders as
         # `[10, 2, 1, 471]` in logs, which looks like a bug report
         # waiting to happen.
         try:
@@ -647,6 +728,33 @@ def log_environment_banner(source_path: str, version_str: str):
         logger.info(f'[LVP Main  ] ids_peak: {_ids_ver}')
     except Exception:
         logger.info('[LVP Main  ] ids_peak: not installed')
+
+    # Full installed-package inventory. install.bat / pip upgrades change
+    # behavior -- e.g. the ffmpeg + libx264 build bundled inside `av` -- WITHOUT
+    # changing the LVP build identity above, so a support bundle has to record
+    # the exact dependency set that produced it or the run is unreproducible.
+    # Highlights line first (the versions most likely to change behavior), then
+    # the full freeze in pip `name==version` form so `grep "av==" lumaviewpro.log`
+    # answers "which av" outright.
+    try:
+        _pkgs = _collect_installed_packages()
+    except Exception as e:
+        _pkgs = {}
+        logger.info(f'[LVP Main  ] Installed packages: unavailable ({e})')
+    if _pkgs:
+        _highlights = (
+            'av', 'numpy', 'tifffile', 'imagecodecs', 'scikit-image',
+            'scipy', 'opencv-python', 'opencv-python-headless', 'pandas',
+            'matplotlib', 'Pillow',
+        )
+        _hl = ' | '.join(f'{_n}=={_pkgs[_n]}' for _n in _highlights if _n in _pkgs)
+        if _hl:
+            logger.info(f'[LVP Main  ] Key deps: {_hl}')
+        _freeze = [f'{_n}=={_v}' for _n, _v in _pkgs.items()]
+        logger.info(f'[LVP Main  ] Installed packages ({len(_freeze)}):')
+        _PER_LINE = 6
+        for _i in range(0, len(_freeze), _PER_LINE):
+            logger.info('[LVP Main  ]   ' + ', '.join(_freeze[_i:_i + _PER_LINE]))
 
     logger.info('[LVP Main  ] -----------------------------------------')
 
@@ -666,9 +774,3 @@ def _thread_except_hook(args):
 
 threading.excepthook = _thread_except_hook
 minimize_logger_window()
-
-# Gate global DEBUG suppression behind an env var so investigations can
-# enable debug logging without rebuilding. Default preserves the
-# long-standing behavior of silencing debug-level chatter.
-if os.environ.get('LVP_DEBUG_ENABLED') != '1':
-    logging.disable(logging.DEBUG)

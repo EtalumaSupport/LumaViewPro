@@ -3,9 +3,7 @@ BSD 2-Clause "Simplified" License (SPDX: BSD-2-Clause)
 The following third-party components bundled with LumaViewPro are distributed
 under the BSD 2-Clause License:
 
-  - Numba (https://numba.pydata.org/)
-  - jgo (https://github.com/scijava/jgo)
-  - scyjava (https://github.com/scijava/scyjava)
+  - OpenJPEG (https://www.openjpeg.org/) — bundled inside the imagecodecs wheel
 
 Individual copyright notices for each component are listed in
 docs/THIRD_PARTY_NOTICES.md.

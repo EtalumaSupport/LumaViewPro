@@ -3,10 +3,10 @@
 
 The registry replaces the hardcoded if/elif driver selection chains in
 Lumascope.__init__. These tests cover:
-  1. Unit tests on a fresh DriverRegistry — name/priority/auto/simulate
+  1. Unit tests on a fresh DriverRegistry -- name/priority/auto/simulate
   2. End-to-end: Lumascope(simulate=True) produces sim drivers via the
      registry without any direct class references in the constructor
-  3. Composite-hardware test double — proves the registry can hold the
+  3. Composite-hardware test double -- proves the registry can hold the
      FX2 pattern (camera + LED sharing a singleton USB connection)
      before the real FX2 driver lands in Stage 3.
 """
@@ -24,7 +24,7 @@ from drivers.protocols import MotorBoardProtocol, LEDBoardProtocol
 
 
 class TestDriverRegistryUnit:
-    """Unit tests on a fresh DriverRegistry — no real drivers involved."""
+    """Unit tests on a fresh DriverRegistry -- no real drivers involved."""
 
     def test_register_and_create_by_name(self):
         reg = DriverRegistry('fake')
@@ -280,7 +280,7 @@ class TestDriverRegistryUnit:
 
 class TestLumascopeUsesRegistry:
     """End-to-end: Lumascope(simulate=True) produces sim drivers and
-    Lumascope() with no real hardware produces Null drivers — entirely
+    Lumascope() with no real hardware produces Null drivers -- entirely
     via the registry, not via hardcoded class references."""
 
     def test_simulate_true_yields_simulated_drivers(self):
@@ -308,7 +308,7 @@ class TestLumascopeUsesRegistry:
         entries after importing the driver modules.
 
         Motor and LED have full coverage (rp2040 / sim / null) on any
-        platform. Camera 'ids' is optional — it only registers if the
+        platform. Camera 'ids' is optional -- it only registers if the
         `ids_peak` SDK is installed (Windows/Linux with IDS drivers).
         On macOS dev machines without ids_peak, the ImportError guard
         in `lumascope_api.py` skips the `drivers.idscamera` import,
@@ -337,12 +337,12 @@ class TestLumascopeUsesRegistry:
 
 class TestRegistryAccommodatesCompositeHardware:
     """Proves B2's registry design can hold a multi-device driver that
-    shares a singleton USB connection across camera and LED — the exact
+    shares a singleton USB connection across camera and LED -- the exact
     FX2 / Lumaview Classic pattern that Stage 3 will implement.
 
     This test uses a fake `_FakeLVCConnection` singleton and registers
     two test-only drivers (`FakeLVCCamera`, `FakeLVCLed`) that grab the
-    singleton on construction. No production dead code — just a proof
+    singleton on construction. No production dead code -- just a proof
     that the architecture supports the pattern before the real FX2
     driver lands.
 
@@ -410,7 +410,7 @@ class TestRegistryAccommodatesCompositeHardware:
         assert ('led', 0, 100) in conn.commands_sent
         assert ('cam', 'grab') in conn.commands_sent
 
-        # The key invariant — both drivers point at the *same* connection
+        # The key invariant -- both drivers point at the *same* connection
         # object. This is what makes FX2's shared-USB pattern possible
         # without any special casing in Lumascope or the registry.
         assert led._conn is cam._conn

@@ -305,6 +305,59 @@ class TestProtocolAutoGainFires:
             + '\n'.join(f'  [{i}] {capture.records[i][1]}' for i in range(save_idx, restore_idx))
         )
 
+    def test_led_lit_before_auto_gain_armed(self, executor, tmp_path):
+        """The channel LED must be lit BEFORE AG is armed, so hardware AG
+        settles against the lit scene rather than a dark frame (the #673 root
+        cause: arming AG dark rails gain/exposure on noise). Within the
+        protocol window the led_on event must precede the
+        apply_layer_camera_settings ... auto_gain=True event.
+        """
+        protocol = _build_single_step_ag_protocol(color='BF', auto_gain=True)
+
+        capture = _ApiLogCapture()
+        api_logger = logging.getLogger('LVP.api')
+        prev_level = api_logger.level
+        api_logger.setLevel(logging.INFO)
+        api_logger.addHandler(capture)
+        try:
+            completed, _ = _run_protocol(executor, protocol, tmp_path)
+        finally:
+            api_logger.removeHandler(capture)
+            api_logger.setLevel(prev_level)
+
+        assert completed, 'Protocol did not complete within timeout'
+
+        save_idx = None
+        restore_idx = None
+        for i, (_, msg) in enumerate(capture.records):
+            if save_idx is None and 'save_camera_state' in msg and 'tag=protocol' in msg:
+                save_idx = i
+            elif save_idx is not None and 'restore_camera_state' in msg and 'tag=protocol' in msg:
+                restore_idx = i
+                break
+        assert save_idx is not None and restore_idx is not None
+
+        led_on_idx = next(
+            (i for i in range(save_idx, restore_idx) if 'led_on ch=' in capture.records[i][1]),
+            None,
+        )
+        ag_arm_idx = next(
+            (
+                i
+                for i in range(save_idx, restore_idx)
+                if 'apply_layer_camera_settings' in capture.records[i][1]
+                and 'auto_gain=True' in capture.records[i][1]
+            ),
+            None,
+        )
+        assert led_on_idx is not None, 'No led_on event in the protocol window.'
+        assert ag_arm_idx is not None, 'No auto_gain=True arm event in the protocol window.'
+        assert led_on_idx < ag_arm_idx, (
+            f'LED must be lit before AG is armed: led_on at index {led_on_idx}, '
+            f'AG arm at {ag_arm_idx}. Arming AG against a dark frame rails on '
+            f'noise and the grab is mis-exposed.'
+        )
+
     def test_no_auto_gain_step_does_not_enable_auto_gain(self, executor, tmp_path):
         """Symmetry check: Auto_Gain=False steps must NOT enable AG. The fix
         must not regress the static-gain path.

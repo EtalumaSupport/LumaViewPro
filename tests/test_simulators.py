@@ -124,7 +124,7 @@ class TestSimulatedMotorBoard:
         assert board.has_turret() is False
 
     def test_homing_xyz(self):
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(timing='instant')
         board.home()
         assert board.has_homed() is True
         assert board.current_pos('X') == 0
@@ -373,7 +373,7 @@ class TestSimulatedMotorBoard:
 
     def test_home_returns_bool(self):
         """home() should return True on success."""
-        board = SimulatedMotorBoard()
+        board = SimulatedMotorBoard(timing='instant')
         result = board.home()
         assert result is True
 
@@ -391,7 +391,7 @@ class TestSimulatedMotorBoard:
 
 
 # ---------------------------------------------------------------------------
-# Multi-Model Tests — verify all microscope models work correctly
+# Multi-Model Tests -- verify all microscope models work correctly
 # ---------------------------------------------------------------------------
 
 # All shipping models: Lumi (Z only), LS820 (Z only), LS850 (XYZ), LS850T (XYZ+turret)
@@ -434,7 +434,7 @@ class TestAllModels:
 
     @pytest.mark.parametrize('model', ALL_MODELS)
     def test_homing_works(self, model):
-        board = SimulatedMotorBoard(model=model)
+        board = SimulatedMotorBoard(model=model, timing='instant')
         board.home()
         assert board.has_homed() is True
 
@@ -548,12 +548,12 @@ class TestScaleBarObjectiveInit:
         from modules.lumascope_api import Lumascope
 
         scope = Lumascope(simulate=True)
-        scope.set_objective('20x Oly')
+        scope.runtime_state.set_objective('20x Oly')
         assert scope.runtime_state._objective is not None
         assert scope.runtime_state._objective['magnification'] == 20
 
     def test_scale_bar_disabled_without_objective(self):
-        """Scale bar enabled but no objective → use_scale_bar forced False."""
+        """Scale bar enabled but no objective -> use_scale_bar forced False."""
         from modules.lumascope_api import Lumascope
 
         scope = Lumascope(simulate=True)
@@ -567,7 +567,7 @@ class TestScaleBarObjectiveInit:
         from modules.lumascope_api import Lumascope
 
         scope = Lumascope(simulate=True)
-        scope.set_objective('20x Oly')
+        scope.runtime_state.set_objective('20x Oly')
         scope.imaging.set_scale_bar(enabled=True)
         assert scope.imaging._scale_bar['enabled'] is True
         assert scope.runtime_state._objective is not None
@@ -748,11 +748,11 @@ class TestSimulatedCamera:
 
     def test_image_brightness_varies_with_exposure(self):
         cam = SimulatedCamera()
-        cam.exposure_t(1.0)  # 1ms — dim
+        cam.exposure_t(1.0)  # 1ms -- dim
         cam.grab()
         dim = cam.array.mean()
 
-        cam.exposure_t(100.0)  # 100ms — bright
+        cam.exposure_t(100.0)  # 100ms -- bright
         cam.grab()
         bright = cam.array.mean()
 
@@ -871,7 +871,7 @@ class TestSimulatedCamera:
         cam = SimulatedCamera(width=480, height=300, grab_delay=0)
         cam.set_test_pattern(enabled=True, pattern='focus_target')
         cam.grab()
-        # Focus target should have features — not uniform
+        # Focus target should have features -- not uniform
         assert cam.array.std() > 5
 
     def test_set_get_z_position(self):
@@ -1068,7 +1068,7 @@ class TestSimulatedCamera:
         Regression test for CAM-4: previously the abstract context
         manager always read is_grabbing() and trusted the outer call to
         have already stopped before the inner call queried. Depth
-        tracking now makes the invariant explicit — only the outermost
+        tracking now makes the invariant explicit -- only the outermost
         invocation toggles the grab loop.
         """
         cam = SimulatedCamera()
@@ -1092,7 +1092,7 @@ class TestSimulatedCamera:
         with cam.update_camera_config():
             assert cam.is_grabbing() is False
             with cam.update_camera_config():
-                # Inner level must NOT call stop_grabbing again — would
+                # Inner level must NOT call stop_grabbing again -- would
                 # be a no-op anyway (already stopped) but the invariant
                 # is "only outer level toggles".
                 assert cam.is_grabbing() is False
@@ -1258,7 +1258,7 @@ class TestTimingModes:
 
     def test_motor_fast_mode(self):
         m = SimulatedMotorBoard(timing='fast')
-        assert m._cmd_delay > 0  # 1ms minimum — nothing returns instantly
+        assert m._cmd_delay > 0  # 1ms minimum -- nothing returns instantly
         assert m._simulate_move_duration is True
         assert m._fast_move_duration > 0  # Brief ~3ms per move
 
@@ -1317,7 +1317,7 @@ class TestTimingModes:
 
     def test_led_fast_mode(self):
         led = SimulatedLEDBoard(timing='fast')
-        assert led._delay > 0  # 1ms minimum — nothing returns instantly
+        assert led._delay > 0  # 1ms minimum -- nothing returns instantly
 
     def test_led_realistic_mode(self):
         led = SimulatedLEDBoard(timing='realistic')
@@ -1352,15 +1352,15 @@ class TestFailureInjection:
         assert m.exchange_command('INFO') is not None  # cmd 1
         assert m.exchange_command('INFO') is not None  # cmd 2
         assert m.exchange_command('INFO') is not None  # cmd 3
-        assert m.exchange_command('INFO') is None  # cmd 4 — disconnected
+        assert m.exchange_command('INFO') is None  # cmd 4 -- disconnected
         assert m.driver is None
 
     def test_motor_fail_after_sets_found_false(self):
         """After injected disconnect, found should be False."""
         m = SimulatedMotorBoard(fail_after=1)
         assert m.found is True
-        m.exchange_command('INFO')  # cmd 1 — succeeds
-        m.exchange_command('INFO')  # cmd 2 — fails
+        m.exchange_command('INFO')  # cmd 1 -- succeeds
+        m.exchange_command('INFO')  # cmd 2 -- fails
         assert m.found is False
 
     def test_motor_fail_on_specific_command(self):
@@ -1373,7 +1373,7 @@ class TestFailureInjection:
 
     def test_motor_fail_on_multiple_commands(self):
         """Multiple commands can be targeted for failure."""
-        m = SimulatedMotorBoard(fail_on={'ZHOME', 'THOME'})
+        m = SimulatedMotorBoard(fail_on={'ZHOME', 'THOME'}, timing='instant')
         assert m.exchange_command('ZHOME') is None
         assert m.exchange_command('THOME') is None
         assert m.exchange_command('HOME') is not None  # not in fail set
@@ -1386,11 +1386,11 @@ class TestFailureInjection:
 
     def test_motor_fail_after_affects_move(self):
         """Mid-protocol disconnect: move starts OK, then fails."""
-        m = SimulatedMotorBoard(fail_after=5)
+        m = SimulatedMotorBoard(fail_after=5, timing='instant')
         m.exchange_command('HOME')  # cmd 1
         m.move_abs_pos('Z', 5000)  # uses multiple commands
         # Eventually commands fail
-        result = m.exchange_command('ACTUAL_RZ')
+        result = m.exchange_command('ACTUAL_RZ')  # noqa: F841 -- deferred
         # After enough commands, should get None
         # (exact count depends on internal commands used by move_abs_pos)
 
@@ -1401,15 +1401,15 @@ class TestFailureInjection:
         led = SimulatedLEDBoard(fail_after=2)
         assert led.exchange_command('LEDS_ENT') is not None  # cmd 1
         assert led.exchange_command('LED0_100') is not None  # cmd 2
-        assert led.exchange_command('LEDS_OFF') is None  # cmd 3 — disconnected
+        assert led.exchange_command('LEDS_OFF') is None  # cmd 3 -- disconnected
         assert led.driver is None
 
     def test_led_fail_after_sets_found_false(self):
         """After injected disconnect, found should be False."""
         led = SimulatedLEDBoard(fail_after=1)
         assert led.found is True
-        led.exchange_command('LEDS_ENT')  # cmd 1 — succeeds
-        led.exchange_command('LED0_100')  # cmd 2 — fails
+        led.exchange_command('LEDS_ENT')  # cmd 1 -- succeeds
+        led.exchange_command('LED0_100')  # cmd 2 -- fails
         assert led.found is False
 
     def test_led_fail_on_specific_command(self):
@@ -1430,6 +1430,6 @@ class TestFailureInjection:
         led = SimulatedLEDBoard(fail_after=2)
         led._write_command_fast('LED0_100')  # cmd 1
         led._write_command_fast('LED1_100')  # cmd 2
-        led._write_command_fast('LED2_100')  # cmd 3 — should disconnect
+        led._write_command_fast('LED2_100')  # cmd 3 -- should disconnect
         assert led.driver is None
         assert led.found is False

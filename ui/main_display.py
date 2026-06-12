@@ -1,6 +1,6 @@
 # Copyright Etaluma, Inc.
 """
-MainDisplay — primary application display (recording, camera, fit/zoom)
+MainDisplay -- primary application display (recording, camera, fit/zoom)
 extracted from lumaviewpro.py.
 """
 
@@ -20,6 +20,7 @@ from kivy.clock import Clock
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 from modules import gui_logger
+from modules.config_helpers import get_manual_video_max_duration
 import modules.image_utils as image_utils
 from modules.recording_manifest import build_session_manifest
 from modules.sequential_io_executor import IOTask
@@ -35,7 +36,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
     def __init__(self, camera_type='ids', simulate=False, **kwargs):
         import modules.lumascope_api as lumascope_api
 
-        super(MainDisplay, self).__init__(**kwargs)
+        super().__init__(**kwargs)
         self.scope = lumascope_api.Lumascope(camera_type=camera_type, simulate=simulate)
         # LVP-A-2: camera_temps_event moved to Lumascope.start_camera_temp_logging.
         self.recording = threading.Event()
@@ -56,19 +57,25 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         self.writing_progress_update = None
         self.video_writing_progress = 0
         self.video_writing_total_frames = 0
+        # Reused scratch buffers for the record-path depth conversion and
+        # false-color widening in record_helper. Sized lazily on the first
+        # frame of a record and freed at finalize. Reuse is safe: record_helper
+        # runs on the single-threaded camera_executor and copies its result
+        # into the memmap slot before the next call can overwrite the scratch.
+        self._record_convert_buf = None
+        self._record_color_buf = None
         self._pause_led_snapshot = None  # save/restore via API
 
     def cam_toggle(self):
         try:
             logger.info('[LVP Main  ] MainDisplay.cam_toggle()')
 
-            ctx = _app_ctx.ctx
-            settings = ctx.settings
-
             scope_display = self.ids['viewer_id'].ids['scope_display_id']
             if not self.scope.imaging.camera_active:
+                gui_logger.button('CAM_TOGGLE', 'no-op (camera inactive)')
                 return
 
+            gui_logger.toggle('CAM_PLAY', not scope_display.play)
             if scope_display.play:
                 scope_display.play = False
                 # Stage B1: pause() instead of stop()+start() so the
@@ -105,11 +112,38 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
 
         # Check if video is currently being written
         if self.video_writing.is_set():
-            logger.warning('[LVP Main  ] Cannot start recording - video is being written')
+            # The video write shares the file worker with long jobs
+            # (composite generation, z-projection): the finalize can sit
+            # queued behind one for minutes while this flag stays set.
+            # Name the real situation -- "wait for the video" alone reads
+            # as a hang when a composite run is what is actually ahead.
+            _ctx = _app_ctx.ctx
+            _ahead = 0
+            _busy_with = None
+            try:
+                _ahead = _ctx.file_io_executor.queue.qsize()
+                _running = _ctx.file_io_executor.running_task
+                if _running is not None:
+                    _busy_with = getattr(_running.action, '__name__', str(_running.action))
+            except Exception as e:
+                logger.debug(f'[LVP Main  ] file-lane status read failed: {e}')
+            logger.warning(
+                f'[LVP Main  ] Cannot start recording - previous video write '
+                f'still pending on the file worker (ahead={_ahead}, '
+                f'busy_with={_busy_with})'
+            )
+            if _busy_with or _ahead:
+                _msg = (
+                    'The previous video is waiting for other file work '
+                    '(such as composite generation) to finish first.'
+                )
+            else:
+                _msg = 'The previous video is still being written.'
             Clock.schedule_once(
                 lambda dt: show_notification_popup(
                     title='Video Being Written',
-                    message='Please wait for the current video to finish writing before starting a new recording.',
+                    message=f'{_msg} It will complete automatically; '
+                    'please try recording again afterward.',
                 ),
                 0,
             )
@@ -157,6 +191,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         )
 
     def open_save_folder_button(self):
+        gui_logger.button('OPEN_SAVE_FOLDER')
         from ui.post_processing import open_last_save_folder
 
         open_last_save_folder()
@@ -191,7 +226,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
 
         manual_video = settings.get('manual_video', {})
         max_fps = manual_video.get('max_fps', 0)
-        max_duration = manual_video.get('max_duration_seconds', 30)
+        max_duration = get_manual_video_max_duration(settings)
         # max_fps == 0 means uncapped (camera free-run rate). The
         # spinner ships at 0; non-zero is the explicit user opt-in
         # that gates pre-flight + camera-rate-toggle below.
@@ -240,7 +275,6 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
 
         self.start_ts = time.time()
         self.stop_ts = self.start_ts + max_duration
-        seconds_per_frame = 1.0 / video_fps
 
         self.memmap_location = pathlib.Path(settings['live_folder']) / 'recording_temp.dat'
 
@@ -328,7 +362,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
                     mode=memmap_mode,
                     shape=(max_frames, frame_size['height'], frame_size['width'], 3),
                 )
-        except (OSError, IOError) as e:
+        except OSError as e:
             logger.error(f'[LVP Main  ] Failed to create memmap file: {e}')
             logger.error(f'[LVP Main  ] If this persists, manually delete: {self.memmap_location}')
             Clock.schedule_once(
@@ -356,7 +390,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
             else None
         )
 
-        logger.info(f'Manual-Video] Capturing video...')
+        logger.info('Manual-Video] Capturing video...')
 
         # Considered camera-side AcquisitionFrameRate cap; rejected because
         # the cap controls AVERAGE rate while jittering individual frames
@@ -397,6 +431,12 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
                 return
             if now < self._next_save_slot_ts:
                 return
+            # Backpressure: if the single CAMERA_WORKER is behind on memmap
+            # writes, drop this frame BEFORE reserving a slot -- reserving then
+            # dropping would leave an unwritten (black) slot. Bounds the
+            # in-flight image backlog that was the manual-record RAM balloon.
+            if not _app_ctx.ctx.camera_executor.admit_live_frame():
+                return
             slot_index = self._reserved_frames
             self._reserved_frames += 1
             self._next_save_slot_ts += self._save_interval_s
@@ -409,6 +449,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
                     'frame_ts': frame_ts,
                     'chunks': chunks,
                 },
+                droppable_live=True,
             )
         )
 
@@ -560,6 +601,10 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
 
             # Release memmap reference from MainDisplay so file_io_executor has exclusive ownership
             self.current_video_frames = None
+            # Drop the per-record conversion scratch buffers; a record is a
+            # bounded event and these are multi-MB each.
+            self._record_convert_buf = None
+            self._record_color_buf = None
 
             # Clear recording event immediately - camera is now free
             if not self.recording.is_set():
@@ -624,14 +669,13 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         captured_frames = kwargs.get('captured_frames', 0)
         timestamps = kwargs.get('timestamps', [])
         chunks_per_frame = kwargs.get('chunks_per_frame', [])
-        tick_freq_hz = kwargs.get('tick_freq_hz', None)
-        video_frames = kwargs.get('video_frames', None)
+        tick_freq_hz = kwargs.get('tick_freq_hz')
+        video_frames = kwargs.get('video_frames')
         video_duration = kwargs.get('video_duration', 0)
-        video_save_folder = kwargs.get('video_save_folder', None)
+        video_save_folder = kwargs.get('video_save_folder')
         start_time_str = kwargs.get('start_time_str', '')
         video_as_frames = kwargs.get('video_as_frames', False)
-        memmap_path = kwargs.get('memmap_path', None)
-        video_false_color = kwargs.get('video_false_color', None)
+        memmap_path = kwargs.get('memmap_path')
 
         # H-4 fix: use UI values snapshotted on main thread by _enqueue_recording_complete()
         ui_snapshot = kwargs.get('ui_snapshot', {})
@@ -660,6 +704,25 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
             logger.info(f'Manual-Video] Video FPS: {calculated_fps}')
             logger.info('Manual-Video] Writing video...')
 
+            if ui_snapshot.get('active_layer_config') is None:
+                # The main-thread snapshot failed (raises when no layer
+                # accordion is open). Without the layer's false-color
+                # config the frames cannot be finalized; tell the user
+                # instead of dying on an opaque unpack TypeError that
+                # silently discarded the finished recording.
+                logger.error(
+                    'Manual-Video] No active layer config snapshot; cannot finalize recording'
+                )
+                from modules.notification_center import notifications
+
+                notifications.error(
+                    'Recording',
+                    'Recording Not Saved',
+                    'The recording could not be saved because no imaging '
+                    'layer was selected. Open a layer tab and record again.',
+                )
+                return memmap_path
+
             color, active_layer_config = ui_snapshot['active_layer_config']
 
             include_hyperstack_generation = False
@@ -667,7 +730,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
             if video_as_frames:
                 image_capture_config = ui_snapshot['image_capture_config']
 
-                if image_capture_config['output_format']['sequenced'] == 'ImageJ Hyperstack':
+                if image_capture_config['output_format']['sequenced'] == 'OME-TIFF Hyperstack':
                     include_hyperstack_generation = True
                     _, objective = ui_snapshot['objective_info']
                     stack_builder = StackBuilder(
@@ -687,14 +750,12 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
                         if frame_num < len(timestamps)
                         else datetime.datetime.now()
                     )
-                    ts_str = ts.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
-
-                    image = image_utils.add_timestamp(image=image, timestamp_str=ts_str)
-
                     # Filename includes per-frame timestamp so the folder is
                     # browsable without a viewer that reads TIFF metadata.
                     # Colon-free ISO variant for Windows path-safety; millisecond
-                    # precision matches the in-image timestamp at ts_str above.
+                    # precision. The timestamp is not drawn into the pixels here:
+                    # it travels in the frame metadata, and Create Video draws it
+                    # at build time only when the timestamp overlay is enabled.
                     ts_filename = ts.strftime('%Y-%m-%d_%H-%M-%S-%f')[:-3]
                     frame_name = f'ManualVideo_Frame_{frame_num:04}_{ts_filename}'
 
@@ -786,6 +847,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
                         camera_model=camera_model,
                         camera_serial=camera_serial,
                         lvp_version=_lvp_version,
+                        channel_color=color,
                     )
                     manifest_path = save_folder / 'session_manifest.json'
                     with open(manifest_path, 'w') as fh:
@@ -802,13 +864,13 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
                     stack_builder.create_single_recording_stack(
                         df=frame_metadata_df,
                         path=save_folder,
-                        output_file_loc=save_folder / f'ManualVideo_Frame_HyperStack.ome.tiff',
+                        output_file_loc=save_folder / 'ManualVideo_Frame_HyperStack.ome.tiff',
                         focal_length=objective['focal_length'],
                         binning_size=ui_snapshot['binning'],
                     )
 
                     logger.info(
-                        f'Manual-Video] Hyperstack created at {save_folder / f"ManualVideo_Frame_HyperStack.ome.tiff"}'
+                        f'Manual-Video] Hyperstack created at {save_folder / "ManualVideo_Frame_HyperStack.ome.tiff"}'
                     )
 
             else:
@@ -818,7 +880,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
                 output_file_loc = video_save_folder / f'Video_{start_time_str}.mp4'
 
                 video_writer = VideoWriter(
-                    output_file_loc=output_file_loc,
+                    output_path=output_file_loc,
                     fps=calculated_fps,
                     include_timestamp_overlay=True,
                 )
@@ -840,7 +902,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
                         lambda dt, p=progress: setattr(self, 'video_writing_progress', p), 0
                     )
 
-                video_writer.finish()
+                video_writer.close()
                 logger.info(f'Manual-Video] Mp4 written to {output_file_loc}')
 
             logger.info('Manual-Video] Video writing finished.')
@@ -883,9 +945,6 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
             if hasattr(self, 'video_save_folder'):
                 set_last_save_folder(self.video_save_folder)
 
-            # Clear video writing state - new recordings can now start
-            self.video_writing.clear()
-
             # Clear the title-bar event suffix; status bar will show FPS only.
             from ui.ui_helpers import set_title_event_text
 
@@ -907,6 +966,11 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
             logger.info('Manual-Video] Recording cleanup complete')
         except Exception as e:
             logger.exception(f'Manual-Video] Error during GUI cleanup: {e}')
+        finally:
+            # Recording can only restart once this flag clears; clear on
+            # every exit so a failure earlier in cleanup cannot leave the
+            # Record button permanently dead.
+            self.video_writing.clear()
 
     def record_helper(self, slot_index, image, frame_ts, chunks, dt=None):
         """Write one reserved frame slot on the camera_executor.
@@ -930,13 +994,30 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         force_to_8bit = not settings['use_full_pixel_depth'] or not settings['video_as_frames']
 
         if force_to_8bit and image.dtype != np.uint8:
-            image = image_utils.convert_12bit_to_8bit(image)
+            if self._record_convert_buf is None or self._record_convert_buf.shape != image.shape:
+                self._record_convert_buf = np.empty(image.shape, dtype=np.uint8)
+            image = image_utils.convert_12bit_to_8bit(image, out=self._record_convert_buf)
         elif image.dtype == np.uint16:
-            image = image_utils.convert_12bit_to_16bit(image)
+            if (
+                self._record_convert_buf is None
+                or self._record_convert_buf.shape != image.shape
+                or self._record_convert_buf.dtype != np.uint16
+            ):
+                self._record_convert_buf = np.empty(image.shape, dtype=np.uint16)
+            image = image_utils.convert_12bit_to_16bit(image, out=self._record_convert_buf)
 
         # Note: Currently, if image is 12/16-bit, then we ignore false coloring for video captures.
         if (image.dtype != np.uint16) and (self.video_false_color is not None):
-            image = image_utils.add_false_color(array=image, color=self.video_false_color)
+            color_shape = (image.shape[0], image.shape[1], 3)
+            if (
+                self._record_color_buf is None
+                or self._record_color_buf.shape != color_shape
+                or self._record_color_buf.dtype != image.dtype
+            ):
+                self._record_color_buf = np.empty(color_shape, dtype=image.dtype)
+            image = image_utils.add_false_color(
+                array=image, color=self.video_false_color, output=self._record_color_buf
+            )
 
         image = np.flip(image, 0)
 
@@ -946,6 +1027,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         self.current_captured_frames = max(self.current_captured_frames, slot_index + 1)
 
     def fit_image(self):
+        gui_logger.button('FIT_IMAGE')
         logger.info('[LVP Main  ] MainDisplay.fit_image()')
         if not self.scope.imaging.camera_active:
             return
@@ -954,6 +1036,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
 
     def one2one_image(self):
         try:
+            gui_logger.button('ONE_TO_ONE_IMAGE')
             logger.info('[LVP Main  ] MainDisplay.one2one_image()')
             if not self.scope.imaging.camera_active:
                 return

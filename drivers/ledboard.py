@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
+import logging
 import re
 import threading
 import time
@@ -8,6 +9,12 @@ from lvp_logger import logger
 from drivers.exceptions import HardwareError
 from drivers.serialboard import SerialBoard
 from drivers.registry import led_registry
+
+# Same dedicated serial logger SerialBoard.exchange_command() writes to, so
+# the bespoke STIM capability probe (which scans multiple lines and cannot
+# use exchange_command) still lands its send + reply in serial.log instead
+# of going dark.
+_serial_log = logging.getLogger('LVP.serial')
 
 
 @led_registry.register('rp2040', priority=100)
@@ -31,7 +38,7 @@ class LEDBoard(SerialBoard):
         # Set by _safety_leds_off() at connect time. None when LEDS_OFF
         # send succeeded; "ExceptionType: message" when it failed. API
         # layer reads this on construction to fire a notification.
-        self.last_safety_off_error: 'str | None' = None
+        self.last_safety_off_error: str | None = None
 
         # Set by leds_off / led_on / led_off / leds_enable / leds_disable
         # per call. None on success; a short dict with op name + reason
@@ -42,7 +49,7 @@ class LEDBoard(SerialBoard):
         # harmless. The five runtime methods share one field because
         # the recovery / notification shape is identical; only the op
         # label varies.
-        self.last_command_error: 'dict | None' = None
+        self.last_command_error: dict | None = None
 
         try:
             self.connect()
@@ -52,8 +59,8 @@ class LEDBoard(SerialBoard):
 
         # Safety: immediately turn off all LEDs after connecting.
         # Old crashed LED firmware (pre-v3.0.4) can leave all LEDs stuck on
-        # at full current (~500mA × 6 channels = 3A), causing thermal damage
-        # to the board (measured 62°C). New v3.0.4+ firmware initializes LEDs
+        # at full current (~500mA x 6 channels = 3A), causing thermal damage
+        # to the board (measured 62degC). New v3.0.4+ firmware initializes LEDs
         # off on boot, but this guard protects against old firmware and
         # interrupted previous sessions.
         self._safety_leds_off()
@@ -67,7 +74,7 @@ class LEDBoard(SerialBoard):
         sample photobleaching. Uses fire-and-forget write to minimize
         delay. If the board doesn't respond, this is a best-effort
         attempt; the failure is recorded in self.last_safety_off_error
-        so the API layer can fire a Rule 14 notification.
+        so the API layer can fire a user-visible notification.
         """
         try:
             self._write_command_fast('LEDS_OFF')
@@ -221,8 +228,11 @@ class LEDBoard(SerialBoard):
             self.driver.timeout = 0.3
             try:
                 self.driver.reset_input_buffer()
+                _probe_cmd = 'STIM 0 0 1 2 1'
+                _t0 = time.monotonic()
                 self.driver.write(b'STIM 0 0 1 2 1\n')
                 got_stim = False
+                resp = ''
                 deadline = time.monotonic() + 2.5
                 while time.monotonic() < deadline:
                     line = self.driver.readline()
@@ -231,10 +241,20 @@ class LEDBoard(SerialBoard):
                     s = line.decode('utf-8', 'ignore').strip()
                     if 'Command not recognized' in s:
                         got_stim = False
+                        resp = s
                         break
                     if s.startswith('STIM:') or s.startswith('STIM_DIAG:'):
                         got_stim = True
+                        resp = s
                         break
+                # Record the probe send + reply in serial.log (this path scans
+                # multiple lines and so does not go through exchange_command,
+                # which logs its own traffic).
+                _shown = resp or '(no reply)'
+                _serial_log.info(
+                    f'{self._label} {_probe_cmd} (firmware-stim probe) -> '
+                    f'{_shown!r} ({(time.monotonic() - _t0) * 1000.0:.1f}ms)'
+                )
                 # Drain residual bytes so subsequent commands see a clean buffer
                 time.sleep(0.2)
                 if self.driver.in_waiting:
@@ -254,7 +274,6 @@ class LEDBoard(SerialBoard):
         """
         # NOTE: LED firmware does not implement a STATUS command.
         # This always returns "Command not recognized". Do not use.
-        # TODO: Add STATUS handler to LED firmware in 4.1, or remove this method.
         logger.warning('[LED Class ] get_status() called but LED firmware has no STATUS command')
         return None
 
@@ -270,24 +289,23 @@ class LEDBoard(SerialBoard):
         """
         # NOTE: Relies on get_status() which is not implemented in LED firmware.
         # This always returns False. Do not use.
-        # TODO: Implement in 4.1 with v3.1 protocol, or remove.
         logger.warning(
             '[LED Class ] wait_until_on() called but STATUS command not implemented in firmware'
         )
         return False
 
     # State-query methods (get_led_ma / is_led_on / get_led_state /
-    # get_led_states) retired in Wave 7 Phase 3d.5. LED state is
-    # API-primary (single SoT on IlluminationAPI). The `self.led_ma`
-    # dict + `_update_state_cache` writes remain as driver-internal
-    # state with no external readers; eligible for follow-up dead-code
+    # get_led_states) have been retired. LED state is API-primary
+    # (single SoT on IlluminationAPI). The `self.led_ma` dict +
+    # `_update_state_cache` writes remain as driver-internal state
+    # with no external readers; eligible for follow-up dead-code
     # removal.
 
-    # Safety limits — defense-in-depth validation at driver level.
+    # Safety limits -- defense-in-depth validation at driver level.
     # The API layer (lumascope_api.py) also validates, but the driver
     # must enforce independently in case of direct calls.
     _MAX_CHANNEL = 5
-    _MAX_MA = 1000  # Firmware CH_MAX — absolute hardware limit
+    _MAX_MA = 1000  # Firmware CH_MAX -- absolute hardware limit
 
     def _validate_and_build_led_cmd(self, channel, mA):
         """Validate channel/mA and return (color, command) string.
@@ -334,10 +352,7 @@ class LEDBoard(SerialBoard):
             }
 
         def check_each_substr(substrings, result):
-            for sub_str in substrings:
-                if sub_str not in result:
-                    return False
-            return True
+            return all(sub_str in result for sub_str in substrings)
 
         if block:
             # Poll until the firmware echoes the command back, OR the
@@ -479,7 +494,7 @@ class LEDBoard(SerialBoard):
                 f'Response: {resp!r}'
             )
         # Confirm with Y
-        confirm_resp = self.exchange_multiline(
+        self.exchange_multiline(
             'Y', timeout=timeout, end_markers=['FACTORY', 'Engineering', 'RAW', 'ADC']
         )
         # Drain any remaining help text
@@ -601,6 +616,10 @@ class LEDBoard(SerialBoard):
 
     def get_info(self) -> dict:
         """Send INFO and return parsed dict.
+
+        No caller on the 4.0 line; the connect-latency bench harness on
+        the 4.1 development line registers this as a bench callable. Not
+        dead code -- a caller search in this branch alone is misleading.
 
         Returns:
             dict: Parsed fields including ``version``, ``date``,

@@ -9,7 +9,10 @@ from lvp_logger import logger
 try:
     from lvp_logger import camera_logger as _cam_log
 except ImportError:
-    _cam_log = None
+    # Fall back to the main logger so every _cam_log call site stays
+    # safe -- the dedicated camera log is an enhancement, not a
+    # dependency, and dozens of call sites use _cam_log unguarded.
+    _cam_log = logger
 from drivers.camera import Camera, ImageHandlerBase
 from drivers.exceptions import HardwareError
 from drivers.registry import camera_registry
@@ -35,11 +38,24 @@ atexit.register(_ids_library_cleanup)
 
 @camera_registry.register('ids', priority=80)
 class IDSCamera(Camera):
+    # IDS cameras drive the converter pipeline at 8-bit Mono (Mono8 forced
+    # at the SDK boundary so downstream code never has to handle Mono10 /
+    # Mono12 packed formats). Override the base default so capability
+    # consumers (buffer sizing, save-format selection) treat IDS frames as
+    # 8-bit from the start.
+    native_bit_depth = 8
+
     def __init__(self):
 
         self.device_manager = None
         self.data_stream = None
         self.remote_nodemap = None
+
+        # Cache of the active PixelFormat. PixelFormat only changes through
+        # set_pixel_format(), so the cache is refreshed there and cleared on
+        # disconnect; get_pixel_format() serves from it to avoid a live
+        # node-map read on the per-frame image-metadata path.
+        self._pixel_format_cache = None
 
         super().__init__()
 
@@ -86,7 +102,9 @@ class IDSCamera(Camera):
         except ConnectionError as er:
             _cam_log.warning(f'[CAM Class ] IDS camera connect failed: {er}')
         except Exception as ex:
-            _cam_log.exception(f'[CAM Class ] IDS camera connect failed: {ex}')
+            # No-device / no-GenTL-path is the common case here and is an
+            # expected probe outcome; log the type + message, not the stack.
+            _cam_log.error(f'[CAM Class ] IDS camera connect failed: {type(ex).__name__}: {ex}')
             # Clean up partial state on failure
             self.active = None
             self.remote_nodemap = None
@@ -106,7 +124,8 @@ class IDSCamera(Camera):
                 self.remote_nodemap = None
                 self.data_stream = None
                 self.device_manager = None
-                # Library.Close() deferred to atexit — don't call here
+                self._pixel_format_cache = None
+                # Library.Close() deferred to atexit -- don't call here
                 logger.info('[CAM Class ] Disconnected from IDS camera')
                 return True
             else:
@@ -119,9 +138,7 @@ class IDSCamera(Camera):
         if self.active in (False, None):
             self._device_removed = True
             return False
-        if self._device_removed:
-            return False
-        return True
+        return not self._device_removed
 
     def read_diagnostic_snapshot(
         self,
@@ -201,7 +218,6 @@ class IDSCamera(Camera):
                 else:
                     preferred = 'Mono10g40IDS'
                 self.set_pixel_format(preferred)
-                #TODO: auto gain
                 self.remote_nodemap.FindNode("ReverseX").SetValue(True)
                 # Ensure freerun mode (no external trigger)
                 try:
@@ -221,7 +237,7 @@ class IDSCamera(Camera):
                     logger.info(f'[CAM Class ] DeviceLinkThroughputLimit set to {node.Maximum()} B/s')
                 except Exception as e:
                     logger.debug(f'[CAM Class ] DeviceLinkThroughputLimit not available: {e}')
-                # Set resolution and exposure BEFORE maximizing frame rate —
+                # Set resolution and exposure BEFORE maximizing frame rate --
                 # AcquisitionFrameRate.Maximum() depends on current resolution,
                 # pixel format, and exposure time.
                 self.exposure_t(10)
@@ -243,7 +259,8 @@ class IDSCamera(Camera):
         return self.data_stream.IsGrabbing()
 
     def stop_grabbing(self):
-        if _cam_log is not None: _cam_log.info('ids AcquisitionStop + StopAcquisition + Flush + RevokeBuffers')
+        if _cam_log is not None:
+            _cam_log.info('ids AcquisitionStop + StopAcquisition + Flush + RevokeBuffers')
         try:
             if self.cam_image_handler:
                 self.cam_image_handler.stop()
@@ -256,13 +273,15 @@ class IDSCamera(Camera):
             for buffer in self.data_stream.AnnouncedBuffers():
                 self.data_stream.RevokeBuffer(buffer)
         except Exception as e:
-            if _cam_log is not None: _cam_log.warning(f'ids stop_grabbing FAILED: {e}')
+            if _cam_log is not None:
+                _cam_log.warning(f'ids stop_grabbing FAILED: {e}')
             _cam_log.warning(f'[CAM Class ] stop_grabbing ignored error: {e}')
 
     def start_grabbing(self):
-        if _cam_log is not None: _cam_log.info('ids start_grabbing: alloc buffers + StartAcquisition + AcquisitionStart')
+        if _cam_log is not None:
+            _cam_log.info('ids start_grabbing: alloc buffers + StartAcquisition + AcquisitionStart')
         try:
-            # Allocate buffers — minimum + 3 extra to prevent starvation during
+            # Allocate buffers -- minimum + 3 extra to prevent starvation during
             # frame conversion. With only min (2-3), the camera runs out of
             # buffers while ConvertTo holds one, capping throughput at ~10 fps.
             payload_size = self.remote_nodemap.FindNode("PayloadSize").Value()
@@ -271,7 +290,7 @@ class IDSCamera(Camera):
                 buffer = self.data_stream.AllocAndAnnounceBuffer(payload_size)
                 self.data_stream.QueueBuffer(buffer)
 
-            # Re-maximize frame rate — stop/start cycles reset it.
+            # Re-maximize frame rate -- stop/start cycles reset it.
             # Must be done AFTER resolution is set (max depends on frame size).
             try:
                 fr = self.remote_nodemap.FindNode("AcquisitionFrameRate")
@@ -432,6 +451,7 @@ class IDSCamera(Camera):
         try:
             with self.update_camera_config():
                 self.remote_nodemap.FindNode("PixelFormat").SetCurrentEntry(resolved)
+            self._pixel_format_cache = resolved
             return True
         except Exception as e:
             _cam_log.error(f'[CAM Class ] set_pixel_format({resolved}) failed: {e}')
@@ -441,8 +461,16 @@ class IDSCamera(Camera):
             ) from e
 
     def get_pixel_format(self):
+        # Served from the cache populated on first read and on every
+        # set_pixel_format(); PixelFormat only changes through that setter.
+        # get_camera_info() reads this once per saved frame, so a live
+        # node-map read here would touch the SDK on every capture.
+        if self._pixel_format_cache is not None:
+            return self._pixel_format_cache
         try:
-            return self.remote_nodemap.FindNode("PixelFormat").CurrentEntry().SymbolicValue()
+            value = self.remote_nodemap.FindNode("PixelFormat").CurrentEntry().SymbolicValue()
+            self._pixel_format_cache = value
+            return value
         except Exception as e:
             _cam_log.error(f'[CAM Class ] get_pixel_format failed: {e}')
             return None
@@ -454,29 +482,37 @@ class IDSCamera(Camera):
             _cam_log.error(f'[CAM Class ] get_supported_pixel_formats failed: {e}')
             return ()
 
-    def exposure_t(self, exposure_ms):
+    def exposure_t(self, exposure_ms) -> bool:
+        """Set exposure. Returns True on success, False on a confirmed
+        hardware rejection -- IDS has no chunk data, so a swallowed write
+        failure here would stream frames at the stale exposure with no
+        downstream backstop; the caller needs the failure signal."""
         if not self.active:
             _cam_log.warning(f'[CAM Class ] Cannot set exposure {exposure_ms}ms: camera inactive')
-            return
+            return False
 
         if exposure_ms > self.max_exposure:
             _cam_log.warning(f'[CAM Class ] Exposure {exposure_ms}ms exceeds max ({self.max_exposure}ms)')
-            return
+            return False
 
         # IDS allows changing exposure while acquisition is running --
         # no need for update_camera_config() stop/start cycle.
         try:
             us_value = float(exposure_ms)*1000
-            if _cam_log is not None: _cam_log.info(f'ids ExposureTime.SetValue({us_value:.0f}us) (={exposure_ms}ms)')
+            if _cam_log is not None:
+                _cam_log.info(f'ids ExposureTime.SetValue({us_value:.0f}us) (={exposure_ms}ms)')
             self.remote_nodemap.FindNode("ExposureTime").SetValue(us_value)
             self._last_exposure_ms = float(exposure_ms)
             # Update grab timeout so long exposures don't cause perpetual timeouts
             if self.cam_image_handler:
                 self.cam_image_handler.timeout_ms = max(2000, int(exposure_ms * 2 + 500))
-            logger.info(f'[CAM Class ] Exposure set to {exposure_ms}ms')
+            logger.debug(f'[CAM Class ] Exposure set to {exposure_ms}ms')
+            return True
         except Exception as e:
-            if _cam_log is not None: _cam_log.error(f'ids ExposureTime.SetValue({exposure_ms}ms) FAILED: {e}')
+            if _cam_log is not None:
+                _cam_log.error(f'ids ExposureTime.SetValue({exposure_ms}ms) FAILED: {e}')
             _cam_log.error(f'[CAM Class ] Exposure set failed (likely out of bounds): {e}')
+            return False
 
     def get_exposure_t(self):
         if not self.active:
@@ -492,7 +528,6 @@ class IDSCamera(Camera):
             return -1
 
     def auto_exposure_t(self, state = True):
-        #TODO: Implement for IDS cameras that support auto exposure
         try:
             return self.remote_nodemap.HasNode("ExposureAuto")
         except Exception as e:
@@ -500,7 +535,7 @@ class IDSCamera(Camera):
             return False
 
     def get_all_temperatures(self):
-        return {} #TODO: Implement for IDS cameras that support temperature readings
+        return {}
 
     def set_device_link_throughput_limit(
         self,
@@ -576,7 +611,7 @@ class IDSCamera(Camera):
         # runtime-parameter class as ExposureTime, see exposure_t above).
         # Previous wrap in update_camera_config() forced an unnecessary
         # stop_grabbing/start_grabbing cycle on every call (same class as
-        # STALL-1's per-step wrapper). docs/TODO.md item 24.
+        # STALL-1's per-step wrapper).
         try:
             if _cam_log is not None:
                 _cam_log.info(
@@ -669,7 +704,6 @@ class IDSCamera(Camera):
             return False, None
 
     def update_auto_gain_target_brightness(self, auto_target_brightness: float):
-        #TODO: Implement for IDS cameras that support auto gain
         try:
             return self.remote_nodemap.HasNode("GainAuto")
         except Exception as e:
@@ -677,7 +711,6 @@ class IDSCamera(Camera):
             return False
 
     def update_auto_gain_min_max(self, min_gain_db: float | None, max_gain_db: float | None):
-        #TODO: Implement for IDS cameras that support auto gain
         try:
             return self.remote_nodemap.HasNode("GainAuto")
         except Exception as e:
@@ -696,21 +729,29 @@ class IDSCamera(Camera):
             _cam_log.error(f'[CAM Class ] Read gain failed: {e}')
             return -1
 
-    def gain(self, gain):
+    def gain(self, gain) -> bool:
+        """Set gain. Returns True on success, False on a confirmed
+        hardware rejection -- IDS has no chunk data, so a swallowed write
+        failure here would stream frames at the stale gain with no
+        downstream backstop; the caller needs the failure signal."""
         if not self.active:
-            if _cam_log is not None: _cam_log.warning(f'ids Gain.SetValue({gain}) SKIPPED: active=None')
+            if _cam_log is not None:
+                _cam_log.warning(f'ids Gain.SetValue({gain}) SKIPPED: active=None')
             _cam_log.warning(f'[CAM Class ] Cannot set gain {gain}: camera inactive')
-            return
+            return False
 
         try:
-            if _cam_log is not None: _cam_log.info(f'ids GainSelector=AnalogAll Gain.SetValue({float(gain):.3f})')
+            if _cam_log is not None:
+                _cam_log.info(f'ids GainSelector=AnalogAll Gain.SetValue({float(gain):.3f})')
             self.remote_nodemap.FindNode("GainSelector").SetCurrentEntry("AnalogAll")
             self.remote_nodemap.FindNode("Gain").SetValue(gain)
-            logger.info(f'[CAM Class ] Gain set to {gain}')
+            logger.debug(f'[CAM Class ] Gain set to {gain}')
+            return True
         except Exception as e:
-            if _cam_log is not None: _cam_log.error(f'ids Gain.SetValue({gain}) FAILED: {e}')
+            if _cam_log is not None:
+                _cam_log.error(f'ids Gain.SetValue({gain}) FAILED: {e}')
             _cam_log.error(f'[CAM Class ] Gain set failed (likely out of bounds): {e}')
-            return
+            return False
 
 
     def auto_gain(
@@ -718,9 +759,9 @@ class IDSCamera(Camera):
         state = True,
         target_brightness: float = 0.5,
         min_gain_db: float | None = None,
-        max_gain_db: float | None = None
+        max_gain_db: float | None = None,
+        ae_max_exposure_ms: float | None = None
     ):
-        #TODO: Implement functionality for IDS cameras that support auto gain
         try:
             return self.remote_nodemap.HasNode("GainAuto")
         except Exception as e:
@@ -732,9 +773,9 @@ class IDSCamera(Camera):
         state = True,
         target_brightness: float = 0.5,
         min_gain_db: float | None = None,
-        max_gain_db: float | None = None
+        max_gain_db: float | None = None,
+        ae_max_exposure_ms: float | None = None
     ):
-        #TODO: Implement functionality for IDS cameras that support auto gain
         try:
             return self.remote_nodemap.HasNode("GainAuto")
         except Exception as e:
@@ -742,13 +783,12 @@ class IDSCamera(Camera):
             return False
 
     def set_test_pattern(self, enabled: bool = False, pattern: str = 'Black'):
-        #TODO: Implement
         pass
 
 class ImageHandler(ImageHandlerBase):
-    """IDS camera image handler — polls for frames on a background thread."""
+    """IDS camera image handler -- polls for frames on a background thread."""
 
-    # Override base class: 10 failures × 1s timeout = ~10s disconnect detection
+    # Override base class: 10 failures x 1s timeout = ~10s disconnect detection
     MAX_CONSECUTIVE_FAILURES = 10
 
     def __init__(self, data_stream: ids_peak.DataStream, parent_cam: 'IDSCamera'):
@@ -772,7 +812,7 @@ class ImageHandler(ImageHandlerBase):
             self._grab_thread = None
 
     def _grab_loop(self):
-        # Pre-create converter for Mono10→Mono8 (reuse avoids per-frame alloc)
+        # Pre-create converter for Mono10->Mono8 (reuse avoids per-frame alloc)
         try:
             converter = ids_peak_ipl.ImageConverter()
             converter.PreAllocateConversion(

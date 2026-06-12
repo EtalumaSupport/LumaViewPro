@@ -73,7 +73,7 @@ class CircularProgressBar(Widget):
     """
 
     def __init__(self, **kwargs):
-        super(CircularProgressBar, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
         # Initialise the values modifiable via the class properties
         self._thickness = _DEFAULT_THICKNESS
@@ -105,11 +105,11 @@ class CircularProgressBar(Widget):
     def thickness(self, value):
         if type(value) != int:
             raise TypeError(
-                'Circular bar thickness only accepts an integer value, not {}!'.format(type(value))
+                f'Circular bar thickness only accepts an integer value, not {type(value)}!'
             )
         elif value <= 0:
             raise ValueError(
-                'Circular bar thickness must be a positive integer, not {}!'.format(value)
+                f'Circular bar thickness must be a positive integer, not {value}!'
             )
         else:
             self._thickness = value
@@ -121,13 +121,11 @@ class CircularProgressBar(Widget):
     @cap_style.setter
     def cap_style(self, value: str):
         if type(value) != str:
-            raise TypeError('Bar line cap argument must be a string, not {}!'.format(type(value)))
+            raise TypeError(f'Bar line cap argument must be a string, not {type(value)}!')
         value = value.lower().strip()
         if value not in _ACCEPTED_BAR_CAPS:
             raise ValueError(
-                'Bar line cap must be included in {}, and {} is not!'.format(
-                    _ACCEPTED_BAR_CAPS, value
-                )
+                f'Bar line cap must be included in {_ACCEPTED_BAR_CAPS}, and {value} is not!'
             )
         else:
             self._cap_style = value
@@ -140,13 +138,11 @@ class CircularProgressBar(Widget):
     def cap_precision(self, value: int):
         if type(value) != int:
             raise TypeError(
-                'Circular bar cap precision only accepts an integer value, not {}!'.format(
-                    type(value)
-                )
+                f'Circular bar cap precision only accepts an integer value, not {type(value)}!'
             )
         elif value <= 0:
             raise ValueError(
-                'Circular bar cap precision must be a positive integer, not {}!'.format(value)
+                f'Circular bar cap precision must be a positive integer, not {value}!'
             )
         else:
             self._cap_precision = value
@@ -159,9 +155,7 @@ class CircularProgressBar(Widget):
     def progress_colour(self, value: Iterable):
         if not isinstance(value, Iterable):
             raise TypeError(
-                'Bar progress colour must be iterable (e.g. list, tuple), not {}!'.format(
-                    type(value)
-                )
+                f'Bar progress colour must be iterable (e.g. list, tuple), not {type(value)}!'
             )
         else:
             self._progress_colour = value
@@ -174,9 +168,7 @@ class CircularProgressBar(Widget):
     def background_colour(self, value: Iterable):
         if not isinstance(value, Iterable):
             raise TypeError(
-                'Bar background colour must be iterable (e.g. list, tuple), not {}!'.format(
-                    type(value)
-                )
+                f'Bar background colour must be iterable (e.g. list, tuple), not {type(value)}!'
             )
         else:
             self._background_colour = value
@@ -189,13 +181,11 @@ class CircularProgressBar(Widget):
     def max(self, value: int):
         if type(value) != int:
             raise TypeError(
-                'Maximum progress only accepts an integer value, not {}!'.format(type(value))
+                f'Maximum progress only accepts an integer value, not {type(value)}!'
             )
         elif value <= self._min_progress:
             raise ValueError(
-                'Maximum progress - {} - must be greater than minimum progress ({})!'.format(
-                    value, self._min_progress
-                )
+                f'Maximum progress - {value} - must be greater than minimum progress ({self._min_progress})!'
             )
         else:
             self._max_progress = value
@@ -208,13 +198,11 @@ class CircularProgressBar(Widget):
     def min(self, value: int):
         if type(value) != int:
             raise TypeError(
-                'Minimum progress only accepts an integer value, not {}!'.format(type(value))
+                f'Minimum progress only accepts an integer value, not {type(value)}!'
             )
         elif value > self._max_progress:
             raise ValueError(
-                'Minimum progress - {} - must be smaller than maximum progress ({})!'.format(
-                    value, self._max_progress
-                )
+                f'Minimum progress - {value} - must be smaller than maximum progress ({self._max_progress})!'
             )
         else:
             self._min_progress = value
@@ -227,12 +215,10 @@ class CircularProgressBar(Widget):
     @value.setter
     def value(self, value: int):
         if type(value) != int:
-            raise TypeError('Progress must be an integer value, not {}!'.format(type(value)))
+            raise TypeError(f'Progress must be an integer value, not {type(value)}!')
         elif self._min_progress > value or value > self._max_progress:
             raise ValueError(
-                'Progress must be between minimum ({}) and maximum ({}), not {}!'.format(
-                    self._min_progress, self._max_progress, value
-                )
+                f'Progress must be between minimum ({self._min_progress}) and maximum ({self._max_progress}), not {value}!'
             )
         elif value != self._value:
             self._value = value
@@ -246,11 +232,11 @@ class CircularProgressBar(Widget):
     def widget_size(self, value: int):
         if type(value) != int:
             raise TypeError(
-                'Size of this widget must be an integer value, not {}!'.format(type(value))
+                f'Size of this widget must be an integer value, not {type(value)}!'
             )
         elif value <= 0:
             raise ValueError(
-                'Size of this widget must be a positive integer, not {}!'.format(value)
+                f'Size of this widget must be a positive integer, not {value}!'
             )
         else:
             self._widget_size = value
@@ -262,7 +248,7 @@ class CircularProgressBar(Widget):
     @label.setter
     def label(self, value: Label):
         if not isinstance(value, Label):
-            raise TypeError('Label must a kivy.graphics.Label, not {}!'.format(type(value)))
+            raise TypeError(f'Label must a kivy.graphics.Label, not {type(value)}!')
         else:
             self._text_label = value
             self._default_label_text = value.text
@@ -319,15 +305,11 @@ class CircularProgressBar(Widget):
         """
         if type(norm_progress) != float and type(norm_progress) != int:
             raise TypeError(
-                'Normalised progress must be a float or an integer, not {}!'.format(
-                    type(norm_progress)
-                )
+                f'Normalised progress must be a float or an integer, not {type(norm_progress)}!'
             )
-        elif _NORMALISED_MIN > norm_progress or norm_progress > _NORMALISED_MAX:
+        elif norm_progress < _NORMALISED_MIN or norm_progress > _NORMALISED_MAX:
             raise ValueError(
-                'Normalised progress must be between the corresponding min ({}) and max ({}), {} is not!'.format(
-                    _NORMALISED_MIN, _NORMALISED_MAX, norm_progress
-                )
+                f'Normalised progress must be between the corresponding min ({_NORMALISED_MIN}) and max ({_NORMALISED_MAX}), {norm_progress} is not!'
             )
         else:
             self.value = ceil(
@@ -410,7 +392,7 @@ class _Example(App):
     # Simple layout for easy example
     def build(self):
         container = Builder.load_string("""
-#:import Label kivy.core.text.Label           
+#:import Label kivy.core.text.Label
 #:set _label Label(text="\\nI am a label\\ninjected in kivy\\nmarkup string :)\\nEnjoy! --={}=--")
 #:set _another_label Label(text="Loading...\\n{}%", font_size=10, color=(1,1,0.5,1), halign="center")
 FloatLayout:

@@ -52,29 +52,37 @@ class TestMotorStopCapabilityProbe:
         )
 
     def test_motor_stop_caches_unsupported_on_error_response(self):
-        """ERROR response -> cache _stop_supported=False -> return False."""
+        """ERROR response -> cache unsupported -> return False."""
         board = self._make_board(response="ERROR: command 'STOP' not found:")
         result = board.motor_stop()
         assert result is False
-        assert board._stop_supported is False
+        assert board._supports_stop_cached is False
 
     def test_motor_stop_caches_supported_on_clean_response(self):
-        """Non-ERROR response -> cache _stop_supported=True -> return True."""
+        """Non-ERROR response -> cache supported -> return True."""
         board = self._make_board(response='OK')
         result = board.motor_stop()
         assert result is True
-        assert board._stop_supported is True
+        assert board._supports_stop_cached is True
 
     def test_motor_stop_skips_wire_when_cached_unsupported(self):
         """Cached unsupported: skip the wire call entirely."""
         board = self._make_board(response='OK')
-        board._stop_supported = False
+        board._supports_stop_cached = False
         result = board.motor_stop()
         assert result is False
         assert board.exchange_command.call_count == 0, (
             'Cached unsupported state must skip the wire to avoid '
             're-probing the same firmware repeatedly.'
         )
+
+    def test_motor_stop_shares_cache_with_supports_predicate(self):
+        """motor_stop's verdict feeds supports_motor_stop without a
+        second wire exchange."""
+        board = self._make_board(response="ERROR: command 'STOP' not found:")
+        board.motor_stop()
+        assert board.supports_motor_stop() is False
+        assert board.exchange_command.call_count == 1
 
 
 class TestExchangeCommandExpectUnsupportedSuppresses:

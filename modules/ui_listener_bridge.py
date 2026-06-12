@@ -1,6 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
-"""LVP-A-6 -- Lumascope state-change → UI update bridge.
+"""LVP-A-6 -- Lumascope state-change -> UI update bridge.
 
 Lumascope publishes state-change events (position, LED, camera-setting)
 via ``add_position_listener``, ``add_led_listener``, and
@@ -45,7 +45,7 @@ class UIListenerBridge:
     The bridge owns the per-listener coalescing state (each listener
     deduplicates rapid back-to-back events, scheduling at most one UI
     update per Kivy frame). It does NOT own widget references -- those
-    are looked up via ``ctx`` so a widget rebuild (LS850 ↔ LS620 scope
+    are looked up via ``ctx`` so a widget rebuild (LS850 <-> LS620 scope
     swap) doesn't leave the bridge holding stale handles.
     """
 
@@ -65,21 +65,21 @@ class UIListenerBridge:
                 ``Clock.schedule_once(func, dt)`` -- used to marshal
                 listener callbacks (which fire on the worker thread
                 that caused the change) onto the UI thread. Passed
-                instead of imported per Rule 15.
+                instead of imported (the bridge stays GUI-agnostic).
         """
         self._scope = scope
         self._ctx = ctx
         self._stage = stage
         self._ui_dispatch = ui_dispatcher
 
-        # Per-listener coalescing state — populated lazily on first
+        # Per-listener coalescing state -- populated lazily on first
         # event for each LED color so the bridge construction stays
         # cheap.
         self._pending_led_updates: dict[str, bool] = {}
 
         # LayerControl is imported lazily inside the LED listener to
-        # avoid a UI-import at module-load time (the bridge module is
-        # explicitly Rule-15: no GUI imports).
+        # avoid a UI-import at module-load time (the bridge module
+        # stays GUI-agnostic: no GUI imports).
         self._LayerControl = None
 
     # ------------------ Listener implementations ------------------
@@ -111,8 +111,8 @@ class UIListenerBridge:
         ctx = self._ctx
         scope = self._scope
 
-        # Lazy import — keeps Rule 15 clean (no GUI module imported at
-        # bridge construction time).
+        # Lazy import keeps the executor layer GUI-agnostic (no GUI
+        # module imported at bridge construction time).
         if self._LayerControl is None:
             from ui.layer_control import LayerControl
 

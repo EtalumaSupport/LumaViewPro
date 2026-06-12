@@ -2,7 +2,6 @@
 
 import itertools
 import json
-import math
 import pathlib
 
 from lvp_logger import logger
@@ -17,19 +16,19 @@ class TilingConfig:
 
     def __init__(self, tiling_configs_file_loc: pathlib.Path):
         try:
-            with open(tiling_configs_file_loc, 'r') as fp:
+            with open(tiling_configs_file_loc) as fp:
                 self._available_configs = json.load(fp)
-        except FileNotFoundError:
+        except FileNotFoundError as e:
             logger.error(f'[Tiling    ] tiling.json not found at {tiling_configs_file_loc}')
             raise RuntimeError(
                 f'Required file tiling.json not found at {tiling_configs_file_loc}. '
                 'Please reinstall or restore from backup.'
-            )
+            ) from e
         except json.JSONDecodeError as e:
             logger.error(f'[Tiling    ] tiling.json is corrupt: {e}')
             raise RuntimeError(
                 f'tiling.json is corrupt ({e}). Please restore from backup or reinstall.'
-            )
+            ) from e
 
         self._validate_tiling(tiling_configs_file_loc)
 
@@ -121,58 +120,17 @@ class TilingConfig:
         x_step = fill_factor * fov_size['width']
         y_step = fill_factor * fov_size['height']
 
-        target_m = tiling_mxn['m']
-        target_n = tiling_mxn['n']
-        actual_m = self._overlap_preserving_tile_count(
-            target_count=target_m,
-            fill_factor=fill_factor,
-        )
-        actual_n = self._overlap_preserving_tile_count(
-            target_count=target_n,
-            fill_factor=fill_factor,
-        )
-
-        # Stage center derived from motorconfig travel limits.
-        # Guards: ctx not initialized (CLI / headless startup), scope
-        # not built, or no XY stage (NullMotionBoard fallback when
-        # motor is absent). Each falls to DEFAULT_STAGE_TRAVEL_UM rather
-        # than KeyError'ing on an empty axis_travel_limits_um dict.
-        import modules.app_context as _app_ctx
-
-        ctx = _app_ctx.ctx
-        caps = None
-        if ctx is not None and ctx.scope is not None:
-            caps = ctx.scope.capabilities
-        if caps is not None and caps.has_xy_stage:
-            x_center = caps.axis_travel_limits_um['X'] / 2
-            y_center = caps.axis_travel_limits_um['Y'] / 2
-        else:
-            from modules.common_utils import DEFAULT_STAGE_TRAVEL_UM
-
-            x_center = DEFAULT_STAGE_TRAVEL_UM['x'] / 2
-            y_center = DEFAULT_STAGE_TRAVEL_UM['y'] / 2
-        tiling_min = {
-            'x': x_center - target_n * fov_size['width'] / 2,
-            'y': y_center - target_m * fov_size['height'] / 2,
-        }
-
-        tiling_max = {
-            'x': x_center + target_n * fov_size['width'] / 2,
-            'y': y_center + target_m * fov_size['height'] / 2,
-        }
-
+        # The requested m x n is the contract: overlap shrinks the step
+        # (and therefore the total covered area) but never changes the
+        # tile count. At 0% overlap tiles abut exactly. An earlier design
+        # grew the grid to preserve the zero-overlap coverage area, which
+        # silently turned a requested 2x2 into a 3x3.
         return {
             'mxn': tiling_mxn,
-            'actual_mxn': {
-                'm': actual_m,
-                'n': actual_n,
-            },
             'step': {
                 'x': x_step,
                 'y': y_step,
             },
-            'min': tiling_min,
-            'max': tiling_max,
         }
 
     def get_tile_centers(
@@ -191,7 +149,7 @@ class TilingConfig:
             binning_size=binning_size,
         )
 
-        tiling_mxn = ranges['actual_mxn']
+        tiling_mxn = ranges['mxn']
         x_step = ranges['step']['x']
         y_step = ranges['step']['y']
 
@@ -216,21 +174,13 @@ class TilingConfig:
         return tiles
 
     @staticmethod
-    def _overlap_preserving_tile_count(target_count: int, fill_factor: float) -> int:
-        if target_count <= 1:
-            return target_count
-        if fill_factor >= 1.0:
-            return target_count
-
-        target_span_in_fovs = target_count - 1
-        return math.ceil(target_span_in_fovs / fill_factor + 1 - 1e-12)
-
-    @staticmethod
     def validate_overlap_percent(overlap_percent: float) -> float:
         try:
             overlap_percent = float(overlap_percent)
         except (TypeError, ValueError):
-            raise ValueError(f'Tile overlap must be a number, got {overlap_percent!r}')
+            raise ValueError(
+                f'Tile overlap must be a number, got {overlap_percent!r}'
+            ) from None
 
         if overlap_percent < 0.0 or overlap_percent > 50.0:
             raise ValueError(

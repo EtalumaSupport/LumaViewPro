@@ -20,8 +20,10 @@ from typing import TYPE_CHECKING
 
 from lvp_logger import logger
 
+import modules.config_helpers as config_helpers
 from modules.protocol_state_machine import ProtocolState
 from modules.sequential_io_executor import IOTask
+from modules.settings_init import settings
 
 if TYPE_CHECKING:
     from modules.sequenced_capture_runner import SequencedCaptureRunner
@@ -91,7 +93,7 @@ class ProtocolStepRunner:
 
         if p._aborted.is_set():
             return
-        # Video encoding runs on FILE_WORKER in background — do NOT block
+        # Video encoding runs on FILE_WORKER in background -- do NOT block
         # the next step waiting for it. Frames are already captured and queued.
         if not p._scan_in_progress.is_set():
             return
@@ -114,13 +116,17 @@ class ProtocolStepRunner:
         if remaining_scans <= 0:
             return
 
-        step = p._protocol.step(idx=p._curr_step)
-
-        # Check motion timeout
+        # Check motion timeout. The timer bounds ONE continuous motion:
+        # it starts when motion is first observed in flight and resets
+        # whenever the stage reports idle, so time spent in an in-step
+        # autofocus run never counts against a later move's budget.
         if p._scope.motion.is_moving():
-            if time.monotonic() - p._step_start_time > p.STEP_TIMEOUT_SECONDS:
+            if p._motion_wait_start is None:
+                p._motion_wait_start = time.monotonic()
+            if time.monotonic() - p._motion_wait_start > p.MOTION_TIMEOUT_SECONDS:
                 timeout_msg = (
-                    f'Step {p._curr_step} timed out waiting for motion ({p.STEP_TIMEOUT_SECONDS}s).'
+                    f'Step {p._curr_step} timed out waiting for motion '
+                    f'({p.MOTION_TIMEOUT_SECONDS}s).'
                 )
                 logger.error(f'[PROTOCOL] {timeout_msg} -- transitioning to ERROR state')
                 from modules.notification_center import notifications
@@ -132,12 +138,20 @@ class ProtocolStepRunner:
                 except ValueError:
                     pass
             return
+        p._motion_wait_start = None
 
         if not p._grease_redistribution_event.is_set():
             return
 
         if p._aborted.is_set() or not p._scan_in_progress.is_set():
             return
+
+        # Fetch the step row only after the early-return gates above.
+        # scan_iterate polls at up to ~1 kHz while motion is in flight,
+        # and protocol.step() builds a fresh pandas Series per call --
+        # fetching before the is_moving gate burned that allocation on
+        # every poll of every move.
+        step = p._protocol.step(idx=p._curr_step)
 
         # AF already pushed the Z UI to best_focus_position; do not
         # overwrite with the pre-AF step['Z']. AFE.complete() being
@@ -196,20 +210,41 @@ class ProtocolStepRunner:
                 led_illumination=step['Illumination'],
                 camera_gain=step['Gain'],
                 camera_exposure=step['Exposure'],
+                # Capture immediately follows AF on the same step, so it
+                # uses the same channel + illumination AF just lit (#612).
+                # Tell AF to skip its off + state-restore cycle so the
+                # capture inherits the LED state already established.
+                keep_led_on=True,
             )
             return
 
         if step['Auto_Focus'] and p._af_future is not None and not p._af_future.done():
             return
 
-        # Arm Auto_Gain BEFORE the deadline-wait gate so the camera
-        # actually converges during the max_duration window. Previously
-        # the apply_layer_camera_settings(... auto_gain=True ...) call
-        # happened inside capture(), AFTER this gate cleared -- so AG
-        # got a single frame of convergence before grab, yielding
-        # overexposed / unconverged images. Arm once per step
+        # Light the channel LED, then arm continuous Auto_Gain against the lit
+        # scene. Hardware AG converges on whatever the camera is grabbing; if
+        # the LED is dark when AG arms, it rails on noise and the grab is mis-
+        # exposed. Lighting first lets AG settle toward the real exposure. The
+        # capture_and_wait drain then waits the measured auto_gain settle frames
+        # (invalidated inside set_auto_gain) before grabbing -- no separate
+        # timed wait. The exclusive light makes this channel the only lit one;
+        # capture() re-asserts the same channel idempotently. Arm once per step
         # (_auto_gain_armed_step is a one-shot keyed on _curr_step).
         if step['Auto_Gain'] and p._auto_gain_armed_step != p._curr_step:
+            if p._scope.led_connected:
+                # Make this step's channel the only lit one, idempotently: a
+                # same-color step that kept its LED on (Z-stack slice) is left
+                # lit instead of being blinked off->on while arming AG.
+                p._step_executor.leds_exclusive(
+                    color=step['Color'], illumination=step['Illumination'], block=True
+                )
+            # Cap AG/AE exposure to this step's channel-class ceiling before
+            # arming. Set on the shared settings dict so capture() inherits it.
+            # step['Color'] is the layer; the per-install override is read from
+            # settings.
+            p._autogain_settings['max_exposure_ms'] = config_helpers.get_ag_ae_max_exposure_ms(
+                step['Color'], settings
+            )
             fut = p._io_executor.protocol_put(
                 IOTask(
                     action=p._scope.imaging.apply_layer_camera_settings,
@@ -225,25 +260,8 @@ class ProtocolStepRunner:
             if fut:
                 fut.result(timeout=30)
             p._auto_gain_armed_step = p._curr_step
-            # Set the convergence deadline AT ARM TIME, one-shot per
-            # step. Pre-fix the deadline was initialized once at scan-
-            # start (before AF, which takes ~10s), so the gate below
-            # was already past-deadline on the first AG step and fell
-            # through immediately -- capture grabbed ~70-120ms after
-            # arm with no real convergence window (issue #673). Setting
-            # it here + returning lets subsequent scan_iterate ticks
-            # poll the gate; they return early until the deadline
-            # expires, giving AG the full max_duration to converge.
-            p._auto_gain_deadline = (
-                time.monotonic() + p._autogain_settings['max_duration'].total_seconds()
-            )
-            return
-
-        # Wait for autogain convergence window. Subsequent ticks after
-        # the arm-tick re-enter here and return-early until the deadline
-        # set above expires; first non-returning tick falls through to
-        # capture.
-        if step['Auto_Gain'] and time.monotonic() < p._auto_gain_deadline:
+            # Return after arming; the next tick falls through to capture, where
+            # the auto_gain settle drain runs against the now-lit scene.
             return
 
         # Update Z position with autofocus results
@@ -270,23 +288,33 @@ class ProtocolStepRunner:
                     save_folder = p._run_dir
 
                 output_format = p._image_capture_config['output_format']['sequenced']
-                if output_format == 'ImageJ Hyperstack':
+                if output_format == 'OME-TIFF Hyperstack':
                     output_format = 'TIFF'
 
-                # Video encoding runs on FILE_WORKER after capture — no gate needed
+                # Video encoding runs on FILE_WORKER after capture -- no gate needed
 
                 # Keep LED on between consecutive steps of the same channel
                 # (e.g., Z-stack slices). Avoids unnecessary LED cycling.
-                # Last step of a scan always evaluates _keep_led=False: the
-                # lookahead is gated on `_curr_step < num_steps - 1`, so the
-                # inter-scan period runs with LEDs off (correct). At the start
-                # of the next scan, run_loop fires leds_off again before step 0
-                # -- redundant but harmless; no data integrity impact.
+                # On non-final scans the last step always evaluates
+                # _keep_led=False so the inter-scan period runs with LEDs
+                # off (sample safety during long waits).
                 _keep_led = False
                 num_steps = p._protocol.num_steps()
                 if p._curr_step < num_steps - 1:
                     next_step = p._protocol.step(idx=p._curr_step + 1)
                     if next_step['Color'] == step['Color']:
+                        _keep_led = True
+                elif p.remaining_scans() <= 1 and p._leds_state_at_end == 'return_to_original':
+                    # Final step of the final scan: if cleanup is about to
+                    # re-light this same channel (it was lit before the run),
+                    # turning it off here produces a visible off->on blink a
+                    # few ms later -- the end-of-acquire flicker on a
+                    # live-view-lit z-stack. Hold it; cleanup's restore
+                    # adjusts the current without a dark gap and turns off
+                    # anything that should not stay lit.
+                    _orig = getattr(p, '_original_led_states', None) or {}
+                    _orig_channel = _orig.get(step['Color'])
+                    if _orig_channel and _orig_channel.get('enabled'):
                         _keep_led = True
 
                 _t_capture_start = time.monotonic()
@@ -311,7 +339,7 @@ class ProtocolStepRunner:
                 )
 
             else:
-                # No saving — turn off LEDs manually (capture normally does this)
+                # No saving -- turn off LEDs manually (capture normally does this)
                 self.leds_off()
 
         # Disable autogain when moving between steps
@@ -348,7 +376,7 @@ class ProtocolStepRunner:
             self.go_to_step(step_idx=p._curr_step)
             return
 
-        # End of scan — grease redistribution if needed
+        # End of scan -- grease redistribution if needed
         if p._autofocus_count >= 100:
             self.perform_grease_redistribution()
             p._autofocus_count = 0
@@ -433,6 +461,7 @@ class ProtocolStepRunner:
         """Move to the position for a given protocol step."""
         p = self._p
         p._step_start_time = time.monotonic()
+        p._motion_wait_start = None
         if p._aborted.is_set():
             return
 
@@ -503,7 +532,7 @@ class ProtocolStepRunner:
     def leds_off(self):
         """Turn all LEDs off via the IO executor.
 
-        UI update is handled by the LED observer — no manual callback needed.
+        UI update is handled by the LED observer -- no manual callback needed.
         """
         p = self._p
         fut = p._io_executor.protocol_put(
@@ -516,12 +545,12 @@ class ProtocolStepRunner:
                 p._scope.illumination.leds_off()
             except Exception as ex:
                 logger.warning(f'[{p.LOGGER_NAME}] Direct leds_off fallback failed: {ex}')
-        # LED observer handles UI sync — no manual callback
+        # LED observer handles UI sync -- no manual callback
 
     def led_on(self, color: str, illumination: float, block: bool = True, force: bool = False):
         """Turn on a single LED channel via the IO executor.
 
-        UI update is handled by the LED observer — no manual callback needed.
+        UI update is handled by the LED observer -- no manual callback needed.
         """
         p = self._p
         if p._aborted.is_set() and not force:
@@ -543,4 +572,35 @@ class ProtocolStepRunner:
             fut.result(timeout=30)
         # Sleep for 5 ms to ensure that LED properly turns on before next action
         time.sleep(0.005)
-        # LED observer handles UI sync — no manual callback
+
+    def leds_exclusive(self, color: str, illumination: float, block: bool = True,
+                       force: bool = False):
+        """Make a single channel the only lit LED, via the IO executor.
+
+        Idempotent: a channel already lit at this illumination is left
+        untouched, so consecutive same-color steps (Z-stack slices) do not
+        flicker the LED off->on. Other channels are turned off. Replaces the
+        leds_off + led_on pair at step boundaries.
+
+        UI update is handled by the LED observer -- no manual callback needed.
+        """
+        p = self._p
+        if p._aborted.is_set() and not force:
+            return
+
+        fut = p._io_executor.protocol_put(
+            IOTask(
+                action=p._scope.illumination.leds_exclusive,
+                kwargs={
+                    'channel': p._scope.illumination.color2ch(color),
+                    'mA': illumination,
+                    'block': block,
+                    'owner': 'protocol',
+                },
+            ),
+            return_future=True,
+        )
+        if fut:
+            fut.result(timeout=30)
+        # Sleep for 5 ms to ensure that LED properly turns on before next action
+        time.sleep(0.005)

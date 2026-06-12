@@ -9,7 +9,7 @@ class LvpLock:
 
         Args:
             lock_port: TCP port to bind for the lock. Pass 0 to let the OS
-                       assign an ephemeral port (more secure — avoids predictable
+                       assign an ephemeral port (more secure -- avoids predictable
                        port that could be targeted for local DoS).
         """
         self._lock_port = lock_port
@@ -24,7 +24,7 @@ class LvpLock:
         try:
             self._lock_socket.bind(('127.0.0.1', self._lock_port))
             return True
-        except (socket.error, OSError) as e:
+        except OSError:
             return False
 
     @property

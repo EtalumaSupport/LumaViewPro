@@ -76,7 +76,7 @@ The remainder of this document is organized as the sub-API reference (one sectio
 Methods on the L2 surface follow one of two contracts; if a method's docstring has a `Raises:` section it follows the raise contract, otherwise the sentinel contract.
 
 - **Hardware-state queries** (capability probes, status reads, getters like `get_led_ma`, `get_target_position`, `get_led_status`, `camera_max_gain`, `read_motor_voltages`) return a sentinel value -- `None`, `False`, or an empty container -- when the value cannot be read (no hardware, channel not set, firmware does not implement the probe). No exception is raised. The caller branches on the sentinel.
-- **State-changing operations** (setters like `set_acquisition_stop_mode`, `set_gain`, `move_absolute`, `led_on`, etc.) typically return `True` on success and `False` for "couldn't do it" (no driver, mode invalid, driver does not implement, etc.). A `Raises:` section in the docstring documents the typed exception (`HardwareError`, `CaptureError`, `ConfigError` from `modules.exceptions`) that propagates when the underlying SDK call itself fails. The API layer logs (`logger.error`) and fires a user-facing notification (`notifications.error`) before re-raising at the driver boundary; the typed exception is what L2 callers should catch.
+- **State-changing operations** (setters like `set_gain`, `move_absolute`, `led_on`, etc.) typically return `True` on success and `False` for "couldn't do it" (no driver, mode invalid, driver does not implement, etc.). A `Raises:` section in the docstring documents the typed exception (`HardwareError`, `CaptureError`, `ConfigError` from `modules.exceptions`) that propagates when the underlying SDK call itself fails. The API layer logs (`logger.error`) and fires a user-facing notification (`notifications.error`) before re-raising at the driver boundary; the typed exception is what L2 callers should catch.
 - **Sentinel-return methods log** at `logger.warning` or `logger.info` per Rule 5; they do **not** fire user notifications (no actionable failure occurred -- the value is just unknown).
 
 If you are writing a new wrapper, the `Raises:` section is the canonical declaration of which contract applies.
@@ -137,21 +137,21 @@ scope.disconnect()
 
 ### Objective management
 
-Objective / labware / turret-config / stage-offset stay on the composition root for now (microscope configuration, not live hardware). The Session layer exposes a thin `set_objective(id)` forwarder so L2 SDK callers can drive objective selection without reaching across into `scope`.
+Objective / labware / turret-config / stage-offset are runtime-mutable microscope configuration (not live hardware), so they live on the `scope.runtime_state` sub-API (Wave 7 split them off the composition root). The Session layer exposes a thin `set_objective(id)` forwarder so L2 SDK callers can drive objective selection without reaching across into `scope`.
 
 ```python
-session.set_objective('10x Oly')           # L2-canonical setter (thin Session forwarder)
-scope.set_objective('10x Oly')             # equivalent; composition-root surface
+session.set_objective('10x Oly')                       # L2-canonical setter (thin Session forwarder)
+scope.runtime_state.set_objective('10x Oly')           # equivalent; sub-API surface
 
-scope.get_current_objective_id()
-scope.get_objective_info('10x Oly')        # {focal_length, magnification, NA, ...}
-scope.get_available_objectives()
-scope.get_current_objective()
+scope.runtime_state.get_current_objective_id()
+scope.runtime_state.get_objective_info('10x Oly')      # {focal_length, magnification, NA, ...}
+scope.runtime_state.get_available_objectives()
+scope.runtime_state.get_current_objective()
 
 # Turret integration
-scope.set_turret_config({1: '4x Oly', 2: '10x Oly', 3: '20x Oly', 4: '40x w/collar'})
-scope.get_turret_config()
-scope.get_turret_position_for_objective_id('10x Oly')   # returns 2
+scope.runtime_state.set_turret_config({1: '4x Oly', 2: '10x Oly', 3: '20x Oly', 4: '40x w/collar'})
+scope.runtime_state.get_turret_config()
+scope.motion.get_turret_position_for_objective_id('10x Oly')   # returns 2 (turret position is motion state)
 ```
 
 ---
@@ -185,6 +185,15 @@ session.start_executors()
 ```
 
 `create_headless()` is the supported factory for simulated / headless sessions — it wires up simulated drivers for you. Don't hand-construct a `Lumascope(simulate=True)` + `ScopeSession.create(...)` pair unless you have a specific reason.
+
+### Application startup sequence
+
+```python
+session.start_application_session()                  # home ALL axes, then position turret
+session.start_application_session(disable_homing=True)  # skip homing, still position turret
+```
+
+`start_application_session()` is the single source of truth for the standard startup orchestration the GUI runs on launch: it queues an all-axis `move_home` on the io_executor (firmware homes Z/T/X/Y in one routine; Z-only boards home what they have), then, when the scope has a turret, moves the T-axis to the position matching `settings['objective_id']` (falling back to position 1). Headless / REST callers should use this rather than open-coding the home + turret sequence. `disable_homing=True` skips the home step (matches the App's `--no-home` flag) but still positions the turret.
 
 ### LED control
 
@@ -235,13 +244,8 @@ save_image(
 ### Running protocols
 
 ```python
-from modules.protocol import Protocol
-
 runner = session.create_protocol_runner()
-protocol = Protocol.from_file(
-    file_path='my_protocol.tsv',
-    tiling_configs_file_loc='./data/tiling.json',
-)
+protocol = session.scope.load_protocol('my_protocol.tsv')
 
 runner.run_single_scan(protocol)
 runner.wait_for_completion()
@@ -251,6 +255,8 @@ runner.abort()
 ```
 
 `run_single_scan()` runs one scan; `run_protocol()` runs the full multi-scan protocol. See the `ProtocolRunner` source for optional callbacks, image-output config, etc.
+
+**Canonical entry points.** Build the runner with `session.create_protocol_runner()`. Build the `Protocol` it runs with one of the two scope-level constructors -- `scope.load_protocol(file_path)` (from a `.tsv` on disk) or `scope.create_protocol(config=... | input_config=... | empty_config=...)` (in-memory). Both resolve `data/tiling.json` from the session's registered `source_path`, so prefer them over calling `Protocol.from_file(...)` directly (which makes you pass `tiling_configs_file_loc` by hand).
 
 ### Configuration queries
 
@@ -444,6 +450,14 @@ image = scope.imaging.get_image(force_to_8bit=False)   # keep native 12/16-bit
 # Returns numpy.ndarray on success, None on failure (camera inactive,
 # frame drain failed, timeout). Per the sentinel-return contract:
 #   if image is None: ...
+#
+# Shape is (H, W) 2D mono for mono-native cameras and (H, W, 3) RGB
+# for color-native cameras (see scope.capabilities.is_color_native).
+# Layer false-color is NOT applied here -- apply at the display /
+# encode boundary via image_utils.mono_to_rgb_falsecolor(img, layer).
+# Dtype is uint8 with force_to_8bit=True (default) or for 8-bit
+# cameras; uint16 with force_to_8bit=False for 12/16-bit cameras
+# (see scope.capabilities.native_bit_depth).
 
 # Frame-validity capture — PREFERRED for all real captures.
 # Waits for all pending changes (LED, gain, exposure, motion) to settle,
@@ -483,12 +497,15 @@ scope.imaging.apply_layer_camera_settings(
 # Frame size
 scope.imaging.set_frame_size(2048, 2048)
 scope.imaging.get_frame_size()                     # {'width': ..., 'height': ...}
-scope.imaging.get_max_width()
+scope.imaging.get_max_width()                      # max at the current binning
 scope.imaging.get_max_height()
+scope.imaging.get_native_resolution()              # {'width','height'} unbinned sensor ceiling
+scope.imaging.get_pixel_alignment()                # {'width','height'} frame-size multiple
 
 # Binning
 scope.imaging.set_binning_size(2)
 scope.imaging.get_binning_size()
+scope.imaging.get_available_binning_sizes()        # e.g. [1, 2, 4]
 
 # Acquisition frame-rate cap (camera-side; clamps sensor-readout pace)
 scope.imaging.set_max_acquisition_frame_rate(enabled=True, fps=10.0)
@@ -549,6 +566,19 @@ scope.imaging.remove_frame_listener(on_frame)
 - **Plugin authors**: use `ctx.plugins.live_processing.register(spec, handler)` rather than calling `add_frame_listener` directly. The registry forwards through to this API and surfaces the plugin name in the budget-violation log.
 - **Tutorial**: `docs/LIVE_PROCESSING_TUTORIAL.md` -- minimum-viable plugin example + failure-injection example + common pitfalls.
 
+### Listener callback signatures (overview)
+
+The four listener families each pass a different callback signature -- register a callable matching the row for the listener you subscribe to:
+
+| Listener | Register via | Callback signature |
+|---|---|---|
+| Motion / position | `scope.motion.add_position_listener` | `on_position(axis: str, target: float, state: str)` |
+| LED / illumination | `scope.illumination.add_led_listener` | `on_led(color: str, enabled: bool, mA: float, owner: str)` |
+| Camera params | `scope.imaging.add_camera_listener` | `on_camera(param: str, value: float)` |
+| Live frame | `scope.imaging.add_frame_listener` | `on_frame(image, timestamp, chunks)` |
+
+Each has a matching `remove_*_listener(callback)`. The frame listener additionally takes a `name=` kwarg and carries the don't-mutate + 24 ms budget contract documented above; the other three are lightweight state-change notifications.
+
 ### Camera info
 
 ```python
@@ -569,7 +599,7 @@ scope.diagnostics.get_camera_profile_info()        # sensor specs + dynamic rang
 
 ### Frame validity
 
-Frame validity is the single source of truth for "is the next frame still what I asked for?" Every hardware state change invalidates pending frames. `capture_and_wait()` drains stale frames until all sources settle.
+Frame validity is the single source of truth for "is the next frame still what I asked for?" Every hardware state change invalidates pending frames. `capture_and_wait()` drains stale frames until all sources settle, then verifies the returned frame's own chunk metadata (exposure / gain) against the requested values on cameras with chunk support -- the saved frame proves its own settings.
 
 ```python
 scope.imaging.frame_is_valid                       # True if next frame is valid
@@ -592,7 +622,11 @@ fv.frames_until_valid()                    # int -- drains remaining
 fv.frames_until_valid(exclude_sources=('z_move',))
 fv.pending_sources                         # dict {source: target_frame_counter} (snapshot)
 fv.invalidate('led')                       # mark a source dirty (usually called by API setters)
-fv.count_frame(chunk_data=None)            # mark a frame as drained (capture_and_wait does this)
+fv.count_frame(chunk_data=None, frame_ts=None)  # mark a frame as drained (capture_and_wait does this)
+                                           # pass the grab timestamp as frame_ts so the same
+                                           # buffered frame polled twice counts once; chunk_data
+                                           # (ChunkExposureTime/ChunkGain) clears gain/exposure
+                                           # deterministically when it matches the requested target
 ```
 
 `set_settle_check(fn)` is the API-only registration hook for motion-completion gating and is not used by L2 callers directly. Everything else is fair game for plugin / SDK consumers.
@@ -706,6 +740,8 @@ caps.supports('trigger_in')     # also searches has_X / camera_supports_X / hard
 
 # Camera
 caps.camera_model               # 'MT9P031-LS620', 'acA2500-60um', etc.
+caps.is_color_native            # True for color-native sensors; False for mono-native (default)
+caps.native_bit_depth           # 8 (e.g. IDS) or 16 (uint16 container; holds 12/16-bit native)
 caps.camera_supports_auto_gain
 caps.camera_supports_auto_exposure
 caps.camera_pixel_formats       # e.g. ('Mono8',) or ('Mono8', 'Mono12')
@@ -714,8 +750,9 @@ caps.camera_max_exposure_ms     # per-camera exposure ceiling (e.g. 178 ms on FX
 caps.camera_max_frame_size      # (width, height) tuple in pixels; (0, 0) if no camera
 ```
 
-Two important consequences:
+Important consequences:
 
+- **`camera_max_frame_size` is `(0, 0)` when no camera is connected** -- that is a sentinel meaning "unknown / no camera," not a usable size. Check `scope.camera_connected` (or that the tuple is non-zero / `caps.camera_model` is non-empty) before using it as a `scope.imaging.set_frame_size(w, h)` target; `set_frame_size` itself no-ops when no camera is active, so a naive `set_frame_size(*caps.camera_max_frame_size)` silently does nothing rather than erroring.
 - **LED channel count varies by scope.** LS560/LS620 (FX2 driver) expose 4 channels (`BF`, `Blue`, `Green`, `Red`); RP2040-based scopes expose 6 (`BF`, `PC`, `DF`, `Blue`, `Green`, `Red`). Don't iterate over a hardcoded list — iterate over `caps.led_colors`.
 - **Some scopes have no motor at all.** LS560/LS620 have `caps.axes == ()`. Calling `scope.motion.move_absolute_position('X', …)` against such a scope is a no-op, not an error — but your UI should hide motion controls based on `caps.has_xy_stage` etc.
 - **`axis_travel_limits_um` is populated only for present axes.** On a Z-only scope, `'X' in caps.axis_travel_limits_um` is `False`; indexing `caps.axis_travel_limits_um['X']` raises `KeyError`. Check `caps.has_xy_stage` (or `axis in caps.axes`) before reading. The mapping is read-only (`MappingProxyType`); mutation attempts raise `TypeError`.
@@ -787,6 +824,39 @@ The full set of free functions in `modules.image_save`:
 | `generate_image_metadata(scope, color, x, y, z)` | Build the TIFF metadata dict for the current capture settings + position. |
 | `generate_image_save_path(scope, save_folder, ...)` | Generate the next unused file path under `tail_id_mode`. |
 | `get_next_save_path(scope, path)` | Increment the trailing numeric ID on an existing path. |
+
+### Image utilities (`modules.image_utils`)
+
+Boundary helpers that ride alongside the mono-native pipeline. Two
+patterns matter to L2 callers:
+
+```python
+from modules import image_utils
+
+# Map a mono frame to RGB false-color at the display / encode boundary.
+# Use this when you have a mono fluorescence frame from get_image() and
+# need a 3-channel array for display, video encode, or a downstream
+# tool that expects RGB. Mono pipeline saves do NOT call this -- the
+# layer is recorded as TIFF metadata instead.
+rgb = image_utils.mono_to_rgb_falsecolor(mono_frame, layer='Blue')
+# layer in {'Blue', 'Green', 'Red', 'BF', 'Lumi', ...}
+# Returns 3-channel ndarray, same dtype as input.
+
+# Read a TIFF and collapse legacy 3-channel false-color-replica files
+# to mono on the fly. Use this when reading any TIFF that may have
+# been written by a pre-mono-native LumaViewPro: the 3-channel files
+# with one populated channel auto-collapse to 2D mono; true color
+# composites (multiple non-zero channels) pass through unchanged.
+img = image_utils.read_tiff_with_legacy_collapse(path)
+# Returns 2D mono ndarray for mono and collapsed-legacy files;
+# 3D RGB ndarray for real color composites.
+```
+
+The save pipeline emits mono fluorescence TIFFs with layer metadata
+in the TIFF ImageDescription field; the legacy reader bridges that
+to consumers that previously assumed a 3-channel shape. FIJI, MATLAB
+``imread``, and tifffile all handle mono 2D natively; the false-
+color is purely a display-time concern.
 
 ### Coordinate transformations (`modules.coord_transformations`)
 
@@ -913,7 +983,7 @@ scope = Lumascope()
 scope.motion.home()
 scope.motion.wait_until_finished_moving()
 
-scope.set_objective('10x Oly')
+scope.runtime_state.set_objective('10x Oly')
 scope.imaging.set_exposure_time(50)
 scope.imaging.set_gain(5.0)
 

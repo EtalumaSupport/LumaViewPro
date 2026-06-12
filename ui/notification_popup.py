@@ -59,7 +59,7 @@ def show_notification_popup(title: str, message: str):
     """Show a fire-and-forget popup with a single OK button.
 
     Args:
-        title: Short noun phrase per Rule 28 voice.
+        title: Short noun phrase.
         message: One sentence on what happened plus one on what to do.
 
     Returns:
@@ -97,7 +97,7 @@ def show_confirmation_w_ack_popup(
     """Show a popup with one acknowledgement button that fires a callback.
 
     Args:
-        title: Short noun phrase per Rule 28 voice.
+        title: Short noun phrase.
         message: What happened + what to do.
         ack_button_text: Label for the single button (e.g. "Continue").
         on_ack: Called with no args when the user clicks the button.
@@ -141,7 +141,7 @@ def show_confirmation_popup(
     prompts route through this helper rather than building raw Kivy popups.
 
     Args:
-        title: Short noun phrase per Rule 28 voice.
+        title: Short noun phrase.
         message: What happened + what to do.
         confirm_text: Confirm-button label (e.g. "OK", "Continue").
         cancel_text: Cancel-button label (e.g. "Cancel", "Abort").

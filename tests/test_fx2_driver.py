@@ -1,14 +1,14 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Unit tests for ``drivers/fx2driver.py`` — Lumascope Classic FX2 port.
+"""Unit tests for ``drivers/fx2driver.py`` -- Lumascope Classic FX2 port.
 
 No hardware required. All USB access is mocked via ``_FX2Connection.get``
 being monkeypatched to return a ``MagicMock``. Tests cover:
 
 - Registry wiring (camera + LED registry entries)
 - Shared-connection invariant (FX2Camera and FX2LEDController share one handle)
-- LED ASCII byte mapping (project-memory directive: integer→ASCII stays in driver)
+- LED ASCII byte mapping (project-memory directive: integer->ASCII stays in driver)
 - ``available_channels`` / ``available_colors`` values
-- Pure math: gain dB↔register round-trip, digital clamp audit fix, exposure math
+- Pure math: gain dB<->register round-trip, digital clamp audit fix, exposure math
 - Frame delimiter parser (synthetic bytes)
 - Camera ABC conformance (all abstract methods satisfied)
 - LEDBoardProtocol duck-type conformance
@@ -58,7 +58,7 @@ def fake_fx2_conn(monkeypatch):
     Teardown: restore the real class state.
 
     Also neutralizes the streaming-start paths. ``FX2Camera.__init__``
-    calls ``connect()`` → ``start_grabbing()`` → ``_start_iso_streaming``
+    calls ``connect()`` -> ``start_grabbing()`` -> ``_start_iso_streaming``
     which, under a MagicMock'd libusb1/winusb, records ~16 xfer
     callbacks holding a bound-method ref back to the camera. The
     MagicMock's call-args store makes that a cycle the GC can't break
@@ -90,7 +90,7 @@ def fake_fx2_conn(monkeypatch):
 
 @pytest.mark.skipif(
     not fx2driver._FX2_AVAILABLE,
-    reason='FX2 prerequisites (pyusb / libusb1) not installed — drivers '
+    reason='FX2 prerequisites (pyusb / libusb1) not installed -- drivers '
     'intentionally not registered (issue #635)',
 )
 class TestRegistryWiring:
@@ -137,7 +137,7 @@ class TestRegistryGatedOnPrereqs:
             and fx2driver._HAS_USB_BACKEND
             and (_sys.platform == 'win32' or fx2driver._HAS_USB1)
         )
-        assert fx2driver._FX2_AVAILABLE == expected
+        assert expected == fx2driver._FX2_AVAILABLE
 
     def test_register_helper_returns_identity_when_unavailable(self, monkeypatch):
         # Force the unavailable path and verify the helper is a no-op.
@@ -168,12 +168,12 @@ class TestRegistryGatedOnPrereqs:
 
 
 # ---------------------------------------------------------------------------
-# LED channel → I2C ASCII byte mapping (project-memory directive)
+# LED channel -> I2C ASCII byte mapping (project-memory directive)
 # ---------------------------------------------------------------------------
 
 
 class TestLEDChannelMapping:
-    """The integer → ASCII byte translation must stay inside the driver.
+    """The integer -> ASCII byte translation must stay inside the driver.
 
     Memory rule: "The integer-to-ASCII mapping must stay inside the driver,
     not leak into the API." These tests verify the values.
@@ -215,18 +215,18 @@ class TestLEDChannelMapping:
 
 
 # ---------------------------------------------------------------------------
-# Pure math: gain dB ↔ register
+# Pure math: gain dB <-> register
 # ---------------------------------------------------------------------------
 
 
 class TestGainMath:
-    """Gain conversion is pure math — testable without hardware."""
+    """Gain conversion is pure math -- testable without hardware."""
 
     @pytest.mark.parametrize('db', [0.0, 3.0, 6.0, 9.0, 12.0, 18.0, 24.0, 30.0, 36.0, 42.0])
     def test_round_trip_within_half_dB(self, db):
         reg = fx2driver._gain_db_to_register(db)
         _, back = fx2driver._register_to_gain_db(reg)
-        assert abs(back - db) < 0.5, f'dB round-trip failed: {db} → 0x{reg:04X} → {back}'
+        assert abs(back - db) < 0.5, f'dB round-trip failed: {db} -> 0x{reg:04X} -> {back}'
 
     def test_zero_db_is_unity_gain(self):
         reg = fx2driver._gain_db_to_register(0.0)
@@ -255,7 +255,7 @@ class TestGainMath:
         assert back >= 0.0
 
     def test_analog_only_below_4x(self):
-        """≤ 4x gain should use analog-only (multiplier=0, digital=0)."""
+        """<= 4x gain should use analog-only (multiplier=0, digital=0)."""
         reg = fx2driver._gain_db_to_register(6.0)  # 2x
         analog_mult = (reg >> 6) & 1
         digital_val = (reg >> 8) & 0x7F
@@ -276,7 +276,7 @@ class TestExposureMath:
         rows = round((target + fx2driver._SHUTTER_OVERHEAD_MS) / fx2driver._ROW_TIME_MS)
         back = rows * fx2driver._ROW_TIME_MS - fx2driver._SHUTTER_OVERHEAD_MS
         assert abs(back - target) < fx2driver._ROW_TIME_MS, (
-            f'50ms → {rows} rows → {back}ms (should be within 1 row of target)'
+            f'50ms -> {rows} rows -> {back}ms (should be within 1 row of target)'
         )
 
     def test_max_rows_is_max_exposure(self):
@@ -327,7 +327,7 @@ class TestFrameDelimiterParser:
 
 
 class TestIntelHexParser:
-    """``parse_intel_hex`` is pure — testable without USB or real firmware."""
+    """``parse_intel_hex`` is pure -- testable without USB or real firmware."""
 
     def test_parses_real_firmware(self):
         hex_path = REPO_ROOT / 'firmware' / 'LumascopeClassic.hex'
@@ -405,7 +405,7 @@ class TestFX2LEDProtocolConformance:
 
 
 # ---------------------------------------------------------------------------
-# FX2LEDController — "thin command translator" regression guard
+# FX2LEDController -- "thin command translator" regression guard
 # ---------------------------------------------------------------------------
 
 
@@ -445,7 +445,7 @@ class TestFX2LEDThinTranslator:
             'led_on should issue I2C writes through the FX2 connection'
         )
 
-        # But the state queries must STILL return sentinel defaults —
+        # But the state queries must STILL return sentinel defaults --
         # the driver does not remember what it just did.
         assert led.get_led_ma('Blue') == -1
         assert led.is_led_on('Blue') is False
@@ -471,7 +471,7 @@ class TestFX2LEDThinTranslator:
         LVC reference driver carried must be absent in the new driver."""
         led = fx2driver.FX2LEDController()
         assert not hasattr(led, 'led_ma'), (
-            'FX2LEDController.led_ma exists — thin-translator rule violated'
+            'FX2LEDController.led_ma exists -- thin-translator rule violated'
         )
 
 
@@ -481,7 +481,7 @@ class TestFX2LEDThinTranslator:
 
 
 class TestFX2LEDChannelDiscovery:
-    """Post-B3 channel discovery — `available_channels()` drives API validation
+    """Post-B3 channel discovery -- `available_channels()` drives API validation
     and `ScopeCapabilities.led_channels`.
     """
 
@@ -501,7 +501,7 @@ class TestFX2LEDChannelDiscovery:
 
 class TestSharedConnectionInvariant:
     """FX2Camera and FX2LEDController must end up pointing at the SAME
-    `_FX2Connection` singleton — this is the whole point of the module-
+    `_FX2Connection` singleton -- this is the whole point of the module-
     level singleton pattern, and is proven at the architecture level by
     TestRegistryAccommodatesCompositeHardware in test_driver_registry.py.
     Here we verify the real drivers satisfy it.
@@ -549,7 +549,7 @@ class TestFX2CameraProfile:
         previously letting users dial past the safe-frame ceiling
         because Camera.max_exposure was a stored field set from a
         separate static profile field. Rule 2 fix: collapsed to a
-        single source — `profile.exposure_max_us` — with
+        single source -- `profile.exposure_max_us` -- with
         `Camera.max_exposure` a derived property reading from it."""
         cam = fx2driver.FX2Camera()
         # exposure_max_us is overwritten to 178_000 by _query_dynamic_capabilities
@@ -576,7 +576,7 @@ class TestFX2CameraProfile:
         assert cam.get_binning_size() == 1
 
     def test_auto_features_are_noops(self, fake_fx2_conn):
-        """MT9P031 has no hardware AE/AG — these should all be silent
+        """MT9P031 has no hardware AE/AG -- these should all be silent
         no-ops rather than raising NotImplementedError.
         """
         cam = fx2driver.FX2Camera()
@@ -621,13 +621,13 @@ class TestCameraProfileRegistration:
 
     def test_max_exposure_matches_driver_constants(self):
         """The profile's static exposure_max_us default should match the
-        sensor-register ceiling: MAX_EXPOSURE_ROWS × _ROW_TIME_MS.
-        (The driver narrows this to 178 ms at connect time — see
+        sensor-register ceiling: MAX_EXPOSURE_ROWS x _ROW_TIME_MS.
+        (The driver narrows this to 178 ms at connect time -- see
         FX2Camera._query_dynamic_capabilities.)
         """
         profile = lookup_profile('LS620')
         driver_max_us = fx2driver.MAX_EXPOSURE_ROWS * fx2driver._ROW_TIME_MS * 1000
-        # Allow 10,000 µs (10 ms) tolerance for rounding
+        # Allow 10,000 us (10 ms) tolerance for rounding
         assert abs(profile.exposure_max_us - driver_max_us) <= 10_000
 
 
@@ -640,7 +640,7 @@ class TestScopesJsonClassicModels:
     """LS620 and LS560 entries should exist with correct capability bits.
 
     LS720 is intentionally NOT in scopes.json until Stage 4 ships the
-    LVC motor driver — avoids the "scopes.json says XYZ but
+    LVC motor driver -- avoids the "scopes.json says XYZ but
     capabilities.axes is empty" inconsistency.
     """
 
@@ -675,7 +675,7 @@ class TestScopesJsonClassicModels:
         assert entry['Turret'] is False
 
     def test_ls620_has_fluorescence_bf(self, scopes):
-        """LS620 has BF and fluorescence but NO separate PC channel —
+        """LS620 has BF and fluorescence but NO separate PC channel --
         PC on this model is BF with a mechanically installed phase
         slider, not a distinct illumination channel. Observed on
         hardware 2026-04-16: clicking a PhaseContrast layer raised
@@ -690,7 +690,7 @@ class TestScopesJsonClassicModels:
         assert layers['Lumi'] is False
 
     def test_ls560_has_fluorescence_bf(self, scopes):
-        """LS560 mirrors LS620 — BF + fluorescence (Green only; the
+        """LS560 mirrors LS620 -- BF + fluorescence (Green only; the
         'Green only' limitation vs LS620's BGR is a future schema
         enhancement) and no separate PC channel. Same rationale as
         test_ls620_has_fluorescence_bf.
@@ -739,7 +739,7 @@ class TestFX2ConnectionSingleton:
         def boom(self):
             raise RuntimeError('no FX2 hardware')
 
-        # Patch __init__ directly — get() will still call cls() which
+        # Patch __init__ directly -- get() will still call cls() which
         # calls __new__ + __init__; if __init__ raises, cls._instance
         # is never assigned.
         with patch.object(fx2driver._FX2Connection, '__init__', boom):

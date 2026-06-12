@@ -270,7 +270,7 @@ def test_scheduler_pulse_width_jitter_within_tolerance():
                 'enabled': True,
                 'illumination': 500,
                 'frequency': 0.8,
-                'pulse_width': 10,  # ms — the regime the bug affected
+                'pulse_width': 10,  # ms -- the regime the bug affected
                 'pulse_count': 10,
             },
         },
@@ -329,13 +329,13 @@ def test_scheduler_pulse_width_jitter_within_tolerance():
     # spin produces stddev ~5.9 ms and worst-case ~16 ms, so these catch the
     # regression with ~2x margin on the busy-wait baseline.
     assert stddev_ms < 3.0, (
-        f'Pulse-width stddev {stddev_ms:.2f} ms exceeds 3.0 ms — suggests '
+        f'Pulse-width stddev {stddev_ms:.2f} ms exceeds 3.0 ms -- suggests '
         f"_wait_until's final spin is yielding the GIL (regression of the "
         f'busy-wait fix). Widths: {pulse_widths_ms}'
     )
     assert worst_err_ms < 10.0, (
         f'Worst-case pulse-width error {worst_err_ms:.2f} ms exceeds 10.0 ms '
-        f"— suggests _wait_until's final spin is yielding the GIL (regression "
+        f"-- suggests _wait_until's final spin is yielding the GIL (regression "
         f'of the busy-wait fix). Widths: {pulse_widths_ms}'
     )
 

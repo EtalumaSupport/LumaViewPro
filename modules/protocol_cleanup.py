@@ -10,6 +10,7 @@ protocol-decomposition refactor.
 from __future__ import annotations
 
 import threading
+from concurrent.futures import CancelledError
 from typing import TYPE_CHECKING
 
 from lvp_logger import logger
@@ -54,18 +55,18 @@ def run_cleanup(
     autofocus_thread,
     file_io_executor,
     camera_executor,
-    # Mutable flag — set to False when done
+    # Mutable flag -- set to False when done
     set_run_in_progress_fn,
     logger_name: str = 'SequencedCaptureRunner',
 ):
-    """Core cleanup logic — restores state, fires callbacks, ends executors.
+    """Core cleanup logic -- restores state, fires callbacks, ends executors.
 
     Called from ``SequencedCaptureRunner._cleanup_inner()``.
     """
     # PF-2: capture initial state BEFORE the COMPLETING transition below so we
     # can distinguish abort (ERROR) from normal end. On abort (e.g. hardware
     # disconnect), file_io_executor's pending queue is cleared along with the
-    # other executors — otherwise queued frames stay pinned in memory while
+    # other executors -- otherwise queued frames stay pinned in memory while
     # they slowly drain to disk, which can lock the next protocol-start.
     is_aborted = get_state_fn() == ProtocolState.ERROR
 
@@ -92,6 +93,35 @@ def run_cleanup(
         logger.error(f'[PROTOCOL] Error cancelling scheduled events during cleanup: {ex}')
         cleanup_errors.append(f'Cancel scheduled events: {type(ex).__name__}: {ex}')
 
+    # --- Unwind any in-flight autofocus BEFORE restoring LEDs ---
+    # The AF worker lights its own channel during setup and restores
+    # LED / camera / Z state in its finally block. If the LED restore
+    # below ran first, a still-unwinding AF run would re-light or
+    # re-restore on top of it, and the protocol's intended end state
+    # would lose the race -- worst case an AF LED left on overnight.
+    # The AF Future resolves only after that finally chain finishes,
+    # so waiting on it (bounded, so a wedged AF run cannot block
+    # cleanup) guarantees the LED restore below runs last.
+    if autofocus_thread is not None:
+        _af_future = autofocus_thread.current_future
+        if _af_future is not None and not _af_future.done():
+            autofocus_thread.abort()
+            try:
+                # Returns the run's exception (normally AutofocusAborted)
+                # without raising it; raises TimeoutError on the bound.
+                _af_future.exception(timeout=5.0)
+            except TimeoutError:
+                logger.warning(
+                    f'[{logger_name}] Cleanup: autofocus still unwinding '
+                    'after 5.0 s; its exit path restores LED/camera state '
+                    'when it finishes'
+                )
+            except Exception as ex:
+                logger.warning(
+                    f'[{logger_name}] Cleanup: error waiting for autofocus '
+                    f'to unwind: {type(ex).__name__}: {ex}'
+                )
+
     # --- Restore LEDs ---
     try:
         if leds_state_at_end == 'off':
@@ -114,6 +144,16 @@ def run_cleanup(
                 leds_off_fn()
         else:
             logger.error(f'Unsupported LEDs state at end value: {leds_state_at_end}')
+    except CancelledError:
+        # An overlapping abort / new-run cycle cleared the protocol queue
+        # and cancelled this restore task before it ran. The superseding
+        # cycle owns LED state from here; this is a normal hand-off, not a
+        # failure -- surfacing it as one produced a popup per cycle when
+        # the run button was clicked rapidly.
+        logger.info(
+            f'[{logger_name}] Cleanup: LED restore superseded by an '
+            'overlapping run/abort cycle'
+        )
     except Exception as ex:
         logger.error(f'[PROTOCOL] Error restoring LED states during cleanup: {ex}')
         cleanup_errors.append(f'Restore LED states: {type(ex).__name__}: {ex}')
@@ -168,7 +208,7 @@ def run_cleanup(
     # PROTO-CLEAN-1: dispatch the gain/exposure SDK calls through
     # camera_executor (CAMERA_WORKER) instead of running on MainThread.
     # Pylon's set_gain / set_exposure_time take noticeable time on real
-    # hardware — running on MainThread blocked the UI for the duration
+    # hardware -- running on MainThread blocked the UI for the duration
     # of protocol stop. Submit-and-wait so cleanup still serializes:
     # the next steps (return-to-position, executor end) need camera
     # state restored before they run, otherwise live preview after stop
@@ -193,7 +233,7 @@ def run_cleanup(
             if fut is not None:
                 fut.result(timeout=30)
             else:
-                # Executor disabled / protocol already ended — fall back to
+                # Executor disabled / protocol already ended -- fall back to
                 # a direct call so state is still restored. Real-hardware
                 # path normally hits the executor branch above; this branch
                 # mostly covers tests / shutdown races.
@@ -223,6 +263,13 @@ def run_cleanup(
                 z=return_to_position['z'],
             )
             logger.info(f'[{logger_name}] Cleanup: return-to-position move issued')
+    except CancelledError:
+        # Same hand-off as the LED restore above: a superseding run/abort
+        # cycle cancelled the queued move; the new cycle owns stage position.
+        logger.info(
+            f'[{logger_name}] Cleanup: return-to-position superseded by an '
+            'overlapping run/abort cycle'
+        )
     except Exception as ex:
         logger.error(f'[PROTOCOL] Error returning to position during cleanup: {ex}')
         cleanup_errors.append(f'Return to position: {type(ex).__name__}: {ex}')
@@ -251,7 +298,7 @@ def run_cleanup(
     io_executor.clear_protocol_pending()
     if is_aborted:
         # PF-2: drop pending writes on abort. Drain (the COMPLETING-path default)
-        # would write everything queued to disk before releasing memory — fine on
+        # would write everything queued to disk before releasing memory -- fine on
         # normal completion, but on disconnect/error the user wants control back
         # without waiting for many GB of frames to slowly drain.
         file_io_executor.clear_protocol_pending()
@@ -272,10 +319,13 @@ def run_cleanup(
             from modules.notification_center import notifications
 
             err_summary = '\n'.join(f'  - {e}' for e in cleanup_errors)
+            # "ended", not "completed": this summary also fires on aborted
+            # runs, and claiming completion on an abort misleads the
+            # post-mortem reader.
             notifications.warning(
                 'Protocol',
                 'Protocol cleanup issues',
-                f'Protocol completed but {len(cleanup_errors)} cleanup step(s) failed:\n'
+                f'Protocol ended but {len(cleanup_errors)} cleanup step(s) failed:\n'
                 f'{err_summary}\n'
                 f'Check LED state, camera settings, and stage position.',
             )
@@ -286,7 +336,13 @@ def run_cleanup(
 
     # --- Fire completion callbacks ---
     _file_queue_active = file_io_executor.is_protocol_queue_active()
-    logger.info(f'[{logger_name}] Cleanup: file queue active={_file_queue_active}')
+    # Log the pending-write count so a post-run read shows HOW MANY files were
+    # still draining at protocol end, not just that the queue was non-empty.
+    _file_queue_depth = file_io_executor.protocol_queue_size()
+    logger.info(
+        f'[{logger_name}] Cleanup: file queue active={_file_queue_active} '
+        f'pending_writes={_file_queue_depth}'
+    )
     if _file_queue_active:
         if callbacks.run_complete:
             _schedule_ui(lambda dt: callbacks.run_complete(protocol=protocol), 0)
@@ -309,3 +365,9 @@ def run_cleanup(
         logger.info(
             f'[{logger_name}] Cleanup: callbacks scheduled (run_complete + files_complete immediate)'
         )
+
+    # Map the footprint right after a protocol run. No-op unless the memory
+    # profiler is enabled.
+    from lib import memory_profile
+
+    memory_profile.snapshot('post_protocol')

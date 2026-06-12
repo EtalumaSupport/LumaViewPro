@@ -17,10 +17,18 @@ Usage
 """
 
 import datetime
-import os
 import threading
+from typing import TYPE_CHECKING
 
 from lvp_logger import logger
+
+# numpy and ProtocolRunner are referenced only in return annotations;
+# ProtocolRunner is imported function-locally to avoid a circular import.
+# Declare both here for the annotations without a runtime import.
+if TYPE_CHECKING:
+    import numpy as np
+
+    from modules.protocol_runner import ProtocolRunner
 
 
 class ScopeSession:
@@ -51,9 +59,23 @@ class ScopeSession:
         # scope_display_thread cleanly. When lumaviewpro.py is the host,
         # this is None -- the host owns the bundle on ctx.executor_bundle.
         self.executor_bundle = executor_bundle
+        # The canonical file-IO executor lives on the bundle; expose it here
+        # alongside io_executor / camera_executor so callers (e.g. ProtocolRunner)
+        # source the one shared FILE executor instead of constructing a
+        # duplicate. None when no bundle was built (the GUI host owns its bundle).
+        self.file_io_executor = executor_bundle.file_io_executor if executor_bundle else None
 
         self.protocol_running = threading.Event()
         self.focus_round = 0
+
+    @property
+    def is_protocol_running(self) -> bool:
+        """True while a protocol or scan is running.
+
+        Canonical read of the protocol-running state for callers holding a
+        session handle, so they need not reach into the underlying Event.
+        """
+        return self.protocol_running.is_set()
 
     # ------------------------------------------------------------------
     # Factory helpers
@@ -117,11 +139,11 @@ class ScopeSession:
         if executor_bundle is not None:
             scope.register_executor_bundle(executor_bundle, settings=settings)
         # LAYER-I: register source_path for scope.load_protocol /
-        # create_protocol — falls back to current working dir for the
+        # create_protocol -- falls back to current working dir for the
         # rare ScopeSession path that doesn't pass source_path.
         scope.register_source_path(source_path)
 
-        # Optional helpers — import and construct if available.
+        # Optional helpers -- import and construct if available.
         # Every silent helper-init failure has a downstream AttributeError
         # waiting for whichever UI action first reads the missing helper;
         # surface a warning at the failure site so the user knows which
@@ -220,14 +242,19 @@ class ScopeSession:
             if default_settings is not None:
                 settings = default_settings.copy()
             else:
-                # Settings not loaded yet (e.g. headless/test usage) — load from disk
+                # Settings not loaded yet (e.g. headless/test usage) -- resolve
+                # the same file the GUI reads (current.json first, then
+                # settings.json) so headless state matches the running app,
+                # instead of hardcoding settings.json and ignoring live state.
                 import json
 
-                settings_path = os.path.join(source_path, 'data', 'settings.json')
-                if os.path.exists(settings_path):
+                from modules.settings_init import _resolve_settings_path
+
+                try:
+                    settings_path = _resolve_settings_path(source_path)
                     with open(settings_path) as f:
                         settings = json.load(f)
-                else:
+                except FileNotFoundError:
                     settings = {}
 
         scope = lumascope_api.Lumascope(simulate=True)
@@ -513,22 +540,21 @@ class ScopeSession:
 
         Replaces the inline blocks in lumaviewpro.py:on_start AND
         ui/microscope_settings.py reconnect handler -- both previously
-        open-coded the same ALL-axis home + turret-positioning IOTasks
+        open-coded the same ALL-axis home + turret-positioning sequence
         with a Rule-2 single-source-of-truth violation (drift risk if
         one branch ever updated without the other).
 
-        After this method returns, two IOTasks have been put on the
-        io executor:
+        After this method returns, the io_executor has been told to:
 
-        1. (when ``disable_homing=False``) ALL-axis ``move_home``.
+        1. (when ``disable_homing=False``) home ALL axes via ``move_home``.
            Firmware homes Z, T, X, Y in one routine; on Z-only boards
            it homes what it has and reports the missing axes.
 
-        2. (when ``self.scope.motion.has_turret()`` is True) Absolute T-axis
-           move to the position that matches ``settings['objective_id']``
-           -- falls back to position 1 if the objective isn't in the
-           turret config. Updates ``settings['turret_position']`` so
-           later code reads the actual position.
+        2. (when ``self.scope.motion.has_turret()`` is True) move T-axis
+           to the position that matches ``settings['objective_id']`` --
+           falls back to position 1 if the objective isn't in the turret
+           config. Updates ``settings['turret_position']`` so later code
+           reads the actual position.
 
         Headless / REST callers can use this exact same call to apply
         the standard startup orchestration without copy-pasting from
@@ -539,15 +565,14 @@ class ScopeSession:
                 turret-positioning. Matches the App's ``--no-home``
                 CLI flag semantics.
         """
-        # Local import to avoid circular import at module load — ui_helpers
+        # Local import to avoid circular import at module load -- ui_helpers
         # imports many UI modules but the functions used here (move_home,
         # move_absolute_position) operate on the scope and don't actually
         # need a GUI surface.
         from ui.ui_helpers import move_home, move_absolute_position
-        from modules.sequential_io_executor import IOTask
 
         if not disable_homing:
-            self.io_executor.put(IOTask(move_home, args=('ALL',)))
+            move_home('ALL')
 
         if self.scope.motion.has_turret():
             objective_id = self.settings.get('objective_id')
@@ -565,13 +590,8 @@ class ScopeSession:
                 turret_position = DEFAULT_POSITION
 
             self.settings['turret_position'] = turret_position
-            self.io_executor.put(
-                IOTask(
-                    move_absolute_position,
-                    kwargs={
-                        'axis': 'T',
-                        'pos': turret_position,
-                        'wait_until_complete': True,
-                    },
-                )
+            move_absolute_position(
+                axis='T',
+                pos=turret_position,
+                wait_until_complete=True,
             )

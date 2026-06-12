@@ -6,9 +6,9 @@ Pure functions for building the per-recording session_manifest.json file
 that lives next to the saved TIFFs. Kept Kivy-free so it can be unit-
 tested directly.
 
-Schema mirrors the char tool's manifest provenance shape (Firmware
-session 74 plugin 0.6.0) so manifests across LVP recordings and char
-runs are comparable. The frame_index gives downstream scripts a single
+Schema mirrors the char tool's manifest provenance shape so
+manifests across LVP recordings and char runs are comparable. The
+frame_index gives downstream scripts a single
 source of truth for frame ordering and per-frame timestamps without
 having to read every TIFF.
 """
@@ -81,6 +81,7 @@ def build_session_manifest(
     camera_model: str | None = None,
     camera_serial: str | None = None,
     lvp_version: str | None = None,
+    channel_color: str | None = None,
 ) -> dict:
     """Build the session_manifest.json dict for one manual-video recording.
 
@@ -101,6 +102,10 @@ def build_session_manifest(
         camera_model: e.g. 'a2A3536-31umBAS' or None.
         camera_serial: device serial string or None.
         lvp_version: LumaViewPro version (line 1 of version.txt).
+        channel_color: active channel/layer color for the recording
+            ('Red', 'Green', 'Blue', 'Lumi', ...), or None for mono /
+            brightfield. Consumed by the Create-Video build so a
+            false-colored recording renders in color, not grayscale.
 
     Returns:
         dict suitable for json.dump.
@@ -132,6 +137,7 @@ def build_session_manifest(
             'frames_captured': captured_frames,
             'duration_s': float(video_duration),
             'actual_fps': fps_stats,
+            'channel_color': channel_color,
         },
         'camera': {
             'model': camera_model,

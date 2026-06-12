@@ -18,6 +18,25 @@ from modules.settings_init import settings
 from lvp_logger import logger
 
 
+def _strip_channel_token(name: str, channel: str) -> str:
+    """Remove a single channel token from a per-channel step name.
+
+    A composite merges every channel for one (well, position) into a single
+    image, so the per-channel step name (e.g. 'A1_Green') must not tag the
+    composite output with one arbitrary channel. Removes the first
+    '_<channel>' (or a leading '<channel>_') token; returns the name
+    unchanged when channel is empty or not present.
+    """
+    if not channel:
+        return name
+    token = str(channel)
+    if f'_{token}' in name:
+        return name.replace(f'_{token}', '', 1)
+    if name.startswith(f'{token}_'):
+        return name.replace(f'{token}_', '', 1)
+    return name
+
+
 class CompositeGeneration(ProtocolPostProcessor):
     def __init__(self, *args, **kwargs):
         super().__init__(
@@ -52,12 +71,18 @@ class CompositeGeneration(ProtocolPostProcessor):
             objective_id=row0['Objective']
         )
 
-        # Prepend custom root + step name if available
-        custom_root = row0.get('Custom Root', '') if 'Custom Root' in row0 else ''
-        if custom_root not in (None, ''):
-            prefix = f'{custom_root}_{row0["Name"]}'
+        # The step name carries the channel (e.g. 'A1_Green'); a composite
+        # spans all channels, so drop that token before it becomes the prefix.
+        base_name = _strip_channel_token(row0['Name'], row0.get('Color', ''))
+
+        # Prepend the protocol's capture_root (passed in via kwargs by
+        # ProtocolPostProcessor.load_folder) so post-processed outputs
+        # carry the same filename root as the per-image saves.
+        capture_root = kwargs.get('capture_root', '')
+        if capture_root:
+            prefix = f'{capture_root}_{base_name}'
         else:
-            prefix = row0['Name']
+            prefix = base_name
         name = common_utils.generate_default_step_name(
             custom_name_prefix=prefix,
             well_label=row0['Well'],
@@ -75,13 +100,13 @@ class CompositeGeneration(ProtocolPostProcessor):
     def _filter_ignored_types(self, df: pd.DataFrame) -> pd.DataFrame:
 
         # Skip already composited outputs
-        df = df[df[self._post_function.value] == False]
+        df = df[df[self._post_function.value] == False]  # noqa: E712 -- pandas mask
 
         # Skip videos
-        df = df[df[PostFunction.VIDEO.value] == False]
+        df = df[df[PostFunction.VIDEO.value] == False]  # noqa: E712 -- pandas mask
 
         # Skip stacks
-        df = df[df[PostFunction.HYPERSTACK.value] == False]
+        df = df[df[PostFunction.HYPERSTACK.value] == False]  # noqa: E712 -- pandas mask
 
         return df
 
@@ -99,10 +124,12 @@ class CompositeGeneration(ProtocolPostProcessor):
         # tells the base class to skip its cv2.imwrite (which would swap
         # channels because cv2.imwrite is BGR-oriented).
         output_file_loc_rel = kwargs.get('output_file_loc')
+        output_format = kwargs.get('output_format', 'TIFF')
         return CompositeGeneration._create_composite_image(
             path=path,
             df=df[['Filepath', 'Color']],
             output_file_loc=path / output_file_loc_rel if output_file_loc_rel else None,
+            output_format=output_format,
         )
 
     @staticmethod
@@ -135,7 +162,10 @@ class CompositeGeneration(ProtocolPostProcessor):
 
     @staticmethod
     def _create_composite_image(
-        path: pathlib.Path, df: pd.DataFrame, output_file_loc: pathlib.Path = None
+        path: pathlib.Path,
+        df: pd.DataFrame,
+        output_file_loc: pathlib.Path = None,
+        output_format: str = 'TIFF',
     ):
 
         BF_present = False
@@ -259,11 +289,24 @@ class CompositeGeneration(ProtocolPostProcessor):
                 )
                 if output_file_loc is not None:
                     output_file_loc.parent.mkdir(parents=True, exist_ok=True)
-                    tf.imwrite(
-                        str(output_file_loc),
-                        img,
-                        photometric='rgb',
-                        compression='lzw',
+                    reference_input_path = path / df.iloc[0]['Filepath']
+                    metadata = image_utils.build_composite_output_metadata(
+                        reference_input_path=reference_input_path,
+                    )
+                    # Honor the run's output format. The composite is a
+                    # single 2D RGB image, so only plain OME-TIFF applies --
+                    # 'OME-TIFF Hyperstack' has no per-frame meaning here and
+                    # falls through to a plain TIFF, matching the per-frame
+                    # hyperstack downgrade. Normalize case so the run-config
+                    # token ('OME-TIFF') and the path-API token ('ome-tiff')
+                    # both map to ome=True.
+                    ome = output_format.strip().upper() == 'OME-TIFF'
+                    image_utils.write_tiff(
+                        data=img,
+                        file_loc=output_file_loc,
+                        metadata=metadata,
+                        ome=ome,
+                        color='Composite',
                     )
 
         except Exception as e:
@@ -291,6 +334,123 @@ class CompositeGeneration(ProtocolPostProcessor):
             'metadata': {
                 'color': 'Composite',
             },
+        }
+
+
+    _SUPPORTED_FORMATS = ('tiff', 'ome-tiff')
+
+    def generate_composite_from_paths(
+        self,
+        output_path: pathlib.Path,
+        *,
+        red_path: pathlib.Path | None = None,
+        green_path: pathlib.Path | None = None,
+        blue_path: pathlib.Path | None = None,
+        transmitted_path: pathlib.Path | None = None,
+        transmitted_layer: str | None = None,
+        format: str = 'tiff',
+    ) -> dict:
+        """Build a composite from per-channel mono TIFFs at the given paths.
+
+        Public path-based entry point that wraps the protocol-post-processor
+        DataFrame pipeline (load_folder -> _group_algorithm ->
+        _create_composite_image). Synthesizes the minimal DataFrame the
+        underlying composite builder needs from the per-channel path args.
+
+        Args:
+            output_path: Destination file.
+            red_path, green_path, blue_path: Mono TIFF inputs per fluorescence
+                channel. None = channel absent from composite.
+            transmitted_path: Optional brightfield / phase-contrast / darkfield
+                input; folded into composite via the build_composite
+                transmitted path.
+            transmitted_layer: Layer name for transmitted_path (e.g. 'BF',
+                'PC', 'DF'). Required when transmitted_path is set;
+                rejected otherwise.
+            format: Output format. Supported: 'tiff' (plain RGB) and
+                'ome-tiff' (OME-TIFF with axes='YXS'). Reserved for future:
+                'png', 'jpg'. ValueError for any other value.
+
+        Returns:
+            {'status': bool, 'error': str | None, 'image': np.ndarray | None}.
+
+        Raises:
+            ValueError: If format is unsupported, if transmitted_path and
+                transmitted_layer are not both-set or both-None, or if no
+                channel paths are provided.
+        """
+        output_path = pathlib.Path(output_path)
+
+        if format not in self._SUPPORTED_FORMATS:
+            raise ValueError(
+                f"generate_composite_from_paths: unsupported format '{format}'. "
+                f'Supported: {self._SUPPORTED_FORMATS}.'
+            )
+
+        if (transmitted_path is None) != (transmitted_layer is None):
+            raise ValueError(
+                'generate_composite_from_paths: transmitted_path and '
+                'transmitted_layer must be provided together.'
+            )
+
+        rows = []
+        if red_path is not None:
+            rows.append({'Color': 'Red', 'Filepath': pathlib.Path(red_path)})
+        if green_path is not None:
+            rows.append({'Color': 'Green', 'Filepath': pathlib.Path(green_path)})
+        if blue_path is not None:
+            rows.append({'Color': 'Blue', 'Filepath': pathlib.Path(blue_path)})
+        if transmitted_path is not None:
+            rows.append(
+                {'Color': transmitted_layer, 'Filepath': pathlib.Path(transmitted_path)}
+            )
+
+        if not rows:
+            raise ValueError(
+                'generate_composite_from_paths: at least one channel path required.'
+            )
+
+        df = pd.DataFrame(rows)
+
+        # Run the canonical composite builder with output_file_loc=None to
+        # get the RGB array back; the wrapper handles the write with
+        # format-aware kwargs. Absolute paths in df['Filepath'] survive
+        # the `path / row['Filepath']` join inside _create_composite_image
+        # (pathlib discards the left operand when the right is absolute).
+        result = CompositeGeneration._create_composite_image(
+            path=pathlib.Path('.'),
+            df=df,
+            output_file_loc=None,
+        )
+
+        if not result['status'] or result.get('image') is None:
+            return {
+                'status': False,
+                'error': result.get('error') or 'Composite Generation Error: no image produced',
+                'image': None,
+            }
+
+        img = result['image']
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        reference_input_path = (
+            red_path or green_path or blue_path or transmitted_path
+        )
+        metadata = image_utils.build_composite_output_metadata(
+            reference_input_path=pathlib.Path(reference_input_path),
+        )
+        image_utils.write_tiff(
+            data=img,
+            file_loc=output_path,
+            metadata=metadata,
+            ome=(format == 'ome-tiff'),
+            color='Composite',
+        )
+
+        return {
+            'status': True,
+            'error': None,
+            'image': img,
         }
 
 

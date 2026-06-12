@@ -46,7 +46,7 @@ def _stitch(path):
 '''
         violations = _violations(src, 'modules/stitcher.py')
         assert len(violations) == 1
-        assert 'rule_31c' == violations[0].rule
+        assert violations[0].rule == 'rule_31c'
 
 
 class TestRule31cAllowsBareImwriteWithPairedHelper:
@@ -117,3 +117,66 @@ def function_b(arr, path):
         violations = _violations(src, 'modules/zprojector.py')
         assert len(violations) == 1
         assert violations[0].line == 9
+
+
+class TestRule31cCompositeGenerationCovered:
+    def test_bare_tf_imwrite_in_composite_generation_blocks(self):
+        # composite_generation.py joined the post-processor write set
+        # when the mono-native pipeline migration routed its outputs
+        # through image_utils.write_tiff. A regression that reintroduces
+        # a bare tifffile.imwrite there silently widens or strips the
+        # false-color channel; the rule catches it.
+        src = '''
+import tifffile as tf
+
+def _build_composite(arr, path):
+    tf.imwrite(str(path), arr)
+'''
+        violations = _violations(src, 'modules/composite_generation.py')
+        assert len(violations) == 1
+        assert violations[0].rule == 'rule_31c'
+
+    def test_composite_with_write_tiff_helper_passes(self):
+        src = '''
+from modules import image_utils
+
+def _build_composite(arr, path):
+    image_utils.write_tiff(data=arr, file_loc=path)
+'''
+        assert _violations(src, 'modules/composite_generation.py') == []
+
+    def test_stack_builder_bare_tf_imwrite_blocks(self):
+        # stack_builder joined the post-processor write path set when
+        # the hyperstack write was routed through image_utils.write_tiff
+        # (via the hyperstack_metadata override hook). A regression that
+        # reintroduces a bare tifffile.imwrite in stack_builder bypasses
+        # the canonical save path; the rule catches it.
+        src = '''
+import tifffile as tf
+
+def _save(arr, path):
+    tf.imwrite(str(path), arr, ome=True)
+'''
+        violations = _violations(src, 'modules/stack_builder.py')
+        assert len(violations) == 1
+        assert violations[0].rule == 'rule_31c'
+
+    def test_stack_builder_with_write_tiff_helper_passes(self):
+        # The new canonical shape: stack_builder calls write_tiff with
+        # the hyperstack_metadata override. The helper presence in the
+        # same function satisfies the pairing requirement even if a
+        # bare imwrite slipped in (belt-and-suspenders).
+        src = '''
+from modules import image_utils
+
+def _create_stack(arr, path):
+    image_utils.write_tiff(
+        data=arr,
+        file_loc=path,
+        metadata={},
+        ome=True,
+        color='',
+        hyperstack_metadata={'axes': 'TZCYX'},
+    )
+'''
+        assert _violations(src, 'modules/stack_builder.py') == []

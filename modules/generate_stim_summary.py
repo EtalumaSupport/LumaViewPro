@@ -41,7 +41,7 @@ def parse_stimulation_profile(filepath):
     }
 
     try:
-        with open(filepath, 'r') as f:
+        with open(filepath) as f:
             lines = f.readlines()
     except Exception as ex:
         print(f'  Warning: could not read {filepath}: {ex}')
@@ -86,9 +86,9 @@ def parse_stimulation_profile(filepath):
             parts = line.split()
             if len(parts) >= 4:
                 try:
-                    on_cmd = float(parts[1]) if parts[1] != '—' else None
-                    off_cmd = float(parts[2]) if parts[2] != '—' else None
-                    actual_on = float(parts[3]) if parts[3] != '—' else None
+                    on_cmd = float(parts[1]) if parts[1] != '--' else None
+                    off_cmd = float(parts[2]) if parts[2] != '--' else None
+                    actual_on = float(parts[3]) if parts[3] != '--' else None
                     if on_cmd is not None:
                         result['led_on_cmd'].append(on_cmd)
                     if off_cmd is not None:
@@ -112,7 +112,7 @@ def write_timing_stats(f, label, values):
     if len(values) > 1:
         f.write(f'    std:    {statistics.stdev(values):.4f} ms\n')
     else:
-        f.write(f'    std:    0.0000 ms\n')
+        f.write('    std:    0.0000 ms\n')
     f.write(f'    min:    {min(values):.4f} ms\n')
     f.write(f'    max:    {max(values):.4f} ms\n')
     sv = sorted(values)
@@ -203,7 +203,7 @@ def generate_stimulation_summary(folder_path):
             write_timing_stats(f, 'LED OFF command time', data['led_off_cmd'])
             write_timing_stats(f, 'Actual LED on-time', data['actual_on'])
 
-            f.write(f'\n  --- Outlier Analysis ---\n')
+            f.write('\n  --- Outlier Analysis ---\n')
             write_outlier_details(
                 f, data['actual_on'], 'Actual on-time', expected_ms=data['pulse_width']
             )

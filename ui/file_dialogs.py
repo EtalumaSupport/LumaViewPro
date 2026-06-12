@@ -4,37 +4,59 @@ import os
 import pathlib
 import subprocess
 import sys
+import threading
 
+from kivy.clock import Clock
 from kivy.properties import ListProperty, StringProperty
 from kivy.uix.button import Button
 
 from ui.hover_behavior import HoverBehavior
 import modules.app_context as _app_ctx
+from modules import gui_logger
 
 logger = logging.getLogger('LVP.ui.file_dialogs')
 
 
+# Folder-picker contexts that hand work to the file IO executor for
+# post-processing. The executor refuses new work while a protocol owns it,
+# so these are blocked up front with a message -- otherwise the action's
+# progress popup opens but never completes (the task is silently dropped).
+# The disabled buttons are the primary stop; this is the backstop for any
+# path that reaches the funnel anyway (e.g. an async dialog callback).
+_POST_PROCESSING_CONTEXTS = (
+    'apply_cell_count_method_to_folder',
+    'apply_stitching_to_folder',
+    'apply_composite_gen_to_folder',
+    'apply_video_gen_to_folder',
+    'apply_zprojection_to_folder',
+)
+
+
 def _zprojection_picker_default_path(live_folder: pathlib.Path) -> str:
-    """Return the most-specific existing Z-stack folder under live_folder.
+    """Return the Z-stack folder the projection picker should open at.
 
     Z-stacks live in two canonical places:
       - live_folder/Manual/Z-Stacks/<ts>/ -- manual ZSTACK button
         (path defined at ui/zstack.py:234)
       - live_folder/ProtocolData/<ts>/ -- protocol with Z-stack steps
 
-    Search in priority order; first existing path wins. Final fallback
-    is live_folder itself, so a fresh install never produces an error
-    on the file-chooser default. Pure function -- no kivy import; tested
-    via direct invocation in tests/test_least_astonishment_fixes.py.
+    When exactly ONE of those exists, descend into it (the manual path is
+    listed first so a lone manual run is one click away). When BOTH exist,
+    open at live_folder instead so neither shadows the other -- always
+    descending into Manual/Z-Stacks otherwise hid protocol-produced
+    z-stacks even after a protocol run. Neither present also falls back to
+    live_folder, so a fresh install never yields an invalid picker target.
+    Pure function -- no kivy import; tested via direct invocation in
+    tests/test_least_astonishment_fixes.py.
     """
     base = pathlib.Path(live_folder)
-    for candidate in (
+    candidates = [
         base / 'Manual' / 'Z-Stacks',
         base / 'ProtocolData',
-        base,
-    ):
-        if candidate.exists():
-            return str(candidate)
+    ]
+    existing = [c for c in candidates if c.exists()]
+    if len(existing) == 1:
+        return str(existing[0])
     return str(base)
 
 
@@ -42,7 +64,7 @@ def _zprojection_picker_default_path(live_folder: pathlib.Path) -> str:
 # macOS native file dialogs via osascript (AppleScript)
 # tkinter Tk() crashes on macOS when SDL2 is loaded (cv2 + kivy both ship it).
 # plyer requires pyobjus which may not be installed.
-# osascript uses native Cocoa panels — no extra dependencies.
+# osascript uses native Cocoa panels -- no extra dependencies.
 # ---------------------------------------------------------------------------
 
 
@@ -146,11 +168,45 @@ def _macos_save_file(initial_dir=None, default_name=None):
     return None
 
 
+def _run_macos_dialog_async(button, dialog_fn, on_path):
+    """Run a blocking osascript dialog off the Kivy main thread.
+
+    osascript opens the native panel via subprocess.run; called inline it
+    blocks the Kivy event loop for the whole time the panel is open, so the
+    app beachballs ("Application Not Responding") until the user dismisses
+    it. The panel belongs to the osascript process, not LVP, so it does not
+    freeze interaction the way an in-app modal would -- which is also why the
+    Kivy button stays clickable behind it; the in-flight guard below stops a
+    second click from stacking a second panel.
+
+    subprocess.run is thread-safe, so the dialog runs on a daemon thread and
+    the chosen path is marshalled back to the main thread (Kivy is
+    single-threaded for UI) via Clock before on_path runs. on_path is invoked
+    only for a non-empty selection (user picked something, did not cancel).
+    """
+    if getattr(button, '_dialog_in_flight', False):
+        return
+    button._dialog_in_flight = True
+
+    def worker():
+        result = dialog_fn()
+
+        def deliver(_dt):
+            button._dialog_in_flight = False
+            if result:
+                on_path(result)
+
+        Clock.schedule_once(deliver, 0)
+
+    threading.Thread(target=worker, daemon=True).start()
+
+
 class FileChooseBTN(HoverBehavior, Button):
     context = StringProperty()
     selection = ListProperty([])
 
     def choose(self, context):
+        gui_logger.button('FILE_CHOOSE_OPEN', f'context={context}')
         logger.info(f'[LVP Main  ] FileChooseBTN.choose({context})')
         self.context = context
 
@@ -171,9 +227,11 @@ class FileChooseBTN(HoverBehavior, Button):
             return
 
         if sys.platform == 'darwin':
-            path = _macos_open_file(initial_dir=selected_path, filetypes=filetypes_tk)
-            if path:
-                self.handle_selection(selection=[path])
+            _run_macos_dialog_async(
+                self,
+                lambda: _macos_open_file(initial_dir=selected_path, filetypes=filetypes_tk),
+                lambda path: self.handle_selection(selection=[path]),
+            )
             return
 
         # Windows/Linux: tkinter
@@ -199,6 +257,10 @@ class FileChooseBTN(HoverBehavior, Button):
 
     def on_selection_function(self, *a, **k):
         logger.info('[LVP Main  ] FileChooseBTN.on_selection_function()')
+        if self.selection:
+            gui_logger.select(
+                'FILE_CHOOSE', f'context={self.context} path={self.selection[0]}'
+            )
         ctx = _app_ctx.ctx
 
         if self.selection:
@@ -222,6 +284,7 @@ class FolderChooseBTN(HoverBehavior, Button):
     selection = ListProperty([])
 
     def choose(self, context):
+        gui_logger.button('FOLDER_CHOOSE_OPEN', f'context={context}')
         logger.info(f'[LVP Main  ] FolderChooseBTN.choose({context})')
         self.context = context
 
@@ -258,6 +321,17 @@ class FolderChooseBTN(HoverBehavior, Button):
         # platforms (macOS Finder, Windows Explorer, Linux GTK) already
         # show file listings -- the Kivy picker was duplicating UX that
         # the OS provides better. Reverted per #675.
+        if sys.platform == 'darwin':
+            # Background the osascript panel so the app does not beachball
+            # while it is open (see _run_macos_dialog_async). tkinter (below)
+            # stays on the main thread -- it is not thread-safe.
+            _run_macos_dialog_async(
+                self,
+                lambda: _macos_choose_folder(initial_dir=selected_path),
+                lambda chosen: self.handle_selection(selection=[chosen]),
+            )
+            return
+
         chosen = _platform_native_choose_folder(
             initial_dir=selected_path,
             title=f'Select folder ({context})',
@@ -277,7 +351,21 @@ class FolderChooseBTN(HoverBehavior, Button):
         logger.info('[LVP Main  ] FolderChooseBTN.on_selection_function()')
         if self.selection:
             path = self.selection[0]
+            gui_logger.select(
+                'FOLDER_CHOOSE', f'context={self.context} path={path}'
+            )
         else:
+            return
+
+        if self.context in _POST_PROCESSING_CONTEXTS and ctx.protocol_running.is_set():
+            from modules.notification_center import notifications
+
+            notifications.warning(
+                'Post-Processing',
+                'Protocol running',
+                'Post-processing cannot run while a protocol scan is in '
+                'progress. Stop or finish the protocol first, then retry.',
+            )
             return
 
         if self.context == 'live_folder':
@@ -302,6 +390,7 @@ class FileSaveBTN(HoverBehavior, Button):
     selection = ListProperty([])
 
     def choose(self, context):
+        gui_logger.button('FILE_SAVE_OPEN', f'context={context}')
         logger.info('[LVP Main  ] FileSaveBTN.choose()')
         self.context = context
         if self.context == 'saveas_protocol':
@@ -317,9 +406,11 @@ class FileSaveBTN(HoverBehavior, Button):
         selected_path = _app_ctx.ctx.settings['live_folder']
 
         if sys.platform == 'darwin':
-            path = _macos_save_file(initial_dir=selected_path)
-            if path:
-                self.handle_selection(selection=[path])
+            _run_macos_dialog_async(
+                self,
+                lambda: _macos_save_file(initial_dir=selected_path),
+                lambda path: self.handle_selection(selection=[path]),
+            )
             return
 
         # Windows/Linux: tkinter
@@ -345,6 +436,10 @@ class FileSaveBTN(HoverBehavior, Button):
 
     def on_selection_function(self, *a, **k):
         logger.info('[LVP Main  ] FileSaveBTN.on_selection_function()')
+        if self.selection:
+            gui_logger.select(
+                'FILE_SAVE', f'context={self.context} path={self.selection[0]}'
+            )
         ctx = _app_ctx.ctx
 
         if self.context == 'saveas_protocol':

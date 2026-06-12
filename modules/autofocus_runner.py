@@ -120,17 +120,6 @@ class AutofocusRunner:
             'exposure': exposure,
         }
 
-    def _led_on(self):
-        """Turn on LED for autofocus illumination (if configured).
-
-        Uses owner='autofocus' so only AF can turn this LED off.
-        """
-        if self._led_color is not None and self._scope.led_connected:
-            ch = self._scope.illumination.color2ch(self._led_color)
-            self._scope.illumination.led_on(
-                channel=ch, mA=self._led_illumination, block=True, owner='autofocus'
-            )
-
     def _led_off(self):
         """Turn off only the LED(s) that AF owns (not all LEDs)."""
         if self._led_color is not None and self._scope.led_connected:
@@ -148,6 +137,7 @@ class AutofocusRunner:
         camera_gain: float | None = None,
         camera_exposure: float | None = None,
         abort_event: threading.Event | None = None,
+        keep_led_on: bool = False,
     ) -> float | None:
         """Run autofocus to completion synchronously on the caller's thread.
 
@@ -195,6 +185,15 @@ class AutofocusRunner:
         self._led_illumination = led_illumination
         self._camera_gain = camera_gain
         self._camera_exposure = camera_exposure
+        # When the protocol step that triggered AF will capture on the
+        # same channel + illumination as the AF scan, skip the AF-end
+        # LED off + state restore so the capture inherits the LED state
+        # already established by AF (#612). Saves the redundant
+        # off-on cycle (~50-200 ms + an extra LED mechanical cycle per
+        # AF-every-N step). Caller (protocol_step_runner) sets this;
+        # interactive AF runs default to False so pre-AF state is
+        # restored as before.
+        self._keep_led_on = keep_led_on
         self._last_progress_ts = time.monotonic()
 
         self._save_results_to_file = save_results_to_file
@@ -248,14 +247,24 @@ class AutofocusRunner:
             self._scope.imaging.set_gain(self._camera_gain)
         if self._camera_exposure is not None:
             self._scope.imaging.set_exposure_time(self._camera_exposure)
-        # Clean LED state before AF's _led_on fires. led_on is additive
-        # at the API + driver layers; a Live-mode LED on a different
-        # channel would otherwise stay lit alongside the AF channel and
-        # corrupt the focus metric with mixed illumination. Pre-AF state
-        # is already snapshotted into self._saved_led_state above and
-        # restored on AF exit, so this leds_off is non-destructive.
-        self._scope.illumination.leds_off()
-        self._led_on()
+        # Make the AF channel the only lit one before scanning. A Live-mode
+        # LED on a different channel would otherwise stay lit alongside the AF
+        # channel and corrupt the focus metric with mixed illumination. Using
+        # the exclusive primitive (rather than leds_off + led_on) leaves an
+        # AF channel that is already lit at target untouched, so AF does not
+        # blink it off->on at scan start. Pre-AF state is snapshotted into
+        # self._saved_led_state above and restored on AF exit.
+        if self._led_color is not None and self._scope.led_connected:
+            self._scope.illumination.leds_exclusive(
+                channel=self._scope.illumination.color2ch(self._led_color),
+                mA=self._led_illumination,
+                block=True,
+                owner='autofocus',
+            )
+        else:
+            # No AF illumination configured -- focus on ambient; clear any
+            # Live-mode LED so it does not bias the metric.
+            self._scope.illumination.leds_off()
         # Drop Z precision for the coarse passes; the fine pass restores
         # precision ON, and all exit paths (success, abort, exception)
         # also restore ON via the finally block and reset().
@@ -363,16 +372,38 @@ class AutofocusRunner:
                         'Could not restore Z position after autofocus stopped. '
                         'Move Z manually if needed.',
                     )
-            self._led_off()
-            if self._saved_led_state:
-                self._scope.illumination.restore_led_state(self._saved_led_state, owner='autofocus')
+            if self._keep_led_on and completed_successfully:
+                # Skip the off + restore cycle so the downstream capture
+                # inherits the AF LED state -- the caller guarantees the
+                # capture that follows AF in the same step uses the same
+                # channel + illumination. Success-only: on abort or error
+                # that capture never runs, so inheriting would leave the
+                # LED lit with no owner to ever turn it off (overnight
+                # sample damage); the restore/off branch below covers
+                # those exits.
+                _af_log.info('[AF] keep_led_on -- skipping LED off + restore')
+            else:
+                if self._saved_led_state:
+                    # restore_led_state(owner='autofocus') turns off AF-owned
+                    # channels that should not be lit and re-asserts the pre-AF
+                    # snapshot idempotently -- a channel already at its pre-AF
+                    # target is left untouched, so AF does not blink it off->on
+                    # at scan end. A separate leds_off first would turn the
+                    # channel off only for restore to re-light it.
+                    self._scope.illumination.restore_led_state(
+                        self._saved_led_state, owner='autofocus'
+                    )
+                else:
+                    # No snapshot to restore -- just release AF's own channel.
+                    self._led_off()
             if self._saved_camera_state:
+                restore = self._camera_state_to_restore()
                 _af_log.info(
-                    f'[AF DIAG] Restoring pre-AF camera state: '
-                    f'gain={self._saved_camera_state.get("gain_db", "?")} '
-                    f'exp={self._saved_camera_state.get("exposure_ms", "?")}'
+                    f'[AF DIAG] Post-AF camera: keeping step targets '
+                    f'gain={self._camera_gain} exp={self._camera_exposure}; '
+                    f'restoring {restore or "nothing"} from pre-AF snapshot'
                 )
-                self._scope.imaging.restore_camera_state(self._saved_camera_state)
+                self._scope.imaging.restore_camera_state(restore)
             _af_log.info(
                 f'[AF DIAG] Clearing _af_in_progress -- '
                 f'camera now at gain={self._scope.imaging.get_gain()} '
@@ -383,6 +414,23 @@ class AutofocusRunner:
             # finishes, matching _af_in_progress lifecycle.
             self._scope.imaging.is_focusing = False
             self._abort_event = None
+
+    def _camera_state_to_restore(self) -> dict:
+        """Pre-AF snapshot minus the fields this run explicitly targeted.
+
+        The gain/exposure targets handed to AF are the committed layer or
+        step values; the camera must keep them after AF ends. Reverting
+        them to the pre-AF snapshot silently undid an exposure the user
+        committed by clicking away from the text box just before starting
+        AF, leaving the widget and the camera disagreeing. Only fields AF
+        never explicitly set fall back to the snapshot.
+        """
+        restore = dict(self._saved_camera_state or {})
+        if self._camera_gain is not None:
+            restore.pop('gain_db', None)
+        if self._camera_exposure is not None:
+            restore.pop('exposure_ms', None)
+        return restore
 
     def get_status(self) -> dict:
         """Get current autofocus status.
@@ -433,7 +481,7 @@ class AutofocusRunner:
                 break
 
             if count >= num_retries:
-                raise Exception(f'Unable to grab image for autofocusing after max retries')
+                raise Exception('Unable to grab image for autofocusing after max retries')
 
         height, width = image.shape
 
@@ -652,7 +700,6 @@ class AutofocusRunner:
 
         plot_filename = f'autofocus_plot_{ts}.png'
         plot_outfile_loc = self._results_dir / plot_filename
-        from matplotlib.figure import Figure
 
         fig = Figure(figsize=(12, 12))
         axs = fig.add_subplot(111)

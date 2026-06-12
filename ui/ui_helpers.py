@@ -1,6 +1,6 @@
 # Copyright Etaluma, Inc.
 """
-UI helper functions — manipulate Kivy widgets, window titles, LED buttons.
+UI helper functions -- manipulate Kivy widgets, window titles, LED buttons.
 
 Moved from modules/ui_helpers.py to ui/ because this is GUI code (imports
 Kivy Window, ScrollView). A compatibility shim at modules/ui_helpers.py
@@ -59,7 +59,7 @@ def find_nearest_step(x, y, protocol):
 # LED / Illumination Helpers
 # ============================================================================
 
-# _handle_ui_for_leds_off and _handle_ui_for_led removed —
+# _handle_ui_for_leds_off and _handle_ui_for_led removed --
 # LED observer handles UI sync. See Phase 1 commit 96defe3.
 
 
@@ -69,7 +69,7 @@ def scope_leds_off(no_callback: bool = False):
     if ctx.protocol_running.is_set():
         return
 
-    # LED observer handles UI button sync — no manual callback needed.
+    # LED observer handles UI button sync -- no manual callback needed.
     # The no_callback parameter is kept for API compatibility but is now
     # effectively always True (observer replaces the callback).
     ctx.scope.illumination.leds_off_async()
@@ -106,13 +106,14 @@ def _handle_autofocus_ui(pos: float):
     ctx.motion_settings.ids['verticalcontrol_id'].update_autofocus_gui(pos=pos)
 
 
-# Wrapper function when moving to update UI position.
-# `protocol=True` is the on-protocol-thread case: caller is already
-# running on the io_executor / protocol thread, so it must call the
-# scope primitive directly (re-submitting to the same executor would
-# deadlock). `protocol=False` is the UI-thread case: dispatches via
-# the API's async path. Two distinct call contexts; one canonical
-# call pattern per context (Rule 2).
+# Wrapper to move and update the UI position. `protocol=False` (UI
+# thread) dispatches via the API's async path. `protocol=True` runs on
+# protocol_thread -- a DIFFERENT thread from the io_executor worker --
+# so the move is queued through io_executor.protocol_put and awaited,
+# keeping it ordered behind the step's leds_off/led_on on the single
+# worker. A direct call would race them and leave the prior step's LED
+# lit through the move. Awaiting is deadlock-free: the caller is
+# protocol_thread, not the worker.
 def move_absolute_position(
     axis: str,
     pos: float,
@@ -120,6 +121,7 @@ def move_absolute_position(
     overshoot_enabled: bool = True,
     protocol: bool = False,
     vertical_control: bool = False,
+    restore_z: bool = True,
 ):
     ctx = _app_ctx.ctx
 
@@ -136,7 +138,7 @@ def move_absolute_position(
             )
         else:
             ctx.motion_settings.ids['verticalcontrol_id'].turret_select(
-                selected_position=pos, protocol=True
+                selected_position=pos, protocol=True, restore_z=restore_z
             )
     else:
         if not protocol:
@@ -149,15 +151,20 @@ def move_absolute_position(
                 cb_kwargs={'axis': axis},
             )
         else:
-            # Already running on the io_executor (protocol thread) —
-            # call the scope primitive directly. Submitting to the
-            # same executor would deadlock.
-            ctx.scope.motion.move_absolute_position(
-                axis=axis,
-                pos=pos,
-                wait_until_complete=wait_until_complete,
-                overshoot_enabled=overshoot_enabled,
+            fut = ctx.io_executor.protocol_put(
+                IOTask(
+                    action=ctx.scope.motion.move_absolute_position,
+                    kwargs={
+                        'axis': axis,
+                        'pos': pos,
+                        'wait_until_complete': wait_until_complete,
+                        'overshoot_enabled': overshoot_enabled,
+                    },
+                ),
+                return_future=True,
             )
+            if fut:
+                fut.result(timeout=60)
 
         _schedule_ui(lambda dt: _handle_ui_update_for_axis(axis=axis), 0)
 
@@ -189,7 +196,7 @@ def move_home(axis: str):
 #
 # Single-owner title bar:
 # - shader.py::_update_status_bar is the ONLY caller of Window.set_title().
-# - Other callers set the event-suffix via set_title_event_text() — the next
+# - Other callers set the event-suffix via set_title_event_text() -- the next
 #   status-bar tick (~5 Hz) composes the final title with FPS + MB/s + suffix.
 # - This eliminates: (a) the FPS getting clobbered by event messages,
 #   (b) the LumaViewPro / Lumaview Pro spelling oscillation between tickers,
@@ -206,17 +213,21 @@ def get_title_event_text():
 def set_title_event_text(text):
     """Set the suffix shown after the FPS/MB/s portion of the window title.
     Pass None or '' to clear. Safe to call from any thread (single attribute
-    write on a module-level CPython str/None — atomic under GIL)."""
+    write on a module-level CPython str/None -- atomic under GIL)."""
     global _title_event_text
     _title_event_text = text or None
 
 
 # Should only be called from main thread
-def set_recording_title(progress=None):
-    if progress is None:
+def set_recording_title(elapsed_sec=None, total_sec=None):
+    if elapsed_sec is None:
         set_title_event_text('Recording Video...')
+    elif total_sec:
+        set_title_event_text(
+            f'Recording Video... {int(elapsed_sec)}s / {int(total_sec)}s'
+        )
     else:
-        set_title_event_text(f'Recording Video... {int(progress)}%')
+        set_title_event_text(f'Recording Video... {int(elapsed_sec)}s')
 
 
 # Should only be called from main thread

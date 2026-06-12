@@ -81,7 +81,10 @@ from lvp_logger import logger
 try:
     from lvp_logger import camera_logger as _cam_log
 except ImportError:
-    _cam_log = None
+    # Fall back to the main logger so every _cam_log call site stays
+    # safe -- the dedicated camera log is an enhancement, not a
+    # dependency, and dozens of call sites use _cam_log unguarded.
+    _cam_log = logger
 from drivers.camera import Camera, ImageHandlerBase
 from drivers.registry import camera_registry, led_registry
 
@@ -208,7 +211,7 @@ VR_INIT_GPIF = 0xB9
 # constant in `I2C_Control.cs:52` but never calls it; LVC's production
 # path uses VR_I2C_WRITE (0xB3) for sensor writes via
 # `AptinaMT9P031_Control.WriteWord16 -> I2C_Control.Write`. We now
-# match LVC. See docs/AUDIT_FX2_RUNTIME.md Bug 6.
+# match LVC.
 VR_SET_IFCLK_SRC = 0xBB
 VR_CODE_VERSION = 0xBC
 VR_START_STREAMING = 0xBD
@@ -268,9 +271,9 @@ MAX_EXPOSURE_ROWS = 65535
 # Row time from MT9P031 datasheet (Table 8):
 #   EXTCLK = 12 MHz (FX2 24 MHz crystal / 2)
 #   PLL: M=27, N=1, P1=13 -> pixel_clock = 24.923 MHz
-#   Row period = 2 × max(W/2 + HBMIN, 486) = 2 × 1401 = 2802 pixel clocks
+#   Row period = 2 x max(W/2 + HBMIN, 486) = 2 x 1401 = 2802 pixel clocks
 #   (W=1902, HBMIN=450 with Row_BLC enabled)
-#   tROW = 2802 / 24.923 MHz = 112.4 μs = 0.1124 ms
+#   tROW = 2802 / 24.923 MHz = 112.4 us = 0.1124 ms
 _ROW_TIME_MS = 0.1124
 # Shutter overhead SO = 426 pixel clocks = 0.0171 ms
 _SHUTTER_OVERHEAD_MS = 0.0171
@@ -301,7 +304,7 @@ _CH_TO_I2C = {
 ISO_ALT_INTERFACE = 3  # Alt interface 3 = ISO IN, 3x1024/microframe
 ISO_NUM_TRANSFERS = 16  # Pending transfers in flight
 ISO_NUM_PACKETS = 256  # ISO packets per transfer (C# reference uses 256)
-ISO_MAX_PACKET_SIZE = 3072  # 3 × 1024 bytes per microframe
+ISO_MAX_PACKET_SIZE = 3072  # 3 x 1024 bytes per microframe
 
 
 # ---------------------------------------------------------------------------
@@ -326,7 +329,7 @@ def parse_intel_hex(hex_path: str) -> tuple[bytes, int]:
         buf[i] = 0xFF
     end_addr = 0
 
-    with open(hex_path, 'r') as f:
+    with open(hex_path) as f:
         for line in f:
             line = line.strip()
             if not line or line[0] != ':':
@@ -357,21 +360,20 @@ def parse_intel_hex(hex_path: str) -> tuple[bytes, int]:
 #   Bit  [6]    = Analog_Multiplier (0 or 1)
 #   Bits [5:0]  = Analog_Gain      -- legal values [8, 63] per RR_A
 #
-# Analog gain:  AG = (1 + Analog_Multiplier) × (Analog_Gain / 8)
+# Analog gain:  AG = (1 + Analog_Multiplier) x (Analog_Gain / 8)
 # Digital gain: DG = 1 + (Digital_Gain / 8)
-# Total gain:   AG × DG
+# Total gain:   AG x DG
 #
 # Strategy (datasheet recommended):
-#   ≤ 4x:  analog only (multiplier=0) -- best noise performance
-#   ≤ 8x:  analog with multiplier=1
+#   <= 4x:  analog only (multiplier=0) -- best noise performance
+#   <= 8x:  analog with multiplier=1
 #   > 8x:  max analog (8x) + digital for the rest
 #
 # Range: 1x (0 dB) to 128x (42.1 dB). The LumaviewClassic LVC driver
 # reference originally had `min(127, ...)` on the digital clamp and a
 # comment claiming ~135x max -- that was outside the documented legal
-# range per RR_A. The audit in
-# LumaviewClassic/docs/DATASHEET_VERIFICATION.md §5 corrected this to
-# 120 / 128x. See also the docstring on `_gain_db_to_register`.
+# range per RR_A. The corrected legal max is 120 / 128x. See the
+# docstring on `_gain_db_to_register` for the conversion derivation.
 
 
 def _gain_db_to_register(db: float) -> int:
@@ -391,7 +393,7 @@ def _gain_db_to_register(db: float) -> int:
         digital_val = 0
     else:
         # Max analog (8x) + digital
-        analog_val = 32  # AG = 2 × 32/8 = 8.0
+        analog_val = 32  # AG = 2 x 32/8 = 8.0
         analog_mult = 1
         dg_needed = mult / 8.0
         digital_val = min(120, max(0, round((dg_needed - 1) * 8)))
@@ -467,7 +469,6 @@ class StreamStats:
         partial frame is lost bytes BEFORE the next delimiter; a shifted frame
         is wrong-but-still-bigger-than-minimum, indicating the parser found
         bytes from outside the intended frame. Both are discarded.
-        See docs/AUDIT_FX2_RUNTIME.md Fix 1 (2026-04-15).
 
         Args:
             size: Observed inter-delimiter buffer size in bytes.
@@ -567,14 +568,14 @@ class _FX2Connection:
         ``tests/test_driver_registry.py::TestRegistryAccommodatesCompositeHardware``.
     """
 
-    _instance: '_FX2Connection | None' = None
+    _instance: _FX2Connection | None = None
     _instance_lock = threading.Lock()
 
     FIRMWARE_RE_ENUM_TIMEOUT = 15.0  # seconds to wait for re-enumeration
     FIRMWARE_CHUNK_SIZE = 0x800  # vendor req 0xA0 upload chunk
 
     @classmethod
-    def get(cls) -> '_FX2Connection':
+    def get(cls) -> _FX2Connection:
         """Return the singleton, constructing it on first call.
 
         Raises on construction failure (no FX2 hardware, no pyusb, firmware
@@ -726,7 +727,7 @@ class _FX2Connection:
         - ``LumascopeClassic.hex`` (45068 bytes) -- **patched** variant
           with a modified product string ("LS Classic") to improve
           device enumeration after firmware upload. Confirmed identical
-          (SHA256 ``c15a9294…``) to ``LumascopeClassic_patched.hex`` in
+          (SHA256 ``c15a9294...``) to ``LumascopeClassic_patched.hex`` in
           the ``LumaviewClassic`` development repo. This is the primary
           production firmware.
         - ``Lumascope600.hex`` (28434 bytes) -- original smaller firmware
@@ -735,7 +736,7 @@ class _FX2Connection:
 
         History note: the ``4.0.0-LVCtest`` integration branch in LVP
         shipped the **unpatched** ``LumascopeClassic_original.hex``
-        (SHA256 ``4d457a86…``) under the name ``LumascopeClassic.hex``
+        (SHA256 ``4d457a86...``) under the name ``LumascopeClassic.hex``
         -- a packaging mismatch that the LVC upstream later corrected.
         Stage 3 of the 4.1.0-dev port intentionally copies the patched
         variant from ``LumaviewClassic/firmware/LumascopeClassic.hex``,
@@ -994,7 +995,7 @@ class _FX2Connection:
         says "sensor clock managed write" -- a misleading name. LVC defines
         the constant but never calls it from any production code path; the
         real production path is plain VR_I2C_WRITE (0xB3). Fixed
-        2026-04-15. See docs/AUDIT_FX2_RUNTIME.md Bug 6.
+        2026-04-15.
 
         Args:
             reg: MT9P031 register address (one byte).
@@ -1158,6 +1159,12 @@ class FX2Camera(Camera):
     at the same handle without any coordination from Lumascope.__init__.
     """
 
+    # The FX2 sensor delivers Mono8 only (set_pixel_format accepts no other
+    # format; the grab loop builds uint8 buffers). Override the base 16-bit
+    # default so capability consumers (buffer sizing, save-format selection)
+    # treat FX2 frames as 8-bit from the start, matching IDSCamera.
+    native_bit_depth = 8
+
     # How often to log streaming stats (seconds). Set to 0 to disable.
     STATS_LOG_INTERVAL = 10.0
 
@@ -1245,7 +1252,7 @@ class FX2Camera(Camera):
     # camera is held by the Lumascope object for the lifetime of the
     # app, not inside a `with` block).
 
-    def __enter__(self) -> 'FX2Camera':
+    def __enter__(self) -> FX2Camera:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
@@ -1311,12 +1318,12 @@ class FX2Camera(Camera):
         try:
             self.profile.gain.total_min_db = 0.0
             self.profile.gain.total_max_db = 42.1  # 128x, per audit-corrected math
-            self.profile.exposure_min_us = _ROW_TIME_MS * 1000  # 1 row = 112.4 μs
+            self.profile.exposure_min_us = _ROW_TIME_MS * 1000  # 1 row = 112.4 us
             # Cap exposure at the legacy LVC 178 ms value (matches what
             # was known-safe in the original LumaviewClassic UI). The
-            # MT9P031 register itself supports up to MAX_EXPOSURE_ROWS ×
+            # MT9P031 register itself supports up to MAX_EXPOSURE_ROWS x
             # row_time = 7,366 ms, BUT above the per-frame readout time
-            # (~214 ms at 1900 rows × 0.1124 ms/row) the sensor inserts
+            # (~214 ms at 1900 rows x 0.1124 ms/row) the sensor inserts
             # vertical blanking rows to extend the frame period, which
             # changes the bytes/sec rate mid-stream and desyncs the FX2
             # frame parser. Visible as image corruption when the user
@@ -1348,7 +1355,7 @@ class FX2Camera(Camera):
 
         WARNING: do NOT call ``self._fx2.init_gpif()`` here. Per the
         firmware disassembly (see LumaviewClassic/docs/STREAMING_ANALYSIS.md
-        §3.2), VR_INIT_GPIF calls TD_Init() -> Init_GPIF() -> SetISOInterface()
+        sec.3.2), VR_INIT_GPIF calls TD_Init() -> Init_GPIF() -> SetISOInterface()
         internally, which resets EP2 configuration. The clock-managed
         write (0xBA) already handles IFCLK switching without calling
         init_gpif.
@@ -1371,14 +1378,14 @@ class FX2Camera(Camera):
         time.sleep(0.01)
 
         # PLL config: M=0x1B=27, N_divider=0x01, P1_divider=0x0D=13.
-        # EXTCLK = 12 MHz -> pixel_clock ≈ 24.92 MHz -> ~4.5 fps at 1900×1900.
+        # EXTCLK = 12 MHz -> pixel_clock ~= 24.92 MHz -> ~4.5 fps at 1900x1900.
         # NOTE on register interpretation: the MT9P031 datasheet formula
         # says N = N_divider + 1 and P1 = P1_divider + 1, but the
         # working silicon uses the raw register values directly (M, N,
         # P1 as written). The VCO constraint (180-360 MHz) only passes
         # with raw interpretation (12*27/1 = 324 MHz), not with +1
         # (12*27/2 = 162 MHz). See
-        # LumaviewClassic/docs/DATASHEET_VERIFICATION.md §1 for the full
+        # LumaviewClassic/docs/DATASHEET_VERIFICATION.md sec.1 for the full
         # audit. The comment used to say M=27/N=1/P1=13; we keep that
         # convention but note that it's raw-register math, not
         # datasheet-formula math.
@@ -1418,7 +1425,7 @@ class FX2Camera(Camera):
         fx2.sensor_reg_write(REG_ROW_BLACK, 0x0000)  # black target = 0 (microscopy optimization)
         time.sleep(0.01)
 
-        # Set default window to full 1900×1900 -- also configures the
+        # Set default window to full 1900x1900 -- also configures the
         # col_size/row_size registers correctly with centering.
         self.set_frame_size(IMG_WIDTH, IMG_HEIGHT)
 
@@ -1513,7 +1520,7 @@ class FX2Camera(Camera):
         self._iso_handle.controlWrite(0x40, VR_START_STREAMING, 0, 0, b'')
 
         logger.info(
-            '[FX2 Cam   ] streaming started (ISO alt %d, EP 0x82, %d transfers × %d packets)',
+            '[FX2 Cam   ] streaming started (ISO alt %d, EP 0x82, %d transfers x %d packets)',
             ISO_ALT_INTERFACE,
             ISO_NUM_TRANSFERS,
             ISO_NUM_PACKETS,
@@ -1712,7 +1719,13 @@ class FX2Camera(Camera):
             try:
                 transfer.submit()
             except Exception as e:
-                logger.debug(
+                # A dead transfer is one fewer in flight; when all are
+                # gone the stream silently freezes (the preview keeps
+                # showing the last frame). ERROR level so a frozen-
+                # preview post-mortem finds the cause next to the
+                # display-stall watchdog warning. Bounded by the
+                # transfer count -- this is not a per-frame loop.
+                logger.error(
                     '[FX2 Cam   ] _iso_callback: transfer resubmit failed; '
                     'grab loop will stall if this persists: %s: %s',
                     type(e).__name__,
@@ -1735,7 +1748,12 @@ class FX2Camera(Camera):
                 time.sleep(0.01)
 
     def _usb_event_loop(self):
-        """Pump libusb1 events in a dedicated thread."""
+        """Pump libusb1 events in a dedicated thread.
+
+        handleEventsTimeout(tv=0.1) blocks up to 100 ms per call, so even
+        when the device dies and every call raises, this loop degrades to
+        a ~10 Hz idle poll -- it does not hot-spin.
+        """
         while self._grabbing:
             try:
                 self._iso_ctx.handleEventsTimeout(tv=0.1)
@@ -1748,8 +1766,7 @@ class FX2Camera(Camera):
     def _grab_loop(self):
         """Extract frames from the ISO / bulk data buffer.
 
-        Audit fixes applied vs. the LVC reference (per
-        LumaviewClassic/docs/OPTIMIZATION_ANALYSIS.md §8):
+        Departures from the LVC reference:
         - ``local_buf`` is explicitly initialized before the loop instead
           of relying on ``'local_buf' not in dir()`` (fragile, un-Pythonic).
         - The trim-after-prepend operation shares a single lock acquisition
@@ -1759,7 +1776,7 @@ class FX2Camera(Camera):
         stats = self.stream_stats
         last_stats_log = time.monotonic()
         first_frame_logged = False
-        local_buf: bytearray | None = None  # audit fix: explicit init
+        local_buf: bytearray | None = None  # explicit init
 
         while self._grabbing:
             # Re-read dimensions every iteration -- the UI can call
@@ -1790,7 +1807,7 @@ class FX2Camera(Camera):
                 if idx < 0:
                     # No complete frame -- put unconsumed data back and
                     # trim if it's gotten out of hand. Single lock
-                    # acquisition covers both (audit fix).
+                    # acquisition covers both.
                     with self._iso_buf_lock:
                         self._iso_buf = buf + self._iso_buf
                         if len(self._iso_buf) > needed * 3:
@@ -1809,21 +1826,20 @@ class FX2Camera(Camera):
                 # is hardware-constant for fixed frame size; the
                 # `as_strided` block below silently truncates it.
                 #
-                # PRE-FIX (AUDIT_FX2_RUNTIME.md): the check was
+                # PRIOR BEHAVIOR: the check was
                 # `len(frame_data) >= needed`, which silently accepted
                 # arbitrary oversized frames as "good" and reshaped
                 # them from a misaligned offset -> visually corrupt
-                # frames flagged as good, no telemetry. Stage 3.5 Phase
-                # 8 missed this entirely because the partial-frame
-                # counter only fires on undersize.
+                # frames flagged as good, no telemetry. The partial-
+                # frame counter only fires on undersize and missed
+                # this entirely.
                 #
-                # POST-FIX: strict equality on `expected`. Anything
-                # else is discarded, distinct shifted/partial counters
-                # give honest telemetry on which failure mode dominates.
-                # If frame size or readout config ever changes such
-                # that the +stride invariant breaks, the shifted
-                # counter will spike and we re-measure. See
-                # docs/AUDIT_FX2_RUNTIME.md Fix 1.
+                # CURRENT BEHAVIOR: strict equality on `expected`.
+                # Anything else is discarded, distinct shifted/partial
+                # counters give honest telemetry on which failure mode
+                # dominates. If frame size or readout config ever
+                # changes such that the +stride invariant breaks, the
+                # shifted counter will spike and we re-measure.
                 expected = needed + stride
 
                 if len(frame_data) == expected:
@@ -1897,7 +1913,7 @@ class FX2Camera(Camera):
     def set_frame_size(self, w, h):
         """Set the sensor readout window.
 
-        The sensor is configured to output (display + 1) × (display + 1)
+        The sensor is configured to output (display + 1) x (display + 1)
         pixels. The extra column becomes a 0x00 sync byte between rows
         after GPIF processing; the extra row is discarded by the grab
         loop (``skip_first_row``). Dimensions are rounded down to
@@ -1914,7 +1930,7 @@ class FX2Camera(Camera):
         # Sensor registers want (display + 1) per LVC reference.
         sensor_w = w + 1
         sensor_h = h + 1
-        # Center the window on the active pixel area (2592 × 1944 with
+        # Center the window on the active pixel area (2592 x 1944 with
         # offsets 16 col / 54 row) and force even alignment.
         col_start = max(0, (2592 - sensor_w) // 2 + 16) & ~1
         row_start = max(0, (1944 - sensor_h) // 2 + 54) & ~1
@@ -1967,23 +1983,23 @@ class FX2Camera(Camera):
         """Set exposure time in milliseconds.
 
         Formula from MT9P031 datasheet DS_F p31:
-            tEXP = SW × tROW - SO × 2 × tPIXCLK
+            tEXP = SW x tROW - SO x 2 x tPIXCLK
         Inverted:
             SW = (tEXP + SO_ms) / tROW_ms
 
         NOTE on accuracy: ``_ROW_TIME_MS = 0.1124`` assumes EXTCLK=12 MHz.
         The LVC OPTIMIZATION_ANALYSIS doc measured actual throughput
-        and computed EXTCLK ≈ 7.6 MHz instead, which would put the row
+        and computed EXTCLK ~= 7.6 MHz instead, which would put the row
         time at 0.1205 ms (7% higher). Hardware validation passed with
         0.1124 ms so we keep it, but precise exposure calibration for
-        brightness-matched captures may be ±7% off. Stage 3.5 bench
+        brightness-matched captures may be +/-7% off. Stage 3.5 bench
         work can measure row time directly with a pulsed reference
         LED and a known-duration trigger.
 
         NOTE on effect timing: MT9P031 has a 2-frame pipeline delay
         between writing the shutter width register and seeing the new
         exposure in output frames. Callers that depend on exact timing
-        (autofocus, protocol captures) must wait ≥2 frames after an
+        (autofocus, protocol captures) must wait >=2 frames after an
         exposure change before relying on the new value.
         """
         target_ms = float(exposure_ms)
@@ -2024,10 +2040,16 @@ class FX2Camera(Camera):
         _, db = _register_to_gain_db(self._gain_reg)
         return db
 
-    def auto_gain(self, state=True, target_brightness=0.5, min_gain_db=None, max_gain_db=None):
+    def auto_gain(
+        self, state=True, target_brightness=0.5, min_gain_db=None, max_gain_db=None,
+        ae_max_exposure_ms=None
+    ):
         pass  # no hardware auto-gain
 
-    def auto_gain_once(self, state=True, target_brightness=0.5, min_gain_db=None, max_gain_db=None):
+    def auto_gain_once(
+        self, state=True, target_brightness=0.5, min_gain_db=None, max_gain_db=None,
+        ae_max_exposure_ms=None
+    ):
         pass
 
     def update_auto_gain_target_brightness(self, auto_target_brightness: float):
@@ -2050,7 +2072,7 @@ class FX2Camera(Camera):
         pass  # Frame rate is determined by PLL / exposure, not a software cap
 
     def set_binning_size(self, size: int) -> bool:
-        return size == 1  # only 1×1 supported in this port
+        return size == 1  # only 1x1 supported in this port
 
     def get_binning_size(self) -> int:
         return 1
@@ -2175,11 +2197,11 @@ class FX2LEDController:
 
         Each byte is wrapped in try/except and the i2c_write return
         value is checked against the expected 1-byte count. A silent
-        short-write would have masked Bug 2 in AUDIT_FX2_RUNTIME.md
-        (2026-04-15); propagating the return value catches it at the
-        driver layer instead.
+        short-write would mask LED-state corruption at the I2C layer;
+        propagating the return value catches it at the driver layer
+        instead.
 
-        NOTE: the 3× 10 ms delays (30 ms total per LED command) are
+        NOTE: the 3x 10 ms delays (30 ms total per LED command) are
         the known root cause of the slider-corruption effect documented
         in project memory. During streaming, each LED command holds
         the FX2 USB connection for 30 ms, during which ISO data keeps
@@ -2195,8 +2217,8 @@ class FX2LEDController:
             (i2c_channel, 'channel'),
             (brightness & 0xFF, 'brightness'),
         ]
-        # Rule 12 workaround: byte-level wire trace for the slider > ~150 mA
-        # silent-fail bench investigation. See _FX2_DEBUG_WIRE block above.
+        # Byte-level wire trace for the slider > ~150 mA silent-fail
+        # bench investigation. See _FX2_DEBUG_WIRE block above.
         if self._wire_debug_enabled():
             wire_hex = ' '.join(f'0x{b:02X}' for b, _ in writes)
             logger.info(
@@ -2270,10 +2292,10 @@ class FX2LEDController:
     def led_on(self, channel: int, mA: int, block: bool = False, timeout: float = 5.0):
         if not self._enabled:
             return
-        # Rule 12 workaround: driver-entry trace (mA + type) for the
-        # slider > ~150 mA silent-fail bench investigation. See
-        # _FX2_DEBUG_WIRE block above. INFO level intentionally -- this
-        # is one of the two key divergence points (int vs float entry).
+        # Driver-entry trace (mA + type) for the slider > ~150 mA
+        # silent-fail bench investigation. See _FX2_DEBUG_WIRE block
+        # above. INFO level intentionally -- this is one of the two
+        # key divergence points (int vs float entry).
         if self._wire_debug_enabled():
             logger.info(
                 '[FX2 LED diag] led_on ENTRY ch=%d mA=%r type=%s block=%s',

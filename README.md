@@ -52,7 +52,7 @@ To run from source on any platform (Windows, macOS, or Linux), use the install s
 - On Linux, check that your user is in the `dialout` group: `groups $USER`
 
 **"Python not found" or wrong version**
-- LumaViewPro requires Python 3.11, 3.12, or 3.13
+- LumaViewPro requires Python 3.12 or 3.13
 - On Windows, make sure "Add python.exe to PATH" was checked during installation
 - On macOS/Linux, try `python3 --version` to check your installed version
 
@@ -74,7 +74,7 @@ To report bugs or request features, please open an issue on [GitHub Issues](http
 
 ## Requirements (running from source)
 
-- **Python**: 3.11, 3.12, or 3.13
+- **Python**: 3.12 or 3.13
 - **Camera SDK**: [Basler Pylon](https://docs.baslerweb.com/pylon-software-suite) (included in the Windows installer, must be installed separately when running from source)
 - **OS**: Windows 10/11, macOS, Linux (see note below)
 
@@ -98,7 +98,7 @@ Add `--venv` to install in a virtual environment instead of system Python (e.g. 
 
 ### Manual Install: Windows
 
-1. **Install Python 3.11+** from [python.org](https://www.python.org/downloads/)
+1. **Install Python 3.12+** from [python.org](https://www.python.org/downloads/)
    - Check "Add python.exe to PATH"
    - Check "Install launcher for all users"
    - Click "Install Now"
@@ -128,7 +128,7 @@ Add `--venv` to install in a virtual environment instead of system Python (e.g. 
 
 ### Manual Install: macOS
 
-1. **Install Python 3.11+**
+1. **Install Python 3.12+**
    - Download from [python.org](https://www.python.org/downloads/macos/), or:
    ```bash
    brew install python@3.13
@@ -163,7 +163,7 @@ Add `--venv` to install in a virtual environment instead of system Python (e.g. 
 
 ### Manual Install: Linux
 
-1. **Install Python 3.11+ and system dependencies**
+1. **Install Python 3.12+ and system dependencies**
 
    Ubuntu/Debian:
    ```bash
@@ -215,16 +215,6 @@ Add `--venv` to install in a virtual environment instead of system Python (e.g. 
    python lumaviewpro.py
    ```
 
-## Optional: Java and ImageJ Integration
-
-LumaViewPro supports ImageJ/FIJI integration for advanced image analysis. This is optional and not required for normal operation.
-
-1. Install [Azul Java 8 JDK+FX](https://www.azul.com/downloads/?version=java-8-lts&package=jdk-fx#zulu) for your OS
-   - During installation, select the option to set the `JAVA_HOME` environment variable
-   - On Apple Silicon (ARM64) Macs, install the ARM64 JDK — the JVM architecture must match your Python architecture
-2. Install [Apache Maven 3.9.8+](https://maven.apache.org/download.cgi) (Binary Zip Archive)
-   - Add the Maven `bin/` folder to your `PATH`
-
 ## Development
 
 To run the test suite or build release packages, install the development dependencies:
@@ -253,7 +243,6 @@ Copyright 2023-2026, Etaluma, Inc. MIT License. See [docs/LICENSE](docs/LICENSE)
 
 **Third-party dependencies:** LumaViewPro bundles and uses software under several licenses. Full per-library attribution, license texts, and upstream source pointers are in [docs/THIRD_PARTY_NOTICES.md](docs/THIRD_PARTY_NOTICES.md). Summary:
 
-- **Permissive (MIT / BSD / Apache-2.0):** Kivy, NumPy, SciPy, pandas, scikit-image, OpenCV, Matplotlib, xarray, tifffile, imagecodecs, pyserial, psutil, numba, and the ImageJ-integration packages (JPype1, pyimagej, scyjava, jgo) — all compatible with LVP's MIT license.
+- **Permissive (MIT / BSD / Apache-2.0):** Kivy, NumPy, SciPy, pandas, scikit-image, OpenCV, Matplotlib, tifffile, imagecodecs, pyserial, psutil — all compatible with LVP's MIT license.
 - **LGPL-2.1 (FFmpeg via PyAV):** The video I/O path links dynamically against FFmpeg's LGPL-licensed shared libraries, which are bundled alongside the application. FFmpeg source is available at https://ffmpeg.org/download.html and the LGPL-2.1 text is at `docs/licenses/LICENSE.LGPL-2.1.txt`.
 - **Proprietary camera SDKs (Basler Pylon, IDS Peak):** Separately installed by the user or chained via the Windows installer; each surfaces its own EULA during install. The `pypylon` and `ids-peak` Python wrappers are BSD-3.
-- **Optional ImageJ runtime (Amazon Corretto JDK, Apache Maven):** Corretto is OpenJDK under GPLv2 with the Classpath Exception; Maven is Apache-2.0. Both are bundled only when the Windows Bundle installer is used.

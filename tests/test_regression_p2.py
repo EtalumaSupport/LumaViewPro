@@ -3,10 +3,10 @@
 Regression tests for P2 bug fixes.
 
 Tests that the following bugs stay fixed:
-- #563: Autofocus race condition — protocol_end() must come AFTER final move
-- #568: Duration precision — sub-second protocols must round-trip through save/load
-- #424: Video bit-depth — 16-bit frames must be converted to 8-bit before codec write
-- #539: Serial error rate limiting — repeated errors must not spam the log
+- #563: Autofocus race condition -- protocol_end() must come AFTER final move
+- #568: Duration precision -- sub-second protocols must round-trip through save/load
+- #424: Video bit-depth -- 16-bit frames must be converted to 8-bit before codec write
+- #539: Serial error rate limiting -- repeated errors must not spam the log
 """
 
 import datetime
@@ -115,13 +115,20 @@ class TestAFRaceCondition:
         currently prevents.
         """
         import inspect
+        import re
+
         from modules.autofocus_runner import AutofocusRunner
 
         source = inspect.getsource(AutofocusRunner._iterate)
         last_pass_start = source.index('if self._last_pass:')
         last_pass_block = source[last_pass_start:]
-        return_idx = last_pass_block.index('\n                return\n')
-        last_pass_block = last_pass_block[:return_idx]
+        # Locate the first bare `return` (any indent) that terminates the
+        # last-pass branch. Indent-agnostic: earlier versions of this test
+        # hard-coded 16-space indent, which broke when the branch body was
+        # de-nested.
+        m = re.search(r'\n +return\n', last_pass_block)
+        assert m is not None, 'last-pass block must end with a bare return'
+        last_pass_block = last_pass_block[: m.start()]
 
         move_count = last_pass_block.count('self._move_absolute_position')
         assert move_count >= 2, (
@@ -131,7 +138,7 @@ class TestAFRaceCondition:
 
 
 # ---------------------------------------------------------------------------
-# #568: Duration precision — sub-second protocols must survive save/load
+# #568: Duration precision -- sub-second protocols must survive save/load
 # ---------------------------------------------------------------------------
 
 
@@ -143,19 +150,19 @@ class TestDurationPrecision:
     """
 
     def test_10_second_duration_round_trips(self, tmp_path):
-        """A 10-second protocol duration must survive save → load."""
+        """A 10-second protocol duration must survive save -> load."""
         duration = datetime.timedelta(seconds=10)
         duration_hours = round(duration.total_seconds() / 3600.0, 6)
         assert duration_hours > 0, '10-second duration must not round to 0.0'
 
     def test_1_second_duration_round_trips(self, tmp_path):
-        """A 1-second protocol duration must survive save → load."""
+        """A 1-second protocol duration must survive save -> load."""
         duration = datetime.timedelta(seconds=1)
         duration_hours = round(duration.total_seconds() / 3600.0, 6)
         assert duration_hours > 0, '1-second duration must not round to 0.0'
 
     def test_sub_second_duration_round_trips(self):
-        """A 0.5-second protocol duration must survive save → load."""
+        """A 0.5-second protocol duration must survive save -> load."""
         duration = datetime.timedelta(milliseconds=500)
         duration_hours = round(duration.total_seconds() / 3600.0, 6)
         assert duration_hours > 0, '0.5-second duration must not round to 0.0'
@@ -205,7 +212,7 @@ class TestDurationPrecision:
 
 
 # ---------------------------------------------------------------------------
-# #424: Video bit-depth — 16-bit frames converted to 8-bit before write
+# #424: Video bit-depth -- 16-bit frames converted to 8-bit before write
 # ---------------------------------------------------------------------------
 
 
@@ -222,7 +229,7 @@ class TestVideoBitDepth:
 
         out_path = pathlib.Path('/tmp/test_video_16bit.avi')
         writer = VideoWriter(
-            output_file_loc=out_path,
+            output_path=out_path,
             fps=10.0,
             include_timestamp_overlay=False,
         )
@@ -253,7 +260,7 @@ class TestVideoBitDepth:
 
         out_path = pathlib.Path('/tmp/test_video_8bit.avi')
         writer = VideoWriter(
-            output_file_loc=out_path,
+            output_path=out_path,
             fps=10.0,
             include_timestamp_overlay=False,
         )
@@ -277,7 +284,7 @@ class TestVideoBitDepth:
 
         out_path = pathlib.Path('/tmp/test_video_color16.avi')
         writer = VideoWriter(
-            output_file_loc=out_path,
+            output_path=out_path,
             fps=10.0,
             include_timestamp_overlay=False,
         )
@@ -312,7 +319,7 @@ class TestVideoBitDepth:
 
 
 # ---------------------------------------------------------------------------
-# #539: Serial error rate limiting — repeated errors must not spam the log
+# #539: Serial error rate limiting -- repeated errors must not spam the log
 # ---------------------------------------------------------------------------
 
 
@@ -352,13 +359,13 @@ class TestSerialErrorRateLimiting:
         board._error_log_interval = 2.0
 
         with patch.object(serialboard, '_serial_log', mock_log):
-            # First call — should log warning
+            # First call -- should log warning
             board.driver = _make_mock_serial()
             board.driver.write.side_effect = serial.SerialTimeoutException('timeout')
             board.exchange_command('TEST1')
             assert mock_log.warning.call_count == 1
 
-            # Second call immediately after — should be suppressed
+            # Second call immediately after -- should be suppressed
             board.driver = _make_mock_serial()
             board.driver.write.side_effect = serial.SerialTimeoutException('timeout')
             board.exchange_command('TEST2')
@@ -387,7 +394,7 @@ class TestSerialErrorRateLimiting:
             board.exchange_command('TEST1')
             assert mock_log.warning.call_count == 1
 
-            # Second error at t=3 (past 2s interval) — should be logged
+            # Second error at t=3 (past 2s interval) -- should be logged
             mock_time.return_value = 103.0
             board.driver = _make_mock_serial()
             board.driver.write.side_effect = serial.SerialTimeoutException('timeout')
@@ -403,12 +410,12 @@ class TestSerialErrorRateLimiting:
         board._error_log_interval = 2.0
 
         with patch.object(serialboard, 'logger', mock_log):
-            # First call — should log
+            # First call -- should log
             board.driver.write.side_effect = Exception('write failed')
             board._write_command_fast('TEST1')
             assert mock_log.error.call_count == 1
 
-            # Second call immediately — should be suppressed
+            # Second call immediately -- should be suppressed
             board.driver = _make_mock_serial()
             board.driver.write.side_effect = Exception('write failed')
             board._write_command_fast('TEST2')
@@ -435,7 +442,7 @@ class TestSerialErrorRateLimiting:
             assert mock_log.error.call_count == 1
 
     def test_driver_stays_open_on_timeout(self):
-        """H-17: Timeout is transient — driver stays open for retry.
+        """H-17: Timeout is transient -- driver stays open for retry.
 
         Only fatal exceptions (IOError, OSError, generic Exception) close
         the driver. SerialTimeoutException keeps it open.
@@ -443,7 +450,7 @@ class TestSerialErrorRateLimiting:
         board = _make_serial_board()
         board._error_log_interval = 2.0
 
-        # Timeout — driver stays open
+        # Timeout -- driver stays open
         mock_driver1 = board.driver
         board.driver.write.side_effect = serial.SerialTimeoutException('timeout')
         board.exchange_command('TEST1')

@@ -229,3 +229,31 @@ class TestSettingsActivation:
         assert profile_trace.ENABLE_PROFILE_TRACE is True
         assert (tmp_path / 'settings_out').is_dir()
         profile_trace.disable()
+
+    def test_magicmock_settings_does_not_create_dirs(self, monkeypatch):
+        """Bare MagicMock for `modules.settings_init` must not leak a
+        real filesystem directory at import-time gate evaluation.
+
+        Reproduces the condition surfaced 2026-05-28: test files
+        register `sys.modules['modules.settings_init'] = MagicMock()`
+        without configuring `load_profile_trace_setting`'s return value.
+        The gate then dereferenced ['enabled'] (truthy MagicMock) and
+        Path()-ified ['output_dir'] (another MagicMock), producing a
+        stray `LumaViewPro/MagicMock/` directory at the repo root.
+        """
+        from unittest.mock import MagicMock
+
+        monkeypatch.setattr(
+            'modules.settings_init.load_profile_trace_setting',
+            lambda directory: MagicMock(),
+        )
+        profile_trace.disable()
+        import importlib
+
+        importlib.reload(profile_trace)
+        assert profile_trace.ENABLE_PROFILE_TRACE is False
+        repo_root = Path(__file__).parent.parent
+        assert not (repo_root / 'MagicMock').exists(), (
+            'profile_trace gate leaked a real directory from a MagicMock '
+            'load_profile_trace_setting() return value'
+        )

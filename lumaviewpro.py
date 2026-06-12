@@ -3,7 +3,7 @@
 
 import os
 
-# Python version check — must run before any imports that require 3.11+
+# Python version check -- must run before any imports that require 3.11+
 import sys
 
 if sys.version_info < (3, 11):  # noqa: UP036 -- runtime check is load-bearing UX (friendly error before deeper SyntaxError on Python 3.10).
@@ -48,9 +48,8 @@ if __name__ == '__main__':
     ############################################################################
 
     live_view_fps = 30
-    ij_helper = None
 
-    # Environment setup — paths, version, platform detection
+    # Environment setup -- paths, version, platform detection
     from modules.app_environment import init_environment
 
     _env = init_environment(main_file=__file__)
@@ -75,6 +74,13 @@ if __name__ == '__main__':
 
     if DEBUG_MODE:
         logger.info('[LVP Main  ] Debug mode is enabled.')
+
+    # Start the memory profiler before the heavy module/driver/ui imports so
+    # tracemalloc captures the resident baseline, not just post-startup growth.
+    # No-op unless memory_profile_enabled is set in the live settings.
+    from lib import memory_profile
+
+    memory_profile.start(source_path)
 
     try:
         from modules.settings_init import load_lvp_settings
@@ -137,16 +143,65 @@ if __name__ == '__main__':
 
             _root = _tk.Tk()
             _root.withdraw()
+            # Force the dialog to the foreground. Without this the messagebox
+            # can open behind the existing LVP window and get buried, so the
+            # user never sees why the second launch silently did nothing.
+            _root.attributes('-topmost', True)
+            _root.lift()
+            _root.focus_force()
             _mb.showerror(
                 'LumaViewPro: already running',
                 'Another copy of LumaViewPro is already running.\n\n'
                 'This copy will now close. Switch to the existing '
                 'window, or close the other instance first before '
                 'launching again.',
+                parent=_root,
             )
             _root.destroy()
         except Exception as popup_err:  # grain: ignore NAKED_EXCEPT
             logger.warning(f'[LVP Lock ] Could not display already-running popup: {popup_err}')
+        # After the popup dismiss, if our parent process is a console
+        # shell (cmd.exe / PowerShell), post WM_CLOSE to its window so
+        # the user's shell doesn't stay orphaned next to a popup they
+        # already acknowledged. Windowed PyInstaller builds detach from
+        # the launching console; the parent shell has no idea LVP just
+        # exited and won't self-close. Best-effort: any error logs +
+        # falls through to os._exit unchanged.
+        if windows_machine:
+            try:
+                import ctypes
+                from ctypes import wintypes
+
+                import psutil
+
+                _parent = psutil.Process(os.getpid()).parent()
+                _parent_name = (_parent.name() or '').lower() if _parent else ''
+                if _parent_name in ('cmd.exe', 'powershell.exe', 'pwsh.exe'):
+                    _user32 = ctypes.windll.user32
+                    _enum_proc_type = ctypes.WINFUNCTYPE(
+                        wintypes.BOOL, wintypes.HWND, wintypes.LPARAM
+                    )
+                    _parent_pid = _parent.pid
+                    _hwnds: list[int] = []
+
+                    def _enum_cb(hwnd, _lparam):
+                        _pid = wintypes.DWORD()
+                        _user32.GetWindowThreadProcessId(hwnd, ctypes.byref(_pid))
+                        if _pid.value == _parent_pid and _user32.IsWindowVisible(hwnd):
+                            _hwnds.append(hwnd)
+                        return True
+
+                    _user32.EnumWindows(_enum_proc_type(_enum_cb), 0)
+                    _WM_CLOSE = 0x0010
+                    for _h in _hwnds:
+                        _user32.PostMessageW(_h, _WM_CLOSE, 0, 0)
+                    if _hwnds:
+                        logger.info(
+                            f'[LVP Lock ] Closed parent {_parent_name} window '
+                            f'(pid={_parent_pid}, hwnds={len(_hwnds)}) after popup.'
+                        )
+            except Exception as console_err:  # grain: ignore NAKED_EXCEPT
+                logger.warning(f'[LVP Lock ] Could not close parent console window: {console_err}')
         # os._exit terminates immediately; sys.exit raises SystemExit
         # which downstream cleanup paths may swallow before any Kivy
         # import has the chance to spin up.
@@ -162,7 +217,7 @@ if __name__ == '__main__':
     Config.set('graphics', 'minimum_width', '1024')
     Config.set('graphics', 'minimum_height', '600')
 
-    # Maximized at launch — works correctly on macOS, Windows, and Linux
+    # Maximized at launch -- works correctly on macOS, Windows, and Linux
     Config.set('graphics', 'window_state', 'maximized')
 
     import kivy
@@ -201,7 +256,7 @@ if __name__ == '__main__':
 
     import ui.image_utils_kivy as image_utils_kivy
 
-    # Matplotlib-to-Kivy bridge → ui/figure_canvas.py
+    # Matplotlib-to-Kivy bridge -> ui/figure_canvas.py
     from ui.figure_canvas import FigureCanvasKivyAgg
     from ui.notification_popup import (
         show_confirmation_popup,
@@ -209,30 +264,30 @@ if __name__ == '__main__':
     )
     from ui.progress_popup import show_popup
 
+    # Imported for its side effect: registers the global <Popup> on_open rule
+    # that adds a close (X) button to every popup app-wide.
+    import ui.popup_close  # noqa: F401
+
     # User Interface Custom Widgets
     from ui.range_slider import RangeSlider
     from ui.rounded_buttons import RoundedButton, RoundedToggleButton
 
     # Most state lives on ctx (single source of truth). The few globals
     # that remain below are read by multiple methods (on_start / on_stop
-    # / on_request_close / closures) and have not been lifted onto ctx
-    # yet; build-only state lives as locals in build().
+    # / on_request_close / closures); build-only state lives as locals in
+    # build().
     show_tooltips = False
 
-    # Executors are created in build() via ExecutorBundle and bound to
-    # these named globals for backwards compat with existing readers.
-    io_executor = None
-    camera_executor = None
-    protocol_thread = None
-    file_io_executor = None
-    autofocus_thread = None
-    scope_display_thread = None
-    worker_pool = None
+    # The executor handles are the single-source-of-truth on ctx: they are
+    # locals in build() and read everywhere else (including shutdown) as
+    # ctx.<name>. executor_bundle is the one build()->on_start() handoff that
+    # is not a live executor read path -- created in build(), read once in
+    # on_start() to register the whole bundle -- so it stays a module global.
     executor_bundle = None
     ctx = None
 
 else:
-    # Subprocess/worker compatibility — Kivy not available
+    # Subprocess/worker compatibility -- Kivy not available
     from modules.subprocess_stubs import (
         AccordionItem,
         App,
@@ -271,9 +326,10 @@ else:
     )
 
 # ============================================================================
-# Imports — extracted modules (must be after Kivy init)
+# Imports -- extracted modules (must be after Kivy init)
 # ============================================================================
 
+from modules import gui_logger
 from modules.app_config import (
     load_autofocus_log_enable,
     load_log_level,
@@ -319,7 +375,7 @@ from ui.post_processing import (
 )
 from ui.protocol_settings import ProtocolSettings
 from ui.scope_display import ScopeDisplay
-from ui.shader import ShaderEditor, ShaderViewer
+from ui.shader import ShaderViewer
 from ui.stage import Stage
 from ui.tooltip import Tooltip, TooltipMixin
 from ui.ui_helpers import (
@@ -330,10 +386,23 @@ from ui.vertical_control import VerticalControl
 from ui.zstack import ZStack
 
 
+# current.json is written at clean shutdown (on_stop). A hard kill or crash
+# would otherwise leave no runtime-state snapshot in a tech-support bundle,
+# so it is also flushed on this interval while the app runs.
+_CURRENT_JSON_FLUSH_INTERVAL_S = 300
+
+
 class LumaViewProApp(TooltipMixin, App):
-    """Main application class — build, start, stop, tooltips."""
+    """Main application class -- build, start, stop, tooltips."""
 
     kv_file = 'ui/lumaviewpro.kv'
+
+    # UI mirror of ctx.protocol_running (a worker-thread Event) so kv
+    # `disabled:` bindings can react to it -- a threading.Event cannot be
+    # bound in kv. The Event stays authoritative for worker-thread reads;
+    # this property is written only on the Kivy main thread when a run
+    # starts and stops, so widgets grey out for the duration of a scan.
+    protocol_running = BooleanProperty(False)
 
     def on_start(self) -> None:
         """Kivy lifecycle hook: fires after build() and before the main loop runs."""
@@ -358,14 +427,19 @@ class LumaViewProApp(TooltipMixin, App):
         Clock.schedule_interval(ctx.motion_settings.update_xy_stage_control_gui, 1.0)
         Clock.schedule_once(functools.partial(ctx.image_settings.set_expanded_layer, 'BF'), 0.2)
 
+        # Periodic current.json snapshot so a hard kill / crash still leaves a
+        # recent runtime-state file for tech-support bundles (it is otherwise
+        # only written at clean shutdown).
+        Clock.schedule_interval(self._flush_current_json, _CURRENT_JSON_FLUSH_INTERVAL_S)
+
         # Stage B1: publish Kivy-side layer state to scope_display_thread at
         # 30Hz. The thread cannot read Kivy widget attrs from a non-UI
-        # thread (Rule 15). This callback reads
+        # thread (executors must stay GUI-agnostic). This callback reads
         # get_active_layer_config() + engineering-mode open-layer and
         # pushes them onto the thread; the thread reads under _config_lock
         # at each frame start. Staleness is bounded by 33ms (one tick).
         def _publish_layer_config(dt):
-            if ctx is None or scope_display_thread is None:
+            if ctx is None or ctx.scope_display_thread is None:
                 return
             active_layer = None
             active_layer_config = None
@@ -420,7 +494,7 @@ class LumaViewProApp(TooltipMixin, App):
                     if not accordion_item_obj.collapse:
                         open_layer = layer
                         break
-            scope_display_thread.update_layer_config(
+            ctx.scope_display_thread.update_layer_config(
                 active_layer,
                 active_layer_config,
                 open_layer,
@@ -463,13 +537,12 @@ class LumaViewProApp(TooltipMixin, App):
             except Exception as e:  # grain: ignore NAKED_EXCEPT
                 logger.warning(f'[INIT      ] update_transmitted skipped: {e}')
 
-            # Check if a protocol is loaded and has steps
-            if ctx.protocol is not None and ctx.protocol.num_steps() > 0:
-                protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
-                protocol_settings.go_to_step(protocol=False)
-                return
-
-            # If no protocol, just apply settings for the default BF layer
+            # On startup stay where homing left the stage -- do NOT drive to
+            # protocol step 1. A loaded protocol's steps stay available (the
+            # steps table is rendered by load_protocol) and the user navigates
+            # to them explicitly. Apply the default BF layer's saved settings,
+            # identical to the no-protocol path, so there is no stage motion
+            # either way.
             ctx.image_settings.accordion_collapse()
 
         Clock.schedule_once(complete_initialization, 0.3)
@@ -532,6 +605,13 @@ class LumaViewProApp(TooltipMixin, App):
         # The atexit emergency-shutdown hook is registered in Lumascope.__init__
         # so every Lumascope user gets the same safety net automatically.
 
+        # Capture the settled startup footprint a few seconds after on_start so
+        # the camera/UI have finished initializing. No-op unless the memory
+        # profiler is enabled.
+        from lib import memory_profile
+
+        Clock.schedule_once(lambda dt: memory_profile.snapshot('cold_start_done'), 5.0)
+
         if getattr(sys, 'frozen', False):
             pyi_splash.close()
 
@@ -551,26 +631,34 @@ class LumaViewProApp(TooltipMixin, App):
         if profiling_helper is not None:
             profiling_helper.stop()
 
-        if autofocus_thread is not None:
-            autofocus_thread.stop(timeout=2.0)
+        # Every executor handle lives on ctx; if build() never completed there
+        # is nothing to tear down. Stop order is preserved exactly (consumer
+        # threads before the lanes they consume) -- only the source of each
+        # handle changed from a module global to ctx.
+        if ctx is None:
+            logger.info('[LVP Main  ] Threads shut down.')
+            return
 
-        if scope_display_thread is not None:
-            scope_display_thread.stop()
+        if ctx.autofocus_thread is not None:
+            ctx.autofocus_thread.stop(timeout=2.0)
 
-        if protocol_thread is not None:
-            protocol_thread.stop(timeout=2.0)
+        if ctx.scope_display_thread is not None:
+            ctx.scope_display_thread.stop()
 
-        if io_executor is not None:
-            io_executor.shutdown(wait=False)
+        if ctx.protocol_thread is not None:
+            ctx.protocol_thread.stop(timeout=2.0)
 
-        if camera_executor is not None:
-            camera_executor.shutdown(wait=False)
+        if ctx.io_executor is not None:
+            ctx.io_executor.shutdown(wait=False)
 
-        if file_io_executor is not None:
-            file_io_executor.shutdown(wait=False)
+        if ctx.camera_executor is not None:
+            ctx.camera_executor.shutdown(wait=False)
 
-        if worker_pool is not None:
-            worker_pool.shutdown(wait=False)
+        if ctx.file_io_executor is not None:
+            ctx.file_io_executor.shutdown(wait=False)
+
+        if ctx.worker_pool is not None:
+            ctx.worker_pool.shutdown(wait=False)
 
         logger.info('[LVP Main  ] Threads shut down.')
 
@@ -582,7 +670,13 @@ class LumaViewProApp(TooltipMixin, App):
         # test runner, and CLI tools all get identical environment lines.
         from lvp_logger import log_environment_banner
 
-        log_environment_banner(source_path, version)
+        # Pass the install directory (script_path), not the per-user data
+        # directory (source_path). version.txt and .git_archival.txt ship next
+        # to the executable; on an installed build source_path points at the
+        # Documents data folder, which has no version.txt, so the banner would
+        # report Built/Branch/BuildGUID as "unknown". On a source/dev run the
+        # two paths are identical.
+        log_environment_banner(script_path, version)
 
         # Lock was claimed in __main__ before any Kivy import (issue #559);
         # keep a strong ref here so the bound socket survives for the
@@ -594,7 +688,6 @@ class LumaViewProApp(TooltipMixin, App):
         # composite_gen_controls register themselves on ctx in their __init__.
         global Window
         global ctx
-        ij_helper = None
 
         # AppContext binds these three as kwargs below; declared as locals here
         # so the kwargs don't NameError at runtime.
@@ -646,11 +739,29 @@ class LumaViewProApp(TooltipMixin, App):
         try:
             from kivy.core.window import Window
 
-            # Window min size uses SDL point coordinates — do NOT use dp()
+            # Window min size uses SDL point coordinates -- do NOT use dp()
             Window.minimum_width = 1024
             Window.minimum_height = 600
             Window.bind(on_resize=self._on_resize)
             Window.bind(on_request_close=self.on_request_close)
+            # Window-level lifecycle bindings -- log every event the OS /
+            # window manager / global keyboard shortcut can deliver
+            # outside any registered widget. Without these, a shutdown
+            # triggered by Alt-F4 / window-X / OS-close leaves the GUI
+            # log silent and post-mortem cannot name the trigger.
+            Window.bind(on_close=self._on_window_close)
+            Window.bind(on_keyboard=self._on_window_keyboard)
+            # SDL2-only events: minimize / maximize / restore. Bind under
+            # try/except so non-SDL2 window providers (rare) don't crash.
+            # Handler names are constructed dynamically here, so
+            # _on_window_minimize/_maximize/_restore have no static
+            # references -- dead-code scanners must not flag them.
+            for _evt in ('on_minimize', 'on_maximize', 'on_restore'):
+                try:
+                    Window.bind(**{_evt: getattr(self, f'_on_window_{_evt[3:]}')})
+                except Exception as _e:
+                    logger.debug(f'[LVP Main  ] Window.bind({_evt}) failed: {_e}')
+            Window.bind(focus=self._on_window_focus)
             # camera_type='auto' lets the registry pick by priority (Pylon -> IDS
             # -> FX2). The legacy settings['camera_type'] field is vestigial.
             lumaview = MainDisplay(camera_type='auto', simulate=simulate_mode)
@@ -670,9 +781,6 @@ class LumaViewProApp(TooltipMixin, App):
         # lanes (plus stage and turret aliases) and the protocol_thread, then
         # starts them; every entry point shares this topology so the watchdog
         # snapshot and engineering plugin see one truth.
-        global io_executor, camera_executor, protocol_thread
-        global file_io_executor, autofocus_thread, scope_display_thread
-        global worker_pool
         global executor_bundle
         # Clock.schedule_once is passed as the UI dispatcher so executors can post
         # callbacks to the Kivy main thread without importing Kivy themselves.
@@ -751,7 +859,7 @@ class LumaViewProApp(TooltipMixin, App):
             z_ui_update_func=_handle_autofocus_ui,
         )
 
-        # Create AppContext — central service registry
+        # Create AppContext -- central service registry
         ctx = AppContext(
             scope=lumaview.scope,
             lumaview=lumaview,
@@ -774,7 +882,6 @@ class LumaViewProApp(TooltipMixin, App):
             stage=stage,
             cell_count_content=cell_count_content,
             graphing_controls=graphing_controls,
-            ij_helper=ij_helper,
             protocol_running=protocol_running_global,
             engineering_mode=ENGINEERING_MODE,
             no_engineering=no_engineering,
@@ -824,6 +931,48 @@ class LumaViewProApp(TooltipMixin, App):
 
         register_builtins(ctx)
 
+        # A plugin exception reaching the Kivy event loop must not take
+        # down the host: plugins are separately versioned (and may not be
+        # written by us), and one bad button handler in one crashed the
+        # whole app at the bench. Exceptions whose traceback enters a
+        # loaded plugin's package are contained -- logged, recorded in
+        # the plugin's health ledger, surfaced as a popup -- and the app
+        # continues. Anything NOT attributable to plugin code re-raises,
+        # so core defects keep their full crash post-mortem.
+        from kivy.base import ExceptionHandler, ExceptionManager
+
+        class _PluginCrashGuard(ExceptionHandler):
+            def handle_exception(self, inst):
+                plugin_name = None
+                try:
+                    plugin_name = ctx.plugins.attribute_exception(sys.exc_info()[2])
+                except Exception as e:
+                    logger.debug(f'[Plugins ] crash attribution failed: {e}')
+                if plugin_name is None:
+                    return ExceptionManager.RAISE
+                logger.exception(
+                    f'[Plugins ] contained a crash from plugin {plugin_name!r}: {inst}'
+                )
+                try:
+                    ctx.plugins.ui.record_runtime_error(plugin_name, 'ui_event', inst)
+                except Exception as e:
+                    logger.debug(f'[Plugins ] runtime-error record failed: {e}')
+                try:
+                    from modules.notification_center import notifications
+
+                    notifications.error(
+                        'Plugins',
+                        'Plugin Error',
+                        f'The "{plugin_name}" plugin hit an error and the action '
+                        'was cancelled. The rest of the application is '
+                        'unaffected. See the log for details.',
+                    )
+                except Exception as e:
+                    logger.debug(f'[Plugins ] plugin-error popup failed: {e}')
+                return ExceptionManager.PASS
+
+        ExceptionManager.add_handler(_PluginCrashGuard())
+
         # Attach UI-namespace plugin mounts now that the widget tree
         # exists. Each registered (name, mount, builder) tuple is
         # invoked here; builder() returns the Kivy widget which is
@@ -852,14 +1001,15 @@ class LumaViewProApp(TooltipMixin, App):
         # init, so any early hardware errors surface as popups instead
         # of being logged-only.
 
-        # CPU profiling — enabled via debug_mode in settings.json
-        # On exit, dumps a .profile file to logs/profile/ that can be
-        # viewed with: pip install snakeviz && snakeviz <file>.profile
-        if settings.get('debug_mode', False):
+        # CPU profiling -- enabled via cprofile_enabled in settings.json,
+        # independent of debug_mode (which otherwise silently started a
+        # whole-app profiler). On exit, dumps a .profile file to logs/cprofile/
+        # viewable with: pip install snakeviz && snakeviz <file>.profile
+        if settings.get('cprofile_enabled', False):
             global profiling_helper
             profiling_helper = profiling_utils.ProfilingHelper()
             profiling_helper.enable()
-            logger.info('[LVP Main  ] cProfile enabled (debug_mode=true) -- will dump on exit')
+            logger.info('[LVP Main  ] cProfile enabled (cprofile_enabled=true) -- will dump on exit')
 
         return lumaview
 
@@ -868,13 +1018,69 @@ class LumaViewProApp(TooltipMixin, App):
         Clock.schedule_once(ctx.motion_settings.check_settings, 0.1)
         Clock.schedule_once(ctx.image_settings.check_settings, 0.1)
 
+    def _on_window_close(self, *args) -> None:
+        """Kivy on_close hook -- the window is closing for real."""
+        gui_logger.window_event('close')
+
+    def _on_window_keyboard(
+        self, window, key: int, scancode: int, codepoint, modifier
+    ) -> bool:
+        """Kivy on_keyboard hook -- log non-widget-consumed key events.
+
+        Only logs keys of forensic interest: Escape (Kivy
+        exit_on_escape is disabled, so this never closes the app, but
+        the keypress is worth seeing), Alt-F4, and Ctrl-Q. Routine
+        typing in widgets doesn't pollute the GUI log. Returns False
+        so Kivy's regular handler chain continues unchanged.
+        """
+        mods = tuple(sorted(modifier)) if modifier else ()
+        # 27 = Escape; 282-296 = F1-F15 (285 = F4, 293 = F12); 113 = Q
+        if key == 27:
+            gui_logger.window_event('keyboard', f'key=Escape mods={mods}')
+        elif key == 285 and 'alt' in mods:
+            gui_logger.window_event('keyboard', f'key=Alt-F4 mods={mods}')
+        elif key == 113 and 'ctrl' in mods:
+            gui_logger.window_event('keyboard', f'key=Ctrl-Q mods={mods}')
+        return False
+
+    def _on_window_minimize(self, *args) -> None:
+        gui_logger.window_event('minimize')
+
+    def _on_window_maximize(self, *args) -> None:
+        gui_logger.window_event('maximize')
+
+    def _on_window_restore(self, *args) -> None:
+        gui_logger.window_event('restore')
+
+    def _on_window_focus(self, window, focused: bool) -> None:
+        """Kivy Window.focus property change -- log focus gain / loss.
+
+        Focus changes are routine (clicking between LVP and another
+        app); the value comes from knowing whether the user moved
+        attention elsewhere just before a shutdown / freeze.
+        """
+        gui_logger.window_event('focus', f'focused={focused}')
+
     def on_request_close(self, *args) -> bool:
         """Kivy on_request_close hook: show a confirmation popup if a protocol is running.
 
         Returns:
             True to prevent window close (popup shown); False to allow close.
         """
-        if ctx.protocol_running.is_set():
+        protocol_running = ctx.protocol_running.is_set()
+        # Crash-forensics: log the close request to BOTH the main log
+        # (so post-mortem can correlate against the shutdown sequence)
+        # and the GUI interactions log (so the gui-log timeline names
+        # the trigger). Without this line, an X-button / Alt-F4 close
+        # produces a silent shutdown -- the gap that prompted this hook.
+        logger.info(
+            f'[LVP Main  ] on_request_close fired; '
+            f'protocol_running={protocol_running}'
+        )
+        gui_logger.window_event(
+            'close-requested', f'protocol_running={protocol_running}'
+        )
+        if protocol_running:
             Clock.schedule_once(
                 lambda dt: show_confirmation_popup(
                     title='Confirm Exit',
@@ -889,6 +1095,21 @@ class LumaViewProApp(TooltipMixin, App):
 
         # No protocol running - allow normal close
         return False
+
+    def _flush_current_json(self, dt: float) -> None:
+        """Periodic current.json snapshot (Clock interval callback).
+
+        Mirrors the on_stop save so a hard kill / crash still leaves recent
+        runtime state on disk. The hardware-presence gate inside
+        save_settings prevents overwriting real per-channel values with
+        slider defaults when no hardware was connected this session.
+        """
+        try:
+            ctx.motion_settings.ids['microscope_settings_id'].save_settings(
+                './data/current.json'
+            )
+        except Exception:
+            logger.exception('[LVP Main  ] periodic current.json flush failed')
 
     def on_stop(self) -> None:
         """Kivy lifecycle hook: tear down hardware, save settings, exit cleanly."""
@@ -933,6 +1154,22 @@ class LumaViewProApp(TooltipMixin, App):
             logger.warning(f'[LVP Main  ] metrics_logger stop failed during shutdown: {e}')
 
         ctx.motion_settings.ids['protocol_settings_id'].cancel_all_protocols()
+        # The abort above only signals; the hardware teardown (LED off,
+        # camera restore, return-to-position) runs on the protocol thread.
+        # Shutdown tears the executors down right after this block, so wait
+        # -- bounded -- for that cleanup to finish before proceeding. Per
+        # PERFORMANCE_BUDGETS.md row shutdown_protocol_cleanup_wait_s. The
+        # leds_off drain below is the belt-and-suspenders if it times out.
+        try:
+            if ctx.sequenced_capture_runner is not None and not (
+                ctx.sequenced_capture_runner.wait_for_run_idle(timeout_s=30.0)
+            ):
+                logger.warning(
+                    '[LVP Main  ] protocol cleanup still in flight after 30 s '
+                    'shutdown wait; proceeding with teardown anyway'
+                )
+        except Exception as e:  # grain: ignore NAKED_EXCEPT
+            logger.warning(f'[LVP Main  ] shutdown cleanup wait failed: {e}')
 
         # Stop the scope-display thread BEFORE the executor cascade --
         # otherwise the FPS-paced loop submits work against a half-
@@ -965,8 +1202,25 @@ class LumaViewProApp(TooltipMixin, App):
             if fut is not None:
                 try:
                     fut.result(timeout=2.0)
+                except TimeoutError:
+                    # The io_executor can still be draining protocol-abort
+                    # cleanup at exit, and that cleanup turns LEDs off
+                    # itself -- this expiry does not mean LEDs were left
+                    # on. Log the cached channel state so the post-mortem
+                    # answers that question directly.
+                    states = lumaview.scope.illumination.get_led_states()
+                    lit = sorted(c for c, s in states.items() if s.get('enabled'))
+                    state_text = (
+                        'channels still ON: ' + ', '.join(lit) if lit
+                        else 'all channels OFF'
+                    )
+                    logger.warning(
+                        f'[LVP Main  ] shutdown leds_off still queued on '
+                        f'io_executor after 2.0s; LED state cache reports '
+                        f'{state_text}'
+                    )
                 except Exception as e:
-                    logger.warning(f'[LVP Main  ] leds_off via io_executor timed out / failed: {e}')
+                    logger.warning(f'[LVP Main  ] shutdown leds_off failed: {e}')
             else:
                 logger.warning('[LVP Main  ] io_executor unavailable for shutdown leds_off')
         except Exception as e:  # grain: ignore NAKED_EXCEPT

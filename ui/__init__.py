@@ -4,7 +4,7 @@
 Runs before any `ui.*` module body, so we set the Kivy env vars here to
 keep Kivy from writing logs to ~/.kivy/logs/. The LVP `kivy` logger is
 still routed through lvp_logger's file handler, so diagnostics remain
-in the main LVP logs — just not under the user's home dir.
+in the main LVP logs -- just not under the user's home dir.
 """
 
 import os

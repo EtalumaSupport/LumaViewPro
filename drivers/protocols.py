@@ -63,15 +63,25 @@ class MotorBoardProtocol(Protocol):
     def has_thomed(self) -> bool: ...
 
     # --- Motion control ---
-    # LVP-A-1: emergency stop. Returns True if firmware accepted STOP,
-    # False if firmware doesn't implement it (cached on first attempt
-    # so subsequent calls skip the wire). Drivers without motors
-    # always return False.
+    # Emergency stop. Returns True if firmware accepted STOP, False if
+    # firmware doesn't implement it (cached on first attempt so
+    # subsequent calls skip the wire). Drivers without motors always
+    # return False.
     def motor_stop(self) -> bool: ...
+
+    # --- Capability probes ---
+    # Probe-and-cache whether the connected firmware implements a
+    # command family. ScopeCapabilities.from_drivers registers these
+    # at boot so callers gate on scope.capabilities.* instead of
+    # firmware version strings or per-call ERROR handling.
+    def supports_motor_stop(self) -> bool: ...
+    def supports_fan(self) -> bool: ...
+    def supports_diagnostics(self) -> bool: ...
 
     # --- Info ---
     def fullinfo(self) -> dict: ...
     def get_microscope_model(self) -> str | None: ...
+    def get_serial_number(self) -> str | None: ...
     def get_axes_config(self) -> dict: ...
     def get_axis_limits(self, axis: str) -> dict | None: ...
     def get_current_firmware(self) -> str | None: ...
@@ -129,9 +139,9 @@ class LEDBoardProtocol(Protocol):
     def leds_disable(self) -> None: ...
 
     # State queries (get_led_ma / is_led_on / get_led_state /
-    # get_led_states) retired in Wave 7 Phase 3d.5. LED state is
-    # API-primary (Rule 2 SoT lives on IlluminationAPI). Callers read
-    # via scope.illumination.<query>; the driver no longer exposes
+    # get_led_states) have been retired. LED state is API-primary
+    # (SoT lives on IlluminationAPI). Callers read via
+    # scope.illumination.<query>; the driver no longer exposes
     # state via the protocol surface.
 
     # --- Channel mapping ---

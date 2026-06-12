@@ -31,13 +31,13 @@ AF_SAFETY_TIMEOUT_S = 15  # Seconds before AF is considered stuck and force-rese
 
 
 # ============================================================================
-# VerticalControl — Z-Axis, Objectives, Turret, and Autofocus
+# VerticalControl -- Z-Axis, Objectives, Turret, and Autofocus
 # ============================================================================
 
 
 class VerticalControl(BoxLayout):
     def __init__(self, **kwargs):
-        super(VerticalControl, self).__init__(**kwargs)
+        super().__init__(**kwargs)
         logger.debug('[LVP Main  ] VerticalControl.__init__()')
 
         # boolean describing whether the scope is currently in the process of autofocus
@@ -85,7 +85,7 @@ class VerticalControl(BoxLayout):
                 self.ids['z_position_id'].text = new_text
 
     def execute_kivy_gui(self, vertical_control=False, result=None, exception=None):
-        """IOTask callback — runs on worker thread. Must schedule widget access."""
+        """IOTask callback -- runs on worker thread. Must schedule widget access."""
         if exception is not None:
             raise exception
 
@@ -104,11 +104,11 @@ class VerticalControl(BoxLayout):
             Clock.schedule_once(lambda dt, p=set_pos: self._update_z_text(p), 0)
 
     def _update_z_position(self, pos):
-        """Update Z slider and text — must be called on main thread.
+        """Update Z slider and text -- must be called on main thread.
 
         Only updates text field when user is not typing (focus check),
         matching XY behavior. Without this, the text shows current
-        position during motion then snaps to target — confusing.
+        position during motion then snaps to target -- confusing.
         """
         self.ids['obj_position'].value = max(0, pos)
         if not self.ids['z_position_id'].focus:
@@ -117,7 +117,7 @@ class VerticalControl(BoxLayout):
                 self.ids['z_position_id'].text = new_text
 
     def _update_z_text(self, pos):
-        """Update Z text only — must be called on main thread."""
+        """Update Z text only -- must be called on main thread."""
         if not self.ids['z_position_id'].focus:
             new_text = format(max(0, pos), '.2f')
             if self.ids['z_position_id'].text != new_text:
@@ -143,13 +143,7 @@ class VerticalControl(BoxLayout):
             logger.warning(f'[Motion] {label}: no objective info: {e}')
             return
         step = objective['z_coarse' if coarse else 'z_fine']
-        ctx.io_executor.put(
-            IOTask(
-                action=move_relative_position,
-                args=('Z', direction * step),
-                kwargs={'overshoot_enabled': overshoot_enabled},
-            )
-        )
+        move_relative_position('Z', direction * step, overshoot_enabled=overshoot_enabled)
 
     @debounce(0.2)
     def coarse_up(self, overshoot_enabled: bool = False):
@@ -177,11 +171,11 @@ class VerticalControl(BoxLayout):
             self._next_pos = float(pos)
         except Exception:
             return
+        gui_logger.slider('Z_POSITION', self._next_pos)
         self.queue_slider_position_trigger()
 
     def queue_slider_position(self):
-        ctx = _app_ctx.ctx
-        ctx.io_executor.put(IOTask(action=move_absolute_position, args=('Z', self._next_pos)))
+        move_absolute_position('Z', self._next_pos)
         self._next_pos = None
 
     def set_bookmark(self):
@@ -224,7 +218,7 @@ class VerticalControl(BoxLayout):
         logger.info('[LVP Main  ] VerticalControl.goto_bookmark()')
         with ctx.settings_lock:
             pos = ctx.settings['bookmark']['z']
-        ctx.io_executor.put(IOTask(action=move_absolute_position, args=('Z', pos)))
+        move_absolute_position('Z', pos)
 
     @debounce(1.0)
     def home(self):
@@ -234,7 +228,7 @@ class VerticalControl(BoxLayout):
             if ctx.protocol_running.is_set():
                 return
             logger.info('[LVP Main  ] VerticalControl.home()')
-            ctx.io_executor.put(IOTask(action=move_home, kwargs={'axis': 'Z'}))
+            move_home(axis='Z')
         except Exception as e:
             logger.error(f'[UI] home failed: {e}', exc_info=True)
             from ui.notification_popup import show_notification_popup
@@ -257,7 +251,7 @@ class VerticalControl(BoxLayout):
             settings = ctx.settings
             objective_id = self.ids['objective_spinner2'].text
 
-            # #631: idempotent — see microscope_settings.MicroscopeSettings.select_objective.
+            # #631: idempotent -- see microscope_settings.MicroscopeSettings.select_objective.
             if objective_id == settings.get('objective_id'):
                 return
 
@@ -281,9 +275,9 @@ class VerticalControl(BoxLayout):
 
             # Set objective in lumascope
             if ctx.lumaview.scope.motion.has_turret():
-                ctx.lumaview.scope.set_turret_config(turret_config=settings['turret_objectives'])
+                ctx.lumaview.scope.runtime_state.set_turret_config(turret_config=settings['turret_objectives'])
 
-            ctx.lumaview.scope.set_objective(objective_id=objective_id)
+            ctx.lumaview.scope.runtime_state.set_objective(objective_id=objective_id)
 
             # Update UI FOV
             fov_size = common_utils.get_field_of_view(
@@ -343,6 +337,15 @@ class VerticalControl(BoxLayout):
                     with ctx.settings_lock:
                         ctx.settings[layer]['focus'] = focus_z
                     logger.info(f'[AF] Updated {layer} focus to {focus_z:.2f}um')
+                    # AF restored the camera from committed settings; an
+                    # uncommitted text edit (typed, no Enter) would keep
+                    # showing a value the hardware no longer has. Re-point
+                    # the widgets at the truth.
+                    try:
+                        layer_obj = ctx.image_settings.layer_lookup(layer=layer)
+                        layer_obj.sync_camera_widgets_from_settings()
+                    except Exception as e:
+                        logger.warning(f'[AF] Widget sync after AF failed: {e}')
                     break
         except Exception as e:
             logger.warning(f'[AF] Failed to update layer focus after AF: {e}')
@@ -505,6 +508,13 @@ class VerticalControl(BoxLayout):
             with _app_ctx.ctx.settings_lock:
                 settings['turret_objectives'][selected_turret] = desired_objective_id
 
+            # Push the new assignment to the microscope -- the settings write
+            # alone does not reach hardware (mirrors select_objective).
+            if ctx.lumaview.scope.motion.has_turret():
+                ctx.lumaview.scope.runtime_state.set_turret_config(
+                    turret_config=settings['turret_objectives']
+                )
+
         except Exception as e:
             logger.exception(f'SetTurretObjective] Error: {e}')
             return
@@ -531,12 +541,19 @@ class VerticalControl(BoxLayout):
             with _app_ctx.ctx.settings_lock:
                 settings['turret_objectives'][selected_turret] = None
 
+            # Push the cleared slot to the microscope -- the settings write
+            # alone does not reach hardware (mirrors select_objective).
+            if _app_ctx.ctx.lumaview.scope.motion.has_turret():
+                _app_ctx.ctx.lumaview.scope.runtime_state.set_turret_config(
+                    turret_config=settings['turret_objectives']
+                )
+
         except Exception as e:
             logger.exception(f'ResetTurretObjective] Error: {e}')
             return
 
     @debounce(0.5)
-    def turret_select(self, selected_position, protocol=False):
+    def turret_select(self, selected_position, protocol=False, restore_z=True):
         try:
             if not protocol:
                 gui_logger.button(f'TURRET_POS_{selected_position}')
@@ -546,7 +563,15 @@ class VerticalControl(BoxLayout):
                 if not protocol:
                     ctx.io_executor.put(IOTask(ctx.lumaview.scope.motion.thome))
                 else:
-                    ctx.lumaview.scope.motion.thome()
+                    # Protocol context runs on protocol_thread, not the io
+                    # worker -- route thome through the protocol queue so it
+                    # stays ordered ahead of the subsequent tmove/X/Y/Z and
+                    # behind the prior step's leds_off on the single worker.
+                    fut = ctx.io_executor.protocol_put(
+                        IOTask(ctx.lumaview.scope.motion.thome), return_future=True
+                    )
+                    if fut:
+                        fut.result(timeout=120)
 
             if not isinstance(selected_position, int) and not isinstance(selected_position, float):
                 if not selected_position.isdigit():
@@ -559,7 +584,19 @@ class VerticalControl(BoxLayout):
                     IOTask(ctx.lumaview.scope.motion.tmove, kwargs={'position': selected_position})
                 )
             else:
-                ctx.lumaview.scope.motion.tmove(position=selected_position)
+                # See the thome branch above: route the protocol-context
+                # tmove through the protocol queue so it serializes with the
+                # step's other moves and LED ops on the single io worker
+                # instead of racing them from protocol_thread.
+                fut = ctx.io_executor.protocol_put(
+                    IOTask(
+                        ctx.lumaview.scope.motion.tmove,
+                        kwargs={'position': selected_position, 'restore_z': restore_z},
+                    ),
+                    return_future=True,
+                )
+                if fut:
+                    fut.result(timeout=60)
 
             # Persist user's explicit turret choice so the next session
             # (or any post-home lookup) prefers this position when the
@@ -569,8 +606,6 @@ class VerticalControl(BoxLayout):
 
             for available_position in range(1, 5):
                 if selected_position == available_position:
-                    state = 'down'
-
                     # Check if an objective has been saved to that turret
                     turret_position_objective = settings['turret_objectives'][selected_position]
                     if turret_position_objective is not None:
@@ -579,9 +614,6 @@ class VerticalControl(BoxLayout):
                             lambda dt: self.update_spinner_text(selected_position), 0
                         )
                         Clock.schedule_once(lambda dt: self.select_objective(), 0)
-
-                else:
-                    state = 'normal'
 
             Clock.schedule_once(lambda dt: self.update_all_turret_btn_states(selected_position), 0)
         except Exception as e:
@@ -607,7 +639,7 @@ class VerticalControl(BoxLayout):
 
     def update_turret_gui(self, turret_position):
         settings = _app_ctx.ctx.settings
-        # Persist the position the turret physically ended up at — this
+        # Persist the position the turret physically ended up at -- this
         # is called after every protocol-driven or step-navigation T
         # move, so the persisted value tracks reality across moves. (#488)
         try:

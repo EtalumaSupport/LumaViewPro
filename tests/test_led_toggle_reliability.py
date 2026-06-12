@@ -1,29 +1,29 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Regression tests for issue #617 — LED toggle unreliability on slider move.
+"""Regression tests for issue #617 -- LED toggle unreliability on slider move.
 
 Original report: "When you change a slider, the toggle turns off then back on
 very quickly. Sometimes it leaves the LED off."
 
 Two root causes were identified and fixed in the same commit:
 
-Fix A — `disable_leds_for_other_layers` overreach:
-  Commit f8951a5 (Fix #614) made disable_leds_for_other_layers() call
-  scope.illumination.leds_off_async() + led_on_async() on every apply_settings, to ensure
-  only one LED is physically on when switching channels. That was correct
-  for layer switches but wrong for slider-only moves on the active layer,
-  which fire apply_settings many times per drag. Result: visible LED
-  flicker (off→on) every time the user moves any slider.
+Fix A -- `disable_leds_for_other_layers` overreach:
+  disable_leds_for_other_layers() once fired a nuclear leds_off_async()
+  + led_on_async() on every apply_settings to ensure only one LED is
+  physically on when switching channels. That blanked every LED and
+  re-lit the current one -- correct for layer switches but wrong for
+  slider-only moves on the active layer, which fire apply_settings many
+  times per drag. The nuclear leds_off also cleared the LED-state cache,
+  so the following led_on could not self-skip: visible LED flicker
+  (off->on) on every slider move.
 
-  (Originally written as scope_commands.leds_off() / led_on(); migrated
-  to scope.illumination.leds_off_async() / scope.illumination.led_on_async() in LAYER-A' 2026-05-02
-  when modules/scope_commands.py was consolidated into the Lumascope API.)
+  Fix: switch off only the OTHER layers' LEDs, one channel at a time.
+  led_off self-skips a channel already off, so a plain slider move with
+  nothing else lit touches the bus zero times. This layer's own LED is
+  owned by update_led_state and is never disturbed here, so it can no
+  longer blink. One LED on at a time (the #614 guarantee) is preserved.
 
-  Fix: guard the leds_off/led_on cycle with a "is any other layer actually
-  on?" check. When only the current layer is lit, skip the bus cycle — the
-  normal led_on path (which dedupes) still updates illumination.
-
-Fix B — Widget handler recursion via programmatic widget writes:
-  ill_text() → sets slider.value → on_value fires → ill_slider() → which
+Fix B -- Widget handler recursion via programmatic widget writes:
+  ill_text() -> sets slider.value -> on_value fires -> ill_slider() -> which
   writes settings and schedules apply_settings. The handler's `_initializing`
   check only guarded logging and the apply call, not the settings write or
   the recursive chain. Similarly, the camera listener's _update_camera_ui
@@ -74,49 +74,46 @@ def _source_of(node: ast.AST) -> str:
 
 
 class TestFixA_DisableLedsForOtherLayersGuard:
-    """#617 Fix A: disable_leds_for_other_layers must only cycle the bus
-    when another layer's LED is actually on."""
+    """#617 Fix A: disable_leds_for_other_layers must switch off only the
+    OTHER layers' LEDs (one channel at a time), never blank every LED and
+    re-light this one. The nuclear leds_off cleared the LED-state cache, so
+    the following led_on could not self-skip and blinked the channel off->on
+    on every slider move."""
 
-    def test_disable_leds_contains_any_other_on_check(self):
+    def _body(self):
         source = LAYER_CONTROL.read_text()
-        assert 'any_other_on' in source, (
-            'disable_leds_for_other_layers must check if any other layer is on '
-            'before firing leds_off + led_on (#617 Fix A)'
-        )
-
-    def test_disable_leds_leds_off_is_guarded(self):
-        """The leds_off call inside disable_leds_for_other_layers must be
-        conditional on any_other_on, not unconditional."""
-        source = LAYER_CONTROL.read_text()
-        # Find the disable_leds_for_other_layers function body
         idx = source.find('def disable_leds_for_other_layers')
         assert idx != -1
-        # Grab the next 2000 chars to have enough of the function body
-        body = source[idx : idx + 2000]
-        # Assert the conditional structure: "if any_other_on:" appears before
-        # the leds_off call.
-        any_on_pos = body.find('if any_other_on:')
-        leds_off_pos = body.find('leds_off_async')
-        assert any_on_pos != -1, 'Missing `if any_other_on:` guard'
-        assert leds_off_pos != -1, 'Missing leds_off_async call'
-        assert any_on_pos < leds_off_pos, (
-            'any_other_on check must come before leds_off_async call (#617 Fix A)'
+        return source[idx : idx + 2500]
+
+    def test_disable_leds_offs_other_layers_individually(self):
+        """Other layers are switched off one channel at a time
+        (led_off_async), preserving the #614 one-LED-at-a-time guarantee."""
+        body = self._body()
+        assert 'led_off_async(' in body, (
+            'disable_leds_for_other_layers must turn off other layers '
+            'individually with led_off_async (#614 one LED at a time)'
         )
 
-    def test_disable_leds_preserves_614_semantics(self):
-        """The fix must still call leds_off + led_on when another layer is
-        on — preserving the #614 guarantee that only one LED is physically
-        on at any time during layer switches."""
-        source = LAYER_CONTROL.read_text()
-        idx = source.find('def disable_leds_for_other_layers')
-        body = source[idx : idx + 2500]
-        # Both commands must still be present inside the function (post
-        # LAYER-A' migration to scope.X_async).
-        assert 'ctx.scope.illumination.leds_off_async()' in body, (
-            'leds_off_async call removed — #614 fix for layer-switch cleanup lost'
+    def test_disable_leds_does_not_nuke_all_leds(self):
+        """The cache-clearing nuclear leds_off must NOT be used here -- it was
+        the off->on blink source on every slider move (#617)."""
+        body = self._body()
+        assert 'leds_off_async()' not in body, (
+            'nuclear leds_off_async() clears the LED-state cache and blinks '
+            'an already-correct channel off->on; off the other layers '
+            'individually instead (#617)'
         )
-        assert 'ctx.scope.illumination.led_on_async(' in body, (
-            'led_on_async call for current layer removed — #614 fix broken'
+
+    def test_disable_leds_does_not_relight_self(self):
+        """This layer's LED current is owned by update_led_state; disable_leds
+        must NOT re-light it. Re-lighting was only needed to undo the nuclear
+        leds_off, which also turned this layer off."""
+        body = self._body()
+        assert 'led_on_async(' not in body, (
+            'disable_leds_for_other_layers must not re-light this layer '
+            '(update_led_state owns this layer current); re-lighting here '
+            'was only there to undo the nuclear leds_off (#617)'
         )
 
 
@@ -182,7 +179,7 @@ class TestFixB2_ProgrammaticWidgetWriteWrapping:
         Structural fix (4.1 session 13 follow-up to #617): the slider is
         the user-input source of truth. The listener exists to display
         the actual camera value in the readout text, not to push values
-        back into the slider — doing so was the root cause of the
+        back into the slider -- doing so was the root cause of the
         handler-recursion feedback loop the `_initializing` flag was
         papering over.
 
@@ -198,12 +195,12 @@ class TestFixB2_ProgrammaticWidgetWriteWrapping:
         # Function is ~3000 chars; slice large enough to catch the body
         body = source[idx : idx + 3500]
 
-        # Text writes must still be present — this is the whole point of
+        # Text writes must still be present -- this is the whole point of
         # the listener.
         assert 'gain_text' in body, '_update_camera_ui must still update gain_text for #617 display'
         assert 'exp_text' in body, '_update_camera_ui must still update exp_text for #617 display'
 
-        # Must NOT write to slider.value — that path is the recursion root.
+        # Must NOT write to slider.value -- that path is the recursion root.
         for forbidden in (
             "gain_slider'].value =",
             "exp_slider'].value =",
@@ -212,7 +209,7 @@ class TestFixB2_ProgrammaticWidgetWriteWrapping:
         ):
             assert forbidden not in body, (
                 f'_update_camera_ui must not assign to slider.value; found '
-                f'{forbidden!r} — this is the recursion root from #617'
+                f'{forbidden!r} -- this is the recursion root from #617'
             )
 
         # Must still respect _initializing set by other code paths
@@ -223,7 +220,7 @@ class TestFixB2_ProgrammaticWidgetWriteWrapping:
             'path has set layer_obj._initializing'
         )
 
-        # Must NOT set _initializing itself anymore — no slider writes
+        # Must NOT set _initializing itself anymore -- no slider writes
         # means no recursion to protect against.
         assert 'layer_obj._initializing = True' not in body, (
             '_update_camera_ui should not set _initializing; text-only '

@@ -3,12 +3,12 @@
 
 Defense-in-depth, two layers:
 
-1. Load-time validation in ``Protocol.from_file`` — reject protocols
+1. Load-time validation in ``Protocol.from_file`` -- reject protocols
    where multiple rows share ``(Name, Well, Tile, Z-Slice, Tile Group
    ID)``. Tile Group ID is included so legitimate tiled protocols
    (same Name across different tile groups) are NOT rejected.
 
-2. Write-time defense in ``Lumascope.generate_image_save_path`` — a
+2. Write-time defense in ``Lumascope.generate_image_save_path`` -- a
    new ``tail_id_mode="if_collision"`` mode that uses the plain
    filename when no file exists and only adds a numeric suffix on
    actual collision. ``protocol_image_writer.py`` passes this mode
@@ -27,7 +27,7 @@ TILING_CONFIGS = REPO_ROOT / 'data' / 'tiling.json'
 
 
 # ---------------------------------------------------------------------------
-# Static-source checks — pinpoint the regression sites.
+# Static-source checks -- pinpoint the regression sites.
 # ---------------------------------------------------------------------------
 
 
@@ -66,7 +66,7 @@ def test_protocol_image_writer_uses_if_collision():
 
 
 # ---------------------------------------------------------------------------
-# Functional check — Protocol.from_file rejects duplicates.
+# Functional check -- Protocol.from_file rejects duplicates.
 # ---------------------------------------------------------------------------
 
 

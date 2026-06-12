@@ -49,7 +49,9 @@ class ProtocolRunner:
             session: ScopeSession instance providing scope, settings, executors
             protocol_thread: ProtocolThread that drives the scan loop
                 (created if None; the caller owns lifecycle in that case).
-            file_io_executor: Executor for file I/O (created if None)
+            file_io_executor: Executor for file I/O. Defaults to the session's
+                shared FILE executor; a fresh one is built only if the session
+                has none (no bundle).
             autofocus_thread: AutofocusThread for running AF. If None, the
                 protocol may run only when no step requests autofocus;
                 an AF-bearing step raises at the producer site.
@@ -57,7 +59,14 @@ class ProtocolRunner:
         self.session = session
 
         self._protocol_thread = protocol_thread or ProtocolThread()
-        self._file_io_executor = file_io_executor or SequentialIOExecutor(name='FILE')
+        # Source the one shared FILE executor from the session bundle rather
+        # than constructing a duplicate -- two executors writing the same disk
+        # target compete and can starve each other. Construct fresh only when
+        # the session genuinely has none (no bundle, e.g. a bare test harness),
+        # where no duplicate can exist.
+        self._file_io_executor = (
+            file_io_executor or session.file_io_executor or SequentialIOExecutor(name='FILE')
+        )
         self._autofocus_thread = autofocus_thread
 
         self._completion_event = threading.Event()
@@ -79,7 +88,7 @@ class ProtocolRunner:
         return self._executor
 
     # ------------------------------------------------------------------
-    # Config helpers (pure — no GUI reads)
+    # Config helpers (pure -- no GUI reads)
     # ------------------------------------------------------------------
 
     def build_image_capture_config(
@@ -87,6 +96,7 @@ class ProtocolRunner:
         live_format: str = 'TIFF',
         sequenced_format: str = 'TIFF',
         use_full_pixel_depth: bool = True,
+        jpg_quality: int = 90,
     ) -> dict:
         """Build an image capture config dict without reading from GUI."""
         return {
@@ -95,6 +105,7 @@ class ProtocolRunner:
                 'sequenced': sequenced_format,
             },
             'use_full_pixel_depth': use_full_pixel_depth,
+            'jpg_quality': jpg_quality,
         }
 
     # ------------------------------------------------------------------

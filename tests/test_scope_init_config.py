@@ -3,7 +3,7 @@
 
 Background: pre-fix, `Lumascope.__init__` warned "Partial Hardware
 Detected" whenever any of LED / motor / camera failed to construct.
-For an LS620 (which legitimately has no motor — `Focus=false,
+For an LS620 (which legitimately has no motor -- `Focus=false,
 XYStage=false, Turret=false` in scopes.json) every startup popped the
 warning twice (once for the initial connect attempt and once on the
 auto-reconnect). The fix moves the notification into
@@ -165,7 +165,7 @@ class TestNotifyPartialHardware:
 
     def test_ls620_no_motor_no_warning(self, captured_warnings):
         scope = _make_scope_with_no_hardware()
-        # LS620 has Layers — pretend the LED board did connect by
+        # LS620 has Layers -- pretend the LED board did connect by
         # swapping Null out for a real-ish object.
         scope._led_driver = object()  # truthy non-Null sentinel
         config = ScopeInitConfig.from_settings(
@@ -174,7 +174,7 @@ class TestNotifyPartialHardware:
             scope_config=_LS620_CONFIG,
         )
         scope._notify_partial_hardware(config)
-        # No motor expected, LED present, no camera attached → only
+        # No motor expected, LED present, no camera attached -> only
         # camera should be reported as missing.
         assert len(captured_warnings) == 1
         assert 'Camera' in captured_warnings[0].message
@@ -194,7 +194,7 @@ class TestNotifyPartialHardware:
 
     def test_no_scope_config_warns_for_missing_motor(self, captured_warnings):
         """Backward-compat: callers that don't supply scope_config get
-        the pre-filter behavior (any Null driver → warning)."""
+        the pre-filter behavior (any Null driver -> warning)."""
         scope = _make_scope_with_no_hardware()
         scope._led_driver = object()
         config = ScopeInitConfig.from_settings(_BASE_SETTINGS, labware=None)

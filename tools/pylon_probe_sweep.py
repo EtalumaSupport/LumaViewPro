@@ -4,7 +4,7 @@
 
 Iterates a configurable sweep matrix (pixel format x resolution x
 transport-specific knobs) and writes a per-cell JSON snapshot via
-``Lumascope.run_pylon_diagnostic_probe()`` -- the canonical
+``scope.diagnostics.run_pylon_diagnostic_probe()`` -- the canonical
 production probe API.
 
 USB3 cells vary DeviceLinkThroughputLimit (DLTL).
@@ -28,8 +28,8 @@ Outputs land in ``data/pylon_probe/`` with per-cell filenames keyed
 on model + serial + firmware + host + dltl-token + timestamp. Sweep
 runs print progress to stdout; one line per cell.
 
-Production-aligned per Architecture Rule 22: imports the canonical
-``PylonCamera`` driver and ``Lumascope.run_pylon_diagnostic_probe()``
+Production-aligned: imports the canonical ``PylonCamera`` driver
+and ``scope.diagnostics.run_pylon_diagnostic_probe()``
 API method. Transport-specific setters
 (``set_device_link_throughput_limit``,
 ``set_bandwidth_reserve_mode``, ``set_gev_packet_size``,
@@ -41,15 +41,19 @@ import argparse
 import logging
 import platform
 import sys
+import threading
 import time
 from importlib.metadata import PackageNotFoundError, version as _pkg_version
 from pathlib import Path
+
+import numpy as np
 
 # Add LumaViewPro root to path so imports work when run as script
 _LVP_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_LVP_ROOT))
 
 from drivers.pyloncamera import PylonCamera
+from lvp_logger import logger
 from modules.lumascope_api import Lumascope
 
 
@@ -169,17 +173,35 @@ def _resolve_resolutions(spec: list[str], sensor_w: int, sensor_h: int):
       - 'sensor-max'   -> (sensor_w, sensor_h)
       - integer N      -> (N, N)
       - WxH            -> (W, H)
+
+    A non-numeric, non-'sensor-max' token that doesn't contain 'x' indicates
+    the operator typed a sibling flag name (e.g. 'dltl-modes') without the
+    leading '--', so argparse's nargs='+' for --resolutions greedily consumed
+    it. Print a clear error naming the bad token and exit cleanly rather than
+    letting the bare int() ValueError crash to a CRITICAL traceback.
     """
     out = []
     for tok in spec:
         if tok == 'sensor-max':
             out.append((sensor_w, sensor_h))
-        elif 'x' in tok:
-            w, h = tok.lower().split('x', 1)
-            out.append((int(w), int(h)))
-        else:
-            n = int(tok)
-            out.append((n, n))
+            continue
+        try:
+            if 'x' in tok:
+                w, h = tok.lower().split('x', 1)
+                out.append((int(w), int(h)))
+            else:
+                n = int(tok)
+                out.append((n, n))
+        except ValueError:
+            print(
+                f'ERROR: --resolutions got non-numeric token {tok!r}. Expected '
+                f"'sensor-max', an integer N (square N x N), or WxH (e.g. '2100x1500'). "
+                f"Likely cause: a sibling flag was typed without '--' so argparse's "
+                f'--resolutions list greedily consumed it. Re-run with the full --flag '
+                f'prefix on every option.',
+                file=sys.stderr,
+            )
+            sys.exit(2)
     return out
 
 
@@ -191,22 +213,32 @@ def _build_usb3_cells(args):
             for mode in args.dltl_modes:
                 if mode == 'Off':
                     cells.append(
-                        dict(pixel_format=pf, resolution=res, dltl_mode='Off', dltl_value=None)
+                        {
+                            'pixel_format': pf,
+                            'resolution': res,
+                            'dltl_mode': 'Off',
+                            'dltl_value': None,
+                        }
                     )
                 elif mode == 'On':
                     if not args.dltl_values_mb:
                         cells.append(
-                            dict(pixel_format=pf, resolution=res, dltl_mode='On', dltl_value=None)
+                            {
+                                'pixel_format': pf,
+                                'resolution': res,
+                                'dltl_mode': 'On',
+                                'dltl_value': None,
+                            }
                         )
                     else:
                         for v_mb in args.dltl_values_mb:
                             cells.append(
-                                dict(
-                                    pixel_format=pf,
-                                    resolution=res,
-                                    dltl_mode='On',
-                                    dltl_value=int(v_mb) * 1_000_000,
-                                )
+                                {
+                                    'pixel_format': pf,
+                                    'resolution': res,
+                                    'dltl_mode': 'On',
+                                    'dltl_value': int(v_mb) * 1_000_000,
+                                }
                             )
     return cells
 
@@ -220,13 +252,13 @@ def _build_gige_cells(args):
                 for pkt in args.gige_packet_sizes:
                     for delay in args.gige_delays:
                         cells.append(
-                            dict(
-                                pixel_format=pf,
-                                resolution=res,
-                                bw_mode=bw_mode,
-                                packet_size=int(pkt),
-                                delay_ticks=int(delay),
-                            )
+                            {
+                                'pixel_format': pf,
+                                'resolution': res,
+                                'bw_mode': bw_mode,
+                                'packet_size': int(pkt),
+                                'delay_ticks': int(delay),
+                            }
                         )
     return cells
 
@@ -251,7 +283,7 @@ def _apply_cell(scope, transport: str, cell: dict, sensor_w: int, sensor_h: int)
     with scope.camera.update_camera_config():
         # Pixel format
         pf = cell['pixel_format']
-        log.append(('pixel_format', scope.set_pixel_format(pf)))
+        log.append(('pixel_format', scope.imaging.set_pixel_format(pf)))
 
         # Resolution + centered ROI
         w, h = cell['resolution']
@@ -348,17 +380,70 @@ def _connect_camera(serial_filter: str | None) -> PylonCamera:
 
 
 def _make_minimal_scope(camera: PylonCamera) -> Lumascope:
-    """Construct a minimal Lumascope shell with only the camera attached.
+    """Construct a minimal Lumascope shell with the camera + sub-APIs attached.
 
     Bypasses the full Lumascope.__init__ (which expects scope / board /
-    settings). The setters this tool calls go through
-    ``scope.imaging.<setter>``; ImagingAPI owns its own camera cache and
-    locks, so nothing needs to be wired onto the shell beyond the
-    camera handle.
+    settings). The setters this tool calls route through
+    ``scope.imaging.<setter>`` and ``scope.diagnostics.<probe>`` -- both
+    sub-APIs resolve ``self._scope._camera_driver`` via @property, so the
+    canonical driver slot must be set in addition to the legacy
+    ``scope.camera`` alias used at the ``update_camera_config()`` +
+    ``active`` callsites in this tool.
     """
+    from modules.lumascope_api.imaging import ImagingAPI
+    from modules.lumascope_api.diagnostics import DiagnosticsAPI
+
     scope = Lumascope.__new__(Lumascope)
     scope.camera = camera
+    scope._camera_driver = camera
+    scope.imaging = ImagingAPI(scope, camera)
+    scope.diagnostics = DiagnosticsAPI(scope)
     return scope
+
+
+def _host_load_loop(stop_event: threading.Event) -> None:
+    """Saturate one CPU core with the kind of per-frame work LVP does on the
+    host -- np.std over a 2100x2100 frame -- until stopped.
+
+    The bench question is why LVP sees payload-discard errors when the Pylon
+    Viewer bandwidth test (same ROI) does not: the tester does no host-side
+    work, so it never starves the grab worker. On a slow host, LVP's live
+    display + per-frame processing + AF SetValue saturate the cores and the
+    grab worker cannot drain the camera's buffers fast enough, overflowing
+    the camera-side FIFO (the "payload discarded / bandwidth insufficient"
+    error). This load reproduces that starvation so the sweep can show
+    whether a higher MaxNumBuffer absorbs it. std is chosen deliberately --
+    it is the costliest per-frame stat (two passes + sqrt) and mirrors the
+    engineering-preview compute.
+    """
+    frame = np.random.randint(0, 4096, size=(2100, 2100), dtype=np.uint16)
+    while not stop_event.is_set():
+        float(np.std(frame))
+
+
+class _HostLoad:
+    """Manage N background CPU workers that simulate slow-host load."""
+
+    def __init__(self, workers: int):
+        self._stop = threading.Event()
+        self._threads = [
+            threading.Thread(
+                target=_host_load_loop,
+                args=(self._stop,),
+                name=f'host-load-{i}',
+                daemon=True,
+            )
+            for i in range(max(0, workers))
+        ]
+
+    def start(self) -> None:
+        for t in self._threads:
+            t.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        for t in self._threads:
+            t.join(timeout=2.0)
 
 
 def main():
@@ -443,6 +528,18 @@ def main():
         'scope.imaging._set_grab_strategy().',
     )
     parser.add_argument(
+        '--host-load-workers',
+        type=int,
+        default=0,
+        help='Background CPU workers running np.std on a 2100x2100 frame '
+        'during the sweep, simulating the slow-host per-frame load that '
+        'starves the Pylon grab worker and overflows the camera FIFO. '
+        '0 = none (transport-only baseline, like the Pylon Viewer bandwidth '
+        'test). Pair with --max-num-buffer to test whether more buffers '
+        'absorb the stall. To test the camera-reset hypothesis, power-cycle '
+        'the mainboard between runs and compare the failed-buffer delta.',
+    )
+    parser.add_argument(
         '--max-transfer-size',
         type=int,
         default=None,
@@ -472,17 +569,43 @@ def main():
     _route_lvp_logging_to_stdout()
     _print_environment_header()
 
+    # Record the invocation through the production logger so it lands in the
+    # LVP_Log bundle. The tool's own progress + deltas go to stdout only; a
+    # support bundle therefore cannot tell which command produced a run, and
+    # several runs append to the same log file. This line anchors each run and
+    # captures the knobs that are not otherwise logged (host_load_workers,
+    # duration, grab_strategy) -- MaxNumBuffer is the only knob the driver
+    # already logs at connect.
+    logger.info(f'[PROBE Sweep] run start: {" ".join(sys.argv)}')
+    logger.info(
+        f'[PROBE Sweep] params: duration={args.duration}s settle={args.settle}s '
+        f'pixel_formats={args.pixel_formats} resolutions={args.resolutions} '
+        f'max_num_buffer={args.max_num_buffer} grab_strategy={args.grab_strategy} '
+        f'host_load_workers={args.host_load_workers} '
+        f'max_transfer_size={args.max_transfer_size} num_queued_urbs={args.num_queued_urbs} '
+        f'camera_serial={args.camera_serial}'
+    )
+
     camera = _connect_camera(args.camera_serial)
     scope = _make_minimal_scope(camera)
 
     # Apply Pylon tuning overrides via the imaging sub-API levers.
-    # Done post-connect so the driver is active; MaxNumBuffer storage
-    # update applies on the next reconnect (the InstantCamera node
-    # locks once AcquireContinuousConfiguration auto-starts grabbing).
-    # MaxTransferSize / NumMaxQueuedUrbs / grab strategy are
-    # accepted live (strategy takes effect on the next start_grabbing).
+    # MaxNumBuffer is special: it is the connect-time cap (applied post-Open
+    # in connect()), and the InstantCamera node goes read-only once the
+    # implicit AcquireContinuous auto-start begins grabbing -- so the live
+    # SetValue fails and the lever only STORES the value. Reconnect here so
+    # the stored cap is actually applied before the probe; without this the
+    # probe runs at the default cap and the buffer sweep silently does
+    # nothing (the "MaxNumBuffer cap applied post-Open: requested=N actual=N"
+    # line is the tell -- it must read the requested value, not the default).
+    # MaxTransferSize / NumMaxQueuedUrbs / grab strategy are accepted live,
+    # so set them AFTER the reconnect, on the fresh connection.
     if args.max_num_buffer is not None:
         scope.imaging._set_max_num_buffer(args.max_num_buffer)
+        camera.disconnect()
+        if not camera.connect():
+            print('ERROR: reconnect to apply the MaxNumBuffer override failed')
+            sys.exit(1)
     if args.grab_strategy is not None:
         scope.imaging._set_grab_strategy(args.grab_strategy)
     if args.max_transfer_size is not None:
@@ -511,6 +634,15 @@ def main():
 
     print(f'Sweep: {len(cells)} cells ({transport.upper()})')
 
+    host_load = _HostLoad(args.host_load_workers)
+    if args.host_load_workers > 0:
+        print(
+            f'Host load: {args.host_load_workers} CPU worker(s) running np.std on a '
+            f'2100x2100 frame (simulating slow-host per-frame work that starves the '
+            f'grab worker; failed= delta below is the payload-discard count)'
+        )
+        host_load.start()
+
     # Camera must be grabbing for stats counters to advance.
     camera.start_grabbing()
     try:
@@ -523,13 +655,29 @@ def main():
                     print(f'    apply {knob}: {status}')
             if args.settle > 0:
                 time.sleep(args.settle)
-            snapshot = scope.run_pylon_diagnostic_probe(duration_s=args.duration)
+            snapshot = scope.diagnostics.run_pylon_diagnostic_probe(duration_s=args.duration)
             out_path = snapshot.get('output_path')
             errors = snapshot.get('errors') or []
+            deltas = snapshot.get('deltas') or {}
+            delta_summary = (
+                f'total={deltas.get("Statistic_Total_Buffer_Count")} '
+                f'failed={deltas.get("Statistic_Failed_Buffer_Count")} '
+                f'resync={deltas.get("Statistic_Resynchronization_Count")} '
+                f'missed={deltas.get("Statistic_Missed_Frame_Count")}'
+            )
+            print(f'    deltas: {delta_summary}')
             print(f'    -> {out_path}' + (f' (errors: {errors})' if errors else ''))
+            # Also log the result so the failed-buffer count is in the bundle,
+            # keyed to the cell + the buffer / load knobs for this run.
+            logger.info(
+                f'[PROBE Sweep] cell {i}/{len(cells)} {cell_id} '
+                f'max_num_buffer={args.max_num_buffer} '
+                f'host_load_workers={args.host_load_workers}: {delta_summary}'
+            )
     finally:
         camera.stop_grabbing()
         camera.disconnect()
+        host_load.stop()
 
 
 if __name__ == '__main__':

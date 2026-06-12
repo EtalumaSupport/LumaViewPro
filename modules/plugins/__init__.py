@@ -30,7 +30,8 @@ import logging
 import re
 import threading
 from dataclasses import dataclass, field
-from typing import Any, Callable, Iterable, Optional
+from typing import Any, Optional
+from collections.abc import Callable, Iterable
 
 logger = logging.getLogger('lvp_logger')
 
@@ -273,7 +274,7 @@ class PostProcessingRegistry(_BaseNamespace):
             self._handlers[spec.name] = (spec, processor)
             self._record_loaded(spec)
 
-    def get(self, name: str) -> Optional[Callable]:
+    def get(self, name: str) -> Callable | None:
         with self._lock:
             entry = self._handlers.get(name)
             return entry[1] if entry is not None else None
@@ -296,12 +297,11 @@ class PostProcessingRegistry(_BaseNamespace):
 class LiveProcessingRegistry(_BaseNamespace):
     """Per-frame listener plugins. Thin proxy to scope.imaging.
 
-    Per WAVE7_PHASE_4D5_PLAN sec 9 alignment (2026-05-19): registry
-    forwards register / unregister to the canonical listener registry
-    on ImagingAPI (Rule 35 -- one source of truth for the fan-out
-    list). This class only keeps a name -> (spec, handler) lookup
-    table so unregister-by-plugin-name can resolve to the original
-    handler that ImagingAPI was given.
+    Registry forwards register / unregister to the canonical listener
+    registry on ImagingAPI (one source of truth for the fan-out list).
+    This class only keeps a name -> (spec, handler) lookup table so
+    unregister-by-plugin-name can resolve to the original handler that
+    ImagingAPI was given.
 
     Host wires the live Lumascope via bind_scope() before plugin
     discovery; load_plugins() does this automatically. Register() on
@@ -470,6 +470,46 @@ class PluginRegistry:
             self._loaded_plugins.clear()
         return out
 
+    def attribute_exception(self, exc_tb) -> str | None:
+        """Name the loaded plugin whose code appears in a traceback, or None.
+
+        Walks the traceback frames and matches each frame's file against
+        the package directory of every loaded plugin module. Used by the
+        app-level crash guard to contain plugin exceptions (popup + log,
+        app continues) instead of letting them take down the host --
+        plugins are separately versioned and may not be ours to fix, so
+        the host cannot assume their handlers are safe.
+
+        Args:
+            exc_tb: A traceback object (``sys.exc_info()[2]``).
+
+        Returns:
+            str | None: The plugin name when any traceback frame lives
+                under a loaded plugin's package directory; None when the
+                exception is not attributable to plugin code.
+        """
+        import os
+        import traceback
+
+        with self._loaded_lock:
+            roots = []
+            for name, module in self._loaded_plugins:
+                module_file = getattr(module, '__file__', None)
+                if module_file:
+                    roots.append((name, os.path.dirname(os.path.abspath(module_file))))
+        if not roots:
+            return None
+        try:
+            frames = traceback.extract_tb(exc_tb)
+        except Exception:
+            return None
+        for frame in frames:
+            frame_path = os.path.abspath(frame.filename)
+            for name, root in roots:
+                if frame_path.startswith(root + os.sep):
+                    return name
+        return None
+
     def all_health(self) -> tuple[NamespaceHealth, ...]:
         """Return per-namespace health snapshots for tech-support reports."""
         return (
@@ -536,7 +576,7 @@ class PluginRegistry:
                 if ns is not None:
                     ns.record_runtime_error(name, 'on_settings_changed', exc)
 
-    def _find_namespace(self, plugin_name: str) -> Optional['_BaseNamespace']:
+    def _find_namespace(self, plugin_name: str) -> _BaseNamespace | None:
         for ns in (
             self.ui,
             self.post_processing,
@@ -567,7 +607,7 @@ def _any_prefix_match(
 
 
 def _diff_settings_keys(
-    old: Optional[dict],
+    old: dict | None,
     new: dict,
     prefix: str = '',
 ) -> set[str]:
@@ -648,7 +688,7 @@ _SEMVER_RE = re.compile(r'^(\d+)\.(\d+)\.(\d+)')
 _REQ_RE = re.compile(r'^(>=|>|==|<=|<|~=)?\s*(\d+)\.(\d+)\.(\d+)')
 
 
-def _parse_semver(s: str) -> Optional[tuple[int, int, int]]:
+def _parse_semver(s: str) -> tuple[int, int, int] | None:
     """Parse leading semver triple from a string. '4.0.0-beta8' -> (4,0,0)."""
     m = _SEMVER_RE.match(s.strip())
     if not m:
@@ -656,7 +696,7 @@ def _parse_semver(s: str) -> Optional[tuple[int, int, int]]:
     return int(m.group(1)), int(m.group(2)), int(m.group(3))
 
 
-def _parse_requirement(req: str) -> Optional[tuple[str, tuple[int, int, int]]]:
+def _parse_requirement(req: str) -> tuple[str, tuple[int, int, int]] | None:
     m = _REQ_RE.match(req.strip())
     if not m:
         return None
@@ -697,7 +737,7 @@ def is_version_compatible(requires: str, host: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _extract_spec(module: Any) -> Optional[PluginSpec]:
+def _extract_spec(module: Any) -> PluginSpec | None:
     """Plugins expose a module-level 'spec' attribute."""
     spec = getattr(module, 'spec', None)
     if isinstance(spec, PluginSpec):
@@ -706,7 +746,7 @@ def _extract_spec(module: Any) -> Optional[PluginSpec]:
 
 
 def _notify_load_failure(ctx: Any, plugin_name: str, reason: str) -> None:
-    """Fire a user-facing notification per Rule 14 when a plugin fails to load.
+    """Fire a user-facing notification when a plugin fails to load.
 
     Best-effort: if notifications aren't wired (e.g. headless test
     harness), the failure is still logged and the function returns.

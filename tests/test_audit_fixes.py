@@ -127,7 +127,7 @@ def _camera_sdk_mock_modules():
 def _common_mock_modules():
     """Return a dict of commonly needed mock modules (lvp_logger, platformdirs, etc).
 
-    NOTE: cv2 is NOT mocked — it's a real installed package with no Kivy
+    NOTE: cv2 is NOT mocked -- it's a real installed package with no Kivy
     dependency. Mocking it causes test-ordering contamination: image_utils
     caches the mock cv2 reference at import time, and monkeypatch cleanup
     can't fix the cached reference. This broke TestAddTimestampInPlace.
@@ -177,7 +177,7 @@ def _mock_heavy_deps(monkeypatch):
 
 
 # ===========================================================================
-# 1. Domain exceptions — no mocks needed, pure Python module
+# 1. Domain exceptions -- no mocks needed, pure Python module
 # ===========================================================================
 from drivers.exceptions import HardwareError
 from modules.exceptions import (
@@ -221,7 +221,7 @@ class TestDomainExceptions:
 
 
 # ===========================================================================
-# 2. Input validation — Lumascope API (needs mocks for camera/logger deps)
+# 2. Input validation -- Lumascope API (needs mocks for camera/logger deps)
 # ===========================================================================
 
 
@@ -405,7 +405,7 @@ class TestProtocolStateTransitions:
 
 
 # ===========================================================================
-# 5. Settings snapshot (AppContext) — no mocks needed, pure Python dataclass
+# 5. Settings snapshot (AppContext) -- no mocks needed, pure Python dataclass
 # ===========================================================================
 from modules.app_context import AppContext
 
@@ -476,7 +476,7 @@ class TestAppleScriptEscaping:
 
 
 # ===========================================================================
-# 7. FPS calculation edge case — pure math, no imports needed
+# 7. FPS calculation edge case -- pure math, no imports needed
 # ===========================================================================
 class TestFpsCalculation:
     """Verify FPS floor calculation used in protocol timing."""
@@ -502,7 +502,7 @@ class TestFpsCalculation:
 
 
 # ===========================================================================
-# 8. Phase 4f — Security hardening tests
+# 8. Phase 4f -- Security hardening tests
 # ===========================================================================
 
 
@@ -593,7 +593,7 @@ class TestLvpLock:
         lock = LvpLock(lock_port=0)
         lock.lock()
         lock.close()
-        # Socket should be closed — port property still works
+        # Socket should be closed -- port property still works
         assert isinstance(lock.port, int)
 
     def test_second_instance_blocked(self):
@@ -601,7 +601,7 @@ class TestLvpLock:
 
         Without this guarantee, a second LumaViewPro launch silently tramples
         the first's exclusive serial ports on Windows. The bug was an accidental
-        SO_REUSEADDR setsockopt — on Windows that has SO_REUSEPORT semantics
+        SO_REUSEADDR setsockopt -- on Windows that has SO_REUSEPORT semantics
         and explicitly allows live double-bind.
         """
         from modules.lvp_lock import LvpLock
@@ -616,7 +616,7 @@ class TestLvpLock:
             second = LvpLock(lock_port=port)
             try:
                 assert second.lock() is False, (
-                    'second lock on same port MUST fail — regression of #559 '
+                    'second lock on same port MUST fail -- regression of #559 '
                     '(SO_REUSEADDR reintroduced?)'
                 )
             finally:
@@ -631,6 +631,8 @@ class TestLvpLock:
         """
         import pathlib
 
+        # pin-justified: lock-before-kivy-import ordering within the file
+        # is the contract; textual position is the only observable.
         src = pathlib.Path('lumaviewpro.py').read_text()
         lock_idx = src.find('_lvp_lock_singleton.lock()')
         assert lock_idx >= 0, (
@@ -723,7 +725,7 @@ class TestTechSupportPrivacyNotice:
 
 
 # ===========================================================================
-# 9. Phase 6 — Cleanup tests
+# 9. Phase 6 -- Cleanup tests
 # ===========================================================================
 
 
@@ -773,6 +775,7 @@ class TestPyprojectConfig:
         import pathlib
 
         root = pathlib.Path(__file__).parent.parent
+        # pin-justified: packaging/test-runner config text is the contract.
         content = (root / 'pyproject.toml').read_text()
         assert '[tool.pytest.ini_options]' in content
         assert '[tool.coverage.run]' in content
@@ -791,6 +794,8 @@ class TestGdiSamplerCtypesSignatures:
     def _read_common_utils(self):
         import pathlib
 
+        # pin-justified: Win32 FFI restype/argtypes declarations are the
+        # contract; there is no Mac-side behavioral seam to exercise them.
         root = pathlib.Path(__file__).parent.parent
         return (root / 'modules' / 'common_utils.py').read_text()
 
@@ -817,7 +822,7 @@ class TestGdiSamplerCtypesSignatures:
 
 
 # ===========================================================================
-# 9. Position cache — push-based, zero serial I/O
+# 9. Position cache -- push-based, zero serial I/O
 # ===========================================================================
 
 
@@ -825,7 +830,7 @@ class TestPositionCache:
     """Verify push-based position cache in Lumascope API.
 
     The position cache eliminates serial polling from the GUI layer.
-    Positions are updated on move commands and after homing — the GUI
+    Positions are updated on move commands and after homing -- the GUI
     reads from cache with zero hardware calls.
     """
 
@@ -870,9 +875,16 @@ class TestPositionCache:
         assert result['Z'] == 300.0
 
     def test_get_current_position_matches_target(self, sim_scope):
-        """After a blocking move, get_current_position returns the target."""
+        """After a blocking move, get_current_position is at the target
+        within microstep precision. The motor lands at the nearest
+        microstep to the commanded value; converting back to um round-
+        trips through that quantization (~0.078 um on X/Y, ~0.025 um on
+        Z), so exact equality is not achievable. #674 H4 changed the
+        cache contract from 'snap to commanded target on arrival' to
+        'reflect motor's polled actual', exposing this quantization
+        residual."""
         sim_scope.motion.move_absolute_position('Z', 7777.0, wait_until_complete=True)
-        assert sim_scope.motion.get_current_position('Z') == 7777.0
+        assert sim_scope.motion.get_current_position('Z') == pytest.approx(7777.0, abs=0.1)
 
     def test_refresh_after_homing(self, sim_scope):
         """refresh_position_cache syncs cache from hardware (used after homing)."""
@@ -897,7 +909,7 @@ class TestPositionCache:
 
 
 # ===========================================================================
-# 8. Axis state model — push-based state tracking (zero serial I/O)
+# 8. Axis state model -- push-based state tracking (zero serial I/O)
 # ===========================================================================
 
 
@@ -939,6 +951,7 @@ class TestAxisState:
         """After home(), present axes should be IDLE."""
         from modules.lumascope_api import AxisState
 
+        sim_scope._motion_driver.set_timing_mode('instant')
         sim_scope.motion.home()
         for ax in sim_scope.capabilities.axes:
             assert sim_scope.motion.get_axis_state(ax) == AxisState.IDLE
@@ -947,7 +960,7 @@ class TestAxisState:
         """After thome on a turret-equipped scope, T axis should be IDLE.
 
         Uses an LS850T sim explicitly instead of the default LS850
-        sim_scope fixture (which has no turret) — pre-B4 the test passed
+        sim_scope fixture (which has no turret) -- pre-B4 the test passed
         on LS850 only because `_axis_state['T']` was a phantom key from
         the hardcoded VALID_AXES tuple. Post-B4, T is correctly absent
         on no-turret scopes and `thome()` is a Rule 8 silent no-op there.
@@ -959,40 +972,32 @@ class TestAxisState:
         scope._motion_driver = SimulatedMotorBoard(model='LS850T')
         present = scope._motion_driver.detect_present_axes()
         assert 'T' in present, 'LS850T sim must report T present'
-        scope.motion._pos_cache = {ax: 0.0 for ax in present}
-        scope.motion._axis_state = {ax: AxisState.UNKNOWN for ax in present}
+        scope.motion._pos_cache = dict.fromkeys(present, 0.0)
+        scope.motion._axis_state = dict.fromkeys(present, AxisState.UNKNOWN)
         scope.motion._arrival_events = {ax: threading.Event() for ax in present}
         for ev in scope.motion._arrival_events.values():
             ev.set()
-        scope.motion._move_profile = {ax: None for ax in present}
+        scope.motion._move_profile = dict.fromkeys(present)
 
         scope.motion.thome()
         assert scope.motion.get_axis_state('T') == AxisState.IDLE
 
-    @pytest.mark.xfail(
-        reason='Pre-existing test bug surfaced by audit F9 caller-survey. '
-        'Default sim model changed from LS850 to LS850T in LVP `6b16823` '
-        "(session 10). Original test expected `'T' not in axes_present()` "
-        'which used to hold on LS850 but no longer holds on LS850T. The '
-        "naive fix (swap _motion_driver to LS850 post-init) doesn't rebuild "
-        'scope.capabilities -- motion.thome still sees T in capabilities.axes '
-        'and transitions T to IDLE. Proper fix requires either a Lumascope '
-        'constructor parameter that selects the sim model OR a '
-        'capabilities-rebuild path that re-runs detection after driver '
-        'swap. Tracked in TODO.md.',
-        strict=False,
-    )
     def test_thome_on_no_turret_scope_is_silent_noop(self, _mock_heavy_deps):
         """Audit B4 + Rule 8: calling thome() on a scope without a
         turret must not raise and must leave T in UNKNOWN state --
-        there is no phantom T axis to transition."""
-        from modules.lumascope_api import Lumascope, AxisState
-        from drivers.simulated_motorboard import SimulatedMotorBoard
+        there is no phantom T axis to transition.
 
-        scope = Lumascope(simulate=True)
-        scope._motion_driver = SimulatedMotorBoard(model='LS850')
+        Building with sim_model='LS850' (no turret) makes capabilities.axes
+        omit T from the start, so this exercises the real no-turret path --
+        unlike swapping _motion_driver post-init, which left T in the
+        already-built capabilities.
+        """
+        from modules.lumascope_api import Lumascope, AxisState
+
+        scope = Lumascope(simulate=True, sim_model='LS850')
         try:
             assert 'T' not in tuple(scope._motion_driver.detect_present_axes())
+            assert 'T' not in scope.capabilities.axes
             scope.motion.thome()
             assert scope.motion.get_axis_state('T') == AxisState.UNKNOWN
         finally:
@@ -1002,6 +1007,7 @@ class TestAxisState:
         """is_any_axis_moving() returns False when all axes are IDLE."""
         from modules.lumascope_api import AxisState
 
+        sim_scope._motion_driver.set_timing_mode('instant')
         # Home all axes to set them IDLE
         sim_scope.motion.zhome()
         sim_scope.motion.home()
@@ -1059,7 +1065,7 @@ class TestAxisState:
 
 
 # ===========================================================================
-# Issue Regression Tests — each bug fix gets a test (Rule 18)
+# Issue Regression Tests -- each bug fix gets a test (Rule 18)
 # ===========================================================================
 
 
@@ -1089,7 +1095,7 @@ class TestIssue602_AFExecutorLED:
 
         io = SequentialIOExecutor(name='IO_TEST')
         cam = SequentialIOExecutor(name='CAM_TEST')
-        af_ex = SequentialIOExecutor(name='AF_TEST')
+        af_ex = SequentialIOExecutor(name='AF_TEST')  # noqa: F841 -- deferred
         file_ex = SequentialIOExecutor(name='FILE_TEST')
         af = AutofocusRunner(
             scope=scope,
@@ -1097,8 +1103,10 @@ class TestIssue602_AFExecutorLED:
             io_executor=io,
             file_io_executor=file_ex,
         )
-        # Verify _led_on and _led_off methods exist
-        assert hasattr(af, '_led_on')
+        # AF illuminates its own channel at scan start via the exclusive
+        # primitive (the former _led_on helper was folded into that call);
+        # _led_off still releases AF's channel.
+        assert hasattr(scope.illumination, 'leds_exclusive')
         assert hasattr(af, '_led_off')
         # Verify _reset_state initializes LED fields
         af._reset_state()
@@ -1116,7 +1124,7 @@ class TestIssue602_AFExecutorLED:
 
         io = SequentialIOExecutor(name='IO_TEST')
         cam = SequentialIOExecutor(name='CAM_TEST')
-        af_ex = SequentialIOExecutor(name='AF_TEST')
+        af_ex = SequentialIOExecutor(name='AF_TEST')  # noqa: F841 -- deferred
         file_ex = SequentialIOExecutor(name='FILE_TEST')
         af = AutofocusRunner(
             scope=scope,
@@ -1218,17 +1226,21 @@ class TestIssue605_AccordionLEDProtocol:
     Fix: skip leds_off when protocol_led_on setting is active.
     """
 
-    def test_accordion_collapse_has_protocol_led_on_guard(self):
-        """accordion_collapse source must check protocol_led_on setting."""
+    def test_accordion_collapse_skips_led_cleanup_during_protocol(self):
+        """accordion_collapse must skip its LED cleanup while a protocol is
+        running, so a step's LED (turned on for 'Protocol LEDs On') is not
+        killed by the accordion-collapse event that fires when the step's
+        channel is expanded (#605). The cleanup is gated on
+        protocol_running.is_set()."""
         import pathlib
 
         source = pathlib.Path('ui/image_settings.py').read_text()
-        # Find the accordion_collapse method body
-        assert 'protocol_led_on' in source, (
-            'accordion_collapse must check protocol_led_on setting (#605)'
-        )
-        assert 'scope_leds_off' in source, (
-            'accordion_collapse must still call scope_leds_off when protocol_led_on is False'
+        idx = source.find('def _do_accordion_collapse')
+        assert idx != -1
+        body = source[idx : idx + 2500]
+        assert 'protocol_running.is_set()' in body, (
+            'accordion_collapse must skip LED cleanup when a protocol is '
+            'running so the step LED stays on (#605)'
         )
 
 
@@ -1263,7 +1275,7 @@ class TestIssue606_TurretObjectiveValidation:
 
 
 # ===========================================================================
-# Audit Fix Regression Tests — Session 8 (B6, B5, D2, G3, F7, G4)
+# Audit Fix Regression Tests -- Session 8 (B6, B5, D2, G3, F7, G4)
 # ===========================================================================
 
 
@@ -1276,7 +1288,7 @@ class TestB6_WriteMotorRegisterRemoved:
 
         scope = Lumascope(simulate=True)
         assert not hasattr(scope, 'write_motor_register'), (
-            'write_motor_register() should have been removed (B6 — zero callers)'
+            'write_motor_register() should have been removed (B6 -- zero callers)'
         )
 
 
@@ -1562,11 +1574,13 @@ class TestSetBinningSizeReturnsBool:
 
     def test_set_binning_size_has_bool_return_annotation(self):
         # Body relocated to imaging.py in Wave 7 Phase 4d.
-        import pathlib
+        from tests.ast_seams import assert_def
 
-        source = pathlib.Path('modules/lumascope_api/imaging.py').read_text()
-        idx = source.find('def set_binning_size(self, size: int) -> bool:')
-        assert idx != -1, 'ImagingAPI.set_binning_size must declare `-> bool` (Wave 1 B1; Rule 37)'
+        assert_def(
+            'modules/lumascope_api/imaging.py', 'set_binning_size',
+            params=['self', 'size'], returns='bool',
+            msg='ImagingAPI.set_binning_size must declare `-> bool` (Wave 1 B1; Rule 37)',
+        )
 
     def test_set_binning_size_returns_driver_value(self):
         """Method body must capture and return the driver's return value
@@ -1591,6 +1605,8 @@ class TestSetBinningSizeReturnsBool:
         """Rule 38: public methods declare what they return."""
         import pathlib
 
+        # pin-justified: the Returns: docstring section is the documented
+        # contract (doc convention guard, not an implementation pin).
         source = pathlib.Path('modules/lumascope_api/imaging.py').read_text()
         idx = source.find('def set_binning_size(self, size: int) -> bool:')
         next_def = source.find('\n    def ', idx + 1)
@@ -1601,63 +1617,90 @@ class TestSetBinningSizeReturnsBool:
 
     def test_pyloncamera_set_binning_size_raises_hardware_error(self):
         """Tier 3a / C2: PylonCamera.set_binning_size must raise HardwareError
-        on caught exception paths, not return False (Rule 29)."""
-        import pathlib
+        on every SDK failure, not return False (Rule 29). RuntimeException
+        marks the camera disconnected; a transient timeout does not."""
+        from pypylon import genicam
 
-        source = pathlib.Path('drivers/pyloncamera.py').read_text()
-        idx = source.find('def set_binning_size(self, size: int) -> bool:')
-        assert idx != -1
-        next_def = source.find('\n    def ', idx + 1)
-        body = source[idx:next_def] if next_def != -1 else source[idx : idx + 3000]
-        # Three exception classes; each must raise HardwareError, not return False
-        for exc_clause in (
-            'except genicam.TimeoutException',
-            'except genicam.RuntimeException',
-            'except Exception',
-        ):
-            assert exc_clause in body, f'PylonCamera.set_binning_size must keep {exc_clause}'
-        assert body.count('raise HardwareError(') >= 3, (
-            'PylonCamera.set_binning_size must raise HardwareError on each caught exception (C2)'
-        )
+        from drivers.exceptions import HardwareError
+
+        cam = _bare_pylon_camera()
+        cam.active.BinningVertical.SetValue.side_effect = genicam.RuntimeException('usb gone')
+        with pytest.raises(HardwareError):
+            cam.set_binning_size(2)
+        cam._mark_disconnected.assert_called_once()
+
+        cam = _bare_pylon_camera()
+        cam.active.BinningVertical.SetValue.side_effect = genicam.TimeoutException('slow bus')
+        with pytest.raises(HardwareError):
+            cam.set_binning_size(2)
+        cam._mark_disconnected.assert_not_called()
+
+        cam = _bare_pylon_camera()
+        cam.active.BinningVertical.SetValue.side_effect = ValueError('unexpected')
+        with pytest.raises(HardwareError):
+            cam.set_binning_size(2)
+
+    def test_pyloncamera_set_binning_size_guards_return_false(self):
+        """Caller-correctable guards return False without touching the SDK."""
+        cam = _bare_pylon_camera()
+        assert cam.set_binning_size(9) is False
+        cam.active.BinningVertical.SetValue.assert_not_called()
+
+        cam = _bare_pylon_camera()
+        cam.active = None
+        assert cam.set_binning_size(2) is False
 
     def test_pyloncamera_set_pixel_format_raises_hardware_error(self):
-        """Tier 3a / C1."""
-        import pathlib
+        """Tier 3a / C1: SDK failure surfaces as HardwareError;
+        RuntimeException marks the camera disconnected."""
+        from pypylon import genicam
 
-        source = pathlib.Path('drivers/pyloncamera.py').read_text()
-        idx = source.find('def set_pixel_format(self, pixel_format: str) -> bool:')
-        assert idx != -1
-        next_def = source.find('\n    def ', idx + 1)
-        body = source[idx:next_def] if next_def != -1 else source[idx : idx + 3000]
-        assert body.count('raise HardwareError(') >= 2, (
-            'PylonCamera.set_pixel_format must raise HardwareError on each caught exception (C1)'
-        )
+        from drivers.exceptions import HardwareError
+
+        cam = _bare_pylon_camera()
+        cam.get_supported_pixel_formats = lambda: ['Mono12']
+        cam.active.PixelFormat.GetValue.return_value = 'Mono8'
+        cam.active.PixelFormat.SetValue.side_effect = genicam.RuntimeException('usb gone')
+        with pytest.raises(HardwareError):
+            cam.set_pixel_format('Mono12')
+        cam._mark_disconnected.assert_called_once()
+
+        cam = _bare_pylon_camera()
+        cam.get_supported_pixel_formats = lambda: ['Mono12']
+        cam.active.PixelFormat.GetValue.return_value = 'Mono8'
+        cam.active.PixelFormat.SetValue.side_effect = ValueError('unexpected')
+        with pytest.raises(HardwareError):
+            cam.set_pixel_format('Mono12')
 
     def test_idscamera_set_binning_size_raises_hardware_error(self):
         """Tier 3a / C5."""
-        import pathlib
+        from drivers.exceptions import HardwareError
 
-        source = pathlib.Path('drivers/idscamera.py').read_text()
-        idx = source.find('def set_binning_size(self, size: int) -> bool:')
-        assert idx != -1
-        next_def = source.find('\n    def ', idx + 1)
-        body = source[idx:next_def] if next_def != -1 else source[idx : idx + 3000]
-        assert 'raise HardwareError(' in body, (
-            'IDSCamera.set_binning_size must raise HardwareError on caught exception (C5)'
-        )
+        cam = _bare_ids_camera()
+        cam.remote_nodemap.FindNode.return_value.SetValue.side_effect = RuntimeError('sdk')
+        with pytest.raises(HardwareError):
+            cam.set_binning_size(2)
 
     def test_idscamera_set_pixel_format_raises_and_annotated(self):
-        """Tier 3a / C3 + Tier 1-A: annotation added, raises HardwareError."""
-        import pathlib
+        """Tier 3a / C3 + Tier 1-A: annotation declared, raises
+        HardwareError and marks disconnected on SDK failure."""
+        from tests.ast_seams import assert_def
 
-        source = pathlib.Path('drivers/idscamera.py').read_text()
-        idx = source.find('def set_pixel_format(self, pixel_format: str) -> bool:')
-        assert idx != -1, 'IDSCamera.set_pixel_format must declare `-> bool` (Wave 1 C3 / Rule 37)'
-        next_def = source.find('\n    def ', idx + 1)
-        body = source[idx:next_def] if next_def != -1 else source[idx : idx + 3000]
-        assert 'raise HardwareError(' in body, (
-            'IDSCamera.set_pixel_format must raise HardwareError on caught exception (C3)'
+        from drivers.exceptions import HardwareError
+
+        assert_def(
+            'drivers/idscamera.py', 'set_pixel_format', returns='bool',
+            msg='IDSCamera.set_pixel_format must declare `-> bool` (Wave 1 C3 / Rule 37)',
         )
+
+        cam = _bare_ids_camera()
+        cam._resolve_logical_format = lambda fmt: 'Mono8'
+        cam.remote_nodemap.FindNode.return_value.SetCurrentEntry.side_effect = (
+            RuntimeError('sdk')
+        )
+        with pytest.raises(HardwareError):
+            cam.set_pixel_format('Mono8')
+        cam._mark_disconnected.assert_called_once()
 
 
 class TestHomeReturnsBool:
@@ -1672,27 +1715,27 @@ class TestHomeReturnsBool:
     """
 
     def test_lumascope_zhome_has_bool_return_annotation(self):
-        import pathlib
+        from tests.ast_seams import assert_def
 
-        source = pathlib.Path('modules/lumascope_api/motion.py').read_text()
-        assert 'def zhome(self) -> bool:' in source, (
-            'MotionAPI.zhome must declare `-> bool` (Rule 37)'
+        assert_def(
+            'modules/lumascope_api/motion.py', 'zhome', returns='bool',
+            msg='MotionAPI.zhome must declare `-> bool` (Rule 37)',
         )
 
     def test_lumascope_home_has_bool_return_annotation(self):
-        import pathlib
+        from tests.ast_seams import assert_def
 
-        source = pathlib.Path('modules/lumascope_api/motion.py').read_text()
-        assert 'def home(self) -> bool:' in source, (
-            'MotionAPI.home must declare `-> bool` (Rule 37)'
+        assert_def(
+            'modules/lumascope_api/motion.py', 'home', returns='bool',
+            msg='MotionAPI.home must declare `-> bool` (Rule 37)',
         )
 
     def test_lumascope_thome_has_bool_return_annotation(self):
-        import pathlib
+        from tests.ast_seams import assert_def
 
-        source = pathlib.Path('modules/lumascope_api/motion.py').read_text()
-        assert 'def thome(self) -> bool:' in source, (
-            'MotionAPI.thome must declare `-> bool` (Rule 37)'
+        assert_def(
+            'modules/lumascope_api/motion.py', 'thome', returns='bool',
+            msg='MotionAPI.thome must declare `-> bool` (Rule 37)',
         )
 
     def test_lumascope_zhome_returns_driver_value(self):
@@ -1833,11 +1876,12 @@ class TestDisconnectReturnsBool:
     """
 
     def test_disconnect_has_bool_return_annotation(self):
-        import pathlib
+        from tests.ast_seams import assert_def
 
-        source = pathlib.Path('modules/lumascope_api/_lumascope.py').read_text()
-        assert 'def disconnect(self) -> bool:' in source, (
-            'Lumascope.disconnect must declare `-> bool` (Wave 4 B2; Rule 37)'
+        assert_def(
+            'modules/lumascope_api/_lumascope.py', 'disconnect',
+            class_name='Lumascope', returns='bool',
+            msg='Lumascope.disconnect must declare `-> bool` (Wave 4 B2; Rule 37)',
         )
 
     def test_disconnect_aggregates_and_returns_bool(self):
@@ -1891,11 +1935,12 @@ class TestEnterEngineeringModeRaises:
     """
 
     def test_ledboard_enter_engineering_mode_has_bool_return(self):
-        import pathlib
+        from tests.ast_seams import assert_def
 
-        source = pathlib.Path('drivers/ledboard.py').read_text()
-        assert 'def enter_engineering_mode(self, timeout: float = 5.0) -> bool:' in source, (
-            'LEDBoard.enter_engineering_mode must declare `-> bool` (Tier 1-A; Rule 37)'
+        assert_def(
+            'drivers/ledboard.py', 'enter_engineering_mode',
+            params=['self', 'timeout'], returns='bool',
+            msg='LEDBoard.enter_engineering_mode must declare `-> bool` (Tier 1-A; Rule 37)',
         )
 
     def test_ledboard_enter_engineering_mode_raises(self):
@@ -1992,7 +2037,7 @@ class TestG4_MotorLogSuppression:
 
         source = pathlib.Path('drivers/motorboard.py').read_text()
         assert 'pause_thread()' not in source, (
-            'motorboard.py must not use pause_thread() — suppresses all thread logging (G4)'
+            'motorboard.py must not use pause_thread() -- suppresses all thread logging (G4)'
         )
 
     def test_connect_log_suppressed_flag_exists(self, _mock_heavy_deps):
@@ -2020,7 +2065,7 @@ class TestG4_MotorLogSuppression:
 
 class TestRule1_MotorBoardNoNotifications:
     """Rule 1: drivers must not fire user-facing notifications directly.
-    Notifications are the API layer's responsibility — it has scope
+    Notifications are the API layer's responsibility -- it has scope
     context to decide whether a driver failure is user-visible (LS820
     expected motor) vs expected absence (LS620 has no motor)."""
 
@@ -2029,7 +2074,7 @@ class TestRule1_MotorBoardNoNotifications:
 
         source = pathlib.Path('drivers/motorboard.py').read_text()
         assert 'from modules.notification_center import notifications' not in source, (
-            'MotorBoard must not import notifications — Rule 1 (call down, not up)'
+            'MotorBoard must not import notifications -- Rule 1 (call down, not up)'
         )
 
     def test_motorboard_does_not_call_notifications(self):
@@ -2058,7 +2103,7 @@ class TestRule1_CameraNoNotifications:
 
         source = pathlib.Path('drivers/camera.py').read_text()
         assert 'from modules.notification_center import notifications' not in source, (
-            'drivers/camera.py must not import notifications — Rule 1'
+            'drivers/camera.py must not import notifications -- Rule 1'
         )
 
     def test_camera_base_does_not_call_notifications(self):
@@ -2084,7 +2129,7 @@ class TestRule1_PylonCameraNoNotifications:
 
         source = pathlib.Path('drivers/pyloncamera.py').read_text()
         assert 'from modules.notification_center import notifications' not in source, (
-            'drivers/pyloncamera.py must not import notifications — Rule 1'
+            'drivers/pyloncamera.py must not import notifications -- Rule 1'
         )
 
     def test_pyloncamera_does_not_call_notifications(self):
@@ -2111,7 +2156,7 @@ class TestRule1_SerialBoardNoNotifications:
 
         source = pathlib.Path('drivers/serialboard.py').read_text()
         assert 'from modules.notification_center import notifications' not in source, (
-            'drivers/serialboard.py must not import notifications — Rule 1'
+            'drivers/serialboard.py must not import notifications -- Rule 1'
         )
 
     def test_serialboard_does_not_call_notifications(self):
@@ -2250,7 +2295,7 @@ class TestIssue637_DrawerCloseSaturation:
          cycling LED off/on
 
     Root cause: Kivy's Accordion auto-expands a different item when the
-    active one collapses (default behavior — at least one item must stay
+    active one collapses (default behavior -- at least one item must stay
     expanded). When the user closed the drawer, Kivy auto-expanded another
     layer's accordion item (e.g. DF) behind the scenes. ImageSettings's
     on-collapse handler fired and called apply_settings() on that newly-
@@ -2271,7 +2316,7 @@ class TestIssue637_DrawerCloseSaturation:
         source = pathlib.Path('ui/image_settings.py').read_text()
         idx = source.find('def _do_accordion_collapse')
         assert idx >= 0, '_do_accordion_collapse not found in ui/image_settings.py'
-        # Slice to just this method's body — find the next `def ` at the
+        # Slice to just this method's body -- find the next `def ` at the
         # same indent level. _do_accordion_collapse lives in a class so
         # subsequent methods use 4-space indent: '\n    def '.
         next_def = source.find('\n    def ', idx + 1)
@@ -2312,7 +2357,7 @@ class TestIssue643_LumiLS820PlateViewInProtocol:
         # Take a slice large enough to cover the method body
         body = source[idx : idx + 3000]
         assert 'XYStage' in body, (
-            'accordion_collapse must check XYStage capability (issue #643) — '
+            'accordion_collapse must check XYStage capability (issue #643) -- '
             'without this guard, Lumi/LS820 protocol accordion re-shows the '
             'plate view + crosshair.'
         )
@@ -2324,8 +2369,11 @@ class TestIssue643_LumiLS820PlateViewInProtocol:
     def test_lumi_and_ls820_have_xystage_false(self):
         """Sanity: scopes.json must declare Lumi and LS820 as XYStage=False
         for the issue #643 guard to actually apply."""
-        import json, pathlib
+        import json
+        import pathlib
 
+        # pin-justified: data/scopes.json is the shipped capability matrix;
+        # the values are the contract.
         scopes = json.loads(pathlib.Path('data/scopes.json').read_text())
         assert 'Lumi' in scopes, 'Lumi scope config missing from data/scopes.json'
         assert 'LS820' in scopes, 'LS820 scope config missing from data/scopes.json'
@@ -2427,24 +2475,27 @@ class TestAOC1_SaturationCheckShortCircuit:
     `not np.any(tmp != max)` (short-circuit) instead of `np.all(tmp == max)`.
 
     Both forms allocate a bool array, but `np.any` short-circuits on the
-    first True at the C level — for the common (non-saturated) case, the
+    first True at the C level -- for the common (non-saturated) case, the
     first non-max pixel exits the reduction immediately. Equivalence over
     saturated / non-saturated / single-pixel-different / all-zero arrays.
     """
 
-    def test_source_uses_not_any_form(self):
-        # get_image body relocated to imaging.py in Wave 7 Phase 4d.
+    def test_source_uses_saturation_fraction_guard(self):
+        # The saturation check now measures the fraction of near-full-scale
+        # pixels: a real blown frame has a handful of sub-max pixels, so the
+        # old all-pixels-exactly-max test missed it and saved it silently.
         from pathlib import Path
 
         src = (
             Path(__file__).resolve().parent.parent / 'modules' / 'lumascope_api' / 'imaging.py'
         ).read_text()
-        assert 'not np.any(tmp != np.iinfo(tmp.dtype).max)' in src, (
-            'AOC-1: get_image() saturation check should use the short-circuit '
-            '`not np.any(tmp != max)` form.'
+        assert '_saturated_fraction' in src, (
+            'get_image() saturation check should use the near-full-scale '
+            'fraction guard.'
         )
-        assert 'np.all(tmp == np.iinfo(tmp.dtype).max)' not in src, (
-            'AOC-1: old `np.all(tmp == max)` form should be replaced.'
+        assert 'np.all(tmp == np.iinfo(tmp.dtype).max)' not in src
+        assert 'not np.any(tmp != np.iinfo(tmp.dtype).max)' not in src, (
+            'the all-pixels-exactly-max check missed real blown frames; replaced.'
         )
 
     def test_logical_equivalence_uint8(self):
@@ -2483,35 +2534,34 @@ class TestAOC1_SaturationCheckShortCircuit:
 class TestAOC2_RetrySaturationCheckOutsideCamLock:
     """AOC-2: lumascope_api.get_image saturation-retry path used to hold
     cam_lock across the np.all validation walk on the retry frame. The walk
-    doesn't need camera state — only the buffer returned from get_array().
+    doesn't need camera state -- only the buffer returned from get_array().
     Holding cam_lock across the walk blocked concurrent set_gain/set_exposure
     from other threads for ~50-150 ms per saturated retry.
 
     Fix: move the saturation walk outside the cam_lock block. Retry frame
     is captured under the lock; the walk runs after the lock is released.
     Also applies the AOC-1 short-circuit pattern at the retry site
-    (feedback_default_to_expanding_scope — fix the cluster).
+    (feedback_default_to_expanding_scope -- fix the cluster).
     """
 
     def test_retry_saturation_walk_is_outside_cam_lock(self):
-        # get_image body relocated to imaging.py in Wave 7 Phase 4d.
         from pathlib import Path
 
         src = (
             Path(__file__).resolve().parent.parent / 'modules' / 'lumascope_api' / 'imaging.py'
         ).read_text()
-        # The old form: np.all(retry_frame == ...) inside the with self._cam_lock: block
         assert 'np.all(retry_frame == np.iinfo(retry_frame.dtype).max)' not in src, (
-            'AOC-2: old `np.all(retry_frame == max)` form should be replaced.'
+            'old `np.all(retry_frame == max)` form should be replaced.'
         )
-        # New form: short-circuit np.any check, AND structurally placed in a sibling
-        # block to the cam_lock. Verify the lock-release marker comment is present
-        # AND the retry-frame check uses the AOC-1 pattern.
+        # The retry-frame saturation walk must still run OUTSIDE cam_lock: the
+        # walk needs no camera state, and holding the lock blocked concurrent
+        # set_gain/set_exposure. The marker comment + the new fraction guard on
+        # the retry frame confirm both.
         assert 'Saturation walk is outside cam_lock' in src, (
-            'AOC-2: expected lock-release marker comment near retry-frame walk.'
+            'expected lock-release marker comment near retry-frame walk.'
         )
-        assert 'np.any(retry_frame != np.iinfo(retry_frame.dtype).max)' in src, (
-            'AOC-2: retry-frame check should use the AOC-1 short-circuit pattern.'
+        assert '_saturated_fraction(retry_frame)' in src, (
+            'retry-frame check should use the near-full-scale fraction guard.'
         )
 
     def test_retry_frame_initialized_before_lock_block(self):
@@ -2549,18 +2599,6 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
     falls back to the lock-read path when `use_false_color_16bit=None`,
     preserving behavior for ad-hoc callers.
     """
-
-    def test_write_tiff_accepts_use_false_color_16bit_param(self):
-        from pathlib import Path
-
-        src = (Path(__file__).resolve().parent.parent / 'modules' / 'image_utils.py').read_text()
-        assert 'use_false_color_16bit: bool | None = None' in src, (
-            'PIW-3: write_tiff() should accept use_false_color_16bit param.'
-        )
-        # The lock acquire should be gated on use_false_color_16bit being None.
-        assert 'if use_false_color_16bit is None:' in src, (
-            'PIW-3: settings_lock should be acquired only when caller did not supply the resolved bool.'
-        )
 
     def test_save_image_threads_param_to_write_tiff(self):
         from pathlib import Path
@@ -2627,7 +2665,7 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
 class TestPIW5_Convert12to16OutBuffer:
     """PIW-5: convert_12bit_to_16bit() allocated a fresh ndarray on every save
     via image.copy() (~24 MB pulse for protocol-scale images). Same family as
-    F-3 — fresh allocations on the hot save path.
+    F-3 -- fresh allocations on the hot save path.
 
     Fix: add `out=None` parameter; when caller supplies a buffer with matching
     shape and dtype, reuse it via np.copyto. Plumb a per-run reusable buffer
@@ -2707,74 +2745,58 @@ class TestPIW6_PF3_FalseColorRgbPreallocated:
     """PIW-6 + PF-3 (combined): retire allocations on the false-color save path.
 
     Before:
-      - add_false_color allocates (H, W, 3) BGR per save (~36 MB uint16)        — PF-3
+      - add_false_color allocates (H, W, 3) BGR per save (~36 MB uint16)        -- PF-3
       - data[:, :, ::-1] returns a stride-reversed VIEW; tifffile silently
-        calls np.ascontiguousarray on write (~36 MB uint16 alloc)               — PIW-6
+        calls np.ascontiguousarray on write (~36 MB uint16 alloc)               -- PIW-6
 
     After (final, post-e2ef49e):
       - add_false_color(data, color, output=false_color_buf) reuses caller buf
-        AND returns the canonical RGB ordering directly — PF-3 + #657 fix.
+        AND returns the canonical RGB ordering directly -- PF-3 + #657 fix.
       - write_tiff no longer needs a BGR->RGB conversion step; the stride-
         reverse anti-pattern is gone and the cv2.cvtColor intermediate was
         retired by e2ef49e once add_false_color became RGB-native.
 
-    ProtocolImageWriter holds the false_color_buf per run (rgb_buf param on
-    write_tiff is retained for API compat per the comment in image_utils.py
-    and will retire once callers drop it). Buffer is lazy-allocated on first
-    uint16 2D save when false-color is enabled. Mismatched shape/dtype
-    re-allocates on demand. file_io_executor runs single-threaded so reuse
-    across sequential saves is safe.
+    Post mono-native: maybe_apply_false_color is a pass-through that ignores
+    caller-supplied buffers, so ProtocolImageWriter no longer pre-allocates
+    them -- it passes None and the downstream save lazily allocates only when
+    actually needed. The write_tiff / save_image false_color_buf + rgb_buf
+    params are retained as the color-audit enforcement surface (rule_31c
+    whitelist); only the dead pre-allocation in the protocol writer was
+    removed.
     """
 
-    def test_write_tiff_calls_add_false_color_with_output_buf(self):
-        from pathlib import Path
-
-        src = (Path(__file__).resolve().parent.parent / 'modules' / 'image_utils.py').read_text()
-        # Old stride-reverse view-of-BGR anti-pattern gone.
-        assert 'data = data[:, :, ::-1]' not in src, (
-            'PIW-6: old stride-reversed-view BGR->RGB assignment should be replaced.'
-        )
-        # add_false_color is called with the output buffer.
-        assert 'add_false_color(data, color, output=false_color_buf)' in src, (
-            'PF-3: add_false_color should be called with output=false_color_buf.'
-        )
-
     def test_write_tiff_signature_includes_buffers(self):
-        from pathlib import Path
+        from tests.ast_seams import assert_def
 
-        src = (Path(__file__).resolve().parent.parent / 'modules' / 'image_utils.py').read_text()
-        assert 'false_color_buf: np.ndarray | None = None' in src, (
-            'PF-3: write_tiff should accept false_color_buf param.'
-        )
-        assert 'rgb_buf: np.ndarray | None = None' in src, (
-            'PIW-6: write_tiff should accept rgb_buf param.'
+        assert_def(
+            'modules/image_utils.py', 'write_tiff',
+            has_params=['false_color_buf', 'rgb_buf'],
+            msg='PF-3 + PIW-6: write_tiff should accept the reusable '
+                'false_color_buf and rgb_buf params.',
         )
 
-    def test_protocol_image_writer_holds_both_buffers(self):
+    def test_protocol_image_writer_does_not_preallocate_dead_buffers(self):
+        # Post mono-native, maybe_apply_false_color ignores caller buffers,
+        # so the protocol writer's old (H,W,3) false-color + RGB pre-alloc
+        # was pure dead weight (~6x a mono frame per shape change). It was
+        # removed; the writer passes None and the downstream save lazily
+        # allocates only when needed. Lock the removal so it does not creep
+        # back in.
         from pathlib import Path
 
         src = (
             Path(__file__).resolve().parent.parent / 'modules' / 'protocol_image_writer.py'
         ).read_text()
-        assert 'self._false_color_buf = None' in src, (
-            'PF-3: ProtocolImageWriter should initialize false_color_buf to None.'
+        assert '_get_false_color_bufs' not in src, (
+            'PF-3 + PIW-6: the dead false-color buffer pre-allocation helper '
+            'should not be re-introduced; maybe_apply_false_color ignores it.'
         )
-        assert 'self._rgb_buf = None' in src, (
-            'PIW-6: ProtocolImageWriter should initialize rgb_buf to None.'
+        assert 'self._false_color_buf' not in src, (
+            'PF-3: protocol writer should not hold a pre-allocated false_color_buf.'
         )
-        assert '_get_false_color_bufs' in src, (
-            'PF-3 + PIW-6: helper that returns (false_color_buf, rgb_buf) tuple should exist.'
+        assert 'self._rgb_buf' not in src, (
+            'PIW-6: protocol writer should not hold a pre-allocated rgb_buf.'
         )
-        # Buffers only allocated when false-color is enabled AND capture is single-channel 2D.
-        # Gate covers uint8 + uint16 (relaxed from uint16-only by #669 fix).
-        assert 'if self._false_color_16bit and is_2d_single_channel:' in src, (
-            'PF-3 + PIW-6: buffer allocation should be gated on false_color_16bit AND 2D single-channel.'
-        )
-        # Both buffers passed to save_image.
-        assert 'false_color_buf=false_color_buf' in src, (
-            'PF-3: false_color_buf should be passed to save_image.'
-        )
-        assert 'rgb_buf=rgb_buf' in src, 'PIW-6: rgb_buf should be passed to save_image.'
 
     def test_save_image_threads_buffers_to_write_tiff(self):
         # Phase 6f (2026-05-19) retired the Lumascope.save_image wrapper;
@@ -2824,10 +2846,10 @@ class TestPIW6_PF3_FalseColorRgbPreallocated:
 
 class TestPIW1_NoTheatricalDelCapturedImage:
     """PIW-1: write_capture had `del captured_image` after save_image() completes.
-    The line is theatrical — captured_image is passed as a kwarg in the IOTask
+    The line is theatrical -- captured_image is passed as a kwarg in the IOTask
     queued at protocol_image_writer.py:303 (`"captured_image": captured_image`).
     The IOTask.kwargs dict holds the reference until the task completes, so the
-    local `del` only releases a local binding — actual memory reclaim happens
+    local `del` only releases a local binding -- actual memory reclaim happens
     when the IOTask is freed after task completion, regardless.
 
     Misleading "memory free" gesture; remove the line.
@@ -2840,7 +2862,7 @@ class TestPIW1_NoTheatricalDelCapturedImage:
             Path(__file__).resolve().parent.parent / 'modules' / 'protocol_image_writer.py'
         ).read_text()
         assert 'del captured_image' not in src, (
-            'PIW-1: theatrical `del captured_image` should be removed — IOTask kwargs holds the ref.'
+            'PIW-1: theatrical `del captured_image` should be removed -- IOTask kwargs holds the ref.'
         )
 
 
@@ -2851,8 +2873,8 @@ class TestPIW2_DisksUsageDeduped:
     non-actionable) and `protocol_image_writer._write_capture` (checks the
     actual save_folder, aborts the protocol on insufficient space).
 
-    The lumascope_api checks (a) checked the wrong path — root filesystem,
-    not the save folder — and (b) only logged at error level without aborting
+    The lumascope_api checks (a) checked the wrong path -- root filesystem,
+    not the save folder -- and (b) only logged at error level without aborting
     or notifying. The existing try/except in save_image already catches
     write failures via OSError and surfaces a user notification.
 
@@ -3034,7 +3056,7 @@ class TestAccordionStaysPutAcrossProtocolStopStart_AccordionDrift:
         from pathlib import Path
 
         return (
-            Path(__file__).resolve().parent.parent / 'modules' / 'step_navigation.py'
+            Path(__file__).resolve().parent.parent / 'ui' / 'step_navigation.py'
         ).read_text()
 
     def test_go_to_step_update_ui_takes_called_from_protocol_arg(self):
@@ -3096,15 +3118,58 @@ class TestAccordionStaysPutAcrossProtocolStopStart_AccordionDrift:
         )
 
 
+class TestProtocolStepPanelToggleIdempotent:
+    """Each protocol step scheduled go_to_step_update_ui, which forced the
+    ImageSettings panel open by calling toggle_settings() unconditionally.
+    After the first step the panel is already open, so every later step
+    re-ran the panel reposition + histogram rescheduling and logged a
+    misleading 'toggle_settings' line -- roughly one per captured frame,
+    ~15k across a long soak.
+
+    Fix: only open when the panel is not already open, so the expand/
+    collapse handler runs once when the preview opens it, not once per
+    step. toggle_settings() is an expand/collapse handler, not an
+    idempotent refresh, so it must be state-guarded at this call site.
+    """
+
+    def _body(self):
+        from pathlib import Path
+
+        src = (
+            Path(__file__).resolve().parent.parent / 'ui' / 'step_navigation.py'
+        ).read_text()
+        start = src.find('def go_to_step_update_ui(')
+        assert start != -1
+        body = src[start : start + 4000]
+        end = body.find('\ndef ', 1)
+        return body if end == -1 else body[:end]
+
+    def test_panel_toggle_guarded_by_state_check(self):
+        """The toggle_settings() call in go_to_step_update_ui must be
+        guarded by a `state != 'down'` check so it fires once per preview,
+        not once per protocol step."""
+        body = self._body()
+        idx = body.find('toggle_settings()')
+        assert idx != -1, 'toggle_settings() call must exist in go_to_step_update_ui'
+        guard_window = body[max(0, idx - 300) : idx]
+        assert "!= 'down'" in guard_window, (
+            "the ImageSettings panel toggle must be guarded by a "
+            "`state != 'down'` check so toggle_settings() runs once when the "
+            "preview opens the panel, not once per protocol step (avoids "
+            "per-step reposition + histogram churn and a misleading "
+            "toggle_settings log line)"
+        )
+
+
 class TestPF2_FileIoExecutorClearedOnAbort:
     """PF-2: on hardware-disconnect / abort cleanup, file_io_executor's
-    pending queue was NOT cleared — only io_executor's was. Queued IOTasks
+    pending queue was NOT cleared -- only io_executor's was. Queued IOTasks
     hold captured_image references; on a slow drain these can pin GB of
     memory and lock the next protocol-start until the drain completes.
 
     Distinct from normal completion, where draining is correct (writes user
     data to disk). The discriminator is `ProtocolState.ERROR` at cleanup
-    entry — that's an abort path; anything else (COMPLETING, IDLE) is
+    entry -- that's an abort path; anything else (COMPLETING, IDLE) is
     normal end.
 
     Fix: capture is_aborted from initial state BEFORE the COMPLETING
@@ -3153,10 +3218,10 @@ class TestPF2_FileIoExecutorClearedOnAbort:
 
 class TestPF5_ImageBufferRetired:
     """PF-5: Lumascope.image_buffer was a permanent shadow copy of the latest
-    get_image() result — Rule 2 violation. Only ever read by get_image() itself
+    get_image() result -- Rule 2 violation. Only ever read by get_image() itself
     (for chaining sum/scale-bar/8-bit-convert ops), never by external callers.
     Pinned one frame indefinitely between calls. The _state_lock around per-
-    write didn't actually serialize concurrent get_image calls — chained
+    write didn't actually serialize concurrent get_image calls -- chained
     writes from different threads could still interleave.
 
     Fix: chain through a local variable in get_image(). Remove the
@@ -3217,11 +3282,11 @@ class TestPF1_CpuPoolRetired:
     use_multiprocessing was hardcoded False, so the ProcessPoolExecutor
     construction at lumaviewpro.py:214-237 never ran. The
     sequenced_capture_writer.py module was only imported from that dead
-    block — the entire module was unreachable. The cpu_pool param threaded
+    block -- the entire module was unreachable. The cpu_pool param threaded
     through SequencedCaptureRunner.__init__ was always None.
 
     Per IMAGE_PROCESSING_ARCHITECTURE_2026-04-30.md: do NOT pre-build a
-    replacement pool — modules/postprocessing/ and modules/live_processing/
+    replacement pool -- modules/postprocessing/ and modules/live_processing/
     will be built greenfield when their first feature lands.
 
     Fix: deleted modules/sequenced_capture_writer.py entirely. Removed
@@ -3313,6 +3378,16 @@ def _function_body_calls(source: str, func_name: str) -> set[str]:
             ):
                 calls.add(sub.func.attr)
     return calls
+
+
+# Bare camera-driver builders shared with the other behavioral driver
+# test files; bodies live in tests/camera_fakes.py.
+from tests.camera_fakes import (
+    bare_grab_worker as _bare_grab_worker,
+    bare_ids_camera as _bare_ids_camera,
+    bare_image_handler as _bare_image_handler,
+    bare_pylon_camera as _bare_pylon_camera,
+)
 
 
 def _function_source(source: str, func_name: str) -> str:
@@ -3546,8 +3621,11 @@ class TestCaptureAndWaitPassesChunksToValidity:
             Path(__file__).resolve().parent.parent / 'modules' / 'lumascope_api' / 'imaging.py'
         ).read_text()
         body = _function_source(src, 'capture_and_wait')
-        # Source mentions count_frame call site with chunk_data kwarg
-        assert 'count_frame(chunk_data=' in body, (
+        # Source mentions count_frame call site with chunk_data kwarg.
+        # Whitespace-tolerant: the call site reflows as arguments are added
+        # (frame_ts identity dedupe), so match the kwarg wiring itself.
+        flat = ' '.join(body.split())
+        assert 'count_frame(' in flat and 'chunk_data=self._get_latest_chunks()' in flat, (
             'capture_and_wait must call count_frame(chunk_data=...) in the '
             'drain loop so chunk-match can clear gain/exposure pending.'
         )
@@ -3935,79 +4013,6 @@ class TestSessionManifestHelpers:
             assert entry['frame_id'] is None
 
 
-class TestImageHandlerBaseAtomicChunksSnapshot:
-    """Issue #633 Stage 2A: get_last_image_with_chunks returns image + ts +
-    chunks under one lock acquisition.
-
-    Without this, a consumer that does get_last_image() then get_last_chunks()
-    can observe image-N paired with chunks-N+1 if _store_frame runs between
-    the two non-atomic gets (camera thread grabs concurrently with the
-    consumer thread). The atomic getter eliminates that race.
-    """
-
-    def _make_base(self):
-        from drivers.camera import ImageHandlerBase
-
-        return ImageHandlerBase()
-
-    def test_atomic_snapshot_before_grab_returns_falsy(self):
-        b = self._make_base()
-        result, image, ts, chunks = b.get_last_image_with_chunks()
-        assert result is False
-        assert image is None
-        assert ts is None
-        assert chunks is None
-
-    def test_atomic_snapshot_returns_all_fields(self):
-        import datetime
-        import numpy as np
-
-        b = self._make_base()
-        img = np.zeros((4, 4), dtype=np.uint8)
-        ts = datetime.datetime.now()
-        chunks = {'ExposureTime': 14530.0, 'Gain': 1.0, 'Timestamp': 1234567890123}
-        b._store_frame(img, ts, chunks=chunks)
-        result, out_img, out_ts, out_chunks = b.get_last_image_with_chunks()
-        assert result is True
-        assert out_img is img  # no copy at this layer
-        assert out_ts == ts
-        assert out_chunks == chunks
-
-    def test_atomic_snapshot_falsy_after_failed_grab(self):
-        import datetime
-        import numpy as np
-
-        b = self._make_base()
-        b._store_frame(
-            np.zeros((4, 4), dtype=np.uint8),
-            datetime.datetime.now(),
-            chunks={'Timestamp': 1234567890123},
-        )
-        b._record_failure()  # last_result becomes False
-        result, image, ts, chunks = b.get_last_image_with_chunks()
-        assert result is False
-        assert image is None
-        assert ts is None
-        assert chunks is None
-
-    def test_atomic_snapshot_returns_none_chunks_when_camera_lacks_support(self):
-        """Cameras without chunk support (FX2, simulators) populate
-        last_chunks=None; the atomic getter returns None for chunks
-        without disabling the image+ts return path."""
-        import datetime
-        import numpy as np
-
-        b = self._make_base()
-        img = np.zeros((4, 4), dtype=np.uint8)
-        ts = datetime.datetime.now()
-        b._store_frame(img, ts)  # no chunks kwarg => None
-        result, out_img, out_ts, out_chunks = b.get_last_image_with_chunks()
-        assert result is True
-        assert out_img is img
-        assert out_ts == ts
-        assert out_chunks is None
-
-
 class TestPylonCancelHandlingDefensive:
     """OR-with-removal-flag insurance pattern in OnImageGrabbed.
 
@@ -4035,6 +4040,8 @@ class TestPylonCancelHandlingDefensive:
     def _pyloncamera_source(self):
         from pathlib import Path
 
+        # pin-justified: the bench-witnessed cancel-code constant and its
+        # explanatory comment pair are the contract (no SDK symbol exists).
         return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
 
     def test_buffer_cancel_constant_value_matches_bench(self):
@@ -4059,11 +4066,11 @@ class TestPylonCancelHandlingDefensive:
         assert '0xE2000102' in src, (
             'Source comment near _PYLON_ERR_BUFFER_CANCELED must reference '
             '0xE2000102 (the hex form of decimal 3791651074). If you found '
-            "0xE2008002 here, that's the prior typo — fix to 0xE2000102."
+            "0xE2008002 here, that's the prior typo -- fix to 0xE2000102."
         )
         assert '0xE2008002' not in src, (
             'Stale typo: 0xE2008002 must not appear in pyloncamera.py '
-            "source — that hex equals 3791683586 (NOT what's stored)."
+            "source -- that hex equals 3791683586 (NOT what's stored)."
         )
 
     def test_cancel_branch_uses_or_with_removal_flag(self):
@@ -4124,9 +4131,9 @@ class TestPylonPayloadDiscardedClassification:
       these toward MAX_CONSECUTIVE_FAILURES would falsely trip the
       128-consec auto-disconnect during AF-heavy protocols.
 
-    These tests lock the source-level shape so a future cleanup that
-    removes the elif branch or adds _record_failure inside it fires
-    the regression.
+    Behavioral since the typed pypylon stub landed: Stage B's
+    classification (_PylonImageGrabWorker._process_failure) is driven
+    directly with fake grab results and a spied failure counter.
     """
 
     def _pyloncamera_source(self):
@@ -4161,67 +4168,45 @@ class TestPylonPayloadDiscardedClassification:
             'reason payload-discarded events are safe to skip _record_failure.'
         )
 
-    def test_payload_discarded_branch_in_onimagegrabbed(self):
-        """The classification branch must exist. Structural check: a
-        future cleanup that drops the elif (collapsing payload-discarded
-        back into the warning fallback) would reintroduce log noise +
-        spurious failure-counter increments.
+    def test_payload_discarded_not_counted_logged_at_info(self):
+        """Payload-discarded is healthy acquisition: the worker logs the
+        cause at info (distribution stays visible) and does NOT count it
+        toward MAX_CONSECUTIVE_FAILURES -- counting would falsely trip
+        the auto-disconnect during AF-heavy protocols."""
+        import datetime
 
-        Post-R12 the classification lives in `_PylonImageGrabWorker._process_failure`.
-        """
-        src = self._pyloncamera_source()
-        body = _function_source(src, '_process_failure')
-        assert '_PYLON_ERR_PAYLOAD_DISCARDED' in body, (
-            '_process_failure must contain a classification branch for '
-            '_PYLON_ERR_PAYLOAD_DISCARDED. See class docstring.'
-        )
+        from drivers.pyloncamera import _PYLON_ERR_PAYLOAD_DISCARDED
 
-    def test_payload_discarded_branch_skips_record_failure(self):
-        """Key invariant: the payload-discarded branch MUST NOT call
-        _record_failure. The branch represents healthy acquisition where
-        the camera dropped a frame during a host stall; counting it
-        toward MAX_CONSECUTIVE_FAILURES would falsely trip
-        auto-disconnect during AF-heavy protocols.
+        worker, base = _bare_grab_worker()
+        gr = MagicMock()
+        gr.GetErrorCode.return_value = _PYLON_ERR_PAYLOAD_DISCARDED
+        worker._process_failure(gr, datetime.datetime.now())
+        base._record_failure.assert_not_called()
 
-        Test approach: extract the elif block in _process_failure and
-        assert _record_failure does not appear in it. Worker-side
-        classification has exactly 1 _record_failure call total (the
-        generic non-classified fallback in the else branch); the cancel
-        and payload-discarded branches both skip _record_failure for
-        branch-specific reasons (lifecycle / healthy-FIFO-drop).
-        _process_frame has its own _record_failure for GetArray
-        exceptions (different concern: GetArray failure implies device
-        gone, which IS a counted-failure-class event).
-        """
-        src = self._pyloncamera_source()
-        body = _function_source(src, '_process_failure')
-        # Total count is the structural guard.
-        total_calls = body.count('self._base._record_failure()')
-        assert total_calls == 1, (
-            f'_process_failure must have exactly 1 _record_failure() '
-            f'call (generic non-classified fallback in the else branch); '
-            f'found {total_calls}. If a second was added inside the '
-            f'payload-discarded classification branch, remove it -- '
-            f'that branch is by-design not counted toward '
-            f'MAX_CONSECUTIVE_FAILURES.'
-        )
-        # Extract just the elif block as belt-and-suspenders. Indent
-        # level is 8 spaces (method body in _process_failure).
-        elif_marker = 'elif err_code == _PYLON_ERR_PAYLOAD_DISCARDED:'
-        elif_idx = body.find(elif_marker)
-        assert elif_idx >= 0, 'elif marker not found (precondition)'
-        tail = body[elif_idx + len(elif_marker) :]
-        end = len(tail)
-        for marker in ('\n        else:', '\n        elif '):
-            i = tail.find(marker)
-            if 0 <= i < end:
-                end = i
-        elif_block = tail[:end]
-        assert '_record_failure' not in elif_block, (
-            'Payload-discarded elif branch contains _record_failure() -- '
-            "that breaks the 'healthy acquisition, not a counted failure' "
-            'invariant. See class docstring.'
-        )
+    def test_cancelled_buffer_not_counted(self):
+        """Cancelled buffers (StopGrabbing mid-flight) are SDK lifecycle
+        events, not transport failures."""
+        import datetime
+
+        from drivers.pyloncamera import _PYLON_ERR_BUFFER_CANCELED
+
+        worker, base = _bare_grab_worker()
+        gr = MagicMock()
+        gr.GetErrorCode.return_value = _PYLON_ERR_BUFFER_CANCELED
+        worker._process_failure(gr, datetime.datetime.now())
+        base._record_failure.assert_not_called()
+
+    def test_generic_transport_failure_is_counted(self):
+        """Unclassified err_codes (USB CRC, partial frame, underrun)
+        count toward the consecutive-failure cascade so a wedged
+        transport eventually trips auto-disconnect."""
+        import datetime
+
+        worker, base = _bare_grab_worker()
+        gr = MagicMock()
+        gr.GetErrorCode.return_value = 0xDEAD
+        worker._process_failure(gr, datetime.datetime.now())
+        base._record_failure.assert_called_once()
 
 
 class TestPylonDeviceNotFoundClassification:
@@ -4248,11 +4233,8 @@ class TestPylonDeviceNotFoundClassification:
       detect transport degradation (incomplete buffers, CRC errors).
       Physical removal is a different class with its own signal.
 
-    These tests lock the source-level shape so a future cleanup that
-    drops the branch or adds _record_failure inside it fires the
-    regression. Behavioral test (full cascade simulation) would
-    require a Pylon SDK callback harness; static lock is the primary
-    regression gate.
+    Behavioral since the typed pypylon stub landed: the handler is
+    instantiated and OnImageGrabbed driven with fake grab results.
     """
 
     def _pyloncamera_source(self):
@@ -4288,77 +4270,48 @@ class TestPylonDeviceNotFoundClassification:
             'the slow-path mechanism that fast classification short-circuits.'
         )
 
-    def test_device_not_found_branch_in_onimagegrabbed(self):
-        """The OnImageGrabbed body must contain the elif classification
-        branch. Structural check: a future cleanup that drops the elif
-        would reintroduce the 4-second cascade delay + log spam."""
-        src = self._pyloncamera_source()
-        body = _function_source(src, 'OnImageGrabbed')
-        assert '_PYLON_ERR_DEVICE_NOT_FOUND' in body, (
-            'OnImageGrabbed must contain a classification branch for '
-            '_PYLON_ERR_DEVICE_NOT_FOUND. See class docstring.'
-        )
-        assert 'success_no_grab_device_not_found' in body, (
-            'OnImageGrabbed device-not-found branch must set its '
-            "outcome name to 'success_no_grab_device_not_found' for "
-            'trace gating.'
-        )
+    def test_device_not_found_marks_disconnected_immediately(self):
+        """The fast path flips the connection flag in 1 frame instead of
+        128 (so the API-layer notification fires immediately) and
+        schedules async teardown off the SDK callback thread. A cleanup
+        that drops this classification would reintroduce the 4-second
+        cascade delay + log spam."""
+        from drivers.pyloncamera import _PYLON_ERR_DEVICE_NOT_FOUND
 
-    def test_device_not_found_branch_marks_disconnected(self):
-        """The device-not-found branch must call _mark_disconnected.
-        That is the entire structural point of fast classification:
-        flip the connection flag in 1 frame instead of 128 so the
-        API-layer notification fires immediately.
+        handler, parent = _bare_image_handler()
+        gr = MagicMock()
+        gr.GrabSucceeded.return_value = False
+        gr.GetErrorCode.return_value = _PYLON_ERR_DEVICE_NOT_FOUND
+        handler.OnImageGrabbed(camera=MagicMock(), grabResult=gr)
+        parent._mark_disconnected.assert_called_once()
+        parent._schedule_async_teardown.assert_called_once()
 
-        Post-R12 the disconnect fast-path stays INLINE in OnImageGrabbed
-        Stage A (so the disconnect notification doesn't wait behind
-        Stage B's worker queue). With cancel/payload-discarded/generic
-        moved to Stage B, DEVICE_NOT_FOUND is now the only err_code
-        check in Stage A -- the `elif` chain collapsed to a single `if`.
-        """
-        src = self._pyloncamera_source()
-        body = _function_source(src, 'OnImageGrabbed')
-        branch_marker = 'if err_code == _PYLON_ERR_DEVICE_NOT_FOUND:'
-        idx = body.find(branch_marker)
-        assert idx >= 0, 'DEVICE_NOT_FOUND branch marker not found (precondition)'
-        tail = body[idx + len(branch_marker) :]
-        end = len(tail)
-        for marker in ('\n                else:', '\n                elif '):
-            i = tail.find(marker)
-            if 0 <= i < end:
-                end = i
-        branch_block = tail[:end]
-        assert '_mark_disconnected' in branch_block, (
-            'Device-not-found branch must call '
-            'self._parent._mark_disconnected() -- that is the structural '
-            'point of fast classification. See class docstring.'
-        )
+    def test_device_not_found_skips_stage_b_and_failure_counter(self):
+        """Physical removal is not a counted failure: the fast path
+        handles it inline (so the notification doesn't wait behind
+        Stage B's queue) and hands NOTHING to the worker -- the
+        consecutive-failure counter exists for transport degradation,
+        and inflating it from one physical event would be misleading."""
+        from drivers.pyloncamera import _PYLON_ERR_DEVICE_NOT_FOUND
 
-    def test_device_not_found_branch_skips_record_failure(self):
-        """Physical removal is not a counted failure; the consecutive-
-        failure counter exists for transport degradation. Counting
-        device-not-found toward MAX_CONSECUTIVE_FAILURES is at best
-        redundant (we've already marked disconnected) and at worst
-        misleading (failure count inflates from a single physical
-        event)."""
-        src = self._pyloncamera_source()
-        body = _function_source(src, 'OnImageGrabbed')
-        branch_marker = 'if err_code == _PYLON_ERR_DEVICE_NOT_FOUND:'
-        idx = body.find(branch_marker)
-        assert idx >= 0, 'DEVICE_NOT_FOUND branch marker not found (precondition)'
-        tail = body[idx + len(branch_marker) :]
-        end = len(tail)
-        for marker in ('\n                else:', '\n                elif '):
-            i = tail.find(marker)
-            if 0 <= i < end:
-                end = i
-        branch_block = tail[:end]
-        assert '_record_failure' not in branch_block, (
-            'Device-not-found branch contains _record_failure() -- '
-            'physical removal is a different class of event with its '
-            'own signal (_mark_disconnected); double-counting inflates '
-            'the failure counter from one physical event. See class docstring.'
-        )
+        handler, _parent = _bare_image_handler()
+        gr = MagicMock()
+        gr.GrabSucceeded.return_value = False
+        gr.GetErrorCode.return_value = _PYLON_ERR_DEVICE_NOT_FOUND
+        handler.OnImageGrabbed(camera=MagicMock(), grabResult=gr)
+        handler._worker.enqueue.assert_not_called()
+
+    def test_other_grab_failures_hand_off_to_stage_b(self):
+        """Non-removal failures take the slow path: enqueued to the
+        worker for classification, never handled inline."""
+        handler, parent = _bare_image_handler()
+        gr = MagicMock()
+        gr.GrabSucceeded.return_value = False
+        gr.GetErrorCode.return_value = 0xDEAD
+        handler.OnImageGrabbed(camera=MagicMock(), grabResult=gr)
+        parent._mark_disconnected.assert_not_called()
+        assert handler._worker.enqueue.call_count == 1
+        assert handler._worker.enqueue.call_args[0][0] == 'fail'
 
 
 class TestPylonDisconnectDestroyDevice:
@@ -4611,14 +4564,14 @@ class TestPylonDiagnosticProbe:
         assert 'pylon_sdk_version' in result
 
     def test_pylon_camera_has_read_diagnostic_snapshot(self):
-        """Source-shape lock: PylonCamera must implement the driver
-        method the API depends on."""
-        from pathlib import Path
+        """Seam lock: PylonCamera must implement the driver method the
+        API depends on."""
+        from tests.ast_seams import assert_def
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        assert 'def read_diagnostic_snapshot(' in src, (
-            'PylonCamera must implement read_diagnostic_snapshot for '
-            'DiagnosticsAPI.run_pylon_diagnostic_probe to function.'
+        assert_def(
+            'drivers/pyloncamera.py', 'read_diagnostic_snapshot',
+            msg='PylonCamera must implement read_diagnostic_snapshot for '
+                'DiagnosticsAPI.run_pylon_diagnostic_probe to function.',
         )
 
     def test_ids_camera_has_read_diagnostic_snapshot_stub(self):
@@ -4627,11 +4580,14 @@ class TestPylonDiagnosticProbe:
         raising AttributeError when an IDS camera is connected."""
         from pathlib import Path
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'idscamera.py').read_text()
-        assert 'def read_diagnostic_snapshot(' in src, (
-            'IDSCamera must have a read_diagnostic_snapshot stub '
-            'returning supported=False until the IDS implementation lands.'
+        from tests.ast_seams import assert_def
+
+        assert_def(
+            'drivers/idscamera.py', 'read_diagnostic_snapshot',
+            msg='IDSCamera must have a read_diagnostic_snapshot stub '
+                'returning supported=False until the IDS implementation lands.',
         )
+        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'idscamera.py').read_text()
         body = _function_source(src, 'read_diagnostic_snapshot')
         assert "'supported': False" in body or '"supported": False' in body, (
             'IDS read_diagnostic_snapshot stub must return supported=False'
@@ -4726,13 +4682,12 @@ class TestDeviceLinkThroughputLimitSetter:
         assert called_with == {'mode': 'On', 'value_bps': 160_000_000}
 
     def test_pylon_driver_method_present(self):
-        from pathlib import Path
+        from tests.ast_seams import assert_def
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        assert 'def set_device_link_throughput_limit(' in src, (
-            'PylonCamera must implement set_device_link_throughput_limit '
-            "for tomorrow's bench-probe sweep to function without "
-            'Rule 1 violations.'
+        assert_def(
+            'drivers/pyloncamera.py', 'set_device_link_throughput_limit',
+            msg='PylonCamera must implement set_device_link_throughput_limit '
+                'so the bench-probe sweep can stay above the driver layer.',
         )
 
     def test_pylon_driver_does_not_wrap_in_update_camera_config(self):
@@ -4750,37 +4705,30 @@ class TestDeviceLinkThroughputLimitSetter:
         )
 
     def test_ids_driver_stub_present(self):
-        from pathlib import Path
+        from tests.ast_seams import assert_def
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'idscamera.py').read_text()
-        assert 'def set_device_link_throughput_limit(' in src, (
-            'IDSCamera must have a set_device_link_throughput_limit '
-            'stub so the API method does not need to know which driver '
-            'is connected when called by the sweep tool.'
+        assert_def(
+            'drivers/idscamera.py', 'set_device_link_throughput_limit',
+            msg='IDSCamera must have a set_device_link_throughput_limit '
+                'stub so the API method does not need to know which driver '
+                'is connected when called by the sweep tool.',
         )
 
     def test_pylon_driver_raises_hardware_error_on_runtime_exception(self):
         """Per the Raises: docstring section, the Pylon setter raises
         HardwareError on genicam.RuntimeException so the API layer can
         notify and the caller can handle it (Rule 29 typed-exception
-        contract; matches set_binning_size / set_pixel_format).
+        contract; matches set_binning_size / set_pixel_format)."""
+        from pypylon import genicam
 
-        Pins the raise so a future cleanup that swaps it for return-False
-        is caught here instead of in the field.
-        """
-        from pathlib import Path
+        from drivers.exceptions import HardwareError
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        body = _function_source(src, 'set_device_link_throughput_limit')
-        assert 'except genicam.RuntimeException' in body, (
-            'PylonCamera.set_device_link_throughput_limit must keep its '
-            'RuntimeException catch (Rule 29 typed-exception contract).'
+        cam = _bare_pylon_camera()
+        cam.active.DeviceLinkThroughputLimitMode.SetValue.side_effect = (
+            genicam.RuntimeException('usb gone')
         )
-        assert 'raise HardwareError(' in body, (
-            'PylonCamera.set_device_link_throughput_limit must raise '
-            'HardwareError on RuntimeException, not return False -- the '
-            'API layer catches and notifies.'
-        )
+        with pytest.raises(HardwareError):
+            cam.set_device_link_throughput_limit('Off')
 
 
 class TestPylonAsciiOnlyInLoggerStrings:
@@ -4804,6 +4752,8 @@ class TestPylonAsciiOnlyInLoggerStrings:
     def _pyloncamera_source_lines(self):
         from pathlib import Path
 
+        # pin-justified: ASCII-only log text is the contract (logger-safe
+        # output); the deg-C spelling is the load-bearing detail.
         return (
             (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py')
             .read_text()
@@ -5088,31 +5038,27 @@ class TestPylonOnImageGrabbedExceptionContext:
         return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
 
     def test_on_image_grabbed_outer_except_uses_contextual_message(self):
-        """Bare `logger.exception(e)` is forbidden in OnImageGrabbed.
-        The fix uses an f-string with [CAM Class ] prefix and a callback
-        identifier."""
-        src = self._pyloncamera_source()
-        idx = src.find('def OnImageGrabbed(')
-        assert idx != -1, 'Could not find ImageHandler.OnImageGrabbed.'
-        end = src.find('def ', idx + 10)
-        body = src[idx:end]
-        # Find the outer except clause (indented less than the inner ones)
-        # Easiest: the literal `_outcome = 'exception_outer'` is unique.
-        marker = "_outcome = 'exception_outer'"
-        m_idx = body.find(marker)
-        assert m_idx != -1, (
-            'Could not find OnImageGrabbed outer-except sentinel '
-            "(_outcome = 'exception_outer'). If renamed, update test."
-        )
-        window = body[m_idx : m_idx + 250]
-        assert 'logger.exception(e)' not in window, (
-            'OnImageGrabbed outer-except must NOT call logger.exception(e) '
-            'with the bare exception object -- the rendered log line lacks '
-            '[CAM Class ] prefix and callback context.'
-        )
-        assert 'OnImageGrabbed' in window or '[CAM Class ]' in window, (
-            'OnImageGrabbed outer-except logger.exception call must include '
-            'a contextual prefix. Found:\n' + window
+        """An unexpected exception inside the callback must be swallowed
+        (anything escaping into Pylon's native grab thread can resolve
+        to std::terminate on Windows) and logged with a message that
+        names the callback -- a bare exception line gives the operator
+        no indication it came from the grab path."""
+        from drivers import pyloncamera
+
+        logged = []
+        original = pyloncamera._log_safely
+        pyloncamera._log_safely = logged.append
+        try:
+            handler, _parent = _bare_image_handler()
+            handler._worker.enqueue.side_effect = ValueError('boom')
+            gr = MagicMock()
+            gr.GrabSucceeded.return_value = True
+            handler.OnImageGrabbed(camera=MagicMock(), grabResult=gr)
+        finally:
+            pyloncamera._log_safely = original
+        assert any('OnImageGrabbed' in m for m in logged), (
+            'The outer guard must log with callback context; got: '
+            f'{logged!r}'
         )
 
 
@@ -5476,8 +5422,9 @@ class TestPylonUnderrunCounterSingleCanonical:
         return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
 
     def test_canonical_underrun_node_name_constant(self):
-        src = self._pyloncamera_source()
-        assert "_UNDERRUN_NODE_NAME = 'Statistic_Buffer_Underrun_Count'" in src, (
+        from drivers.pyloncamera import PylonCamera
+
+        assert PylonCamera._UNDERRUN_NODE_NAME == 'Statistic_Buffer_Underrun_Count', (
             'Single canonical underrun-counter name '
             'Statistic_Buffer_Underrun_Count must be the constant.'
         )
@@ -5891,17 +5838,21 @@ class TestPylonIsConnectedCallsSdkQuery:
         return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
 
     def test_is_connected_calls_is_camera_device_removed(self):
-        src = self._pyloncamera_source()
-        idx = src.find('def is_connected(self) -> bool:')
-        assert idx != -1, 'Could not find PylonCamera.is_connected.'
-        end = src.find('def ', idx + 10)
-        body = src[idx:end]
-        assert '.IsCameraDeviceRemoved()' in body, (
-            'is_connected must call self.active.IsCameraDeviceRemoved() '
-            'as a third check (after _device_removed flag + active is '
-            "None). The docstring already promises 'the SDK's "
-            "device-removed query'; the implementation must match."
-        )
+        """The SDK-side query is the third check (after the
+        _device_removed flag + active-is-None): it covers removals the
+        _CameraRemovalHandler callback missed. A removed-per-SDK camera
+        must read as disconnected AND get marked."""
+        cam = _bare_pylon_camera()
+        cam._device_removed = False
+        cam.active.IsCameraDeviceRemoved.return_value = True
+        assert cam.is_connected() is False
+        cam._mark_disconnected.assert_called_once()
+
+        cam = _bare_pylon_camera()
+        cam._device_removed = False
+        cam.active.IsCameraDeviceRemoved.return_value = False
+        assert cam.is_connected() is True
+        cam._mark_disconnected.assert_not_called()
 
 
 class TestPylonBslPrefixedNodeFallbacks:
@@ -5975,7 +5926,7 @@ class TestPylonBslPrefixedNodeFallbacks:
             'fallback for legacy ace cameras.'
         )
         # Bsl variant must come first in the call.
-        bsl_pos = body.find('BslResultingAcquisitionFrameRate')
+        bsl_pos = body.find('BslResultingAcquisitionFrameRate')  # noqa: F841 -- deferred
         legacy_pos = body.find("'ResultingFrameRate'")
         if legacy_pos != -1:  # legacy may also appear in a comment first
             # Just assert the call site has both; ordering inside the call
@@ -6261,7 +6212,7 @@ class TestSequentialIOExecutorSubmitThenShutdownNoFutureLeak:
             # Submit a batch of return_future tasks. Don't wait for them
             # to complete -- shutdown(wait=False) should cancel pending
             # and drain caller_futures regardless.
-            for i in range(20):
+            for _ in range(20):
                 task = IOTask(
                     action=lambda: None,
                     callback=lambda *a, **k: None,
@@ -6436,7 +6387,7 @@ class TestSequentialIOExecutorPriorityAware:
             _t2.sleep(0.05)
 
             executor.put(IOTask(action=low_done.set, priority=PRIORITY_LOW))
-            for i in range(50):
+            for _ in range(50):
                 executor.put(IOTask(action=lambda: None, priority=PRIORITY_MED))
 
             head.set()
@@ -6835,11 +6786,15 @@ class TestDltlSetterDocstringGigeCaveat:
     def _pyloncamera_source(self):
         from pathlib import Path
 
+        # pin-justified: the GigE wire-limit docstring is the documented
+        # contract these tests guard.
         return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
 
     def _lumascope_api_source(self):
         # set_device_link_throughput_limit body relocated to ImagingAPI
         # in Wave 7 Phase 4c. Helper name kept for diff-readability.
+        # pin-justified: the GigE wire-limit docstring is the documented
+        # contract these tests guard.
         from pathlib import Path
 
         return (
@@ -6900,8 +6855,9 @@ class TestPylonChunkSelectorProbeWithFramecounterFallback:
         FrameID first, then Framecounter -- pinning the order so a
         future cleanup that swaps them or alphabetises the tuple
         fires this test."""
-        src = self._pyloncamera_source()
-        assert "_FRAME_IDENTITY_CHUNK_CANDIDATES = ('FrameID', 'Framecounter')" in src, (
+        from drivers.pyloncamera import PylonCamera
+
+        assert PylonCamera._FRAME_IDENTITY_CHUNK_CANDIDATES == ('FrameID', 'Framecounter'), (
             'PylonCamera must declare _FRAME_IDENTITY_CHUNK_CANDIDATES '
             'with FrameID first, Framecounter second (B32 fallback).'
         )
@@ -7023,30 +6979,31 @@ class TestAcquisitionStopModeSetter:
         assert called_with == {'mode': 'AbortExposure'}
 
     def test_pylon_driver_method_present(self):
-        from pathlib import Path
+        from tests.ast_seams import assert_def
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        assert 'def set_acquisition_stop_mode(' in src, (
-            'PylonCamera must implement set_acquisition_stop_mode for '
-            'the bench-probe sweep to exercise BslAcquisitionStopMode '
-            'without bypassing the API layer.'
+        assert_def(
+            'drivers/pyloncamera.py', 'set_acquisition_stop_mode',
+            msg='PylonCamera must implement set_acquisition_stop_mode for '
+                'the bench-probe sweep to exercise BslAcquisitionStopMode '
+                'without bypassing the API layer.',
         )
 
     def test_pylon_driver_validates_mode_argument(self):
         """Mode must be one of Complete / CancelExposure / AbortExposure
-        per Basler Specifics table."""
-        from pathlib import Path
+        per Basler Specifics table; an invalid mode returns False without
+        touching the SDK."""
+        from drivers.pyloncamera import PylonCamera
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        body = _function_source(src, 'set_acquisition_stop_mode')
-        assert '_ACQ_STOP_MODES' in body, (
-            'PylonCamera.set_acquisition_stop_mode must validate the '
-            'mode argument against _ACQ_STOP_MODES.'
-        )
-        assert "_ACQ_STOP_MODES = ('Complete', 'CancelExposure', 'AbortExposure')" in src, (
+        assert PylonCamera._ACQ_STOP_MODES == (
+            'Complete', 'CancelExposure', 'AbortExposure',
+        ), (
             'PylonCamera._ACQ_STOP_MODES must list the three doc-named '
             'values per acquisition-start-stop-and-abort.html.'
         )
+
+        cam = _bare_pylon_camera()
+        assert cam.set_acquisition_stop_mode('Bogus') is False
+        cam.active.GetNodeMap.assert_not_called()
 
     def test_pylon_driver_does_not_wrap_in_update_camera_config(self):
         """BslAcquisitionStopMode is a configuration property; setting
@@ -7065,18 +7022,23 @@ class TestAcquisitionStopModeSetter:
         )
 
     def test_pylon_driver_raises_hardware_error_on_runtime_exception(self):
-        """Rule 29 typed-exception contract; matches DLTL setter."""
-        from pathlib import Path
+        """Rule 29 typed-exception contract; matches DLTL setter.
+        RuntimeException marks the camera disconnected; a missing node
+        is a documented no-op returning False."""
+        from pypylon import genicam
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        body = _function_source(src, 'set_acquisition_stop_mode')
-        assert 'except genicam.RuntimeException' in body, (
-            'PylonCamera.set_acquisition_stop_mode must catch genicam.RuntimeException.'
-        )
-        assert 'raise HardwareError(' in body, (
-            'PylonCamera.set_acquisition_stop_mode must raise '
-            'HardwareError on RuntimeException, not return False.'
-        )
+        from drivers.exceptions import HardwareError
+
+        cam = _bare_pylon_camera()
+        node = cam.active.GetNodeMap.return_value.GetNode.return_value
+        node.SetValue.side_effect = genicam.RuntimeException('usb gone')
+        with pytest.raises(HardwareError):
+            cam.set_acquisition_stop_mode('Complete')
+        cam._mark_disconnected.assert_called_once()
+
+        cam = _bare_pylon_camera()
+        cam.active.GetNodeMap.return_value.GetNode.return_value = None
+        assert cam.set_acquisition_stop_mode('Complete') is False
 
     def test_ids_driver_stub_returns_false(self):
         from drivers.idscamera import IDSCamera
@@ -7200,44 +7162,44 @@ class TestGigeSetters:
         assert called_with == {'delay_ticks': 100}
 
     def test_pylon_setters_present(self):
-        from pathlib import Path
+        from tests.ast_seams import assert_def
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
         for name in (
             'set_bandwidth_reserve_mode',
             'set_gev_packet_size',
             'set_gev_inter_packet_delay',
         ):
-            assert f'def {name}(' in src, f'PylonCamera must implement {name}.'
+            assert_def(
+                'drivers/pyloncamera.py', name,
+                msg=f'PylonCamera must implement {name}.',
+            )
 
     def test_pylon_bandwidth_reserve_mode_validates(self):
-        from pathlib import Path
+        from drivers.pyloncamera import PylonCamera
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        body = _function_source(src, 'set_bandwidth_reserve_mode')
-        assert '_BANDWIDTH_RESERVE_MODES' in body, (
-            'set_bandwidth_reserve_mode must validate against _BANDWIDTH_RESERVE_MODES.'
-        )
-        assert "_BANDWIDTH_RESERVE_MODES = ('Default', 'Performance')" in src
+        assert PylonCamera._BANDWIDTH_RESERVE_MODES == ('Default', 'Performance')
+
+        cam = _bare_pylon_camera()
+        assert cam.set_bandwidth_reserve_mode('Turbo') is False
+        cam.active.GetNodeMap.assert_not_called()
 
     def test_pylon_setters_raise_hardware_error(self):
         """All three setters raise HardwareError on RuntimeException
         (Rule 29; matches DLTL + AbortExposure setters)."""
-        from pathlib import Path
+        from pypylon import genicam
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        for name in (
-            'set_bandwidth_reserve_mode',
-            'set_gev_packet_size',
-            'set_gev_inter_packet_delay',
+        from drivers.exceptions import HardwareError
+
+        for call in (
+            lambda cam: cam.set_bandwidth_reserve_mode('Performance'),
+            lambda cam: cam.set_gev_packet_size(9000),
+            lambda cam: cam.set_gev_inter_packet_delay(100),
         ):
-            body = _function_source(src, name)
-            assert 'except genicam.RuntimeException' in body, (
-                f'{name} must catch genicam.RuntimeException.'
-            )
-            assert 'raise HardwareError(' in body, (
-                f'{name} must raise HardwareError on RuntimeException.'
-            )
+            cam = _bare_pylon_camera()
+            node = cam.active.GetNodeMap.return_value.GetNode.return_value
+            node.SetValue.side_effect = genicam.RuntimeException('usb gone')
+            with pytest.raises(HardwareError):
+                call(cam)
 
     def test_ids_stubs_return_false(self):
         from drivers.idscamera import IDSCamera
@@ -7401,11 +7363,10 @@ class TestStreamGrabberSetters:
         assert called_with == {'value': 32}
 
     def test_pylon_driver_methods_present(self):
-        from pathlib import Path
+        from tests.ast_seams import assert_def
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        assert 'def set_max_transfer_size(' in src
-        assert 'def set_num_max_queued_urbs(' in src
+        assert_def('drivers/pyloncamera.py', 'set_max_transfer_size')
+        assert_def('drivers/pyloncamera.py', 'set_num_max_queued_urbs')
 
     def test_ids_driver_stubs_return_false(self):
         from drivers.idscamera import IDSCamera
@@ -7434,22 +7395,24 @@ class TestStreamGrabberSetters:
             )
 
     def test_pylon_driver_raises_hardware_error_on_runtime_exception(self):
-        """Per Rule 29 typed-exception contract, the Pylon setters raise
-        HardwareError on genicam.RuntimeException AND on missing-node
-        (GigE / non-USB3 cameras). Pins the raise shape against a future
-        cleanup that swaps it for return-False."""
-        from pathlib import Path
+        """Per Rule 29 typed-exception contract, the StreamGrabber
+        setters raise HardwareError on genicam.RuntimeException AND on
+        missing-node (GigE / non-USB3 cameras) -- silent return-False
+        would mislead bench operators into thinking the knob applied."""
+        from pypylon import genicam
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        body = _function_source(src, '_set_stream_grabber_int_node')
-        assert 'except genicam.RuntimeException' in body
-        assert 'raise HardwareError(' in body
-        assert 'node is None' in body, (
-            '_set_stream_grabber_int_node must check for missing node '
-            '(GigE / non-USB3 cameras) and raise HardwareError -- '
-            'silent return-False would mislead bench operators into '
-            'thinking the knob applied.'
-        )
+        from drivers.exceptions import HardwareError
+
+        cam = _bare_pylon_camera()
+        node = cam.active.GetStreamGrabberNodeMap.return_value.GetNode.return_value
+        node.SetValue.side_effect = genicam.RuntimeException('usb gone')
+        with pytest.raises(HardwareError):
+            cam.set_max_transfer_size(262144)
+
+        cam = _bare_pylon_camera()
+        cam.active.GetStreamGrabberNodeMap.return_value.GetNode.return_value = None
+        with pytest.raises(HardwareError):
+            cam.set_num_max_queued_urbs(64)
 
 
 class TestPylonAcquisitionIdleWait:
@@ -7468,10 +7431,9 @@ class TestPylonAcquisitionIdleWait:
     """
 
     def test_helper_method_present(self):
-        from pathlib import Path
+        from tests.ast_seams import assert_def
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        assert 'def _wait_for_acquisition_idle(' in src
+        assert_def('drivers/pyloncamera.py', '_wait_for_acquisition_idle')
 
     def test_disconnect_calls_idle_wait_after_stop_grabbing(self):
         """Pin call-site shape: disconnect() must invoke
@@ -7615,10 +7577,9 @@ class TestPylonStreamGrabberStatusLog:
     """
 
     def test_helper_method_present(self):
-        from pathlib import Path
+        from tests.ast_seams import assert_def
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        assert 'def _log_stream_grabber_status(' in src
+        assert_def('drivers/pyloncamera.py', '_log_stream_grabber_status')
 
     def test_start_grabbing_logs_status_before_start_call(self):
         """Pin call-site shape: _log_stream_grabber_status fires in
@@ -7828,6 +7789,8 @@ class TestManualVideoSpinners:
     def _kv_text(self):
         import pathlib
 
+        # pin-justified: kv is declarative source with no headless seam;
+        # the kv text is the contract.
         return pathlib.Path('ui/lumaviewpro.kv').read_text()
 
     def _ms_text(self):
@@ -7948,6 +7911,8 @@ class TestManualVideoSpinners:
         import json
         import pathlib
 
+        # pin-justified: the shipped default in data/settings.json is the
+        # contract a fresh install receives.
         path = pathlib.Path('data/settings.json')
         data = json.loads(path.read_text())
         assert data.get('manual_video', {}).get('max_fps') == 0, (
@@ -7990,7 +7955,10 @@ class TestBfIlluminationCapAtStartup:
             'settings-panel toggle.'
         )
 
-    def test_update_transmitted_runs_before_protocol_or_accordion_branch(self):
+    def test_update_transmitted_runs_before_accordion_branch(self):
+        # Startup no longer has a separate protocol branch: it always applies
+        # the default BF layer via accordion_collapse and does not move to
+        # step 1. The cap must still be applied before that settings-apply.
         src = self._src()
         idx = src.find('def complete_initialization')
         assert idx >= 0
@@ -7998,16 +7966,9 @@ class TestBfIlluminationCapAtStartup:
         assert next_def > idx
         body = src[idx:next_def]
         ut_pos = body.find('ctx.image_settings.update_transmitted()')
-        protocol_pos = body.find('if ctx.protocol is not None')
         accordion_pos = body.find('ctx.image_settings.accordion_collapse()')
         assert ut_pos > 0
-        assert protocol_pos > 0
         assert accordion_pos > 0
-        assert ut_pos < protocol_pos, (
-            'update_transmitted() must run before the protocol-branch '
-            'early-return; otherwise protocol-startup leaves the cap '
-            'unapplied.'
-        )
         assert ut_pos < accordion_pos, (
             'update_transmitted() must run before accordion_collapse() '
             'fires apply_settings on BF, otherwise BF gets applied at '
@@ -8202,6 +8163,8 @@ class TestModSliderAwareScrollView:
     def _kv(self):
         import pathlib
 
+        # pin-justified: kv is declarative source with no headless seam;
+        # the kv text is the contract.
         return pathlib.Path('ui/lumaviewpro.kv').read_text()
 
     def test_class_defined(self):
@@ -8571,11 +8534,44 @@ class TestSCEResetSignalsAbort:
         runner.reset()
 
         runner.protocol_thread.abort.assert_called_once()
+
+    def test_reset_defers_cleanup_to_protocol_thread_when_running(self):
+        """Cleanup (queued LED-off, camera restore, return-to-position
+        futures) must NOT run on the caller while the run loop is alive --
+        a UI abort calls reset() on the Kivy main thread, and running the
+        teardown inline froze the GUI for the duration of the queued moves.
+        The run loop's finally-block owns cleanup on the protocol thread."""
+        runner = self._make_runner()
+        runner._run_in_progress_event.set()
+        runner.protocol_thread.is_running = True
+        runner._cleanup = MagicMock()
+
+        runner.reset()
+
+        runner.protocol_thread.abort.assert_called_once()
+        runner._cleanup.assert_not_called()
+
+    def test_reset_falls_back_inline_when_thread_not_running(self):
+        """With the run flagged in progress but no live run loop (dispatch
+        failed / thread died before its finally), reset() must still clean
+        up so run state is not orphaned."""
+        runner = self._make_runner()
+        runner._run_in_progress_event.set()
+        runner.protocol_thread.is_running = False
+        runner._cleanup = MagicMock()
+
+        runner.reset()
+
         runner._cleanup.assert_called_once()
 
     def test_reset_abort_called_before_cleanup(self):
+        """Abort must precede any teardown so cleanup never races the
+        in-flight scan step (exercised on the inline-fallback path; the
+        deferred path orders abort before the run loop's own cleanup by
+        construction)."""
         runner = self._make_runner()
         runner._run_in_progress_event.set()
+        runner.protocol_thread.is_running = False
 
         order: list[str] = []
         runner.protocol_thread.abort.side_effect = lambda: order.append('abort')
@@ -8584,6 +8580,23 @@ class TestSCEResetSignalsAbort:
         runner.reset()
 
         assert order == ['abort', 'cleanup'], f'abort must be called before cleanup; got {order}'
+
+    def test_wait_for_run_idle_returns_true_when_idle(self):
+        runner = self._make_runner()
+        assert runner.wait_for_run_idle(timeout_s=0.2) is True
+
+    def test_wait_for_run_idle_times_out_while_run_unwinds(self):
+        runner = self._make_runner()
+        runner._run_in_progress_event.set()
+        assert runner.wait_for_run_idle(timeout_s=0.2) is False
+
+    def test_wait_for_run_idle_returns_when_cleanup_clears_flag(self):
+        import threading
+
+        runner = self._make_runner()
+        runner._run_in_progress_event.set()
+        threading.Timer(0.1, runner._run_in_progress_event.clear).start()
+        assert runner.wait_for_run_idle(timeout_s=2.0) is True
 
     def test_reset_noop_when_no_run_in_progress(self):
         runner = self._make_runner()
@@ -8904,7 +8917,7 @@ class TestSaveLiveImageTimeoutIsFloat:
                 f"capture_and_wait raised TypeError when given save_live_image's "
                 f'default timeout_s ({timeout_default!r}): {e}. '
                 f'Phase-2 audit P2-1 regression has returned.'
-            )
+            ) from e
 
 
 class TestImagingParamNamesUseUnitSuffix:
@@ -8971,7 +8984,7 @@ class TestImagingParamNamesUseUnitSuffix:
         import inspect
         from drivers.camera import Camera
 
-        method = getattr(Camera, 'exposure_t')
+        method = Camera.exposure_t
         params = set(inspect.signature(method).parameters)
         assert 'exposure_ms' in params, 'Camera.exposure_t missing exposure_ms param'
         assert 't' not in params, 'Camera.exposure_t still has bare `t` param'
@@ -9093,17 +9106,18 @@ class TestSessionSetObjectiveForwarder:
 
     def test_session_set_objective_forwards_to_scope(self):
         """Calling the Session forwarder updates the composition root's
-        objective state -- same path as scope.set_objective() directly."""
+        objective state -- same path as scope.runtime_state.set_objective()
+        directly."""
         from modules.scope_session import ScopeSession
 
         session = ScopeSession.create_headless()
-        available = session.scope.get_available_objectives()
+        available = session.scope.runtime_state.get_available_objectives()
         if not available:
             return  # no objectives loaded in this sim profile
         target = available[0] if isinstance(available, list) else next(iter(available))
 
         session.set_objective(target)
-        assert session.scope.get_current_objective_id() == target
+        assert session.scope.runtime_state.get_current_objective_id() == target
 
 
 class TestAxisTravelLimitsOnCapabilities:
@@ -9485,10 +9499,11 @@ class TestGetterSetterSymmetry:
     comment above set_acquisition_stop_mode."""
 
     def test_lumascope_get_stage_offset_exists(self, sim_scope):
-        assert callable(getattr(sim_scope, 'get_stage_offset', None))
+        # Canonical home post-Wave-7-Phase-8 is scope.runtime_state.
+        assert callable(getattr(sim_scope.runtime_state, 'get_stage_offset', None))
         # Round-trip: set then get returns the same value.
-        sim_scope.set_stage_offset({'x': 1.0, 'y': 2.0})
-        assert sim_scope.get_stage_offset() == {'x': 1.0, 'y': 2.0}
+        sim_scope.runtime_state.set_stage_offset({'x': 1.0, 'y': 2.0})
+        assert sim_scope.runtime_state.get_stage_offset() == {'x': 1.0, 'y': 2.0}
 
     def test_imaging_get_scale_bar_exists(self, sim_scope):
         assert callable(getattr(sim_scope.imaging, 'get_scale_bar', None))
@@ -9672,6 +9687,90 @@ class TestLumascopeSkillsRetiredOpticalMethods:
         )
 
 
+class TestLumascopeSkillsApiPluginDocBatch:
+    """LumascopeSkills doc-accuracy batch from the API/plugin audit
+    (F16, F20, F23, F24, F25, carryover #24). Each assertion pins both
+    that the doc no longer cites a surface that would raise at HEAD and
+    that the canonical surface it now cites actually exists, so the doc
+    and the code cannot drift apart silently again.
+    """
+
+    def _doc(self):
+        import pathlib
+
+        # pin-justified: the published doc text is the L2 contract surface;
+        # these tests guard doc-vs-API sync.
+        return pathlib.Path('docs/LumascopeSkills.md').read_text()
+
+    def test_objective_setters_not_cited_on_composition_root(self):
+        # Carryover #24: objective/turret config moved to scope.runtime_state;
+        # a doc line calling scope.set_objective(...) raises AttributeError.
+        doc = self._doc()
+        assert 'scope.set_objective(' not in doc, (
+            'LumascopeSkills.md must not cite `scope.set_objective(...)` -- '
+            'it moved to `scope.runtime_state.set_objective` / '
+            '`session.set_objective`.'
+        )
+        assert 'scope.runtime_state.set_objective' in doc
+        assert 'scope.runtime_state.get_current_objective_id' in doc
+
+    def test_objective_surface_lives_on_runtime_state_in_code(self):
+        from modules.lumascope_api import Lumascope
+
+        # The doc rewrite is only correct if Lumascope no longer carries
+        # these and runtime_state does.
+        assert not hasattr(Lumascope, 'set_objective')
+        assert hasattr(RuntimeState, 'set_objective')
+        assert hasattr(RuntimeState, 'get_current_objective_id')
+        assert hasattr(RuntimeState, 'get_turret_config')
+
+    def test_acquisition_stop_mode_not_a_public_setter_example(self):
+        # F16: the sentinel-vs-raise contract used set_acquisition_stop_mode
+        # as a public-setter example, but it is private now.
+        doc = self._doc()
+        assert 'set_acquisition_stop_mode`, `set_gain`' not in doc, (
+            'set_acquisition_stop_mode is private (_set_acquisition_stop_mode); '
+            'do not use it as a public-setter example.'
+        )
+        assert hasattr(ImagingAPI, '_set_acquisition_stop_mode')
+        assert not hasattr(ImagingAPI, 'set_acquisition_stop_mode')
+
+    def test_start_application_session_documented_and_exists(self):
+        # F24
+        from modules.scope_session import ScopeSession
+
+        doc = self._doc()
+        assert 'start_application_session' in doc
+        assert hasattr(ScopeSession, 'start_application_session')
+
+    def test_protocol_canonical_entry_points_documented(self):
+        # F25: name scope.load_protocol / scope.create_protocol as canonical
+        from modules.lumascope_api import Lumascope
+
+        doc = self._doc()
+        assert 'scope.load_protocol' in doc
+        assert 'scope.create_protocol' in doc
+        assert hasattr(Lumascope, 'load_protocol')
+        assert hasattr(Lumascope, 'create_protocol')
+
+    def test_listener_signature_overview_present(self):
+        # F20: the four differing callback signatures appear in one overview.
+        doc = self._doc()
+        for sig in (
+            'on_position(axis',
+            'on_led(color',
+            'on_camera(param',
+            'on_frame(image',
+        ):
+            assert sig in doc, f'listener overview missing {sig!r}'
+
+    def test_camera_max_frame_size_sentinel_documented(self):
+        # F23: (0, 0) is a no-camera sentinel, not a usable size.
+        doc = self._doc()
+        assert 'camera_max_frame_size` is `(0, 0)`' in doc
+        assert 'scope.camera_connected' in doc
+
+
 class TestGetLedStateShape:
     """get_led_state / get_led_states return shape must include `owner`
     (matches internal _led_state) and use None (not -1) for the
@@ -9726,6 +9825,8 @@ class TestGetLedStateShape:
     def test_doc_example_matches_shape(self):
         import pathlib
 
+        # pin-justified: the published doc example text is the L2 contract
+        # surface; this guards doc-vs-API sync.
         doc = pathlib.Path('docs/LumascopeSkills.md').read_text()
         assert "'owner': '…'" in doc or "'owner': '...'" in doc, (
             'LumascopeSkills get_led_state example must include the '
@@ -9836,14 +9937,13 @@ class TestPreReleaseFutureWarning:
         # outside this test file (4-mechanism PRE-RELEASE bundle).
 
 
-class TestAutoGainArmedBeforeDeadlineWait:
-    """Auto_Gain protocol steps must enable AG BEFORE the deadline-wait
-    window, not inside capture() AFTER the wait. Otherwise AG only
-    gets a single frame of convergence before the grab -- the static-
-    read root cause of issue #673. Closes API protocol-workflow audit
-    F1; pairs with the existing #673 fix at LVP `191dfa0` which routed
-    AG through apply_layer_camera_settings inside capture() but missed
-    the ordering correction.
+class TestAutoGainArmedInScanIterate:
+    """Auto_Gain protocol steps light the channel LED and arm continuous AG
+    in scan_iterate (against the lit scene), then let the capture_and_wait
+    auto_gain settle drain wait for the camera to settle before grabbing.
+    There is no separate timed deadline-wait: settling is a measured frame
+    count (the auto_gain skip-frame source), not a wall-clock timer. capture()
+    must not re-apply AG (that would restart it mid-grab).
     """
 
     def _runner_src(self):
@@ -9882,27 +9982,16 @@ class TestAutoGainArmedBeforeDeadlineWait:
             'so a re-run does not skip AG arming.'
         )
 
-    def test_arm_block_precedes_deadline_gate_in_scan_iterate(self):
-        src = self._runner_src()
-        arm_marker = "if step['Auto_Gain'] and p._auto_gain_armed_step != p._curr_step:"
-        gate_marker = "if step['Auto_Gain'] and time.monotonic() < p._auto_gain_deadline:"
-        arm_idx = src.find(arm_marker)
-        gate_idx = src.find(gate_marker)
-        assert arm_idx >= 0, 'AG-arm block must exist in scan_iterate.'
-        assert gate_idx >= 0, 'Deadline gate must exist in scan_iterate.'
-        assert arm_idx < gate_idx, (
-            'AG-arm block must appear BEFORE the deadline gate so the '
-            'camera converges DURING the max_duration wait, not in a '
-            'single frame inside capture() AFTER the wait.'
-        )
-
     def test_arm_block_routes_apply_through_io_executor(self):
         src = self._runner_src()
-        # Find the arm block and assert it includes the IOTask submit
-        # with apply_layer_camera_settings.
+        # Bound the arm block from its `if` to the stable marker that follows
+        # it (the autofocus Z-update comment), so the slice tracks the real
+        # block rather than a fixed char count.
         arm_idx = src.find("if step['Auto_Gain'] and p._auto_gain_armed_step != p._curr_step:")
-        gate_idx = src.find("if step['Auto_Gain'] and time.monotonic() < p._auto_gain_deadline:")
-        block = src[arm_idx:gate_idx]
+        assert arm_idx >= 0, 'AG-arm block must exist in scan_iterate.'
+        end_idx = src.find('# Update Z position with autofocus results', arm_idx)
+        assert end_idx > arm_idx, 'arm block end marker not found after arm block.'
+        block = src[arm_idx:end_idx]
         assert 'p._scope.imaging.apply_layer_camera_settings' in block, (
             'Arm block must call apply_layer_camera_settings (the same path live-mode AE/AG uses).'
         )
@@ -9914,86 +10003,49 @@ class TestAutoGainArmedBeforeDeadlineWait:
 
     def test_capture_does_not_double_apply_for_ag_step(self):
         src = self._writer_src()
-        # The AG branch in capture() should no longer call apply
-        # (scan_iterate already armed AG). Locate the "Auto_Gain step"
-        # branch and assert there is no apply_layer_camera_settings
-        # call between it and the next sibling block.
-        marker = '# Auto_Gain step: scan_iterate arms AG'
+        # The AG branch in capture() must not call apply (scan_iterate already
+        # armed AG). Locate the "Auto_Gain step" branch and assert there is no
+        # apply_layer_camera_settings call in its body.
+        marker = '# Auto_Gain step: scan_iterate already lit the LED and armed AG'
         idx = src.find(marker)
         assert idx >= 0, (
             'capture() Auto_Gain branch must document that scan_iterate '
-            'arms AG; the docstring is the contract.'
+            'lit the LED and armed AG; the comment is the contract.'
         )
         # Look at the next 800 chars of the branch body.
         branch_window = src[idx : idx + 800]
         assert 'self._scope.imaging.apply_layer_camera_settings(' not in branch_window, (
             'capture() Auto_Gain branch must not call '
             'self._scope.imaging.apply_layer_camera_settings(...) -- '
-            'doing so would restart AG mid-grab and discard the '
-            'convergence the deadline-wait produced.'
+            'doing so would restart AG mid-grab and discard the settling '
+            'the capture_and_wait drain produced.'
         )
 
-    def test_deadline_is_set_inside_arm_block_not_after_gate(self):
-        """The convergence deadline must be set AT ARM TIME so it
-        actually gates THIS step. Pre-fix the deadline was initialized
-        once at scan-start before AF (which takes ~10s), so when the
-        first AG step hit the gate, `now < deadline` was already FALSE
-        and the gate fell through immediately -- capture grabbed
-        ~70-120ms after arm instead of the intended 1000ms convergence
-        window (Chris's 2026-05-22 bench evidence on beta14). Closes
-        issue #673 recurrence.
+    def test_arm_block_returns_after_arming(self):
+        """The arm block must `return` after arming so the next scan_iterate
+        tick falls through to capture, where the auto_gain settle drain runs
+        against the now-lit scene. Without the return, capture could run in the
+        same tick the LED was just lit.
         """
         src = self._runner_src()
         arm_marker = "if step['Auto_Gain'] and p._auto_gain_armed_step != p._curr_step:"
-        gate_marker = "if step['Auto_Gain'] and time.monotonic() < p._auto_gain_deadline:"
         arm_idx = src.find(arm_marker)
-        gate_idx = src.find(gate_marker)
-        assert arm_idx >= 0 and gate_idx >= 0
-        # Within the arm block (between arm marker and gate marker),
-        # the deadline MUST be set. The exact spelling allows a
-        # multi-line formulation (the deadline expression is long).
-        arm_block = src[arm_idx:gate_idx]
-        assert 'p._auto_gain_deadline' in arm_block, (
-            'Convergence deadline must be set INSIDE the arm block '
-            '(one-shot per step). Pre-fix it was set only at scan-'
-            'start before AF, so the gate fell through immediately. '
-            'Issue #673 recurrence.'
-        )
-        assert 'p._autogain_settings' in arm_block and "'max_duration'" in arm_block, (
-            'Arm-time deadline assignment must use '
-            "p._autogain_settings['max_duration'] -- the configured "
-            'convergence window. Issue #673.'
-        )
-
-    def test_arm_block_returns_after_setting_deadline(self):
-        """The arm block must `return` after setting the deadline so
-        the next scan_iterate tick polls the gate. Without the return,
-        the deadline-just-set is checked in the same tick and falls
-        through (now ~= deadline + epsilon) -- the bug recurs.
-
-        The check: between the arm block and the gate marker there
-        must be a `return` statement.
-        """
-        src = self._runner_src()
-        arm_marker = "if step['Auto_Gain'] and p._auto_gain_armed_step != p._curr_step:"
-        gate_marker = "if step['Auto_Gain'] and time.monotonic() < p._auto_gain_deadline:"
-        arm_idx = src.find(arm_marker)
-        gate_idx = src.find(gate_marker)
-        arm_block = src[arm_idx:gate_idx]
-        # Look for a bare `return` on its own indented line inside the
-        # arm block (the if-body), not at the outer function scope.
-        # The arm block is indented 8 spaces (inside an if inside the
-        # function); its body lines are indented 12 spaces.
+        assert arm_idx >= 0
+        # Bound the arm block by the stable marker that follows it (the
+        # autofocus Z-update comment) so the slice tracks the real block.
+        end_idx = src.find('# Update Z position with autofocus results', arm_idx)
+        assert end_idx > arm_idx, 'arm block end marker not found after arm block.'
+        arm_block = src[arm_idx:end_idx]
+        # Look for a bare `return` on its own indented line inside the arm
+        # block body (indented 12 spaces -- inside an if inside the function).
         return_lines = [
             line
             for line in arm_block.splitlines()
             if line.strip() == 'return' and line.startswith(' ' * 12)
         ]
         assert len(return_lines) >= 1, (
-            'Arm block must `return` after setting _auto_gain_deadline '
-            'so the next scan_iterate tick polls the gate (issue #673 '
-            'recurrence). Without the return, the deadline gate is '
-            'checked in the same tick and falls through immediately.'
+            'Arm block must `return` after arming AG so the next '
+            'scan_iterate tick falls through to capture.'
         )
 
     def test_run_loop_does_not_reset_deadline_at_scan_start(self):
@@ -10021,99 +10073,6 @@ class TestAutoGainArmedBeforeDeadlineWait:
             'scan start -- that produced a past-deadline gate after '
             'AF ran. Deadline is set per-step at arm time in '
             'protocol_step_runner. Issue #673.'
-        )
-
-
-class TestAutoExposureBoundsOpenedAtAGEnable_655:
-    """Issue #655 -- Red channel AG histogram dim.
-
-    Pre-fix, pyloncamera.auto_gain() set GainAuto + ExposureAuto to
-    Continuous without writing AutoExposureTimeLowerLimit /
-    AutoExposureTimeUpperLimit. The Pylon driver kept whatever bounds
-    were cached from the prior session -- typically a narrow band
-    around the last-written ExposureTime. AG was implicitly capped
-    above by that ceiling, so Red fluorescence layers with low signal
-    hit max_gain_db (20 dB) and had nowhere to go on the exposure
-    axis. Chris's 2026-05-22 TIFFs confirm: gain=20 dB cap, exposure
-    pinned at the layer default 100 ms across all 3 channels; Red
-    mean grey value 3.7 vs target ~76.
-
-    Fix: _open_auto_exposure_time_bounds_to_camera_max() writes
-    [LowerLimit.Min, UpperLimit.Max] from the sensor's native range
-    when AG is enabled (Continuous or Once). Live + protocol AG both
-    call the helper. Cluster note: pairs with #673 fix
-    (deadline-at-arm-time) -- together AG now has both convergence
-    TIME (#673) and convergence ROOM on the exposure axis (#655).
-    """
-
-    def _src(self):
-        from pathlib import Path
-
-        return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-
-    def test_helper_method_exists(self):
-        """Helper must exist at class scope on PylonCamera."""
-        src = self._src()
-        assert 'def _open_auto_exposure_time_bounds_to_camera_max(' in src, (
-            'PylonCamera must expose _open_auto_exposure_time_bounds_to_camera_max() (#655)'
-        )
-
-    def test_helper_writes_both_lower_and_upper_limits(self):
-        """Helper body must SetValue both AutoExposureTime bounds
-        from the sensor's native range (not hardcoded values)."""
-        src = self._src()
-        start = src.find('def _open_auto_exposure_time_bounds_to_camera_max(')
-        assert start != -1
-        body = src[start : start + 2000]
-        end = body.find('\n    def ', 1)
-        if end != -1:
-            body = body[:end]
-        assert 'AutoExposureTimeLowerLimit.SetValue(' in body, (
-            'helper must SetValue AutoExposureTimeLowerLimit (#655)'
-        )
-        assert 'AutoExposureTimeUpperLimit.SetValue(' in body, (
-            'helper must SetValue AutoExposureTimeUpperLimit (#655)'
-        )
-        assert 'AutoExposureTimeLowerLimit.Min' in body, (
-            'helper must read .Min from the sensor (not hardcode) '
-            'so different camera models get the right range (#655)'
-        )
-        assert 'AutoExposureTimeUpperLimit.Max' in body, (
-            'helper must read .Max from the sensor (#655)'
-        )
-
-    def test_auto_gain_continuous_calls_helper(self):
-        """The continuous AG entry point (auto_gain()) must open the
-        exposure bounds before setting GainAuto/ExposureAuto =
-        Continuous. Without this call AG cannot raise exposure when
-        gain caps."""
-        src = self._src()
-        start = src.find('def auto_gain(')
-        assert start != -1
-        body = src[start : start + 3000]
-        end = body.find('\n    def ', 1)
-        if end != -1:
-            body = body[:end]
-        assert 'self._open_auto_exposure_time_bounds_to_camera_max()' in body, (
-            'auto_gain() Continuous branch must call '
-            '_open_auto_exposure_time_bounds_to_camera_max() so AG '
-            'has exposure headroom (#655)'
-        )
-
-    def test_auto_gain_once_calls_helper(self):
-        """The one-shot AG entry point (auto_gain_once()) must also
-        open the bounds. Symmetric with auto_gain()."""
-        src = self._src()
-        start = src.find('def auto_gain_once(')
-        assert start != -1
-        body = src[start : start + 2000]
-        end = body.find('\n    def ', 1)
-        if end != -1:
-            body = body[:end]
-        assert 'self._open_auto_exposure_time_bounds_to_camera_max()' in body, (
-            'auto_gain_once() Once branch must call '
-            '_open_auto_exposure_time_bounds_to_camera_max() so the '
-            'one-shot adjustment has exposure headroom (#655)'
         )
 
 
@@ -10146,6 +10105,8 @@ class TestWindowsBuildIsWindowed_559:
     def _spec_src(self):
         from pathlib import Path
 
+        # pin-justified: the shipped Windows build spec IS the artifact;
+        # console=False has no runtime seam to assert behaviorally.
         return (
             Path(__file__).resolve().parent.parent
             / 'scripts'
@@ -10270,19 +10231,19 @@ class TestImagingAsyncSyncThreeVariantPattern:
         from modules.lumascope_api.imaging import ImagingAPI
 
         assert hasattr(ImagingAPI, 'set_gain_async')
-        assert callable(getattr(ImagingAPI, 'set_gain_async'))
+        assert callable(ImagingAPI.set_gain_async)
 
     def test_imaging_has_set_exposure_time_async(self):
         from modules.lumascope_api.imaging import ImagingAPI
 
         assert hasattr(ImagingAPI, 'set_exposure_time_async')
-        assert callable(getattr(ImagingAPI, 'set_exposure_time_async'))
+        assert callable(ImagingAPI.set_exposure_time_async)
 
     def test_imaging_has_capture_and_wait_async(self):
         from modules.lumascope_api.imaging import ImagingAPI
 
         assert hasattr(ImagingAPI, 'capture_and_wait_async')
-        assert callable(getattr(ImagingAPI, 'capture_and_wait_async'))
+        assert callable(ImagingAPI.capture_and_wait_async)
 
     def test_session_imaging_forwarders_renamed(self):
         from modules.scope_session import ScopeSession
@@ -10502,6 +10463,35 @@ class TestScopeSessionBuildsFullExecutorBundle:
         finally:
             io.shutdown()
             cam.shutdown()
+
+
+class TestHeadlessSettingsResolutionMatchesGui:
+    """Per Settings-SSOT audit HR-4: ScopeSession.create_headless()'s deepest
+    settings fallback (the settings arg None AND settings_init.settings None)
+    opened data/settings.json directly, skipping current.json + the resolver.
+    In a headless/test context where current.json holds the live state, that
+    loaded stale defaults instead of matching the GUI's current.json-first
+    resolution. Fix: the fallback resolves via _resolve_settings_path.
+    """
+
+    def _src(self):
+        import pathlib
+
+        return pathlib.Path('modules/scope_session.py').read_text()
+
+    def test_headless_fallback_uses_resolver(self):
+        assert '_resolve_settings_path' in self._src(), (
+            'create_headless settings fallback must resolve via '
+            '_resolve_settings_path (current.json first) so headless matches '
+            'the GUI; a direct settings.json open ignores live current.json state.'
+        )
+
+    def test_headless_fallback_does_not_hardcode_settings_json_only(self):
+        src = self._src()
+        assert "os.path.join(source_path, 'data', 'settings.json')" not in src, (
+            'create_headless must not hardcode a settings.json-only open in the '
+            'headless fallback -- that bypasses current.json + the resolver.'
+        )
 
 
 class TestAutogainSettingsSnapshottedAtRunStart:
@@ -10928,6 +10918,116 @@ class TestProfileTraceGateIsNotEnvVar:
         assert not bad, (
             'lib/profile_trace.py must not call os.environ.get(...) at '
             f'module scope. Found at line(s): {bad}'
+        )
+
+
+class TestHandleTraceGateIsNotEnvVar:
+    """handle_trace must NOT be gated by an environment variable.
+
+    Per the options-menu rule, runtime toggles live in settings.json or
+    as a code constant -- never as an environment variable. The earlier
+    LVP_HANDLE_TRACE / LVP_OBJ_SAMPLE_EVERY module-load gate was a
+    redundant second path alongside the profiling.handle_trace_enabled
+    settings key that microscope_settings.start_app() already honors. The
+    env block was deleted; this AST scan pins the removal so it can't
+    return.
+    """
+
+    def _handle_trace_source(self):
+        from pathlib import Path
+
+        return (Path(__file__).resolve().parent.parent / 'lib' / 'handle_trace.py').read_text()
+
+    def test_no_handle_trace_env_vars_in_module(self):
+        import ast
+
+        src = self._handle_trace_source()
+        tree = ast.parse(src)
+
+        hits = []
+
+        class Visitor(ast.NodeVisitor):
+            def visit_Constant(self, node):
+                if isinstance(node.value, str) and node.value in (
+                    'LVP_HANDLE_TRACE',
+                    'LVP_OBJ_SAMPLE_EVERY',
+                ):
+                    hits.append((node.lineno, node.value))
+                self.generic_visit(node)
+
+        Visitor().visit(tree)
+        assert not hits, (
+            'lib/handle_trace.py must not reference LVP_HANDLE_TRACE / '
+            'LVP_OBJ_SAMPLE_EVERY as string literals -- the env-var gate '
+            'is retired in favor of the profiling.handle_trace_enabled '
+            f'settings key. Hits: {hits}'
+        )
+
+
+class TestDebugGateIsNotEnvVar:
+    """The global DEBUG-suppression gate must NOT read an env var.
+
+    Per the options-menu rule, runtime toggles live in settings.json or
+    as a code constant -- never as an environment variable. The earlier
+    LVP_DEBUG_ENABLED gate was a second knob alongside debug_mode: both
+    had to be set to get DEBUG / [PERF] output. It was migrated to read
+    the debug_mode setting (already loaded at logger import via
+    load_debug_setting). This AST scan pins the migration so the env-var
+    pattern doesn't sneak back in.
+    """
+
+    def _lvp_logger_source(self):
+        from pathlib import Path
+
+        return (Path(__file__).resolve().parent.parent / 'lvp_logger.py').read_text()
+
+    def test_no_lvp_debug_enabled_env_var_in_module(self):
+        import ast
+
+        src = self._lvp_logger_source()
+        tree = ast.parse(src)
+
+        hits = []
+
+        class Visitor(ast.NodeVisitor):
+            def visit_Constant(self, node):
+                if isinstance(node.value, str) and node.value == 'LVP_DEBUG_ENABLED':
+                    hits.append((node.lineno, node.value))
+                self.generic_visit(node)
+
+        Visitor().visit(tree)
+        assert not hits, (
+            'lvp_logger.py must not reference LVP_DEBUG_ENABLED as a '
+            'string literal -- the env-var gate is retired in favor of '
+            f'the debug_mode settings key. Hits: {hits}'
+        )
+
+    def test_no_global_logging_disable_in_lvp_logger(self):
+        # logging.disable() is a process-global DEBUG kill-switch that
+        # overrides every logger's own level (it was silently starving
+        # camera.log's always-on DEBUG firehose) and split the debug
+        # toggle into two gates. The canonical mechanism is the per-logger
+        # level driven by debug_mode; the global disable must not return.
+        import ast
+
+        src = self._lvp_logger_source()
+        tree = ast.parse(src)
+
+        hits = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                func = node.func
+                if (
+                    isinstance(func, ast.Attribute)
+                    and func.attr == 'disable'
+                    and isinstance(func.value, ast.Name)
+                    and func.value.id == 'logging'
+                ):
+                    hits.append(node.lineno)
+        assert not hits, (
+            'lvp_logger.py must not call logging.disable() -- DEBUG gating '
+            'is the per-logger level driven by debug_mode, not a global '
+            f'kill-switch. Found at line(s): {hits}'
         )
 
 
@@ -11395,22 +11495,23 @@ class TestProtocolPostProcessorNoBareCvImwrite_F35_2:
         )
 
     def test_stitcher_writes_via_tifffile(self):
-        """Stitcher self-writes its output via tifffile (matches
-        composite_generation + zprojector pattern). Quote-tolerant on
-        the module alias (`tf` vs `tifffile`)."""
+        """Stitcher self-writes its output through the tifffile pathway.
+        Accepts either bare ``tifffile.imwrite`` (legacy direct call) or
+        ``image_utils.write_tiff`` (canonical mono-native wrapper that
+        routes through tifffile internally) -- both satisfy the F35.2
+        intent that the write does NOT go through cv2 (BGR-native)."""
         import re
 
         src = self._stitcher_src()
-        # Accept either alias style: `tf.imwrite(` or
-        # `tifffile.imwrite(`.
         matched = re.search(
-            r'(?:tf|tifffile)\.imwrite\s*\(',
+            r'(?:tf|tifffile)\.imwrite\s*\(|image_utils\.write_tiff\s*\(',
             src,
         )
         assert matched is not None, (
             'F35.2 regression: stitcher must write its stitched output '
-            'via tifffile.imwrite (matches composite_generation + '
-            'zprojector + video_builder + stack_builder pattern).'
+            'through tifffile (either bare tifffile.imwrite or via '
+            'image_utils.write_tiff). The BGR-native cv2 write path is '
+            'permanently retired.'
         )
 
     def test_stitcher_has_no_cv2_imports(self):
@@ -11716,3 +11817,239 @@ class TestShowPopupHostWidgetProxy_F9:
             f'_HostWidgetProxy wrapper instead. Got first thread arg: '
             f'{first_arg_name!r}.'
         )
+
+
+class TestPostProcessingLoggerImported:
+    """post_processing.py called logger.error() inside an `except OSError`
+    handler that writes results.csv, but the module never imported logger.
+    With logger unbound, any CSV-write failure raised NameError instead of
+    logging -- masking the real OSError from the user. The module must import
+    logger at top level whenever it references it.
+    """
+
+    def _parse(self):
+        import ast
+        import pathlib
+
+        root = pathlib.Path(__file__).resolve().parent.parent
+        src = (root / 'modules' / 'post_processing.py').read_text()
+        return ast.parse(src)
+
+    def test_logger_imported_when_referenced(self):
+        import ast
+
+        tree = self._parse()
+
+        references_logger = any(
+            isinstance(node, ast.Name)
+            and node.id == 'logger'
+            and isinstance(node.ctx, ast.Load)
+            for node in ast.walk(tree)
+        )
+        assert references_logger, (
+            'expected post_processing.py to reference logger; the test '
+            'guards against an unbound logger and is meaningless otherwise.'
+        )
+
+        imported = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                for alias in node.names:
+                    imported.add(alias.asname or alias.name)
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    imported.add((alias.asname or alias.name).split('.')[0])
+
+        assert 'logger' in imported, (
+            'post_processing.py references logger but never imports it; '
+            'logger.error() in the results.csv except handler would raise '
+            'NameError and hide the real OSError. Add '
+            '`from lvp_logger import logger`.'
+        )
+
+
+class TestWindowsMachinePredicateAgrees:
+    """lvp_logger and app_environment each derive the windows_machine flag
+    independently (lvp_logger is import-light and loads first, so it does not
+    import app_environment). They are allowed to stay separate ONLY because
+    both use the identical `os.name == 'nt'` predicate and therefore cannot
+    disagree. This pins that invariant: if either side switches predicates
+    (e.g. back to platform.system()), the two could diverge and this fails.
+    """
+
+    def _src(self, rel):
+        import pathlib
+
+        root = pathlib.Path(__file__).resolve().parent.parent
+        return (root / rel).read_text()
+
+    def test_lvp_logger_uses_os_name_predicate(self):
+        assert "os.name == 'nt'" in self._src('lvp_logger.py')
+
+    def test_app_environment_uses_os_name_predicate(self):
+        assert "os.name == 'nt'" in self._src('modules/app_environment.py')
+
+    def test_lvp_logger_does_not_import_app_environment(self):
+        # The independence is the point -- the foundational logger must not
+        # take an early-startup dependency on the heavier app_environment.
+        # Scan imports (not the whole source) so the explanatory comment,
+        # which names app_environment, does not trip the check.
+        import ast
+
+        tree = ast.parse(self._src('lvp_logger.py'))
+        imported = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                imported.add(node.module)
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    imported.add(alias.name)
+        assert not any('app_environment' in m for m in imported)
+
+
+class TestExecutorHandlesSingleSourceOnCtx:
+    """The 7 executor handles were stored in module globals AND on ctx AND on
+    the bundle, read divergently (shutdown_threads read the globals; the rest
+    of the app reads ctx.X). They now live only on ctx: build() uses locals and
+    everything else, including shutdown, reads ctx.<name>. executor_bundle stays
+    a module global -- it is the single build()->on_start() handoff, not a live
+    executor read path. This pins that the redundant globals are gone.
+    """
+
+    EXECUTORS = (
+        'io_executor',
+        'camera_executor',
+        'protocol_thread',
+        'file_io_executor',
+        'autofocus_thread',
+        'scope_display_thread',
+        'worker_pool',
+    )
+
+    def _src(self):
+        import pathlib
+
+        root = pathlib.Path(__file__).resolve().parent.parent
+        return (root / 'lumaviewpro.py').read_text()
+
+    def test_no_global_declaration_of_executor_handles(self):
+        # A `global <name>` anywhere is the only way build()/shutdown could
+        # write or rebind a module-global copy; none should name an executor.
+        import ast
+
+        tree = ast.parse(self._src())
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Global):
+                for name in self.EXECUTORS:
+                    assert name not in node.names, (
+                        f'{name} is still declared `global`; the executor '
+                        'handles must live only on ctx.'
+                    )
+
+    def test_shutdown_reads_executors_from_ctx(self):
+        # shutdown_threads must tear down ctx.<name>, not bare module globals.
+        src = self._src()
+        assert 'ctx.autofocus_thread.stop' in src
+        assert 'ctx.scope_display_thread.stop' in src
+        assert 'ctx.io_executor.shutdown' in src
+        assert 'ctx.worker_pool.shutdown' in src
+
+
+class TestRawBytesPerPixel:
+    """The camera data-rate readout derived bytes/pixel from a fixed format
+    allowlist that omitted Mono16, halving the reported rate for 16-bit
+    cameras. raw_bytes_per_pixel covers every Mono format (Mono8 -> 1, all
+    others -> 2) plus the color-channel multiplier.
+    """
+
+    def test_mono8_is_one_byte(self):
+        from modules.common_utils import raw_bytes_per_pixel
+
+        assert raw_bytes_per_pixel('Mono8') == 1
+
+    def test_mono16_is_two_bytes(self):
+        # The bug: Mono16 fell through to the 1-byte default.
+        from modules.common_utils import raw_bytes_per_pixel
+
+        assert raw_bytes_per_pixel('Mono16') == 2
+
+    def test_other_mono_formats_are_two_bytes(self):
+        from modules.common_utils import raw_bytes_per_pixel
+
+        for fmt in ('Mono10', 'Mono10g40IDS', 'Mono12', 'Mono12g24IDS', 'Mono14'):
+            assert raw_bytes_per_pixel(fmt) == 2, fmt
+
+    def test_color_native_multiplies_channels(self):
+        from modules.common_utils import raw_bytes_per_pixel
+
+        assert raw_bytes_per_pixel('Mono8', is_color_native=True) == 3
+        assert raw_bytes_per_pixel('Mono12', is_color_native=True) == 6
+
+
+class TestAxisStateLivesOnConstants:
+    """AxisState was defined on the composition root _lumascope.py and imported
+    module-top by the motion sub-API -- a sub-API depending on the root. It now
+    lives on the leaf _constants.py; _lumascope re-exports it for back-compat.
+    All historical import paths must still resolve to the one canonical class.
+    """
+
+    def test_canonical_home_is_constants(self):
+        from modules.lumascope_api._constants import AxisState
+
+        assert AxisState.__module__ == 'modules.lumascope_api._constants'
+
+    def test_all_back_compat_paths_are_one_identity(self):
+        from modules.lumascope_api import AxisState as via_pkg
+        from modules.lumascope_api._constants import AxisState as via_constants
+        from modules.lumascope_api._lumascope import AxisState as via_lumascope
+        from modules.lumascope_api.motion import AxisState as via_motion
+
+        assert via_constants is via_lumascope is via_pkg is via_motion
+
+    def test_values_intact(self):
+        from modules.lumascope_api._constants import AxisState
+
+        assert (AxisState.UNKNOWN, AxisState.IDLE, AxisState.MOVING, AxisState.HOMING) == (
+            'unknown',
+            'idle',
+            'moving',
+            'homing',
+        )
+
+    def test_motion_does_not_import_axisstate_from_lumascope(self):
+        # The wart was motion.py importing AxisState from the composition root.
+        import ast
+        import pathlib
+
+        root = pathlib.Path(__file__).resolve().parent.parent
+        tree = ast.parse((root / 'modules' / 'lumascope_api' / 'motion.py').read_text())
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module and node.module.endswith(
+                '_lumascope'
+            ):
+                names = {a.name for a in node.names}
+                assert 'AxisState' not in names, 'motion.py must import AxisState from _constants'
+
+
+class TestSequentialIOExecutorDocstringSingleWorker:
+    """The module overview docstring described a multi-worker ThreadPoolExecutor
+    ("configurable max_workers", "up to max_workers in parallel"), contradicting
+    the actual single-worker invariant the class enforces. Pin the corrected
+    docstring so the stale parallel-worker language cannot creep back.
+    """
+
+    def _src(self):
+        import pathlib
+
+        # pin-justified: the one-worker-thread docstring is the executor
+        # topology contract; the doc text is the load-bearing record.
+        root = pathlib.Path(__file__).resolve().parent.parent
+        return (root / 'modules' / 'sequential_io_executor.py').read_text()
+
+    def test_no_parallel_worker_language(self):
+        src = self._src()
+        assert 'max_workers in parallel' not in src
+        assert 'configurable max_workers' not in src
+
+    def test_documents_single_worker(self):
+        assert 'exactly ONE worker thread' in self._src()

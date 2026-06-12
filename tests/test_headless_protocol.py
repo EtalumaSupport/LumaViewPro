@@ -12,7 +12,7 @@ the import and runtime level:
   3. kivy_utils.schedule_ui() falls back to direct invocation when no
      GUI dispatcher has been set.
 
-This complements test_integration.py, which mocks Kivy out — here we
+This complements test_integration.py, which mocks Kivy out -- here we
 assert the modules NEVER LOAD Kivy at all.
 """
 
@@ -29,7 +29,7 @@ import pytest
 
 # Heavy non-GUI deps (lvp_logger, pypylon, ids_peak, ...) are mocked by
 # tests/conftest.py at module-import time. The kivy mock from conftest
-# gets purged below — this test deliberately verifies the protocol chain
+# gets purged below -- this test deliberately verifies the protocol chain
 # loads without any kivy module present.
 
 _mock_settings_init = MagicMock()
@@ -61,7 +61,7 @@ def _purge_kivy_from_sys_modules():
 _purge_kivy_from_sys_modules()
 
 
-# Now import the protocol execution chain — these MUST not require Kivy
+# Now import the protocol execution chain -- these MUST not require Kivy
 from modules.lumascope_api import Lumascope
 from modules.sequential_io_executor import SequentialIOExecutor
 from modules.sequenced_capture_runner import (

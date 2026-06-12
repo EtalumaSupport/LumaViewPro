@@ -170,7 +170,7 @@ class TestProtocolCallbacksFromDict:
 
 
 class TestProtocolCallbacksToDict:
-    """Test ProtocolCallbacks.to_dict() — must NOT use dataclasses.asdict()."""
+    """Test ProtocolCallbacks.to_dict() -- must NOT use dataclasses.asdict()."""
 
     def test_to_dict_only_non_none(self):
         fn = lambda: None
@@ -286,11 +286,21 @@ class _FakeExecutor:
     def is_protocol_queue_active(self):
         return self._protocol_queue_active
 
+    def protocol_queue_size(self):
+        # Mirror the real executor: a count consistent with the active flag.
+        return 1 if self._protocol_queue_active else 0
+
     def set_protocol_complete_callback(self, callback, cb_args=None, cb_kwargs=None):
         self._complete_callback = callback
 
     def protocol_finish_then_end(self):
         self._finish_called = True
+
+    def wait_for_idle(self, timeout: float = 1.0) -> bool:
+        # No worker thread in this stub; nothing in flight to wait for.
+        # Return True so the cleanup path proceeds without thinking it
+        # timed out and skipping the rest of the teardown.
+        return True
 
     def protocol_put(self, task):
         task.action()
@@ -318,31 +328,31 @@ class TestRunCleanup:
         file_exec = _FakeExecutor()
         camera_exec = _FakeExecutor()
 
-        defaults = dict(
-            get_state_fn=get_state,
-            set_state_fn=set_state,
-            run_lock=threading.Lock(),
-            scan_in_progress=threading.Event(),
-            leds_state_at_end='off',
-            original_led_states={},
-            original_autofocus_states={},
-            saved_camera_state=None,
-            return_to_position=None,
-            disable_saving_artifacts=True,
-            protocol=None,
-            protocol_execution_record=None,
-            scope=MagicMock(),
-            callbacks=ProtocolCallbacks(),
-            leds_off_fn=lambda: None,
-            led_on_fn=lambda **kw: None,
-            default_move_fn=lambda **kw: None,
-            cancel_scheduled_events_fn=lambda: None,
-            io_executor=io_exec,
-            autofocus_thread=af_thread,
-            file_io_executor=file_exec,
-            camera_executor=camera_exec,
-            set_run_in_progress_fn=lambda v: run_in_progress.__setitem__(0, v),
-        )
+        defaults = {
+            'get_state_fn': get_state,
+            'set_state_fn': set_state,
+            'run_lock': threading.Lock(),
+            'scan_in_progress': threading.Event(),
+            'leds_state_at_end': 'off',
+            'original_led_states': {},
+            'original_autofocus_states': {},
+            'saved_camera_state': None,
+            'return_to_position': None,
+            'disable_saving_artifacts': True,
+            'protocol': None,
+            'protocol_execution_record': None,
+            'scope': MagicMock(),
+            'callbacks': ProtocolCallbacks(),
+            'leds_off_fn': lambda: None,
+            'led_on_fn': lambda **kw: None,
+            'default_move_fn': lambda **kw: None,
+            'cancel_scheduled_events_fn': lambda: None,
+            'io_executor': io_exec,
+            'autofocus_thread': af_thread,
+            'file_io_executor': file_exec,
+            'camera_executor': camera_exec,
+            'set_run_in_progress_fn': lambda v: run_in_progress.__setitem__(0, v),
+        }
         defaults.update(overrides)
         return defaults, state, run_in_progress
 
@@ -482,7 +492,7 @@ class TestRunCleanup:
 
 
 class TestProtocolImageWriterWriteCapture:
-    """Test ProtocolImageWriter.write_capture — the file-IO thread method."""
+    """Test ProtocolImageWriter.write_capture -- the file-IO thread method."""
 
     def _make_writer(self, execution_record=None):
         """Create a ProtocolImageWriter with minimal stubs."""
@@ -567,4 +577,88 @@ class TestProtocolImageWriterWriteCapture:
             captured_image=None,
             step={'Name': 'test'},
         )
-        # Should not crash — just returns
+        # Should not crash -- just returns
+
+
+class TestRunCleanupCancelledHandoff:
+    """A superseding run/abort cycle cancels queued cleanup tasks (LED
+    restore, return-to-position) via the executor's pending-clear. That is
+    a normal ownership hand-off: the new cycle sets LED state and stage
+    position itself. Treating the CancelledError as a cleanup failure
+    fired an error popup per cycle when the run button was clicked
+    rapidly -- nine popups in four seconds on the bench.
+    """
+
+    def _args(self, **overrides):
+        helper = TestRunCleanup()
+        return helper._make_cleanup_args(**overrides)
+
+    def test_cancelled_led_restore_is_not_a_cleanup_error(self):
+        from concurrent.futures import CancelledError
+        from unittest.mock import patch
+        from modules.protocol_cleanup import run_cleanup
+
+        def cancelled_leds_off():
+            raise CancelledError()
+
+        args, _, _ = self._args(leds_off_fn=cancelled_leds_off)
+        with patch('modules.notification_center.notifications') as mock_notif:
+            run_cleanup(**args)
+            mock_notif.warning.assert_not_called()
+
+    def test_cancelled_return_move_is_not_a_cleanup_error(self):
+        from concurrent.futures import CancelledError
+        from unittest.mock import patch
+        from modules.protocol_cleanup import run_cleanup
+
+        def cancelled_move(**kw):
+            raise CancelledError()
+
+        args, _, _ = self._args(
+            return_to_position={'x': 1.0, 'y': 2.0, 'z': 3.0},
+            default_move_fn=cancelled_move,
+        )
+        with patch('modules.notification_center.notifications') as mock_notif:
+            run_cleanup(**args)
+            mock_notif.warning.assert_not_called()
+
+    def test_real_led_restore_failure_still_surfaces(self):
+        from unittest.mock import patch
+        from modules.protocol_cleanup import run_cleanup
+
+        def broken_leds_off():
+            raise RuntimeError('serial dead')
+
+        args, _, _ = self._args(leds_off_fn=broken_leds_off)
+        with patch('modules.notification_center.notifications') as mock_notif:
+            run_cleanup(**args)
+            mock_notif.warning.assert_called_once()
+            # Aborted runs get this summary too; the wording must not
+            # claim completion.
+            assert 'completed' not in mock_notif.warning.call_args[0][2]
+
+
+class TestFinalStepKeepsLedWhenCleanupRestoresIt:
+    """The final step of the final scan must not turn its LED off when
+    cleanup is about to re-light the same channel (it was lit before the
+    run): the off->on pair is a visible end-of-acquire flicker on a
+    z-stack started from a live-view-lit channel. Non-final scans keep
+    the LED-off so inter-scan waits stay dark (sample safety).
+    """
+
+    def test_keep_led_condition_present_in_scan_iterate(self):
+        import pathlib
+
+        src = pathlib.Path('modules/protocol_step_runner.py').read_text(encoding='utf-8')
+        flat = ' '.join(src.split())
+        assert 'remaining_scans() <= 1' in flat, (
+            'final-step LED keep must be gated to the FINAL scan so '
+            'inter-scan waits still run dark'
+        )
+        assert "_leds_state_at_end == 'return_to_original'" in flat.replace('"', "'"), (
+            'final-step LED keep must apply only when cleanup will restore '
+            'the original LED state'
+        )
+        assert '_original_led_states' in flat, (
+            'final-step LED keep must check the channel was lit before the run'
+        )

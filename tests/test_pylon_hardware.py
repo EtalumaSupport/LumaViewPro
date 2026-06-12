@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Pylon hardware tests — opt-in via --run-pylon-hardware.
+"""Pylon hardware tests -- opt-in via --run-pylon-hardware.
 
 These tests require:
   1. Real pypylon SDK installed (not the conftest MagicMock)
@@ -8,7 +8,7 @@ These tests require:
 Skipped by default. Run with:
     pytest tests/test_pylon_hardware.py --run-pylon-hardware
 
-The `pylon_hardware` marker is gated by conftest.pytest_collection_modifyitems —
+The `pylon_hardware` marker is gated by conftest.pytest_collection_modifyitems --
 test bodies do NOT need their own skip dance.
 
 Mirrors the shape of test_ids_hardware.py so the abstraction is symmetric
@@ -84,9 +84,9 @@ class TestPylon(unittest.TestCase):
         self.assertTrue(result, 'grab failed -- chunks check requires successful frame')
 
         chunks = self.camera.cam_image_handler._base.get_last_chunks()
-        print(f'\n=== last_chunks after first grab ===')
+        print('\n=== last_chunks after first grab ===')
         print(f'  chunks: {chunks}')
-        print(f'=====================================\n')
+        print('=====================================\n')
 
         self.assertIsNotNone(chunks, 'Path C: last_chunks should populate after a successful grab')
         # All three target chunks should be present
@@ -178,14 +178,14 @@ class TestPylon(unittest.TestCase):
 
         cur_gain_tol = FrameValidity.DEFAULT_CHUNK_TOLERANCE['gain']
         cur_exp_tol = FrameValidity.DEFAULT_CHUNK_TOLERANCE['exposure']
-        print(f'\n=== Tolerance summary ===')
+        print('\n=== Tolerance summary ===')
         print(
             f'  gain     max delta = {overall_gain_max:.6e} dB   (current default: {cur_gain_tol})'
         )
         print(f'  exposure max delta = {overall_exp_max:.6e} us   (current default: {cur_exp_tol})')
         print(f'  gain     headroom  = {cur_gain_tol / max(overall_gain_max, 1e-12):.1f}x')
         print(f'  exposure headroom  = {cur_exp_tol / max(overall_exp_max, 1e-12):.1f}x')
-        print(f'=========================\n')
+        print('=========================\n')
 
         # Sanity: observed deltas must fit inside the configured tolerance.
         # If this assertion fires, the camera's chunk quantization grew
@@ -204,12 +204,12 @@ class TestPylon(unittest.TestCase):
         self.assertGreater(
             len(gain_deltas),
             0,
-            'gain sweep produced no data — chunks flow broken or all gain sets failed',
+            'gain sweep produced no data -- chunks flow broken or all gain sets failed',
         )
         self.assertGreater(
             len(exp_deltas),
             0,
-            'exposure sweep produced no data — chunks flow broken or all exposure sets failed',
+            'exposure sweep produced no data -- chunks flow broken or all exposure sets failed',
         )
 
     def test_chunk_clear_short_circuits_skip_frames(self):
@@ -238,11 +238,11 @@ class TestPylon(unittest.TestCase):
         fv.count_frame(chunk_data=chunks)
 
         pending_after = dict(fv.pending_sources)
-        print(f'\n=== chunk-clear short-circuit ===')
+        print('\n=== chunk-clear short-circuit ===')
         print(f'  pending before    : {pending_before}')
         print(f'  observed ChunkGain: {chunks.get("Gain") if chunks else None}')
         print(f'  pending after 1 frame: {pending_after}')
-        print(f'==================================\n')
+        print('==================================\n')
 
         self.assertNotIn(
             'gain',
@@ -252,21 +252,21 @@ class TestPylon(unittest.TestCase):
         )
 
     def test_probe_chunk_capabilities(self):
-        """T1 (FRAME_VALIDITY_PLAN.md §3): static introspection probe
+        """T1 (FRAME_VALIDITY_PLAN.md sec.3): static introspection probe
         for chunk-data support. Answers whether ExposureTime / Gain /
         FrameID are supported on the connected camera. Print-heavy
         rather than strict-assert because the answer drives architecture
         decisions (Path A vs Path C) and we want raw data on the bench.
         """
         result = self.camera.probe_chunk_capabilities()
-        print(f'\n=== probe_chunk_capabilities ===')
+        print('\n=== probe_chunk_capabilities ===')
         print(f'  model:      {result["model"]}')
         print(f'  firmware:   {result["firmware"]}')
         print(f'  serial:     {result["serial"]}')
         print(f'  advertised: {result["advertised"]}')
         print(f'  enabled:    {result["enabled"]}')
         print(f'  errors:     {result["errors"]}')
-        print(f'================================\n')
+        print('================================\n')
 
         # Hard assertions: probe ran without per-step explosion.
         self.assertIsInstance(result, dict)
@@ -319,7 +319,7 @@ class TestPylon(unittest.TestCase):
         max_depth = max(samples) if samples else 0
         print(f'\n=== worker_queue depth sample (n={len(samples)}) ===')
         print(f'  avg: {avg_depth:.2f}, max: {max_depth}')
-        print(f'=================================================\n')
+        print('=================================================\n')
         self.assertLess(
             avg_depth,
             4.0,

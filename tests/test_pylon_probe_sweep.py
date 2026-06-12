@@ -38,15 +38,15 @@ class _FakeCamera:
 
 def _make_args(**overrides):
     """Minimal argparse.Namespace mirroring the tool's CLI defaults."""
-    base = dict(
-        pixel_formats=['Mono8'],
-        resolution_tuples=[(2100, 2100)],
-        dltl_modes=['On'],
-        dltl_values_mb=[],
-        gige_bw_modes=['Performance'],
-        gige_packet_sizes=[1500],
-        gige_delays=[0],
-    )
+    base = {
+        'pixel_formats': ['Mono8'],
+        'resolution_tuples': [(2100, 2100)],
+        'dltl_modes': ['On'],
+        'dltl_values_mb': [],
+        'gige_bw_modes': ['Performance'],
+        'gige_packet_sizes': [1500],
+        'gige_delays': [0],
+    }
     base.update(overrides)
     return argparse.Namespace(**base)
 
@@ -64,6 +64,22 @@ class TestResolveResolutions:
     def test_mixed_tokens_keep_order(self):
         result = _resolve_resolutions(['1900', '2100', 'sensor-max'], 4096, 3000)
         assert result == [(1900, 1900), (2100, 2100), (4096, 3000)]
+
+    def test_non_numeric_token_exits_cleanly_not_traceback(self, capsys):
+        """Bench 2026-05-26: operator dropped '--' before --dltl-modes so
+        argparse's nargs='+' for --resolutions consumed 'dltl-modes' as a
+        token. Pre-fix: bare int(tok) raised ValueError -> CRITICAL crash
+        traceback in lumaviewpro_errors.log. Post-fix: clean stderr message
+        + sys.exit(2) so the operator sees what went wrong without parsing
+        a Python traceback."""
+        import pytest as _pytest
+
+        with _pytest.raises(SystemExit) as excinfo:
+            _resolve_resolutions(['2100', 'dltl-modes'], 4000, 3000)
+        assert excinfo.value.code == 2
+        captured = capsys.readouterr()
+        assert 'dltl-modes' in captured.err
+        assert '--' in captured.err  # mentions the missing-dash diagnosis
 
 
 class TestUsb3CellMatrix:

@@ -2,7 +2,7 @@
 """
 Tests for the LED state observer, ownership, and save/restore infrastructure.
 
-Uses simulated hardware — no real boards or Kivy needed.
+Uses simulated hardware -- no real boards or Kivy needed.
 """
 
 import threading
@@ -82,7 +82,7 @@ class TestLEDListener:
         scope.illumination.led_on(channel=0, mA=100)
         events = []
         scope.illumination.add_led_listener(lambda c, e, m, o: events.append((c, e, m, o)))
-        scope.illumination.led_on(channel=0, mA=100)  # redundant — should skip
+        scope.illumination.led_on(channel=0, mA=100)  # redundant -- should skip
         assert len(events) == 0
 
     def test_remove_listener(self, scope):
@@ -210,7 +210,7 @@ class TestLEDSaveRestore:
         snapshot = scope.illumination.save_led_state('test')
         # AF turns off its channel
         scope.illumination.leds_off_owned('autofocus')
-        # Restore with owner='autofocus' — should only affect AF's channels
+        # Restore with owner='autofocus' -- should only affect AF's channels
         scope.illumination.restore_led_state(snapshot, owner='autofocus')
         # Both should be back on (ui's was never off, AF's is restored)
         assert scope.illumination.led_enabled(scope.illumination.ch2color(0))
@@ -225,7 +225,7 @@ class TestLEDSaveRestore:
         assert scope.illumination.led_enabled(scope.illumination.ch2color(0))  # unchanged
 
     def test_af_pattern_save_restore(self, scope):
-        """Simulate the AF pattern: save → own LED on → do work → off owned → restore."""
+        """Simulate the AF pattern: save -> own LED on -> do work -> off owned -> restore."""
         # User has Blue LED on
         scope.illumination.led_on(channel=0, mA=100)
         # AF starts

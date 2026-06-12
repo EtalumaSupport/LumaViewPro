@@ -51,7 +51,7 @@ def scope_with_io_traps():
     Reading any property declared cache-only must NOT touch the trapped
     methods.
 
-    register_atexit=False — the trapped exchange_command would otherwise
+    register_atexit=False -- the trapped exchange_command would otherwise
     raise AssertionError when LVP-A-7's atexit-registered
     _emergency_shutdown -> disconnect -> stop_motion fires at pytest
     interpreter exit. The trap is the whole point of the fixture; we
@@ -103,7 +103,7 @@ class TestCameraPropertiesCacheOnly:
         assert isinstance(result, str)
 
     def test_camera_frame_size_repeated_reads(self, scope_with_io_traps):
-        """Repeated reads must remain cache-only — no lazy refresh that
+        """Repeated reads must remain cache-only -- no lazy refresh that
         flips to SDK after first call."""
         for _ in range(5):
             scope_with_io_traps.imaging.camera_frame_size
@@ -119,17 +119,17 @@ class TestPositionAccessorsCacheOnly:
         scope_with_io_traps.motion.get_target_position('Z')
 
     def test_get_target_position_all_axes_no_io(self, scope_with_io_traps):
-        """get_target_position(None) returns a dict snapshot — cache-only."""
+        """get_target_position(None) returns a dict snapshot -- cache-only."""
         result = scope_with_io_traps.motion.get_target_position()
         assert isinstance(result, dict)
 
     def test_get_current_position_single_axis_no_io(self, scope_with_io_traps):
         """get_current_position uses the predicted-position cache during
-        MOVING and the position cache during IDLE — both cache-only."""
+        MOVING and the position cache during IDLE -- both cache-only."""
         scope_with_io_traps.motion.get_current_position('X')
 
     def test_get_current_position_all_axes_no_io(self, scope_with_io_traps):
-        """get_current_position(None) returns a dict snapshot — cache-only."""
+        """get_current_position(None) returns a dict snapshot -- cache-only."""
         result = scope_with_io_traps.motion.get_current_position()
         assert isinstance(result, dict)
 

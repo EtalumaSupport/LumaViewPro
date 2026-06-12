@@ -14,11 +14,12 @@ Hardware-test opt-in flags
 
 When a hardware flag is set, the corresponding SDK is NOT mocked so the
 real module loads. Hardware tests are gated by markers (`ids_hardware`,
-`pylon_hardware`) — see `pytest_collection_modifyitems` below.
+`pylon_hardware`) -- see `pytest_collection_modifyitems` below.
 """
 
 import os
 import sys
+import tempfile
 from unittest.mock import MagicMock
 
 import pytest
@@ -30,9 +31,13 @@ os.environ.setdefault('KIVY_NO_CONSOLELOG', '1')
 os.environ.setdefault('KIVY_NO_FILELOG', '1')
 
 # ---------------------------------------------------------------------------
-# Path setup — make `from drivers.x import Y` work from tests/
+# Path setup -- make `from drivers.x import Y` work from tests/
 # ---------------------------------------------------------------------------
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Typed pypylon stand-in (real handler bases + exception types). Needs the
+# repo-root path insert above.
+from tests import pypylon_stub as _pypylon_stub
 
 
 # ---------------------------------------------------------------------------
@@ -67,7 +72,7 @@ for _flag, _mods in _HARDWARE_FLAG_MOCKS.items():
 # Centralized mock installation
 # ---------------------------------------------------------------------------
 # Test files used to duplicate this block at module level. Now they don't
-# have to — conftest installs the union before any test is collected.
+# have to -- conftest installs the union before any test is collected.
 # Idempotent (uses setdefault) so files that still call install_mock_deps()
 # are no-ops.
 
@@ -82,6 +87,11 @@ def install_mock_deps():
     mock_lvp_logger = MagicMock()
     mock_lvp_logger.logger = mock_logger
     mock_lvp_logger.version = 'test'
+    # Real writable path: production code (e.g. diagnostics probes) now reads
+    # log_dir to place output under the log folder. Without this it would be an
+    # auto-MagicMock, and Path(mock) -> Path('MagicMock/mock.log_dir/<id>'),
+    # which mkdir() leaks into the repo root.
+    mock_lvp_logger.log_dir = tempfile.gettempdir()
     mock_lvp_logger.is_thread_paused = MagicMock(return_value=False)
     mock_lvp_logger.unpause_thread = MagicMock()
     mock_lvp_logger.pause_thread = MagicMock()
@@ -96,15 +106,19 @@ def install_mock_deps():
         'kivy': MagicMock(),
         'kivy.clock': MagicMock(),
         'kivy.base': MagicMock(),
-        # FX2 / libusb (no hardware-test gate yet — always mocked)
+        # FX2 / libusb (no hardware-test gate yet -- always mocked)
         'usb': MagicMock(),
         'usb.core': MagicMock(),
         'usb.util': MagicMock(),
         'usb1': MagicMock(),
-        # Camera SDKs — skipped when their --run-*-hardware flag is set
-        'pypylon': MagicMock(),
-        'pypylon.pylon': MagicMock(),
-        'pypylon.genicam': MagicMock(),
+        # Camera SDKs -- skipped when their --run-*-hardware flag is set.
+        # pypylon gets a typed stub (real subclassable handler bases +
+        # exception types) instead of a blanket MagicMock so the driver's
+        # ImageHandler / _CameraRemovalHandler classes can be instantiated
+        # and their callbacks driven directly in unit tests.
+        'pypylon': _pypylon_stub.pypylon,
+        'pypylon.pylon': _pypylon_stub.pylon,
+        'pypylon.genicam': _pypylon_stub.genicam,
         'ids_peak': MagicMock(),
         'ids_peak.ids_peak': MagicMock(),
         'ids_peak.ids_peak_ipl_extension': MagicMock(),
@@ -116,7 +130,7 @@ def install_mock_deps():
         sys.modules.setdefault(name, mock_mod)
 
 
-# Run at conftest import time — before any test file is collected.
+# Run at conftest import time -- before any test file is collected.
 install_mock_deps()
 
 

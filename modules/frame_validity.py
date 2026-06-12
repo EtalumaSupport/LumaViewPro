@@ -22,7 +22,7 @@ Usage:
     # ... frames are grabbed by live view, counter increments ...
     fv.frames_until_valid()                # Still >0 if Z still moving
     # ... Z arrives at target, settle check returns True ...
-    fv.frames_until_valid()                # Returns 0 — next frame is valid
+    fv.frames_until_valid()                # Returns 0 -- next frame is valid
 
 Autofocus can exclude Z motion from validity checks since a slightly
 defocused frame still produces a valid focus score:
@@ -49,7 +49,7 @@ class FrameValidity:
     DEFAULT_SKIP_FRAMES = 2
 
     # Per-source skip frame counts (camera pipeline flush).
-    # Default skip counts — overridden by per-camera measured values
+    # Default skip counts -- overridden by per-camera measured values
     # from data/camera_timing/<model>.json via load_camera_timing().
     SKIP_FRAMES = {
         'led': 2,  # LED on/off or current change (measured: 2 on a2A3536)
@@ -58,6 +58,24 @@ class FrameValidity:
         'xy_move': 2,  # X or Y axis movement
         'z_move': 2,  # Z axis movement (autofocus may exclude this)
         'turret': 2,  # Turret rotation
+        # Frames for hardware continuous auto-gain to settle against the lit
+        # scene after arming. Like led/gain/exposure this is an instrumentation
+        # settling count, not a content measurement: the LED must be lit before
+        # arming so AG settles on the real scene, not a dark frame. At 10 a dim
+        # brightfield scene (low LED current, gain starting at 0) often had not
+        # converged when the frame was grabbed -- the capture came out dark.
+        # Doubled to give AG more frames to ramp; the [AG CONVERGE] diagnostic
+        # measures the real convergence need per camera for the eventual
+        # camera_timing/<model>.json value (or a brightness-converge gate).
+        'auto_gain': 20,
+        # Geometry / format changes restart the grab engine or realloc the
+        # camera buffer; the pipeline needs frames to flush the old
+        # geometry before a capture reflects the new one. Conservative
+        # defaults pending per-camera bench measurement into
+        # camera_timing/<model>.json, like the others.
+        'pixel_format': 3,
+        'frame_size': 3,
+        'binning': 3,
     }
 
     # Sources that require physical hardware completion in addition to frame count.
@@ -85,7 +103,7 @@ class FrameValidity:
     # dart with firmware 1.1.0 and 2.6.0): observed deltas were bit-
     # identical across hardware and firmware -- quantization happens at
     # the Pylon SDK / genicam nodemap layer, not in camera firmware.
-    # Gain round-trip error peaked at ~5e-5 dB (float ε), exposure was
+    # Gain round-trip error peaked at ~5e-5 dB (float epsilon), exposure was
     # bit-exact in microseconds. Tolerances set ~20x above observed max
     # for safety across future firmware revisions.
     DEFAULT_CHUNK_TOLERANCE = {
@@ -99,6 +117,7 @@ class FrameValidity:
         self._pending = {}  # source -> frame_counter threshold for validity
         self._settle_check_fn = None  # Optional: (source) -> bool
         self._target_values = {}  # source -> requested value (for chunk-match)
+        self._last_counted_frame_ts = None  # identity of the last counted frame
 
     def set_settle_check(self, fn):
         """Register a callback that checks if a source has physically settled.
@@ -119,8 +138,9 @@ class FrameValidity:
         """Record that hardware state changed and frames need to settle.
 
         Args:
-            source: What changed ('led', 'gain', 'exposure', 'xy_move',
-                    'z_move', 'turret'). Unknown sources use DEFAULT_SKIP_FRAMES.
+            source: What changed ('led', 'gain', 'exposure', 'auto_gain',
+                    'xy_move', 'z_move', 'turret'). Unknown sources use
+                    DEFAULT_SKIP_FRAMES.
         """
         skip = self.SKIP_FRAMES.get(source, self.DEFAULT_SKIP_FRAMES)
         with self._lock:
@@ -140,7 +160,7 @@ class FrameValidity:
                 ],
             )
 
-    def count_frame(self, chunk_data: dict | None = None):
+    def count_frame(self, chunk_data: dict | None = None, frame_ts=None):
         """Record that a frame was grabbed from the camera.
 
         Call this after every successful camera grab (grab() or grab_new_capture()).
@@ -156,8 +176,21 @@ class FrameValidity:
                 LED + motion + turret sources are unaffected (no chunk
                 equivalent or firmware-gated). Backward compat: if None, the
                 existing skip-frames + settle-check path is used unchanged.
+            frame_ts: Optional frame identity (the host-side store timestamp
+                returned alongside the grab). When provided, a frame already
+                counted (same timestamp) is ignored. Multiple consumers poll
+                the same buffered frame concurrently (live preview, histogram,
+                capture drains); without identity dedupe those polls expire
+                the skip counts in wall-clock time with zero new frames, and a
+                capture can then accept a frame exposed under the previous
+                gain/exposure/LED state. None counts unconditionally (callers
+                that guarantee a fresh frame per call, and legacy callers).
         """
         with self._lock:
+            if frame_ts is not None:
+                if frame_ts == self._last_counted_frame_ts:
+                    return
+                self._last_counted_frame_ts = frame_ts
             self._frame_counter += 1
             settled = [
                 s
@@ -233,6 +266,20 @@ class FrameValidity:
             else:
                 self._target_values[source] = float(value)
 
+    def target(self, source: str) -> float | None:
+        """Return the recorded target value for a source, or None if unset.
+
+        Capture paths use this to decide whether a returned frame can be
+        chunk-verified: a set target plus a present chunk key means the
+        frame must match; no target (e.g. hardware auto-gain owns the
+        value) means chunk verification does not apply.
+
+        Args:
+            source: Source name (e.g. 'gain', 'exposure').
+        """
+        with self._lock:
+            return self._target_values.get(source)
+
     def chunk_match(self, source: str, chunk_value, tolerance: float | None = None) -> bool:
         """Public float-tolerant equality between a chunk value and the recorded target.
 
@@ -288,7 +335,7 @@ class FrameValidity:
                 if frame_remaining > 0:
                     max_remaining = max(max_remaining, frame_remaining)
                 elif source in self.MOTION_SOURCES and self._settle_check_fn is not None:
-                    # Frame count met but axis still moving — keep draining
+                    # Frame count met but axis still moving -- keep draining
                     if not self._settle_check_fn(source):
                         max_remaining = max(max_remaining, 1)
             return max(0, max_remaining)
@@ -327,3 +374,4 @@ class FrameValidity:
             self._pending.clear()
             self._frame_counter = 0
             self._target_values.clear()
+            self._last_counted_frame_ts = None

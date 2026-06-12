@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
-"""Install / uninstall the Rule 31 pre-commit hook in this git repo.
+"""Install / uninstall the pre-commit hook in this git repo.
 
 The hook delegates to ``tools/check_rules.py --staged`` so every commit
-runs the mechanical CLAUDE.md Rule 24/27/28 checks before the commit
-lands. Pairs with the always-loaded Rule 31 entry in CLAUDE.md.
+runs the mechanical CLAUDE.md rule checks before the commit lands.
 
 LVP-specific: the managed hook ALSO bumps version.txt (timestamp +
 branch fields) after the rule check passes, replacing the standalone
-version-bump hook that lived in LVP before Rule 31 hook integration.
-Order is intentional: rule check first so a violation fails fast and
-version.txt isn't touched on a doomed commit.
+version-bump hook that lived in LVP previously. Order is intentional:
+rule check first so a violation fails fast and version.txt isn't
+touched on a doomed commit.
 
 Modes:
 
@@ -49,8 +48,22 @@ set -e
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 
 # Rule 31 mechanical gate (fail fast on Rule 24 / 27 / 28 violations
-# in staged lines before any other hook side-effects).
-python3 "$REPO_ROOT/tools/check_rules.py" --staged
+# in staged lines before any other hook side-effects). Skip gracefully on
+# branches that predate the check_rules.py port (e.g. main) so the gate's
+# absence never blocks a commit there.
+if [ -f "$REPO_ROOT/tools/check_rules.py" ]; then
+    python3 "$REPO_ROOT/tools/check_rules.py" --staged
+else
+    echo "pre-commit: tools/check_rules.py absent on this branch -- skipping rule gate" >&2
+fi
+
+# Ruff finding-count ratchet: blocks commits that raise the repo-wide
+# ruff count above tools/ruff_baseline.txt; auto-lowers + stages the
+# baseline when cleanup reduces the count. The tool itself skips
+# gracefully when ruff or the baseline file is absent.
+if [ -f "$REPO_ROOT/tools/ruff_ratchet.py" ]; then
+    python3 "$REPO_ROOT/tools/ruff_ratchet.py" --pre-commit
+fi
 
 # version.txt refresh (LVP-specific). 4-line format:
 #   Line 1: release moniker (manual bump on promotion; path-safe)
@@ -202,10 +215,10 @@ def dry_run() -> int:
         print('No Rule 24 / 27 / 28 violations found.')
     else:
         print(
-            f'\n(Above violations are the cleanup punch list. The hook '
-            f'only blocks NEW violations on staged lines by default; '
-            f'pre-existing violations like these are surfaced here for '
-            f'visibility but do not block commits.)'
+            '\n(Above violations are the cleanup punch list. The hook '
+            'only blocks NEW violations on staged lines by default; '
+            'pre-existing violations like these are surfaced here for '
+            'visibility but do not block commits.)'
         )
     return rc
 

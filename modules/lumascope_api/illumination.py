@@ -1,14 +1,12 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """IlluminationAPI -- sub-API for LED / illuminator control.
 
-Wave 7 Phase 3d -- bodies and state slots fully relocated from
-Lumascope. IlluminationAPI owns _led_state (Rule 2 SoT), _led_owners,
+IlluminationAPI owns _led_state (single SoT), _led_owners,
 _led_listeners, and the three locks that serialize their access plus
 LED-driver I/O.
 
-See docs/PLUGIN_API_DESIGN_2026-05-09.md sec 2.2. Channel-spec
-widening (set_channel / clear_channel) is deferred -- a future
-phase, not Wave 7.
+Channel-spec widening (set_channel / clear_channel) is a future
+extension.
 """
 
 from __future__ import annotations
@@ -53,13 +51,12 @@ class IlluminationAPI:
     listener registry. Stateful bodies live here post-Phase 3d.
     """
 
-    def __init__(self, scope: 'Lumascope', driver: 'LEDBoardProtocol') -> None:
+    def __init__(self, scope: Lumascope, driver: LEDBoardProtocol) -> None:
         self._scope = scope
         # driver argument kept for API compatibility but unused; `_driver`
         # is a @property that re-resolves `self._scope._led_driver` so
         # disconnect / reconnect / test hot-swap propagate without
-        # rebinding IlluminationAPI. Same pattern as MotionAPI._driver
-        # (Wave 7 Phase 2c precedent).
+        # rebinding IlluminationAPI. Same pattern as MotionAPI._driver.
         del driver  # noqa -- intentionally unused, kept for backward call sites
 
         # LED change listeners -- push-based UI update mechanism. Each
@@ -70,16 +67,15 @@ class IlluminationAPI:
         self._led_listeners_lock = threading.Lock()
         self._led_listeners: list = []
 
-        # LED state -- API-level source of truth (Rule 2). The API was
-        # always supposed to own LED state, but the implementation only
-        # got as far as ownership + observers + save/restore. State
-        # queries (get_led_ma, led_enabled, etc.) still delegated to
-        # the driver -- which worked for LEDBoard (has an internal
+        # LED state -- API-level source of truth. The API was always
+        # supposed to own LED state, but the implementation initially
+        # only got as far as ownership + observers + save/restore.
+        # State queries (get_led_ma, led_enabled, etc.) still delegated
+        # to the driver -- which worked for LEDBoard (has an internal
         # led_ma dict) but broke for FX2LEDController (thin translator,
         # returns sentinels). This dict is the primary store, analogous
         # to _pos_cache for motor position. Updated inside led_on /
-        # led_off / leds_off; read by all state-query methods. See
-        # docs/AUDIT_LED_STATE_FX2.md.
+        # led_off / leds_off; read by all state-query methods.
         # Each entry: color -> {'enabled': True, 'illumination_ma': float, 'owner': str}
         self._led_state: dict[str, dict] = {}
 
@@ -93,12 +89,12 @@ class IlluminationAPI:
 
         # Per-device LED I/O serialization, so LED stim pulses can
         # interleave with camera grabs and motor moves on their own
-        # per-device locks. Threading audit sec 10.2 -- wrapped with
-        # TimedLock for contention tracing.
+        # per-device locks. Wrapped with TimedLock for contention
+        # tracing.
         self._led_lock = profile_trace.TimedLock(threading.RLock(), name='illumination._led_lock')
 
     @property
-    def _driver(self) -> 'LEDBoardProtocol':
+    def _driver(self) -> LEDBoardProtocol:
         """Resolve the LED driver via the composition root each access.
 
         Lumascope's `_led_driver` slot is reassigned on disconnect /
@@ -174,10 +170,9 @@ class IlluminationAPI:
         self._scope.imaging.frame_validity.invalidate('led')
         _api_log.info(f'led_on ch={channel} mA={mA} owner={owner!r}')
 
-        # Update API-level state cache + ownership (Rule 2). Unconditional
-        # -- empty owner ('') is recorded too, fixing AUDIT_LED_STATE_FX2.md
-        # Bug 3 where UI clicks were never tracked because of an `if owner:`
-        # gate that excluded empty strings.
+        # Update API-level state cache + ownership. Unconditional --
+        # empty owner ('') is recorded too, so UI clicks (which arrive
+        # without an owner tag) are tracked the same as named owners.
         color_name = self.ch2color(channel)
         if color_name:
             with self._led_owner_lock:
@@ -211,11 +206,11 @@ class IlluminationAPI:
         if channel not in valid_channels:
             raise ValueError(f'LED channel must be one of {valid_channels}, got {channel}')
 
-        # Skip if channel is already off. Now reads from the API-level
+        # Skip if channel is already off. Reads from the API-level
         # _led_state cache, which is correct for both LEDBoard and FX2.
-        # Pre-fix this delegated to the driver's get_led_state, which for
-        # FX2 always returned False -- making led_off a complete no-op
-        # (AUDIT_LED_STATE_FX2.md Bug 2).
+        # Prior behavior delegated to the driver's get_led_state, which
+        # for FX2 always returned False -- making led_off a complete
+        # no-op.
         color_name = self.ch2color(channel)
         if color_name and not self.led_enabled(color_name):
             return
@@ -259,6 +254,42 @@ class IlluminationAPI:
         _api_log.info('leds_off')
         for color in self._driver.available_colors():
             self._fire_led_listeners(color, False, 0.0, '')
+
+    def leds_exclusive(self, channel, mA, *, block: bool = False, owner: str = '') -> None:
+        """Make ``channel`` the only lit LED, at ``mA``, idempotently.
+
+        Turns off every other currently-lit channel, then ensures ``channel``
+        is on at ``mA``. A channel already on at ``mA`` is left untouched, so
+        re-asserting an already-correct channel does not produce a visible
+        off-then-on blink. This is the canonical "switch illumination to a
+        single channel" primitive: autofocus needs exclusive illumination so
+        mixed light cannot corrupt the focus metric, and protocol stepping
+        needs an already-lit channel (consecutive same-color steps) to stay
+        lit rather than flicker.
+
+        Args:
+            channel: Channel number (0-5) or color name string.
+            mA: Illumination current in milliamps.
+            block: If True, wait for confirmation from the LED board.
+            owner: Ownership tag recorded for ``channel`` (see ``led_on``).
+
+        Raises:
+            ValueError: If channel or mA is out of range (via ``led_on``).
+        """
+        if not self._driver:
+            return
+        if isinstance(channel, str):
+            channel = self.color2ch(color=channel)
+        keep_color = self.ch2color(channel)
+        # Turn off every OTHER lit channel. Exclusive illumination overrides
+        # any prior ownership of the channels being cleared, so an empty owner
+        # (unconditional off) is correct here.
+        for color in list(self.get_led_states()):
+            if color != keep_color and self.led_enabled(color):
+                self.led_off(channel=color)
+        # led_on already self-skips when the channel is on at mA, so an
+        # already-correct channel is not re-commanded (no blink).
+        self.led_on(channel=channel, mA=mA, block=block, owner=owner)
 
     def leds_off_emergency(self, *, timeout_s: float = 2.0) -> None:
         """Bounded leds-off for atexit / abnormal-exit paths only.
@@ -459,6 +490,38 @@ class IlluminationAPI:
             )
         )
 
+    def leds_exclusive_async(
+        self, channel, mA, *, callback=None, cb_kwargs=None, owner: str = ''
+    ) -> None:
+        """Submit ``leds_exclusive(channel, mA)`` to the io_executor.
+
+        Makes ``channel`` the only lit LED without blinking a channel that is
+        already correct off then on (see ``leds_exclusive``). Use this for
+        manual step navigation so stepping between consecutive same-color
+        steps holds the LED steady.
+
+        Args:
+            channel: Channel number or color name.
+            mA: LED current in milliamps.
+            callback: Optional completion callback.
+            cb_kwargs: Optional kwargs passed to the callback.
+            owner: Optional ownership tag for the LED state.
+        """
+        if not self._scope.led_connected:
+            logger.warning('[SCOPE API ] LED controller not available.')
+            return
+        kwargs = {'owner': owner} if owner else {}
+        ex = self._scope._require_executor(self._scope._io_executor, 'leds_exclusive_async')
+        ex.put(
+            IOTask(
+                action=self.leds_exclusive,
+                args=(channel, mA),
+                kwargs=kwargs,
+                callback=callback,
+                cb_kwargs=cb_kwargs,
+            )
+        )
+
     def led_on_sync(self, channel, mA, *, timeout_s=5, owner: str = '') -> None:
         """Run ``led_on`` through the io_executor and block until done.
 
@@ -494,11 +557,11 @@ class IlluminationAPI:
             fut.result(timeout=timeout_s)
 
     # --- State ---
-    def get_led_ma(self, color: str) -> 'float | None':
+    def get_led_ma(self, color: str) -> float | None:
         """Get the current illumination level for an LED channel.
 
-        Reads from the API-level _led_state cache (Rule 2). Does NOT
-        delegate to the driver -- see AUDIT_LED_STATE_FX2.md Bug 4.
+        Reads from the API-level _led_state cache. Does NOT delegate
+        to the driver -- the API layer is the single source of truth.
 
         Args:
             color: Channel color name (e.g. "Blue", "Green", "Red", "BF").
@@ -518,10 +581,10 @@ class IlluminationAPI:
     def led_enabled(self, color: str) -> bool:
         """Whether a specific LED channel is currently on.
 
-        Reads from the API-level _led_state cache (Rule 2). Pre-fix,
-        this delegated to the driver's get_led_state, which for
+        Reads from the API-level _led_state cache. Prior behavior
+        delegated to the driver's get_led_state, which for
         FX2LEDController always returned False -- making led_off a
-        complete no-op (AUDIT_LED_STATE_FX2.md Bug 2).
+        complete no-op on FX2 cameras.
 
         Args:
             color: Channel color name (e.g. "Blue", "Green", "Red", "BF").
@@ -534,7 +597,7 @@ class IlluminationAPI:
         with self._led_owner_lock:
             return self._led_state.get(color) is not None
 
-    def led_illumination(self, color: str) -> 'float | None':
+    def led_illumination(self, color: str) -> float | None:
         """Current mA for an LED channel, or None if off / unavailable.
 
         Thin wrapper over ``get_led_ma``; see that method for the
@@ -567,7 +630,7 @@ class IlluminationAPI:
     def get_led_state(self, color: str) -> dict:
         """Get the on/off state, illumination, and owner for an LED channel.
 
-        Reads from the API-level _led_state cache (Rule 2).
+        Reads from the API-level _led_state cache.
 
         Args:
             color: Channel color name (e.g. "Blue", "Green", "Red", "BF").
@@ -619,7 +682,7 @@ class IlluminationAPI:
                 for color in all_colors
             }
 
-    def get_led_status(self) -> 'int | None':
+    def get_led_status(self) -> int | None:
         """Get the LED board status register.
 
         Returns:
@@ -666,21 +729,36 @@ class IlluminationAPI:
         saved_states = snapshot.get('states', {})
         _api_log.info(f'restore_led_state tag={tag}')
 
-        # Turn off what the owner turned on
-        if owner:
-            self.leds_off_owned(owner)
-        else:
-            self.leds_off()
+        # Channels that should be ON after restore, with their target mA.
+        target_on = {
+            color: state.get('illumination_ma', 0)
+            for color, state in saved_states.items()
+            if state.get('enabled', False) and (state.get('illumination_ma') or 0) > 0
+        }
 
-        # Restore channels that were on in the snapshot
-        for color, state in saved_states.items():
-            if state.get('enabled', False):
-                mA = state.get('illumination_ma', 0)
-                if mA and mA > 0:
-                    ch = self.color2ch(color)
-                    if ch is not None:
-                        saved_owner = snapshot.get('owners', {}).get(color, '')
-                        self.led_on(channel=ch, mA=mA, owner=saved_owner)
+        # Turn off only channels that should NOT be on after restore, so a
+        # channel already lit at its target is left untouched (no off-then-on
+        # blink). With an owner, restrict the turn-off to that owner's channels
+        # and leave other subsystems' channels alone; without an owner, clear
+        # every currently-lit channel that is not part of the restore target.
+        if owner:
+            with self._led_owner_lock:
+                owned = [c for c, own in self._led_owners.items() if own == owner]
+            for color in owned:
+                if color not in target_on:
+                    self.led_off(channel=color, owner=owner)
+        else:
+            for color in list(self.get_led_states()):
+                if color not in target_on and self.led_enabled(color):
+                    self.led_off(channel=color)
+
+        # Re-assert the target channels; led_on self-skips channels already at
+        # their target mA, so this does not blink an already-correct channel.
+        for color, mA in target_on.items():
+            ch = self.color2ch(color)
+            if ch is not None:
+                saved_owner = snapshot.get('owners', {}).get(color, '')
+                self.led_on(channel=ch, mA=mA, owner=saved_owner)
 
     def leds_off_owned(self, owner: str) -> None:
         """Turn off only the LED channels owned by *owner*.
@@ -739,7 +817,7 @@ class IlluminationAPI:
         return self._driver.wait_until_on(timeout_s)
 
     # --- Channel mapping ---
-    def ch2color(self, channel: int) -> 'str | None':
+    def ch2color(self, channel: int) -> str | None:
         """Convert a channel number to its color name string.
 
         Args:
@@ -752,7 +830,7 @@ class IlluminationAPI:
             return None
         return self._driver.ch2color(channel)
 
-    def color2ch(self, color: str) -> 'int | None':
+    def color2ch(self, color: str) -> int | None:
         """Convert a color name string to its channel number.
 
         Args:

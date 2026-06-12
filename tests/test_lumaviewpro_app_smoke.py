@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""LVP-A-19 / Issue 'startup NameError' — App-build undefined-name regression test.
+"""LVP-A-19 / Issue 'startup NameError' -- App-build undefined-name regression test.
 
 Catches the class of failure that broke production startup on
 2026-05-04: a `lumaviewpro.py` mechanical refactor (LVP-A-3 partial,
@@ -22,7 +22,7 @@ Why pyflakes instead of running the actual ``App.build()``:
 - The bug pattern this guards against IS exactly what pyflakes is
   good at: undefined names in nested scopes. Verified against the
   pre-fix broken state (commit `0f52812`): pyflakes reported
-  ``undefined name 'live_histo_setting'`` at line 816 — the exact
+  ``undefined name 'live_histo_setting'`` at line 816 -- the exact
   failure that hit production.
 
 If a future bug needs deeper coverage (KeyError on dict access,
@@ -70,7 +70,7 @@ def test_no_undefined_names(relpath):
     """Fail if pyflakes finds any ``undefined name`` reference.
 
     Other pyflakes warnings (unused imports, redefined names, etc.)
-    are tolerated — they don't break runtime. The check is narrow on
+    are tolerated -- they don't break runtime. The check is narrow on
     purpose: the production failure mode this test guards against is
     exactly the undefined-name class.
     """
@@ -101,6 +101,6 @@ def test_no_undefined_names(relpath):
         'production startup on 2026-05-04 (LVP-A-3 partial). A '
         'module-level identifier was deleted on the assumption it '
         'was build-only, but the AppContext kwarg pass-through '
-        'still referenced it — and no smoke test ran App.build() '
+        'still referenced it -- and no smoke test ran App.build() '
         'to catch the resulting NameError.'
     )

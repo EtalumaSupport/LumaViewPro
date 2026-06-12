@@ -43,19 +43,19 @@ class ProtocolPostProcessor(abc.ABC):
     @staticmethod
     @abc.abstractmethod
     def _get_groups(df: pd.DataFrame) -> pd.DataFrame:
-        raise NotImplementedError(f'Implement in child class')
+        raise NotImplementedError('Implement in child class')
 
     @abc.abstractmethod
     def _generate_filename(self, df: pd.DataFrame, **kwargs) -> str:
-        raise NotImplementedError(f'Implement in child class')
+        raise NotImplementedError('Implement in child class')
 
     @abc.abstractmethod
     def _filter_ignored_types(self, df: pd.DataFrame) -> pd.DataFrame:
-        raise NotImplementedError(f'Implement in child class')
+        raise NotImplementedError('Implement in child class')
 
     @abc.abstractmethod
     def _group_algorithm(path: pathlib.Path, df: pd.DataFrame):
-        raise NotImplementedError(f'Implement in child class')
+        raise NotImplementedError('Implement in child class')
 
     @staticmethod
     @abc.abstractmethod
@@ -64,7 +64,7 @@ class ProtocolPostProcessor(abc.ABC):
         alg_metadata: dict,
         root_path: pathlib.Path,
     ):
-        raise NotImplementedError(f'Implement in child class')
+        raise NotImplementedError('Implement in child class')
 
     def _get_objective_short_name_if_has_turret(self, objective_id: str) -> str | None:
         if self._has_turret:
@@ -109,8 +109,34 @@ class ProtocolPostProcessor(abc.ABC):
                 ),
             }
 
+        # Composite, stitch, and z-projection re-read the source frames via
+        # tifffile, which cannot decode JPG. A scan saved as JPG has no
+        # re-readable source for these outputs, so stop here with a clear
+        # message instead of letting tifffile raise partway through a group.
+        source_suffixes = {pathlib.Path(str(fp)).suffix.lower() for fp in df['Filepath']}
+        if source_suffixes and source_suffixes.isdisjoint({'.tif', '.tiff'}):
+            return {
+                'status': False,
+                'message': (
+                    'Composite, stitch, and z-projection require TIFF or '
+                    'OME-TIFF source images. This scan was saved as JPG, '
+                    'which cannot be re-read for post-processing.'
+                ),
+            }
+
         root_path = results['root_path']
         protocol_post_record = results['protocol_post_record']
+
+        # The per-image protocol writer (protocol_image_writer.py) prefixes
+        # filenames with protocol.capture_root() so a scan run with Root
+        # "experiment1" produces "experiment1_<step>_<color>_<...>.tiff".
+        # Post-processed outputs (composite, stitch, z-proj, video, stack)
+        # must use the same prefix; pipe it via kwargs to _generate_filename.
+        protocol = results.get('protocol')
+        kwargs.setdefault(
+            'capture_root',
+            protocol.capture_root() if protocol is not None else '',
+        )
 
         df = self._filter_ignored_types(df=df)
         groups = self._get_groups(df)
@@ -122,6 +148,7 @@ class ProtocolPostProcessor(abc.ABC):
         new_count = 0
         existing_count = 0
         current_group = 1
+        last_error = None
 
         for _, group in groups:
             if len(group) == 0:
@@ -165,6 +192,7 @@ class ProtocolPostProcessor(abc.ABC):
             )
 
             if not alg_results['status']:
+                last_error = alg_results.get('error')
                 logger.error(f'Failed to generate {output_file_loc_rel}: {alg_results["error"]}')
                 continue
 
@@ -202,12 +230,29 @@ class ProtocolPostProcessor(abc.ABC):
             needed = _MULTI_FRAME_REQUIREMENT.get(
                 self._post_function, 'multiple frames per scan position'
             )
+            if last_error is not None:
+                # Usable groups WERE found and attempted, but every one failed
+                # in the algorithm itself. Surface the real failure instead of
+                # implying the folder lacked the data -- the prior message sent
+                # users hunting for missing Z-stacks when the operation broke.
+                logger.info(
+                    f'[{self._name} ] No {fname} output -- all groups failed: {last_error}'
+                )
+                return {
+                    'status': False,
+                    'reason': 'error',
+                    'message': (
+                        f'{fname} could not be generated: {last_error}. '
+                        f'See lumaviewpro.log for details.'
+                    ),
+                }
             logger.info(
                 f'[{self._name} ] No {fname} output generated -- '
                 f'no usable image groups (need {needed})'
             )
             return {
                 'status': False,
+                'reason': 'no_data',
                 'message': (
                     f'No {fname} was generated. {fname} requires {needed}. '
                     f'The folder may have image files but not the structure '

@@ -18,8 +18,8 @@ status endpoint can also call the ``snapshot_*`` building blocks
 directly to dump current state on demand without waiting for the
 next tick.
 
-Stays GUI-agnostic per Rule 15 -- takes Clock-style scheduler/
-unscheduler callables instead of importing Kivy.
+Stays GUI-agnostic -- takes Clock-style scheduler / unscheduler
+callables instead of importing Kivy.
 """
 
 from __future__ import annotations
@@ -64,7 +64,7 @@ _SCOPE_DISPLAY_PRUNE_THRESHOLD = 20
 # from stall onset to first popup.
 _FRAME_FLOW_STALL_FPS = 0.1
 _FRAME_FLOW_STALL_TICK_THRESHOLD = 2
-# Rule 14 sticky-failure: persistent faults must resurface, not dedup
+# Sticky-failure policy: persistent faults must resurface, not dedup
 # forever. Re-fire the user-facing notification every N additional
 # stalled ticks while the stall persists; escalate to critical after
 # the stall has lasted this many ticks past the initial warning.
@@ -92,11 +92,11 @@ class MetricsLogger:
         self._bundle = executor_bundle
         self._settings = settings
 
-        # Scheduler bound at start() — None means not started.
-        self._scheduler: Optional[Scheduler] = None
+        # Scheduler bound at start() -- None means not started.
+        self._scheduler: Scheduler | None = None
         # Active schedule handles per tick (so each can be cancelled
         # independently). Keys: 'system_metrics', 'executor_watchdog'.
-        # Camera-temp lives on Lumascope already (LVP-A-2) — not stored
+        # Camera-temp lives on Lumascope already (LVP-A-2) -- not stored
         # here because Lumascope owns its own handle.
         self._handles: dict[str, object] = {}
 
@@ -108,9 +108,9 @@ class MetricsLogger:
         # failures that don't raise an exception or trigger a timeout.
         self._frame_flow_stalled_ticks = 0
         # Tick count at which the user-facing notification was last
-        # fired (-1 = never). Drives Rule 14 sticky-failure refire:
-        # re-notify every _FRAME_FLOW_STALL_RENOTIFY_TICKS while the
-        # stall persists; escalate to critical at _CRITICAL_TICKS once.
+        # fired (-1 = never). Drives sticky-failure refire: re-notify
+        # every _FRAME_FLOW_STALL_RENOTIFY_TICKS while the stall
+        # persists; escalate to critical at _CRITICAL_TICKS once.
         self._frame_flow_stall_last_notified_tick = -1
         self._frame_flow_stall_critical_fired = False
 
@@ -197,7 +197,7 @@ class MetricsLogger:
                 f'silent grab failure. Check camera.log for last successful '
                 f'grab; investigate USB transport / Pylon SDK state.'
             )
-            # Rule 14 sticky-failure: persistent stalls keep resurfacing.
+            # Sticky-failure: persistent stalls keep resurfacing.
             # First popup at threshold; same-severity refire every
             # _RENOTIFY_TICKS thereafter; one critical escalation once
             # _CRITICAL_TICKS has passed. Recovery resets all of it.
@@ -260,7 +260,7 @@ class MetricsLogger:
             # daemon=True process-exit-reap scenario, not a queue
             # prune.
         except Exception:
-            # Best-effort — a watchdog that crashes silently mid-tick
+            # Best-effort -- a watchdog that crashes silently mid-tick
             # is preferable to one that takes the app down with it.
             pass
 
@@ -285,7 +285,7 @@ class MetricsLogger:
         system_metrics_interval_s: float = DEFAULT_SYSTEM_METRICS_INTERVAL_S,
         executor_watchdog_interval_s: float = DEFAULT_EXECUTOR_WATCHDOG_INTERVAL_S,
         camera_temp_interval_s: float = DEFAULT_CAMERA_TEMP_INTERVAL_S,
-        start_camera_temp: Optional[bool] = None,
+        start_camera_temp: bool | None = None,
     ) -> None:
         """Schedule all periodic ticks.
 
@@ -334,7 +334,7 @@ class MetricsLogger:
                 f'callable; got {type(scheduler).__name__}'
             )
 
-        # Initial snapshot — match the pre-LVP-A-12 behavior of logging
+        # Initial snapshot -- match the pre-LVP-A-12 behavior of logging
         # once on startup so the very first log line carries fingerprint
         # values rather than empty cells.
         self.tick_system_metrics()

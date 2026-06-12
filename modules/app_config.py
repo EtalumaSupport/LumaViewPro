@@ -17,6 +17,12 @@ logger = logging.getLogger('LVP.modules.app_config')
 
 
 def _iter_settings_files(source_path: str | pathlib.Path | None = None):
+    # Deliberately not _resolve_settings_path. These readers run at startup
+    # before settings_init merges defaults, and they yield BOTH files so a key
+    # absent from current.json falls through to settings.json (callers retry on
+    # KeyError). The resolver returns only the first existing file -- no
+    # fallthrough -- so swapping it in would drop keys that live only in
+    # settings.json. Revisit if these reads move onto the merged settings dict.
     data_dir = get_source_root(source_path) / 'data'
     yield data_dir / 'current.json'
     yield data_dir / 'settings.json'
@@ -28,7 +34,7 @@ def load_log_level(source_path: str | pathlib.Path | None = None):
         if not settings_file.exists():
             continue
 
-        with open(settings_file, 'r') as fp:
+        with open(settings_file) as fp:
             try:
                 data = json.load(fp)
             except json.JSONDecodeError as e:
@@ -50,7 +56,7 @@ def get_lvp_lock_port(source_path: str | pathlib.Path | None = None) -> int:
         if not settings_file.exists():
             continue
 
-        with open(settings_file, 'r') as fp:
+        with open(settings_file) as fp:
             try:
                 data = json.load(fp)
             except json.JSONDecodeError as e:
@@ -71,7 +77,7 @@ def load_autofocus_log_enable(source_path: str | pathlib.Path | None = None):
         if not settings_file.exists():
             continue
 
-        with open(settings_file, 'r') as fp:
+        with open(settings_file) as fp:
             try:
                 data = json.load(fp)
             except json.JSONDecodeError as e:
@@ -94,7 +100,7 @@ def load_mode(source_path: str | pathlib.Path | None = None) -> bool:
         if not settings_file.exists():
             continue
 
-        with open(settings_file, 'r') as fp:
+        with open(settings_file) as fp:
             try:
                 data = json.load(fp)
             except json.JSONDecodeError as e:

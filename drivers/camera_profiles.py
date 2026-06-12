@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Camera hardware profiles — static specs per camera model.
+"""Camera hardware profiles -- static specs per camera model.
 
 Each profile captures hardware characteristics that don't change at runtime:
 sensor identity, shutter type, pixel size, gain architecture, etc.
@@ -22,9 +22,9 @@ Adding a new camera model
    - Supported pixel formats          (pixel_formats)
      * Basler: typically Mono8, Mono10, Mono10p, Mono12, Mono12p
      * IDS: vendor-specific names like Mono10g40IDS, Mono12g24IDS
-     * Note whether Mono8 is natively supported — if not, software
+     * Note whether Mono8 is natively supported -- if not, software
        ConvertTo is required and cannot be skipped
-   - Maximum exposure time in µs      (exposure_max_us)
+   - Maximum exposure time in us      (exposure_max_us)
    - Binning support                  (binning_sizes, binning_modes)
      * Which factors: [1, 2] or [1, 2, 4]
      * Modes: Sum, Average, or both
@@ -44,11 +44,11 @@ Adding a new camera model
    Add a CameraProfile instance in the "Known camera profiles" section
    below, following the existing examples. Use the datasheet values for
    static fields. Set `exposure_max_us` to the sensor-datasheet ceiling
-   (in microseconds) — it's the single source of truth for the maximum
+   (in microseconds) -- it's the single source of truth for the maximum
    exposure cap. `_query_dynamic_capabilities()` may overwrite it at
    connect time with an SDK-queried value or a driver-narrowed cap
    (e.g. FX2's 178 ms safe-frame ceiling). Leave dynamic gain fields
-   (gain.total_min_db, total_max_db) and exposure_min_us as None —
+   (gain.total_min_db, total_max_db) and exposure_min_us as None --
    they will be populated at connect time.
 
 3. REGISTER IT
@@ -74,9 +74,9 @@ Adding a new camera model
 
 6. VERIFY ON HARDWARE
    Connect the camera and check the log output for:
-   - "Loaded profile: <model>" — confirms profile matched
-   - "Gain range: X - Y dB" — confirms dynamic query worked
-   - "Exposure range: X - Y us" — confirms dynamic query worked
+   - "Loaded profile: <model>" -- confirms profile matched
+   - "Gain range: X - Y dB" -- confirms dynamic query worked
+   - "Exposure range: X - Y us" -- confirms dynamic query worked
    Run the test suite with the camera connected to verify grab, binning,
    exposure, and gain all work correctly.
 """
@@ -90,7 +90,7 @@ class GainInfo:
     analog_max_db: float | None = None      # Max analog gain before digital kicks in
     has_digital: bool = False                # Whether camera has digital gain
     gain_selector: str = 'All'              # GainSelector value: 'All', 'AnalogAll', etc.
-    # Dynamic — populated at connect time from SDK
+    # Dynamic -- populated at connect time from SDK
     total_min_db: float | None = None
     total_max_db: float | None = None
 
@@ -130,7 +130,7 @@ class CameraProfile:
 # Known camera profiles
 # ---------------------------------------------------------------------------
 
-# Basler dart — daA3840-45um
+# Basler dart -- daA3840-45um
 _daA3840_45um = CameraProfile(
     model_name='daA3840-45um',
     sensor='Sony IMX334LLR-C',
@@ -143,17 +143,17 @@ _daA3840_45um = CameraProfile(
     binning_modes=['Sum', 'Average'],
     alignment={'width': 4, 'height': 4},
     gain=GainInfo(
-        analog_max_db=24.0,         # TODO: verify on hardware
+        analog_max_db=24.0,
         has_digital=True,
         gain_selector='All',
     ),
     has_auto_gain=True,
     has_auto_exposure=True,
-    has_temperature=False,          # TODO: verify on hardware
+    has_temperature=False,
     driver='pylon',
 )
 
-# Basler dart MIPI — dmA3536-9gm
+# Basler dart MIPI -- dmA3536-9gm
 # Same IMX676 sensor as the USB3 a2A3536-31umBAS body, but the dart-
 # MIPI body has lower native frame rate (9 fps vs 31 fps) and may
 # expose a restricted pixel-format set over the MIPI interface. Most
@@ -188,7 +188,7 @@ _dmA3536_9gm = CameraProfile(
     driver='pylon',
 )
 
-# Basler ace 2 — a2A3536-31umBAS
+# Basler ace 2 -- a2A3536-31umBAS
 _a2A3536_31umBAS = CameraProfile(
     model_name='a2A3536-31umBAS',
     sensor='Sony IMX676-AAMR1-C',
@@ -211,7 +211,7 @@ _a2A3536_31umBAS = CameraProfile(
     driver='pylon',
 )
 
-# IDS — U3-34L0XCP-M (NO and GL variants share same specs)
+# IDS -- U3-34L0XCP-M (NO and GL variants share same specs)
 _U3_34L0XCP_M = CameraProfile(
     model_name='U3-34L0XCP-M',
     sensor='Sony IMX676-AAMR1-C',
@@ -228,7 +228,7 @@ _U3_34L0XCP_M = CameraProfile(
     binning_modes=['Sum'],
     alignment={'width': 48, 'height': 4},
     gain=GainInfo(
-        analog_max_db=None,         # 31.6x max — query dB from SDK
+        analog_max_db=None,         # 31.6x max -- query dB from SDK
         has_digital=False,
         gain_selector='AnalogAll',
     ),
@@ -270,10 +270,10 @@ _simulated = CameraProfile(
 )
 
 
-# Aptina MT9P031 — Lumascope Classic LS620 / LS560 / LS720 via Cypress FX2
-# Native sensor is 2592×1944 but the driver crops/centers a 1900×1900
-# window. Gain is hardcoded by driver math (0–42.1 dB). Max exposure is
-# MAX_EXPOSURE_ROWS (65535) × _ROW_TIME_MS (0.1124) = 7366 ms.
+# Aptina MT9P031 -- Lumascope Classic LS620 / LS560 / LS720 via Cypress FX2
+# Native sensor is 2592x1944 but the driver crops/centers a 1900x1900
+# window. Gain is hardcoded by driver math (0-42.1 dB). Max exposure is
+# MAX_EXPOSURE_ROWS (65535) x _ROW_TIME_MS (0.1124) = 7366 ms.
 # See drivers/fx2driver.py + LumaviewClassic/docs/DATASHEET_VERIFICATION.md.
 _MT9P031_LS620 = CameraProfile(
     model_name='MT9P031-LS620',
@@ -282,14 +282,14 @@ _MT9P031_LS620 = CameraProfile(
     shutter='rolling',
     native_resolution={'width': 1900, 'height': 1900},
     pixel_formats=['Mono8'],          # 12-bit sensor, FX2 streams top 8 bits
-    exposure_max_us=7_366_000,        # 65535 rows × 0.1124 ms/row × 1000 us/ms
+    exposure_max_us=7_366_000,        # 65535 rows x 0.1124 ms/row x 1000 us/ms
                                       # Driver narrows to 178 ms at connect.
     binning_sizes=[1],                # driver doesn't wire up sensor binning
     binning_modes=['Sum'],
     alignment={'width': 4, 'height': 4},  # matches set_frame_size() step
     gain=GainInfo(
-        analog_max_db=18.06,          # 8× analog = 20*log10(8) = 18.06 dB
-        has_digital=True,             # digital stage adds up to 16× more
+        analog_max_db=18.06,          # 8x analog = 20*log10(8) = 18.06 dB
+        has_digital=True,             # digital stage adds up to 16x more
         gain_selector='All',
         total_min_db=0.0,
         total_max_db=42.1,            # audit-corrected per RR_A legal ranges
@@ -310,7 +310,7 @@ _MT9P031_LS620 = CameraProfile(
 # Profile registry and lookup
 # ---------------------------------------------------------------------------
 
-# Maps model name substrings to profiles. Checked in order — first match wins.
+# Maps model name substrings to profiles. Checked in order -- first match wins.
 _PROFILES: list[tuple[str, CameraProfile]] = [
     ('daA3840-45um',            _daA3840_45um),
     ('dmA3536-9gm',             _dmA3536_9gm),
@@ -333,14 +333,14 @@ _DEFAULT = CameraProfile(
     has_auto_gain=False,
     has_auto_exposure=False,
     driver='unknown',
-    notes='Fallback profile — camera model not recognized',
+    notes='Fallback profile -- camera model not recognized',
 )
 
 
 def lookup_profile(model_name: str | None) -> CameraProfile:
     """Find the best matching profile for a camera model name.
 
-    Matches by substring — e.g. 'daA3840-45um' matches a model_name
+    Matches by substring -- e.g. 'daA3840-45um' matches a model_name
     containing that string. Returns a copy so callers can safely
     modify dynamic fields without affecting the registry.
     """

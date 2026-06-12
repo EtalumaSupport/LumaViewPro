@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Tests for stitcher modules — stitch_algorithms.py (feature-based) and stitcher.py (grid-based)."""
+"""Tests for stitcher modules -- stitch_algorithms.py (feature-based) and stitcher.py (grid-based)."""
 
 import pathlib
 import tempfile
@@ -8,14 +8,16 @@ import cv2
 import numpy as np
 import pandas as pd
 import pytest
+import tifffile
 
 
 # ---------------------------------------------------------------------------
-# stitch_algorithms.py — feature-based stitching, color transfer, border crop
+# stitch_algorithms.py -- feature-based stitching, color transfer, border crop
 # ---------------------------------------------------------------------------
 
 from modules.stitch_algorithms import (
     _image_stats,
+    align_tile_positions,
     color_transfer,
     _grab_contours,
     crop_to_content,
@@ -24,16 +26,16 @@ from modules.stitch_algorithms import (
 
 
 class TestImageStats:
-    """Test _image_stats — computes L*a*b* channel statistics."""
+    """Test _image_stats -- computes L*a*b* channel statistics."""
 
     def test_uniform_image(self):
-        # Uniform gray → known LAB values
+        # Uniform gray -> known LAB values
         img = np.full((100, 100, 3), 128, dtype=np.uint8)
         lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
         stats = _image_stats(lab)
         assert len(stats) == 6  # (lMean, lStd, aMean, aStd, bMean, bStd)
         l_mean, l_std, a_mean, a_std, b_mean, b_std = stats
-        assert l_std == 0.0  # uniform → zero std
+        assert l_std == 0.0  # uniform -> zero std
         assert a_std == 0.0
         assert b_std == 0.0
 
@@ -49,7 +51,7 @@ class TestImageStats:
 
 
 class TestColorTransfer:
-    """Test color_transfer — LAB color distribution transfer (Reinhard et al.)."""
+    """Test color_transfer -- LAB color distribution transfer (Reinhard et al.)."""
 
     def test_output_shape_matches_target(self):
         source = np.full((50, 50, 3), 200, dtype=np.uint8)
@@ -59,23 +61,23 @@ class TestColorTransfer:
         assert result.dtype == np.uint8
 
     def test_identical_images_unchanged(self):
-        # Uniform images have zero std — division guard returns identity-like result
+        # Uniform images have zero std -- division guard returns identity-like result
         img = np.full((50, 50, 3), 128, dtype=np.uint8)
         result = color_transfer(img.copy(), img.copy())
         assert result.shape == img.shape
         assert result.dtype == np.uint8
-        # With zero-std guard, uniform → uniform (LAB round-trip may shift slightly)
+        # With zero-std guard, uniform -> uniform (LAB round-trip may shift slightly)
         assert np.allclose(result, result[0, 0], atol=1)  # all pixels same
 
     def test_varied_identical_images(self):
-        # Non-uniform identical images → result ≈ input
+        # Non-uniform identical images -> result ~= input
         rng = np.random.RandomState(7)
         img = rng.randint(80, 180, (50, 50, 3), dtype=np.uint8)
         result = color_transfer(img.copy(), img.copy())
         assert np.allclose(result, img, atol=5)
 
     def test_different_colors_shifts_target(self):
-        # Bright source, dark target → result should be brighter than original target
+        # Bright source, dark target -> result should be brighter than original target
         source = np.full((50, 50, 3), 220, dtype=np.uint8)
         target = np.full((50, 50, 3), 50, dtype=np.uint8)
         result = color_transfer(source, target)
@@ -94,7 +96,7 @@ class TestColorTransfer:
 
 
 class TestGrabContours:
-    """Test _grab_contours — OpenCV 4.x contour extraction."""
+    """Test _grab_contours -- OpenCV 4.x contour extraction."""
 
     def test_two_element_tuple(self):
         # OpenCV 4.x returns (contours, hierarchy)
@@ -125,7 +127,7 @@ class TestGrabContours:
 
 
 class TestCropToContent:
-    """Test crop_to_content — crops stitched image to content area."""
+    """Test crop_to_content -- crops stitched image to content area."""
 
     def test_crops_black_border(self):
         # Create an image with content in the center and black border
@@ -139,20 +141,21 @@ class TestCropToContent:
         assert result.mean() > 0
 
     def test_full_content_image(self):
-        # No border → result ≈ input size (only the 10px border padding matters)
+        # No border -> result ~= input size (only the 10px border padding matters)
         img = np.full((100, 100, 3), 200, dtype=np.uint8)
         result = crop_to_content(img)
-        # Should be close to original dimensions (±20 from the added border)
+        # Should be close to original dimensions (+/-20 from the added border)
         assert abs(result.shape[0] - 100) <= 22
         assert abs(result.shape[1] - 100) <= 22
 
 
 # ---------------------------------------------------------------------------
-# Current stitcher.py — _simple_position_stitcher
+# Current stitcher.py -- _simple_position_stitcher
 # ---------------------------------------------------------------------------
 
 from modules.stitcher import Stitcher
 import modules.common_utils as common_utils
+import modules.image_utils as image_utils
 
 
 class TestSimplePositionStitcher:
@@ -187,7 +190,7 @@ class TestSimplePositionStitcher:
         result = Stitcher._simple_position_stitcher(tile_dir, tile_df)
         assert result['status'] is True
         img = result['image']
-        # 2x2 grid of 50x50 tiles → 100x100
+        # 2x2 grid of 50x50 tiles -> 100x100
         assert img.shape == (100, 100)
 
     def test_center_metadata(self, tile_dir, tile_df):
@@ -199,7 +202,7 @@ class TestSimplePositionStitcher:
     def test_all_pixels_filled(self, tile_dir, tile_df):
         result = Stitcher._simple_position_stitcher(tile_dir, tile_df)
         img = result['image']
-        # No black pixels — all tiles have nonzero values
+        # No black pixels -- all tiles have nonzero values
         assert img.min() > 0
 
     def test_single_tile(self, tmp_path):
@@ -311,3 +314,120 @@ class TestPositionAwareStitcher:
 
         assert registered[1]['registration_offset_x_px'] == pytest.approx(4, abs=1)
         assert registered[1]['registration_offset_y_px'] == pytest.approx(-2, abs=1)
+
+    def test_sparse_grid_registers_around_hole(self):
+        """A 3x3 group with a top-middle hole: the top-right tile is reachable
+        only via up from the row below. The old right/down-only walk stranded
+        it at zero offset; the 4-neighbor flood must register it -- and every
+        present tile except the anchor.
+        """
+        rng = np.random.default_rng(7)
+        base = rng.integers(0, 255, (140, 140), dtype=np.uint8)
+
+        def crop(gx, gy):
+            return base[gy * 40 : gy * 40 + 60, gx * 40 : gx * 40 + 60].copy()
+
+        tiles = []
+        for gy in range(3):
+            for gx in range(3):
+                if (gx, gy) == (1, 0):  # top-middle hole
+                    continue
+                tiles.append({'tile': crop(gx, gy), 'x_px': gx * 40, 'y_px': gy * 40})
+
+        registered = align_tile_positions(tiles, max_correction_px=8, min_overlap_px=16)
+
+        by_pos = {(int(t['x_px']), int(t['y_px'])): t for t in registered}
+        assert 'registration_score' in by_pos[(80, 0)], (
+            'top-right tile (reachable only via up) must be registered by the '
+            '4-neighbor flood, not stranded at zero offset'
+        )
+        for (x, y), t in by_pos.items():
+            if (x, y) == (0, 0):  # the anchor carries no registration score
+                continue
+            assert 'registration_score' in t, f'tile at ({x},{y}) was not registered'
+
+    def test_position_stitch_save_restores_false_color_and_metadata(self, tmp_path):
+        """Saving via the primary position-aware path must carry the 8-bit
+        PALETTE false-color colormap and acquisition metadata -- mirroring the
+        simple-grid fallback -- not a bare grayscale, metadata-less TIFF.
+        """
+        red = np.full((50, 50), 120, dtype=np.uint8)
+        cv2.imwrite(str(tmp_path / 'r0.tiff'), red)
+        cv2.imwrite(str(tmp_path / 'r1.tiff'), red)
+        df = pd.DataFrame([
+            {'Filepath': 'r0.tiff', 'X': 0.0, 'Y': 0.0, 'Objective': '10x Oly', 'Color': 'Red'},
+            {'Filepath': 'r1.tiff', 'X': 1.0, 'Y': 0.0, 'Objective': '10x Oly', 'Color': 'Red'},
+        ])
+        out = pathlib.Path('stitched_red.tiff')
+
+        result = Stitcher(has_turret=False)._position_stitcher(
+            tmp_path, df, output_file_loc=out
+        )
+
+        assert result['status'] is True
+        assert result['image'] is None  # subclass-wrote signal
+        written = tmp_path / out
+        assert written.exists()
+        with tifffile.TiffFile(str(written)) as t:
+            page = t.pages[0]
+            assert page.photometric == tifffile.PHOTOMETRIC.PALETTE
+            assert page.colormap is not None
+        assert image_utils.read_postproc_input_metadata(written) is not None
+
+
+def _reference_blend_float64(registered, sample):
+    """The average-blend as it was before the float32 change: float64
+    accumulator + weights, separate output canvas. Ground truth that the
+    float32 in-place version must reproduce byte-for-byte."""
+    min_x = min(int(t['registered_x_px']) for t in registered)
+    min_y = min(int(t['registered_y_px']) for t in registered)
+    max_x = max(int(t['registered_x_px']) + t['tile'].shape[1] for t in registered)
+    max_y = max(int(t['registered_y_px']) + t['tile'].shape[0] for t in registered)
+    if sample.ndim == 2:
+        acc_shape = (max_y - min_y, max_x - min_x)
+        weight_shape = acc_shape
+    else:
+        acc_shape = (max_y - min_y, max_x - min_x, sample.shape[2])
+        weight_shape = (max_y - min_y, max_x - min_x, 1)
+    acc = np.zeros(acc_shape, dtype=np.float64)
+    wts = np.zeros(weight_shape, dtype=np.float64)
+    for t in registered:
+        image = t['tile']
+        x0 = int(t['registered_x_px']) - min_x
+        y0 = int(t['registered_y_px']) - min_y
+        dst_x0, dst_y0 = max(0, x0), max(0, y0)
+        dst_x1 = min(acc_shape[1], x0 + image.shape[1])
+        dst_y1 = min(acc_shape[0], y0 + image.shape[0])
+        if dst_x1 <= dst_x0 or dst_y1 <= dst_y0:
+            continue
+        sx0, sy0 = dst_x0 - x0, dst_y0 - y0
+        acc[dst_y0:dst_y1, dst_x0:dst_x1] += image[
+            sy0 : sy0 + (dst_y1 - dst_y0), sx0 : sx0 + (dst_x1 - dst_x0)
+        ].astype(np.float64)
+        wts[dst_y0:dst_y1, dst_x0:dst_x1] += 1.0
+    out = np.zeros(acc_shape, dtype=np.float64)
+    np.divide(acc, wts, out=out, where=wts > 0)
+    if np.issubdtype(sample.dtype, np.integer):
+        info = np.iinfo(sample.dtype)
+        out = np.clip(out, info.min, info.max)
+    return out.astype(sample.dtype)
+
+
+@pytest.mark.parametrize('dtype,high', [(np.uint8, 255), (np.uint16, 65535)])
+@pytest.mark.parametrize('channels', [1, 3])
+def test_float32_blend_is_byte_identical_to_float64(dtype, high, channels):
+    # Two overlapping featured tiles cut from a common base so registration
+    # is deterministic and the overlap column is genuinely 2-tile-averaged.
+    rng = np.random.default_rng(99)
+    shape = (80, 180, channels) if channels == 3 else (80, 180)
+    base = rng.integers(0, high, shape, dtype=dtype)
+    tile_w, tile_h, step = 100, 80, 75
+    left = base[:tile_h, :tile_w].copy()
+    right = base[:tile_h, step : step + tile_w].copy()
+
+    out, registered = stitch_registered_tiles(
+        [{'tile': left, 'x_px': 0, 'y_px': 0}, {'tile': right, 'x_px': step, 'y_px': 0}],
+        output_shape=(tile_h, step + tile_w),
+    )
+    reference = _reference_blend_float64(registered, left)
+    assert np.array_equal(out, reference), 'float32 blend diverged from float64'

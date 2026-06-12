@@ -40,32 +40,21 @@ class ImageHandlerBase:
     def get_last_image(self):
         """Return (success, image, timestamp). Thread-safe.
 
-        No copy needed here — the stored frame is already a copy from the SDK
+        No copy needed here -- the stored frame is already a copy from the SDK
         callback (GetArray().copy() in Pylon, copy() in IDS). _store_frame()
         replaces the reference (not in-place), so the returned array remains
         valid even after the next frame arrives.
+
+        On a stalled stream this keeps returning the last stored frame, so a
+        live preview can freeze without an error surfacing here. Capture and
+        autofocus paths must not rely on this method for freshness: they go
+        through grab_new_capture(), which resets the handler and waits for a
+        genuinely new frame, backed by the imaging layer's timestamp gate.
         """
         with self._frame_lock:
             if not self.last_result:
                 return False, None, None
             return True, self.last_img, self.last_img_ts
-
-    def get_last_image_with_chunks(self):
-        """Return (success, image, timestamp, chunks). Atomic snapshot.
-
-        Chunks are stored alongside the frame in `_store_frame` under the
-        same lock, so reading both fields under one lock acquisition
-        guarantees they came from the same frame. Without this, a caller
-        that does `get_last_image()` followed by `get_last_chunks()` can
-        observe image-N paired with chunks-N+1 if `_store_frame` runs in
-        between (the camera thread grabs frames concurrently with the
-        consumer thread). Used by the manual-record path so per-frame
-        TIFF metadata is correct.
-        """
-        with self._frame_lock:
-            if not self.last_result:
-                return False, None, None, None
-            return True, self.last_img, self.last_img_ts, self.last_chunks
 
     def get_last_chunks(self) -> dict | None:
         """Return per-frame chunk metadata for the most recent successful grab.
@@ -75,10 +64,11 @@ class ImageHandlerBase:
         None (default).
 
         Returned dict keys are GenICam attribute symbolic names
-        ('ExposureTime', 'Gain', 'FrameID' on Basler USB3; 'ExposureTime' /
-        'Gain' on IDS Peak which lacks ChunkFrameID). Values are floats /
-        ints as reported by the camera. Returns None when no successful
-        grab has occurred yet.
+        ('ExposureTime', 'Gain', 'FrameID' on Basler USB3). Values are
+        floats / ints as reported by the camera. Returns None when no
+        successful grab has occurred yet. Only the Pylon driver currently
+        populates chunks; the IDS driver stores frames without them, so
+        IDS consumers always see None and fall back to live read-back.
         """
         with self._frame_lock:
             if not self.last_result:
@@ -162,6 +152,16 @@ class ImageHandlerBase:
 
 
 class Camera(ABC):
+    # Color + native bit depth contract surfaced through scope.capabilities.
+    # Drivers override as needed: True for true color cameras (Bayer / 3-channel
+    # sensors); 8-bit for sensors that report only 8-bit Mono natively (IDS
+    # IMX676 / U3-34L0XCP-M); 16-bit container for sensors that pack Mono10 /
+    # Mono12 / Mono16 into uint16 buffers (Pylon family). The container width
+    # rather than the wire-level payload bits: downstream allocators size
+    # buffers to the container, not the payload.
+    is_color_native: bool = False
+    native_bit_depth: int = 16
+
     def __init__(self):
         self._state_lock = threading.Lock()
         self._array_lock = threading.Lock()
@@ -170,7 +170,7 @@ class Camera(ABC):
         # at once. update_camera_config() can yield arbitrarily long
         # configuration work (set_pixel_format, set_frame_size,
         # init_camera_config), so this is a separate lock from
-        # _state_lock — _state_lock holds for ms, _lifecycle_lock can
+        # _state_lock -- _state_lock holds for ms, _lifecycle_lock can
         # hold for seconds.
         self._lifecycle_lock = threading.RLock()
         self._active = False
@@ -195,7 +195,7 @@ class Camera(ABC):
         # via `found=False`, and `drivers/registry.py::create('auto')` skips
         # such instances and tries the next candidate. PylonCamera and
         # IDSCamera both catch their connect-failure exception internally
-        # and set `self.active = None` without raising — without this line,
+        # and set `self.active = None` without raising -- without this line,
         # the registry sees no exception and `getattr(instance, 'found', True)`
         # defaults to True, so the broken Pylon instance is returned and
         # FX2 (priority 80) never gets a turn. Discovered 2026-04-15 trying
@@ -328,9 +328,6 @@ class Camera(ABC):
           - ``camera.log`` :enter / :exit lines emit on every level so
             nested patterns (init_camera_config wrapping
             set_pixel_format) stay visible in diagnostic logs.
-
-        Smoke 3 camera.log 2026-04-30 captured both failure modes that
-        this method now covers.
         """
         try:
             from lvp_logger import camera_logger as _cam_log
@@ -511,9 +508,9 @@ class Camera(ABC):
 
         Called by subclass connect() after model_name is known. Subclasses
         should then call _query_dynamic_capabilities() to populate
-        SDK-queried fields (gain min/max, exposure min/max). Per Rule 2,
+        SDK-queried fields (gain min/max, exposure min/max).
         `profile.exposure_max_us` is the single source of truth for the
-        max-exposure cap — `Camera.max_exposure` is a derived property
+        max-exposure cap -- `Camera.max_exposure` is a derived property
         that reads from it.
         """
         self.profile = lookup_profile(self.model_name)
@@ -534,12 +531,11 @@ class Camera(ABC):
     def max_exposure(self) -> float:
         """Maximum exposure cap in milliseconds.
 
-        Derived from `profile.exposure_max_us` — the single source of
-        truth (Rule 2). The profile's value is the sensor-datasheet
-        ceiling by default and may be overwritten by
-        `_query_dynamic_capabilities()` at connect time with an SDK-
-        queried or driver-narrowed cap (e.g. FX2's 178 ms safe-frame
-        ceiling).
+        Derived from `profile.exposure_max_us` -- the single source of
+        truth. The profile's value is the sensor-datasheet ceiling by
+        default and may be overwritten by `_query_dynamic_capabilities()`
+        at connect time with an SDK-queried or driver-narrowed cap
+        (e.g. FX2's 178 ms safe-frame ceiling).
         """
         if self.profile and self.profile.exposure_max_us:
             return self.profile.exposure_max_us / 1000.0
@@ -557,15 +553,15 @@ class Camera(ABC):
     def max_gain(self) -> float:
         """Maximum gain cap in dB.
 
-        Derived from `profile.gain.total_max_db` — the single source of
-        truth (Rule 2). The profile's value is the sensor-datasheet
-        ceiling by default and may be overwritten by
-        `_query_dynamic_capabilities()` at connect time (Pylon / IDS
-        live-query their SDK; FX2 hardcodes the MT9P031 value).
+        Derived from `profile.gain.total_max_db` -- the single source of
+        truth. The profile's value is the sensor-datasheet ceiling by
+        default and may be overwritten by `_query_dynamic_capabilities()`
+        at connect time (Pylon / IDS live-query their SDK; FX2 hardcodes
+        the MT9P031 value).
         """
         if self.profile and self.profile.gain and self.profile.gain.total_max_db is not None:
             return float(self.profile.gain.total_max_db)
-        return 48.0  # legacy kv default — kept for cameras without a profile
+        return 48.0  # legacy kv default -- kept for cameras without a profile
 
     def get_max_gain(self) -> float:
         """Return the maximum gain cap in dB.
@@ -667,7 +663,7 @@ class Camera(ABC):
                 return False, None, None
 
             # Store for other consumers (e.g. recording), but the returned
-            # image IS the copy — callers don't need get_array().
+            # image IS the copy -- callers don't need get_array().
             with self._array_lock:
                 self.array = image
             return True, image, image_ts
@@ -694,36 +690,6 @@ class Camera(ABC):
         if not self.cam_image_handler:
             return
         self.cam_image_handler.unregister_frame_callback(cb)
-
-    def grab_latest_with_chunks(self) -> tuple:
-        """Like grab_latest, plus an atomic snapshot of the per-frame chunks dict.
-
-        Used by the manual-record path so per-frame TIFF metadata reflects
-        the chunks captured at the same grab as the image. Cameras without
-        chunk support return chunks=None; downstream metadata writers
-        gracefully skip the chunk-derived fields.
-
-        Returns:
-            tuple: ``(success: bool, image: np.ndarray | None,
-                timestamp: datetime | None, chunks: dict | None)``.
-        """
-        with self._state_lock:
-            if self._active is None or self._device_removed:
-                return False, None, None, None
-
-        if not self.cam_image_handler:
-            return False, None, None, None
-
-        try:
-            result, image, image_ts, chunks = self.cam_image_handler.get_last_image_with_chunks()
-            if not result or image is None:
-                return False, None, None, None
-            with self._array_lock:
-                self.array = image
-            return True, image, image_ts, chunks
-        except Exception as ex:
-            _cam_log.exception(f'[CAM Class ] grab_latest_with_chunks() failed: {ex}')
-            return False, None, None, None
 
     @abstractmethod
     def grab_new_capture(self, timeout_s: float) -> tuple:
@@ -788,6 +754,7 @@ class Camera(ABC):
         target_brightness: float = 0.5,
         min_gain_db: float | None = None,
         max_gain_db: float | None = None,
+        ae_max_exposure_ms: float | None = None,
     ) -> None:
         """Enable or disable continuous auto-gain.
 
@@ -796,6 +763,9 @@ class Camera(ABC):
             target_brightness: Normalized brightness target (0.0-1.0).
             min_gain_db: Optional lower bound in dB.
             max_gain_db: Optional upper bound in dB.
+            ae_max_exposure_ms: Optional per-channel-class upper bound (ms)
+                on the exposure auto-exposure may drive to. Honored where
+                the driver supports auto-exposure bounds; ignored otherwise.
         """
         pass
 
@@ -806,6 +776,7 @@ class Camera(ABC):
         target_brightness: float = 0.5,
         min_gain_db: float | None = None,
         max_gain_db: float | None = None,
+        ae_max_exposure_ms: float | None = None,
     ) -> None:
         """Run a single auto-gain iteration.
 
@@ -814,6 +785,8 @@ class Camera(ABC):
             target_brightness: Normalized brightness target (0.0-1.0).
             min_gain_db: Optional lower bound in dB.
             max_gain_db: Optional upper bound in dB.
+            ae_max_exposure_ms: Optional per-channel-class exposure upper
+                bound (ms); honored where the driver supports it.
         """
         pass
 

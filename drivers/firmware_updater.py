@@ -46,7 +46,8 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Optional
+from collections.abc import Callable
 
 import serial.tools.list_ports as list_ports
 
@@ -97,7 +98,7 @@ class BoardConfig:
     pid: int
     label: str
     line_ending: bytes
-    config_files: List[str]
+    config_files: list[str]
     uf2_prefix: str
 
     # True if RP2040 has direct USB (BOOTSEL accessible via software).
@@ -115,12 +116,12 @@ class BoardConfig:
 class UpdateResult:
     success: bool
     board_type: BoardType
-    old_version: Optional[str] = None
-    new_version: Optional[str] = None
-    config_backup_path: Optional[Path] = None
-    error_message: Optional[str] = None
-    error_stage: Optional[UpdateStage] = None
-    warnings: List[str] = field(default_factory=list)
+    old_version: str | None = None
+    new_version: str | None = None
+    config_backup_path: Path | None = None
+    error_message: str | None = None
+    error_stage: UpdateStage | None = None
+    warnings: list[str] = field(default_factory=list)
 
 
 # Progress callback: (stage, human-readable message, progress 0.0-1.0)
@@ -348,7 +349,7 @@ def _wait_for_bootsel_drive(timeout=30.0):
 
 def _wait_for_drive_disappear(drive_path, timeout=DRIVE_DISAPPEAR_TIMEOUT):
     """Wait for BOOTSEL drive to disappear (indicates UF2 was accepted)."""
-    logger.info(f'Waiting for BOOTSEL drive to disappear...')
+    logger.info('Waiting for BOOTSEL drive to disappear...')
     deadline = time.time() + timeout
     while time.time() < deadline:
         if not drive_path.is_dir():
@@ -501,7 +502,7 @@ def _send_fwupdate_command(board, board_config):
         raise UpdateError(
             f'FWUPDATE command failed: {e}',
             stage=UpdateStage.SENDING_FWUPDATE,
-        )
+        ) from e
 
 
 def _bootloader_via_raw_repl(board):
@@ -634,7 +635,7 @@ def _restore_configs(board, board_config, config_data, callback=None):
 
     if not board.enter_raw_repl():
         raise UpdateError(
-            f'Failed to enter raw REPL for config restore',
+            'Failed to enter raw REPL for config restore',
             stage=UpdateStage.RESTORING_CONFIG,
         )
 
@@ -974,9 +975,9 @@ def update_firmware(
             bootsel_again = _detect_bootsel_drive()
             if bootsel_again is not None:
                 raise UpdateError(
-                    f'Board returned to BOOTSEL mode instead of booting. '
-                    f'The UF2 may be invalid. '
-                    f'You can retry with a different UF2 file.',
+                    'Board returned to BOOTSEL mode instead of booting. '
+                    'The UF2 may be invalid. '
+                    'You can retry with a different UF2 file.',
                     stage=UpdateStage.WAITING_REBOOT,
                     recoverable=True,
                 )
@@ -1071,6 +1072,10 @@ def nuke_board(
     After nuke, the board will appear as RPI-RP2 USB mass storage
     and is ready for a fresh UF2 flash.
 
+    No caller exists on the 4.0 line; the full-reflash recovery flow
+    on the 4.1 development line calls this. Not dead code -- a caller
+    search in this branch alone is misleading.
+
     Args:
         board_type: BoardType.LED or BoardType.MOTOR
         nuke_uf2_path: Path to flash_nuke UF2 (RP2040 or RP2350)
@@ -1161,16 +1166,16 @@ def nuke_board(
                     logger.info('Nuke UF2 flashed via picotool')
                 else:
                     raise UpdateError(
-                        f'picotool failed to flash nuke UF2. '
-                        f'Hold BOOTSEL and power-cycle the board.',
+                        'picotool failed to flash nuke UF2. '
+                        'Hold BOOTSEL and power-cycle the board.',
                         stage=UpdateStage.COPYING_UF2,
                         recoverable=False,
                     )
             else:
                 raise UpdateError(
-                    f'BOOTSEL drive not found and picotool is not '
-                    f'installed. Install picotool (brew install picotool) '
-                    f'or hold BOOTSEL and power-cycle the board.',
+                    'BOOTSEL drive not found and picotool is not '
+                    'installed. Install picotool (brew install picotool) '
+                    'or hold BOOTSEL and power-cycle the board.',
                     stage=UpdateStage.WAITING_BOOTSEL,
                     recoverable=False,
                 )
@@ -1336,7 +1341,7 @@ def deploy_firmware_file(
         # Without soft reset, the Timer keeps feeding WDT during the write.
         if not board.enter_raw_repl(soft_reset=False):
             raise UpdateError(
-                f'Failed to enter raw REPL for firmware deploy',
+                'Failed to enter raw REPL for firmware deploy',
                 stage=UpdateStage.RESTORING_CONFIG,
             )
 

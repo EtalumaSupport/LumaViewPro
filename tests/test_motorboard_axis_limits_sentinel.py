@@ -42,7 +42,7 @@ class TestMotorBoardReturnsSentinelForNoLimits:
         from drivers.motorboard import MotorBoard
         from unittest.mock import patch
 
-        # Real instantiation needs a serial connection — patch out the
+        # Real instantiation needs a serial connection -- patch out the
         # __init__ and inject a minimal axes_config. The driver method
         # under test reads only self.axes_config.
         with patch.object(MotorBoard, '__init__', lambda self, *a, **kw: None):
@@ -144,7 +144,7 @@ class TestNoErrorLogForExpectedNoLimitsCase:
         # (genuine programmer error). The 'no limits' branch must not.
         assert 'No limits defined' not in body, (
             'drivers/motorboard.py::get_axis_limits must not log '
-            "'No limits defined' at ERROR — that case is now a "
+            "'No limits defined' at ERROR -- that case is now a "
             'sentinel return, not an error condition.'
         )
 

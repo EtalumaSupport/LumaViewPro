@@ -12,17 +12,12 @@ to `build.ps1`.
 
 | Output | Purpose | Ship to customers? |
 |--------|---------|--------------------|
-| `LumaViewPro-<version>.msi` | Standalone LumaViewPro installer. It has minimal install UI and installs the LVP application folder, Start Menu shortcut, Desktop shortcut, environment variables, bundled Apache Maven folder, and app files. | Usually no. Use for internal testing, debugging, or cases where prerequisites are already handled separately. |
-| `LumaViewPro-<version>-setup.exe` | Main customer installer. This is the WiX Bundle with the full installer UI. It runs the LVP MSI and also chains the Basler Pylon USB driver installer, the Amazon Corretto Java SDK installer, and (when present) the IDS Peak runtime installer in one install flow. | Yes. This is the primary file to ship when building a release package. |
+| `LumaViewPro-<version>.msi` | Standalone LumaViewPro installer. It has minimal install UI and installs the LVP application folder, Start Menu shortcut, Desktop shortcut, environment variables, and app files. | Usually no. Use for internal testing, debugging, or cases where prerequisites are already handled separately. |
+| `LumaViewPro-<version>-setup.exe` | Main customer installer. This is the WiX Bundle with the full installer UI. It runs the LVP MSI and also chains the Basler Pylon USB driver installer and (when present) the IDS Peak runtime installer in one install flow. | Yes. This is the primary file to ship when building a release package. |
 
-The `-setup.exe` bundle is only created when both **required** dependency MSIs
-are present: Basler Pylon USB Camera Driver MSI and Amazon Corretto 8 JDK
-Windows x64 MSI. Optional dependencies (IDS Peak, FX2 driver) are silently
-skipped when their files are absent.
-
-Apache Maven is not a separate MSI. The build script copies the
-`apache-maven-3.9.8\` folder into the LumaViewPro install directory, and the
-LVP MSI adds Maven's `bin` folder to PATH.
+The `-setup.exe` bundle is only created when the **required** dependency MSI is
+present: the Basler Pylon USB Camera Driver MSI. Optional dependencies (IDS
+Peak, FX2 driver) are silently skipped when their files are absent.
 
 ## One-Time Setup
 
@@ -91,9 +86,7 @@ Layout when fully populated:
 ```text
 dependencies\
 |-- README.md                            # ships with the build script
-|-- apache-maven-3.9.8\                  # required for ImageJ
 |-- pylon_USB_Camera_Driver.msi          # required for the bundle
-|-- amazon-corretto-8-xxx-jdk.msi        # required for the bundle
 |-- ids_peak_<version>.exe               # optional — IDS cameras
 |-- setup.iss                            # optional — paired with ids_peak EXE
 `-- fx2\
@@ -105,9 +98,7 @@ dependencies\
 
 | File | Source | Notes |
 |------|--------|-------|
-| `apache-maven-3.9.8\` | [maven.apache.org/download.cgi](https://maven.apache.org/download.cgi) → `apache-maven-3.9.8-bin.zip` | Extract the `apache-maven-3.9.8` folder directly into `dependencies\`. Anonymous download. |
 | `pylon_USB_Camera_Driver.msi` | [baslerweb.com/en/downloads/software-downloads](https://www.baslerweb.com/en/downloads/software-downloads/) | Free MyBasler account required. Pick the standalone USB driver MSI (not the full Pylon SDK installer). |
-| `amazon-corretto-8-xxx-jdk.msi` | [aws.amazon.com/corretto/](https://aws.amazon.com/corretto/) → Corretto 8 → Windows x64 MSI | Anonymous direct download. |
 | `ids_peak_<version>.exe` | [en.ids-imaging.com/download-peak.html](https://en.ids-imaging.com/download-peak.html) → Runtime variant (~26 MB) | Free MyIDS account required. Pick a runtime version that matches the `ids-peak` PyPI binding pinned in `requirements.txt` (`1.13.0.0.6` → runtime ≥ 2.18). |
 | `setup.iss` | Generated locally, once per IDS Peak runtime version | Run `ids_peak_<version>.exe /r` on a Windows host with a clean install of that exact runtime; it records your interactive choices into `%WINDIR%\setup.iss`. Copy that file into `dependencies\` next to the EXE. |
 | `fx2\LumaScope_WinUSB.inf` | Firmware repo, `fx2_firmware/build_deps/LumaScope_WinUSB.inf` | ~2 KB text file. Copy as-is. |
@@ -119,16 +110,15 @@ MyIDS at build time.
 
 #### Required for the standalone MSI
 
-- `apache-maven-3.9.8\` — without this, ImageJ won't run in the installed
-  app, but the MSI still builds.
+The standalone MSI builds from the LumaViewPro source alone -- no files in
+`dependencies\` are required for it.
 
 #### Required for the `-setup.exe` bundle
 
 - `pylon_USB_Camera_Driver.msi`
-- `amazon-corretto-8-xxx-jdk.msi`
 
-If either of these is missing, the build still creates the standalone MSI
-but skips the customer `-setup.exe` bundle.
+If this is missing, the build still creates the standalone MSI but skips the
+customer `-setup.exe` bundle.
 
 ### Optional Dependencies
 
@@ -263,12 +253,11 @@ The script then:
 2. Installs build dependencies into `buildvenv`.
 3. Builds the app folder with PyInstaller. Bundles `libusb-1.0.dll` if
    present in `dependencies\fx2\`.
-4. Copies Apache Maven into the app install folder.
-5. Builds `LumaViewPro-<version>.msi`. Adds an FX2 driver-install
+4. Builds `LumaViewPro-<version>.msi`. Adds an FX2 driver-install
    custom action if `LumaScope_WinUSB.inf` is present.
-6. Builds `LumaViewPro-<version>-setup.exe` if Pylon and Corretto are
-   present. Chains the IDS Peak runtime EXE if its files are present.
-7. Removes temporary clone/build files.
+5. Builds `LumaViewPro-<version>-setup.exe` if the Pylon MSI is present.
+   Chains the IDS Peak runtime EXE if its files are present.
+6. Removes temporary clone/build files.
 
 Example output:
 
@@ -286,9 +275,8 @@ Before a customer build:
 
 1. Confirm `version.txt` has the release version testers should see.
 2. Commit and push the branch to be packaged.
-3. Confirm `dependencies\` contains Maven, Pylon, and Corretto. Confirm
-   any optional dependencies you intend to ship (IDS Peak, FX2 INF + DLL)
-   are also present.
+3. Confirm `dependencies\` contains the Pylon MSI. Confirm any optional
+   dependencies you intend to ship (IDS Peak, FX2 INF + DLL) are also present.
 4. Run `.\build.ps1` and choose `Release`.
 5. Verify both output files exist.
 6. Ship `LumaViewPro-<version>-setup.exe`.
@@ -320,8 +308,7 @@ Use the branch that contains the desired build script.
 | `git clone failed` | Check network access and confirm the selected branch exists on GitHub. |
 | `pip install failed` | Check internet access and package pins. Try a `Release` build to recreate `buildvenv`. |
 | `PyInstaller failed` | Fix dependency install errors first, then rerun the build. |
-| `Apache Maven not found` | Extract Maven into `dependencies\apache-maven-3.9.8\`. |
-| `Bundle skipped` | Add both Pylon and Corretto MSIs to `dependencies\`. The MSI will still build, but the customer `-setup.exe` will not. |
+| `Bundle skipped` | Add the Pylon MSI to `dependencies\`. The MSI will still build, but the customer `-setup.exe` will not. |
 | Beta-to-beta upgrade leaves the older beta installed alongside the newer one | Both betas were built before the 4-part version derivation landed (commit `2c8805f`). One-shot fix: uninstall the old beta manually via Settings → Apps. From that build forward, the bundle's related-bundle Detect handles the swap automatically. |
 | New build doesn't replace the old beta install — installer says "already installed" | The MSI's `MajorUpgrade` only compares the first 3 parts of `ProductVersion`. Always install via the `-setup.exe` bundle (which compares all 4 parts), not the standalone MSI. |
 | `Permission denied` during PyInstaller or MSI build | Close any running LumaViewPro instance (including the previous `-setup.exe`'s installer-modify dialog). Use `C:\LVP\appbuild\` instead of OneDrive-synced paths. |

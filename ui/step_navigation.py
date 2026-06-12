@@ -3,8 +3,10 @@
 Protocol step navigation logic extracted from lumaviewpro.py.
 
 These functions handle navigating to protocol steps (moving stage,
-updating LED/camera settings, and refreshing UI controls).
-They are re-exported by lumaviewpro.py so existing call sites work.
+updating LED/camera settings, and refreshing UI controls). They are
+GUI-coupled (Kivy widgets, Clock) and live in ui/; protocol execution
+reaches them only through the injected go_to_step callback, so the
+protocol layer never imports this module directly.
 """
 
 import logging
@@ -13,9 +15,8 @@ from modules.kivy_utils import schedule_ui as _schedule_ui
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
-from modules.sequential_io_executor import IOTask
 
-logger = logging.getLogger('LVP.modules.step_navigation')
+logger = logging.getLogger('LVP.ui.step_navigation')
 
 
 def go_to_step(
@@ -29,14 +30,13 @@ def go_to_step(
 
     # Deferred import: ui/ui_helpers.move_absolute_position wraps the
     # API call with UI update callbacks. step_navigation still reaches
-    # upward here — tracked as part of LAYER-H/LV-13 follow-up.
+    # upward here -- tracked as part of LAYER-H/LV-13 follow-up.
     from ui.ui_helpers import move_absolute_position
     from modules.notification_center import notifications
 
     ctx = _app_ctx.ctx
     settings = ctx.settings
     coordinate_transformer = ctx.coordinate_transformer
-    io_executor = ctx.io_executor
 
     num_steps = protocol.num_steps()
     protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
@@ -83,39 +83,24 @@ def go_to_step(
         if ctx.scope.motor_connected:
             if not called_from_protocol:
                 if turret_pos is not None:
-                    io_executor.put(
-                        IOTask(
-                            action=move_absolute_position,
-                            kwargs={'axis': 'T', 'pos': turret_pos, 'protocol': False},
-                        )
-                    )
+                    move_absolute_position(axis='T', pos=turret_pos, protocol=False)
                     _schedule_ui(
                         lambda dt: ctx.motion_settings.ids['verticalcontrol_id'].update_turret_gui(
                             turret_pos
                         ),
                         0,
                     )
-                io_executor.put(
-                    IOTask(
-                        action=move_absolute_position,
-                        kwargs={'axis': 'X', 'pos': sx, 'protocol': False},
-                    )
-                )
-                io_executor.put(
-                    IOTask(
-                        action=move_absolute_position,
-                        kwargs={'axis': 'Y', 'pos': sy, 'protocol': False},
-                    )
-                )
-                io_executor.put(
-                    IOTask(
-                        action=move_absolute_position,
-                        kwargs={'axis': 'Z', 'pos': step['Z'], 'protocol': False},
-                    )
-                )
+                move_absolute_position(axis='X', pos=sx, protocol=False)
+                move_absolute_position(axis='Y', pos=sy, protocol=False)
+                move_absolute_position(axis='Z', pos=step['Z'], protocol=False)
             else:
                 if turret_pos is not None:
-                    move_absolute_position(axis='T', pos=turret_pos, protocol=True)
+                    # restore_z=False -- the Z move below overwrites Z with
+                    # step['Z'] immediately, so safe_turret_move's default
+                    # Z-restore-after-T-move would be wasted motion (#524).
+                    move_absolute_position(
+                        axis='T', pos=turret_pos, protocol=True, restore_z=False
+                    )
                     _schedule_ui(
                         lambda dt: ctx.motion_settings.ids['verticalcontrol_id'].update_turret_gui(
                             turret_pos
@@ -128,7 +113,7 @@ def go_to_step(
         else:
             logger.warning('[LVP Main  ] Motion controller not available.')
 
-        # Update settings to correspond with step — batch write under lock for thread safety
+        # Update settings to correspond with step -- batch write under lock for thread safety
         color = step['Color']
         with ctx.settings_lock:
             settings[color].update(
@@ -166,15 +151,13 @@ def go_to_step(
             layer_obj.apply_settings(ignore_auto_gain=ignore_auto_gain, protocol=True)
 
         if not called_from_protocol and settings['protocol_led_on']:
-            # Turn off any previously-on channel before turning on the
-            # new one. led_on is additive at the API + driver layers, so
-            # without this leds_off the previous step's LED would stay
-            # lit alongside the new channel and double-illuminate the
-            # preview. Same convention applied at protocol scan-start
-            # (protocol_run_loop), autofocus-run-start (autofocus_runner),
-            # and per-layer composite capture (composite_capture).
-            ctx.scope.illumination.leds_off_async()
-            ctx.scope.illumination.led_on_async(color, step['Illumination'])
+            # Make the new step's channel the only lit one. leds_exclusive
+            # turns off every other channel and leaves an already-correct
+            # channel untouched, so stepping between consecutive same-color
+            # steps holds the LED steady instead of blinking it off then on.
+            # A previously-on channel of a different color is still cleared,
+            # so the preview is never double-illuminated.
+            ctx.scope.illumination.leds_exclusive_async(color, step['Illumination'])
             _schedule_ui(lambda dt: temp(), 0)
         else:
             layer_obj.apply_settings(ignore_auto_gain=ignore_auto_gain, protocol=True)
@@ -224,9 +207,16 @@ def go_to_step_update_ui(step, called_from_protocol: bool = False):
     color = step['Color']
     layer_obj = ctx.image_settings.layer_lookup(layer=color)
 
-    # Open ImageSettings panel
-    ctx.image_settings.ids['toggle_imagesettings'].state = 'down'
-    ctx.image_settings.toggle_settings()
+    # Open the ImageSettings panel so the step's settings are visible.
+    # Act only when it is not already open: this runs once per step during
+    # a protocol run, and the panel toggle is an expand/collapse handler,
+    # not an idempotent refresh -- re-invoking it on an already-open panel
+    # repeats the reposition + histogram rescheduling every step and logs a
+    # toggle line when nothing actually toggled.
+    imagesettings_toggle = ctx.image_settings.ids['toggle_imagesettings']
+    if imagesettings_toggle.state != 'down':
+        imagesettings_toggle.state = 'down'
+        ctx.image_settings.toggle_settings()
 
     # Expand accordion to step's channel ONLY for manual navigation.
     # Direct `collapse = False` on a single item doesn't propagate to
@@ -243,7 +233,7 @@ def go_to_step_update_ui(step, called_from_protocol: bool = False):
     # Delegate all per-layer widget updates to LayerControl
     layer_obj.set_step_state(step)
 
-    # Stim config spans multiple layers — update non-current layers too
+    # Stim config spans multiple layers -- update non-current layers too
     sc = step.get('Stim_Config')
     if isinstance(sc, dict):
         for layer in sc:

@@ -124,7 +124,7 @@ class TestNotificationCenter:
         for t in threads:
             t.join()
 
-        assert len(received) == 100  # 5 threads × 20
+        assert len(received) == 100  # 5 threads x 20
 
     def test_notification_is_immutable(self):
         nc = NotificationCenter()

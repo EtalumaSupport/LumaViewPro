@@ -9,9 +9,10 @@ from kivy.graphics import Color, Line, Rectangle, Ellipse, Fbo
 from kivy.uix.widget import Widget
 
 import modules.app_context as _app_ctx
+from modules import gui_logger
 from modules.config_ui_getters import get_selected_labware
 from modules.sequential_io_executor import IOTask
-from modules.step_navigation import go_to_step
+from ui.step_navigation import go_to_step
 from ui.ui_helpers import find_nearest_step, move_absolute_position
 
 logger = logging.getLogger('LVP.ui.stage')
@@ -38,7 +39,7 @@ class Stage(Widget):
         return id(self)
 
     def __init__(self, **kwargs):
-        super(Stage, self).__init__(**kwargs)
+        super().__init__(**kwargs)
         logger.debug('[LVP Main  ] Stage.__init__()')
         self.ROI_min = [0, 0]
         self.ROI_max = [0, 0]
@@ -162,9 +163,12 @@ class Stage(Widget):
             )
 
             if touch.button == 'left':
-                io_executor = ctx.io_executor
-                io_executor.put(IOTask(action=move_absolute_position, args=('X', stage_x)))
-                io_executor.put(IOTask(action=move_absolute_position, args=('Y', stage_y)))
+                gui_logger.button(
+                    'STAGE_CLICK',
+                    f'left plate=({plate_x:.2f},{plate_y:.2f}) stage=({stage_x:.0f},{stage_y:.0f})',
+                )
+                move_absolute_position('X', stage_x)
+                move_absolute_position('Y', stage_y)
 
             elif touch.button == 'right':
                 try:
@@ -175,8 +179,16 @@ class Stage(Widget):
                         protocol=ctx.motion_settings.ids['protocol_settings_id']._protocol,
                     )
                     if step_idx == -1:
+                        gui_logger.button(
+                            'STAGE_CLICK',
+                            f'right plate=({plate_x:.2f},{plate_y:.2f}) step=none',
+                        )
                         return
 
+                    gui_logger.button(
+                        'STAGE_CLICK',
+                        f'right plate=({plate_x:.2f},{plate_y:.2f}) step={step_idx}',
+                    )
                     go_to_step(
                         protocol=ctx.motion_settings.ids['protocol_settings_id']._protocol,
                         step_idx=step_idx,
@@ -507,12 +519,6 @@ class Stage(Widget):
         scale_x = w / dim_max['x']
         scale_y = h / dim_max['y']
 
-        stage_x = settings['stage_offset']['x'] / 1000
-        stage_y = settings['stage_offset']['y'] / 1000
-
-        cols = labware.config['columns']
-        rows = labware.config['rows']
-
         well_spacing_x = labware.config['spacing']['x']
         well_spacing_y = labware.config['spacing']['y']
 
@@ -540,9 +546,6 @@ class Stage(Widget):
 
             # Remove old step locations if they exist
             Clock.schedule_once(lambda dt: self.canvas.remove_group('steps_fbo'), 0)
-
-            # Capture variables by value for the lambda
-            pos_x, pos_y, size_w, size_h = x, y, w, h
 
             # Schedule FBO creation and drawing on main thread
             # Use partial to avoid lambda closure memory accumulation
@@ -724,7 +727,7 @@ class Stage(Widget):
         coordinate_transformer = _app_ctx.ctx.coordinate_transformer
         io_executor = _app_ctx.ctx.io_executor
 
-        if not result is None:
+        if result is not None:
             target_stage_x = result[0]
             target_stage_y = result[1]
 

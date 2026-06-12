@@ -96,11 +96,25 @@ class TestAccordionCollapseLedOffInLiveMode:
             "step's channel (#605)."
         )
 
-    def test_calls_scope_leds_off(self):
+    def test_offs_collapsed_layers_individually(self):
         body = _do_accordion_collapse_source()
-        # The actual LED cleanup must still be present below the guards.
-        assert 'scope_leds_off' in body, (
-            '_do_accordion_collapse must call scope_leds_off to clear '
-            "the previous channel's LED before applying the new layer's "
-            'settings.'
+        # The LED cleanup must still be present below the guards: the
+        # collapsed (non-open) layers' channels are switched off so a
+        # previously-lit channel is cleared on a Live-mode drawer switch
+        # (#659).
+        assert 'led_off_async(' in body, (
+            '_do_accordion_collapse must clear the collapsed layers LEDs '
+            "(led_off_async) so the previous channel's LED is turned off "
+            "before applying the new layer's settings (#659)."
+        )
+
+    def test_does_not_nuke_all_leds(self):
+        body = _do_accordion_collapse_source()
+        # The cache-clearing nuclear leds_off must not be used here: it blinked
+        # the open layer's own channel (e.g. one a step just lit) off->on when
+        # the drawer switched. Off the collapsed layers individually instead.
+        assert 'scope_leds_off' not in body, (
+            '_do_accordion_collapse must not call the nuclear scope_leds_off '
+            '-- it clears the LED-state cache and blinks an already-correct '
+            'channel off->on. Off the collapsed layers individually (#697).'
         )

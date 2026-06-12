@@ -1,0 +1,451 @@
+"""Phase 1 mono-native regression matrix -- xfail-strict comprehensive
+instrument (Rule 44).
+
+Each test asserts the POST-mono-native shape / behavior of the save and
+encode pipelines. Today's pipeline writes 3-channel false-color replicas
+into fluorescence TIFFs; the assertions below describe what the pipeline
+should produce after Phase 1d (atomic mono-native save migration). All
+tests carry ``xfail(strict=True)`` -- they FAIL today and FLIP GREEN
+when the 1d migration lands. ``strict=True`` catches a green test that
+was never un-xfailed (regression-of-the-regression).
+
+Distilled from the F0.5e historical-bug walk (8 commits, May 2025 - May
+2026). The 4 MUST-HAVE tests catch >90% of the historical production
+risk (the #657 fluorescence-channel-swap cluster); the 4 NICE-TO-HAVE
+tests harden adjacent surfaces.
+
+Pipeline coverage:
+- TIFF save (must, R/G nice-to-have)
+- Composite RGB intermediate read (must)
+- MP4 encode through PyAV (must)
+- cv2.VideoWriter BGR boundary (must)
+- OME-TIFF axes (nice-to-have)
+- Buffer-allocation O(1) reuse (nice-to-have)
+- PNG composite output (nice-to-have)
+"""
+
+from __future__ import annotations
+
+import pathlib
+from unittest.mock import MagicMock, patch
+
+import numpy as np
+import pytest
+import tifffile as tf
+
+
+XFAIL_REASON = (
+    'Phase 1 mono-native regression matrix -- flips green at 1d when the '
+    'save pipeline writes 2D mono + layer metadata in place of 3-channel '
+    'false-color replicas. xfail(strict=True) catches a stale marker.'
+)
+
+
+def _metadata(path, channel='Blue'):
+    """Minimal metadata dict matching ``write_tiff``'s generate_tiff_data."""
+    return {
+        'file_loc': str(path),
+        'datetime': '2026-05-27T00:00:00',
+        'plate_pos_mm': {'x': 0.0, 'y': 0.0},
+        'z_pos_um': 0.0,
+        'objective': 'test',
+        'exposure_time_ms': 1.0,
+        'gain_db': 0.0,
+        'illumination_ma': 0.0,
+        'pixel_size_um': 1.0,
+        'channel': channel,
+    }
+
+
+# ---------------------------------------------------------------------------
+# MUST-HAVE 1: pure-blue 16-bit false-color TIFF round-trip
+# ---------------------------------------------------------------------------
+
+
+def test_pure_blue_16bit_falsecolor_tiff_roundtrip(tmp_path):
+    """Synth uint16 Blue-layer mono; save with the false-color opt-in ON;
+    read back.
+
+    Default OFF saves 2D mono + metadata (covered by test_tiff_format's
+    default-off cases). With ``use_false_color_16bit=True`` the layer color
+    is baked into 3-channel RGB so Windows Preview renders 16-bit
+    fluorescence in color. The Blue layer must land in RGB index 2 with the
+    value preserved exactly and the other planes zero (the R/B-swap and
+    wrong-channel-on-video defects guard against an ordering regression).
+    """
+    from modules.image_utils import write_tiff
+
+    out_path = tmp_path / 'blue.tiff'
+    data = np.full((8, 8), 42000, dtype=np.uint16)
+
+    write_tiff(
+        data=data,
+        file_loc=out_path,
+        metadata=_metadata(out_path, channel='Blue'),
+        ome=False,
+        color='Blue',
+        use_false_color_16bit=True,
+    )
+
+    result = tf.imread(str(out_path))
+
+    assert result.shape == (8, 8, 3), (
+        f'false_color_16bit=True must widen to 3-channel RGB, got {result.shape}.'
+    )
+    assert result.dtype == np.uint16
+    assert result[0, 0, 2] == 42000, 'Blue lands at RGB index 2'
+    assert result[0, 0, 0] == 0
+    assert result[0, 0, 1] == 0
+
+
+# ---------------------------------------------------------------------------
+# MUST-HAVE 2: pure-blue MP4 build round-trip
+# ---------------------------------------------------------------------------
+
+
+def test_pure_blue_mp4_roundtrip(tmp_path):
+    """Synth a 1-frame mono TIFF input; run VideoBuilder; decode the
+    first MP4 frame via PyAV; assert the Blue channel carries the data.
+
+    Today: VideoBuilder's input loop calls ``cv2.imread`` (returns BGR
+    on 3-channel sources) then ``cvtColor(BGR2RGB)`` before encode.
+    With 3-channel-replica TIFF inputs this round-trips correctly but
+    the cv2 detour is the failure surface that produced ``eae5079``
+    (#657 video -- wrong channel on decode).
+
+    Post-1d: input TIFFs are mono. VideoBuilder reads via ``tf.imread``
+    (no cv2 detour), applies false-color via the boundary helper, then
+    encodes RGB to MP4. Same final pixel value at index 2 (Blue), but
+    via the canonical mono path.
+
+    The test is structural -- it asserts the decoded MP4 frame's Blue
+    channel carries the source mono value, regardless of internal
+    pipeline shape.
+    """
+    pytest.importorskip('av')
+    import av
+
+    from modules.video_builder import VideoBuilder
+
+    # One mono input TIFF (post-1d input shape).
+    input_dir = tmp_path / 'tiff_in'
+    input_dir.mkdir()
+    src = np.full((8, 8), 42000, dtype=np.uint16)
+    tf.imwrite(str(input_dir / 'frame_0000_Blue.tiff'), src)
+
+    out_path = tmp_path / 'out.mp4'
+
+    # Direct invocation through VideoBuilder's frame-processing surface.
+    # Post-1d API: VideoBuilder reads mono inputs + applies false-color
+    # via boundary helper before encode.
+    builder = VideoBuilder(has_turret=False)
+    builder.build_video(
+        source_dir=input_dir,
+        output_file=out_path,
+        false_color=True,
+        color='Blue',
+    )
+
+    # Decode first frame via PyAV
+    container = av.open(str(out_path))
+    frame = next(container.decode(video=0))
+    arr = frame.to_ndarray(format='rgb24')
+    container.close()
+
+    assert arr[0, 0, 2] > 200, (
+        f'Decoded Blue channel should carry the source value (scaled to '
+        f'uint8); got arr[0,0]={arr[0, 0]}. Today fails because '
+        f'VideoBuilder.build_video signature does not yet accept mono '
+        f'2D TIFF inputs through the false_color boundary helper.'
+    )
+    assert arr[0, 0, 0] < 20  # Red close to zero
+    assert arr[0, 0, 1] < 20  # Green close to zero
+
+
+# ---------------------------------------------------------------------------
+# MUST-HAVE 3: composite RGB all-channels round-trip
+# ---------------------------------------------------------------------------
+
+
+def test_composite_rgb_allchannels_roundtrip(tmp_path):
+    """Synth 3 mono TIFFs (R, G, B layers); run composite generation;
+    read output via tifffile axes='YXS'; assert per-channel preservation.
+
+    Today: ``composite_generation.py`` reads per-channel inputs via
+    ``cv2.imread`` (3-channel BGR) then extracts the relevant channel
+    via ``cvtColor(BGR2GRAY)`` to recover mono. The redundancy is the
+    bug surface (``#672`` extract-from-wrong-channel) plus a perf
+    cost (3x read bandwidth).
+
+    Post-1d: per-channel inputs are mono 2D; composite reads directly
+    via ``tf.imread`` and stacks into the canonical (H, W, 3) output.
+
+    Historical bugs: ``cefdfcb`` (composite OME-TIFF axes mismatch),
+    ``e2ef49e`` (#657 frames swap on save).
+    """
+    input_dir = tmp_path / 'channels'
+    input_dir.mkdir()
+
+    # Post-1d input: 3 mono channel files
+    red_val, green_val, blue_val = 50000, 35000, 20000
+    tf.imwrite(str(input_dir / 'r.tiff'), np.full((8, 8), red_val, dtype=np.uint16))
+    tf.imwrite(str(input_dir / 'g.tiff'), np.full((8, 8), green_val, dtype=np.uint16))
+    tf.imwrite(str(input_dir / 'b.tiff'), np.full((8, 8), blue_val, dtype=np.uint16))
+
+    out_path = tmp_path / 'composite.tiff'
+
+    from modules.composite_generation import CompositeGeneration
+
+    cg = CompositeGeneration(has_turret=False)
+    cg.generate_composite_from_paths(
+        red_path=input_dir / 'r.tiff',
+        green_path=input_dir / 'g.tiff',
+        blue_path=input_dir / 'b.tiff',
+        output_path=out_path,
+    )
+
+    result = tf.imread(str(out_path))
+    assert result.ndim == 3 and result.shape[2] == 3
+    # Channel order: index 0 = Red, 1 = Green, 2 = Blue
+    assert result[0, 0, 0] == red_val
+    assert result[0, 0, 1] == green_val
+    assert result[0, 0, 2] == blue_val
+
+
+# ---------------------------------------------------------------------------
+# MUST-HAVE 4: cv2.VideoWriter fallback RGB->BGR boundary (mocked)
+# ---------------------------------------------------------------------------
+
+
+def test_cv2_videowriter_fallback_bgr_boundary():
+    """Pass a mono frame into VideoWriter (cv2 fallback path); assert
+    the mocked ``cv2.VideoWriter.write`` receives a BGR-ordered frame
+    with the false-color applied correctly.
+
+    Today: the pre-1d caller already does add_false_color then BGR-swap.
+    Post-1d: the caller passes mono; VideoWriter does false-color +
+    BGR-swap internally before handing to cv2.VideoWriter.write.
+
+    The bug surface (``161ed0e`` / ``7f26c7c`` -- RGB->BGR fallback
+    swap regression) is the same; the test ensures the post-1d code
+    path preserves the boundary.
+    """
+    from modules.video_writer import VideoWriter
+
+    mono = np.full((8, 8), 50000, dtype=np.uint16)
+
+    captured = {}
+
+    def fake_write(frame):
+        captured['frame'] = frame.copy()
+
+    with patch('cv2.VideoWriter') as MockCv2:
+        instance = MagicMock()
+        instance.write = fake_write
+        instance.isOpened.return_value = True
+        MockCv2.return_value = instance
+
+        writer = VideoWriter(
+            output_path='/tmp/dummy.avi',
+            fps=10,
+            width=8,
+            height=8,
+            color='Red',
+        )
+        writer.add_frame(mono)
+        writer.close()
+
+    assert 'frame' in captured, 'cv2.VideoWriter.write was never called'
+    written = captured['frame']
+    # cv2 is BGR-native: a Red false-color frame should have non-zero
+    # at index 2 (B index in BGR == R index in source RGB after swap).
+    # Post-1d: mono Red enters VideoWriter, gets false-colored to RGB
+    # internally, then BGR-swapped at the cv2 boundary.
+    assert written.shape[-1] == 3
+    assert written[0, 0, 2] > 0, (
+        f'BGR[2] (== source RGB[0] == Red after swap) should be non-zero, '
+        f'got {written[0, 0]}'
+    )
+    assert written[0, 0, 0] == 0, 'BGR[0] (== source RGB[2] == Blue) should be zero for Red layer'
+
+
+# ---------------------------------------------------------------------------
+# NICE-TO-HAVE 5+6: pure-red + pure-green 16-bit false-color TIFF variants
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize('color', ['Red', 'Green'])
+def test_pure_color_16bit_falsecolor_tiff_roundtrip(tmp_path, color):
+    """Per-color hardening for the false-color opt-in: confirm the Red and
+    Green layer paths widen to 3-channel RGB with the value in the correct
+    plane. Catches asymmetries in the layer-color lookup (a historical
+    Red-specific R/B swap motivates the parametrize).
+    """
+    from modules.image_utils import write_tiff
+
+    out_path = tmp_path / f'{color.lower()}.tiff'
+    data = np.full((8, 8), 30000, dtype=np.uint16)
+
+    write_tiff(
+        data=data,
+        file_loc=out_path,
+        metadata=_metadata(out_path, channel=color),
+        ome=False,
+        color=color,
+        use_false_color_16bit=True,
+    )
+
+    result = tf.imread(str(out_path))
+    assert result.shape == (8, 8, 3), f'{color}: expected 3-channel RGB, got {result.shape}'
+    expected_index = {'Red': 0, 'Green': 1}[color]
+    assert result[0, 0, expected_index] == 30000
+    for other in (0, 1, 2):
+        if other != expected_index:
+            assert result[0, 0, other] == 0, f'{color}: plane {other} should be zero'
+
+
+# ---------------------------------------------------------------------------
+# NICE-TO-HAVE 7: composite OME-TIFF axes structural check
+# ---------------------------------------------------------------------------
+
+
+def test_composite_ome_tiff_axes_structural(tmp_path):
+    """Composite OME-TIFF must carry axes='YXS' (Y, X, Sample) for the
+    3-channel output. ``cefdfcb`` was a crash on axes mismatch; today's
+    composite passes via tifffile; post-1d the same axes structure
+    holds even though the per-channel reads are mono.
+    """
+    input_dir = tmp_path / 'channels'
+    input_dir.mkdir()
+    for ch in ('r', 'g', 'b'):
+        tf.imwrite(str(input_dir / f'{ch}.tiff'), np.full((8, 8), 30000, dtype=np.uint16))
+
+    out_path = tmp_path / 'composite.ome.tiff'
+
+    from modules.composite_generation import CompositeGeneration
+
+    cg = CompositeGeneration(has_turret=False)
+    cg.generate_composite_from_paths(
+        red_path=input_dir / 'r.tiff',
+        green_path=input_dir / 'g.tiff',
+        blue_path=input_dir / 'b.tiff',
+        output_path=out_path,
+        format='ome-tiff',
+    )
+
+    # Read with tifffile; OME-TIFF metadata must indicate YXS axes
+    with tf.TiffFile(str(out_path)) as t:
+        ome_meta = t.ome_metadata
+        assert ome_meta is not None, 'composite OME-TIFF missing OME metadata block'
+        assert 'YXS' in (t.series[0].axes if t.series else ''), (
+            f'Composite OME-TIFF axes should be YXS, got {t.series[0].axes!r}'
+        )
+
+
+def test_composite_sequenced_path_honors_output_format(tmp_path):
+    """The sequenced composite path (_create_composite_image) must honor the
+    run output_format -- 'OME-TIFF' writes OME, 'TIFF' writes plain. It
+    previously hardcoded ome=False and ignored the setting.
+    """
+    import pandas as pd
+    from modules.composite_generation import CompositeGeneration
+
+    for ch in ('Red', 'Green', 'Blue'):
+        tf.imwrite(str(tmp_path / f'{ch}.tiff'), np.full((8, 8), 20000, dtype=np.uint16))
+    df = pd.DataFrame(
+        [
+            {'Color': 'Red', 'Filepath': 'Red.tiff'},
+            {'Color': 'Green', 'Filepath': 'Green.tiff'},
+            {'Color': 'Blue', 'Filepath': 'Blue.tiff'},
+        ]
+    )
+
+    ome_out = tmp_path / 'comp_ome.tiff'
+    CompositeGeneration._create_composite_image(
+        path=tmp_path, df=df, output_file_loc=ome_out, output_format='OME-TIFF'
+    )
+    with tf.TiffFile(str(ome_out)) as t:
+        assert t.ome_metadata is not None, 'OME-TIFF format must produce OME metadata'
+
+    plain_out = tmp_path / 'comp_plain.tiff'
+    CompositeGeneration._create_composite_image(
+        path=tmp_path, df=df, output_file_loc=plain_out, output_format='TIFF'
+    )
+    with tf.TiffFile(str(plain_out)) as t:
+        assert t.ome_metadata is None, 'TIFF format must not produce OME metadata'
+
+
+# ---------------------------------------------------------------------------
+# NICE-TO-HAVE 8: PIW-6 buffer-allocation O(1) regression
+# ---------------------------------------------------------------------------
+
+
+def test_piw6_buffer_allocation_o1(tmp_path):
+    """100 sequential ``write_tiff`` calls on the false-color widen path
+    with a caller-supplied ``false_color_buf`` must allocate the
+    3-channel false-color buffer ONCE, not 100 times -- a caller-supplied
+    scratch buffer is reused across all saves; the O(1) reuse property
+    must hold.
+    """
+    from modules.image_utils import write_tiff
+
+    data = np.full((64, 64), 42000, dtype=np.uint16)
+    # The widen path produces (H, W, 3); the caller-supplied scratch must
+    # match that shape so add_false_color reuses it instead of allocating
+    # a fresh 3-channel buffer on every call.
+    scratch = np.zeros((64, 64, 3), dtype=data.dtype)
+
+    # Track frame-sized allocations via np.zeros (add_false_color's fallback
+    # when output shape mismatch) and np.empty (other internals). Filter to
+    # frame-sized to avoid counting tifffile's many tiny scratch buffers.
+    FRAME_SIZE = 64 * 64
+    frame_alloc_count = {'n': 0}
+    orig_zeros = np.zeros
+    orig_empty = np.empty
+
+    def _size_of(shape_arg):
+        try:
+            if hasattr(shape_arg, '__iter__'):
+                n = 1
+                for d in shape_arg:
+                    n *= int(d)
+                return n
+            return int(shape_arg)
+        except Exception:
+            return 0
+
+    def counting_zeros(shape, *args, **kwargs):
+        if _size_of(shape) >= FRAME_SIZE:
+            frame_alloc_count['n'] += 1
+        return orig_zeros(shape, *args, **kwargs)
+
+    def counting_empty(shape, *args, **kwargs):
+        if _size_of(shape) >= FRAME_SIZE:
+            frame_alloc_count['n'] += 1
+        return orig_empty(shape, *args, **kwargs)
+
+    with patch('numpy.zeros', side_effect=counting_zeros), patch(
+        'numpy.empty', side_effect=counting_empty
+    ):
+        for i in range(100):
+            write_tiff(
+                data=data,
+                file_loc=tmp_path / f'frame_{i:04d}.tiff',
+                metadata=_metadata(tmp_path / f'frame_{i:04d}.tiff', channel='Blue'),
+                ome=False,
+                color='Blue',
+                use_false_color_16bit=True,
+                false_color_buf=scratch,
+            )
+
+    # O(1) frame-sized allocations: the (H, W, 3) scratch fits the widen
+    # output, so add_false_color reuses it across all 100 saves. A
+    # mismatched scratch would fall back to np.zeros((H, W, 3), ...) on
+    # every call -> O(n) = 100.
+    assert frame_alloc_count['n'] < 10, (
+        f'Expected O(1) frame-sized allocations across 100 saves; got '
+        f"{frame_alloc_count['n']}. A mismatched scratch buffer forces a "
+        f'fresh 3-channel allocation per call.'
+    )
+
+

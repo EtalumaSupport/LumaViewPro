@@ -9,7 +9,7 @@ Three lookup ranks (per ``Lumascope.get_turret_position_for_objective_id``):
     3. First-match dict iteration (today's fallback).
 
 The bug: rank 1 fails post-home (T is at 1 by convention), and there
-was no rank 2 — so the lookup always landed on rank 3 = position 1.
+was no rank 2 -- so the lookup always landed on rank 3 = position 1.
 This file exercises rank 2 directly so the disambiguation survives
 restarts and post-home situations.
 """
@@ -67,7 +67,7 @@ def test_persisted_position_wins_over_first_match():
 
 def test_current_position_still_wins_when_it_matches():
     """If physical T is already at 4 and 4 holds the objective, return
-    4 even without a persisted hint — preserves existing prefer_current
+    4 even without a persisted hint -- preserves existing prefer_current
     semantics from f99add7.
     """
     scope = _make_scope_with_turret(
@@ -80,7 +80,7 @@ def test_current_position_still_wins_when_it_matches():
 
 def test_persisted_position_ignored_when_objective_changed():
     """If the user moved a different objective into the persisted slot
-    between sessions, persisted_position no longer matches → fall
+    between sessions, persisted_position no longer matches -> fall
     through to first-match. No silent wrong-position move.
     """
     scope = _make_scope_with_turret(
@@ -136,19 +136,19 @@ def test_callers_pass_persisted_position():
     """Static-source guard: every call site of
     ``get_turret_position_for_objective_id`` must pass
     ``persisted_position=...``. Without this, the persisted tier is
-    dead — same bug shape as the original #488 if a future caller
+    dead -- same bug shape as the original #488 if a future caller
     forgets it.
 
     LVP-A-5 (2026-05-04): the startup + reconnect call sites that
     used to live in lumaviewpro.py:on_start and
     ui/microscope_settings.py reconnect handler were lifted into
-    ``ScopeSession.start_application_session`` — the canonical owner
+    ``ScopeSession.start_application_session`` -- the canonical owner
     of the startup orchestration. Both old call sites now route
     through that one method, so the caller list is updated to scan
     its new home.
     """
     callers = [
-        'modules/step_navigation.py',
+        'ui/step_navigation.py',
         'modules/scope_session.py',
     ]
     pattern = re.compile(
@@ -160,12 +160,12 @@ def test_callers_pass_persisted_position():
         calls = pattern.findall(src)
         assert calls, (
             f'No call to get_turret_position_for_objective_id found in '
-            f'{rel} — has the lookup site moved? Update the test.'
+            f'{rel} -- has the lookup site moved? Update the test.'
         )
         for call in calls:
             assert 'persisted_position' in call, (
                 f'{rel} calls get_turret_position_for_objective_id '
                 f'without passing persisted_position. The persisted '
-                f'tier of the lookup is dead for this caller — falls '
+                f'tier of the lookup is dead for this caller -- falls '
                 f'through to first-match (#488 regression).\n\nCall:\n{call}'
             )

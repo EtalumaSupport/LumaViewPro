@@ -8,6 +8,7 @@ from kivy.uix.floatlayout import FloatLayout
 
 import modules.common_utils as common_utils
 import modules.app_context as _app_ctx
+import modules.config_helpers as config_helpers
 from modules import gui_logger
 from modules.config_ui_getters import (
     create_hyperstacks_if_needed,
@@ -96,7 +97,18 @@ class ZStack(FloatLayout):
 
     def _cleanup_at_end_of_acquire(self):
         ctx = _app_ctx.ctx
-        ctx.sequenced_capture_runner.reset()
+        runner = ctx.sequenced_capture_runner
+        # On an abort, reset() returns immediately and the hardware
+        # teardown runs on the protocol thread; _zstack_run_complete
+        # (fired by cleanup) resets the button when it ends. Restoring
+        # the button here on the abort flavor would invite a new acquire
+        # while the old one is still tearing down (the start guard
+        # refuses it, but the label would lie about readiness).
+        deferred_to_cleanup = runner.run_in_progress()
+        runner.reset()
+        if deferred_to_cleanup:
+            self.ids['zstack_aqr_btn'].text = 'Stopping...'
+            return
         self._reset_run_zstack_acquire_button()
         live_histo_reverse()
 
@@ -146,7 +158,7 @@ class ZStack(FloatLayout):
             zstack_params = get_zstack_params()
             active_layer, active_layer_config = get_active_layer_config()
             active_layer_config['acquire'] = 'image'
-            # Z-stack manages Z positions explicitly — AF would override them
+            # Z-stack manages Z positions explicitly -- AF would override them
             active_layer_config['autofocus'] = False
 
             if not zstack_positions_valid:
@@ -177,20 +189,21 @@ class ZStack(FloatLayout):
                 tiling_configs_file_loc=pathlib.Path(ctx.source_path) / 'data' / 'tiling.json',
             )
 
-            config = {
+            config = config_helpers.build_sequenced_capture_config({
                 'labware_id': labware_id,
                 'positions': positions,
                 'objective_id': objective_id,
                 'zstack_params': zstack_params,
                 'use_zstacking': True,
                 'tiling': tiling_config.no_tiling_label(),
+                'tiling_overlap_percent': 0.0,
                 'layer_configs': {active_layer: active_layer_config},
                 'period': None,
                 'duration': None,
                 'frame_dimensions': get_current_frame_dimensions(),
                 'binning_size': get_binning_from_ui(),
                 'stim_config': get_stim_configs(),
-            }
+            })
 
             zstack_sequence = ctx.scope.create_protocol(input_config=config)
 
@@ -217,7 +230,7 @@ class ZStack(FloatLayout):
                 'update_scope_display': lambda dt=0: None,
                 'run_complete': run_complete_func,
                 'update_step_number': _zstack_progress,
-                # LED observer handles UI sync — no manual callbacks needed
+                # LED observer handles UI sync -- no manual callbacks needed
                 'reset_autofocus_btns': update_autofocus_selection_after_protocol,
                 'set_recording_title': set_recording_title,
                 'set_writing_title': set_writing_title,

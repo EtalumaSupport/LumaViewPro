@@ -13,7 +13,7 @@ from modules.common_utils import PostFunction
 from modules.protocol_post_processor import ProtocolPostProcessor
 from modules.protocol_post_record import ProtocolPostRecord
 
-import modules.imagej_helper as imagej_helper
+import modules.zprojection as zprojection
 
 from lvp_logger import logger
 
@@ -21,7 +21,6 @@ from lvp_logger import logger
 class ZProjector(ProtocolPostProcessor):
     def __init__(
         self,
-        ij_helper: imagej_helper.ImageJHelper = None,
         *args,
         **kwargs,
     ):
@@ -31,11 +30,6 @@ class ZProjector(ProtocolPostProcessor):
             **kwargs,
         )
         self._name = self.__class__.__name__
-
-        if ij_helper is None:
-            self._ij_helper = imagej_helper.ImageJHelper()
-        else:
-            self._ij_helper = ij_helper
 
     @staticmethod
     def _get_groups(df: pd.DataFrame) -> pd.DataFrame:
@@ -61,9 +55,11 @@ class ZProjector(ProtocolPostProcessor):
             objective_id=row0['Objective']
         )
 
-        # Use custom root + step name if available
-        custom_root = row0.get('Custom Root', '') if 'Custom Root' in row0 else ''
-        prefix = f'{custom_root}_{row0["Name"]}' if custom_root not in (None, '') else row0['Name']
+        # Prepend the protocol's capture_root (passed in via kwargs by
+        # ProtocolPostProcessor.load_folder) so the z-projected output
+        # carries the same filename root as the per-image saves.
+        capture_root = kwargs.get('capture_root', '')
+        prefix = f'{capture_root}_{row0["Name"]}' if capture_root else row0['Name']
         name = common_utils.generate_default_step_name(
             custom_name_prefix=prefix,
             well_label=row0['Well'],
@@ -82,13 +78,13 @@ class ZProjector(ProtocolPostProcessor):
     def _filter_ignored_types(self, df: pd.DataFrame) -> pd.DataFrame:
 
         # Skip already composited outputs
-        df = df[df[self._post_function.value] == False]
+        df = df[df[self._post_function.value] == False]  # noqa: E712 -- pandas mask
 
         # Skip videos
-        df = df[df[PostFunction.VIDEO.value] == False]
+        df = df[df[PostFunction.VIDEO.value] == False]  # noqa: E712 -- pandas mask
 
         # Skip stacks
-        df = df[df[PostFunction.HYPERSTACK.value] == False]
+        df = df[df[PostFunction.HYPERSTACK.value] == False]  # noqa: E712 -- pandas mask
 
         return df
 
@@ -135,7 +131,7 @@ class ZProjector(ProtocolPostProcessor):
 
     @staticmethod
     def methods() -> list[str]:
-        return imagej_helper.ZProjectMethod.list()
+        return zprojection.ZProjectMethod.list()
 
     def _zproject_for_multi_channel(
         self, images_data: list[np.ndarray], method: str
@@ -150,7 +146,7 @@ class ZProjector(ProtocolPostProcessor):
             for image_data in images_data:
                 images_for_color_plane.append(image_data[:, :, used_color_plane])
 
-            project_result = self._ij_helper.zproject(
+            project_result = zprojection.zproject(
                 images_data=images_for_color_plane, method=method
             )
 
@@ -174,10 +170,10 @@ class ZProjector(ProtocolPostProcessor):
     def _zproject_for_single_channel(
         self, images_data: list[np.ndarray], method: str
     ) -> np.ndarray | None:
-        project_result = self._ij_helper.zproject(images_data=images_data, method=method)
+        project_result = zprojection.zproject(images_data=images_data, method=method)
 
         if project_result is None:
-            error = f'Failed to create Z-Projection'
+            error = 'Failed to create Z-Projection'
             logger.error(error)
             return {
                 'status': False,
@@ -198,7 +194,10 @@ class ZProjector(ProtocolPostProcessor):
         method: str,
         output_file_loc: pathlib.Path,
     ):
-        method = imagej_helper.ZProjectMethod[method]
+        method = zprojection.ZProjectMethod[method]
+
+        first_slice_row = df.iloc[0]
+        first_slice_path = path / first_slice_row['Filepath']
 
         orig_images = []
         for _, row in df.iterrows():
@@ -216,27 +215,29 @@ class ZProjector(ProtocolPostProcessor):
             else:  # Grayscale images
                 result = self._zproject_for_single_channel(images_data=orig_images, method=method)
         finally:
-            # Release source images immediately — can be GBs for large stacks
+            # Release source images immediately -- can be GBs for large stacks
             del orig_images
 
         if not result['status']:
             return result
 
-        # Widen mono fluorescence to RGB before save so the projection
-        # output matches the per-slice capture's false-color shape.
-        # Without this, the bare tifffile write below produces grayscale
-        # for Blue/Green/Red/Lumi projections.
-        output_image = image_utils.maybe_apply_false_color(
-            data=result['image'],
-            color=df['Color'].iloc[0],
-        )
-
+        # Route through write_tiff so the projected output carries the
+        # layer's PALETTE colormap plus the source acquisition context
+        # forwarded from the first slice. Z position is inherited from
+        # the first slice as a representative value -- the projection
+        # collapses Z, so any single value is approximate.
         output_file_loc_abs = path / output_file_loc
         output_file_loc_abs.parent.mkdir(exist_ok=True, parents=True)
-        tf.imwrite(
-            output_file_loc_abs,
-            data=output_image,
-            compression='lzw',
+        metadata = image_utils.build_postproc_output_metadata(
+            input_path=first_slice_path,
+            channel=first_slice_row['Color'],
+        )
+        image_utils.write_tiff(
+            data=result['image'],
+            file_loc=output_file_loc_abs,
+            metadata=metadata,
+            ome=False,
+            color=first_slice_row['Color'],
         )
 
         del result['image']

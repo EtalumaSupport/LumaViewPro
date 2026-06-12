@@ -33,6 +33,13 @@ class ProtocolFormatError(Exception):
 
 class Protocol:
     PROTOCOL_FILE_HEADER = 'LumaViewPro Protocol'
+    # Saved-focus values come from the motor board as floats; a round-trip
+    # through pandas / JSON / settings can introduce sub-um drift. 1e-3 um is
+    # well below positioning repeatability, so an at-baseline comparison stays
+    # robust. Shared by the propagation mask (update_layer_focus) and the
+    # scalar at-baseline test (step_at_layer_focus) so the cue and the
+    # propagation can never disagree on what counts as "at the focus baseline."
+    FOCUS_BASELINE_TOLERANCE_UM = 1e-3
     COLUMNS = {
         1: [
             'Name',
@@ -203,7 +210,7 @@ class Protocol:
             self._config = config
 
         # Cache for num_steps() -- invalidated by _set_steps() and delete_step().
-        # num_steps was called 35× per step during real-HW protocol runs, so
+        # num_steps was called 35x per step during real-HW protocol runs, so
         # caching len(self._config['steps']) is a measurable win (M14 follow-up).
         self._num_steps_cache: int | None = None
 
@@ -352,8 +359,11 @@ class Protocol:
         # Z-Stack TSV round-trips cleanly. Pre-fix, Apply-Z-Projection on
         # any Manual Z-Stack aborted with "Invalid 'Period' value... must
         # be >= 0" because the writer emitted -1 (issue #669).
+        # Period (Interval) needs the same sub-minute precision as Duration:
+        # at 2 decimals a 1-second interval (0.016667 min) quantizes to 0.02
+        # min on disk, corrupting the stored value. Match Duration's 6 decimals.
         period_minutes = (
-            0 if self.period() is None else round(self.period().total_seconds() / 60.0, 2)
+            0 if self.period() is None else round(self.period().total_seconds() / 60.0, 6)
         )
         duration_hours = (
             0 if self.duration() is None else round(self.duration().total_seconds() / 3600.0, 6)
@@ -530,7 +540,7 @@ class Protocol:
             try:
                 illum = float(step.get('Illumination', 0))
                 if illum < 0 or illum > 1000:
-                    errors.append(f'{label}: Illumination must be 0–1000 mA, got {illum}')
+                    errors.append(f'{label}: Illumination must be 0-1000 mA, got {illum}')
             except (ValueError, TypeError):
                 errors.append(f'{label}: Illumination is not a valid number')
 
@@ -588,7 +598,7 @@ class Protocol:
 
         Args:
             axis_limits: dict mapping axis name to {'min': float, 'max': float}
-                in µm. Example: {'X': {'min': 0, 'max': 120000}, ...}
+                in um. Example: {'X': {'min': 0, 'max': 120000}, ...}
 
         Returns:
             List of error strings. Empty list if all checks pass.
@@ -616,8 +626,8 @@ class Protocol:
                     limits = axis_limits[axis]
                     if pos < limits['min'] or pos > limits['max']:
                         errors.append(
-                            f'{label}: {axis} position {pos} µm is outside travel limits '
-                            f'({limits["min"]}–{limits["max"]} µm)'
+                            f'{label}: {axis} position {pos} um is outside travel limits '
+                            f'({limits["min"]}-{limits["max"]} um)'
                         )
 
         # Validate labware exists. Use is_known_plate() rather than plate_list
@@ -659,6 +669,65 @@ class Protocol:
 
     def steps(self) -> pd.DataFrame:
         return self._config['steps']
+
+    def update_layer_focus(
+        self, layer: str, old_z: float | None, new_z: float
+    ) -> int:
+        """Propagate a new saved-focus Z to in-memory protocol steps that
+        sit at the layer's previous-focus Z.
+
+        Walks the step table and updates Z on every step whose Color
+        matches the layer AND whose current Z equals ``old_z`` (within a
+        small float tolerance). Steps the user explicitly tuned away
+        from the layer focus (Z != old_z) are left alone, preserving
+        per-well-tuned focus across saves.
+
+        When ``old_z`` is None (no prior baseline -- first save) no
+        steps are updated; the new value becomes the baseline for
+        subsequent saves.
+
+        Args:
+            layer: Color/layer name (BF, Blue, Green, Red, Lumi, etc.).
+            old_z: The previous saved-focus value, or None if no prior
+                baseline existed.
+            new_z: The new saved-focus value.
+
+        Returns:
+            Number of steps whose Z was updated.
+        """
+        if old_z is None:
+            return 0
+        steps_df = self._config['steps']
+        if steps_df is None or len(steps_df) == 0:
+            return 0
+        mask = (steps_df['Color'] == layer) & (
+            (steps_df['Z'] - old_z).abs() < self.FOCUS_BASELINE_TOLERANCE_UM
+        )
+        count = int(mask.sum())
+        if count > 0:
+            steps_df.loc[mask, 'Z'] = new_z
+        return count
+
+    def step_at_layer_focus(self, step_idx: int, saved_focus: float | None) -> bool:
+        """Whether the step's Z sits at the given saved-focus baseline.
+
+        True means a Save Focus on this step's layer would propagate the new
+        value to this step (it tracks the layer baseline). False means the
+        step is per-well tuned (Z differs from the baseline) or there is no
+        baseline yet. Uses the same tolerance as update_layer_focus so the
+        UI cue and the propagation agree on what counts as at-baseline.
+
+        Args:
+            step_idx: Index of the step to test.
+            saved_focus: The layer's saved-focus Z, or None if none saved.
+
+        Returns:
+            True when the step is at the baseline within tolerance.
+        """
+        if saved_focus is None:
+            return False
+        step = self.step(idx=step_idx)
+        return abs(float(step['Z']) - saved_focus) < self.FOCUS_BASELINE_TOLERANCE_UM
 
     def modify_autofocus(self, step_idx: int, enabled: bool):
         self._config['steps'].at[step_idx, 'Auto_Focus'] = enabled
@@ -708,7 +777,7 @@ class Protocol:
         step_name: str,
     ):
         if step_idx < 0:
-            raise ProtocolError(f'Step idx must be > 0')
+            raise ProtocolError('Step idx must be > 0')
 
         if step_idx >= self.num_steps():
             raise ProtocolError(
@@ -730,7 +799,7 @@ class Protocol:
     ):
         def _validate_inputs():
             if step_idx < 0:
-                raise ProtocolError(f'Step idx must be > 0')
+                raise ProtocolError('Step idx must be > 0')
 
             if step_idx >= self.num_steps():
                 raise ProtocolError(
@@ -774,16 +843,16 @@ class Protocol:
 
         def _validate_inputs():
             if (before_step is None) and (after_step is None):
-                raise ProtocolError(f'Must specify after_step or before_step')
+                raise ProtocolError('Must specify after_step or before_step')
 
             if (before_step is not None) and (after_step is not None):
-                raise ProtocolError(f'Must specify only after_step or before_step, not both')
+                raise ProtocolError('Must specify only after_step or before_step, not both')
 
             if (before_step is not None) and (before_step < 0):
-                raise ProtocolError(f'before_step cannot be < 0')
+                raise ProtocolError('before_step cannot be < 0')
 
             if (after_step is not None) and (after_step > self.num_steps()):
-                raise ProtocolError(f'after_step cannot be > num_steps')
+                raise ProtocolError('after_step cannot be > num_steps')
 
         _validate_inputs()
 
@@ -812,11 +881,23 @@ class Protocol:
         tile_group_id = -1
         zstack_group_id = -1
 
+        # Each channel's step takes its own saved focus; the shared live
+        # stage Z (plate_position['z']) is only a fallback when a layer has
+        # no saved focus. Mirrors the labware build path (from_config),
+        # which also reads per-layer focus. Without this, a multi-channel
+        # Add Step gives every channel the current stage Z instead of its
+        # own focus, collapsing distinct per-channel focus to one value.
+        step_z = (
+            layer_config['focus']
+            if layer_config.get('focus') is not None
+            else plate_position['z']
+        )
+
         step_dict = self._create_step_dict(
             name=step_name,
             x=plate_position['x'],
             y=plate_position['y'],
-            z=plate_position['z'],
+            z=step_z,
             af=layer_config['autofocus'],
             color=layer,
             fc=layer_config['false_color'],
@@ -860,7 +941,7 @@ class Protocol:
     def step(self, idx: int):
         def _validate():
             if idx < 0:
-                raise ProtocolError(f'Step index cannot be < 0')
+                raise ProtocolError('Step index cannot be < 0')
 
             if idx >= self.num_steps():
                 raise ProtocolError(
@@ -893,10 +974,10 @@ class Protocol:
         
         fill_factor = TilingConfig.fill_factor_from_overlap_percent(overlap_percent)
 
+        fill_factor = TilingConfig.fill_factor_from_overlap_percent(overlap_percent)
+
         try:
             orig_steps_df = self.steps()
-
-            curr_step = orig_steps_df.iloc[curr_step_idx]
 
             # Add objective focal length to steps dataframe
             objectives = self._objective_loader.get_objectives_dataframe()['focal_length']
@@ -1030,10 +1111,22 @@ class Protocol:
     def apply_zstacking(
         self,
         zstack_params: dict,
-    ):
+        axes_config: dict,
+    ) -> dict:
+        "Returns status dict"
+
+        status = {
+            'zslices_skipped': 0,
+        }
 
         if zstack_params['step_size'] <= 0 or zstack_params['range'] <= 0:
-            return
+            return status
+
+        try:
+            z_limits = axes_config['Z']['limits']
+        except Exception as e:
+            logger.error(f'Error getting Z axis limits from axes_config: {e}')
+            return status
 
         steps = self.steps()
         existing_max_zstack_group_id = steps['Z-Stack Group ID'].max()
@@ -1041,7 +1134,7 @@ class Protocol:
         zstack_group_id = existing_max_zstack_group_id + 1
 
         num_steps = self.num_steps()
-        new_steps = list()
+        new_steps = []
 
         for row_idx in range(num_steps):
             orig_step_df = self.step(idx=row_idx)
@@ -1066,6 +1159,18 @@ class Protocol:
 
             # Create a z-stack
             for zstack_slice, zstack_position in zstack_positions.items():
+                # Skip slices whose Z would drive the stage past its travel
+                # limits, mirroring the XY tile-bounds skip in apply_tiling. A
+                # z-stack range wider than the Z travel otherwise pushed the
+                # protocol to the end of travel and crashed the run.
+                if zstack_position < z_limits['min'] or zstack_position > z_limits['max']:
+                    logger.info(
+                        f'[Protocol] Skipping z-slice {zstack_slice} (Z={zstack_position}) '
+                        f'for step {row_idx} - out of Z stage limits'
+                    )
+                    status['zslices_skipped'] += 1
+                    continue
+
                 name = common_utils.generate_default_step_name(
                     well_label=orig_step_df['Well'],
                     color=orig_step_df['Color'],
@@ -1108,15 +1213,21 @@ class Protocol:
 
         self._set_steps(pd.DataFrame.from_dict(new_steps))
 
+        return status
+
     @classmethod
     def from_config(cls, input_config: dict, tiling_configs_file_loc: pathlib.Path):
 
         tiling_config = TilingConfig(tiling_configs_file_loc=tiling_configs_file_loc)
 
-        if 'positions' in input_config:
-            positions = input_config['positions']
-        else:
-            positions = None
+        positions = input_config.get('positions')
+
+        # Optional per-(well, channel) z map: when provided it overrides the
+        # layer focus for matching steps. New Protocol does NOT populate it by
+        # default -- the carry-over was removed (see
+        # ProtocolSettings.new_protocol); this path is kept dormant for a
+        # future opt-in. Empty / missing falls back to layer_config['focus'].
+        previous_well_z = input_config.get('previous_well_z') or {}
 
         labware_id = input_config['labware_id']
         objective_id = input_config['objective_id']
@@ -1169,6 +1280,8 @@ class Protocol:
                     {
                         'x': well_x,
                         'y': well_y,
+                        # Per-(well, channel) tuned z is resolved in the layer
+                        # loop below; do not collapse it to one z per well here.
                         'z': None,
                         'name': well_label,
                     }
@@ -1217,10 +1330,17 @@ class Protocol:
                             common_utils.max_decimal_precision('y'),
                         )  # in 'plate' coordinates
 
-                        if pos['z'] is None:
-                            z = layer_config['focus']
-                        else:
+                        # Resolve Z per (well, channel): a tuned carry-over for
+                        # this exact channel wins (so New keeps per-channel
+                        # focus, not one channel's z for all); else an explicit
+                        # manual-position z; else this channel's focus default.
+                        tuned_z = previous_well_z.get((pos.get('name'), layer_name))
+                        if tuned_z is not None:
+                            z = tuned_z
+                        elif pos['z'] is not None:
                             z = pos['z']
+                        else:
+                            z = layer_config['focus']
 
                         if zstack_slice is not None:
                             z += zstack_position_offset
@@ -1470,13 +1590,13 @@ class Protocol:
         fp = None
 
         try:
-            with open(file_path, 'r') as fp_orig:
+            with open(file_path) as fp_orig:
                 file_data_lines = [line for line in fp_orig.readlines() if line.strip()]
                 file_content = ''.join(file_data_lines)
                 fp = io.StringIO(file_content)
         except Exception as e:
             logger.error(f'Error reading protocol file {file_path}: {e}')
-            raise IOError(f'Error reading protocol file {file_path}') from e
+            raise OSError(f'Error reading protocol file {file_path}') from e
 
         csvreader = csv.reader(fp, delimiter='\t')
 
@@ -1484,20 +1604,20 @@ class Protocol:
             verify = next(csvreader)
         except StopIteration:
             logger.error(f'Protocol file {file_path} is empty or invalid.')
-            raise ProtocolFormatError(f'Protocol file is empty or invalid.')
+            raise ProtocolFormatError('Protocol file is empty or invalid.') from None
 
         if not (verify[0] == cls.PROTOCOL_FILE_HEADER):
-            raise ProtocolFormatError(f'Not a valid LumaViewPro Protocol')
+            raise ProtocolFormatError('Not a valid LumaViewPro Protocol')
 
         try:
             version_row = next(csvreader)
         except StopIteration:
             logger.error(f'Protocol file {file_path} is missing version information.')
-            raise ProtocolFormatError(f'Protocol file is missing version information.')
+            raise ProtocolFormatError('Protocol file is missing version information.') from None
 
         if version_row[0] != 'Version':
             logger.error(f"Unable to load {file_path} which is missing 'Version' row.")
-            raise ProtocolFormatError(f"Protocol format is missing 'Version' row.")
+            raise ProtocolFormatError("Protocol format is missing 'Version' row.")
 
         try:
             config['version'] = int(version_row[1])
@@ -1530,7 +1650,7 @@ class Protocol:
             period_row = next(csvreader)
             if period_row[0] != 'Period':
                 logger.error(f"Missing 'Period' row in protocol file {file_path}")
-                raise ProtocolFormatError(f"Missing 'Period' row in protocol file")
+                raise ProtocolFormatError("Missing 'Period' row in protocol file")
 
             minutes = float(period_row[1])
             # Period == 0 is a valid single-scan / non-periodic marker
@@ -1539,19 +1659,19 @@ class Protocol:
             # period_s == 0 as one scan rather than dividing by zero.
             if minutes < 0:
                 logger.error(f"Invalid 'Period' value in protocol file {file_path}: must be >= 0")
-                raise ProtocolFormatError(f"Invalid 'Period' value in protocol file: must be >= 0")
+                raise ProtocolFormatError("Invalid 'Period' value in protocol file: must be >= 0")
 
             config['period'] = datetime.timedelta(minutes=minutes)
 
         except StopIteration:
             logger.error(f"Missing 'Period' row in protocol file {file_path}")
-            raise ProtocolFormatError(f"Missing 'Period' row in protocol file")
+            raise ProtocolFormatError("Missing 'Period' row in protocol file") from None
 
         except ValueError as ve:
             logger.error(
                 f"Invalid 'Period' value in protocol file {file_path} 'Period' must be numeric: {ve}"
             )
-            raise ProtocolFormatError(f"Invalid 'Period' value in protocol file") from ve
+            raise ProtocolFormatError("Invalid 'Period' value in protocol file") from ve
 
         except ProtocolFormatError as pfe:
             raise pfe
@@ -1561,7 +1681,7 @@ class Protocol:
             duration = next(csvreader)
             if duration[0] != 'Duration':
                 logger.error(f"Missing 'Duration' row in protocol file {file_path}")
-                raise ProtocolFormatError(f"Missing 'Duration' row in protocol file")
+                raise ProtocolFormatError("Missing 'Duration' row in protocol file")
 
             hours = float(duration[1])
             # Duration == 0 mirrors Period == 0 -- valid single-scan
@@ -1573,20 +1693,20 @@ class Protocol:
             if hours < 0:
                 logger.error(f"Invalid 'Duration' value in protocol file {file_path}: must be >= 0")
                 raise ProtocolFormatError(
-                    f"Invalid 'Duration' value in protocol file: must be >= 0"
+                    "Invalid 'Duration' value in protocol file: must be >= 0"
                 )
 
             config['duration'] = datetime.timedelta(hours=hours)
 
         except StopIteration:
             logger.error(f"Missing 'Duration' row in protocol file {file_path}")
-            raise ProtocolFormatError(f"Missing 'Duration' row in protocol file")
+            raise ProtocolFormatError("Missing 'Duration' row in protocol file") from None
 
         except ValueError as ve:
             logger.error(
                 f"Invalid 'Duration' value in protocol file {file_path}. 'Duration' must be numeric: {ve}"
             )
-            raise ProtocolFormatError(f"Invalid 'Duration' value in protocol file") from ve
+            raise ProtocolFormatError("Invalid 'Duration' value in protocol file") from ve
 
         except ProtocolFormatError as pfe:
             raise pfe
@@ -1596,13 +1716,13 @@ class Protocol:
             labware = next(csvreader)
             if labware[0] != 'Labware':
                 logger.error(f"Invalid 'Labware' row in protocol file {file_path}")
-                raise ProtocolFormatError(f"Invalid 'Labware' row in protocol file")
+                raise ProtocolFormatError("Invalid 'Labware' row in protocol file")
 
             config['labware_id'] = labware[1]
 
         except StopIteration:
             logger.error(f"Missing 'Labware' row in protocol file {file_path}")
-            raise ProtocolFormatError(f"Missing 'Labware' row in protocol file")
+            raise ProtocolFormatError("Missing 'Labware' row in protocol file") from None
 
         except ProtocolFormatError as pfe:
             raise pfe
@@ -1621,7 +1741,7 @@ class Protocol:
                 config['capture_root'] = ''
         except StopIteration:
             logger.error(f'Protocol file {file_path} is incomplete.')
-            raise ProtocolFormatError(f'Protocol file is incomplete.')
+            raise ProtocolFormatError('Protocol file is incomplete.') from None
 
         # Search for "Steps" to indicate start of steps. Along the way,
         # optionally capture a v6 'Layer Settings' block -- a header row
@@ -1673,7 +1793,7 @@ class Protocol:
                                 config['layer_settings'][layer_name] = row_dict
             except StopIteration:
                 logger.error(f"Missing 'Steps' section in protocol file {file_path}")
-                raise ProtocolFormatError(f"Missing 'Steps' section in protocol file")
+                raise ProtocolFormatError("Missing 'Steps' section in protocol file") from None
 
         table_lines = []
         for line in fp:
@@ -1898,7 +2018,7 @@ class Protocol:
     def mark_zstack_starts_and_ends(self) -> None:
         df = self.steps().copy()
         df['Z-Stack Group Index'] = df.groupby(by=['Z-Stack Group ID']).cumcount()
-        df['First Z'] = df['Z-Stack Group Index'].apply(lambda x: True if x == 0 else False)
+        df['First Z'] = df['Z-Stack Group Index'].apply(lambda x: x == 0)
         df['Last Z'] = (
             df.groupby(by=['Z-Stack Group ID'])['Z-Stack Group Index'].transform('max')
             == df['Z-Stack Group Index']
@@ -1913,10 +2033,7 @@ class Protocol:
 
     def has_zstacks(self) -> bool:
         max_group_id = self.steps()['Z-Stack Group ID'].max()
-        if max_group_id > -1:
-            return True
-        else:
-            return False
+        return max_group_id > -1
 
     @classmethod
     def extract_data_from_step_name(cls, s):

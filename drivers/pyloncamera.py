@@ -23,7 +23,10 @@ except ImportError:
 try:
     from lvp_logger import camera_logger as _cam_log
 except ImportError:
-    _cam_log = None
+    # Fall back to the main logger so every _cam_log call site stays
+    # safe -- the dedicated camera log is an enhancement, not a
+    # dependency, and dozens of call sites use _cam_log unguarded.
+    _cam_log = logger
 
 
 def _log_safely(message: str) -> None:
@@ -100,7 +103,7 @@ _PYLON_ERR_PAYLOAD_DISCARDED = 0xE2050012
 # MAX_CONSECUTIVE_FAILURES auto-disconnect (128 frames at 30fps). Fast
 # classification short-circuits the cascade so the disconnect surfaces
 # in 1 frame instead of 128, and the user notification (driven by
-# _mark_disconnected -> API layer per Rule 14) fires immediately
+# _mark_disconnected -> API layer) fires immediately
 # instead of 4 seconds late behind a wall of WARNING log lines.
 _PYLON_ERR_DEVICE_NOT_FOUND = 433
 
@@ -112,15 +115,27 @@ _PYLON_ERR_DEVICE_NOT_FOUND = 433
 # native-thread fast path; heavy work moves to _PylonImageGrabWorker).
 _PYLON_DEFENSE_BUILD = 'pylon-defense-3'
 
-# MaxNumBuffer cap applied post-Open() in connect(). 3 is the Windows
-# non-paged-pool bound originally observed (B34); bench data 2026-05-08
-# (Windows dart M, sensor-max Mono8) shows cap=3 and SDK-default both
-# run at 0% fail rate / 0 resyncs/sec. Override via
-# imaging._set_max_num_buffer() (Pylon InstantCamera node becomes RO
-# once grabbing has begun; the bench tool must call the lever before
-# the implicit AcquireContinuousConfiguration auto-start fires, or
-# stop/restart grabbing around the change).
-_DEFAULT_MAX_NUM_BUFFER = 3
+# MaxNumBuffer applied post-Open() in connect(). 10 is the pylon SDK /
+# Pylon Viewer default. A 3-buffer cap was tried to cut RAM, but on a slow
+# host the small pool let the grab worker fall behind under CPU load: the
+# camera discarded payloads ("bandwidth insufficient") and, once the
+# matching grab-result pool filled, dropped the connection entirely. More
+# buffers absorb the host stall for a few MB of RAM; revisit under a RAM /
+# buffer-reuse audit. Override via imaging._set_max_num_buffer() (the
+# InstantCamera node goes read-only once grabbing has begun; set it before
+# the implicit AcquireContinuousConfiguration auto-start, or stop/restart
+# grabbing around the change).
+_DEFAULT_MAX_NUM_BUFFER = 10
+
+# MaxTransferSize applied post-Open() in connect(), pinned regardless of
+# platform. It is the per-USB-transfer byte budget; bigger transfers mean
+# fewer kernel transitions and less CPU per frame. Per Basler's stream-
+# grabber doc the default "depends on the operating system" -- the OSX /
+# Pylon Viewer default is 256 KB, which is unstable here, whereas 1 MB
+# holds. That doc also requires this be set before grabbing starts, so the
+# connect-time requested-vs-actual readback is the tell that the post-Open
+# window applied it.
+_DEFAULT_MAX_TRANSFER_SIZE = 1024 * 1024  # 1 MB
 
 # Production grab strategy is LatestImageOnly -- frame_validity,
 # capture_and_wait, and the auto-discard skip_frames floor all depend
@@ -143,12 +158,18 @@ class PylonCamera(Camera):
             self._use_camera_emulation = False
 
         # StreamGrabber-tuning state -- written by imaging sub-API levers,
-        # read by connect() / start_grabbing(). Production defaults
-        # leave SDK defaults in place for MTS / NQU (set only when the
-        # lever is called); MaxNumBuffer + grab strategy have explicit
-        # defaults applied at every connect().
+        # read by connect() / start_grabbing(). MaxNumBuffer, MaxTransferSize,
+        # and grab strategy have explicit defaults applied at every connect();
+        # NumMaxQueuedUrbs stays at the SDK default (set only via the lever).
         self._max_num_buffer = _DEFAULT_MAX_NUM_BUFFER
+        self._max_transfer_size = _DEFAULT_MAX_TRANSFER_SIZE
         self._grab_strategy_name = _DEFAULT_GRAB_STRATEGY
+
+        # Cache of the active PixelFormat. PixelFormat only changes through
+        # set_pixel_format(), so the cache is refreshed there and cleared on
+        # disconnect; get_pixel_format() serves from it to avoid a live
+        # GenICam node read on the per-frame image-metadata path.
+        self._pixel_format_cache = None
 
         super().__init__()
 
@@ -336,6 +357,9 @@ class PylonCamera(Camera):
                         f'continuing teardown'
                     )
                 self.active = None
+                # Invalidate the PixelFormat cache; the next connect
+                # repopulates it via init_camera_config -> set_pixel_format.
+                self._pixel_format_cache = None
                 # Reset the connection-scoped self-validation flag so
                 # the next connect re-runs the StreamGrabber NodeMap
                 # walk against whatever camera attaches.
@@ -489,7 +513,7 @@ class PylonCamera(Camera):
             except Exception as e:
                 _cam_log.warning(f'[INSTR PYLON ] start: stat-node dump failed: {e}')
             finally:
-                # Mark done regardless of success/failure — don't retry
+                # Mark done regardless of success/failure -- don't retry
                 # the failing walk on every restart.
                 self._pylon_self_validation_done = True
 
@@ -930,6 +954,36 @@ class PylonCamera(Camera):
                     f'(node may be unavailable on this transport): {e}',
                 )
 
+            # MaxTransferSize. Pin the per-USB-transfer byte budget so it does
+            # not fall back to a platform default that is unstable here (OSX /
+            # Pylon Viewer uses 256 KB). Set in the same post-Open window as
+            # MaxNumBuffer; the requested-vs-actual readback is the tell that
+            # the window was early enough, since the StreamGrabber doc requires
+            # this before grab. USB3-only -- the node is absent on GigE.
+            try:
+                _sg_map = camera.GetStreamGrabberNodeMap()
+                _mts_node = _sg_map.GetNode('MaxTransferSize') if _sg_map is not None else None
+                if _mts_node is None:
+                    _log_cam(
+                        'debug',
+                        '[CAM Class ] MaxTransferSize node absent post-Open '
+                        '(non-USB transport or grabber not open); left at default',
+                    )
+                else:
+                    _mts_node.SetValue(int(self._max_transfer_size))
+                    _mts_actual = _mts_node.GetValue()
+                    _log_cam(
+                        'info',
+                        f'[CAM Class ] MaxTransferSize applied post-Open: '
+                        f'requested={self._max_transfer_size} actual={_mts_actual}',
+                    )
+            except Exception as e:
+                _log_cam(
+                    'warning',
+                    f'[CAM Class ] MaxTransferSize set failed (window may have '
+                    f'closed, or node not writable on this transport): {e}',
+                )
+
             # Store device identity if possible
             try:
                 dev_info = camera.GetDeviceInfo()
@@ -945,7 +999,7 @@ class PylonCamera(Camera):
 
                     try:
                         # Prefer dotted-string form (GetPylonVersionString)
-                        # over the raw list GetPylonVersion returns —
+                        # over the raw list GetPylonVersion returns --
                         # see lumaviewpro.py for the same rationale.
                         try:
                             _ver_str = pylon.GetPylonVersionString()
@@ -957,7 +1011,7 @@ class PylonCamera(Camera):
                         _log_cam('warning', f'[CAM Class ] Could not read Pylon SDK version: {e}')
 
                     # Transport + device class identify the kernel
-                    # driver stack Pylon is routing through — useful
+                    # driver stack Pylon is routing through -- useful
                     # when the runtime SDK says one thing but Device
                     # Manager shows a stale WinUSB/USB3Vision driver.
                     try:
@@ -976,7 +1030,7 @@ class PylonCamera(Camera):
                     _log_cam('info', f'[CAM Class ] Camera Firmware Version: {firmware}')
 
                     # Current pixel format + resolution + binning drive
-                    # the DMA buffer footprint — critical context for
+                    # the DMA buffer footprint -- critical context for
                     # memory / throughput analysis.
                     try:
                         pix = (
@@ -1185,7 +1239,7 @@ class PylonCamera(Camera):
                 self._read_timestamp_tick_frequency()
                 self.set_pixel_format(pixel_format='Mono8')
                 self.auto_gain(state=False)
-                # Set explicit gain — camera default after UserSetLoad is undefined
+                # Set explicit gain -- camera default after UserSetLoad is undefined
                 self.gain(0.0)
                 camera.ReverseX.SetValue(True)
                 if not self._use_camera_emulation:
@@ -1648,7 +1702,7 @@ class PylonCamera(Camera):
         Used by ``set_max_transfer_size`` and ``set_num_max_queued_urbs``.
         Both write a single integer node on the StreamGrabber NodeMap
         with identical error / log shape; this helper is the canonical
-        path so the two public setters stay one-liners (Rule 35).
+        path so the two public setters stay one-liners.
         """
         if not self.active:
             return False
@@ -1873,6 +1927,7 @@ class PylonCamera(Camera):
                         f'pylon PixelFormat.SetValue({pixel_format!r}) '
                         'short-circuited (already active)'
                     )
+                self._pixel_format_cache = pixel_format
                 return True
         except (genicam.RuntimeException, genicam.TimeoutException) as e:
             logger.debug(
@@ -1885,6 +1940,7 @@ class PylonCamera(Camera):
                 _cam_log.info(f'pylon PixelFormat.SetValue({pixel_format!r}) (geometry-realloc)')
             with self.update_camera_config():
                 self.active.PixelFormat.SetValue(pixel_format)
+            self._pixel_format_cache = pixel_format
             return True
         except genicam.RuntimeException as e:
             if _cam_log is not None:
@@ -1906,12 +1962,24 @@ class PylonCamera(Camera):
             ) from e
 
     def get_pixel_format(self) -> str:
-        """Return active PixelFormat (e.g. 'Mono8'); '' on inactive / read failure."""
+        """Return active PixelFormat (e.g. 'Mono8'); '' on inactive / read failure.
+
+        Served from the cache populated on first read and on every
+        set_pixel_format(); PixelFormat only changes through that setter,
+        so the cache stays valid. get_camera_info() reads this once per
+        saved frame, so a live GenICam node read here would touch the SDK
+        on every capture.
+        """
         if not self.active:
             return ''
 
+        if self._pixel_format_cache is not None:
+            return self._pixel_format_cache
+
         try:
-            return self.active.PixelFormat.GetValue()
+            value = self.active.PixelFormat.GetValue()
+            self._pixel_format_cache = value
+            return value
         except genicam.RuntimeException as e:
             _cam_log.error(
                 f'[CAM Class ] Failed to read pixel format: Camera may be disconnected - {e}'
@@ -2031,9 +2099,12 @@ class PylonCamera(Camera):
     ) -> None:
         """Configure the AutoFunctionROI + auto-gain limits for AF use.
 
-        Sets ROI to the full sensor minus the existing offset, picks
-        the `MinimizeExposureTime` profile (autofocus prefers shorter
-        exposures), and applies caller-supplied gain bounds (or the
+        Sets ROI to a 50%x50% centered crop (avoids plate-edge + dust +
+        uneven-illumination contributions that caused BF AG/AE
+        oscillation), picks the `MinimizeGain` profile (stable
+        brightness on BF where light is bright + consistent; longer
+        exposure / lower noise on fluorescence is also the right
+        tradeoff), and applies caller-supplied gain bounds (or the
         camera's reported min/max when `None`).
 
         Args:
@@ -2045,15 +2116,57 @@ class PylonCamera(Camera):
                 camera's reported maximum.
         """
         try:
-            self.active.AutoFunctionROIWidth.SetValue(
-                self.active.Width.Max - 2 * self.active.AutoFunctionROIOffsetX.GetValue()
-            )
-            self.active.AutoFunctionROIHeight.SetValue(
-                self.active.Height.Max - 2 * self.active.AutoFunctionROIOffsetY.GetValue()
-            )
+            # AG/AE BF stability fix (#551): shrink AutoFunction ROI to
+            # ~50%x50% centered. Full-frame ROI samples plate edges + dust
+            # + uneven illumination on BF, which drives the auto-gain
+            # controller into oscillation. A 50% centered crop keeps the
+            # controller focused on the well center where illumination is
+            # uniform. Width / Height steps on Basler ace 2 / dart are
+            # multiples of 16 -- _align_down enforces.
+            def _align_down(value: int, granularity: int = 16) -> int:
+                return (max(int(value), granularity) // granularity) * granularity
+
+            self.active.AutoFunctionROISelector.SetValue('ROI1')
+
+            # Pylon node interdependency: each AutoFunctionROIOffset*.Max
+            # equals (sensor bound) - (current AutoFunctionROIWidth/Height).
+            # An existing non-zero offset caps the achievable Width/Height
+            # below their nominal sensor Max, AND the centered-offset
+            # setpoint we want (~ Width.Max / 4) is rejected if computed
+            # against sensor Width.Max while OffsetX.Max is still
+            # constrained by the previous Width. The dart daA3840-45um
+            # reports AutoFunctionROIOffsetX.Max = 20 by default; ace 2
+            # reports the full sensor extent. Zero the offsets first to
+            # unlock the full Width / Height range, then re-center.
+            self.active.AutoFunctionROIOffsetX.SetValue(0)
+            self.active.AutoFunctionROIOffsetY.SetValue(0)
+
+            # Clamp each setpoint against the AutoFunctionROI* node's own
+            # Max -- some cameras (the dart family) report tighter bounds
+            # on these nodes than on Width / Height proper.
+            roi_width = _align_down(min(
+                self.active.Width.Max // 2,
+                int(self.active.AutoFunctionROIWidth.Max),
+            ))
+            roi_height = _align_down(min(
+                self.active.Height.Max // 2,
+                int(self.active.AutoFunctionROIHeight.Max),
+            ))
+            self.active.AutoFunctionROIWidth.SetValue(roi_width)
+            self.active.AutoFunctionROIHeight.SetValue(roi_height)
+
+            roi_offset_x = _align_down(min(
+                (self.active.Width.Max - roi_width) // 2,
+                int(self.active.AutoFunctionROIOffsetX.Max),
+            ))
+            roi_offset_y = _align_down(min(
+                (self.active.Height.Max - roi_height) // 2,
+                int(self.active.AutoFunctionROIOffsetY.Max),
+            ))
+            self.active.AutoFunctionROIOffsetX.SetValue(roi_offset_x)
+            self.active.AutoFunctionROIOffsetY.SetValue(roi_offset_y)
             self.active.AutoFunctionROIUseBrightness = True
             self.active.AutoTargetBrightness.SetValue(auto_target_brightness)
-            self.active.AutoFunctionROISelector.SetValue('ROI1')
 
             if min_gain is None:
                 min_gain = self.active.AutoGainLowerLimit.Min
@@ -2063,7 +2176,17 @@ class PylonCamera(Camera):
 
             self.active.AutoGainLowerLimit.SetValue(min_gain)
             self.active.AutoGainUpperLimit.SetValue(max_gain)
-            self.active.AutoFunctionProfile.SetValue('MinimizeExposureTime')
+
+            # AG/AE BF stability fix (#551): switch from
+            # 'MinimizeExposureTime' to 'MinimizeGain'. MinimizeGain pins
+            # gain at the lower limit and adjusts exposure first,
+            # yielding stable brightness on BF where light is bright and
+            # consistent. For fluorescence channels this trades higher
+            # exposure time for lower read noise, which is also the right
+            # tradeoff. The previous MinimizeExposureTime preference
+            # caused gain to track noise and bounce, especially on Red BF
+            # where the customer reported the instability.
+            self.active.AutoFunctionProfile.SetValue('MinimizeGain')
         except genicam.RuntimeException as e:
             _cam_log.error(
                 f'[CAM Class ] Camera communication error during init_auto_gain_focus: {e}'
@@ -2203,43 +2326,52 @@ class PylonCamera(Camera):
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error in update_auto_gain_min_max: {e}')
 
-    def _open_auto_exposure_time_bounds_to_camera_max(self) -> None:
-        """Open AutoExposureTime bounds to the camera's native range.
+    def _set_auto_exposure_time_bounds(self, max_exposure_ms: float | None = None) -> None:
+        """Set AutoExposureTime bounds for the auto-exposure loop.
 
-        Pylon's AutoExposureTimeLowerLimit / UpperLimit nodes default
-        to a narrow band around the last-written ExposureTime when AG
-        is first engaged on a given session. That implicitly caps how
-        far AG can move exposure -- dim Red fluorescence layers in
-        live mode and dim protocol-step layers stay dim because AG
-        hits its gain cap and has no exposure headroom. Writing
-        [LowerLimit.Min, UpperLimit.Max] from the sensor itself lets
-        AG converge anywhere in the camera's physical range.
+        Lower bound is opened to the sensor minimum so AG can drop
+        exposure on bright scenes. The UPPER bound is the per-channel
+        AG/AE ceiling (`max_exposure_ms`, converted to microseconds and
+        clamped to the node's physical range), NOT the sensor max.
+        Capping the upper bound keeps AG from driving exposure to the
+        sensor maximum on dim scenes -- which washes out brightfield
+        and makes the live auto loop hunt (the flicker / "both go to
+        1000 ms" reports). When `max_exposure_ms` is None the upper
+        bound opens to the node max (legacy behavior for callers that
+        do not supply a ceiling).
 
-        Live-writable per Basler; no stop_grabbing wrap needed. Soft-
-        fails on sensors that don't expose these nodes (logs and
-        continues; AG still works on the gain axis).
+        Pylon AutoExposureTime nodes are in microseconds. Live-writable
+        per Basler; no stop_grabbing wrap needed. Soft-fails on sensors
+        that don't expose these nodes (logs and continues; AG still
+        works on the gain axis).
         """
         if not self.active:
             return
         try:
             exp_min = self.active.AutoExposureTimeLowerLimit.Min
-            exp_max = self.active.AutoExposureTimeUpperLimit.Max
+            node_max = self.active.AutoExposureTimeUpperLimit.Max
+            if max_exposure_ms is not None:
+                requested_us = max_exposure_ms * 1000.0
+                node_min = self.active.AutoExposureTimeUpperLimit.Min
+                exp_max = min(max(requested_us, node_min), node_max)
+            else:
+                exp_max = node_max
             self.active.AutoExposureTimeLowerLimit.SetValue(exp_min)
             self.active.AutoExposureTimeUpperLimit.SetValue(exp_max)
             if _cam_log is not None:
                 _cam_log.info(
                     f'pylon AutoExposureTimeLowerLimit.SetValue({exp_min}) '
-                    f'AutoExposureTimeUpperLimit.SetValue({exp_max})'
+                    f'AutoExposureTimeUpperLimit.SetValue({exp_max}) '
+                    f'(cap={max_exposure_ms}ms)'
                 )
         except (genicam.RuntimeException, genicam.TimeoutException) as e:
             _cam_log.warning(
-                '[CAM Class ] Could not open AutoExposureTime bounds; '
+                '[CAM Class ] Could not set AutoExposureTime bounds; '
                 f'AG will be limited to the cached exposure ceiling: {e}'
             )
         except Exception as e:
             _cam_log.exception(
-                '[CAM Class ] Unexpected error in '
-                f'_open_auto_exposure_time_bounds_to_camera_max: {e}'
+                f'[CAM Class ] Unexpected error in _set_auto_exposure_time_bounds: {e}'
             )
 
     # grab() inherited from Camera base class
@@ -2531,7 +2663,7 @@ class PylonCamera(Camera):
             if _cam_log is not None:
                 _cam_log.info(f'pylon Gain.SetValue({float(value):.3f})')
             self.active.Gain.SetValue(float(value))
-            _log_cam('info', f'[CAM Class ] Gain set to {value}')
+            _log_cam('debug', f'[CAM Class ] Gain set to {value}')
         except genicam.RuntimeException as e:
             if _cam_log is not None:
                 _cam_log.error(f'pylon Gain.SetValue({value}) FAILED: {e}')
@@ -2548,6 +2680,7 @@ class PylonCamera(Camera):
         target_brightness: float = 0.5,
         min_gain_db: float | None = None,
         max_gain_db: float | None = None,
+        ae_max_exposure_ms: float | None = None,
     ) -> None:
         """Enable or disable continuous auto-gain + auto-exposure.
 
@@ -2566,6 +2699,10 @@ class PylonCamera(Camera):
                 unchanged.
             max_gain_db: Upper bound in dB, or ``None`` to leave
                 unchanged.
+            ae_max_exposure_ms: Per-channel-class upper bound (ms) on the
+                exposure AG/AE may drive to, or ``None`` to open the
+                bound to the sensor max. Caller (which knows the layer)
+                supplies the class cap.
         """
 
         if self.active is None:
@@ -2576,21 +2713,19 @@ class PylonCamera(Camera):
             if _cam_log is not None:
                 _cam_log.info(
                     f'pylon auto_gain(state={state}, target={target_brightness}, '
-                    f'min_db={min_gain_db}, max_db={max_gain_db})'
+                    f'min_db={min_gain_db}, max_db={max_gain_db}, '
+                    f'ae_max_exp_ms={ae_max_exposure_ms})'
                 )
             if state:
                 self.update_auto_gain_target_brightness(auto_target_brightness=target_brightness)
                 self.update_auto_gain_min_max(min_gain_db=min_gain_db, max_gain_db=max_gain_db)
-                # Open AutoExposureTime bounds to the camera's native
-                # range so AG can raise exposure when gain caps out.
-                # Pre-fix the bounds were never written, so they kept
-                # whatever the Pylon driver had cached (typically near
-                # the layer's pre-AG ExposureTime). Red fluorescence
-                # layers with low signal would hit max_gain_db cap and
-                # have no exposure headroom, leaving the image dim
-                # (issue #655). Symmetric: lower bound also opened so
-                # AG can drop exposure on saturating scenes.
-                self._open_auto_exposure_time_bounds_to_camera_max()
+                # Bound AutoExposureTime before enabling AG. Upper bound is
+                # the per-class AG/AE ceiling, not the sensor max -- an
+                # uncapped bound lets AG drive exposure to the sensor
+                # maximum on dim scenes, washing out brightfield and making
+                # the live auto loop hunt (issue #655). Lower bound opened
+                # so AG can still drop exposure on saturating scenes.
+                self._set_auto_exposure_time_bounds(max_exposure_ms=ae_max_exposure_ms)
                 self.active.GainAuto.SetValue('Continuous')  # 'Off' 'Once' 'Continuous'
                 self.active.ExposureAuto.SetValue('Continuous')  # 'Off' 'Once' 'Continuous'
                 if _cam_log is not None:
@@ -2615,6 +2750,7 @@ class PylonCamera(Camera):
         target_brightness: float = 0.5,
         min_gain_db: float | None = None,
         max_gain_db: float | None = None,
+        ae_max_exposure_ms: float | None = None,
     ) -> None:
         """Run a single-shot auto-gain + auto-exposure pass.
 
@@ -2631,6 +2767,9 @@ class PylonCamera(Camera):
                 unchanged.
             max_gain_db: Upper bound in dB, or ``None`` to leave
                 unchanged.
+            ae_max_exposure_ms: Per-channel-class upper bound (ms) on the
+                exposure AG/AE may drive to, or ``None`` for the sensor
+                max.
         """
 
         if self.active is None:
@@ -2641,9 +2780,10 @@ class PylonCamera(Camera):
             if state:
                 self.update_auto_gain_target_brightness(auto_target_brightness=target_brightness)
                 self.update_auto_gain_min_max(min_gain_db=min_gain_db, max_gain_db=max_gain_db)
-                # Open exposure bounds so the one-shot AG can move
-                # exposure freely (issue #655 -- see auto_gain()).
-                self._open_auto_exposure_time_bounds_to_camera_max()
+                # Bound exposure to the per-class AG/AE ceiling so the
+                # one-shot AG can move exposure within it (issue #655 --
+                # see auto_gain()).
+                self._set_auto_exposure_time_bounds(max_exposure_ms=ae_max_exposure_ms)
                 self.active.GainAuto.SetValue('Once')  # 'Off' 'Once' 'Continuous'
                 self.active.ExposureAuto.SetValue('Once')  # 'Off' 'Once' 'Continuous'
             else:
@@ -2708,7 +2848,7 @@ class PylonCamera(Camera):
             if _cam_log is not None:
                 _cam_log.info(f'pylon ExposureTime.SetValue({us_value:.0f}us) (={exposure_ms}ms)')
             self.active.ExposureTime.SetValue(us_value)
-            _log_cam('info', f'[CAM Class ] Exposure set to {exposure_ms}ms')
+            _log_cam('debug', f'[CAM Class ] Exposure set to {exposure_ms}ms')
         except genicam.RuntimeException as e:
             if _cam_log is not None:
                 _cam_log.error(f'pylon ExposureTime.SetValue({exposure_ms}ms) FAILED: {e}')
@@ -3048,12 +3188,11 @@ class PylonCamera(Camera):
     def read_diagnostic_snapshot(
         self,
         # 3.0s default: matches the bench probe shape used to
-        # characterize dart vs ace 2 on Mac (session 65 / 68).
-        # Long enough for cumulative counters to advance visibly at
-        # 18-30 fps without being so long the operator gets bored.
-        # Falsify: if running this at 3s misses a class of error that
-        # only shows up over longer windows, callers raise the value
-        # explicitly per-call.
+        # characterize dart vs ace 2 on Mac. Long enough for
+        # cumulative counters to advance visibly at 18-30 fps without
+        # being so long the operator gets bored. Falsify: if running
+        # this at 3s misses a class of error that only shows up over
+        # longer windows, callers raise the value explicitly per-call.
         duration_s: float = 3.0,
         drain_camera_side_errors: bool = True,
     ) -> dict:
@@ -3333,7 +3472,7 @@ def _read_validity_chunks(grabResult) -> dict | None:
 
 
 class ImageHandler(pylon.ImageEventHandler):
-    """Pylon camera image handler — receives frames via SDK callbacks.
+    """Pylon camera image handler -- receives frames via SDK callbacks.
 
     Uses ImageHandlerBase via composition (not inheritance) to avoid
     metaclass conflict with pylon.ImageEventHandler.
@@ -3366,6 +3505,12 @@ class ImageHandler(pylon.ImageEventHandler):
         distribution stays in the log without raising the noise floor.
         """
         try:
+            # Once the device is gone, the SDK fires a burst of skip
+            # callbacks during teardown -- those frames were dropped by the
+            # removal, not by LatestImageOnly pressure, so logging them is
+            # misleading noise. Mirror OnImageGrabbed's removal guard.
+            if self._parent._device_removed:
+                return
             if countOfSkippedImages > 0:
                 _cam_log.info(
                     f'[CAM Class ] OnImagesSkipped: '
@@ -3561,8 +3706,8 @@ class ImageHandler(pylon.ImageEventHandler):
             except BaseException as e:
                 _log_safely(f'profile_trace.trace raised {type(e).__name__}: {e}')
             try:
-                # Env-gated handle-leak tracking; zero overhead when disabled.
-                # Enable with LVP_HANDLE_TRACE=1.
+                # Handle-leak tracking; zero overhead when disabled. Enable
+                # via the profiling.handle_trace_enabled setting.
                 from lib.handle_trace import tick as _h_tick
 
                 _h_tick('OnImageGrabbed')
@@ -3603,33 +3748,6 @@ class ImageHandler(pylon.ImageEventHandler):
             return False, None, None
 
         return self._base.get_last_image()
-
-    def get_last_image_with_chunks(self) -> tuple:
-        """Return ``(success, image, timestamp, chunks)`` with validity guard.
-
-        Atomic snapshot of frame + chunks under one lock acquisition in
-        the base handler; see ``ImageHandlerBase.get_last_image_with_chunks``
-        for the rationale. This wrapper applies the same parent-camera
-        validity check as ``get_last_image``: a frame from a no-longer-
-        attached device is suppressed rather than returned.
-
-        Used by the manual-record path (``drivers/camera.py``
-        ``grab_latest_with_chunks``) so per-frame TIFF metadata pairs
-        with the correct image.
-
-        Returns:
-            tuple: ``(success: bool, image: ndarray | None,
-                timestamp: float | None, chunks: dict | None)``.
-        """
-        try:
-            if self._parent._device_removed:
-                return False, None, None, None
-            if self._parent.active is None:
-                return False, None, None, None
-        except Exception:
-            return False, None, None, None
-
-        return self._base.get_last_image_with_chunks()
 
     def register_frame_callback(self, cb) -> None:
         """Composition delegate to ``ImageHandlerBase.register_frame_callback``."""

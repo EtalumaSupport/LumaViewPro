@@ -166,10 +166,10 @@ class MotorBoard(SerialBoard):
                 # Legacy port reset: close and reopen to flush USB CDC
                 # buffers on Windows. Has existed since original code.
                 self.driver.close()
-                logger.debug(f'[XYZ Class ] connect() port closed for reset')
+                logger.debug('[XYZ Class ] connect() port closed for reset')
                 time.sleep(0.05)  # brief pause for Windows to release port
                 self.driver.open()
-                logger.debug(f'[XYZ Class ] connect() port reopened after reset')
+                logger.debug('[XYZ Class ] connect() port reopened after reset')
 
                 self._connect_fails = 0
                 self._connect_log_suppressed = False
@@ -228,6 +228,18 @@ class MotorBoard(SerialBoard):
         if info is None:
             logger.error('[XYZ Class ] FULLINFO returned None -- board disconnected?')
             return {'model': 'unknown', 'serial_number': 'unknown'}
+        # Legacy firmware (pre-FULLINFO) replies with an UNKNOWN_CMD error
+        # instead of model/serial. That is an expected capability gap on older
+        # units, not a fault -- log at INFO and fall back, rather than an ERROR
+        # on every connect, which on a legacy board floods the error log and
+        # buries genuine failures (the same noise the VOLTAGE / DRVSTAT /
+        # FANSPEED diagnostic probes already suppress on unsupported firmware).
+        if 'UNKNOWN_CMD' in info or 'unknown command' in info.lower():
+            logger.info(
+                '[XYZ Class ] FULLINFO not supported on this firmware; '
+                'using model/serial fallback'
+            )
+            return {'model': 'unknown', 'serial_number': 'unknown'}
         try:
             parts = info.split()
             model = parts[parts.index('Model:') + 1]
@@ -256,12 +268,29 @@ class MotorBoard(SerialBoard):
         if info is None:
             # Connection never completed (port held / open() failed) so
             # FULLINFO was never cached. Defensive: the registry's
-            # is_connected() gate (commit a5f5eff) should keep callers
-            # from ever seeing a real MotorBoard with _fullinfo=None,
-            # but defense-in-depth per Rule 8 — driver methods must
-            # never raise on a disconnected instance.
+            # is_connected() gate should keep callers from ever seeing a
+            # real MotorBoard with _fullinfo=None, but defense-in-depth
+            # demands driver methods never raise on a disconnected
+            # instance.
             return None
         return info.get('model')
+
+    def get_serial_number(self) -> str | None:
+        """Return the cached serial number string from FULLINFO.
+
+        Served from the FULLINFO response cached at connect; the serial
+        number is fixed for the life of a connection, so this never
+        re-queries the serial bus.
+
+        Returns:
+            str | None: Serial number, or None when FULLINFO has never
+                completed (disconnected board).
+        """
+        with self._state_lock:
+            info = self._fullinfo
+        if info is None:
+            return None
+        return info.get('serial_number')
 
     def detect_present_axes(self) -> list:
         """Detect which axes are present on this board.
@@ -326,7 +355,7 @@ class MotorBoard(SerialBoard):
     # Acceleration control functions
     # ----------------------------------------------------------
 
-    # Cache for acceleration limits — read once from firmware, reuse thereafter.
+    # Cache for acceleration limits -- read once from firmware, reuse thereafter.
     # Invalidated on reconnect via _on_disconnect().
     _accel_cache: dict = None
 
@@ -493,6 +522,10 @@ class MotorBoard(SerialBoard):
     # ----------------------------------------------------------
     # SPI-direct related functions
     # ----------------------------------------------------------
+    # spi_read / get_drvstat / get_motordetect / current_pos_steps have no
+    # callers in this repo outside tests, but bench tools and tests in the
+    # companion Firmware repo import and call them -- a caller search here
+    # alone reads as dead code and is misleading.
     def spi_read(self, axis: str, addr: int) -> str:
         """Read a TMC motor driver SPI register.
 
@@ -542,11 +575,11 @@ class MotorBoard(SerialBoard):
         return resp
 
     # ----------------------------------------------------------
-    # Precision mode — controls motor stop accuracy
+    # Precision mode -- controls motor stop accuracy
     # ----------------------------------------------------------
 
     # TMC5072 VSTOP register addresses per axis.
-    # VSTOP sets the velocity threshold for declaring "stopped" —
+    # VSTOP sets the velocity threshold for declaring "stopped" --
     # lower = more accurate final position, slightly slower settle.
     _VSTOP_ADDR = {
         'X': 0x2B,  # VSTOP_M1 on XY chip
@@ -801,7 +834,7 @@ class MotorBoard(SerialBoard):
             with self._state_lock:
                 self.initial_t_homing_complete = True
             return True
-        # "T not present" is not a failure — board just doesn't have a turret
+        # "T not present" is not a failure -- board just doesn't have a turret
         if 'not present' in resp.lower():
             return True
         raise HardwareError(f'thome(): firmware error: {resp}')
@@ -983,7 +1016,7 @@ class MotorBoard(SerialBoard):
                     overshoot = max(1, overshoot)
                     self.move(axis, overshoot)
                     while not self.target_status('Z'):
-                        time.sleep(0.02)  # 50Hz — matches motion monitor rate
+                        time.sleep(0.02)  # 50Hz -- matches motion monitor rate
                 finally:
                     # Always clear overshoot flag, even on disconnect/exception
                     with self._state_lock:
@@ -1044,21 +1077,88 @@ class MotorBoard(SerialBoard):
             logger.error('[XYZ Class ] MotorBoard.home_status(' + axis + ') inactive')
             raise
 
+    def _record_support(self, command: str, cache_attr: str, resp) -> bool:
+        """Interpret a firmware response as a support verdict and cache it.
+
+        ``not found`` / ``ERROR``-prefixed replies mean the connected
+        firmware does not implement the command; anything else
+        (including no reply at all -- the legacy-firmware contract is
+        a loud ERROR string, never silence) counts as supported.
+        """
+        resp_str = str(resp) if resp is not None else ''
+        supported = not ('not found' in resp_str or resp_str.startswith('ERROR'))
+        setattr(self, cache_attr, supported)
+        if not supported:
+            logger.info(
+                f'[XYZ Class ] {command} not implemented by connected '
+                f'firmware (firmware date '
+                f'{getattr(self, "firmware_date", "unknown")}); caching '
+                'as unsupported -- future sends skip the wire.'
+            )
+        return supported
+
+    def _command_supported(self, command: str, cache_attr: str) -> bool:
+        """Probe-and-cache whether the connected firmware implements
+        ``command``.
+
+        No reply at all is inconclusive (board absent or wedged, not a
+        capability answer): returns False WITHOUT caching so a later
+        healthy connection re-probes.
+        """
+        cached = getattr(self, cache_attr, None)
+        if cached is not None:
+            return cached
+        # expect_unsupported=True suppresses the FIRMWARE ERROR warning
+        # for the probe -- an unsupported command is an expected answer
+        # here, logged at INFO by _record_support instead.
+        resp = self.exchange_command(command, expect_unsupported=True)
+        if resp is None:
+            return False
+        return self._record_support(command, cache_attr, resp)
+
+    def supports_motor_stop(self) -> bool:
+        """Whether the connected firmware implements the STOP
+        emergency-stop command.
+
+        When uncached, the probe sends a real STOP: harmless while
+        motors are idle (STOP sets target=actual on every axis) and
+        idempotent. ScopeCapabilities.from_drivers probes at boot,
+        before any motion is commanded, so steady-state motor_stop
+        calls never re-probe.
+        """
+        return self._command_supported('STOP', '_supports_stop_cached')
+
+    def supports_fan(self) -> bool:
+        """Whether the connected firmware implements the fan commands
+        (FAN:<duty> PWM control + FANSPEED tachometer query).
+
+        Probes with the read-only FANSPEED rather than FAN:<duty> so
+        the probe never changes fan state; both commands ship in the
+        same firmware revisions, so one answer covers the family.
+        """
+        return self._command_supported('FANSPEED', '_supports_fan_cached')
+
+    def supports_diagnostics(self) -> bool:
+        """Whether the connected firmware implements the diagnostic
+        queries (VOLTAGE, DRVSTAT_<axis>).
+
+        Probes with the read-only VOLTAGE; the diagnostic queries ship
+        together, so one answer covers the family.
+        """
+        return self._command_supported('VOLTAGE', '_supports_diagnostics_cached')
+
     def motor_stop(self) -> bool:
-        """LVP-A-1 followup: stop all motors via STOP, with field-firmware fallback.
+        """Stop all motors via STOP, with field-firmware fallback.
 
         Field firmware (e.g. EL-0940-02 2024-09-10) does not implement
         the ``STOP`` command and replies ``ERROR: command 'STOP' not
         found``. Newer firmware (2025-onward) accepts STOP as the
         emergency-stop command (sets target=actual on every axis).
 
-        Behavior:
-        - First call: send STOP. Inspect the response -- if it contains
-          ``not found`` or starts with ``ERROR``, cache the firmware
-          as unsupported and return False (silent skip on future
-          calls). Otherwise return True.
-        - Subsequent calls: skip the wire entirely if cached
-          unsupported.
+        The send doubles as the support probe: the response is
+        interpreted and cached (shared with ``supports_motor_stop``),
+        so firmware without STOP is asked exactly once and every later
+        call skips the wire and returns False.
 
         The caller's shutdown is unaffected when STOP isn't supported:
         the host is about to disconnect anyway, and v3.0.x firmware
@@ -1071,26 +1171,13 @@ class MotorBoard(SerialBoard):
         """
         # Cached "unsupported" -- silently skip the wire (and skip the
         # FIRMWARE ERROR warning that exchange_command would emit).
-        if getattr(self, '_stop_supported', None) is False:
+        if getattr(self, '_supports_stop_cached', None) is False:
             return False
         # expect_unsupported=True suppresses the FIRMWARE ERROR warning
-        # on this first probe -- the unsupported case is handled
-        # immediately below by caching _stop_supported=False and
-        # logging an informational message instead.
+        # when this send turns out to be the first-contact probe of
+        # legacy firmware; _record_support logs that case at INFO.
         resp = self.exchange_command('STOP', expect_unsupported=True)
-        resp_str = str(resp) if resp is not None else ''
-        if 'not found' in resp_str or resp_str.startswith('ERROR'):
-            self._stop_supported = False
-            logger.info(
-                '[XYZ Class ] motor_stop: firmware does not support '
-                f'STOP command (firmware date '
-                f'{getattr(self, "firmware_date", "unknown")}); '
-                'caching capability and silently skipping future STOP '
-                'attempts. Motors latch on host disconnect.'
-            )
-            return False
-        self._stop_supported = True
-        return True
+        return self._record_support('STOP', '_supports_stop_cached', resp)
 
     # return True if current position and target position are the same
     def target_status(self, axis: str) -> bool:
@@ -1403,7 +1490,7 @@ class MotorBoard(SerialBoard):
         Returns:
             dict: ``{'min': float, 'max': float}`` in axis user units,
                 or ``None`` if the axis has no configured limits (the
-                turret axis T is the typical "no limits" case — it
+                turret axis T is the typical "no limits" case -- it
                 rotates freely with no software-enforced bounds).
 
         Raises:
@@ -1430,9 +1517,9 @@ class MotorBoard(SerialBoard):
     # commands added in firmware revisions after 2024-09-10. Older
     # firmware responds with `ERROR: command 'X' not found:` and the
     # driver returns None / False instead of leaking that response to
-    # callers. Per Rule 10 the firmware-shape knowledge stays here so
-    # diagnostic callers (TSR, future REST diagnostic endpoint) need
-    # not parse raw firmware responses.
+    # callers. Firmware-shape knowledge stays here so diagnostic
+    # callers (TSR, future REST diagnostic endpoint) need not parse
+    # raw firmware responses.
 
     def _diagnostic_query(self, command: str) -> str | None:
         """Send a capability-gated diagnostic command.
@@ -1540,7 +1627,12 @@ class MotorBoard(SerialBoard):
         """
         if not 0 <= duty_pct <= 100:
             raise ValueError(f'Fan duty must be 0..100, got {duty_pct}')
-        resp = self.exchange_command(f'FAN:{duty_pct}')
+        # expect_unsupported=True suppresses the FIRMWARE ERROR warning that
+        # exchange_command emits on legacy firmware lacking FAN:<duty>. This
+        # method already treats an ERROR response as "not supported" below, so
+        # the lower-level warning is duplicate noise in the user-visible log
+        # (mirrors the VOLTAGE / DRVSTAT / FANSPEED diagnostic probes).
+        resp = self.exchange_command(f'FAN:{duty_pct}', expect_unsupported=True)
         if resp is None:
             return False
         if resp.startswith('ERROR'):

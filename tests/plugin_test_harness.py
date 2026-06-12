@@ -46,10 +46,10 @@ from modules.plugins import (
 
 
 __all__ = [
-    'harness_ctx',
-    'PluginSpec',
     'PluginRegistrationError',
+    'PluginSpec',
     'ProcessorResult',
+    'harness_ctx',
 ]
 
 

@@ -6,7 +6,7 @@ Tests for the GUI-independent scope API modules:
   (scope.illumination.led_on_async, scope.move_absolute_async, etc.)
 - modules/scope_session.py
 
-Uses mock objects + Lumascope(simulate=True) — no hardware or Kivy needed.
+Uses mock objects + Lumascope(simulate=True) -- no hardware or Kivy needed.
 """
 
 import datetime

@@ -107,7 +107,8 @@ def create_default(ui_dispatcher) -> ExecutorBundle:
     Args:
         ui_dispatcher: Callable matching ``Clock.schedule_once(func, dt)``
             so executors can hand callbacks back to the GUI thread without
-            importing Kivy (Rule 15). Headless callers pass a direct
+            importing Kivy (executors stay GUI-agnostic). Headless callers
+            pass a direct
             dispatcher (the executor's default is fine for tests; this
             method requires an explicit dispatcher to make the lifecycle
             obvious).

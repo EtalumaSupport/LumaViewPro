@@ -1,6 +1,6 @@
 #!/bin/bash
 # LumaViewPro macOS install script
-# Scans for Python 3.11-3.13, creates a venv, installs dependencies.
+# Scans for Python 3.12-3.13, creates a venv, installs dependencies.
 # Camera SDK (Basler Pylon) must be installed separately.
 #
 # Usage:
@@ -21,7 +21,7 @@ echo ""
 FOUND=()
 FOUND_CMDS=()
 
-for minor in 13 12 11; do
+for minor in 13 12; do
     # Check python3.XX first (brew, pyenv, etc.)
     cmd="python3.$minor"
     if command -v "$cmd" &>/dev/null; then
@@ -40,7 +40,7 @@ if [ ${#FOUND[@]} -eq 0 ]; then
             FOUND+=("$ver")
             FOUND_CMDS+=("python3")
         else
-            echo "Error: Python 3.$py_minor found, but LumaViewPro requires 3.11, 3.12, or 3.13."
+            echo "Error: Python 3.$py_minor found, but LumaViewPro requires 3.12 or 3.13."
             echo "Install a supported version:"
             echo "  brew install python@3.13"
             echo "  or: https://www.python.org/downloads/macos/"
@@ -48,7 +48,7 @@ if [ ${#FOUND[@]} -eq 0 ]; then
         fi
     else
         echo "Error: No Python installation found."
-        echo "Install Python 3.11+:"
+        echo "Install Python 3.12+:"
         echo "  brew install python@3.13"
         echo "  or: https://www.python.org/downloads/macos/"
         exit 1

@@ -21,6 +21,7 @@ from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.popup import Popup
 
 from ui.progress_popup import show_popup
+from modules import gui_logger
 from modules.sequential_io_executor import IOTask
 from modules.stitcher import Stitcher
 from modules.composite_generation import CompositeGeneration
@@ -47,6 +48,7 @@ class StitchControls(BoxLayout):
 
     @show_popup
     def run_stitcher(self, popup, path):
+        gui_logger.button('RUN_STITCHER', f'path={path}')
         ctx = _app_ctx.ctx
         status_map = {True: 'Success', False: 'FAILED'}
         popup.title = 'Stitcher'
@@ -95,10 +97,6 @@ class ZProjectionControls(BoxLayout):
         super().__init__(**kwargs)
         _app_ctx.register_early('zprojection_controls', self)
         Clock.schedule_once(self._init_ui, 0)
-        self.ij_initialized = False
-        self.ij_buffer_event = None
-        self.ij_buffer_count = 0
-        self.ij_buffer_interval = 0.5
 
     def _init_ui(self, dt=0):
         self.ids['zprojection_method_spinner'].values = zprojector.ZProjector.methods()
@@ -106,97 +104,17 @@ class ZProjectionControls(BoxLayout):
 
     @show_popup
     def run_zprojection(self, popup, path):
+        gui_logger.button('RUN_ZPROJECTION', f'path={path}')
         ctx = _app_ctx.ctx
         popup.title = 'Z-Projection'
         popup.progress = 0
         popup.auto_dismiss = False
 
-        if ctx.ij_helper is None:
-            popup.text = (
-                '     ImageJ is not initialized.\n'
-                + 'Please wait for ImageJ to initialize.\n'
-                + '   Note: This may take some time.\n'
-                + '                  \n'
-                + '               '
-            )
-            self.ij_initialized = False
-            # Run imagej initialization in a separate thread
-            # Callback to finish zprojection when imagej is initialized
-            from modules.imagej_helper import init_ij
-
-            _app_ctx.ctx.file_io_executor.put(
-                IOTask(
-                    action=init_ij,
-                    callback=self.zprojection_with_imagej,
-                    cb_args=(popup, path),
-                    pass_result=True,
-                )
-            )
-            self.ij_buffer_event = Clock.schedule_interval(
-                lambda dt: self.waiting_for_imagej(popup), self.ij_buffer_interval
-            )
-            return
-
-        self.ij_initialized = True
-        # Imagej already initialized, run zprojection
-        self.zprojection_with_imagej(popup, path)
-
-    def waiting_for_imagej(self, popup):
-        if self.ij_initialized:
-            Clock.unschedule(self.ij_buffer_event)
-            self.ij_buffer_event = None
-            self.ij_buffer_count = 0
-            return
-
-        popup.text = (
-            'ImageJ is not initialized. Please wait for ImageJ to initialize.\n'
-            + '                Note: This may take some time.\n'
-            + '                  \n'
-            + '                      '
-            + 'o   ' * self.ij_buffer_count
-        )
-        self.ij_buffer_count += 1
-        if self.ij_buffer_count > 3:
-            self.ij_buffer_count = 0
-
-        return
-
-    def zprojection_with_imagej(self, popup, path, result=None, exception=None):
-        ctx = _app_ctx.ctx
         status_map = {True: 'Success', False: 'FAILED'}
-
-        # #628: init_ij returns the ImageJHelper. Stash it before the None-check
-        # below -- without this the dispatcher dropped the result on the floor and
-        # the operator saw a misleading "Failed to initialize ImageJ" popup even
-        # though ImageJ initialized correctly.
-        if ctx.ij_helper is None and result is not None:
-            ctx.ij_helper = result
-
-        if ctx.ij_helper is not None:
-            self.ij_initialized = True
-            Clock.unschedule(self.ij_buffer_event)
-            self.ij_buffer_event = None
-            self.ij_buffer_count = 0
-
-        if self.ij_buffer_event is not None:
-            Clock.unschedule(self.ij_buffer_event)
-            self.ij_buffer_event = None
-            self.ij_buffer_count = 0
-
-        if ctx.ij_helper is None:
-            logger.error(
-                f'[Z-Projection] ij_helper is None after init_ij -- '
-                f'result={result!r} exception={exception!r}. '
-                f'pass_result may be missing or init_ij returned None.'
-            )
-            popup.text = 'Failed to initialize ImageJ. Please try again.'
-            Clock.schedule_once(lambda dt: popup.dismiss(), 5)
-            return
-
         popup.text = 'Generating Z-Projection images...'
 
         zproj = zprojector.ZProjector(
-            has_turret=ctx.lumaview.scope.motion.has_turret(), ij_helper=ctx.ij_helper
+            has_turret=ctx.lumaview.scope.motion.has_turret()
         )
         ctx.file_io_executor.put(
             IOTask(
@@ -218,32 +136,41 @@ class ZProjectionControls(BoxLayout):
 
         popup.progress = 100
         if result is None:
-            popup.text = 'Generating Z-Projection images - FAILED'
+            # On failure the notification is the single user-facing
+            # surface; leaving the failure text on the progress popup as
+            # well stacked two popups for one failure.
+            Clock.schedule_once(lambda dt: popup.dismiss(), 0)
             notifications.warning(
                 'Z-Projection',
                 'Z-Projection failed',
                 'Z-Projection task returned no result. Check lumaviewpro.log '
                 'for details and retry.',
             )
-            Clock.schedule_once(lambda dt: popup.dismiss(), 5)
             return
 
-        final_text = f'Generating Z-Projection images - {status_map[result["status"]]}'
         if result['status'] is False:
-            final_text += f'\n{result["message"]}'
-            popup.text = final_text
-            notifications.warning(
-                'Z-Projection',
-                'No Z-Stack data found',
-                f'{result["message"]}. Pick a folder that contains a Z-stack '
-                f"run -- look under 'Manual/Z-Stacks/<timestamp>/' for a "
-                f"manual Z-stack, or a 'ProtocolData/<timestamp>/' folder "
-                f'whose protocol included Z-stack steps.',
-            )
-            Clock.schedule_once(lambda dt: popup.dismiss(), 5)
+            # Same single-surface contract as the no-result branch above.
+            Clock.schedule_once(lambda dt: popup.dismiss(), 0)
+            if result.get('reason') == 'error':
+                # The projection itself failed (not a bad-folder case);
+                # don't send the user off to pick a different folder.
+                notifications.warning(
+                    'Z-Projection',
+                    'Z-Projection failed',
+                    result['message'],
+                )
+            else:
+                notifications.warning(
+                    'Z-Projection',
+                    'No Z-Stack data found',
+                    f'{result["message"]}. Pick a folder that contains a Z-stack '
+                    f"run -- look under 'Manual/Z-Stacks/<timestamp>/' for a "
+                    f"manual Z-stack, or a 'ProtocolData/<timestamp>/' folder "
+                    f'whose protocol included Z-stack steps.',
+                )
             return
 
-        popup.text = final_text
+        popup.text = f'Generating Z-Projection images - {status_map[result["status"]]}'
         Clock.schedule_once(lambda dt: popup.dismiss(), 2)
         return
 
@@ -257,6 +184,7 @@ class CompositeGenControls(BoxLayout):
 
     @show_popup
     def run_composite_gen(self, popup, path):
+        gui_logger.button('RUN_COMPOSITE_GEN', f'path={path}')
         ctx = _app_ctx.ctx
         status_map = {True: 'Success', False: 'FAILED'}
         popup.title = 'Composite Image Generation'
@@ -268,6 +196,12 @@ class CompositeGenControls(BoxLayout):
             has_turret=ctx.lumaview.scope.motion.has_turret(),
         )
 
+        # The manual button has no run config, so the composite output format
+        # follows the sequenced-capture setting (least astonishment, no new
+        # UI control). Threaded the same way ZProjector threads its method.
+        with ctx.settings_lock:
+            output_format = ctx.settings['image_output_format']['sequenced']
+
         # For now, progress is only updated on the generation of each composite image, not each image that is used to generate the composite
         # May want to update this in the future
         ctx.file_io_executor.put(
@@ -278,6 +212,7 @@ class CompositeGenControls(BoxLayout):
                     pathlib.Path(ctx.source_path) / 'data' / 'tiling.json',
                     popup,
                 ),
+                kwargs={'output_format': output_format},
                 callback=self.composite_gen_callback,
                 cb_args=(popup, status_map),
                 pass_result=True,
@@ -311,6 +246,7 @@ class VideoCreationControls(BoxLayout):
 
     @show_popup
     def run_video_gen(self, popup, path) -> None:
+        gui_logger.button('RUN_VIDEO_GEN', f'path={path}')
         ctx = _app_ctx.ctx
         status_map = {True: 'Success', False: 'FAILED'}
 
@@ -326,7 +262,7 @@ class VideoCreationControls(BoxLayout):
             logger.error(f'Could not retrieve valid FPS for video generation. Using {fps} fps.')
 
         ts_overlay_btn = self.ids['enable_timestamp_overlay_btn']
-        enable_timestamp_overlay = True if ts_overlay_btn.state == 'down' else False
+        enable_timestamp_overlay = ts_overlay_btn.state == 'down'
 
         if fps < 1:
             msg = 'Video generation frames/second must be >= 1 fps'
@@ -343,7 +279,7 @@ class VideoCreationControls(BoxLayout):
 
         ctx.file_io_executor.put(
             IOTask(
-                action=video_builder.load_folder,
+                action=video_builder.build_from_folder,
                 args=(
                     pathlib.Path(path),
                     pathlib.Path(ctx.source_path) / 'data' / 'tiling.json',
@@ -406,6 +342,8 @@ class GraphingControls(BoxLayout):
         self.initialize_graph()
 
     def set_x_axis(self):
+        axis = self.ids['graphing_x_axis_spinner'].text
+        gui_logger.select('GRAPHING_X_AXIS', axis)
         if self._source_csv:
             self.selected_x_axis = self.ids['graphing_x_axis_spinner'].text
             self.ids.x_axis_label_input.text = self.selected_x_axis
@@ -438,6 +376,7 @@ class GraphingControls(BoxLayout):
             self.update_graph()
 
     def set_y_axis(self):
+        gui_logger.select('GRAPHING_Y_AXIS', self.ids['graphing_y_axis_spinner'].text)
         if self._source_csv:
             self.selected_y_axis = self.ids['graphing_y_axis_spinner'].text
             self.ids.y_axis_label_input.text = self.selected_y_axis
@@ -532,13 +471,13 @@ class GraphingControls(BoxLayout):
             x_data = x_data.to_numpy()
 
         if 'time' in self.selected_y_axis:
-            y_time_data_original = y_data
+            y_time_data_original = y_data  # noqa: F841 -- deferred
             y_ref_time = y_data.min()
 
             # Normalize y-data for scaling purposes
             y_data = (y_data - y_ref_time).dt.total_seconds()
             y_data = y_data.to_numpy()
-            time_y = True
+            time_y = True  # noqa: F841 -- deferred
         else:
             y_data = y_data.to_numpy()
 
@@ -664,8 +603,6 @@ class GraphingControls(BoxLayout):
         plt.savefig(filepath)
 
     def set_graphing_source(self, file):
-        from datetime import datetime as date_time
-
         self._source_csv = file
         self.initialize_graph()
         try:
@@ -674,9 +611,11 @@ class GraphingControls(BoxLayout):
             if self.available_axes[0] == 'file':
                 self.available_axes = self.available_axes[1:]
             if 'time' in self.available_axes:
-                self.graph_df['time'] = [
-                    date_time.strptime(datetime_obj, '%c') for datetime_obj in self.graph_df['time']
-                ]
+                # Parse to a pandas datetime64 column. A list comprehension of
+                # datetime.strptime objects yields an object-dtype column, and
+                # the .dt accessor (used by the time-axis trendline) rejects
+                # object dtype -- that crashed update_trendline on a time axis.
+                self.graph_df['time'] = pd.to_datetime(self.graph_df['time'], format='%c')
 
             self.update_available_axes()
             self.set_x_axis()
@@ -758,13 +697,11 @@ class CellCountControls(BoxLayout):
     def execute_apply_method_to_folder(self, popup, path):
         pre_text = f'Applying method to folder: {path}'
         total_images = self._post.get_num_images_in_folder(path=path)
-        image_count = 0
 
-        for image_process in self._post.apply_cell_count_to_folder(
-            path=path, settings=self._settings
+        for image_count, image_process in enumerate(
+            self._post.apply_cell_count_to_folder(path=path, settings=self._settings), start=1
         ):
             filename = image_process['filename']
-            image_count += 1
             popup.progress = int(100 * image_count / total_images)
             popup.text = f'{pre_text}\n- {image_count}/{total_images}: {filename}'
 
@@ -788,7 +725,7 @@ class CellCountControls(BoxLayout):
     @staticmethod
     def _validate_method_settings_metadata(settings):
         if 'metadata' not in settings:
-            raise Exception(f'No valid metadata found')
+            raise Exception('No valid metadata found')
 
         metadata = settings['metadata']
 
@@ -954,7 +891,7 @@ class CellCountControls(BoxLayout):
 
     def load_method_from_file(self, file):
         logger.info(f'[LVP Main  ] CellCountContent.load_method_from_file({file})')
-        with open(file, 'r') as f:
+        with open(file) as f:
             method_settings = json.load(f)
 
         self.load_settings(settings=method_settings)
@@ -975,9 +912,9 @@ class CellCountControls(BoxLayout):
         )
 
     def slider_adjustment_threshold(self):
-        self._settings['segmentation']['parameters']['threshold'] = self.ids[
-            'slider_cell_count_threshold_id'
-        ].value
+        value = self.ids['slider_cell_count_threshold_id'].value
+        gui_logger.slider('CELL_COUNT_THRESHOLD', value)
+        self._settings['segmentation']['parameters']['threshold'] = value
 
         if self.ENABLE_PREVIEW_AUTO_REFRESH:
             self._regenerate_image_preview()
@@ -990,6 +927,7 @@ class CellCountControls(BoxLayout):
             )
         )
 
+        gui_logger.slider('CELL_COUNT_AREA_RANGE', f'{int(low)}-{int(high)}')
         self._settings['filters']['area']['min'], self._settings['filters']['area']['max'] = (
             low,
             high,
@@ -1008,6 +946,7 @@ class CellCountControls(BoxLayout):
             )
         )
 
+        gui_logger.slider('CELL_COUNT_PERIMETER_RANGE', f'{int(low)}-{int(high)}')
         (
             self._settings['filters']['perimeter']['min'],
             self._settings['filters']['perimeter']['max'],
@@ -1019,50 +958,50 @@ class CellCountControls(BoxLayout):
             self._regenerate_image_preview()
 
     def slider_adjustment_sphericity(self):
-        self._settings['filters']['sphericity']['min'] = self.ids[
-            'slider_cell_count_sphericity_id'
-        ].value[0]
-        self._settings['filters']['sphericity']['max'] = self.ids[
-            'slider_cell_count_sphericity_id'
-        ].value[1]
+        lo = self.ids['slider_cell_count_sphericity_id'].value[0]
+        hi = self.ids['slider_cell_count_sphericity_id'].value[1]
+        gui_logger.slider('CELL_COUNT_SPHERICITY_RANGE', f'{lo}-{hi}')
+        self._settings['filters']['sphericity']['min'] = lo
+        self._settings['filters']['sphericity']['max'] = hi
 
         if self.ENABLE_PREVIEW_AUTO_REFRESH:
             self._regenerate_image_preview()
 
     def slider_adjustment_min_intensity(self):
-        self._settings['filters']['intensity']['min']['min'] = self.ids[
-            'slider_cell_count_min_intensity_id'
-        ].value[0]
-        self._settings['filters']['intensity']['min']['max'] = self.ids[
-            'slider_cell_count_min_intensity_id'
-        ].value[1]
+        lo = self.ids['slider_cell_count_min_intensity_id'].value[0]
+        hi = self.ids['slider_cell_count_min_intensity_id'].value[1]
+        gui_logger.slider('CELL_COUNT_MIN_INTENSITY_RANGE', f'{lo}-{hi}')
+        self._settings['filters']['intensity']['min']['min'] = lo
+        self._settings['filters']['intensity']['min']['max'] = hi
 
         if self.ENABLE_PREVIEW_AUTO_REFRESH:
             self._regenerate_image_preview()
 
     def slider_adjustment_mean_intensity(self):
-        self._settings['filters']['intensity']['mean']['min'] = self.ids[
-            'slider_cell_count_mean_intensity_id'
-        ].value[0]
-        self._settings['filters']['intensity']['mean']['max'] = self.ids[
-            'slider_cell_count_mean_intensity_id'
-        ].value[1]
+        lo = self.ids['slider_cell_count_mean_intensity_id'].value[0]
+        hi = self.ids['slider_cell_count_mean_intensity_id'].value[1]
+        gui_logger.slider('CELL_COUNT_MEAN_INTENSITY_RANGE', f'{lo}-{hi}')
+        self._settings['filters']['intensity']['mean']['min'] = lo
+        self._settings['filters']['intensity']['mean']['max'] = hi
 
         if self.ENABLE_PREVIEW_AUTO_REFRESH:
             self._regenerate_image_preview()
 
     def slider_adjustment_max_intensity(self):
-        self._settings['filters']['intensity']['max']['min'] = self.ids[
-            'slider_cell_count_max_intensity_id'
-        ].value[0]
-        self._settings['filters']['intensity']['max']['max'] = self.ids[
-            'slider_cell_count_max_intensity_id'
-        ].value[1]
+        lo = self.ids['slider_cell_count_max_intensity_id'].value[0]
+        hi = self.ids['slider_cell_count_max_intensity_id'].value[1]
+        gui_logger.slider('CELL_COUNT_MAX_INTENSITY_RANGE', f'{lo}-{hi}')
+        self._settings['filters']['intensity']['max']['min'] = lo
+        self._settings['filters']['intensity']['max']['max'] = hi
 
         if self.ENABLE_PREVIEW_AUTO_REFRESH:
             self._regenerate_image_preview()
 
     def flourescent_mode_toggle(self):
+        gui_logger.toggle(
+            'CELL_COUNT_FLUORESCENT_MODE',
+            bool(self.ids['cell_count_fluorescent_mode_id'].active),
+        )
         self._settings['context']['fluorescent_mode'] = self.ids[
             'cell_count_fluorescent_mode_id'
         ].active
@@ -1193,6 +1132,7 @@ class PostProcessingAccordion(BoxLayout):
         logger.debug('[LVP Main  ] PostProcessingAccordian.convert_to_avi() not yet implemented')
 
     def open_cell_count(self):
+        gui_logger.button('OPEN_CELL_COUNT')
         ctx = _app_ctx.ctx
         if self._cell_count_popup is None:
             ctx.cell_count_content.set_post_processing_module(self.post)
@@ -1206,6 +1146,7 @@ class PostProcessingAccordion(BoxLayout):
         self._cell_count_popup.open()
 
     def open_graphing(self):
+        gui_logger.button('OPEN_GRAPHING')
         ctx = _app_ctx.ctx
         if self._graphing_popup is None:
             ctx.graphing_controls.set_post_processing_module(self.post)
@@ -1238,10 +1179,10 @@ def open_last_save_folder():
 
 
 # ============================================================================
-# CellCountDisplay and ShaderEditor
+# CellCountDisplay
 # ============================================================================
 
 
 class CellCountDisplay(FloatLayout):
     def __init__(self, **kwargs):
-        super(CellCountDisplay, self).__init__(**kwargs)
+        super().__init__(**kwargs)

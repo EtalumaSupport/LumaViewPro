@@ -1,25 +1,20 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """DiagnosticsAPI -- sub-API for hardware diagnostic probes.
 
-Wave 7 Phase 5 decomposition. Stateless probes for camera / motor /
-LED hardware. Bodies live here; Lumascope keeps thin one-line
-forwarders for the 7 public methods until 5f retires them.
-
-See docs/PLUGIN_API_DESIGN_2026-05-09.md sec 2.4 for the canonical
-method list. No persistent state -- per-call probes.
+Stateless probes for camera / motor / LED hardware. No persistent
+state -- per-call probes.
 """
 
 from __future__ import annotations
 
 import datetime
-import os
 import pathlib
 import time
 from typing import TYPE_CHECKING
 
 import numpy as np
 
-from lvp_logger import logger, version
+from lvp_logger import log_dir, logger, version
 
 if TYPE_CHECKING:
     from modules.lumascope_api._lumascope import Lumascope
@@ -28,7 +23,7 @@ if TYPE_CHECKING:
 class DiagnosticsAPI:
     """Diagnostics sub-API. Forwards to Lumascope composition root."""
 
-    def __init__(self, scope: 'Lumascope') -> None:
+    def __init__(self, scope: Lumascope) -> None:
         self._scope = scope
 
     # --- Camera probes ---
@@ -87,6 +82,13 @@ class DiagnosticsAPI:
         _try('exposure_ms', lambda: self._scope.imaging.get_exposure_time())
         _try('max_gain_db', lambda: self._scope._camera_driver.get_max_gain())
         _try('max_exposure_ms', lambda: self._scope._camera_driver.get_max_exposure())
+
+        # Tag the active imaging-SDK runtime so characterization output
+        # (grab-benchmark filenames, tech-support snapshots) ties to the
+        # exact Pylon SDK that produced the numbers. Best-effort: None for
+        # non-Basler cameras, where the filename keeps its unknown-SDK
+        # fallback -- this is a provenance label, not a control input.
+        info['sdk_version'] = self._safe_pylon_versions().get('pylon_sdk_version')
 
         info['temperatures'] = self.get_camera_temperatures()
         return info
@@ -370,8 +372,11 @@ class DiagnosticsAPI:
         results['start_p95_s'] = _pct(start_times, 95)
         results['start_p99_s'] = _pct(start_times, 99)
 
-        # Persist to data/camera_timing/ keyed by model + sdk version + delay
-        # so a sweep across delays produces one file per data point.
+        # Persist under the log folder (camera_timing/) keyed by model + sdk
+        # version + delay so a sweep across delays produces one file per data
+        # point. The log folder is the support-bundle root, so a benchmark run
+        # travels with the logs; writing under the source tree instead both
+        # polluted the checkout and left the data point out of the bundle.
         try:
             import json
 
@@ -380,7 +385,7 @@ class DiagnosticsAPI:
             safe_model = str(model).replace(' ', '_').replace('/', '_')
             safe_sdk = str(sdk).replace(' ', '_').replace('/', '_')
             ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-            timing_dir = pathlib.Path(os.path.dirname(__file__)).parent / 'data' / 'camera_timing'
+            timing_dir = pathlib.Path(log_dir) / 'camera_timing'
             timing_dir.mkdir(parents=True, exist_ok=True)
             out_path = timing_dir / (
                 f'grab_lifecycle_benchmark_{safe_model}_sdk{safe_sdk}_'
@@ -414,7 +419,7 @@ class DiagnosticsAPI:
         grabber statistics counter deltas over a sampling window of
         ``duration_s`` seconds. Adds host metadata (OS, hostname,
         pypylon + pylon SDK versions) and writes a single JSON file
-        to ``data/pylon_probe/`` keyed on
+        to ``<log folder>/pylon_probe/`` keyed on
         ``<model>__sn<serial>__fw<firmware>__<host>__dltl<config>__<datetime>.json``.
 
         Designed for cross-host / cross-camera / cross-firmware
@@ -499,7 +504,7 @@ class DiagnosticsAPI:
             'pylon_sdk_version': host_versions['pylon_sdk_version'],
         }
 
-        now_utc = datetime.datetime.now(datetime.timezone.utc)
+        now_utc = datetime.datetime.now(datetime.UTC)
         end_iso = now_utc.isoformat()
         start_iso = (
             now_utc - datetime.timedelta(seconds=snapshot.get('duration_s_actual', duration_s))
@@ -514,11 +519,12 @@ class DiagnosticsAPI:
         dltl_token = self._dltl_filename_token(snapshot.get('config', {}))
         snapshot['dltl_config'] = dltl_token
 
-        # JSON file write
+        # JSON file write -- under the log folder so the snapshot travels with
+        # the support bundle instead of landing in the source tree.
         try:
             import json
 
-            out_dir = pathlib.Path(os.path.dirname(__file__)).parent / 'data' / 'pylon_probe'
+            out_dir = pathlib.Path(log_dir) / 'pylon_probe'
             out_dir.mkdir(parents=True, exist_ok=True)
 
             def _safe_token(v: str | None, fallback: str) -> str:
@@ -562,9 +568,9 @@ class DiagnosticsAPI:
     ) -> str:
         """Send a single firmware diagnostic command and return the response.
 
-        Wraps the driver's ``exchange_command`` with API-layer logging
-        (Rule 13). Diagnostic clients (tech-support report, bench tools)
-        MUST go through this method instead of reaching the driver directly
+        Wraps the driver's ``exchange_command`` with API-layer logging.
+        Diagnostic clients (tech-support report, bench tools) MUST go
+        through this method instead of reaching the driver directly
         (LV-24 / LV-32 / LV-40).
 
         Args:
@@ -615,7 +621,7 @@ class DiagnosticsAPI:
         *,
         timeout_s: float = 60,
         end_markers: list[str] | None = None,
-    ) -> 'str | list[str]':
+    ) -> str | list[str]:
         """Send a firmware diagnostic command expected to return multiple lines.
 
         For SELFTEST, INFO with multi-line output, etc. Wraps the driver's
@@ -666,7 +672,7 @@ class DiagnosticsAPI:
     # diagnostic endpoint) read None as "INCONCLUSIVE -- firmware
     # does not support this probe."
 
-    def read_motor_voltages(self) -> 'dict | None':
+    def read_motor_voltages(self) -> dict | None:
         """Read motor-board power rail tolerance diagnostic.
 
         Returns a dict mapping rail label to volts (or None per rail
@@ -678,7 +684,7 @@ class DiagnosticsAPI:
             return None
         return drv.read_voltages()
 
-    def read_motor_drv_status(self, axis: str) -> 'int | None':
+    def read_motor_drv_status(self, axis: str) -> int | None:
         """Read TMC5072 DRV_STATUS register for an axis.
 
         Returns the raw register value as int (caller decodes bits),
@@ -689,7 +695,7 @@ class DiagnosticsAPI:
             return None
         return drv.read_drv_status(axis)
 
-    def read_motor_fanspeed(self) -> 'int | None':
+    def read_motor_fanspeed(self) -> int | None:
         """Read motor-board fan tachometer RPM.
 
         Returns RPM as int (0 if no tach wire) or None when firmware
@@ -762,7 +768,7 @@ class DiagnosticsAPI:
     # Bodies live here; Lumascope keeps thin wrappers calling down until
     # they retire.
 
-    def get_microscope_model(self) -> 'str | None':
+    def get_microscope_model(self) -> str | None:
         """Get the microscope model identifier from the motion board.
 
         Returns:
@@ -773,15 +779,24 @@ class DiagnosticsAPI:
     def get_motor_info(self) -> dict:
         """Get motor controller information.
 
+        Identity fields are constant for the life of a connection, so
+        they are served from the values FULLINFO cached at connect rather
+        than re-queried over the serial bus. This method is called once
+        per saved frame to stamp image metadata; a live FULLINFO here
+        would add a serial round-trip to every capture.
+
         Returns:
             dict: Keys 'model', 'serial_number', 'firmware_version'.
-                  Values are None/unknown if board inactive.
+                  model/serial are the real strings on a connected board,
+                  'unknown' when a connected board's FULLINFO failed to
+                  parse (the cached fallback), and None when no board is
+                  present (the null driver).
         """
-        info = self._scope._motion_driver.fullinfo()
+        driver = self._scope._motion_driver
         return {
-            'model': info.get('model', 'unknown'),
-            'serial_number': info.get('serial_number', 'unknown'),
-            'firmware_version': getattr(self._scope._motion_driver, 'firmware_version', None),
+            'model': driver.get_microscope_model(),
+            'serial_number': driver.get_serial_number(),
+            'firmware_version': getattr(driver, 'firmware_version', None),
         }
 
     def get_led_info(self) -> dict:
@@ -813,7 +828,7 @@ class DiagnosticsAPI:
             'connected': True,
         }
 
-    def get_camera_profile_info(self) -> 'dict | None':
+    def get_camera_profile_info(self) -> dict | None:
         """Get detailed camera profile information for display.
 
         Returns:
@@ -939,7 +954,7 @@ class DiagnosticsAPI:
             return 'dltloff'
         value = config.get('dltl_value_bps')
         if isinstance(value, (int, float)) and value > 0:
-            return f'dltl{int(round(value / 1_000_000))}M'
+            return f'dltl{round(value / 1_000_000)}M'
         return 'dltlunknown'
 
     def _diagnostic_target_board(self, target: str):

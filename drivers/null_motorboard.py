@@ -7,7 +7,7 @@ MotorBoard connection failure). All methods return safe defaults:
 positions return 0.0, moves complete immediately, homing reports done.
 
 This eliminates the need for ``if not self.motion`` guards throughout the
-codebase (Rule 8: API handles missing hardware gracefully).
+codebase (the API handles missing hardware gracefully).
 
 The Lumascope API assigns ``self.motion = NullMotionBoard()`` instead of
 ``self.motion = None``, so callers never need to check for None.
@@ -245,6 +245,14 @@ class NullMotionBoard:
         """
         return None
 
+    def get_serial_number(self) -> str | None:
+        """Null implementation: returns sentinel value.
+
+        Returns:
+            str | None: Always None.
+        """
+        return None
+
     def fullinfo(self) -> dict:
         """Null implementation: returns a dict with all fields blank/False.
 
@@ -466,11 +474,23 @@ class NullMotionBoard:
         return []
 
     def motor_stop(self) -> bool:
-        """LVP-A-1 followup: no motor, no stop.
+        """No motor, no stop.
 
         Returns:
             bool: Always False.
         """
+        return False
+
+    def supports_motor_stop(self) -> bool:
+        """No motor hardware: no command family is supported."""
+        return False
+
+    def supports_fan(self) -> bool:
+        """No motor hardware: no command family is supported."""
+        return False
+
+    def supports_diagnostics(self) -> bool:
+        """No motor hardware: no command family is supported."""
         return False
 
     # ------------------------------------------------------------------

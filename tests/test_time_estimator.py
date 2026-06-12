@@ -1,6 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """
-Tests for ProtocolTimeEstimator — protocol imaging time estimation.
+Tests for ProtocolTimeEstimator -- protocol imaging time estimation.
 """
 
 import datetime
@@ -135,7 +135,7 @@ class TestMovementEstimation:
         assert abs(t - expected) < 0.0001
 
     def test_xy_and_z_parallel(self):
-        """XY and Z move concurrently — total is max, not sum."""
+        """XY and Z move concurrently -- total is max, not sum."""
         estimator = ProtocolTimeEstimator()
         prev = _valid_step(X=0, Y=0, Z=5000)
         curr = _valid_step(X=50000, Y=0, Z=6000)  # 50mm X, 1mm Z

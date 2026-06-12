@@ -31,7 +31,7 @@ class TestCameraMaxExposureContract:
     connected or the cache has not been populated with a real value.
     load_settings relies on `value or DEFAULT_MAX_EXPOSURE_MS` for the
     fallback, so anything falsy (None, 0, 0.0) is equivalent from the
-    caller's perspective — but None is the intended sentinel.
+    caller's perspective -- but None is the intended sentinel.
     """
 
     def test_inactive_camera_yields_none_max_exposure(self):
@@ -117,7 +117,7 @@ class TestCoalescingApplier:
 
     def _make(self):
         # kivy isn't importable in the test env, but _CoalescingApplier
-        # is pure Python — import it directly without dragging in the
+        # is pure Python -- import it directly without dragging in the
         # MicroscopeSettings class (which imports Kivy).
         import importlib.util
         import pathlib
@@ -183,7 +183,7 @@ class TestCoalescingApplier:
 
     def test_empty_pending_is_noop(self):
         applier = self._make()
-        # Never submitted — apply should short-circuit.
+        # Never submitted -- apply should short-circuit.
         fn = MagicMock()
         applier.apply_pending(fn)
         fn.assert_not_called()

@@ -68,7 +68,14 @@ step_dict = {
 
 class SequencedCaptureRunner:
     LOGGER_NAME = 'SeqCapExec'
-    STEP_TIMEOUT_SECONDS = 120  # Max time to wait for a single step (motion + capture)
+    # Max time for ONE continuous stage motion to complete. The timer
+    # starts when motion is first observed in flight and resets whenever
+    # the stage reports idle, so in-step autofocus time never counts
+    # against it. The longest legitimate single move (full-travel XY)
+    # finishes well inside this bound; a stage still "moving" past it is
+    # stalled hardware, not a slow move. Per PERFORMANCE_BUDGETS.md row
+    # protocol_motion_timeout_s.
+    MOTION_TIMEOUT_SECONDS = 30
 
     def __init__(
         self,
@@ -169,17 +176,17 @@ class SequencedCaptureRunner:
         self._scan_count = 0
         self._scan_in_progress.clear()
         self._autofocus_count = 0
-        self._auto_gain_deadline = 0.0
         # Tracks the curr_step value for which Auto_Gain was already
         # armed (apply_layer_camera_settings ... auto_gain=True fired
         # in scan_iterate). -1 means "no AG armed yet this scan."
-        # Reset alongside _auto_gain_deadline at scan-iterate entry in
-        # protocol_run_loop so each scan starts fresh.
+        # Reset at each scan start in protocol_run_loop so each scan
+        # arms once per step.
         self._auto_gain_armed_step = -1
         self._grease_redistribution_event.set()
         self._captures_taken = 0
         self._protocol_execution_record = None
         self._step_start_time = time.monotonic()
+        self._motion_wait_start = None
         self._target_x_pos = -1
         self._target_y_pos = -1
         self._target_z_pos = -1
@@ -238,7 +245,7 @@ class SequencedCaptureRunner:
         try:
             self._parent_dir.mkdir(parents=True, exist_ok=True)
         except FileNotFoundError:
-            err_str = f'Unable to save data to {str(self._parent_dir)}. Please select an accessible capture location.'
+            err_str = f'Unable to save data to {self._parent_dir!s}. Please select an accessible capture location.'
             return {
                 'status': False,
                 'data': None,
@@ -280,7 +287,7 @@ class SequencedCaptureRunner:
             except FileExistsError:
                 continue
             except FileNotFoundError:
-                err_str = f'Unable to save data to {str(self._run_dir)}. Please select an accessible capture location.'
+                err_str = f'Unable to save data to {self._run_dir!s}. Please select an accessible capture location.'
                 return {
                     'status': False,
                     'data': None,
@@ -288,7 +295,7 @@ class SequencedCaptureRunner:
                 }
 
         err_str = (
-            f'Unable to save data to {str(self._run_dir)}: '
+            f'Unable to save data to {self._run_dir!s}: '
             f'exhausted 1000 collision suffixes within the same second. '
             f'Please wait a moment and retry.'
         )
@@ -318,14 +325,59 @@ class SequencedCaptureRunner:
         return True
 
     def reset(self):
+        """Signal an in-flight run to unwind. Non-blocking for the caller.
+
+        Hardware cleanup (queued LED-off, camera restore, multi-second
+        return-to-position moves) runs on the protocol thread via the run
+        loop's finally-block -- never on the caller. A UI abort lands here
+        on the Kivy main thread; running cleanup inline froze the GUI for
+        the full duration of the queued futures (seconds typical, minutes
+        with wedged hardware). Callers that must wait for the teardown to
+        finish (app shutdown) use wait_for_run_idle().
+        """
         if not self._run_in_progress_event.is_set():
             return
 
-        # Signal abort before cleanup runs hardware. Without this, UI-
-        # initiated aborts tear down LEDs / camera / position while the
-        # protocol thread is still mid-step.
+        # Signal abort before any cleanup runs hardware. Without this, an
+        # abort tears down LEDs / camera / position while the protocol
+        # thread is still mid-step.
         self.protocol_thread.abort()
+
+        if self.protocol_thread.is_running:
+            # The run loop notices the abort within one tick and its
+            # finally-block calls _cleanup() on the protocol thread.
+            return
+
+        # No live run loop to unwind (dispatch failed, or the thread died
+        # before its cleanup). Last-resort inline cleanup so run state is
+        # not orphaned; _cleanup is idempotent if the loop raced us here.
+        logger.warning(
+            f'[{self.LOGGER_NAME}] reset(): run flagged in-progress but the '
+            'protocol thread is not running -- running cleanup inline on the '
+            'calling thread as a fallback'
+        )
         self._cleanup()
+
+    def wait_for_run_idle(self, timeout_s: float) -> bool:
+        """Block until the run (including its cleanup) has fully unwound.
+
+        For callers that need the teardown complete before proceeding --
+        app shutdown tears down the executors right after aborting, and
+        cleanup still has hardware work queued on them.
+
+        Args:
+            timeout_s: Maximum seconds to wait.
+
+        Returns:
+            bool: True when the run is idle; False if the timeout expired
+                with cleanup still in flight.
+        """
+        deadline = time.monotonic() + timeout_s
+        while self._run_in_progress_event.is_set():
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.05)
+        return True
 
     def protocol_interval(self):
         return self._protocol.period()
@@ -404,7 +456,7 @@ class SequencedCaptureRunner:
             raise ValueError(f'Unsupported value for leds_state_at_end: {leds_state_at_end}')
 
         if protocol.num_steps() == 0:
-            logger.error(f'[PROTOCOL] Protocol has no steps. Cannot start run.')
+            logger.error('[PROTOCOL] Protocol has no steps. Cannot start run.')
             from modules.notification_center import notifications
 
             notifications.warning(
@@ -420,7 +472,7 @@ class SequencedCaptureRunner:
             for axis in self._scope.capabilities.axes:
                 # get_axis_limits returns None for axes without
                 # software-enforced bounds (T axis is the canonical
-                # case). Skip those — validate_for_run only checks
+                # case). Skip those -- validate_for_run only checks
                 # axes present in the dict.
                 limits = self._scope.motion.get_axis_limits(axis)
                 if limits is not None:
@@ -463,7 +515,7 @@ class SequencedCaptureRunner:
 
         try:
             if not self._scope.are_all_connected():
-                logger.error(f'[PROTOCOL] Not all scope components connected. Cannot start run.')
+                logger.error('[PROTOCOL] Not all scope components connected. Cannot start run.')
                 from modules.notification_center import notifications
 
                 notifications.error(
@@ -497,7 +549,7 @@ class SequencedCaptureRunner:
         else:
             self._original_autofocus_states = self.get_initial_autofocus_states()
 
-        # Lightweight copy — shares read-only loaders, copies only the mutable
+        # Lightweight copy -- shares read-only loaders, copies only the mutable
         # steps DataFrame (which AF modifies via modify_step_z_height). Much
         # cheaper than deepcopy for large protocols (M14).
         self._protocol = protocol.copy_for_execution()
@@ -551,7 +603,7 @@ class SequencedCaptureRunner:
         )
         # PIW-3: read once per run under settings_lock to avoid per-save lock acquires
         # in image_utils.write_tiff. Mid-run UI changes intentionally do not retro-affect
-        # an in-flight protocol — saves use the value as of run-start.
+        # an in-flight protocol -- saves use the value as of run-start.
         # bf_af_for_fluorescence shares the same snapshot lane so mid-run
         # toggles do not produce inconsistent AF behavior across steps
         # within one scan; protocol_step_runner reads p._bf_af_for_fluorescence.
@@ -579,7 +631,7 @@ class SequencedCaptureRunner:
             abort_fn=self.protocol_thread.abort,
             execution_record=self._protocol_execution_record,
             leds_off_fn=self._step_executor.leds_off,
-            led_on_fn=self._step_executor.led_on,
+            led_on_fn=self._step_executor.leds_exclusive,
             is_run_in_progress_fn=lambda: self._run_in_progress_event.is_set(),
             stim_profiling=stim_profiling,
             run_dir=self._run_dir,
@@ -636,7 +688,7 @@ class SequencedCaptureRunner:
         Note: With the loop-based approach, most work happens in executor threads,
         so there's less to unschedule than before.
         """
-        # Legacy Clock.unschedule calls removed — with the loop-based
+        # Legacy Clock.unschedule calls removed -- with the loop-based
         # architecture, iterators run on executor threads, not Kivy Clock.
         self._protocol_iterator = None
         self._scan_iterator = None
@@ -651,6 +703,14 @@ class SequencedCaptureRunner:
 
     def _cleanup_inner(self):
         if not self._run_in_progress_event.is_set():
+            # run-in-progress was already cleared, so run_cleanup (which
+            # ends the executors' protocol-mode) will not run here. Guarantee
+            # the io + file executors still leave protocol-mode -- an abort
+            # that cleared the run flag without ending them would otherwise
+            # wedge their worker on protocol_queue.get and starve normal file
+            # ops. Idempotent: a no-op when they are not in protocol-mode.
+            self._io_executor.end_protocol_mode()
+            self.file_io_executor.end_protocol_mode()
             return
 
         run_cleanup(
@@ -669,7 +729,7 @@ class SequencedCaptureRunner:
             scope=self._scope,
             callbacks=self._callbacks,
             leds_off_fn=self._step_executor.leds_off,
-            led_on_fn=self._step_executor.led_on,
+            led_on_fn=self._step_executor.leds_exclusive,
             default_move_fn=self._step_executor.default_move,
             cancel_scheduled_events_fn=self._cancel_all_scheduled_events,
             io_executor=self._io_executor,

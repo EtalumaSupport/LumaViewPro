@@ -5,6 +5,7 @@
         "live": "TIFF",
         "sequenced": "TIFF"
     },
+    "jpg_quality": 90,
     "separate_folder_per_channel": false,
     "stage_offset": {
         "x": 5500.0,
@@ -39,7 +40,8 @@
         "exp_ms": 2.0,
         "acquire": null,
         "video_config": {
-            "duration": 5
+            "duration": 5,
+            "fps": 30
         }
     },
     "PC": {
@@ -54,7 +56,8 @@
         "exp_ms": 5.0,
         "acquire": null,
         "video_config": {
-            "duration": 5
+            "duration": 5,
+            "fps": 30
         }
     },
     "DF": {
@@ -69,7 +72,8 @@
         "exp_ms": 30.0,
         "acquire": null,
         "video_config": {
-            "duration": 5
+            "duration": 5,
+            "fps": 30
         }
     },
     "Blue": {
@@ -84,7 +88,8 @@
         "exp_ms": 100.0,
         "acquire": null,
         "video_config": {
-            "duration": 5
+            "duration": 5,
+            "fps": 30
         },
         "stim_config": {
             "enabled": false,
@@ -107,7 +112,8 @@
         "exp_ms": 100.0,
         "acquire": null,
         "video_config": {
-            "duration": 5
+            "duration": 5,
+            "fps": 30
         },
         "stim_config": {
             "enabled": false,
@@ -130,7 +136,8 @@
         "exp_ms": 100.0,
         "acquire": null,
         "video_config": {
-            "duration": 5
+            "duration": 5,
+            "fps": 30
         },
         "stim_config": {
             "enabled": false,
@@ -153,7 +160,8 @@
         "exp_ms": 100.0,
         "acquire": null,
         "video_config": {
-            "duration": 5
+            "duration": 5,
+            "fps": 30
         },
         "composite_brightness_threshold": 50
     },
@@ -187,9 +195,14 @@
     "step_channel_order": ["BF", "PC", "DF", "Green", "Blue", "Red", "Lumi"],
     "mode": "normal",
     "debug_mode": false,
+    "cprofile_enabled": false,
+    "focus_score_enabled": false,
+    "false_color_16bit": false,
     "profile_trace_enabled": false,
     "profile_trace_output_dir": null,
     "tracemalloc_enabled": false,
+    "memory_profile_enabled": false,
+    "memory_profile_interval_s": 5.0,
     "fx2_debug_wire_enabled": false,
     "profiling": {
         "enabled": false,
@@ -214,7 +227,6 @@
     "live_view_fps": 30,
     "protocol_led_on": false,
     "stimulation_enabled": false,
-    "disable_protocol_accordions": true,
     "lvp_lock_port": 43101,
     "camera_type": "auto",
     "autofocus": {

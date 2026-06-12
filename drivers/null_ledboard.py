@@ -7,7 +7,7 @@ All methods return safe defaults: currents return -1, state queries return
 False/disabled, commands are silently dropped.
 
 This eliminates the need for ``if self.led is None`` guards throughout the
-codebase (Rule 8: API handles missing hardware gracefully).
+codebase (the API handles missing hardware gracefully).
 
 The Lumascope API assigns ``self.led = NullLEDBoard()`` instead of
 ``self.led = None``, so callers never need to check for None.
@@ -47,7 +47,7 @@ class NullLEDBoard:
         self.port = None
         self.is_v2 = False
         self._state_lock = threading.Lock()
-        self.led_ma = {color: -1 for color in self._COLOR_TO_CH}
+        self.led_ma = dict.fromkeys(self._COLOR_TO_CH, -1)
 
         logger.debug('[NULL LED  ] NullLEDBoard initialized (no LED hardware)')
 
@@ -106,8 +106,8 @@ class NullLEDBoard:
         """Null implementation: no-op."""
         pass
 
-    # State-query methods retired in Wave 7 Phase 3d.5; see ledboard.py
-    # for rationale.
+    # State-query methods have been retired; see ledboard.py for
+    # rationale.
 
     def get_status(self):
         """Null implementation: returns sentinel value.

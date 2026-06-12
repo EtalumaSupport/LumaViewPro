@@ -1,19 +1,19 @@
 # Copyright Etaluma, Inc.
 """
-ScopeDisplay — pull-based image display loop.
+ScopeDisplay -- pull-based image display loop.
 
-Image Pipeline (sensor → screen):
-  1. Camera SDK callback → ImageHandler._store_frame()     [1 copy: SDK buffer → numpy]
-  2. grab_latest() → returns stored reference               [0 copies]
+Image Pipeline (sensor -> screen):
+  1. Camera SDK callback -> ImageHandler._store_frame()     [1 copy: SDK buffer -> numpy]
+  2. grab_latest() -> returns stored reference               [0 copies]
   3. get_image_from_buffer():
      - scale bar overlay (in-place on the reference)        [0 copies]
-     - 12→8 bit LUT conversion (if force_to_8bit)           [1 copy: LUT indexing]
+     - 12->8 bit LUT conversion (if force_to_8bit)           [1 copy: LUT indexing]
   4. Worker thread: contrast stretch / bullseye LUT          [1 copy: LUT indexing]
-  5. image.tobytes() → blit_buffer() to GPU texture          [1 copy: tobytes]
+  5. image.tobytes() -> blit_buffer() to GPU texture          [1 copy: tobytes]
 
 Copy budget:
   8-bit path:  SDK(1) + tobytes(1)                    = 2 copies
-  12-bit path: SDK(1) + 12→8 LUT(1) + tobytes(1)     = 3 copies
+  12-bit path: SDK(1) + 12->8 LUT(1) + tobytes(1)     = 3 copies
 
 Threading model (Stage B1):
   - Main thread (Kivy): create_and_set_texture() / create_and_set_bullseye_texture()
@@ -42,6 +42,7 @@ from kivy.uix.widget import Widget
 from kivy.input import MotionEvent
 
 from modules.contrast_stretcher import ContrastStretcher
+from modules import gui_logger
 import modules.autofocus_functions as autofocus_functions
 import modules.common_utils as common_utils
 import modules.app_context as _app_ctx
@@ -58,7 +59,7 @@ class ScopeDisplay(Image):
     play = BooleanProperty(True)
 
     def __init__(self, **kwargs):
-        super(ScopeDisplay, self).__init__(**kwargs)
+        super().__init__(**kwargs)
         logger.debug('[LVP Main  ] ScopeDisplay.__init__()')
         self.play = True
         # paused / _display_running / _display_generation / _min_frame_interval /
@@ -73,20 +74,34 @@ class ScopeDisplay(Image):
         self.use_live_image_histogram_equalization = False
         self.camera_disconnected_display_set = False
 
+        # Single-pending-blit coalescing. The display thread produces a
+        # full-frame byte buffer (~3.5 MB) per iteration and marshals the blit
+        # to the main thread via Clock. Scheduling a fresh callback per frame
+        # lets those buffers pile up whenever the main thread stalls (homing /
+        # tiling moves) -- the source of the multi-GB live-view RAM balloon.
+        # One pending slot, latest-wins, bounds the backlog to a single frame.
+        self._pending_blit = None
+        self._blit_scheduled = False
+        self._blit_lock = threading.Lock()
+
         self._bullseye_rgb_buf = None
         self._bullseye_buf_shape = None
 
-        # FPS tracking — capture thread (frames grabbed from camera)
+        # Reusable 8-bit LUT destination for the preview 12->8 conversion;
+        # (re)allocated lazily to match the frame in _render_one_frame.
+        self._display_8bit_buf = None
+
+        # FPS tracking -- capture thread (frames grabbed from camera)
         self._capture_fps_count = 0
         self._capture_fps_last_time = time.monotonic()
         self._capture_fps_value = 0.0
 
-        # Display FPS tracking — main thread (frames actually rendered on screen)
+        # Display FPS tracking -- main thread (frames actually rendered on screen)
         self._display_fps_count = 0
         self._display_fps_last_time = time.monotonic()
         self._display_fps_value = 0.0
 
-        # Camera data rate (MB/s) — computed from capture FPS and frame size
+        # Camera data rate (MB/s) -- computed from capture FPS and frame size
         self._camera_mbps = 0.0
         self._last_frame_nbytes = 0
 
@@ -109,9 +124,8 @@ class ScopeDisplay(Image):
         self._perf_process_times = []
         self._perf_blit_schedule_times = []
         self._perf_blit_delays = []
-        self._debug_perf = None  # lazy-resolved from settings.debug_mode on first frame
 
-        # Bullseye frame rate cap (15 FPS — CPU-intensive LUT rendering)
+        # Bullseye frame rate cap (15 FPS -- CPU-intensive LUT rendering)
         self._bullseye_min_interval = 1.0 / BULLSEYE_FPS_CAP
         self._bullseye_last_time = 0.0
 
@@ -357,15 +371,13 @@ class ScopeDisplay(Image):
                 x_dist_um = x_dist_pixel * pixel_size_um
                 y_dist_um = y_dist_pixel * pixel_size_um
 
-                ctx = _app_ctx.ctx
-                from modules.sequential_io_executor import IOTask
-
-                ctx.io_executor.put(
-                    IOTask(move_relative_position, kwargs={'axis': 'X', 'um': x_dist_um})
+                gui_logger.button(
+                    'SCOPE_CLICK_TO_CENTER',
+                    f'dx_um={x_dist_um:.1f} dy_um={y_dist_um:.1f} '
+                    f'pixel_um={pixel_size_um:.3f}',
                 )
-                ctx.io_executor.put(
-                    IOTask(move_relative_position, kwargs={'axis': 'Y', 'um': y_dist_um})
-                )
+                move_relative_position(axis='X', um=x_dist_um)
+                move_relative_position(axis='Y', um=y_dist_um)
 
     @staticmethod
     def add_crosshairs(image):
@@ -444,7 +456,7 @@ class ScopeDisplay(Image):
     def transform_to_bullseye_prealloc(self, image):
         if ScopeDisplay._bullseye_lut is None:
             ScopeDisplay._bullseye_lut = ScopeDisplay._build_bullseye_lut()
-        target_shape = image.shape + (3,)
+        target_shape = (*image.shape, 3)
         if self._bullseye_rgb_buf is None or self._bullseye_buf_shape != image.shape:
             self._bullseye_rgb_buf = np.empty(target_shape, dtype=np.uint8)
             self._bullseye_buf_shape = image.shape
@@ -476,9 +488,48 @@ class ScopeDisplay(Image):
     # FPS pacing, generation, hold-deadline all live on the thread.
     pass
 
+    @staticmethod
+    def _eng_stats_due(open_layer, use_bullseye, now, last_time, interval=0.5):
+        """Whether engineering stats should be computed this frame.
+
+        open_layer is None when every layer accordion is collapsed, so the
+        stats are off-screen. Gate the whole compute on it -- not just the UI
+        dispatch -- so mean / std / focus do not run on hidden frames.
+        """
+        if open_layer is None or use_bullseye:
+            return False
+        return now - last_time >= interval
+
+    @staticmethod
+    def _focus_score_enabled(ctx):
+        """Whether the per-frame Vollath focus score is enabled.
+
+        Read live each frame so the engineering-tab toggle takes effect
+        without a restart; a value cached on the first frame would freeze at
+        whatever the setting was when the first frame arrived.
+        """
+        return bool(ctx is not None and ctx.settings.get('focus_score_enabled', False))
+
+    @staticmethod
+    def _debug_perf_enabled(ctx):
+        """Whether [PERF] instrumentation is enabled (settings.debug_mode).
+
+        Read live each frame so a runtime debug_mode change takes effect. The
+        previous first-frame cache froze at whatever debug_mode was when the
+        first frame arrived -- if that was before settings finished loading it
+        stuck at False and [PERF] never logged even after debug_mode went on.
+        """
+        return bool(ctx is not None and ctx.settings.get('debug_mode', False))
+
     def set_engineering_ui(self, mean, stddev, af_score, open_layer):
         ctx = _app_ctx.ctx
         open_layer_obj = ctx.image_settings.layer_lookup(layer=open_layer)
+        # The layer accordion can collapse between the worker-thread compute
+        # that scheduled this update and the main-thread callback firing, in
+        # which case the layer is no longer resolvable and there is nothing
+        # on screen to update.
+        if open_layer_obj is None:
+            return
         new_mean_text = f'Mean: {mean}'
         if open_layer_obj.ids['image_stats_mean_id'].text != new_mean_text:
             open_layer_obj.ids['image_stats_mean_id'].text = new_mean_text
@@ -490,16 +541,23 @@ class ScopeDisplay(Image):
             open_layer_obj.ids['image_af_score_id'].text = new_af_text
 
     def set_camera_disconnected_display(self):
+        # Edge-logged so the post-mortem shows the moment the user was given
+        # the no-camera indicator (the only on-screen signal of a lost camera;
+        # there is no popup). Fires once per connected->absent transition, not
+        # per frame, because the caller gates on camera_disconnected_display_set.
+        logger.info('Camera display: showing no-camera indicator to user (camera_connected=False)')
         self.source = './data/icons/camera_to_USB.png'
         self.camera_disconnected_display_set = True
         # Drop the bullseye RGB scratch buffer so a reconnect at a
         # different camera resolution doesn't retain the old allocation
-        # (swapping 2K→4K→2K otherwise leaks ~60 MB per cycle).
+        # (swapping 2K->4K->2K otherwise leaks ~60 MB per cycle).
         self._bullseye_rgb_buf = None
         self._bullseye_buf_shape = None
+        self._display_8bit_buf = None
         return
 
     def source_clear(self):
+        logger.info('Camera display: camera available, live view restored')
         self.source = ''
         self.camera_disconnected_display_set = False
         return
@@ -551,7 +609,6 @@ class ScopeDisplay(Image):
             self._frame_interval_history.append(interval_ms)
         self._last_frame_pull_time = cycle_start
 
-        t_worker_start = cycle_start
         t_queue_wait = 0  # No queue under B1; preserve var for downstream perf code.
 
         # Snapshot counter value before scheduling increment on main thread
@@ -574,9 +631,25 @@ class ScopeDisplay(Image):
 
         # Likely not an IO call as image will be stored in buffer
         t_grab_start = time.monotonic()
-        image, frame_ts = ctx.scope.imaging.get_image_from_buffer(force_to_8bit=True)
+        # Reuse one 8-bit LUT buffer across frames so the 12->8 conversion
+        # in get_image_from_buffer does not allocate a fresh ~W*H array
+        # every frame on the 30 fps preview. tobytes() below copies before
+        # the next frame overwrites it, so a single slot is safe (same
+        # pattern as the bullseye buffer). Only this preview thread owns
+        # and passes this buffer; the histogram (main thread) passes none.
+        image, frame_ts = ctx.scope.imaging.get_image_from_buffer(
+            force_to_8bit=True, out_8bit=self._display_8bit_buf
+        )
         if image is None or image.size == 0:
             return STATUS_EMPTY
+
+        # (Re)allocate the reusable buffer to match the frame so the NEXT
+        # frame's conversion writes into it. The 8-bit camera path returns
+        # its own buffer and never uses this; the cost is one idle buffer.
+        if image.ndim == 2 and image.dtype == np.uint8 and (
+            self._display_8bit_buf is None or self._display_8bit_buf.shape != image.shape
+        ):
+            self._display_8bit_buf = np.empty(image.shape, dtype=np.uint8)
 
         # Skip duplicate frames (same camera timestamp = same data)
         if frame_ts is not None and frame_ts == self._last_frame_ts:
@@ -585,20 +658,17 @@ class ScopeDisplay(Image):
         t_grab_end = time.monotonic()
 
         # Record queue wait for perf logging (settings.debug_mode only).
-        # On the very first frame _debug_perf is None (resolved below); we
-        # miss one queue-wait sample, which is irrelevant given the 5-second
-        # log window.
-        if self._debug_perf:
+        if self._debug_perf_enabled(ctx):
             self._perf_blit_schedule_times.append(t_queue_wait)
 
         # Capture FPS tracking + camera data rate
-        # Use raw camera frame size (before 12→8 bit conversion) so the
+        # Use raw camera frame size (before 12->8 bit conversion) so the
         # displayed data rate reflects actual camera throughput, not the
         # post-conversion display throughput.
         self._capture_fps_count += 1
         fs = ctx.scope.imaging.camera_frame_size
         pixel_format = ctx.scope.imaging.camera_pixel_format
-        bpp = 2 if pixel_format in ('Mono10', 'Mono10g40IDS', 'Mono12', 'Mono12g24IDS') else 1
+        bpp = common_utils.raw_bytes_per_pixel(pixel_format, ctx.scope.capabilities.is_color_native)
         self._last_frame_nbytes = fs.get('width', 0) * fs.get('height', 0) * bpp
         now = time.monotonic()
         elapsed = now - self._capture_fps_last_time
@@ -629,18 +699,28 @@ class ScopeDisplay(Image):
 
             # Engineering stats: 2x per second (time-based, not frame-based)
             now_eng = time.monotonic()
-            if now_eng - self._eng_stats_last_time >= 0.5 and not self.use_bullseye:
+            if self._eng_stats_due(
+                open_layer, self.use_bullseye, now_eng, self._eng_stats_last_time
+            ):
                 self._eng_stats_last_time = now_eng
                 t_eng_start = time.monotonic()
                 mean = round(np.mean(a=image), 2)
                 stddev = round(np.std(a=image), 2)
-                af_score = autofocus_functions.focus_function(image=image, skip_score_logging=True)
+                # The Vollath focus score is the costly per-frame stat; the
+                # engineering-tab "Focus Score" toggle suppresses it. Mean and
+                # std stay (cheap). Display-only -- autofocus scores its own
+                # frames independently and is unaffected.
+                if self._focus_score_enabled(ctx):
+                    af_score = autofocus_functions.focus_function(
+                        image=image, skip_score_logging=True
+                    )
+                else:
+                    af_score = 'off'
                 t_eng_stats = time.monotonic() - t_eng_start
 
-                if open_layer is not None:
-                    Clock.schedule_once(
-                        lambda dt: self.set_engineering_ui(mean, stddev, af_score, open_layer), 0
-                    )
+                Clock.schedule_once(
+                    lambda dt: self.set_engineering_ui(mean, stddev, af_score, open_layer), 0
+                )
 
         if self.use_bullseye:
             now_be = time.monotonic()
@@ -650,11 +730,11 @@ class ScopeDisplay(Image):
                 bullseye_bytes = image_bullseye.tobytes()
                 bullseye_shape = image_bullseye.shape
                 g = generation
-                Clock.schedule_once(
-                    lambda dt, b=bullseye_bytes, s=bullseye_shape, gen=g: (
+                # Same single-pending-blit coalescing as the main path below.
+                self._schedule_blit(
+                    lambda b=bullseye_bytes, s=bullseye_shape, gen=g: (
                         self.create_and_set_bullseye_texture(b, s, gen)
-                    ),
-                    0,
+                    )
                 )
                 # Publish for thread.add_frame_listener fan-out
                 self._last_rendered_frame = (bullseye_bytes, bullseye_shape, time.monotonic())
@@ -670,22 +750,19 @@ class ScopeDisplay(Image):
             image_shape = image.shape
             t_blit_scheduled = time.monotonic()
             g = generation
-            Clock.schedule_once(
-                lambda dt, b=image_bytes, s=image_shape, ts=t_blit_scheduled, gen=g: (
+            self._schedule_blit(
+                lambda b=image_bytes, s=image_shape, ts=t_blit_scheduled, gen=g: (
                     self.create_and_set_texture(b, s, ts, gen)
-                ),
-                0,
+                )
             )
             # Publish for thread.add_frame_listener fan-out
             self._last_rendered_frame = (image_bytes, image_shape, t_blit_scheduled)
 
-            # Performance instrumentation gated on settings.debug_mode. lvp_logger
-            # force-disables DEBUG-level emission, so logger.isEnabledFor(DEBUG) is
-            # always False; the cached settings flag is what actually toggles perf.
-            if self._debug_perf is None:
-                ctx = _app_ctx.ctx
-                self._debug_perf = bool(ctx is not None and ctx.settings.get('debug_mode', False))
-            if self._debug_perf:
+            # Performance instrumentation gated on settings.debug_mode. Mirrors
+            # the debug_mode gate lvp_logger uses to set the LVP logger level +
+            # lift DEBUG suppression, so the [PERF] logger.debug below reaches
+            # the log when debug_mode is on.
+            if self._debug_perf_enabled(ctx):
                 self._perf_grab_times.append(t_grab_end - t_grab_start)
                 self._perf_process_times.append(t_process_end - t_process_start)
                 now_perf = time.monotonic()
@@ -730,11 +807,38 @@ class ScopeDisplay(Image):
 
     # _schedule_next retired; ScopeDisplayThread loop owns pacing.
 
+    def _schedule_blit(self, blit_fn):
+        """Coalesce live-view blits to a single pending main-thread callback.
+
+        Called from the display thread once per rendered frame with a zero-arg
+        ``blit_fn`` that performs the texture update (capturing that frame's
+        bytes). Only the latest frame is retained: replacing ``_pending_blit``
+        drops the previous closure (and its byte buffer) for GC, and a new
+        Clock callback is scheduled only when none is already pending. So a
+        stalled main thread can accumulate at most one frame's bytes, not an
+        unbounded backlog. Intermediate frames are dropped from the DISPLAY
+        only; capture/save paths are unaffected.
+        """
+        with self._blit_lock:
+            self._pending_blit = blit_fn
+            if not self._blit_scheduled:
+                self._blit_scheduled = True
+                Clock.schedule_once(self._run_pending_blit, 0)
+
+    def _run_pending_blit(self, dt):
+        """Main-thread Clock callback: run the latest pending blit, if any."""
+        with self._blit_lock:
+            blit_fn = self._pending_blit
+            self._pending_blit = None
+            self._blit_scheduled = False
+        if blit_fn is not None:
+            blit_fn()
+
     def create_and_set_bullseye_texture(self, image_bytes, shape, generation=0):
         if generation != self._current_generation():
             return  # Stale callback from previous start/stop cycle
         size = (shape[1], shape[0])
-        # Mirror the mono path's caching — only allocate a new GDI texture
+        # Mirror the mono path's caching -- only allocate a new GDI texture
         # when the frame size changes; otherwise blit into the existing
         # one. Pre-cache fix: at the 15 fps bullseye cap this leaked
         # ~54k texture objects per hour.
@@ -761,7 +865,7 @@ class ScopeDisplay(Image):
     def create_and_set_texture(self, image_bytes, shape, scheduled_time=0, generation=0):
         if generation != self._current_generation():
             return  # Stale callback from previous start/stop cycle
-        if scheduled_time and self._debug_perf:
+        if scheduled_time and self._debug_perf_enabled(_app_ctx.ctx):
             blit_delay = (time.monotonic() - scheduled_time) * 1000
             self._perf_blit_delays.append(blit_delay)
             if blit_delay > 100:
@@ -790,7 +894,7 @@ class ScopeDisplay(Image):
         a stale live grab) and bumps the hold deadline to ``now +
         PROTOCOL_HOLD_MS`` so the live preview's pull loop pauses long
         enough for the save to be visible. The next protocol save bumps
-        the deadline forward again — there's no added delay anywhere,
+        the deadline forward again -- there's no added delay anywhere,
         only a minimum-visible-time floor on the most-recent saved
         frame.
 
@@ -827,7 +931,7 @@ class ScopeDisplay(Image):
     def _count_display_fps(self):
         """Track actual rendered frame rate (called on main thread after blit).
 
-        Capped at capture FPS — display cannot render more frames than
+        Capped at capture FPS -- display cannot render more frames than
         the camera produces, any excess is measurement window jitter.
         """
         self._display_fps_count += 1

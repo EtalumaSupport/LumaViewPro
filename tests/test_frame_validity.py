@@ -78,9 +78,9 @@ class TestMultipleSources:
         fv.invalidate('gain')  # needs 2 more frames from frame 1
         # led needs 1 more (target=2), gain needs 2 more (target=3)
         assert fv.frames_until_valid() == 2
-        fv.count_frame()  # frame 2 — led settles
+        fv.count_frame()  # frame 2 -- led settles
         assert fv.frames_until_valid() == 1
-        fv.count_frame()  # frame 3 — gain settles
+        fv.count_frame()  # frame 3 -- gain settles
         assert fv.is_valid
 
     def test_reinvalidate_same_source(self):
@@ -107,13 +107,12 @@ class TestMultipleSources:
     def test_rapid_invalidation_between_frames(self):
         """Invalidate multiple times before any frame is grabbed."""
         fv = FrameValidity()
-        fv.invalidate('led')
-        fv.invalidate('gain')
-        fv.invalidate('exposure')
-        fv.invalidate('xy_move')
-        fv.invalidate('z_move')
-        # All invalidated at frame 0, max skip is exposure=3
-        max_skip = max(FrameValidity.SKIP_FRAMES.values())
+        invalidated = ('led', 'gain', 'exposure', 'xy_move', 'z_move')
+        for source in invalidated:
+            fv.invalidate(source)
+        # All invalidated at frame 0; the wait is the max over these sources
+        # (exposure=3), not over every known source.
+        max_skip = max(FrameValidity.SKIP_FRAMES[s] for s in invalidated)
         assert fv.frames_until_valid() == max_skip
         for _ in range(max_skip):
             fv.count_frame()
@@ -247,7 +246,7 @@ class TestEdgeCases:
         fv.invalidate('gain')  # target = 0 + 2 = 2
         fv.count_frame()  # frame 1
         assert len(fv.pending_sources) == 2
-        fv.count_frame()  # frame 2 — both settle
+        fv.count_frame()  # frame 2 -- both settle
         assert len(fv.pending_sources) == 0
 
     def test_frames_until_valid_never_negative(self):
@@ -363,21 +362,21 @@ class TestLoadCameraTiming:
         fv = FrameValidity()
         original = dict(fv.SKIP_FRAMES)
         fv.load_camera_timing({'skip_frames': {}})
-        assert fv.SKIP_FRAMES == original
+        assert original == fv.SKIP_FRAMES
 
     def test_missing_skip_frames_key_no_change(self):
         """Config without 'skip_frames' key leaves defaults unchanged."""
         fv = FrameValidity()
         original = dict(fv.SKIP_FRAMES)
         fv.load_camera_timing({'camera_model': 'test'})
-        assert fv.SKIP_FRAMES == original
+        assert original == fv.SKIP_FRAMES
 
     def test_empty_config_no_change(self):
         """Completely empty config leaves defaults unchanged."""
         fv = FrameValidity()
         original = dict(fv.SKIP_FRAMES)
         fv.load_camera_timing({})
-        assert fv.SKIP_FRAMES == original
+        assert original == fv.SKIP_FRAMES
 
     def test_negative_count_rejected(self):
         """Negative frame counts are silently ignored."""
@@ -432,7 +431,7 @@ class TestLoadCameraTiming:
         fv.count_frame()
         pending_before = fv.pending_sources.copy()
         fv.load_camera_timing({'skip_frames': {'led': 10}})
-        # Pending state unchanged — the already-queued invalidation keeps
+        # Pending state unchanged -- the already-queued invalidation keeps
         # its original threshold
         assert fv.pending_sources == pending_before
 
@@ -519,7 +518,7 @@ class TestLoadCameraTimingLumascope:
         assert fv.SKIP_FRAMES['gain'] == 4
 
     def test_missing_file_no_error(self, tmp_path):
-        """Missing timing file should not raise — silently skipped."""
+        """Missing timing file should not raise -- silently skipped."""
         import pathlib
 
         timing_dir = tmp_path / 'data' / 'camera_timing'
@@ -645,7 +644,7 @@ class TestCountFrameWithChunks:
         assert 'exposure' not in fv.pending_sources
 
     def test_chunks_dont_clear_led(self):
-        """LED has no chunk equivalent — must clear via skip-frames only."""
+        """LED has no chunk equivalent -- must clear via skip-frames only."""
         fv = FrameValidity()
         fv.invalidate('led')
         # Even with matching chunk values for OTHER sources, LED is not chunk-validatable
@@ -677,7 +676,7 @@ class TestCountFrameWithChunks:
         assert 'gain' not in fv.pending_sources  # cleared by skip_frames at frame 2
 
     def test_no_target_recorded_falls_back_to_skip_frames(self):
-        """If set_target was never called, chunk-match is impossible — skip-frames only."""
+        """If set_target was never called, chunk-match is impossible -- skip-frames only."""
         fv = FrameValidity()
         fv.invalidate('gain')
         # set_target NOT called -> _target_values is empty
@@ -735,3 +734,197 @@ class TestCountFrameWithChunks:
         assert fv.is_valid is False
         fv.count_frame(chunk_data={'Gain': 5.0})
         assert fv.is_valid is True
+
+
+class TestAutoGainSettle:
+    """Hardware continuous-AG settling as a deterministic skip-frame source.
+
+    auto_gain is a measure of the instrumentation (frames for hardware AG to
+    settle against the lit scene), not of the sample. It clears by frame count
+    only -- never early from frame content -- which is what keeps it in the
+    settle-tracker layer and reusable by a future software-AG loop.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _restore_skip_frames(self):
+        """Save and restore SKIP_FRAMES so the override test doesn't leak."""
+        original = dict(FrameValidity.SKIP_FRAMES)
+        yield
+        FrameValidity.SKIP_FRAMES.clear()
+        FrameValidity.SKIP_FRAMES.update(original)
+
+    def test_invalidate_uses_skip_count(self):
+        fv = FrameValidity()
+        fv.invalidate('auto_gain')
+        assert fv.frames_until_valid() == FrameValidity.SKIP_FRAMES['auto_gain']
+
+    def test_decrements_to_valid_by_frame_count(self):
+        fv = FrameValidity()
+        skip = FrameValidity.SKIP_FRAMES['auto_gain']
+        fv.invalidate('auto_gain')
+        for _ in range(skip):
+            assert fv.frames_until_valid() > 0
+            fv.count_frame()
+        assert fv.frames_until_valid() == 0
+
+    def test_not_cleared_early_by_chunk_content(self):
+        """Stable Gain/ExposureTime chunks must NOT shortcut the settle count.
+
+        This is the contract that distinguishes auto_gain from the rejected
+        convergence detector: auto_gain is not chunk-validatable, so passing
+        identical chunks frame-to-frame does not declare it settled early -- it
+        settles only when the measured frame count elapses.
+        """
+        fv = FrameValidity()
+        fv.invalidate('auto_gain')
+        chunks = {'Gain': 1.0, 'ExposureTime': 10000.0}
+        # One frame short of the count, even with bit-stable chunks every frame.
+        for _ in range(FrameValidity.SKIP_FRAMES['auto_gain'] - 1):
+            fv.count_frame(chunk_data=chunks)
+        assert fv.frames_until_valid() > 0
+        fv.count_frame(chunk_data=chunks)
+        assert fv.frames_until_valid() == 0
+
+    def test_not_a_motion_source(self):
+        """auto_gain settles on count alone; no settle-callback gating."""
+        assert 'auto_gain' not in FrameValidity.MOTION_SOURCES
+
+    def test_load_camera_timing_overrides_settle_count(self):
+        fv = FrameValidity()
+        fv.load_camera_timing({'skip_frames': {'auto_gain': 5}})
+        fv.invalidate('auto_gain')
+        assert fv.frames_until_valid() == 5
+
+
+class TestCaptureTimeChunkVerification:
+    """get_image(verify_chunk_targets=True) must reject frames whose chunk
+    metadata does not match the requested exposure / gain targets.
+
+    Skip-count settling is a heuristic; the frame that arrives after the
+    counter says valid can still be one that started exposing before a
+    long->short exposure change. The returned frame must prove its own
+    settings via chunks, or be re-grabbed until one does.
+    """
+
+    class _ChunkStubDriver:
+        """Stub camera delivering a scripted sequence of (image, chunks).
+
+        Doubles as its own image handler: _get_latest_chunks resolves
+        cam_image_handler then get_last_chunks on it.
+        """
+
+        def __init__(self, frames):
+            import numpy as np
+
+            self.active = True
+            self.cam_image_handler = self
+            self._np = np
+            self._frames = frames
+            self._i = -1
+            self.grabs = 0
+
+        def get_last_chunks(self):
+            if self._i < 0:
+                return None
+            return self._frames[min(self._i, len(self._frames) - 1)]
+
+        def grab_new_capture(self, timeout_s):
+            import datetime
+
+            self.grabs += 1
+            if self._i < len(self._frames) - 1:
+                self._i += 1
+            return True, datetime.datetime.now()
+
+        def get_array(self):
+            return self._np.full((4, 4), 128, dtype=self._np.uint8)
+
+        def is_device_removed(self):
+            return False
+
+    @staticmethod
+    def _make_imaging(driver):
+        from modules.lumascope_api import Lumascope
+        from modules.lumascope_api.imaging import ImagingAPI
+        from modules.lumascope_api.runtime_state import RuntimeState
+
+        scope = Lumascope.__new__(Lumascope)
+        scope.runtime_state = RuntimeState(scope)
+        scope._camera_driver = driver
+        imaging = ImagingAPI(scope, None)
+        scope.imaging = imaging
+        return imaging
+
+    def test_stale_chunk_frame_rejected_until_match(self):
+        stale = {'Gain': 30.0, 'ExposureTime': 100000.0}
+        fresh = {'Gain': 0.0, 'ExposureTime': 3730.0}
+        driver = self._ChunkStubDriver([stale, stale, fresh])
+        imaging = self._make_imaging(driver)
+        imaging.frame_validity.set_target('gain', 0.0)
+        imaging.frame_validity.set_target('exposure', 3730.0)
+
+        image = imaging.get_image(
+            force_new_capture=True,
+            verify_chunk_targets=True,
+            timeout_s=5.0,
+        )
+        assert image is not None
+        # Two stale frames rejected, third (matching) frame accepted.
+        assert driver.grabs == 3
+
+    def test_persistent_stale_chunks_time_out_to_none(self):
+        stale = {'Gain': 30.0, 'ExposureTime': 100000.0}
+        driver = self._ChunkStubDriver([stale])
+        imaging = self._make_imaging(driver)
+        imaging.frame_validity.set_target('exposure', 3730.0)
+
+        image = imaging.get_image(
+            force_new_capture=True,
+            verify_chunk_targets=True,
+            timeout_s=0.3,
+        )
+        assert image is None
+
+    def test_no_targets_means_no_verification(self):
+        """Hardware auto-gain clears targets; chunk mismatch must not block."""
+        stale = {'Gain': 30.0, 'ExposureTime': 100000.0}
+        driver = self._ChunkStubDriver([stale])
+        imaging = self._make_imaging(driver)
+
+        image = imaging.get_image(
+            force_new_capture=True,
+            verify_chunk_targets=True,
+            timeout_s=1.0,
+        )
+        assert image is not None
+        assert driver.grabs == 1
+
+    def test_chunkless_camera_skips_verification(self):
+        """Cameras without chunk support rely on skip-count settling alone."""
+
+        class _NoChunksDriver(self._ChunkStubDriver):
+            def get_last_chunks(self):
+                return None
+
+        driver = _NoChunksDriver([{}])
+        imaging = self._make_imaging(driver)
+        imaging.frame_validity.set_target('exposure', 3730.0)
+
+        image = imaging.get_image(
+            force_new_capture=True,
+            verify_chunk_targets=True,
+            timeout_s=1.0,
+        )
+        assert image is not None
+        assert driver.grabs == 1
+
+    def test_default_get_image_unverified(self):
+        """Without the flag the primitive stays ungated (live preview path)."""
+        stale = {'Gain': 30.0, 'ExposureTime': 100000.0}
+        driver = self._ChunkStubDriver([stale])
+        imaging = self._make_imaging(driver)
+        imaging.frame_validity.set_target('exposure', 3730.0)
+
+        image = imaging.get_image(force_new_capture=True, timeout_s=1.0)
+        assert image is not None
+        assert driver.grabs == 1

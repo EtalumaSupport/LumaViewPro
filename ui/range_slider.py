@@ -22,26 +22,27 @@ Builder.load_string("""
         Color:
             rgb: 1, 1, 1
         BorderImage:
-            # border: (0, 18, 0, 18) if self.orientation == 'horizontal' else (18, 0, 18, 0)
-            pos: (self.x + self.padding, self.center_y - sp(18)) if self.orientation == 'horizontal' else (self.center_x - 18, self.y + self.padding)
-            size: (self.width - self.padding * 2, sp(36)) if self.orientation == 'horizontal' else (sp(36), self.height - self.padding * 2)
+            # Track + cursor sizes halved from the defaulttheme defaults
+            # (sp(36)/sp(32)); the originals rendered far larger than the app's
+            # ModSliders on the Object Analysis page.
+            pos: (self.x + self.padding, self.center_y - sp(9)) if self.orientation == 'horizontal' else (self.center_x - 9, self.y + self.padding)
+            size: (self.width - self.padding * 2, sp(18)) if self.orientation == 'horizontal' else (sp(18), self.height - self.padding * 2)
             source: 'atlas://data/images/defaulttheme/slider{}_background{}'.format(self.orientation[0], '_disabled' if self.disabled else '')
         Color:
             rgba: self.connector_color
         BorderImage:
-            # border: (0, 18, 0, 18) if self.orientation == 'horizontal' else (18, 0, 18, 0)
-            pos: (self.value1_pos[0], self.center_y - sp(18)) if self.orientation == 'horizontal' else (self.center_x - sp(18), self.value1_pos[1])
-            size: (self.value2_pos[0] - self.value1_pos[0], sp(36)) if self.orientation == 'horizontal' else (sp(36), self.value2_pos[1] - self.value1_pos[1])
+            pos: (self.value1_pos[0], self.center_y - sp(9)) if self.orientation == 'horizontal' else (self.center_x - sp(9), self.value1_pos[1])
+            size: (self.value2_pos[0] - self.value1_pos[0], sp(18)) if self.orientation == 'horizontal' else (sp(18), self.value2_pos[1] - self.value1_pos[1])
             source: 'atlas://data/images/defaulttheme/slider{}_background{}'.format(self.orientation[0], '_disabled' if self.disabled else '')
         Color:
             rgb: 1, 1, 1
         Rectangle:
-            pos: (self.value1_pos[0] - sp(16), self.center_y - sp(17)) if self.orientation == 'horizontal' else (self.center_x - sp(16), self.value1_pos[1] - sp(16))
-            size: (sp(32), sp(32))
+            pos: (self.value1_pos[0] - sp(8), self.center_y - sp(8)) if self.orientation == 'horizontal' else (self.center_x - sp(8), self.value1_pos[1] - sp(8))
+            size: (sp(16), sp(16))
             source: 'atlas://data/images/defaulttheme/slider_cursor{}'.format('_disabled' if self.disabled else '')
         Rectangle:
-            pos: (self.value2_pos[0] - sp(16), self.center_y - sp(17)) if self.orientation == 'horizontal' else (self.center_x - sp(16), self.value2_pos[1] - sp(16))
-            size: (sp(32), sp(32))
+            pos: (self.value2_pos[0] - sp(8), self.center_y - sp(8)) if self.orientation == 'horizontal' else (self.center_x - sp(8), self.value2_pos[1] - sp(8))
+            size: (sp(16), sp(16))
             source: 'atlas://data/images/defaulttheme/slider_cursor{}'.format('_disabled' if self.disabled else '')
 """)
 
@@ -92,7 +93,7 @@ class RangeSlider(Widget):
     :attr:`max` is a :class:`~kivy.properties.NumericProperty` and defaults to
     100."""
 
-    padding = NumericProperty(sp(16))
+    padding = NumericProperty(sp(8))
     """Padding of the slider. The padding is used for graphical representation
     and interaction. It prevents the cursor from going out of the bounds of the
     slider bounding box.

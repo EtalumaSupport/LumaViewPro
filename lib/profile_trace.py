@@ -21,7 +21,7 @@ callers in drivers/serialboard.py, modules/lumascope_api.py,
 modules/frame_validity.py).
 
 CSVs auto-close on process exit via atexit. Thread-safe via a single
-module-level lock. Writes are line-buffered — no tail-buffer loss on crash.
+module-level lock. Writes are line-buffered -- no tail-buffer loss on crash.
 """
 
 import atexit
@@ -39,6 +39,9 @@ except ImportError:
     logger = logging.getLogger(__name__)
 
 
+# Diagnostic trace gate, toggled explicitly via enable() / disable() (not
+# mirrored from a setting). Single global owning its own on/off state -- not
+# the divergent cached-copy shape; reads here always see the latest toggle.
 ENABLE_PROFILE_TRACE = False
 _output_dir = None
 _lock = threading.Lock()
@@ -110,7 +113,7 @@ class timer:
     so it's safe to do non-trivial formatting inside it.
     """
 
-    __slots__ = ('filename', 'header', 'extra_fn', 't0')
+    __slots__ = ('extra_fn', 'filename', 'header', 't0')
 
     def __init__(self, filename, header, extra_fn):
         self.filename = filename
@@ -140,11 +143,10 @@ class TimedLock:
     acquire-wait + hold time per acquire-release cycle to `lock_trace.csv`
     when ``profile_trace_enabled`` is set in settings.json.
 
-    Threading audit §10.2 — validates SerialBoard._lock hold-time claim
-    (~32 ms per round-trip, documented at drivers/motorboard.py:79 from a
-    2026-04-13 bench run) across more sessions, and surfaces outliers.
-    Zero overhead when tracing is disabled — __enter__/__exit__ short-circuit
-    before time.perf_counter().
+    Validates SerialBoard._lock hold-time claim (~32 ms per round-trip,
+    documented at drivers/motorboard.py:79) across more sessions, and
+    surfaces outliers. Zero overhead when tracing is disabled --
+    __enter__/__exit__ short-circuit before time.perf_counter().
 
     Thread-safe for RLock re-entry: uses a per-instance thread-local
     stack of (t_wait_start, t_held_start) tuples so nested
@@ -167,7 +169,7 @@ class TimedLock:
     has a similar guard for serial-call hosts).
     """
 
-    __slots__ = ('_lock', '_name', '_warn_hold_threshold_ms', '_tls')
+    __slots__ = ('_lock', '_name', '_tls', '_warn_hold_threshold_ms')
 
     def __init__(self, lock, name, warn_hold_threshold_ms=None):
         self._lock = lock
@@ -240,7 +242,7 @@ class TimedLock:
         return False
 
     # Pass-through API for code that calls acquire()/release() directly.
-    # NOTE: these paths do NOT emit trace rows — only `with` context records
+    # NOTE: these paths do NOT emit trace rows -- only `with` context records
     # (common case, keeps hot path simple). Code that needs tracing on
     # explicit acquire/release can wrap the operation in `with self.lock:`.
     def acquire(self, *a, **kw):
@@ -275,7 +277,16 @@ def _read_settings_gate():
         base_dir = lvp_logger.lvp_appdata
     except (ImportError, AttributeError):
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return load_profile_trace_setting(base_dir)
+    result = load_profile_trace_setting(base_dir)
+    # Tests that register a bare MagicMock as `modules.settings_init`
+    # (without configuring `load_profile_trace_setting`) cause the call
+    # above to return a MagicMock. The MagicMock is truthy under
+    # `result['enabled']` and Path-stringifiable as `result['output_dir']`,
+    # which produced a stray `LumaViewPro/MagicMock/` directory at the
+    # repo root. Treat any non-dict return as the safe-OFF default.
+    if not isinstance(result, dict):
+        return {'enabled': False, 'output_dir': None}
+    return result
 
 
 _gate = _read_settings_gate()

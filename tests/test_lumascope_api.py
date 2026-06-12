@@ -1,7 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Regression tests for Lumascope API behavior.
 
-Issue #616 / #618 follow-up — the rename of `xyhome` to `home`:
+Issue #616 / #618 follow-up -- the rename of `xyhome` to `home`:
 
   Original report (#616): "Homing Failed" notification popup on every
   startup on an LS820 bench board that has only Z wired (no XY stage).
@@ -9,7 +9,7 @@ Issue #616 / #618 follow-up — the rename of `xyhome` to `home`:
   firmware command it sends (HOME) homes Z, T, and X/Y in the same
   routine. The misleading name led to a session-12 fix that added a
   host-side precondition check skipping `motion.xyhome()` entirely when
-  X/Y were missing — which silenced the popup but broke Z homing on
+  X/Y were missing -- which silenced the popup but broke Z homing on
   LS820 boards (#618 follow-up). Discovered in office testing
   2026-04-14: backlash characterization ran against an unhomed Z and
   produced nonsense.
@@ -19,7 +19,7 @@ Issue #616 / #618 follow-up — the rename of `xyhome` to `home`:
   into the driver layer where the firmware response is already known.
   - drivers/motorboard.py::home() recognizes 'ERROR: X not present' /
     'Y not present' as a partial-home success and returns True.
-  - Lumascope.motion.home() trusts the driver's verdict — no host-side
+  - Lumascope.motion.home() trusts the driver's verdict -- no host-side
     presence check, no False interpretation.
   - The misnamed method was the conceptual trap that allowed both #616
     and #618 to land. The rename retires the trap.
@@ -99,7 +99,7 @@ class TestLumascopeHome:
 
         Contract change 2026-04-25 (issue #632 cluster): the prior
         contract was "silent no-op when motor is null." That left the
-        user in the dark when Thonny held the motor port — they'd click
+        user in the dark when Thonny held the motor port -- they'd click
         Home and either nothing visible happened or, worse, they got
         "Homing Failed" implying a homing-mechanics issue rather than
         the actual cause (motor disconnected). The structural fix is to
@@ -123,9 +123,9 @@ class TestLumascopeHome:
         )
 
     def test_home_short_circuits_on_disconnected_motor(self):
-        """home() must return immediately when motor is not connected —
+        """home() must return immediately when motor is not connected --
         no 30-second exchange_command timeout, no auto-reconnect retry
-        burning the IO_WORKER. Issue #632 'spinning beachball' — user
+        burning the IO_WORKER. Issue #632 'spinning beachball' -- user
         had to force-quit the app while home() was blocked."""
         import time
 
@@ -138,13 +138,13 @@ class TestLumascopeHome:
         elapsed = time.monotonic() - t0
 
         assert elapsed < 0.5, (
-            f'home() on disconnected motor took {elapsed:.2f}s — must be '
+            f'home() on disconnected motor took {elapsed:.2f}s -- must be '
             f'< 0.5s. Beachball regression.'
         )
         assert received, 'home() short-circuit must still fire the Rule 14 notification.'
 
     def test_thome_short_circuits_on_disconnected_motor(self):
-        """Same contract as home() — thome must fail-fast with a clear
+        """Same contract as home() -- thome must fail-fast with a clear
         notification rather than letting exchange_command burn its
         15s timeout."""
         import time
@@ -157,7 +157,7 @@ class TestLumascopeHome:
         scope.motion.thome()
         elapsed = time.monotonic() - t0
 
-        assert elapsed < 0.5, f'thome() on disconnected motor took {elapsed:.2f}s — must be < 0.5s.'
+        assert elapsed < 0.5, f'thome() on disconnected motor took {elapsed:.2f}s -- must be < 0.5s.'
         assert any('Motor Not Connected' in n.title for n in received), (
             f"thome() must notify 'Motor Not Connected', got: {[n.title for n in received]}"
         )
@@ -217,6 +217,7 @@ class TestLumascopeHome:
         """Sanity: home() on a simulated LS850-style scope (X+Y+Z) must
         execute and mark all present axes IDLE on the success path."""
         scope = Lumascope(simulate=True)
+        scope._motion_driver.set_timing_mode('instant')
         present = scope._motion_driver.detect_present_axes()
         assert 'X' in present and 'Y' in present
 
@@ -253,7 +254,7 @@ class TestMotorBoardGetMicroscopeModelDisconnect:
         board._state_lock = threading.Lock()
         board._fullinfo = None
         # Must return None, must not raise. Caller (UI) treats None
-        # as "use saved settings" — safe path.
+        # as "use saved settings" -- safe path.
         assert board.get_microscope_model() is None
 
     def test_returns_model_from_cached_fullinfo(self):
@@ -281,7 +282,7 @@ class TestMotorBoardGetMicroscopeModelDisconnect:
 class TestMotorBoardHomePartialResponse:
     """drivers/motorboard.py::home() must recognize the firmware partial-
     home response ('ERROR: X not present' on LS820) as a success rather
-    than a failure. This is the structural fix for #618 follow-up — the
+    than a failure. This is the structural fix for #618 follow-up -- the
     API layer trusts the driver's verdict, so the partial-home logic
     must live in the driver where the firmware response is already known.
 
@@ -291,7 +292,7 @@ class TestMotorBoardHomePartialResponse:
 
     def test_partial_home_x_not_present_returns_true(self):
         """LS820: firmware homes Z, then returns 'ERROR: X not present'.
-        Driver must return True — Z is at its reference position."""
+        Driver must return True -- Z is at its reference position."""
         from drivers.motorboard import MotorBoard
 
         board = MotorBoard.__new__(MotorBoard)
@@ -305,7 +306,7 @@ class TestMotorBoardHomePartialResponse:
 
         assert result is True, (
             "Driver must treat 'ERROR: X not present' as partial-home "
-            'success — firmware homed Z (and T) before reporting missing X'
+            'success -- firmware homed Z (and T) before reporting missing X'
         )
         assert board.initial_homing_complete is True
 
@@ -377,7 +378,7 @@ class TestFrameValidityDuringHoming:
     """Issue #609: the frame valid marker was showing green during homing
     because zhome/home/thome never called frame_validity.invalidate().
     The settle-check callback correctly rejects HOMING state, but only if
-    the source is actually in _pending — which requires invalidate().
+    the source is actually in _pending -- which requires invalidate().
 
     These tests capture scope.imaging.frame_validity.is_valid at the moment the
     motion driver method is executing (axis state is HOMING, motion is in
@@ -404,7 +405,7 @@ class TestFrameValidityDuringHoming:
             'can consult the settle-check callback (#609)'
         )
         assert captured['is_valid'] is False, (
-            'frame_validity.is_valid must be False while Z is homing — '
+            'frame_validity.is_valid must be False while Z is homing -- '
             'the frame valid marker should not be green during homing'
         )
 
@@ -442,7 +443,7 @@ class TestFrameValidityDuringHoming:
 
         scope = Lumascope(simulate=True)
         scope._motion_driver.detect_present_axes = lambda: ['Z']
-        # Rebuild the capability snapshot after patching the driver —
+        # Rebuild the capability snapshot after patching the driver --
         # post-B7, `axes_present()` reads from `capabilities.axes` (a
         # frozen snapshot built at init), so the test needs to
         # re-snapshot to reflect the patched motion.
@@ -478,12 +479,12 @@ class TestFrameValidityDuringHoming:
         scope._motion_driver = SimulatedMotorBoard(model='LS850T')
         present = scope._motion_driver.detect_present_axes()
         assert 'T' in present
-        scope.motion._pos_cache = {ax: 0.0 for ax in present}
-        scope.motion._axis_state = {ax: AxisState.UNKNOWN for ax in present}
+        scope.motion._pos_cache = dict.fromkeys(present, 0.0)
+        scope.motion._axis_state = dict.fromkeys(present, AxisState.UNKNOWN)
         scope.motion._arrival_events = {ax: threading.Event() for ax in present}
         for ev in scope.motion._arrival_events.values():
             ev.set()
-        scope.motion._move_profile = {ax: None for ax in present}
+        scope.motion._move_profile = dict.fromkeys(present)
 
         captured = {}
         original_thome = scope._motion_driver.thome
@@ -509,13 +510,13 @@ class TestFrameValidityDuringHoming:
 class TestProtocolConformance:
     """Audit B1: every motor and LED driver implementation must satisfy
     the runtime-checkable Protocol in `drivers/protocols.py`. This guards
-    against silent drift — if anyone deletes a method from a driver, or
+    against silent drift -- if anyone deletes a method from a driver, or
     adds a new method to the Protocol without updating all implementations,
     these tests fail at construction time instead of at the call site.
 
     The Protocols use `@runtime_checkable`, so `isinstance(impl, Protocol)`
     checks structural conformance (method names + arity match). It does
-    NOT check signature types, which is fine — that's mypy's job.
+    NOT check signature types, which is fine -- that's mypy's job.
 
     These tests also document which classes are part of the Protocol
     contract. New driver implementations (e.g. the upcoming FX2 driver
@@ -525,7 +526,7 @@ class TestProtocolConformance:
     def test_motorboard_satisfies_protocol(self):
         from drivers.motorboard import MotorBoard
 
-        # Use __new__ to skip __init__ — we only need the class to expose
+        # Use __new__ to skip __init__ -- we only need the class to expose
         # the Protocol's method set, not to actually open a serial port.
         instance = MotorBoard.__new__(MotorBoard)
         assert isinstance(instance, MotorBoardProtocol)
@@ -570,7 +571,7 @@ class TestLEDChannelDiscovery:
     1. Each LED implementation's available_channels()/available_colors()
        are derived from its single source of truth (_COLOR_TO_CH).
     2. The API uses the driver's value at validation time, not a class
-       constant — so swapping a 4-channel driver in works without
+       constant -- so swapping a 4-channel driver in works without
        touching the API.
     3. The error message reflects the actual valid range, not a stale
        hardcoded "0-5" string.
@@ -609,11 +610,11 @@ class TestLEDChannelDiscovery:
 
         scope._led_driver = FourChannelLED()
 
-        scope.illumination.led_on(0, 100)  # Blue — valid on 4-channel driver
+        scope.illumination.led_on(0, 100)  # Blue -- valid on 4-channel driver
         with pytest.raises(ValueError, match=r'LED channel must be one of'):
-            scope.illumination.led_on(5, 100)  # DF — out of range on 4-channel driver
+            scope.illumination.led_on(5, 100)  # DF -- out of range on 4-channel driver
         with pytest.raises(ValueError, match=r'LED channel must be one of'):
-            scope.illumination.led_on(4, 100)  # PC — out of range too
+            scope.illumination.led_on(4, 100)  # PC -- out of range too
 
     def test_api_validation_error_message_reflects_actual_channels(self):
         """Error messages must describe the actual valid range (the
@@ -638,7 +639,7 @@ class TestLEDChannelDiscovery:
         """The class-level `LED_VALID_CHANNELS = range(6)` constant has
         been deleted in favor of `self.led.available_channels()`."""
         assert not hasattr(Lumascope, 'LED_VALID_CHANNELS'), (
-            'Lumascope.LED_VALID_CHANNELS must be removed — call sites '
+            'Lumascope.LED_VALID_CHANNELS must be removed -- call sites '
             'now read from self.led.available_channels() per audit B3'
         )
 
@@ -653,7 +654,7 @@ class TestPerAxisDictsFromDriver:
     2. Z-only scope (LS820-style) gets 1 key per dict
     3. Null motor (no hardware at all) gets empty dicts
     4. Rule 8 silent no-op: move_*_position on absent axes does NOT raise,
-       it returns silently — the API behaves the same on Null hardware
+       it returns silently -- the API behaves the same on Null hardware
        and on partial-hardware scopes
     5. Input sanity validation rejects non-axis names like 'Q'
     6. The misnamed `VALID_AXES` constant is gone; `_VALID_AXIS_NAMES` is
@@ -677,12 +678,12 @@ class TestPerAxisDictsFromDriver:
         scope._motion_driver.detect_present_axes = lambda: ['Z']
         # Re-init the per-axis dicts to reflect the patched motion.
         present = scope._motion_driver.detect_present_axes()
-        scope.motion._pos_cache = {ax: 0.0 for ax in present}
-        scope.motion._axis_state = {ax: AxisState.UNKNOWN for ax in present}
+        scope.motion._pos_cache = dict.fromkeys(present, 0.0)
+        scope.motion._axis_state = dict.fromkeys(present, AxisState.UNKNOWN)
         scope.motion._arrival_events = {ax: threading.Event() for ax in present}
         for ev in scope.motion._arrival_events.values():
             ev.set()
-        scope.motion._move_profile = {ax: None for ax in present}
+        scope.motion._move_profile = dict.fromkeys(present)
 
         assert set(scope.motion._pos_cache.keys()) == {'Z'}
         assert set(scope.motion._axis_state.keys()) == {'Z'}
@@ -691,14 +692,14 @@ class TestPerAxisDictsFromDriver:
 
     def test_null_motor_yields_empty_dicts(self):
         """A scope with no motor hardware (NullMotionBoard) should have
-        empty per-axis dicts — there's nothing to track."""
+        empty per-axis dicts -- there's nothing to track."""
         scope = Lumascope(simulate=True)
         scope._motion_driver = NullMotionBoard()
         present = scope._motion_driver.detect_present_axes()
-        scope.motion._pos_cache = {ax: 0.0 for ax in present}
-        scope.motion._axis_state = {ax: AxisState.UNKNOWN for ax in present}
+        scope.motion._pos_cache = dict.fromkeys(present, 0.0)
+        scope.motion._axis_state = dict.fromkeys(present, AxisState.UNKNOWN)
         scope.motion._arrival_events = {ax: threading.Event() for ax in present}
-        scope.motion._move_profile = {ax: None for ax in present}
+        scope.motion._move_profile = dict.fromkeys(present)
 
         assert scope.motion._pos_cache == {}
         assert scope.motion._axis_state == {}
@@ -713,12 +714,12 @@ class TestPerAxisDictsFromDriver:
         scope = Lumascope(simulate=True)
         scope._motion_driver.detect_present_axes = lambda: ['Z']
         present = scope._motion_driver.detect_present_axes()
-        scope.motion._pos_cache = {ax: 0.0 for ax in present}
-        scope.motion._axis_state = {ax: AxisState.UNKNOWN for ax in present}
+        scope.motion._pos_cache = dict.fromkeys(present, 0.0)
+        scope.motion._axis_state = dict.fromkeys(present, AxisState.UNKNOWN)
         scope.motion._arrival_events = {ax: threading.Event() for ax in present}
         for ev in scope.motion._arrival_events.values():
             ev.set()
-        scope.motion._move_profile = {ax: None for ax in present}
+        scope.motion._move_profile = dict.fromkeys(present)
 
         scope.motion.move_absolute_position('X', 100)
         scope.motion.move_absolute_position('Y', 100)
@@ -734,7 +735,7 @@ class TestPerAxisDictsFromDriver:
         """Same Rule 8 contract on a system with NO motor hardware at
         all (NullMotionBoard). Pre-B4 behavior was silent no-op via
         VALID_AXES validation passing through to NullMotionBoard.move_abs_pos
-        no-op — this contract must be preserved."""
+        no-op -- this contract must be preserved."""
         scope = Lumascope(simulate=True)
         scope._motion_driver = NullMotionBoard()
         scope.motion._pos_cache = {}
@@ -758,10 +759,10 @@ class TestPerAxisDictsFromDriver:
     def test_no_hardcoded_VALID_AXES_constant(self):
         """The misnamed `VALID_AXES` class constant has been deleted.
         It implied "what axes are available" but actually meant "what
-        axis names we accept as input" — which is now the private
+        axis names we accept as input" -- which is now the private
         `_VALID_AXIS_NAMES`."""
         assert not hasattr(Lumascope, 'VALID_AXES'), (
-            'Lumascope.VALID_AXES must be removed — its name was misleading '
+            'Lumascope.VALID_AXES must be removed -- its name was misleading '
             '(implied capability, meant vocabulary). Use axes_present() for '
             'capability queries; _VALID_AXIS_NAMES is the private input '
             'vocabulary tuple.'
@@ -891,17 +892,52 @@ class TestRunGrabLifecycleBenchmark:
         except OSError:
             pass
 
+    def test_sdk_version_flows_into_diagnostic_info_and_filename(self, monkeypatch):
+        """The diagnostic snapshot must expose the imaging-SDK version, and
+        the benchmark must carry it into pylon_version + the artifact
+        filename. Without it every characterization file is tagged
+        'unknown_sdk' and can't be tied to the SDK that produced the numbers.
+        """
+        import os
+
+        scope = self._scope_with_camera()
+        # Pin a known SDK version regardless of whether pypylon is installed
+        # on the test host (absent on Mac / CI).
+        monkeypatch.setattr(
+            type(scope.diagnostics),
+            '_safe_pylon_versions',
+            staticmethod(
+                lambda: {'pypylon_version': '26.4.1', 'pylon_sdk_version': '11.5.0.1169'}
+            ),
+        )
+
+        info = scope.diagnostics.get_camera_diagnostic_info()
+        assert info.get('sdk_version') == '11.5.0.1169'
+
+        r = scope.diagnostics.run_grab_lifecycle_benchmark(num_cycles=2, inter_cycle_delay_ms=0)
+        assert r['pylon_version'] == '11.5.0.1169', (
+            'benchmark must read the SDK version from the diagnostic snapshot'
+        )
+        assert r['written_to'] is not None
+        filename = os.path.basename(r['written_to'])
+        assert 'unknown_sdk' not in filename
+        assert 'sdk11.5.0.1169' in filename
+        try:
+            os.remove(r['written_to'])
+        except OSError:
+            pass
+
 
 class TestScopeCapabilities:
     """Audit B7: ScopeCapabilities is the single source of truth for
-    "what does this scope have" — a frozen snapshot built at init from
+    "what does this scope have" -- a frozen snapshot built at init from
     the three drivers. Pre-B7, capability questions were answered
     piecemeal by `axes_present()`, `has_turret()`, ad-hoc isinstance
     checks, and direct reads of `led.available_channels()` /
     `camera.profile.*`. This is Rule 9 enforcement.
 
     Runtime connection state (`motor_connected`, `led_connected`) stays
-    live on Lumascope — it deliberately isn't on the frozen dataclass
+    live on Lumascope -- it deliberately isn't on the frozen dataclass
     because disconnects need to reflect immediately.
     """
 
@@ -970,7 +1006,7 @@ class TestScopeCapabilities:
 
     def test_runtime_state_placeholder_ships_with_empty_fields(self):
         """Audit Finding #5: scope.runtime_state ships as an empty
-        placeholder per design doc §10. Both fields are empty dicts
+        placeholder per design doc sec.10. Both fields are empty dicts
         with the documented types. Callers treat empty as 'feature
         unknown' per Rule 8 corollary."""
         from modules.lumascope_api.runtime_state import RuntimeState
@@ -1038,7 +1074,7 @@ class TestScopeCapabilities:
         assert set(caps.led_colors) == {'Blue', 'Green', 'Red', 'BF'}
 
     def test_capabilities_is_frozen(self):
-        """The dataclass is frozen — any attempt to mutate a field
+        """The dataclass is frozen -- any attempt to mutate a field
         raises FrozenInstanceError. This enforces the "snapshot" contract."""
         import dataclasses
 
@@ -1056,7 +1092,7 @@ class TestScopeCapabilities:
         assert scope.motion.has_turret() == scope.capabilities.has_turret
 
     def test_motor_connected_stays_live_not_in_capabilities(self):
-        """Runtime connection state must NOT be a field on capabilities —
+        """Runtime connection state must NOT be a field on capabilities --
         it needs to reflect disconnects at runtime, which a frozen
         snapshot can't do. Lumascope.motor_connected / led_connected
         remain live properties."""
@@ -1073,7 +1109,7 @@ class TestScopeCapabilities:
 
 
 def dataclasses_fields(cls):
-    """Helper — imported late to keep the imports tidy."""
+    """Helper -- imported late to keep the imports tidy."""
     import dataclasses as _dc
 
     return _dc.fields(cls)

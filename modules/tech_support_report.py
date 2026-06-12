@@ -9,7 +9,7 @@ Two modes:
   1. Integrated: Called from the LumaViewPro GUI "Generate Support Report"
      button. Receives a Lumascope instance (or ScopeSession) from the running
      application.
-  2. Standalone: ``python tech_support_report.py`` — connects to hardware
+  2. Standalone: ``python tech_support_report.py`` -- connects to hardware
      directly, no LumaViewPro needed. Can also be frozen with PyInstaller
      into a standalone .exe (see build notes at bottom of file).
 
@@ -51,7 +51,9 @@ import zipfile
 
 import platformdirs
 
+from modules import settings_init
 from modules.path_utils import get_script_root, get_source_root
+from modules.protocol import Protocol
 
 logger = logging.getLogger(__name__)
 
@@ -72,13 +74,13 @@ BACKLASH_FOLDER_PATTERNS = ['backlash', 'Backlash', 'BACKLASH']
 LOG_DELIMITER = (
     "\n"
     "=" * 72 + "\n"
-    "=== TECH SUPPORT REPORT GENERATION STARTED — {timestamp} ===\n"
+    "=== TECH SUPPORT REPORT GENERATION STARTED -- {timestamp} ===\n"
     "=" * 72 + "\n"
 )
 
 # Camera bandwidth test defaults
 BANDWIDTH_TEST_FRAMES = 5000
-BANDWIDTH_TEST_TIMEOUT_S = 300  # 5 min — generous for slow cameras
+BANDWIDTH_TEST_TIMEOUT_S = 300  # 5 min -- generous for slow cameras
 
 # Disk speed test defaults
 DISK_SPEED_TEST_MB = 256         # Write this many MB
@@ -86,8 +88,8 @@ DISK_SPEED_WARN_MBPS = 100      # Warn below this (video recording will lag)
 
 # Voltage tolerance thresholds
 VOLTAGE_NOMINAL = {'5V': 5.0, '3.3V': 3.3, '1.2V': 1.2}
-VOLTAGE_WARN_PCT = 5.0          # ±5% = warning
-VOLTAGE_FAIL_PCT = 10.0         # ±10% = fail
+VOLTAGE_WARN_PCT = 5.0          # +/-5% = warning
+VOLTAGE_FAIL_PCT = 10.0         # +/-10% = fail
 
 # LED leakage threshold (mA with all LEDs off)
 LED_LEAKAGE_WARN_MA = 0.5
@@ -112,7 +114,7 @@ TMC5072_DIAG_REGISTERS = {
 
 
 # ---------------------------------------------------------------------------
-# Path helpers — mirrors platformdirs conventions
+# Path helpers -- mirrors platformdirs conventions
 # ---------------------------------------------------------------------------
 
 def _get_app_root():
@@ -143,18 +145,24 @@ def _get_lvp_logs_dir():
 
 
 def _get_capture_dir():
-    """Return the capture output directory (from settings.json or defaults)."""
-    data_dir = _get_lvp_data_dir()
-    settings_file = data_dir / 'settings.json'
-    if settings_file.exists():
-        try:
-            with open(settings_file, 'r') as f:
-                settings = json.load(f)
-            capture_path = settings.get('capture_path', '')
-            if capture_path and pathlib.Path(capture_path).is_dir():
-                return pathlib.Path(capture_path)
-        except (json.JSONDecodeError, OSError):
-            pass
+    """Return the capture output directory (from settings or defaults).
+
+    The configured directory is the canonical live_folder key, resolved
+    current.json-first via _resolve_settings_path -- current.json holds the
+    absolute path microscope_settings resolved at runtime, while settings.json
+    may still carry the unresolved './capture' default.
+    """
+    try:
+        settings_file = settings_init._resolve_settings_path(str(_get_lvp_data_dir().parent))
+        with open(settings_file) as f:
+            settings = json.load(f)
+        live_folder = settings.get('live_folder', '')
+        if live_folder:
+            resolved = pathlib.Path(live_folder).resolve()
+            if resolved.is_dir():
+                return resolved
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        pass
     # Fallback: common locations
     docs = _get_user_documents()
     for name in ['EtalumaCaptures', 'Etaluma', 'LumaViewPro']:
@@ -188,7 +196,7 @@ def _get_desktop():
 
 
 # ---------------------------------------------------------------------------
-# Recent Protocols — reusable from GUI "Recent Protocols" menu
+# Recent Protocols -- reusable from GUI "Recent Protocols" menu
 # ---------------------------------------------------------------------------
 
 def get_recent_protocols(n=RECENT_PROTOCOL_COUNT):
@@ -210,26 +218,36 @@ def get_recent_protocols(n=RECENT_PROTOCOL_COUNT):
     seen = set()
 
     for search_dir in search_dirs:
-        for json_file in search_dir.rglob('*.json'):
-            real = json_file.resolve()
+        for proto_file in (*search_dir.rglob('*.tsv'), *search_dir.rglob('*.json')):
+            real = proto_file.resolve()
             if real in seen:
                 continue
             seen.add(real)
             try:
-                with open(json_file, 'r') as f:
+                with open(proto_file) as f:
                     head = f.read(2048)
-                # Protocol files contain these keys
-                if any(k in head for k in ('"steps"', '"sequences"', '"scan"',
-                                           '"protocol"', '"Protocol"')):
-                    stat = json_file.stat()
-                    protocol_files.append({
-                        'path': json_file,
-                        'modified': datetime.datetime.fromtimestamp(stat.st_mtime),
-                        'name': json_file.stem,
-                        'size': stat.st_size,
-                    })
             except (OSError, UnicodeDecodeError):
                 continue
+            # LVP protocols are TSV-native: Protocol.to_file() writes a TSV
+            # whose first row is the PROTOCOL_FILE_HEADER banner, and a run
+            # in progress auto-writes its protocol (as unsaved_protocol.tsv)
+            # into the run directory -- so TSV matching is what surfaces a
+            # running protocol that was never explicitly saved. JSON is also
+            # accepted for legacy / exported protocols.
+            is_tsv_protocol = (proto_file.suffix == '.tsv'
+                               and Protocol.PROTOCOL_FILE_HEADER in head)
+            is_json_protocol = (proto_file.suffix == '.json'
+                                and any(k in head for k in
+                                        ('"steps"', '"sequences"', '"scan"',
+                                         '"protocol"', '"Protocol"')))
+            if is_tsv_protocol or is_json_protocol:
+                stat = proto_file.stat()
+                protocol_files.append({
+                    'path': proto_file,
+                    'modified': datetime.datetime.fromtimestamp(stat.st_mtime),
+                    'name': proto_file.stem,
+                    'size': stat.st_size,
+                })
 
     protocol_files.sort(key=lambda x: x['modified'], reverse=True)
     return protocol_files[:n]
@@ -273,7 +291,7 @@ def _collect_system_info():
         info['cpu_cores'] = _run(['sysctl', '-n', 'hw.ncpu'])
     else:
         try:
-            with open('/proc/cpuinfo', 'r') as f:
+            with open('/proc/cpuinfo') as f:
                 info['cpu_detail'] = f.read()[:2000]
         except OSError:
             pass
@@ -294,7 +312,7 @@ def _collect_system_info():
             pass
     else:
         try:
-            with open('/proc/meminfo', 'r') as f:
+            with open('/proc/meminfo') as f:
                 info['ram_detail'] = f.read()[:1000]
         except OSError:
             pass
@@ -342,7 +360,7 @@ def _collect_system_info():
             'wmic', 'path', 'Win32_VideoController', 'get',
             'Name,CurrentHorizontalResolution,CurrentVerticalResolution,'
             'CurrentRefreshRate', '/format:list'])
-        # DPI scaling — reg query is more reliable than wmic here
+        # DPI scaling -- reg query is more reliable than wmic here
         info['dpi_scaling'] = _run([
             'reg', 'query',
             r'HKCU\Control Panel\Desktop\WindowMetrics',
@@ -364,7 +382,7 @@ def _collect_system_info():
         info['pip_freeze'] = all_packages
         # Also extract the critical ones for the summary
         critical = ['kivy', 'pypylon', 'ids-peak', 'ids_peak', 'numpy',
-                     'numba', 'pyserial', 'Pillow', 'pillow', 'scipy',
+                     'pyserial', 'Pillow', 'pillow', 'scipy',
                      'opencv', 'cv2', 'psutil', 'requests', 'fastapi']
         critical_pkgs = []
         for line in all_packages.split('\n'):
@@ -403,7 +421,7 @@ def _collect_system_info():
         else:
             info['ids_peak_install'] = 'ids_peak not importable'
 
-    # Windows event log — recent USB/driver errors
+    # Windows event log -- recent USB/driver errors
     if is_win:
         info['recent_usb_events'] = _run([
             'wevtutil', 'qe', 'System',
@@ -483,7 +501,7 @@ def _collect_device_manager_full():
 
 
 # ---------------------------------------------------------------------------
-# Raw REPL file transfer (Thonny-style) — delegated to drivers.raw_repl
+# Raw REPL file transfer (Thonny-style) -- delegated to drivers.raw_repl
 # ---------------------------------------------------------------------------
 
 
@@ -573,7 +591,7 @@ def validate_motorconfig(config_data, source_label=''):
     ts = parsed.get('Teststand', {})
     if isinstance(ts, dict) and ts.get('Enabled'):
         result['warnings'].append(
-            "Teststand mode is ENABLED — should not be active on customer units")
+            "Teststand mode is ENABLED -- should not be active on customer units")
 
     return result
 
@@ -634,7 +652,7 @@ class FirmwareDiagnostics:
     # Bench code that historically invoked this class without a scope
     # (e.g. command-line tools) can still call ``connect_standalone()``
     # to set ``self._scope``. The ``self.led_board`` / ``self.motor_board``
-    # convenience attributes are intentionally absent — diagnostics call
+    # convenience attributes are intentionally absent -- diagnostics call
     # ``self._cmd('led', ...)`` / ``self._cmd('motor', ...)`` instead.
 
     def __init__(self, scope=None):
@@ -770,7 +788,7 @@ class FirmwareDiagnostics:
             return target
         if target is None:
             return None
-        # Board object — match by identity to the API's references.
+        # Board object -- match by identity to the API's references.
         # Post-Wave-7 the LED namespace is ``scope.illumination``; the
         # legacy ``scope.led`` attribute was retired. Motor namespace
         # remained ``scope.motion``.
@@ -797,7 +815,7 @@ class FirmwareDiagnostics:
         """Fetch motor-board FULLINFO with per-instance cache.
 
         FULLINFO is a static, multi-line dump of model/serial/firmware/
-        homing status — it doesn't change during a tech-support run.
+        homing status -- it doesn't change during a tech-support run.
         Pre-cache fix, the first sim run at 2026-05-03 showed FULLINFO
         firing twice ~2 ms apart during a single report generation:
         once via ``get_serial_number()`` (called for the report
@@ -865,8 +883,8 @@ class FirmwareDiagnostics:
         Returns ``{rail_label: float | None}`` or ``None`` when the
         firmware does not support the VOLTAGE diagnostic (legacy
         firmware predating diagnostic queries). Driver-side parsing
-        per Rule 10 -- the firmware response shape lives on
-        MotorBoard.read_voltages, not here.
+        -- the firmware response shape lives on MotorBoard.read_voltages,
+        not here.
         """
         if not self._scope:
             return None
@@ -879,7 +897,7 @@ class FirmwareDiagnostics:
         support DRVSTAT_<axis> on this axis (legacy firmware).
         """
         if not self._scope:
-            return {ax: None for ax in 'XYZT'}
+            return dict.fromkeys('XYZT')
         return {ax: self._scope.diagnostics.read_motor_drv_status(ax)
                 for ax in 'XYZT'}
 
@@ -945,7 +963,7 @@ class FirmwareDiagnostics:
             logger.warning(f"Raw REPL file read error ({label}): {e}")
         finally:
             board.exit_raw_repl()
-            # Verify firmware restarted after raw REPL exit — the serial
+            # Verify firmware restarted after raw REPL exit -- the serial
             # state may be dirty and normal commands (LED on/off) would
             # fail silently without this check.
             try:
@@ -978,7 +996,6 @@ class FirmwareDiagnostics:
                 errors += 1
         if not timings:
             return {'error': f'All {iterations} calls failed', 'errors': errors}
-        import statistics
         return {
             'iterations': iterations,
             'errors': errors,
@@ -1106,7 +1123,7 @@ class FirmwareDiagnostics:
 
         results = {'raw_response': raw, 'channels': {}, 'passed': True}
 
-        # Parse LEDREADS response — v2.0+ format:
+        # Parse LEDREADS response -- v2.0+ format:
         # "LED0 I_SENS  (AIN14): 0.0234V  ->     0.3 mA"
         # "LED0 LED_K   (AIN15): 2.0833V"
         for ch in range(8):
@@ -1205,7 +1222,7 @@ class FirmwareDiagnostics:
 
         results = {'axes': {}, 'passed': True}
 
-        # Home Z first (safety — move Z up before XY)
+        # Home Z first (safety -- move Z up before XY)
         zhome_resp = self._cmd(self.motor_board, 'ZHOME', timeout_s=60)
         results['axes']['Z'] = {
             'home_response': zhome_resp,
@@ -1231,7 +1248,7 @@ class FirmwareDiagnostics:
             }
 
         # Check for errors in responses
-        for ax, data in results['axes'].items():
+        for _ax, data in results['axes'].items():
             if 'Error' in str(data.get('home_response', '')):
                 results['passed'] = False
                 data['status'] = 'FAIL'
@@ -1242,7 +1259,7 @@ class FirmwareDiagnostics:
 
     # NOTE: Motor repeatability testing requires optical feedback (e.g. a
     # test target on the stage imaged by the camera) because there are no
-    # encoders — ACTUAL_R just reads the TMC5072 step counter which will
+    # encoders -- ACTUAL_R just reads the TMC5072 step counter which will
     # always agree with TARGET_R. True mechanical repeatability (backlash,
     # missed steps) must be measured optically. This is planned as a future
     # QC feature with a calibration target.
@@ -1326,12 +1343,12 @@ class TechSupportReport:
 
     def __init__(self, scope=None, session=None,
                  led_board=None, motor_board=None, camera=None):
-        # Store scope as primary interface — avoid extracting raw driver
+        # Store scope as primary interface -- avoid extracting raw driver
         # objects at this level.  FirmwareDiagnostics handles board access.
         if scope is not None:
             self.scope = scope
         elif session is not None:
-            # Legacy ScopeSession wrapper — build a minimal scope-like object
+            # Legacy ScopeSession wrapper -- build a minimal scope-like object
             self.scope = session
         else:
             self.scope = None
@@ -1347,7 +1364,7 @@ class TechSupportReport:
             self.diag = FirmwareDiagnostics(
                 scope=_BoardOnlyDiagnosticScope(led_board, motor_board))
         else:
-            # No scope, no boards — standalone will call diag.connect_standalone()
+            # No scope, no boards -- standalone will call diag.connect_standalone()
             self.diag = FirmwareDiagnostics()
 
         self._cancelled = False
@@ -1495,7 +1512,7 @@ class TechSupportReport:
             cb(97, "Creating ZIP file...")
             zip_path = self._create_zip(tmp, sn, output_dir)
 
-            cb(100, f"Done — {zip_path.name}")
+            cb(100, f"Done -- {zip_path.name}")
             return zip_path
 
     # -- Steps ---------------------------------------------------------------
@@ -1647,7 +1664,7 @@ class TechSupportReport:
                         f.write(f"  {ch}: {val:7.3f} mA  [{st}]\n")
                     else:
                         f.write(f"  {ch}: could not parse  [{st}]\n")
-                f.write(f"\nOverall: {'PASS' if leakage.get('passed') else 'WARN — leakage detected'}\n")
+                f.write(f"\nOverall: {'PASS' if leakage.get('passed') else 'WARN -- leakage detected'}\n")
                 f.write(f"(Threshold: {LED_LEAKAGE_WARN_MA} mA)\n")
 
     def _step_tmc_registers(self, tmp):
@@ -1670,8 +1687,8 @@ class TechSupportReport:
                 f.write("  Bit 0-1: SG_RESULT (StallGuard)\n")
                 f.write("  Bit 24: s2ga (short to GND coil A)\n")
                 f.write("  Bit 25: s2gb (short to GND coil B)\n")
-                f.write("  Bit 26: ola (open load A — motor disconnected?)\n")
-                f.write("  Bit 27: olb (open load B — motor disconnected?)\n")
+                f.write("  Bit 26: ola (open load A -- motor disconnected?)\n")
+                f.write("  Bit 27: olb (open load B -- motor disconnected?)\n")
                 f.write("  Bit 25: ot (overtemperature shutdown)\n")
                 f.write("  Bit 26: otpw (overtemperature pre-warning)\n")
                 f.write("  Bit 31: stst (standstill indicator)\n")
@@ -1679,7 +1696,7 @@ class TechSupportReport:
             json.dump(regs, f, indent=2, default=str)
 
     def _step_fan_test(self, tmp):
-        """Test fan operation via tachometer (informational — many units lack tach)."""
+        """Test fan operation via tachometer (informational -- many units lack tach)."""
         d = tmp / 'hardware_checks'
         d.mkdir(exist_ok=True)
 
@@ -1727,10 +1744,10 @@ class TechSupportReport:
                     # Flag suspicious results
                     if latency['max_ms'] > 100:
                         f.write(f"  ** WARNING: max latency {latency['max_ms']}ms "
-                                f"— possible USB suspend or contention **\n\n")
+                                f"-- possible USB suspend or contention **\n\n")
                     if latency['std_dev_ms'] > 20:
                         f.write(f"  ** WARNING: high variance (std={latency['std_dev_ms']}ms) "
-                                f"— unstable USB connection **\n\n")
+                                f"-- unstable USB connection **\n\n")
 
         with open(d / 'serial_latency.json', 'w') as f:
             summary = {label: {k: v for k, v in lat.items() if k != 'timings_ms'}
@@ -1790,10 +1807,10 @@ class TechSupportReport:
                 # Flag hot cameras
                 if 'temperature' in key.lower() and isinstance(val, (int, float)):
                     if val > 60:
-                        f.write(f"    ** WARNING: sensor temperature {val}°C "
-                                f"is high — check cooling/ventilation **\n")
+                        f.write(f"    ** WARNING: sensor temperature {val}degC "
+                                f"is high -- check cooling/ventilation **\n")
                     elif val > 45:
-                        f.write(f"    ** Note: sensor at {val}°C "
+                        f.write(f"    ** Note: sensor at {val}degC "
                                 f"(elevated, may affect image noise) **\n")
         with open(d / 'camera_info.json', 'w') as f:
             json.dump(info, f, indent=2, default=str)
@@ -1882,7 +1899,7 @@ class TechSupportReport:
                     f.write(f"Disk used:   {results['disk_used_pct']}%\n\n")
                 f.write(f"Result: {'PASS' if results.get('passed') else 'FAIL'}\n")
                 if not results.get('passed'):
-                    f.write(f"** Write speed below {DISK_SPEED_WARN_MBPS} MB/s — "
+                    f.write(f"** Write speed below {DISK_SPEED_WARN_MBPS} MB/s -- "
                             f"video recording may drop frames **\n")
         with open(d / 'disk_speed.json', 'w') as f:
             json.dump(results, f, indent=2, default=str)
@@ -1928,14 +1945,14 @@ class TechSupportReport:
             # Critical Python packages
             critical = info.get('critical_packages', [])
             if critical:
-                f.write(f"\nCritical Python packages:\n")
+                f.write("\nCritical Python packages:\n")
                 for pkg in critical:
                     f.write(f"  {pkg}\n")
 
             # Recent USB events
             usb_events = info.get('recent_usb_events', '')
             if usb_events and 'Error' not in usb_events[:20]:
-                f.write(f"\nRecent USB/driver events (last 7 days):\n")
+                f.write("\nRecent USB/driver events (last 7 days):\n")
                 f.write(usb_events[:3000] if usb_events else '  None found\n')
 
         # Also write full pip freeze as separate file for easy diff
@@ -2020,7 +2037,7 @@ class TechSupportReport:
 
         for p in protocols:
             try:
-                shutil.copy2(p['path'], d / f"{p['name']}.json")
+                shutil.copy2(p['path'], d / f"{p['name']}{p['path'].suffix}")
             except Exception as e:
                 logger.warning(f"Could not copy protocol {p['path']}: {e}")
 
@@ -2065,7 +2082,7 @@ class TechSupportReport:
                 cwd=str(app_root),
             )
             with open(d / 'test_hardware_serial.txt', 'w') as f:
-                f.write(f"test_hardware_serial.py (--run-hardware)\n")
+                f.write("test_hardware_serial.py (--run-hardware)\n")
                 f.write(f"Return code: {result.returncode}\n\n")
                 f.write(result.stdout)
                 if result.stderr:
@@ -2299,7 +2316,7 @@ def generate_support_report(self):
             'Etaluma Tech Support.\\n\\n'
             'The stage will be homed and moved during testing.\\n'
             'Please remove any samples from the stage.\\n\\n'
-            'This may take a few minutes — please wait.'
+            'This may take a few minutes -- please wait.'
         ),
         confirm_text='Generate',
         cancel_text='Cancel',
@@ -2397,7 +2414,7 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(
-        description='Etaluma LumaViewPro — Tech Support Diagnostic Report',
+        description='Etaluma LumaViewPro -- Tech Support Diagnostic Report',
     )
     parser.add_argument('--output', '-o', type=str, default=None,
                         help='Output directory (default: Desktop)')
@@ -2455,7 +2472,7 @@ def main():
                     logger.info("  Please include this report and contact techsupport@etaluma.com")
                     logger.info("")
 
-        # Boards are owned by report.diag — no need to copy them to report
+        # Boards are owned by report.diag -- no need to copy them to report
         if mot_ok:
             logger.info("")
             logger.info("  ** The stage will be homed and moved during testing.  **")
@@ -2473,7 +2490,7 @@ def main():
     def cli_progress(pct, msg):
         filled = int(30 * pct / 100)
         bar = '█' * filled + '░' * (30 - filled)
-        # Progress bar uses carriage return — keep as print for CLI display
+        # Progress bar uses carriage return -- keep as print for CLI display
         print(f"\r  [{bar}] {pct:3d}%  {msg:<50s}", end='', flush=True)
 
     zip_path = report.generate(
@@ -2485,7 +2502,7 @@ def main():
     print('\n')  # Newline after progress bar
     if zip_path:
         logger.info(f"  Report saved: {zip_path}")
-        logger.info(f"  Please email to: techsupport@etaluma.com")
+        logger.info("  Please email to: techsupport@etaluma.com")
     else:
         logger.info("  Report generation failed.")
         logger.info("  Contact techsupport@etaluma.com directly.")

@@ -72,7 +72,7 @@ class NotificationCenter:
         self._dedup_window_s = dedup_window_s
         # Shutdown suppression flag. When True, notifications still
         # get LOGGED (so post-mortem diagnostics survive) but no
-        # listeners are invoked — prevents the 30+ error-notification
+        # listeners are invoked -- prevents the 30+ error-notification
         # flood during close that fires when queued IO tasks fail en
         # masse after the motor/camera disconnects. Issue #622.
         self._shutting_down = False
@@ -130,7 +130,7 @@ class NotificationCenter:
                 return  # logged above; listeners suppressed during close
             last = self._dedup.get(key, 0.0)
             if (now - last) < self._dedup_window_s:
-                return  # suppressed — already shown recently
+                return  # suppressed -- already shown recently
             self._dedup[key] = now
             listeners = list(self._listeners)
 
@@ -190,5 +190,5 @@ class NotificationCenter:
             self._dedup.clear()
 
 
-# Module-level singleton — import this in producers and consumers.
+# Module-level singleton -- import this in producers and consumers.
 notifications = NotificationCenter()

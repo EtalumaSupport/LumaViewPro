@@ -13,8 +13,6 @@ import datetime
 import logging
 import pathlib
 
-logger = logging.getLogger('LVP.modules.config_ui_getters')
-
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 import modules.config_helpers as config_helpers
@@ -22,6 +20,8 @@ from modules.stack_builder import StackBuilder
 from modules.tiling_config import TilingConfig
 from modules.zstack_config import ZStackConfig
 import modules.labware as labware
+
+logger = logging.getLogger('LVP.modules.config_ui_getters')
 
 
 # ---------------------------------------------------------------------------
@@ -51,7 +51,7 @@ def get_binning_from_ui() -> int:
         text = (
             _app_ctx.ctx.motion_settings.ids['microscope_settings_id'].ids['binning_spinner'].text
         )
-        # Spinner text may be formatted as "1x1", "2x2", etc. — extract the first number.
+        # Spinner text may be formatted as "1x1", "2x2", etc. -- extract the first number.
         if 'x' in text:
             text = text.split('x')[0]
         return int(text)
@@ -149,8 +149,8 @@ def get_current_frame_dimensions() -> dict:
     try:
         frame_width = int(microscope_settings.ids['frame_width_id'].text)
         frame_height = int(microscope_settings.ids['frame_height_id'].text)
-    except Exception:
-        raise ValueError(f'Invalid value for frame width/height')
+    except Exception as e:
+        raise ValueError('Invalid value for frame width/height') from e
 
     frame = {'width': frame_width, 'height': frame_height}
     return frame
@@ -198,6 +198,7 @@ def get_image_capture_config_from_ui() -> dict:
     return {
         'output_format': output_format,
         'use_full_pixel_depth': use_full_pixel_depth,
+        'jpg_quality': int(_app_ctx.ctx.settings.get('jpg_quality', 90)),
     }
 
 
@@ -216,7 +217,7 @@ def get_sequenced_capture_config_from_ui() -> dict:
 
     layer_configs = get_layer_configs()
 
-    config = {
+    return config_helpers.build_sequenced_capture_config({
         'labware_id': labware_id,
         'objective_id': objective_id,
         'zstack_params': zstack_params,
@@ -229,9 +230,7 @@ def get_sequenced_capture_config_from_ui() -> dict:
         'frame_dimensions': frame_dimensions,
         'binning_size': get_binning_from_ui(),
         'stim_config': get_stim_configs(),
-    }
-
-    return config
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -241,6 +240,10 @@ def get_sequenced_capture_config_from_ui() -> dict:
 
 def get_auto_gain_settings() -> dict:
     return config_helpers.get_auto_gain_settings(_app_ctx.ctx.settings)
+
+
+def get_ag_ae_max_exposure_ms(layer: str) -> float:
+    return config_helpers.get_ag_ae_max_exposure_ms(layer, _app_ctx.ctx.settings)
 
 
 def get_current_objective_info() -> tuple[str, dict]:
@@ -266,7 +269,12 @@ def get_protocol_time_params() -> dict:
 
     duration = datetime.timedelta(hours=duration)
 
-    return {'period': period, 'duration': duration}
+    # 1-second floor (preserves the 0 single-scan marker) so a short
+    # interval/duration stays representable and doesn't round to 0 (#568).
+    return {
+        'period': config_helpers.floor_protocol_time(period),
+        'duration': config_helpers.floor_protocol_time(duration),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -277,18 +285,18 @@ def get_protocol_time_params() -> dict:
 def create_hyperstacks_if_needed():
     ctx = _app_ctx.ctx
     image_capture_config = get_image_capture_config_from_ui()
-    if image_capture_config['output_format']['sequenced'] == 'ImageJ Hyperstack':
+    if image_capture_config['output_format']['sequenced'] == 'OME-TIFF Hyperstack':
         import threading
         from modules.notification_center import notifications
 
         notifications.info(
             'FileIO',
             'Saving Hyperstacks',
-            'Building ImageJ Hyperstacks from captured data.\n'
+            'Building OME-TIFF Hyperstacks from captured data.\n'
             'This may take several minutes for large datasets.',
         )
 
-        logger.info('Building ImageJ Hyperstacks from captured data')
+        logger.info('Building OME-TIFF Hyperstacks from captured data')
         _, objective = get_current_objective_info()
         run_dir = ctx.sequenced_capture_runner.run_dir()
         tiling_loc = pathlib.Path(ctx.source_path) / 'data' / 'tiling.json'

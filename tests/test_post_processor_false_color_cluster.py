@@ -58,120 +58,60 @@ def _write_mono_tiff(path, value, shape=(8, 8)):
     tf.imwrite(str(path), arr, compression='lzw')
 
 
-class TestZProjectorAppliesFalseColorForFluorescence:
-    """#669: 8-bit fluorescence z-projections must save as 3-channel RGB
-    when the false-color setting is on."""
+class TestStitcherGroupAlgorithmCarriesColor:
+    """Production call path: _group_algorithm receives the full-shape df
+    from protocol_post_processor.load_folder and slices it before passing
+    to _simple_position_stitcher. The slice must include 'Color' so the
+    write_tiff routing can pass the layer through to the colormap gate.
 
-    @pytest.mark.parametrize(
-        'color,expected_channel',
-        [
-            ('Red', 0),
-            ('Green', 1),
-            ('Blue', 2),
-        ],
-    )
-    def test_zproject_blue_uint8_writes_rgb_with_false_color_on(
-        self, tmp_path, false_color_setting_on, color, expected_channel
-    ):
-        # Build a 3-slice grayscale stack. The stubbed _ij_helper returns
-        # a fixed mono uint8 projection (value 150); the test exercises
-        # the save-side widening, not the projection math.
-        slice_paths = []
-        for i, val in enumerate((100, 150, 200)):
-            p = tmp_path / f'slice_{i}.tiff'
-            _write_mono_tiff(p, value=val)
-            slice_paths.append(p.name)
+    The earlier TestStitcherAppliesFalseColorForFluorescence tests skip
+    _group_algorithm and call _simple_position_stitcher directly with a
+    Color-bearing df, so they cannot catch a column-list narrowing in
+    _group_algorithm. This class exercises the production-shape path."""
 
-        df = pd.DataFrame({'Filepath': slice_paths, 'Color': [color] * 3})
-        # Bypass ZProjector.__init__ so ObjectiveLoader (which reads
-        # _app_ctx.ctx.source_path) doesn't trip on the stubbed ctx.
-        # Stub _ij_helper so the test doesn't depend on a Java/Maven
-        # runtime; the production code under test is the save-side
-        # widening, not the projection math itself.
-        zproj = ZProjector.__new__(ZProjector)
-        zproj._ij_helper = MagicMock()
-        zproj._ij_helper.zproject.return_value = np.full((8, 8), 150, dtype=np.uint8)
-        result = zproj._zproject(
-            path=tmp_path,
-            df=df,
-            method='Average',
-            output_file_loc=pd.Series(['out.tiff'])[0],
-        )
-        assert result['status'], f"_zproject failed: {result.get('error')}"
-
-        out = tf.imread(str(tmp_path / 'out.tiff'))
-        assert out.ndim == 3, (
-            f'{color} z-projection with false-color on must save as '
-            f'3-channel RGB, got shape {out.shape}. Pre-fix: bare '
-            f'tf.imwrite on the 2D projection bypassed the gate.'
-        )
-        assert out.shape[2] == 3
-        for ch in range(3):
-            if ch == expected_channel:
-                assert (out[..., ch] == 150).all(), (
-                    f'{color} projection plane (index {ch}) must carry '
-                    f'the (stubbed) projection value 150'
-                )
-            else:
-                assert (out[..., ch] == 0).all(), (
-                    f'non-{color} plane (index {ch}) must be zero'
-                )
-
-
-class TestStitcherAppliesFalseColorForFluorescence:
-    """#678: 8-bit fluorescence stitched tiles must save as 3-channel RGB
-    when the false-color setting is on."""
-
-    @pytest.mark.parametrize(
-        'color,expected_channel',
-        [
-            ('Red', 0),
-            ('Green', 1),
-            ('Blue', 2),
-        ],
-    )
-    def test_stitch_uint8_tiles_writes_rgb_with_false_color_on(
-        self, tmp_path, false_color_setting_on, color, expected_channel
-    ):
-        # 2x2 grid of mono uint8 tiles, all at value 200. The stitcher
-        # concatenates with no overlap into an 8x8 array; the fix widens
-        # the saved output to 3-channel RGB with one plane = 200.
-        tile_paths = []
+    def test_group_algorithm_slice_preserves_color(self, tmp_path, false_color_setting_on):
         rows = []
         for ix, x in enumerate((0.0, 1.0)):
             for iy, y in enumerate((0.0, 1.0)):
                 p = tmp_path / f'tile_{ix}_{iy}.tiff'
                 _write_mono_tiff(p, value=200, shape=(4, 4))
-                tile_paths.append(p.name)
                 rows.append({
                     'Filepath': p.name,
-                    'Color': color,
+                    'Color': 'Green',
                     'X': x,
                     'Y': y,
+                    'Well': 'A1',
+                    'Z-Slice': 0,
+                    'Objective': '20x',
+                    'Scan Count': 0,
                 })
         df = pd.DataFrame(rows)
-        result = Stitcher._simple_position_stitcher(
+        stitcher = Stitcher.__new__(Stitcher)
+        result = stitcher._group_algorithm(
             path=tmp_path,
             df=df,
             output_file_loc=pd.Series(['stitched.tiff'])[0],
         )
-        assert result['status'], 'stitcher returned status=False'
-
-        out = tf.imread(str(tmp_path / 'stitched.tiff'))
-        assert out.ndim == 3, (
-            f'{color} stitched output with false-color on must save as '
-            f'3-channel RGB, got shape {out.shape}. Pre-fix: bare '
-            f'tf.imwrite on the 2D stitched array bypassed the gate.'
+        assert result['status'], (
+            f"_group_algorithm returned status=False: {result.get('error')}. "
+            f'Narrowing the df subset without Color drops the layer the '
+            f"write_tiff routing needs for the colormap gate."
         )
-        assert out.shape[2] == 3
-        assert (out[..., expected_channel] == 200).all(), (
-            f'{color} stitched plane must carry the tile value 200'
+        with tf.TiffFile(str(tmp_path / 'stitched.tiff')) as tif:
+            page = tif.pages[0]
+            out = page.asarray()
+            photometric = page.tags['PhotometricInterpretation'].value
+            colormap_tag = page.tags.get('ColorMap')
+        assert out.ndim == 2, (
+            f'Stitched 8-bit fluorescence is mono on disk; layer color rides '
+            f'as the TIFF colormap tag. Got shape {out.shape}.'
         )
-        for ch in range(3):
-            if ch != expected_channel:
-                assert (out[..., ch] == 0).all(), (
-                    f'non-{color} plane (index {ch}) must be zero'
-                )
+        assert (out == 200).all(), 'Stitched pixels must carry the tile value'
+        assert photometric == tf.PHOTOMETRIC.PALETTE, (
+            f'8-bit fluorescence must save with PALETTE photometric so Windows '
+            f'Preview and FIJI render the layer color. Got {photometric}.'
+        )
+        assert colormap_tag is not None, 'PALETTE photometric requires a ColorMap tag'
 
 
 class TestPostProcessorSkipsFalseColorForTransmitted:
@@ -188,8 +128,6 @@ class TestPostProcessorSkipsFalseColorForTransmitted:
 
         df = pd.DataFrame({'Filepath': slice_paths, 'Color': ['BF'] * 3})
         zproj = ZProjector.__new__(ZProjector)
-        zproj._ij_helper = MagicMock()
-        zproj._ij_helper.zproject.return_value = np.full((8, 8), 150, dtype=np.uint8)
         result = zproj._zproject(
             path=tmp_path,
             df=df,

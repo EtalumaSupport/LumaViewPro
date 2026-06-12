@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Scope capability dataclass — the canonical "what does this scope have" query.
+"""Scope capability dataclass -- the canonical "what does this scope have" query.
 
 Pre-B7, callers asked capability questions piecemeal:
     scope.axes_present()            # list[str]
@@ -12,19 +12,19 @@ Pre-B7, callers asked capability questions piecemeal:
 Each query touched the driver layer. Queries from different subsystems had
 subtly different code paths, different error-handling, and different names
 for the same underlying facts ("has_turret" vs "'T' in axes_present" vs
-"motion.has_turret()"). Rule 9 ("Query capabilities, don't assume") called
-for a single place where this information lives.
+"motion.has_turret()"). Callers need a single place where this information
+lives -- query capabilities, don't assume.
 
 ScopeCapabilities is that place. It's a frozen dataclass built once at
 init from the three drivers (motion / LED / camera). Callers read fields
 directly. The existing capability methods on Lumascope (`axes_present`,
 `has_turret`, etc.) stay as thin wrappers so no caller code has to
-change — but new code should prefer `scope.capabilities.*`.
+change -- but new code should prefer `scope.capabilities.*`.
 
 **Scope:** ScopeCapabilities contains static hardware *structure* (what
-axes exist, what LED channels exist, what camera profile is loaded) —
+axes exist, what LED channels exist, what camera profile is loaded) --
 things that don't change at runtime. It deliberately does NOT include
-live connection state (`motor_connected`, `led_connected`, etc.) — those
+live connection state (`motor_connected`, `led_connected`, etc.) -- those
 must reflect disconnects at runtime and stay as live Lumascope
 properties, not frozen snapshot fields.
 """
@@ -33,7 +33,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any, Callable, Mapping
+from typing import Any
+from collections.abc import Callable, Mapping
 
 from drivers.exceptions import HardwareError
 from lvp_logger import logger
@@ -45,7 +46,7 @@ def _probe(label: str, fn: Callable[[], Any], fallback: Any) -> Any:
     code) propagate so they surface for debugging.
 
     Catches:
-        - AttributeError / NotImplementedError: feature absent per Rule 8.
+        - AttributeError / NotImplementedError: feature absent.
         - HardwareError: real driver fault. Logged at warning so it's
           visible in main log; fallback used so capability dataclass
           still constructs.
@@ -61,8 +62,8 @@ def _probe(label: str, fn: Callable[[], Any], fallback: Any) -> Any:
 
 # Canonical home for the LED current cap (matches firmware CH_MAX).
 # Lumascope previously carried this as a `LED_MAX_MA` class constant
-# (freeze-audit Finding #38) which surfaced the same value on two
-# layers with inconsistent SoT; capabilities is the right home.
+# which surfaced the same value on two layers with inconsistent SoT;
+# capabilities is the right home.
 LED_MAX_MA: int = 1000
 
 
@@ -71,13 +72,13 @@ class ScopeCapabilities:
     """Immutable snapshot of what a scope has.
 
     Built once at `Lumascope.__init__` from the three drivers. Fields
-    are tuples (not lists) to reinforce immutability — a caller that
+    are tuples (not lists) to reinforce immutability -- a caller that
     wants to mutate would have to shallow-copy into their own list.
     """
 
     # ---- Motion ----
     axes: tuple[str, ...]
-    """Axes physically present on this scope — from
+    """Axes physically present on this scope -- from
     `motion.detect_present_axes()`. e.g. ('Z',) for LS820/LVC LS620,
     ('X','Y','Z') for LS850, ('X','Y','Z','T') for LS850T, () for no
     motor hardware."""
@@ -121,12 +122,12 @@ class ScopeCapabilities:
 
     # ---- LED ----
     led_channels: tuple[int, ...]
-    """LED channel indices available — from `led.available_channels()`.
+    """LED channel indices available -- from `led.available_channels()`.
     RP2040 = (0,1,2,3,4,5), FX2/LVC = (0,1,2,3). NullLEDBoard also returns
     the 6-channel set for Rule 8 silent-noop compatibility."""
 
     led_colors: tuple[str, ...]
-    """Color names available — from `led.available_colors()`."""
+    """Color names available -- from `led.available_colors()`."""
 
     led_max_ma: int
     """Maximum LED current per channel, in mA. Currently a constant
@@ -143,12 +144,26 @@ class ScopeCapabilities:
     camera_binning_sizes: tuple[int, ...]
     camera_max_exposure_ms: int
 
-    camera_max_frame_size: 'tuple[int, int]'
+    camera_max_frame_size: tuple[int, int]
     """Maximum camera frame size as ``(width, height)`` in pixels.
     Per-camera-immutable: sourced from the camera driver's
     get_max_frame_size() at boot. (0, 0) when no camera driver is
     connected. Use ``scope.imaging.set_frame_size`` to request a
     smaller-than-max region; this field gives the upper bound."""
+
+    is_color_native: bool = False
+    """True if the camera natively produces 3-channel color frames
+    (Bayer-decoded RGB out of the SDK). False for mono cameras (the
+    LVP shipping fleet -- all Pylon and IDS sensors used to date).
+    Defaults to False so unknown/missing camera path treats output
+    as mono."""
+
+    native_bit_depth: int = 16
+    """Container bit depth that the driver delivers to downstream code.
+    Mono10 / Mono12 / Mono16 packed into uint16 buffers all report 16
+    (the container width, not the payload bits). Sensors that report
+    Mono8 directly (IDS IMX676 -- U3-34L0XCP-M) report 8. Drives
+    buffer sizing decisions in pipeline stages."""
 
     # ---- Cross-cutting feature flags ----
     has_firmware_stim: bool = False
@@ -159,6 +174,23 @@ class ScopeCapabilities:
     firmware STIM eliminates the bridge-batching problem by running the
     pulse train inside the LED firmware with sub-microsecond pulse-edge
     accuracy. Caller gates with `caps.supports('firmware_stim')`."""
+
+    has_motor_stop: bool = False
+    """True when the motor firmware implements the STOP emergency-stop
+    command (sets target=actual on every axis). Probed at boot via
+    `motion.supports_motor_stop()`. Field firmware from 2024 replies
+    ERROR to STOP; the driver returns False from motor_stop there and
+    motors latch on host disconnect instead."""
+
+    has_fan: bool = False
+    """True when the motor firmware implements the fan commands
+    (FAN:<duty> PWM control + FANSPEED tachometer query). Probed at
+    boot via `motion.supports_fan()`."""
+
+    has_diagnostics: bool = False
+    """True when the motor firmware implements the diagnostic queries
+    (VOLTAGE power-rail check, DRVSTAT_<axis> driver status). Probed
+    at boot via `motion.supports_diagnostics()`."""
 
     hardware_features: frozenset[str] = frozenset()
     """Set of hardware-feature tokens this scope advertises. Per Rule 8
@@ -179,9 +211,9 @@ class ScopeCapabilities:
     def supports(self, feature: str) -> bool:
         """Return True if the scope advertises the named feature.
 
-        Cross-surface helper that the Rule 8 capability-probe corollary
-        cites: callers test for a feature by token rather than by
-        knowing which surface owns it. Searches the boolean
+        Cross-surface helper for the capability-probe pattern: callers
+        test for a feature by token rather than by knowing which surface
+        owns it. Searches the boolean
         `has_<feature>` fields (motion-shape: focus / xy_stage /
         turret) and the boolean `camera_supports_<feature>` fields
         (camera-shape: auto_gain / auto_exposure) for a match. Unknown
@@ -202,12 +234,10 @@ class ScopeCapabilities:
             return True
         if getattr(self, f'camera_supports_{feature}', False):
             return True
-        if feature in self.hardware_features:
-            return True
-        return False
+        return feature in self.hardware_features
 
     @classmethod
-    def from_drivers(cls, motion, led, camera, led_max_ma: int = LED_MAX_MA) -> 'ScopeCapabilities':
+    def from_drivers(cls, motion, led, camera, led_max_ma: int = LED_MAX_MA) -> ScopeCapabilities:
         """Build a ScopeCapabilities snapshot from the three drivers.
 
         Tolerant of None / Null implementations. Never raises -- if a
@@ -254,6 +284,25 @@ class ScopeCapabilities:
             47.8,
         )
 
+        # Motor firmware command families. Probe-and-cache on the
+        # driver: one wire exchange each at boot (motors idle), then
+        # cached for the life of the connection.
+        has_motor_stop = _probe(
+            'motion.supports_motor_stop',
+            lambda: bool(motion.supports_motor_stop()),
+            False,
+        )
+        has_fan = _probe(
+            'motion.supports_fan',
+            lambda: bool(motion.supports_fan()),
+            False,
+        )
+        has_diagnostics = _probe(
+            'motion.supports_diagnostics',
+            lambda: bool(motion.supports_diagnostics()),
+            False,
+        )
+
         # LED
         led_channels = _probe('led.available_channels', lambda: tuple(led.available_channels()), ())
         led_colors = _probe('led.available_colors', lambda: tuple(led.available_colors()), ())
@@ -271,6 +320,8 @@ class ScopeCapabilities:
         camera_binning_sizes: tuple[int, ...] = ()
         camera_max_exposure_ms = 0
         camera_max_frame_size: tuple[int, int] = (0, 0)
+        is_color_native = False
+        native_bit_depth = 16
         if camera is not None:
             profile = getattr(camera, 'profile', None)
             if profile is not None:
@@ -284,6 +335,8 @@ class ScopeCapabilities:
             size = _probe('camera.get_max_frame_size', lambda: camera.get_max_frame_size(), None)
             if size:
                 camera_max_frame_size = (int(size.get('width', 0)), int(size.get('height', 0)))
+            is_color_native = bool(getattr(camera, 'is_color_native', False))
+            native_bit_depth = int(getattr(camera, 'native_bit_depth', 16))
 
         return cls(
             axes=axes,
@@ -291,6 +344,9 @@ class ScopeCapabilities:
             has_xy_stage=('X' in axes and 'Y' in axes),
             has_turret='T' in axes,
             motor_model=model,
+            has_motor_stop=has_motor_stop,
+            has_fan=has_fan,
+            has_diagnostics=has_diagnostics,
             axis_travel_limits_um=MappingProxyType(travel_limits),
             pixel_size_um=pixel_size_um,
             lens_focal_length_mm=lens_focal_length_mm,
@@ -305,4 +361,6 @@ class ScopeCapabilities:
             camera_binning_sizes=camera_binning_sizes,
             camera_max_exposure_ms=camera_max_exposure_ms,
             camera_max_frame_size=camera_max_frame_size,
+            is_color_native=is_color_native,
+            native_bit_depth=native_bit_depth,
         )

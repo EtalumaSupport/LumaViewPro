@@ -3,7 +3,7 @@
 """Typed callback contract for protocol execution.
 
 Replaces the magic-string ``callbacks`` dict with a typed dataclass.
-Callers can still pass plain dicts — use ``ProtocolCallbacks.from_dict()``
+Callers can still pass plain dicts -- use ``ProtocolCallbacks.from_dict()``
 to convert.  The executor and sub-modules use attribute access instead of
 ``'key' in dict`` checks.
 
@@ -14,7 +14,8 @@ protocol-decomposition refactor.
 from __future__ import annotations
 
 import dataclasses
-from typing import Any, Callable, Optional
+from typing import Any, Optional
+from collections.abc import Callable
 
 
 @dataclasses.dataclass
@@ -27,36 +28,36 @@ class ProtocolCallbacks:
     """
 
     # --- Run lifecycle ---
-    protocol_iterate_pre: Optional[Callable] = None  # (n_scans, scan_count) -> None
-    run_scan_pre: Optional[Callable] = None  # () -> None
-    scan_iterate_post: Optional[Callable] = None  # () -> None
-    run_complete: Optional[Callable] = None  # (protocol=...) -> None
-    files_complete: Optional[Callable] = None  # (protocol=...) -> None
+    protocol_iterate_pre: Callable | None = None  # (n_scans, scan_count) -> None
+    run_scan_pre: Callable | None = None  # () -> None
+    scan_iterate_post: Callable | None = None  # () -> None
+    run_complete: Callable | None = None  # (protocol=...) -> None
+    files_complete: Callable | None = None  # (protocol=...) -> None
 
     # --- Autofocus ---
-    autofocus_in_progress: Optional[Callable] = None  # () -> None
-    autofocus_complete: Optional[Callable] = None  # () -> None  (UI notification)
-    reset_autofocus_btns: Optional[Callable] = None  # () -> None
-    restore_autofocus_state: Optional[Callable] = None  # (layer=, value=) -> None
+    autofocus_in_progress: Callable | None = None  # () -> None
+    autofocus_complete: Callable | None = None  # () -> None  (UI notification)
+    reset_autofocus_btns: Callable | None = None  # () -> None
+    restore_autofocus_state: Callable | None = None  # (layer=, value=) -> None
 
     # --- Motion / position ---
-    move_position: Optional[Callable] = None  # (axis: str) -> None
-    go_to_step: Optional[Callable] = None  # (**kwargs) -> None
-    update_step_number: Optional[Callable] = None  # (step: int) -> None
+    move_position: Callable | None = None  # (axis: str) -> None
+    go_to_step: Callable | None = None  # (**kwargs) -> None
+    update_step_number: Callable | None = None  # (step: int) -> None
 
     # --- LED state ---
-    leds_off: Optional[Callable] = None  # () -> None
-    led_state: Optional[Callable] = None  # (layer=, enabled=) -> None
+    leds_off: Callable | None = None  # () -> None
+    led_state: Callable | None = None  # (layer=, enabled=) -> None
 
     # --- Video / title bar ---
-    set_recording_title: Optional[Callable] = None  # (progress=...) -> None
-    set_writing_title: Optional[Callable] = None  # (progress=...) -> None
-    reset_title: Optional[Callable] = None  # () -> None
+    set_recording_title: Callable | None = None  # (elapsed_sec=..., total_sec=...) -> None
+    set_writing_title: Callable | None = None  # (progress=...) -> None
+    reset_title: Callable | None = None  # () -> None
 
     # --- Live UI (set by callers, forwarded as-is) ---
-    update_scope_display: Optional[Callable] = None  # () -> None
-    pause_live_ui: Optional[Callable] = None  # () -> None
-    resume_live_ui: Optional[Callable] = None  # () -> None
+    update_scope_display: Callable | None = None  # () -> None
+    pause_live_ui: Callable | None = None  # () -> None
+    resume_live_ui: Callable | None = None  # () -> None
 
     # --- UI shader / false-color state ---
     # Each protocol step calls layer_control.apply_settings() which sets
@@ -67,7 +68,7 @@ class ProtocolCallbacks:
     # (the LED hardware is cleared by leds_off; this clears the UI
     # shader). Callable signature: () -> None. Re-applies the shader
     # for the currently-open accordion (or BF default if none open).
-    restore_layer_shader: Optional[Callable] = None
+    restore_layer_shader: Callable | None = None
 
     @classmethod
     def from_dict(cls, d: dict[str, Any] | None) -> ProtocolCallbacks:

@@ -1,22 +1,20 @@
 #!/usr/bin/python3
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Image-save free functions extracted from `Lumascope` per Wave 7 Phase 6.
+"""Image-save free functions extracted from `Lumascope`.
 
 These were instance methods on `Lumascope` whose work is file-I/O,
 path generation, and metadata-construction -- transformation steps
 that take a `scope` (or its discrete settings) and produce a saved
 image. They don't belong on the API root, which is the
-hardware-composition root. After Phase 6f retirement of the Lumascope
-wrappers, callers import directly from this module:
+hardware-composition root. The Lumascope wrappers have been retired;
+callers import directly from this module:
 
     from modules.image_save import save_image
     save_image(scope, array=img, save_folder='./out', ...)
 
 The 5 `*_static` duplicates that previously lived on Lumascope were
-retired in 6c as dead code -- they had zero external callers; the
-static chain existed only because it existed.
-
-See docs/WAVE7_PHASE_6_PLAN.md for the extraction plan.
+retired as dead code -- they had zero external callers; the static
+chain existed only because it existed.
 """
 
 from __future__ import annotations
@@ -43,7 +41,7 @@ if TYPE_CHECKING:
 _NUM_SEQ_DIGITS = 6
 
 
-def get_next_save_path(scope: 'Lumascope', path) -> str:
+def get_next_save_path(scope: Lumascope, path) -> str:
     """Get the next save path given an existing save path.
 
     Increments the trailing numeric ID component on the filename and
@@ -78,13 +76,13 @@ def get_next_save_path(scope: 'Lumascope', path) -> str:
 
 
 def generate_image_save_path(
-    scope: 'Lumascope',
+    scope: Lumascope,
     save_folder,
     file_root,
     append,
     tail_id_mode,
     output_format,
-) -> 'pathlib.Path':
+) -> pathlib.Path:
     """Generate a unique save path for an image given the naming inputs.
 
     Resolves collisions per ``tail_id_mode`` ("increment" auto-numbers
@@ -123,6 +121,8 @@ def generate_image_save_path(
 
     if output_format == 'OME-TIFF':
         file_extension = '.ome.tiff'
+    elif output_format == 'JPG':
+        file_extension = '.jpg'
     else:
         file_extension = '.tiff'
 
@@ -169,7 +169,7 @@ def generate_image_save_path(
     return path
 
 
-def generate_image_metadata(scope: 'Lumascope', color, x, y, z) -> dict:
+def generate_image_metadata(scope: Lumascope, color, x, y, z) -> dict:
     """Build TIFF metadata dict for the current capture settings and position.
 
     Args:
@@ -212,7 +212,7 @@ def generate_image_metadata(scope: 'Lumascope', color, x, y, z) -> dict:
         sx=x,
         sy=y,
     )
-    well_label = scope.get_well_label()
+    well_label = scope.runtime_state.get_well_label()
 
     px = round(px, common_utils.max_decimal_precision('x'))
     py = round(py, common_utils.max_decimal_precision('y'))
@@ -227,9 +227,53 @@ def generate_image_metadata(scope: 'Lumascope', color, x, y, z) -> dict:
     )
 
     now_host = datetime.datetime.now()
+    microscope_model = scope.diagnostics.get_microscope_model()
+
+    # Instrument + Plate metadata for OME-XML compatibility (#491).
+    # Sourced from diagnostics + runtime_state; failures are non-fatal
+    # since the per-image save must not block on diagnostics flakes.
+    try:
+        motor_info = scope.diagnostics.get_motor_info()
+    except Exception:
+        motor_info = {'serial_number': None, 'firmware_version': None}
+    try:
+        camera_info = scope.diagnostics.get_camera_info()
+    except Exception:
+        camera_info = {'model': None}
+    plate_config = getattr(scope.runtime_state._labware, 'config', None) or {}
+
+    # Per-frame camera chunk metadata, captured at grab-time for THIS frame
+    # (Pylon ace 2 / dart M / dart R carry ExposureTime + Gain + FrameID +
+    # Timestamp every frame). These are the same chunk values frame_validity
+    # checks the camera settled to, so they are the authoritative, race-free
+    # source for the frame's gain/exposure metadata. The live
+    # get_exposure_time / get_gain calls are the fallback for cameras /
+    # frames without chunk data (IDS stores frames without chunks; also
+    # simulator and legacy). Both sources report what the hardware is
+    # ACTUALLY set to, never the requested value -- so even if a settings
+    # write silently failed, the recorded metadata stays truthful.
+    try:
+        handler = getattr(scope._camera_driver, 'cam_image_handler', None)
+        chunks = handler.get_last_chunks() if handler is not None else None
+    except Exception:
+        chunks = None
+    chunks = chunks or {}
+
+    _chunk_exp_us = chunks.get('ExposureTime')
+    exposure_ms_value = (
+        _chunk_exp_us / 1000.0
+        if _chunk_exp_us is not None
+        else scope.imaging.get_exposure_time()
+    )
+    _chunk_gain_db = chunks.get('Gain')
+    gain_db_value = (
+        _chunk_gain_db if _chunk_gain_db is not None else scope.imaging.get_gain()
+    )
+
     metadata = {
         'camera_make': 'Etaluma',
-        'microscope': scope.diagnostics.get_microscope_model(),
+        'microscope': microscope_model,
+        'microscope_model': microscope_model,
         'software': f'LumaViewPro {version}',
         'channel': color,
         'datetime': now_host.strftime('%Y:%m:%d %H:%M:%S'),
@@ -241,9 +285,9 @@ def generate_image_metadata(scope: 'Lumascope', color, x, y, z) -> dict:
         'y_pos': py,
         'z_pos_um': z,
         'exposure_time_ms': round(
-            scope.imaging.get_exposure_time(), common_utils.max_decimal_precision('exposure')
+            exposure_ms_value, common_utils.max_decimal_precision('exposure')
         ),
-        'gain_db': round(scope.imaging.get_gain(), common_utils.max_decimal_precision('gain')),
+        'gain_db': round(gain_db_value, common_utils.max_decimal_precision('gain')),
         'illumination_ma': (
             round(_ma, common_utils.max_decimal_precision('illumination'))
             if (_ma := scope.illumination.get_led_ma(color=color)) is not None
@@ -253,34 +297,51 @@ def generate_image_metadata(scope: 'Lumascope', color, x, y, z) -> dict:
         'pixel_size_um': pixel_size_um,
         'well_label': well_label,
         'timestamp_iso': now_host.isoformat(timespec='microseconds'),
+        'instrument': {
+            'manufacturer': 'Etaluma',
+            'model': microscope_model,
+            'serial_number': motor_info.get('serial_number'),
+            'firmware_version': motor_info.get('firmware_version'),
+            'camera_model': camera_info.get('model'),
+        },
+        'plate': {
+            'name': microscope_model or 'Plate',
+            'rows': plate_config.get('rows'),
+            'columns': plate_config.get('columns'),
+            'standard': plate_config.get('standard'),
+        },
     }
 
-    # Camera-side timestamp + frame-id provenance, when the camera
-    # supports chunk data (Pylon ace 2 / dart M / dart R always; IDS
-    # has ExposureTime/Gain but no ChunkTimestamp yet -- Stage 2 work).
-    # Read the most recent chunks; they're captured at-grab-time and
-    # are the right values for the most recent frame on this thread.
-    try:
-        handler = getattr(scope._camera_driver, 'cam_image_handler', None)
-        chunks = handler.get_last_chunks() if handler is not None else None
-    except Exception:
-        chunks = None
-    if chunks is not None:
-        ts_ticks = chunks.get('Timestamp')
-        if ts_ticks is not None:
-            metadata['timestamp_camera_ticks'] = int(ts_ticks)
-        tick_hz = getattr(scope._camera_driver, 'timestamp_tick_frequency_hz', None)
-        if tick_hz is not None:
-            metadata['timestamp_camera_tick_hz'] = int(tick_hz)
-        frame_id = chunks.get('FrameID')
-        if frame_id is not None:
-            metadata['frame_id'] = int(frame_id)
+    # Camera-side timestamp + frame-id provenance from the same grab-time
+    # chunk read above (Pylon ace 2 / dart M / dart R carry ChunkTimestamp;
+    # IDS has ExposureTime/Gain but no ChunkTimestamp yet -- Stage 2 work).
+    ts_ticks = chunks.get('Timestamp')
+    if ts_ticks is not None:
+        metadata['timestamp_camera_ticks'] = int(ts_ticks)
+    tick_hz = getattr(scope._camera_driver, 'timestamp_tick_frequency_hz', None)
+    if tick_hz is not None:
+        metadata['timestamp_camera_tick_hz'] = int(tick_hz)
+    frame_id = chunks.get('FrameID')
+    if frame_id is not None:
+        metadata['frame_id'] = int(frame_id)
 
     return metadata
 
 
+def _apply_save_orientation(array):
+    """Flip the camera array to the canonical save orientation.
+
+    Single source of the save-time orientation convention, applied
+    identically to every output format (TIFF, OME-TIFF, JPG) so they
+    can never diverge. The camera delivers rows top-to-bottom; the
+    saved image -- and the stitching / tiling pipeline that reads it
+    back -- expects the vertically-flipped view.
+    """
+    return np.flip(array, 0)
+
+
 def prepare_image_for_saving(
-    scope: 'Lumascope',
+    scope: Lumascope,
     array: np.ndarray,
     save_folder: str,
     file_root: str,
@@ -323,7 +384,7 @@ def prepare_image_for_saving(
     if array.dtype == np.uint16:
         array = image_utils.convert_12bit_to_16bit(array, out=out_12to16)
 
-    array = np.flip(array, 0)
+    array = _apply_save_orientation(array)
 
     path = generate_image_save_path(
         scope,
@@ -343,7 +404,7 @@ def prepare_image_for_saving(
 
 
 def save_image(
-    scope: 'Lumascope',
+    scope: Lumascope,
     array,
     save_folder='./capture',
     file_root='img_',
@@ -359,6 +420,7 @@ def save_image(
     out_12to16: np.ndarray | None = None,
     false_color_buf: np.ndarray | None = None,
     rgb_buf: np.ndarray | None = None,
+    jpeg_quality: int = 90,
 ) -> str:
     """Save an image array to a TIFF file with metadata.
 
@@ -370,7 +432,7 @@ def save_image(
         append: String appended to filename.
         color: Color label for the filename.
         tail_id_mode: "increment" for auto-numbered files, or None.
-        output_format: "TIFF" or "OME-TIFF".
+        output_format: "TIFF", "OME-TIFF", or "JPG".
         true_color: Actual channel color for metadata.
         x: Stage X position in um.
         y: Stage Y position in um.
@@ -381,6 +443,8 @@ def save_image(
         out_12to16: Preallocated 12-to-16-bit conversion buffer.
         false_color_buf: Preallocated false-color buffer.
         rgb_buf: Preallocated RGB buffer.
+        jpeg_quality: JPEG quality 1-100, used only when output_format
+            is "JPG".
 
     Returns:
         str: Path to the saved file.
@@ -400,44 +464,73 @@ def save_image(
             'the protocol will retry on the next step.'
         )
 
-    image_data = prepare_image_for_saving(
-        scope,
-        array=array,
-        save_folder=save_folder,
-        file_root=file_root,
-        append=append,
-        color=color,
-        tail_id_mode=tail_id_mode,
-        output_format=output_format,
-        true_color=true_color,
-        x=x,
-        y=y,
-        z=z,
-        out_12to16=out_12to16,
-    )
-
-    image = image_data['image']
-    metadata = image_data['metadata']
-    file_loc = metadata['file_loc']
-
-    if output_format == 'OME-TIFF':
-        ome = True
+    if output_format == 'JPG':
+        # JPG is a convenience / sharing export: no metadata is embedded
+        # and the pixels come from the raw array (to match the live
+        # preview), so skip prepare_image_for_saving. Its
+        # generate_image_metadata step requires objective / labware to be
+        # configured, which an ad-hoc JPG snapshot taken before a protocol
+        # is set up has no reason to need. Only the save path is required.
+        image = None
+        metadata = None
+        file_loc = generate_image_save_path(
+            scope,
+            save_folder=save_folder,
+            file_root=file_root,
+            append=append,
+            tail_id_mode=tail_id_mode,
+            output_format=output_format,
+        )
     else:
-        ome = False
+        image_data = prepare_image_for_saving(
+            scope,
+            array=array,
+            save_folder=save_folder,
+            file_root=file_root,
+            append=append,
+            color=color,
+            tail_id_mode=tail_id_mode,
+            output_format=output_format,
+            true_color=true_color,
+            x=x,
+            y=y,
+            z=z,
+            out_12to16=out_12to16,
+        )
+        image = image_data['image']
+        metadata = image_data['metadata']
+        file_loc = metadata['file_loc']
+
+    ome = output_format == 'OME-TIFF'
 
     try:
-        image_utils.write_tiff(
-            data=image,
-            file_loc=file_loc,
-            metadata=metadata,
-            ome=ome,
-            color=color,
-            use_false_color_16bit=use_false_color_16bit,
-            false_color_buf=false_color_buf,
-            rgb_buf=rgb_buf,
-        )
+        if output_format == 'JPG':
+            # Convenience / sharing export: bake the displayed channel
+            # color into 8-bit pixels and write a JPEG. Shares the
+            # orientation convention with the TIFF path via
+            # _apply_save_orientation (the only step both formats have in
+            # common); without it the JPG saved upside-down relative to the
+            # TIFFs and the tiling pipeline that reads them. Bit depth,
+            # color baking, and metadata are format-specific: JPG is an
+            # 8-bit rendered display image, TIFF / OME-TIFF carry the
+            # 16-bit data + metadata.
+            jpg_bytes = image_utils.encode_display_jpg(
+                _apply_save_orientation(array), color, jpeg_quality=jpeg_quality
+            )
+            pathlib.Path(file_loc).write_bytes(jpg_bytes)
+        else:
+            image_utils.write_tiff(
+                data=image,
+                file_loc=file_loc,
+                metadata=metadata,
+                ome=ome,
+                color=color,
+                use_false_color_16bit=use_false_color_16bit,
+                false_color_buf=false_color_buf,
+                rgb_buf=rgb_buf,
+            )
 
-        logger.info(f'[SCOPE API ] Saving Image to {file_loc}')
+        logger.debug(f'[SCOPE API ] Saving Image to {file_loc}')
     except Exception:
         logger.exception('[SCOPE API ] Error: Unable to save. Perhaps save folder does not exist?')
         notifications.error(
@@ -447,15 +540,15 @@ def save_image(
         )
         raise
 
-    # Env-gated handle-leak tracking; zero overhead when disabled.
-    # Enable with LVP_HANDLE_TRACE=1.
+    # Handle-leak tracking; zero overhead when disabled. Enable via the
+    # profiling.handle_trace_enabled setting.
     _h_tick('save_image')
 
     return file_loc
 
 
 def save_live_image(
-    scope: 'Lumascope',
+    scope: Lumascope,
     save_folder='./capture',
     file_root='img_',
     append='ms',
@@ -472,6 +565,7 @@ def save_live_image(
     sum_iteration_callback=None,
     turn_off_all_leds_after: bool = False,
     use_executor: bool = False,
+    jpeg_quality: int = 90,
 ) -> str | None:
     """Grab the current live image from the camera and save to a TIFF file.
 
@@ -496,6 +590,8 @@ def save_live_image(
         sum_iteration_callback: Called after each summed frame.
         turn_off_all_leds_after: Turn off all LEDs after capture.
         use_executor: Reserved for future use.
+        jpeg_quality: JPEG quality 1-100, used only when output_format
+            is "JPG".
 
     Returns:
         str | None: Path to saved file, or None on failure.
@@ -526,4 +622,5 @@ def save_live_image(
         tail_id_mode,
         output_format=output_format,
         true_color=true_color,
+        jpeg_quality=jpeg_quality,
     )

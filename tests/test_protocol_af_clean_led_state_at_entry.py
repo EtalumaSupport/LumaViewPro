@@ -8,20 +8,28 @@ convention is documented at ``modules/step_navigation.py`` and
 
 Two mode-entry sites were silently skipping the convention:
 
-* ``modules/protocol_run_loop.py::_run_loop_inner`` — at scan start
+* ``modules/protocol_run_loop.py::_run_loop_inner`` -- at scan start
   with a Live-mode LED still on from before the user pressed Scan, the
-  first protocol step's ``led_on`` would add its channel on top of the
-  pre-scan LED. Both LEDs lit, first step's image blown out.
+  first protocol step's image would be lit by both the pre-scan LED and
+  the step's own channel. The run loop used to fix this with a nuclear
+  ``leds_off`` before step 0, but that cleared the LED-state cache so the
+  following same-color ``led_on`` could not self-skip and blinked the LED
+  off->on at every scan start. The clean slate now comes from the capture
+  path making its channel exclusive (off other channels, leave an
+  already-correct channel untouched) -- no leak into step 0, no blink.
 
-* ``modules/autofocus_runner.py::run`` — at AF start with a Live-mode
-  LED on a different channel than the AF channel, AF's ``_led_on``
-  would add its channel on top. AF's focus metric would see mixed
-  illumination and converge to the wrong Z.
+* ``modules/autofocus_runner.py::run`` -- at AF start with a Live-mode
+  LED on a different channel than the AF channel, additive illumination
+  would leave both lit. AF's focus metric would see mixed illumination
+  and converge to the wrong Z. AF now uses ``leds_exclusive`` so its
+  channel is the only one lit (and an already-lit AF channel is not
+  blinked off->on).
 
-Each fix inserts ``leds_off`` at the mode-entry hook BEFORE the
-operation's first ``led_on`` (or motion that precedes it). The tests
-below are structural AST locks — they fail if a future refactor drops
-the call, reorders it, or moves it past the first ``led_on``.
+Each fix establishes exclusive illumination: the protocol step path via
+the capture wiring to ``leds_exclusive``, and AF via ``leds_exclusive``
+after snapshotting prior state. The tests below are structural AST locks
+-- they fail if a future refactor re-introduces a cache-clearing
+``leds_off`` before step 0, or drops the exclusive illumination.
 """
 
 from __future__ import annotations
@@ -75,57 +83,45 @@ def _call_lineno(func_node: ast.FunctionDef, attr_chain: str) -> int | None:
 # ---------------------------------------------------------------------------
 
 
-class TestProtocolRunLoopLedsOffAtScanStart:
-    """Lock the scan-start leds_off in protocol_run_loop._run_loop_inner.
+class TestProtocolRunLoopNoCacheClearingLedsOffAtScanStart:
+    """Lock the ABSENCE of a cache-clearing leds_off before step 0.
 
-    The leds_off must be called BEFORE go_to_step(step_idx=0) so the
-    stage moves with LEDs off and step 0's led_on fires into a clean
-    state. The capture path's existing inter-step leds_off only covers
-    transitions between steps; step 0 has no previous step to clean up
-    after it, so the scan-start hook is the only place this happens.
+    The run loop used to call a nuclear ``_step_executor.leds_off()`` before
+    ``go_to_step(step_idx=0)`` to give step 0 a clean slate. That cleared the
+    LED-state cache, so the following same-color ``led_on`` could not self-skip
+    and blinked the LED off->on at every scan start. The clean-slate guarantee
+    moved to the capture path (wired to ``leds_exclusive``), which turns off
+    OTHER channels at capture time -- still killing a stray Live-mode LED so
+    step 0 is not double-illuminated, but without clearing the target's cache.
+    Behavioral coverage: tests/test_protocol_execution.py::TestProtocolLedNoFlash.
     """
 
     SRC = 'modules/protocol_run_loop.py'
     FUNC = '_run_loop_inner'
+    WIRING_SRC = 'modules/sequenced_capture_runner.py'
 
-    def test_leds_off_call_exists_in_run_loop_inner(self):
+    def test_no_nuclear_leds_off_before_go_to_step(self):
         func = _function_node(_module_source(self.SRC), self.FUNC)
-        lineno = _call_lineno(func, 'leds_off')
-        assert lineno is not None, (
-            f'{self.SRC}::{self.FUNC} must call leds_off() at scan start. '
-            'Without this, a Live-mode LED enabled before Scan press leaks '
-            "into step 0's illumination (issue #666 root cause)."
-        )
-
-    def test_leds_off_precedes_go_to_step(self):
-        func = _function_node(_module_source(self.SRC), self.FUNC)
-        leds_off_ln = _call_lineno(func, 'leds_off')
+        leds_off_ln = _call_lineno(func, '_step_executor.leds_off')
         go_to_step_ln = _call_lineno(func, 'go_to_step')
-        assert leds_off_ln is not None and go_to_step_ln is not None, (
-            f'{self.SRC}::{self.FUNC} must contain both leds_off and '
-            f'go_to_step calls (got leds_off={leds_off_ln}, '
-            f'go_to_step={go_to_step_ln}).'
+        assert go_to_step_ln is not None, (
+            f'{self.SRC}::{self.FUNC} must still call go_to_step.'
         )
-        assert leds_off_ln < go_to_step_ln, (
-            f'leds_off (line {leds_off_ln}) must precede go_to_step '
-            f"(line {go_to_step_ln}) in {self.FUNC}. Otherwise step 0's "
-            'motion runs with the pre-scan LED still lit and the first '
-            'captured image is blown out.'
+        assert leds_off_ln is None or leds_off_ln > go_to_step_ln, (
+            f'a nuclear _step_executor.leds_off() before go_to_step (line '
+            f'{leds_off_ln}) clears the LED-state cache and re-introduces the '
+            'scan-start off->on blink; step-0 exclusivity is established by the '
+            'capture path instead.'
         )
 
-    def test_leds_off_precedes_scan_loop(self):
-        func = _function_node(_module_source(self.SRC), self.FUNC)
-        leds_off_ln = _call_lineno(func, 'leds_off')
-        scan_loop_ln = _call_lineno(func, 'scan_loop')
-        assert leds_off_ln is not None and scan_loop_ln is not None, (
-            f'{self.SRC}::{self.FUNC} must contain both leds_off and '
-            f'scan_loop calls (got leds_off={leds_off_ln}, '
-            f'scan_loop={scan_loop_ln}).'
+    def test_capture_is_wired_to_leds_exclusive(self):
+        nospace = _module_source(self.WIRING_SRC).replace(' ', '')
+        assert 'led_on_fn=self._step_executor.leds_exclusive' in nospace, (
+            'capture must light its channel via leds_exclusive (offs other '
+            'channels, self-skips an already-lit one) so step 0 is not '
+            'double-illuminated by a stray Live-mode LED and not blinked.'
         )
-        assert leds_off_ln < scan_loop_ln, (
-            f'leds_off (line {leds_off_ln}) must precede scan_loop '
-            f'(line {scan_loop_ln}) in {self.FUNC}.'
-        )
+        assert 'led_on_fn=self._step_executor.led_on' not in nospace
 
 
 # ---------------------------------------------------------------------------
@@ -133,63 +129,53 @@ class TestProtocolRunLoopLedsOffAtScanStart:
 # ---------------------------------------------------------------------------
 
 
-class TestAutofocusRunnerLedsOffAtRunStart:
-    """Lock the AF-run-start leds_off in autofocus_runner.run.
+class TestAutofocusRunnerExclusiveIlluminationAtRunStart:
+    """Lock AF establishing exclusive illumination at run-start.
 
     Pre-AF save_led_state + post-AF restore_led_state(owner='autofocus')
-    already preserves user-visible LED state across an AF run, but
-    DURING the run, additive led_on would leave any pre-AF Live LED
-    lit alongside the AF channel. The focus metric would integrate
-    mixed illumination and converge to the wrong Z. Inserting leds_off
-    after the save_led_state snapshot and before _led_on ensures AF
-    scans with only its own channel lit; the snapshot/restore pair
-    handles user-visible preservation independently.
+    preserves user-visible LED state across an AF run, but DURING the run a
+    pre-AF Live LED on another channel would leave mixed illumination on the
+    focus metric and converge to the wrong Z. AF makes its own channel the
+    only lit one via the idempotent exclusive primitive (leds_exclusive), or
+    leds_off when no AF channel is configured, AFTER the snapshot. Using the
+    exclusive primitive (rather than leds_off + led_on) also leaves an
+    already-lit AF channel untouched, so AF does not blink it off->on at scan
+    start; the snapshot/restore pair handles user-visible preservation.
     """
 
     SRC = 'modules/autofocus_runner.py'
     FUNC = 'run'
 
-    def test_leds_off_call_exists_in_run(self):
+    def _clear_lineno(self, func):
+        """Line of the call that establishes exclusive AF illumination --
+        leds_exclusive (configured channel) or leds_off (ambient fallback)."""
+        exclusive_ln = _call_lineno(func, 'leds_exclusive')
+        return exclusive_ln if exclusive_ln is not None else _call_lineno(func, 'leds_off')
+
+    def test_exclusive_illumination_call_exists_in_run(self):
         func = _function_node(_module_source(self.SRC), self.FUNC)
-        lineno = _call_lineno(func, 'leds_off')
-        assert lineno is not None, (
-            f'{self.SRC}::{self.FUNC} must call leds_off before '
-            'self._led_on() so the AF scan illuminates with only the '
-            'AF channel (not pre-AF Live LED + AF LED combined).'
+        assert self._clear_lineno(func) is not None, (
+            f'{self.SRC}::{self.FUNC} must establish exclusive AF '
+            'illumination (leds_exclusive, or leds_off when no AF channel is '
+            'configured) so the scan is not corrupted by a pre-AF Live LED.'
         )
 
-    def test_leds_off_precedes_led_on(self):
-        func = _function_node(_module_source(self.SRC), self.FUNC)
-        leds_off_ln = _call_lineno(func, 'leds_off')
-        led_on_ln = _call_lineno(func, '_led_on')
-        assert leds_off_ln is not None and led_on_ln is not None, (
-            f'{self.SRC}::{self.FUNC} must contain both leds_off and '
-            f'_led_on calls (got leds_off={leds_off_ln}, '
-            f'_led_on={led_on_ln}).'
-        )
-        assert leds_off_ln < led_on_ln, (
-            f'leds_off (line {leds_off_ln}) must precede _led_on '
-            f"(line {led_on_ln}) in {self.FUNC}. Otherwise AF's _led_on "
-            'fires before the pre-AF Live LED is cleared and the focus '
-            'metric integrates mixed illumination.'
-        )
-
-    def test_leds_off_follows_save_led_state(self):
-        """save_led_state must snapshot BEFORE leds_off so the
-        pre-AF state can be restored on exit. The order must be:
-        save_led_state -> leds_off -> _led_on -> ... -> restore_led_state.
+    def test_exclusive_illumination_follows_save_led_state(self):
+        """save_led_state must snapshot BEFORE the illumination is changed so
+        the pre-AF state can be restored on exit. Order:
+        save_led_state -> leds_exclusive/leds_off -> ... -> restore_led_state.
         """
         func = _function_node(_module_source(self.SRC), self.FUNC)
         save_ln = _call_lineno(func, 'save_led_state')
-        leds_off_ln = _call_lineno(func, 'leds_off')
-        assert save_ln is not None and leds_off_ln is not None, (
-            f'{self.SRC}::{self.FUNC} must call both save_led_state and '
-            f'leds_off (got save_led_state={save_ln}, '
-            f'leds_off={leds_off_ln}).'
+        clear_ln = self._clear_lineno(func)
+        assert save_ln is not None and clear_ln is not None, (
+            f'{self.SRC}::{self.FUNC} must call save_led_state and then '
+            f'establish exclusive illumination (got save_led_state={save_ln}, '
+            f'clear={clear_ln}).'
         )
-        assert save_ln < leds_off_ln, (
-            f'save_led_state (line {save_ln}) must precede leds_off '
-            f'(line {leds_off_ln}) so the pre-AF LED state is captured '
-            'before being cleared. Otherwise post-AF restore_led_state '
-            'would restore the wrong snapshot.'
+        assert save_ln < clear_ln, (
+            f'save_led_state (line {save_ln}) must precede the exclusive '
+            f'illumination call (line {clear_ln}) so the pre-AF LED state is '
+            'captured before being changed. Otherwise post-AF '
+            'restore_led_state would restore the wrong snapshot.'
         )

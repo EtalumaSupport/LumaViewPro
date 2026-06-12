@@ -1,6 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """
-Tests for Protocol.validate_steps() — field-level validation of protocol steps.
+Tests for Protocol.validate_steps() -- field-level validation of protocol steps.
 
 Uses the real ObjectiveLoader loading the real objectives.json, so objective
 names in test steps must match real entries in data/objectives.json.
@@ -16,7 +16,7 @@ import pytest
 from modules.protocol import Protocol
 
 
-# Real objective names from data/objectives.json — must match for validation
+# Real objective names from data/objectives.json -- must match for validation
 _VALID_OBJECTIVE = '4x Oly'
 _INVALID_OBJECTIVE = '100x Oil Imm Fake'
 
@@ -30,7 +30,7 @@ def _make_protocol(steps_data: list[dict], labware_id: str = '96 well microplate
     """Create a Protocol with given steps.
 
     Bypasses Protocol.__init__ because it requires a full valid config dict
-    with a loaded DataFrame — validate_steps() only needs _config, so we
+    with a loaded DataFrame -- validate_steps() only needs _config, so we
     set that directly. This is NOT a mock of Protocol's behavior; it just
     skips the constructor's file-loading step.
     """
@@ -72,7 +72,7 @@ def _make_protocol(steps_data: list[dict], labware_id: str = '96 well microplate
         'duration': datetime.timedelta(hours=1),
         'labware_id': labware_id,
     }
-    # Real ObjectiveLoader — reads data/objectives.json
+    # Real ObjectiveLoader -- reads data/objectives.json
     from modules.objectives_loader import ObjectiveLoader
 
     p._objective_loader = ObjectiveLoader()
@@ -273,7 +273,7 @@ class TestMultipleErrors:
 
 
 # ---------------------------------------------------------------------------
-# validate_for_run() tests — pre-execution runtime validation
+# validate_for_run() tests -- pre-execution runtime validation
 # ---------------------------------------------------------------------------
 
 _DEFAULT_AXIS_LIMITS = {
@@ -283,7 +283,7 @@ _DEFAULT_AXIS_LIMITS = {
 }
 
 
-# No WellPlateLoader fixture — tests use the real loader with real labware.json.
+# No WellPlateLoader fixture -- tests use the real loader with real labware.json.
 # Labware IDs in test steps must match real entries in data/labware.json.
 
 
@@ -355,7 +355,7 @@ class TestValidateForRunNoLimits:
         assert not any('outside travel limits' in e for e in errors)
 
     def test_partial_axis_limits(self):
-        """Only Z limits provided — X and Y should not be checked."""
+        """Only Z limits provided -- X and Y should not be checked."""
         limits = {'Z': {'min': 0, 'max': 14000}}
         p = _make_protocol([_valid_step(X=999999, Z=15000)])
         errors = p.validate_for_run(axis_limits=limits)

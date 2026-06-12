@@ -13,6 +13,8 @@ These algorithms handle the harder case: overlapping tiles with potential
 lens distortion and illumination variation.
 """
 
+from collections import deque
+
 import cv2
 import numpy as np
 from lvp_logger import logger
@@ -296,7 +298,19 @@ def align_tile_positions(
     max_correction_px: int = 12,
     min_overlap_px: int = 16,
 ) -> list[dict]:
-    """Return tiles with overlap-registered x/y placement corrections."""
+    """Return tiles with overlap-registered x/y placement corrections.
+
+    Propagates registration offsets from a top-left anchor across the tile
+    lattice via a 4-neighbor (left/right/up/down) breadth-first flood, so
+    every tile reachable from the anchor through present neighbors is
+    registered -- not only those on a pure right/down path. Sparse or ragged
+    groups (a partially off-stage region drops interior tiles but keeps the
+    rest in one tile group) therefore register across the gap instead of
+    stranding the tiles past a hole at zero offset. Tiles with no overlap
+    path to the anchor (a disconnected component, or two tiles whose nominal
+    positions round to the same lattice key) keep nominal placement and are
+    logged.
+    """
     if not tiles:
         return []
 
@@ -304,41 +318,61 @@ def align_tile_positions(
     corrected = [dict(tile) for tile in tiles]
     offsets: dict[int, tuple[int, int]] = {}
 
+    x_index = {x: i for i, x in enumerate(x_values)}
+    y_index = {y: i for i, y in enumerate(y_values)}
+
     anchor = by_position[(x_values[0], y_values[0])]
     offsets[anchor] = (0, 0)
 
-    changed = True
-    while changed:
-        changed = False
-        for y in y_values:
-            for x_idx, x in enumerate(x_values):
-                idx = by_position.get((x, y))
-                if idx is None or idx not in offsets:
-                    continue
-                base_dx, base_dy = offsets[idx]
+    # 4-neighbor BFS over present lattice positions. Each dequeued tile
+    # registers any not-yet-placed grid neighbor that exists, then enqueues
+    # it. Exploring all four directions lets the flood route around a hole
+    # (reach a tile via up/left when the right/down path is blocked) --
+    # estimate_overlap_offset / _overlap_views handle the negative nominal
+    # displacement of left/up edges symmetrically.
+    queue: deque[int] = deque([anchor])
+    while queue:
+        idx = queue.popleft()
+        base_dx, base_dy = offsets[idx]
+        x = int(tiles[idx]['x_px'])
+        y = int(tiles[idx]['y_px'])
+        xi = x_index[x]
+        yi = y_index[y]
 
-                neighbors = []
-                if x_idx + 1 < len(x_values):
-                    neighbors.append((x_values[x_idx + 1], y))
-                y_idx = y_values.index(y)
-                if y_idx + 1 < len(y_values):
-                    neighbors.append((x, y_values[y_idx + 1]))
+        neighbors = []
+        if xi - 1 >= 0:
+            neighbors.append((x_values[xi - 1], y))
+        if xi + 1 < len(x_values):
+            neighbors.append((x_values[xi + 1], y))
+        if yi - 1 >= 0:
+            neighbors.append((x, y_values[yi - 1]))
+        if yi + 1 < len(y_values):
+            neighbors.append((x, y_values[yi + 1]))
 
-                for nx, ny in neighbors:
-                    nidx = by_position.get((nx, ny))
-                    if nidx is None or nidx in offsets:
-                        continue
-                    corr_x, corr_y, score = estimate_overlap_offset(
-                        reference=tiles[idx]['tile'],
-                        moving=tiles[nidx]['tile'],
-                        nominal_dx=nx - x,
-                        nominal_dy=ny - y,
-                        max_correction_px=max_correction_px,
-                        min_overlap_px=min_overlap_px,
-                    )
-                    offsets[nidx] = (base_dx + corr_x, base_dy + corr_y)
-                    corrected[nidx]['registration_score'] = score
-                    changed = True
+        for nx, ny in neighbors:
+            nidx = by_position.get((nx, ny))
+            if nidx is None or nidx in offsets:
+                continue
+            corr_x, corr_y, score = estimate_overlap_offset(
+                reference=tiles[idx]['tile'],
+                moving=tiles[nidx]['tile'],
+                nominal_dx=nx - x,
+                nominal_dy=ny - y,
+                max_correction_px=max_correction_px,
+                min_overlap_px=min_overlap_px,
+            )
+            offsets[nidx] = (base_dx + corr_x, base_dy + corr_y)
+            corrected[nidx]['registration_score'] = score
+            queue.append(nidx)
+
+    unregistered = [idx for idx in range(len(tiles)) if idx not in offsets]
+    if unregistered:
+        logger.warning(
+            f'align_tile_positions: {len(unregistered)} of {len(tiles)} tiles '
+            f'had no overlap path to the anchor (disconnected component or '
+            f'colliding nominal positions); placed at nominal stage position '
+            f'without registration correction'
+        )
 
     for idx, tile in enumerate(corrected):
         corr_x, corr_y = offsets.get(idx, (0, 0))
@@ -368,6 +402,13 @@ def stitch_registered_tiles(
 
     sample = registered[0]['tile']
     tile_h, tile_w = sample.shape[:2]
+    # All tiles in a stitch group must share channel layout; a mix of mono
+    # (ndim 2) and color (ndim 3) tiles would broadcast-fail in the
+    # accumulator blend below. Surface it as a clear error up front so the
+    # caller falls back to the simple grid stitch instead of hitting a
+    # cryptic broadcast ValueError mid-blend.
+    if any(tile['tile'].ndim != sample.ndim for tile in registered):
+        raise ValueError('Cannot stitch a mix of mono and color tiles in one group')
     if output_shape is None:
         min_x = min(int(tile['registered_x_px']) for tile in registered)
         min_y = min(int(tile['registered_y_px']) for tile in registered)
@@ -385,8 +426,13 @@ def stitch_registered_tiles(
         acc_shape = (max_y - min_y, max_x - min_x, sample.shape[2])
         weight_shape = (max_y - min_y, max_x - min_x, 1)
 
-    accumulator = np.zeros(acc_shape, dtype=np.float64)
-    weights = np.zeros(weight_shape, dtype=np.float64)
+    # float32 (not float64): each whole-mosaic canvas can be multiple GB, and
+    # the blend is an integer-pixel average. Products/sums of uint8/uint16
+    # pixels over the handful of tiles overlapping any pixel stay well inside
+    # float32's exact-integer range (2**24), so the averaged result is
+    # byte-identical to float64 at half the memory.
+    accumulator = np.zeros(acc_shape, dtype=np.float32)
+    weights = np.zeros(weight_shape, dtype=np.float32)
 
     for tile in registered:
         image = tile['tile']
@@ -409,14 +455,16 @@ def stitch_registered_tiles(
 
         accumulator[dst_y0:dst_y1, dst_x0:dst_x1] += image[
             src_y0:src_y1, src_x0:src_x1
-        ].astype(np.float64)
+        ].astype(np.float32)
         weights[dst_y0:dst_y1, dst_x0:dst_x1] += 1.0
 
-    output = np.zeros(acc_shape, dtype=np.float64)
-    np.divide(accumulator, weights, out=output, where=weights > 0)
+    # Divide in place -- accumulator becomes the averaged mosaic, dropping a
+    # third whole-mosaic canvas. where=weights>0 leaves never-covered pixels
+    # at their initialized 0.
+    np.divide(accumulator, weights, out=accumulator, where=weights > 0)
 
     if np.issubdtype(sample.dtype, np.integer):
         info = np.iinfo(sample.dtype)
-        output = np.clip(output, info.min, info.max)
+        np.clip(accumulator, info.min, info.max, out=accumulator)
 
-    return output.astype(sample.dtype), registered
+    return accumulator.astype(sample.dtype), registered

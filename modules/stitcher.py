@@ -48,9 +48,11 @@ class Stitcher(ProtocolPostProcessor):
             objective_id=row0['Objective']
         )
 
-        # Use custom root + step name if available
-        custom_root = row0.get('Custom Root', '') if 'Custom Root' in row0 else ''
-        prefix = f'{custom_root}_{row0["Name"]}' if custom_root not in (None, '') else row0['Name']
+        # Prepend the protocol's capture_root (passed in via kwargs by
+        # ProtocolPostProcessor.load_folder) so the stitched output
+        # carries the same filename root as the per-image saves.
+        capture_root = kwargs.get('capture_root', '')
+        prefix = f'{capture_root}_{row0["Name"]}' if capture_root else row0['Name']
         name = common_utils.generate_default_step_name(
             custom_name_prefix=prefix,
             well_label=row0['Well'],
@@ -68,13 +70,13 @@ class Stitcher(ProtocolPostProcessor):
     def _filter_ignored_types(self, df: pd.DataFrame) -> pd.DataFrame:
 
         # Skip already stitched outputs
-        df = df[df[self._post_function.value] == False]
+        df = df[df[self._post_function.value] == False]  # noqa: E712 -- pandas mask
 
         # Skip videos
-        df = df[df[PostFunction.VIDEO.value] == False]
+        df = df[df[PostFunction.VIDEO.value] == False]  # noqa: E712 -- pandas mask
 
         # Skip stacks
-        df = df[df[PostFunction.HYPERSTACK.value] == False]
+        df = df[df[PostFunction.HYPERSTACK.value] == False]  # noqa: E712 -- pandas mask
 
         return df
 
@@ -100,7 +102,7 @@ class Stitcher(ProtocolPostProcessor):
         )
         return Stitcher._simple_position_stitcher(
             path=path,
-            df=df[['Filepath', 'X', 'Y']],
+            df=df[['Filepath', 'X', 'Y', 'Color']],
             output_file_loc=kwargs.get('output_file_loc'),
         )
 
@@ -148,14 +150,12 @@ class Stitcher(ProtocolPostProcessor):
         zprojector). When None (test / legacy callers), returns the
         stitched array for the caller to save.
         """
-        # Load source images via tifffile (RGB-native; returns mono 2D
-        # for single-channel TIFFs). Matches the canonical read path
-        # used by composite_generation + zprojector, replacing the
-        # legacy cv2.imread BGR-native call.
-        images = {}
-        for _, row in df.iterrows():
-            image_filepath = path / row['Filepath']
-            images[row['Filepath']] = tf.imread(str(image_filepath))
+        # Tiles are read on demand inside the placement loop (one tile resident
+        # at a time) rather than pre-loaded into a dict: the simple path places
+        # each tile independently with no overlap, so peak memory is one tile +
+        # the canvas instead of every tile + the canvas. Reads go through
+        # tifffile (RGB-native; mono 2D for single-channel TIFFs), the canonical
+        # path shared with composite_generation + zprojector.
 
         df = df.copy()
 
@@ -172,7 +172,7 @@ class Stitcher(ProtocolPostProcessor):
 
         source_image_sample_row = df.iloc[0]
         source_image_sample_filename = source_image_sample_row['Filepath']
-        source_image_sample = images[source_image_sample_filename]
+        source_image_sample = tf.imread(str(path / source_image_sample_filename))
         source_image_h = source_image_sample.shape[0]
         source_image_w = source_image_sample.shape[1]
 
@@ -203,7 +203,7 @@ class Stitcher(ProtocolPostProcessor):
 
         for _, row in df.iterrows():
             filename = row['Filepath']
-            image = images[filename]
+            image = tf.imread(str(path / filename))
             im_x = image.shape[1]
             im_y = image.shape[0]
 
@@ -235,24 +235,27 @@ class Stitcher(ProtocolPostProcessor):
 
         # Self-write when output_file_loc is provided (canonical path
         # under protocol_post_processor). Matches composite_generation +
-        # zprojector. tifffile auto-detects photometric: 2D mono ->
-        # minisblack, 3D shape[-1]=3 -> rgb. Signal subclass-wrote via
+        # zprojector. Routes through write_tiff so the output carries
+        # the layer's PALETTE colormap (Windows Preview / FIJI render
+        # the layer color) plus the source acquisition context
+        # (objective, exposure, gain, pixel size, plate, instrument)
+        # forwarded from the first tile. Signal subclass-wrote via
         # image=None so the base class skips its own write branch.
         if output_file_loc is not None:
-            # Widen mono fluorescence to RGB before save so the stitched
-            # output matches the per-tile capture's false-color shape.
-            # Without this, the bare tifffile write below produces
-            # grayscale for Blue/Green/Red/Lumi stitches.
-            output_image = image_utils.maybe_apply_false_color(
-                data=stitched_img,
-                color=df['Color'].iloc[0],
-            )
             output_file_loc_abs = path / output_file_loc
             output_file_loc_abs.parent.mkdir(parents=True, exist_ok=True)
-            tf.imwrite(
-                str(output_file_loc_abs),
-                output_image,
-                compression='lzw',
+            first_tile_path = path / source_image_sample_filename
+            metadata = image_utils.build_postproc_output_metadata(
+                input_path=first_tile_path,
+                channel=source_image_sample_row['Color'],
+                plate_pos_mm_override=center,
+            )
+            image_utils.write_tiff(
+                data=stitched_img,
+                file_loc=output_file_loc_abs,
+                metadata=metadata,
+                ome=False,
+                color=source_image_sample_row['Color'],
             )
             return_image = None
         else:
@@ -362,17 +365,28 @@ class Stitcher(ProtocolPostProcessor):
         stitched_img, registered_tiles = stitch_registered_tiles(tiles)
 
         if output_file_loc is not None:
+            # Route through write_tiff (matching _simple_position_stitcher,
+            # zprojector, and composite_generation) so the stitched output
+            # carries the layer's PALETTE colormap -- Windows Preview / FIJI
+            # render the false color for 8-bit fluorescence -- plus the source
+            # acquisition context (objective, exposure, gain, pixel size,
+            # plate) forwarded from the first tile. A bare tf.imwrite drops
+            # both, leaving a flat grayscale, metadata-less file.
             color = df['Color'].iloc[0] if 'Color' in df.columns else ''
-            output_image = image_utils.maybe_apply_false_color(
-                data=stitched_img,
-                color=color,
-            )
             output_file_loc_abs = path / output_file_loc
             output_file_loc_abs.parent.mkdir(parents=True, exist_ok=True)
-            tf.imwrite(
-                str(output_file_loc_abs),
-                output_image,
-                compression='lzw',
+            first_tile_path = path / sample_row['Filepath']
+            metadata = image_utils.build_postproc_output_metadata(
+                input_path=first_tile_path,
+                channel=color,
+                plate_pos_mm_override=center,
+            )
+            image_utils.write_tiff(
+                data=stitched_img,
+                file_loc=output_file_loc_abs,
+                metadata=metadata,
+                ome=False,
+                color=color,
             )
             return_image = None
         else:

@@ -6,22 +6,15 @@ manifest only over multi-hour soaks. Use this when a long-soak run shows
 linear handle growth and you need to identify which per-call site is the
 source without rebuilding the exe between iterations.
 
-Default OFF. Two enable paths:
+Default OFF. Enable via settings.json (customer / bench operators):
+set `settings['profiling']['handle_trace_enabled'] = true`. The
+LumaViewProSettings.start_app() path calls `enable()` at app boot when
+the flag is true. Mirrors the existing `profiling.enabled` flag for
+MemoryLeakProfiler.
 
-  - **Settings.json** (preferred for customer / bench operators):
-    Set `settings['profiling']['handle_trace_enabled'] = true`. The
-    LumaViewProSettings.start_app() path calls `enable()` at app boot
-    when the flag is true. Mirrors the existing `profiling.enabled`
-    flag for MemoryLeakProfiler.
-
-  - **Env var** (dev convenience, no settings.json needed):
-    Set `LVP_HANDLE_TRACE=1` in the environment before launch. Read at
-    module-load; flips the same gate the settings path uses.
-
-Object-sample interval tunable via either
-`settings['profiling']['handle_trace_obj_sample_every']` (preferred)
-or `LVP_OBJ_SAMPLE_EVERY=N` env var. Default 1000 ticks; 200 is good
-for shorter diagnostic runs.
+Object-sample interval tunable via
+`settings['profiling']['handle_trace_obj_sample_every']`. Default 1000
+ticks; 200 is good for shorter diagnostic runs.
 
 Usage at call sites (zero-overhead when disabled, see ENABLE gate below):
 
@@ -46,7 +39,6 @@ Considered alternatives:
       (~6 captures/min * multiple labels = log spam).
 """
 
-import os
 import threading
 
 try:
@@ -118,13 +110,6 @@ def disable() -> None:
     """Deactivate handle-trace. Safe to call when already disabled."""
     global ENABLE
     ENABLE = False
-
-
-# Dev-convenience env-var path: enabled at module load if LVP_HANDLE_TRACE=1.
-# The settings.json path calls enable() later from
-# LumaViewProSettings.start_app() (parallel to the MemoryLeakProfiler hook).
-if os.environ.get('LVP_HANDLE_TRACE') == '1':
-    enable(obj_sample_every=int(os.environ.get('LVP_OBJ_SAMPLE_EVERY', '1000')))
 
 
 def tick(label: str, every_n: int = 50) -> None:

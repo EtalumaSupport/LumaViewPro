@@ -1,6 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 #
-# Rule 15: Executors must be GUI-agnostic. No Kivy imports here.
+# Executors must be GUI-agnostic. No Kivy imports here.
 # UI callbacks are dispatched via _ui_dispatch(), which defaults to
 # direct invocation. The GUI layer passes Clock.schedule_once as
 # the ui_dispatcher parameter when constructing executors.
@@ -38,6 +38,16 @@ _IOTASK_TRACE_HEADER = (
 # `is PROTOCOL_QUEUE_FULL` so a frame can be marked capture_failed in
 # the execution record instead of silently dropped.
 PROTOCOL_QUEUE_FULL = object()
+# Sentinel returned by put() when a frame-carrying (droppable_live) task is
+# dropped because too many are already in flight on the single worker.
+LIVE_FRAME_DROPPED = object()
+
+# Max in-flight frame-carrying (droppable_live) tasks on the default queue
+# before new frames are dropped (latest-wins). Bounds the live/record image
+# backlog so a stalled single worker can't pin GBs of ~3.5 MB frame buffers
+# (the manual-record balloon). Config / motor / save tasks are NOT droppable
+# and stay unbounded. ~16 frames ~= 58 MB ceiling.
+_LIVE_FRAME_MAXSIZE = 16
 
 
 class _ReusableTaskWaiter:
@@ -137,11 +147,11 @@ def _claim_waiter() -> _ReusableTaskWaiter:
 """
 IOTask
 - Encapsulates a single unit of work:
-    • action:         callable performing the I/O
-    • args, kwargs:   parameters for action
-    • callback:       optional function to call when done
-    • cb_args, cb_kwargs: arguments for callback
-    • pass_result:    if True, injects (result, exception) into cb_kwargs
+    - action:         callable performing the I/O
+    - args, kwargs:   parameters for action
+    - callback:       optional function to call when done
+    - cb_args, cb_kwargs: arguments for callback
+    - pass_result:    if True, injects (result, exception) into cb_kwargs
 - Usage:
     task = IOTask(
         action=grab_image,
@@ -164,6 +174,7 @@ class IOTask:
                      cb_args=None, cb_kwargs=None, pass_result=False,
                      slow_task_threshold_sec=None,
                      silent_on_failure=False,
+                     droppable_live: bool = False,
                      priority: int = PRIORITY_MED):
             self.action = action
             self.priority = priority
@@ -171,12 +182,18 @@ class IOTask:
             # When True, _on_task_done skips the generic "Task failed"
             # notification on exception -- the caller's callback (or its
             # surrounding context) is responsible for user-facing
-            # notification. Logs are unaffected. Rule 14: API/caller
-            # decides whether to notify, not the executor.
+            # notification. Logs are unaffected. The API/caller decides
+            # whether to notify, not the executor.
             self.silent_on_failure = silent_on_failure
+            # When True, this task carries a live/preview/record frame that the
+            # display or recording can drop when the single worker falls behind
+            # (latest-wins). The executor caps in-flight droppable_live tasks so
+            # a stalled worker can't pin GBs of frame buffers. Must-execute
+            # tasks (config, motor, save) leave this False and are never dropped.
+            self.droppable_live = droppable_live
             if args is None:
                 self.args = ()
-            # if it’s a sequence (list, tuple, etc) but not a string
+            # if it's a sequence (list, tuple, etc) but not a string
             elif isinstance(args, Sequence) and not isinstance(args, (str, bytes)):
                 self.args = tuple(args)
             else:
@@ -187,7 +204,7 @@ class IOTask:
             self.protocol = None
             self.name = ""
 
-            # Per-task slow threshold. None → use class default at run-time
+            # Per-task slow threshold. None -> use class default at run-time
             # (allows the class default to be tuned without per-instance
             # surprises). Pass an explicit float to override (e.g. 30.0
             # for tasks expected to take up to ~30 sec under normal load).
@@ -195,7 +212,7 @@ class IOTask:
 
             if cb_args is None:
                 self.cb_args = ()
-            # if it’s a sequence (list, tuple, etc) but not a string
+            # if it's a sequence (list, tuple, etc) but not a string
             elif isinstance(cb_args, Sequence) and not isinstance(cb_args, (str, bytes)):
                 self.cb_args = tuple(cb_args)
             else:
@@ -208,7 +225,7 @@ class IOTask:
             try:
                 threading.current_thread().name = self.name
                 if not callable(self.action):
-                    logger.warning(f"{self.name} Worker received non-callable action: {str(self.action)}")
+                    logger.warning(f"{self.name} Worker received non-callable action: {self.action!s}")
                 t_start = time.monotonic()
                 res = self.action(*self.args, **self.kwargs)
                 elapsed = time.monotonic() - t_start
@@ -257,23 +274,27 @@ class IOTask:
 
         def __call__(self):
             return self.run()
-        
+
         def __repr__(self):
-            return f"<IOTask: Action: {str(self.action)} Callback: {str(self.callback)}>"
+            return f"<IOTask: Action: {self.action!s} Callback: {self.callback!s}>"
 
 
 """
 SequentialIOExecutor
 - Manages a FIFO queue of IOTask instances.
-- Uses a ThreadPoolExecutor (configurable max_workers) to run tasks in the background.
-- Dispatches tasks one by one (or up to max_workers in parallel) and:
-    1. Calls task.run() on a worker thread.
+- Runs them on exactly ONE worker thread (sequential per hardware boundary):
+  one ordered command stream per executor, never overlapping. The max_workers
+  __init__ argument is retained only for call-signature back-compat and is
+  ignored -- widening it would reintroduce the task-retention surface the
+  single worker exists to avoid.
+- For each task the worker:
+    1. Calls task.run() on the worker thread.
     2. Captures (result, exception).
     3. Schedules task.on_complete(result, exception) on the main/UI thread.
 - Usage:
-    executor = SequentialIOExecutor(max_workers=2)
+    executor = SequentialIOExecutor()
     executor.start()
-    executor.enqueue(task)
+    executor.put(task)
     # ... later ...
     executor.shutdown(wait=True)
 """
@@ -348,6 +369,13 @@ class SequentialIOExecutor:
         self.protocol_queue = queue.Queue(maxsize=protocol_queue_maxsize)
         self.protocol_queue_maxsize = protocol_queue_maxsize
         self._protocol_queue_dropped_count = 0
+        # Selective bound for frame-carrying (droppable_live) tasks on the
+        # default queue. In-flight count guarded by its own lock; incremented
+        # at put(), decremented when the worker dequeues. Must-execute tasks
+        # are unaffected -- they never set droppable_live.
+        self._live_inflight = 0
+        self._live_dropped_count = 0
+        self._live_lock = threading.Lock()
         self.protocol_running = threading.Event()
         self.protocol_finish = threading.Event()
         self.name = name
@@ -386,7 +414,7 @@ class SequentialIOExecutor:
         self.protocol_complete_cb_args = ()
         self.protocol_complete_cb_kwargs = {}
 
-        # UI dispatcher — Rule 15: executors don't import GUI frameworks.
+        # UI dispatcher -- executors don't import GUI frameworks.
         # GUI layer passes Clock.schedule_once; tests/headless use default.
         self._ui_dispatch = ui_dispatcher or _direct_dispatch
 
@@ -427,7 +455,29 @@ class SequentialIOExecutor:
 
         if self.protocol_running.is_set() and not self.protocol_finish.is_set():
             return None
-        
+
+        # Selective backpressure: cap in-flight frame-carrying tasks so a
+        # stalled single worker can't pin GBs of frame buffers (the
+        # manual-record balloon). Drop the new frame -- latest-wins is the
+        # live/record contract -- with accounting. Must-execute tasks (config /
+        # motor / save) never set droppable_live and are unaffected.
+        if task.droppable_live:
+            with self._live_lock:
+                if self._live_inflight >= _LIVE_FRAME_MAXSIZE:
+                    self._live_dropped_count += 1
+                    n = self._live_dropped_count
+                    over = True
+                else:
+                    self._live_inflight += 1
+                    over = False
+            if over:
+                if n == 1 or n % 30 == 0:
+                    logger.warning(
+                        f"[{self.executor_name}] LIVE FRAME QUEUE FULL "
+                        f"(maxsize={_LIVE_FRAME_MAXSIZE}) -- dropping frame; "
+                        f"total drops this run: {n}")
+                return LIVE_FRAME_DROPPED
+
         # Push IO work item into queue. When return_future=True, hand
         # the caller a per-thread reusable waiter (was concurrent.futures
         # Future before; switched to drop Lock kernel-handle allocation
@@ -446,6 +496,28 @@ class SequentialIOExecutor:
         self.queue.put(task)
         task.set_name(self.executor_name)
         return fut
+
+    def admit_live_frame(self) -> bool:
+        """Backpressure gate for frame producers that have a side effect (e.g.
+        a reserved memmap slot) and so must decide to drop BEFORE producing.
+
+        Returns True if a frame may be enqueued (in-flight under the cap) or
+        False if the single worker is behind -- in which case the drop is
+        counted + throttled-logged here so the producer just returns without
+        reserving. The in-flight increment itself happens at put() for the
+        droppable_live task. Mirrors the F-2 protocol_queue drop accounting.
+        """
+        with self._live_lock:
+            if self._live_inflight < _LIVE_FRAME_MAXSIZE:
+                return True
+            self._live_dropped_count += 1
+            n = self._live_dropped_count
+        if n == 1 or n % 30 == 0:
+            logger.warning(
+                f"[{self.executor_name}] LIVE FRAME backlog at cap "
+                f"({_LIVE_FRAME_MAXSIZE}) -- dropping frame before enqueue; "
+                f"total drops this run: {n}")
+        return False
 
     def protocol_put(self, task: IOTask, return_future: bool = False):
         """
@@ -477,7 +549,7 @@ class SequentialIOExecutor:
         # F-2: bounded queues use put_nowait so an overflowing save thread
         # surfaces a drop signal instead of blocking the protocol thread
         # that's submitting the next frame. Unbounded queues (default,
-        # backwards compat) take the original blocking put — put_nowait
+        # backwards compat) take the original blocking put -- put_nowait
         # on an unbounded Queue is identical to put().
         try:
             self.protocol_queue.put_nowait(task)
@@ -516,7 +588,7 @@ class SequentialIOExecutor:
         # Clear stale finish flag from previous run. If protocol_finish is
         # still set (dispatcher hasn't processed it yet), clear it now so
         # the dispatcher doesn't asynchronously call protocol_end() during
-        # the new run — that would clear protocol_running mid-execution.
+        # the new run -- that would clear protocol_running mid-execution.
         if self.protocol_finish.is_set():
             self.protocol_finish.clear()
             logger.info(f"{self.name} Cleared stale protocol_finish flag")
@@ -564,6 +636,27 @@ class SequentialIOExecutor:
         self.protocol_finish.set()
         logger.info(f"{self.name} set to complete protocol then end")
 
+    def end_protocol_mode(self):
+        """Idempotent safety net for teardown paths that left this executor
+        in protocol-mode.
+
+        While ``protocol_running`` is set the worker pulls only from
+        ``protocol_queue``; if a protocol aborts or tears down without the
+        normal completion path ending this executor, the worker blocks
+        forever on ``protocol_queue.get`` and the normal queue (composite,
+        video, z-projection, manual file ops) is never served. Setting
+        ``protocol_finish`` lets the worker drain any remaining protocol
+        items (so pending file writes still flush) and then exit protocol
+        mode, returning to normal-queue service. A no-op when the executor
+        is not in protocol-mode, so it is safe to call on every teardown.
+        """
+        if self.protocol_running.is_set() and not self.protocol_finish.is_set():
+            logger.warning(
+                f"{self.name} still in protocol-mode at teardown; "
+                f"draining protocol queue then returning to normal service"
+            )
+            self.protocol_finish_then_end()
+
     def is_protocol_running(self):
         return self.protocol_running.is_set()
 
@@ -594,10 +687,10 @@ class SequentialIOExecutor:
             fut = self.caller_futures[task]
 
         try:
-            result = fut.result(timeout=timeout)
+            fut.result(timeout=timeout)
         except Exception as e:
             logger.error(f"{self.name} Worker Error: {e}")
-            
+
 
     def _run_loop(self):
         while True:
@@ -615,6 +708,11 @@ class SequentialIOExecutor:
                     else:
                         task = self.queue.get(block=True, timeout=0.2)
                         task.protocol = False
+                        # A droppable_live task has left the queue -- free its
+                        # in-flight slot so the producer can enqueue the next.
+                        if task.droppable_live:
+                            with self._live_lock:
+                                self._live_inflight -= 1
                     if profile_trace.ENABLE_PROFILE_TRACE:
                         task._t_dequeue = time.monotonic()
                 except queue.Empty:
@@ -679,12 +777,12 @@ class SequentialIOExecutor:
                     f'cancelled (by-contract)'
                 )
             elif getattr(task, 'silent_on_failure', False):
-                # Caller opted in to handle its own notification (Rule 14:
-                # API/caller decides, not the executor). Exception is still
-                # logged at ERROR via IOTask.run() and captured in the
-                # exception passed to the callback. Suppress the generic
-                # "Task failed" popup. Used for the protocol image-writer
-                # retry path where per-failure popups would stack
+                # Caller opted in to handle its own notification (API/caller
+                # decides, not the executor). Exception is still logged at
+                # ERROR via IOTask.run() and captured in the exception
+                # passed to the callback. Suppress the generic "Task failed"
+                # popup. Used for the protocol image-writer retry path
+                # where per-failure popups would stack
                 # (see protocol_image_writer.execute_step).
                 pass
             else:
@@ -868,11 +966,11 @@ class SequentialIOExecutor:
                 self.protocol_queue.task_done()
             except queue.Empty:
                 break
-        
+
         self.cleared_protocol_queue = True
         if cleared_count > 0:
             logger.info(f"{self.name} Pending Protocol Queue Cleared ({cleared_count} tasks)")
-    
+
     def is_busy(self):
         # Returns true if tasks queued or running
         return not (self.queue.empty() and self.running_task is None)

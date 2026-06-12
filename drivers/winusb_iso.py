@@ -2,7 +2,7 @@
 WinUSB isochronous transfer support via ctypes.
 
 Mirrors the C# ReadISOStream_WinUsb implementation exactly.
-Windows only — uses winusb.dll, setupapi.dll, kernel32.dll directly.
+Windows only -- uses winusb.dll, setupapi.dll, kernel32.dll directly.
 """
 
 import ctypes
@@ -149,7 +149,7 @@ def find_device_path(vid, pid):
     if dev_info == INVALID_HANDLE_VALUE:
         return None
 
-    vid_pid = 'vid_%04x&pid_%04x' % (vid, pid)
+    vid_pid = f'vid_{vid:04x}&pid_{pid:04x}'
     iface_data = SP_DEVICE_INTERFACE_DATA()
     iface_data.cbSize = sizeof(SP_DEVICE_INTERFACE_DATA)
     idx = 0
@@ -190,7 +190,7 @@ class WinUsbDevice:
     def __init__(self, vid, pid):
         self.path = find_device_path(vid, pid)
         if self.path is None:
-            raise RuntimeError('WinUSB device not found (VID=0x%04X PID=0x%04X)' % (vid, pid))
+            raise RuntimeError(f'WinUSB device not found (VID=0x{vid:04X} PID=0x{pid:04X})')
 
         # Open device file
         self._file_handle = kernel32.CreateFileW(
@@ -204,13 +204,13 @@ class WinUsbDevice:
         )
 
         if self._file_handle == INVALID_HANDLE_VALUE:
-            raise RuntimeError('CreateFile failed: %d' % kernel32.GetLastError())
+            raise RuntimeError(f'CreateFile failed: {kernel32.GetLastError()}')
 
         # Initialize WinUSB
         self._iface_handle = c_void_p()
         if not winusb.WinUsb_Initialize(self._file_handle, byref(self._iface_handle)):
             kernel32.CloseHandle(self._file_handle)
-            raise RuntimeError('WinUsb_Initialize failed: %d' % kernel32.GetLastError())
+            raise RuntimeError(f'WinUsb_Initialize failed: {kernel32.GetLastError()}')
 
         log.info('WinUSB device opened: %s', self.path)
 
@@ -229,7 +229,7 @@ class WinUsbDevice:
     def set_alt_interface(self, setting):
         if not winusb.WinUsb_SetCurrentAlternateSetting(self._iface_handle, c_ubyte(setting)):
             raise RuntimeError(
-                'SetAlternateSetting(%d) failed: %d' % (setting, kernel32.GetLastError())
+                f'SetAlternateSetting({setting}) failed: {kernel32.GetLastError()}'
             )
 
     def query_pipe(self, alt, index):
@@ -237,7 +237,7 @@ class WinUsbDevice:
         if not winusb.WinUsb_QueryPipe(
             self._iface_handle, c_ubyte(alt), c_ubyte(index), byref(pipe_info)
         ):
-            raise RuntimeError('QueryPipe failed: %d' % kernel32.GetLastError())
+            raise RuntimeError(f'QueryPipe failed: {kernel32.GetLastError()}')
         return pipe_info
 
     def control_transfer(self, request_type, request, value, index, data=b'', length=0):
@@ -295,7 +295,7 @@ class IsoSlot:
         )
 
         if not ok:
-            raise RuntimeError('WinUsb_RegisterIsochBuffer failed: %d' % kernel32.GetLastError())
+            raise RuntimeError(f'WinUsb_RegisterIsochBuffer failed: {kernel32.GetLastError()}')
 
     def dispose(self):
         if self.isoch_handle:
@@ -363,7 +363,7 @@ class WinUsbIsoReader:
         return self._dev
 
     def _read_loop(self):
-        """Main ISO read loop — runs in dedicated thread."""
+        """Main ISO read loop -- runs in dedicated thread."""
         dev = self._dev
         iface = dev.handle
         buffer_size = self._max_packet_size * self.packets_per_xfer
@@ -372,7 +372,7 @@ class WinUsbIsoReader:
         # Allocate slots
         slots = []
         try:
-            for i in range(self.num_slots):
+            for _ in range(self.num_slots):
                 slots.append(IsoSlot(iface, self.pipe_id, buffer_size, n_packets))
 
             # Prime: submit all slots
@@ -381,7 +381,7 @@ class WinUsbIsoReader:
                 self._submit_read(slot, buffer_size, n_packets, continue_stream)
                 continue_stream = True
 
-            # Round-robin: wait → extract → resubmit
+            # Round-robin: wait -> extract -> resubmit
             next_slot = 0
             while self._running:
                 slot = slots[next_slot]

@@ -11,13 +11,14 @@ from __future__ import annotations
 
 import datetime
 import pathlib
+import logging
 import threading
 import time
 from typing import TYPE_CHECKING
 
 import numpy as np
 
-from lvp_logger import logger
+from lvp_logger import protocol_logger as logger
 
 import modules.common_utils as common_utils
 from modules.image_save import save_image
@@ -81,8 +82,6 @@ class ProtocolImageWriter:
         # Allocated lazily on first matching save; re-allocated on shape/dtype change.
         # file_io_executor runs single-threaded, so reuse across saves is safe.
         self._convert_buf_12to16 = None  # PIW-5: 2D uint16, eliminates image.copy() in convert
-        self._false_color_buf = None  # 3D uint16 RGB, in-place destination for add_false_color
-        self._rgb_buf = None  # Retained for API compat; unused -- retire when callers drop it
         self._consecutive_capture_failures = 0
         self._MAX_CONSECUTIVE_CAPTURE_FAILURES = 3
 
@@ -118,6 +117,39 @@ class ProtocolImageWriter:
         except Exception as ex:
             logger.error(f'[Protocol-Writer] Failed to record dropped capture: {ex}')
 
+    def _capture_evidence(self, image) -> str:
+        """One-line provenance for a captured frame: brightness statistics
+        plus the chunk-verified exposure / gain and capture-hold timing.
+
+        Saved-frame defects (a frame exposed under the previous channel's
+        settings saturates or mis-exposes) previously left no log trace at
+        all; this line makes every protocol capture auditable from a
+        support bundle. Brightness is computed on a strided sample so the
+        cost stays negligible at full frame rate.
+        """
+        try:
+            parts = []
+            if image is not None and getattr(image, 'size', 0) > 0:
+                sample = image[::8, ::8]
+                max_value = np.iinfo(image.dtype).max
+                sat_fraction = float(np.count_nonzero(sample >= 0.99 * max_value)) / sample.size
+                parts.append(f'mean={float(sample.mean()):.1f}')
+                parts.append(f'sat={sat_fraction * 100.0:.1f}%')
+            info = self._scope.imaging.last_capture_info or {}
+            exp_us = info.get('chunk_exposure_us')
+            gain_db = info.get('chunk_gain_db')
+            parts.append(f'exp_ms={exp_us / 1000.0:.2f}' if exp_us is not None else 'exp_ms=na')
+            parts.append(f'gain_db={gain_db:.2f}' if gain_db is not None else 'gain_db=na')
+            if info.get('hold_ms') is not None:
+                parts.append(f'hold_ms={info["hold_ms"]:.0f}')
+            if info.get('drained') is not None:
+                parts.append(f'drained={info["drained"]}')
+            return ' '.join(parts)
+        except Exception as ex:
+            # Evidence is best-effort; never let it break the capture path.
+            logger.debug(f'[Protocol-Writer] capture evidence unavailable: {ex}')
+            return ''
+
     def _get_convert_buf_12to16(self, array):
         """Get-or-allocate the 12->16 conversion buffer matching array's shape/dtype."""
         if (
@@ -127,22 +159,6 @@ class ProtocolImageWriter:
         ):
             self._convert_buf_12to16 = np.empty(array.shape, dtype=array.dtype)
         return self._convert_buf_12to16
-
-    def _get_false_color_bufs(self, array_2d):
-        """Get-or-allocate the (H, W, 3) BGR + RGB buffers for the false-color save path.
-
-        Both buffers share shape (H, W, 3) and array_2d.dtype. Returned as a tuple
-        (false_color_buf, rgb_buf). Re-allocated together on shape/dtype change.
-        """
-        target_shape = (array_2d.shape[0], array_2d.shape[1], 3)
-        if (
-            self._false_color_buf is None
-            or self._false_color_buf.shape != target_shape
-            or self._false_color_buf.dtype != array_2d.dtype
-        ):
-            self._false_color_buf = np.empty(target_shape, dtype=array_2d.dtype)
-            self._rgb_buf = np.empty(target_shape, dtype=array_2d.dtype)
-        return self._false_color_buf, self._rgb_buf
 
     def capture(
         self,
@@ -171,14 +187,14 @@ class ProtocolImageWriter:
             return
 
         # N5 (STALL-1 H5 disambiguator): proto-state trace.
-        # See docs/STALL1_INSTRUMENTATION_EXPERIMENT.md (Firmware repo) §4 N5.
-        # Wraps capture body in try/finally — single row per capture invocation
+        # See docs/STALL1_INSTRUMENTATION_EXPERIMENT.md (Firmware repo) sec.4 N5.
+        # Wraps capture body in try/finally -- single row per capture invocation
         # captures duration + outcome + step identity, regardless of return path.
         # Disambiguates "real stall" vs "between-step pause" in the timeline.
         _trace_enabled = profile_trace is not None and profile_trace.ENABLE_PROFILE_TRACE
         _proto_t0 = time.perf_counter() if _trace_enabled else None
         _proto_outcome = 'unknown'
-        # step is dict-like (supports .get) but not always a dict subclass —
+        # step is dict-like (supports .get) but not always a dict subclass --
         # smoke 1 showed isinstance(step, dict) returned False even though
         # step.get('Name', '?') works fine (the existing CAPTURE DIAG line
         # at protocol_image_writer.py:114 uses the same pattern). Drop the
@@ -199,16 +215,21 @@ class ProtocolImageWriter:
         try:
             is_video = step['Acquire'] == 'video'
 
-            # #610 diagnostic: trace camera settings decision at each capture
-            _ag = step['Auto_Gain']
-            _curr_gain = self._scope.imaging.get_gain()
-            _curr_exp = self._scope.imaging.get_exposure_time()
-            logger.debug(
-                f'[CAPTURE DIAG] step={step.get("Name", "?")} color={step["Color"]} '
-                f'Auto_Gain={_ag!r} (type={type(_ag).__name__}) '
-                f'step_gain={step["Gain"]} step_exp={step["Exposure"]} '
-                f'camera_gain={_curr_gain} camera_exp={_curr_exp}'
-            )
+            # #610 diagnostic: trace camera settings decision at each capture.
+            # camera_gain/camera_exp are read LIVE on purpose (the point is the
+            # ACTUAL camera state vs the step's intent), so the reads are gated
+            # on debug being enabled -- otherwise two SDK reads run every step
+            # even though the line is dropped in normal operation.
+            if logger.isEnabledFor(logging.DEBUG):
+                _ag = step['Auto_Gain']
+                _curr_gain = self._scope.imaging.get_gain()
+                _curr_exp = self._scope.imaging.get_exposure_time()
+                logger.debug(
+                    f'[CAPTURE DIAG] step={step.get("Name", "?")} color={step["Color"]} '
+                    f'Auto_Gain={_ag!r} (type={type(_ag).__name__}) '
+                    f'step_gain={step["Gain"]} step_exp={step["Exposure"]} '
+                    f'camera_gain={_curr_gain} camera_exp={_curr_exp}'
+                )
 
             if not step['Auto_Gain']:
                 logger.debug(
@@ -236,23 +257,20 @@ class ProtocolImageWriter:
                 self._scope.imaging.set_gain(step['Gain'])
                 self._scope.imaging.set_exposure_time(step['Exposure'])
             else:
-                # Auto_Gain step: scan_iterate arms AG via
-                # apply_layer_camera_settings BEFORE the deadline-wait
-                # window opens, so convergence runs during the wait
-                # rather than in a single frame here. By the time we
-                # reach capture() the camera has already had up to
-                # max_duration seconds of convergence; the apply is
-                # therefore skipped to avoid restarting AG mid-grab.
+                # Auto_Gain step: scan_iterate already lit the LED and armed AG
+                # against the lit scene; the apply is skipped here to avoid
+                # restarting AG mid-grab. The capture_and_wait drain below waits
+                # the auto_gain settle frames before grabbing.
                 logger.debug(
                     f'[CAPTURE DIAG] Auto_Gain step: armed in scan_iterate '
                     f'with target gain={step["Gain"]}dB exp={step["Exposure"]}ms; '
-                    f'convergence completed via _auto_gain_deadline wait'
+                    f'settle drained in capture_and_wait'
                 )
 
             # Objective short name for filename
             objective_short_name = None
             if self._scope.motion.has_turret():
-                obj_info = self._scope.get_objective_info(objective_id=step['Objective'])
+                obj_info = self._scope.runtime_state.get_objective_info(objective_id=step['Objective'])
                 if obj_info is not None:
                     objective_short_name = obj_info.get('short_name')
                 else:
@@ -328,6 +346,7 @@ class ProtocolImageWriter:
 
             if enable_image_saving:
                 use_full_pixel_depth = image_capture_config['use_full_pixel_depth']
+                jpeg_quality = image_capture_config.get('jpg_quality', 90)
 
                 if is_video:
                     session = VideoCaptureSession(
@@ -343,7 +362,7 @@ class ProtocolImageWriter:
                     video_result = session.capture()
 
                     if video_result is None:
-                        # Cancelled or zero frames — skip write
+                        # Cancelled or zero frames -- skip write
                         self._leds_off()
                         _proto_outcome = 'video_cancelled'
                         return
@@ -445,11 +464,13 @@ class ProtocolImageWriter:
                         return
 
                     self._consecutive_capture_failures = 0  # Reset on success
-                    logger.info(f'Protocol Image Captured: {name}')
+                    logger.info(
+                        f'Protocol Image Captured: {name} {self._capture_evidence(captured_image)}'
+                    )
 
                     # DISPLAY-1: hold the captured image on screen for at
                     # least 500 ms so the user can see the saved frame
-                    # before the live preview overwrites it. NOT a delay —
+                    # before the live preview overwrites it. NOT a delay --
                     # the next protocol save bumps the hold deadline
                     # forward, so display tracks the most-recent saved
                     # frame in real time. Best-effort; missing scope_display
@@ -472,6 +493,7 @@ class ProtocolImageWriter:
                                 'use_color': use_color,
                                 'name': name,
                                 'output_format': output_format,
+                                'jpeg_quality': jpeg_quality,
                                 'step': step,
                                 'captured_image': captured_image,
                                 'step_index': curr_step,
@@ -555,6 +577,7 @@ class ProtocolImageWriter:
         use_color=None,
         name=None,
         output_format=None,
+        jpeg_quality=90,
         step=None,
         captured_image=None,
         step_index=None,
@@ -589,14 +612,30 @@ class ProtocolImageWriter:
 
         if enable_image_saving:
             if is_video:
-                capture_result = write_video(
-                    result=video_result,
-                    save_folder=save_folder,
-                    name=name,
-                    video_as_frames=video_as_frames,
-                    step=step,
-                    callbacks=self._callbacks.to_dict(),
-                )
+                # A write failure must still leave a row in the execution
+                # record -- the record is what post-processing and run
+                # accounting key off. The queue-full and capture-failed
+                # legs already record their failures; image-on-disk
+                # missing AND row missing was the last silent-gap leg.
+                try:
+                    capture_result = write_video(
+                        result=video_result,
+                        save_folder=save_folder,
+                        name=name,
+                        video_as_frames=video_as_frames,
+                        step=step,
+                        callbacks=self._callbacks.to_dict(),
+                    )
+                except Exception:
+                    self._record_dropped_capture(
+                        step=step,
+                        step_index=step_index,
+                        scan_count=scan_count,
+                        capture_time=capture_time,
+                        name=name,
+                        reason='save_failed',
+                    )
+                    raise
 
                 captured_frames = video_result.captured_frames
                 duration_sec = video_result.duration_sec
@@ -628,38 +667,42 @@ class ProtocolImageWriter:
                     and captured_image.dtype == np.uint16
                     and getattr(captured_image, 'ndim', 0) == 2
                 )
-                is_2d_single_channel = (
-                    hasattr(captured_image, 'dtype')
-                    and captured_image.dtype in (np.uint8, np.uint16)
-                    and getattr(captured_image, 'ndim', 0) == 2
-                )
                 out_12to16 = self._get_convert_buf_12to16(captured_image) if is_uint16_2d else None
-                if self._false_color_16bit and is_2d_single_channel:
-                    false_color_buf, rgb_buf = self._get_false_color_bufs(captured_image)
-                else:
-                    false_color_buf, rgb_buf = None, None
-                capture_result = save_image(
-                    self._scope,
-                    array=captured_image,
-                    save_folder=save_folder,
-                    file_root=None,
-                    append=name,
-                    color=use_color,
-                    # Defense-in-depth against duplicate step Names that
-                    # slip past load-time validation (#636). Plain
-                    # filename when no file exists; numeric suffix only
-                    # on actual collision.
-                    tail_id_mode='if_collision',
-                    output_format=output_format,
-                    true_color=step['Color'],
-                    x=step['X'],
-                    y=step['Y'],
-                    z=step['Z'],
-                    use_false_color_16bit=self._false_color_16bit,
-                    out_12to16=out_12to16,
-                    false_color_buf=false_color_buf,
-                    rgb_buf=rgb_buf,
-                )
+                # Same failure-row contract as the video leg above: a
+                # raise from save_image must not leave the record without
+                # a row for this step.
+                try:
+                    capture_result = save_image(
+                        self._scope,
+                        array=captured_image,
+                        save_folder=save_folder,
+                        file_root=None,
+                        append=name,
+                        color=use_color,
+                        # Defense-in-depth against duplicate step Names that
+                        # slip past load-time validation (#636). Plain
+                        # filename when no file exists; numeric suffix only
+                        # on actual collision.
+                        tail_id_mode='if_collision',
+                        output_format=output_format,
+                        jpeg_quality=jpeg_quality,
+                        true_color=step['Color'],
+                        x=step['X'],
+                        y=step['Y'],
+                        z=step['Z'],
+                        use_false_color_16bit=self._false_color_16bit,
+                        out_12to16=out_12to16,
+                    )
+                except Exception:
+                    self._record_dropped_capture(
+                        step=step,
+                        step_index=step_index,
+                        scan_count=scan_count,
+                        capture_time=capture_time,
+                        name=name,
+                        reason='save_failed',
+                    )
+                    raise
 
             if capture_result is None:
                 capture_result_filepath_name = 'unsaved'
@@ -684,7 +727,7 @@ class ProtocolImageWriter:
                     frame_count=captured_frames if is_video else 1,
                     duration_sec=duration_sec if is_video else 0.0,
                 )
-                logger.info(f'Protocol-Writer] Added step to protocol execution record')
+                logger.info('Protocol-Writer] Added step to protocol execution record')
             except Exception as ex:
                 logger.error(
                     f'[Protocol-Writer] Failed to add step to protocol execution record: {ex}'

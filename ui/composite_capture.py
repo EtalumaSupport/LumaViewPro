@@ -1,6 +1,6 @@
 # Copyright Etaluma, Inc.
 """
-CompositeCapture — shared image capture capabilities extracted from lumaviewpro.py.
+CompositeCapture -- shared image capture capabilities extracted from lumaviewpro.py.
 
 Provides live_capture() and composite_capture() methods inherited by MainDisplay.
 """
@@ -35,7 +35,7 @@ class CompositeCapture(FloatLayout):
     _capturing = threading.Event()  # Thread-safe guard against rapid double-clicks
 
     def __init__(self, **kwargs):
-        super(CompositeCapture, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
     def live_capture(self):
         gui_logger.button('LIVE_CAPTURE')
@@ -76,7 +76,7 @@ class CompositeCapture(FloatLayout):
 
         file_root = 'live_'
         color = 'BF'
-        well_label = ctx.scope.get_well_label()
+        well_label = ctx.scope.runtime_state.get_well_label()
 
         use_full_pixel_depth = ctx.scope_display.use_full_pixel_depth
         force_to_8bit_pixel_depth = not use_full_pixel_depth
@@ -124,6 +124,7 @@ class CompositeCapture(FloatLayout):
                 sum_delay_s=sum_delay_s,
                 sum_iteration_callback=sum_iteration_callback,
                 turn_off_all_leds_after=False,
+                jpeg_quality=settings.get('jpg_quality', 90),
             )
 
         else:
@@ -143,6 +144,7 @@ class CompositeCapture(FloatLayout):
                     sum_delay_s=sum_delay_s,
                     sum_iteration_callback=sum_iteration_callback,
                     turn_off_all_leds_after=False,
+                    jpeg_quality=settings.get('jpg_quality', 90),
                 )
 
             image_orig = ctx.scope.imaging.capture_and_wait(force_to_8bit=force_to_8bit_pixel_depth)
@@ -169,7 +171,8 @@ class CompositeCapture(FloatLayout):
                 append=append,
                 color=color,
                 tail_id_mode=None,
-                output_format=settings['image_output_format'],
+                output_format=settings['image_output_format']['live'],
+                jpeg_quality=settings.get('jpg_quality', 90),
             )
 
             if use_bullseye:
@@ -191,7 +194,8 @@ class CompositeCapture(FloatLayout):
                 append=f'{append}_overlay',
                 color=color,
                 tail_id_mode=None,
-                output_format=settings['image_output_format'],
+                output_format=settings['image_output_format']['live'],
+                jpeg_quality=settings.get('jpg_quality', 90),
             )
 
     # capture and save a composite image using the current settings
@@ -281,7 +285,7 @@ class CompositeCapture(FloatLayout):
         use_full_pixel_depth,
         saved_video_false_color=None,
     ):
-        """Runs on background thread — performs hardware I/O without blocking UI."""
+        """Runs on background thread -- performs hardware I/O without blocking UI."""
         try:
             self._composite_capture_worker_inner(
                 z_stage_present=z_stage_present,
@@ -320,11 +324,11 @@ class CompositeCapture(FloatLayout):
         use_full_pixel_depth,
         saved_video_false_color=None,
     ):
-        """Inner worker — actual composite capture logic."""
+        """Inner worker -- actual composite capture logic."""
         ctx = _app_ctx.ctx
         settings = ctx.settings
 
-        # Snapshot settings at entry for thread safety — avoids seeing partial
+        # Snapshot settings at entry for thread safety -- avoids seeing partial
         # updates from the UI thread during the capture sequence.
         all_layers = (
             *common_utils.get_transmitted_layers(),
@@ -333,7 +337,6 @@ class CompositeCapture(FloatLayout):
         )
         with ctx.settings_lock:
             layer_settings = {layer: dict(settings[layer]) for layer in all_layers}
-            frame_settings = dict(settings['frame'])
             live_folder = settings['live_folder']
             image_output_format = dict(settings['image_output_format'])
 
@@ -351,7 +354,7 @@ class CompositeCapture(FloatLayout):
         channel_images = {}
         brightness_thresholds = {}
 
-        # Capture transmitted channel (BF/PC/DF) — use first found as base
+        # Capture transmitted channel (BF/PC/DF) -- use first found as base
         for trans_layer in common_utils.get_transmitted_layers():
             if layer_settings[trans_layer]['acquire'] == 'image':
                 acquired_channel_count += 1
@@ -414,7 +417,7 @@ class CompositeCapture(FloatLayout):
                 # Stage B1: see comment above; update_scopedisplay retired.
                 sum_iteration_callback = None
 
-                # Compute brightness threshold (percentage → absolute value)
+                # Compute brightness threshold (percentage -> absolute value)
                 brightness_thresholds[layer] = (
                     layer_settings[layer]['composite_brightness_threshold'] / 100 * max_value
                 )
@@ -440,7 +443,7 @@ class CompositeCapture(FloatLayout):
 
             ctx.scope.illumination.leds_off_sync()
 
-            # Unschedule histogram on main thread — widget access must not happen from worker
+            # Unschedule histogram on main thread -- widget access must not happen from worker
             def _unschedule_histo(dt, layer_name=layer):
                 lo = ctx.image_settings.layer_lookup(layer=layer_name)
                 Clock.unschedule(lo.ids['histo_id'].histogram)
@@ -470,7 +473,7 @@ class CompositeCapture(FloatLayout):
         )
 
         # File saving can run on this thread (no UI dependency)
-        append = f'{ctx.scope.get_well_label()}'
+        append = f'{ctx.scope.runtime_state.get_well_label()}'
 
         save_folder = pathlib.Path(live_folder) / 'Manual'
         save_folder.mkdir(parents=True, exist_ok=True)

@@ -26,7 +26,8 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Callable, Optional, Protocol, runtime_checkable
+from typing import Optional, Protocol, runtime_checkable
+from collections.abc import Callable
 
 
 # Type alias for a tick callback. Schedulers may invoke either
@@ -106,7 +107,7 @@ class KivyClockScheduler:
             try:
                 callback()
             except TypeError:
-                # Caller's callback wants the dt arg — pass it through.
+                # Caller's callback wants the dt arg -- pass it through.
                 callback(dt)
 
         handle = self._clock.schedule_interval(_wrapped, interval_s)
@@ -152,14 +153,14 @@ class _PeriodicTimer:
         self,
         callback: TickCallback,
         interval_s: float,
-        on_error: Optional[Callable[[BaseException], None]] = None,
+        on_error: Callable[[BaseException], None] | None = None,
         name: str = 'PeriodicTimer',
     ):
         self._callback = callback
         self._interval_s = interval_s
         self._on_error = on_error
         self._name = name
-        self._timer: Optional[threading.Timer] = None
+        self._timer: threading.Timer | None = None
         self._cancelled = threading.Event()
         self._lock = threading.Lock()
 
@@ -225,7 +226,7 @@ class ThreadingTimerScheduler:
     def __init__(
         self,
         name_prefix: str = 'LVP-MetricsTimer',
-        on_callback_error: Optional[Callable[[BaseException], None]] = None,
+        on_callback_error: Callable[[BaseException], None] | None = None,
     ):
         """Initialize.
 

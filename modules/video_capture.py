@@ -77,10 +77,12 @@ class VideoCaptureSession:
         """
         step = self._step
 
-        # Drain stale frames before video capture starts
+        # Drain stale frames before video capture starts. get_image with
+        # force_new_capture already counts the grabbed frame; a second count
+        # here drained one frame early and admitted a not-yet-valid first
+        # video frame.
         while self._scope.imaging.frames_until_valid() > 0:
             self._scope.imaging.get_image(force_new_capture=True)
-            self._scope.imaging.count_frame()
         # Additional settle for auto-gain first frame
         time.sleep(max(step['Exposure'] / 1000, 0.05))
 
@@ -92,6 +94,7 @@ class VideoCaptureSession:
                 target_brightness=self._autogain_settings['target_brightness'],
                 min_gain_db=self._autogain_settings['min_gain_db'],
                 max_gain_db=self._autogain_settings['max_gain_db'],
+                ae_max_exposure_ms=self._autogain_settings.get('max_exposure_ms'),
             )
 
         duration_sec = step['Video Config']['duration']
@@ -137,7 +140,12 @@ class VideoCaptureSession:
             stim_thread.start()
 
         if 'set_recording_title' in self._callbacks:
-            _schedule_ui(lambda dt: self._callbacks['set_recording_title'](progress=0), 0)
+            _schedule_ui(
+                lambda dt: self._callbacks['set_recording_title'](
+                    elapsed_sec=0, total_sec=duration_sec
+                ),
+                0,
+            )
 
         logger.info('[PROTOCOL-VIDEO] Capturing video...')
 
@@ -152,10 +160,13 @@ class VideoCaptureSession:
 
         while time.time() < stop_ts:
             curr_time = time.time()
-            progress = (curr_time - start_ts) / duration_sec * 100
+            elapsed = curr_time - start_ts
             if 'set_recording_title' in self._callbacks:
                 _schedule_ui(
-                    lambda dt, p=progress: self._callbacks['set_recording_title'](progress=p), 0
+                    lambda dt, e=elapsed: self._callbacks['set_recording_title'](
+                        elapsed_sec=e, total_sec=duration_sec
+                    ),
+                    0,
                 )
 
             if not self._is_protocol_running():
@@ -197,7 +208,7 @@ class VideoCaptureSession:
                     video_images.put_nowait((image, datetime.datetime.now()))
                     captured_frames += 1
                 except queue.Full:
-                    # VF-5: do NOT `continue` here — that bypasses the
+                    # VF-5: do NOT `continue` here -- that bypasses the
                     # per-frame sleep below and turns the capture loop into
                     # a hot-spin against the writer thread when the queue
                     # is full. Drop the frame, log it, fall through to the
@@ -292,15 +303,14 @@ def write_video(
             image = image_pair[0]
             ts = image_pair[1]
             del image_pair
-
-            ts_str = ts.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
-            image_w_timestamp = image_utils.add_timestamp(image=image, timestamp_str=ts_str)
-            del image
             video_images.task_done()
 
             frame_name = f'{name}_Frame_{frame_num:04}'
             output_file_loc = frame_folder / f'{frame_name}.tiff'
 
+            # The timestamp is not drawn into the pixels here: it travels in the
+            # frame metadata below, and Create Video draws it at build time only
+            # when the timestamp overlay is enabled.
             metadata = {
                 'datetime': ts.strftime('%Y:%m:%d %H:%M:%S'),
                 'timestamp': ts.strftime('%Y:%m:%d %H:%M:%S.%f'),
@@ -309,7 +319,7 @@ def write_video(
 
             try:
                 image_utils.write_tiff(
-                    data=image_w_timestamp,
+                    data=image,
                     metadata=metadata,
                     file_loc=output_file_loc,
                     video_frame=True,
@@ -319,13 +329,15 @@ def write_video(
             except Exception as e:
                 logger.error(f'[PROTOCOL-VIDEO] Failed to write frame {frame_num}: {e}')
 
+            del image
+
         _drain_queue(video_images)
         capture_result = frame_folder
 
     else:
         output_file_loc = save_folder / f'{name}.mp4'
         video_writer = VideoWriter(
-            output_file_loc=output_file_loc,
+            output_path=output_file_loc,
             fps=result.calculated_fps,
             include_timestamp_overlay=True,
         )
@@ -347,7 +359,7 @@ def write_video(
                 except Exception as e:
                     logger.error(f'[PROTOCOL-VIDEO] FAILED TO WRITE FRAME: {e}')
         finally:
-            video_writer.finish()
+            video_writer.close()
             del video_writer
 
         _drain_queue(video_images)
@@ -514,7 +526,7 @@ class StimulationController:
             if remaining > 0.003:
                 time.sleep(remaining - 0.002)
             # else: busy-wait the last <3ms. A time.sleep(100us) here yields
-            # the GIL and the OS scheduler can take 100us–20+ms to resume us,
+            # the GIL and the OS scheduler can take 100us-20+ms to resume us,
             # lengthening the next pulse by whatever it waits. Matters for
             # OFF edges that are 10 ms after their ON: measured on 2026-04-19
             # that a yielding spin produced pulse-width stddev 5.9 ms and
@@ -745,27 +757,27 @@ class StimulationController:
                     f.write(f'Illumination:    {stim_config.get("illumination", "?")} mA\n')
                     f.write(f'Pulses executed: {pulses_executed.get(color, 0)}\n')
                     f.write(f'End reason:      {end_reason}\n')
-                    f.write(f'\n--- Statistics ---\n')
+                    f.write('\n--- Statistics ---\n')
                     self._write_timing_stats(f, 'LED ON command time', on_durations)
                     self._write_timing_stats(f, 'LED OFF command time', off_durations)
                     self._write_timing_stats(f, 'Actual LED on-time', actual_on_times)
 
-                    f.write(f'\n--- Outlier Analysis ---\n')
+                    f.write('\n--- Outlier Analysis ---\n')
                     self._write_outlier_details(
                         f, actual_on_times, 'Actual on-time', expected_ms=expected_pulse_ms
                     )
                     self._write_outlier_details(f, on_durations, 'ON command')
                     self._write_outlier_details(f, off_durations, 'OFF command')
 
-                    f.write(f'\n--- Per-Pulse Event Log ---\n')
+                    f.write('\n--- Per-Pulse Event Log ---\n')
                     f.write(
                         f'{"Pulse":>6} {"ON cmd (ms)":>12} {"OFF cmd (ms)":>13} {"Actual ON (ms)":>15}\n'
                     )
                     n_pulses = max(len(on_durations), len(off_durations), len(actual_on_times))
                     for i in range(n_pulses):
-                        on_d = f'{on_durations[i]:.4f}' if i < len(on_durations) else '—'
-                        off_d = f'{off_durations[i]:.4f}' if i < len(off_durations) else '—'
-                        act = f'{actual_on_times[i]:.4f}' if i < len(actual_on_times) else '—'
+                        on_d = f'{on_durations[i]:.4f}' if i < len(on_durations) else '--'
+                        off_d = f'{off_durations[i]:.4f}' if i < len(off_durations) else '--'
+                        act = f'{actual_on_times[i]:.4f}' if i < len(actual_on_times) else '--'
                         f.write(f'{i:>6} {on_d:>12} {off_d:>13} {act:>15}\n')
 
                 logger.info(f'[STIMULATOR] Profiling data saved to {filepath}')

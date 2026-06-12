@@ -16,8 +16,7 @@ name collisions, which is the right policy for an opt-in shim).
 The legacy invocation paths (UI button handlers, file_dialogs
 dispatch) keep working unchanged. The plugin registration is additive
 -- it lets a plugin author call Stitcher via the platform contract
-without touching the UI handlers, which is the contract Phase A
-needs to validate before retire-D9 starts.
+without touching the UI handlers.
 """
 
 from __future__ import annotations

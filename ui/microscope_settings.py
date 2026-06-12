@@ -3,7 +3,6 @@ import copy
 import datetime
 import json
 import logging
-import math
 import os
 import pathlib
 import threading
@@ -18,7 +17,11 @@ import modules.app_context as _app_ctx
 import modules.binning as binning
 import modules.common_utils as common_utils
 from modules import gui_logger
-from modules.config_helpers import DEFAULT_MAX_EXPOSURE_MS, DEFAULT_MAX_GAIN_DB
+from modules.config_helpers import (
+    DEFAULT_MAX_EXPOSURE_MS,
+    DEFAULT_MAX_GAIN_DB,
+    get_manual_video_max_duration,
+)
 from modules.config_ui_getters import (
     get_binning_from_ui,
     get_current_frame_dimensions,
@@ -85,7 +88,7 @@ class _CoalescingApplier:
 
 class MicroscopeSettings(BoxLayout):
     def __init__(self, **kwargs):
-        super(MicroscopeSettings, self).__init__(**kwargs)
+        super().__init__(**kwargs)
         logger.debug('[LVP Main  ] MicroscopeSettings.__init__()')
         # Coalesce rapid set_frame_size requests. See
         # _CoalescingApplier + issue #624.
@@ -93,19 +96,19 @@ class MicroscopeSettings(BoxLayout):
 
         scopes_path = resolve_data_file('scopes.json')
         try:
-            with open(scopes_path, 'r') as read_file:
+            with open(scopes_path) as read_file:
                 self.scopes = json.load(read_file)
-        except FileNotFoundError:
+        except FileNotFoundError as e:
             logger.error(f'[LVP Main  ] scopes.json not found at {scopes_path}')
             raise RuntimeError(
                 f'Required file scopes.json not found at {scopes_path}. '
                 'Please reinstall or restore from backup.'
-            )
+            ) from e
         except json.JSONDecodeError as e:
             logger.error(f'[LVP Main  ] scopes.json is corrupt: {e}')
             raise RuntimeError(
                 f'scopes.json is corrupt ({e}). Please restore from backup or reinstall.'
-            )
+            ) from e
 
         self._validate_scopes(scopes_path)
 
@@ -143,6 +146,7 @@ class MicroscopeSettings(BoxLayout):
     def reconnect(self):
         ctx = _app_ctx.ctx
 
+        gui_logger.button('RECONNECT_MICROSCOPE')
         logger.info('[LVP Main  ] Reconnecting to microscope...')
 
         lumaview = ctx.lumaview
@@ -172,7 +176,7 @@ class MicroscopeSettings(BoxLayout):
         ctx.scope_display.start()
 
         # LVP-A-5: ScopeSession owns the standard startup orchestration
-        # (ALL-axis home + turret-positioning) — same path the App's
+        # (ALL-axis home + turret-positioning) -- same path the App's
         # on_start uses. Pre-LVP-A-5 this block was open-coded here and
         # had subtly drifted from the App's version.
         ctx.session.start_application_session(disable_homing=ctx.disable_homing)
@@ -223,7 +227,7 @@ class MicroscopeSettings(BoxLayout):
 
         MOT-1: motor serial write goes through ``io_executor`` instead of
         running synchronously on MainThread. The slider's ``on_value`` event
-        can fire at up to 60 Hz on a smooth drag — without the executor route,
+        can fire at up to 60 Hz on a smooth drag -- without the executor route,
         every tick blocks the UI on a serial write. Settings dict is still
         updated synchronously so other UI code reading the slider sees the
         committed value immediately.
@@ -232,8 +236,7 @@ class MicroscopeSettings(BoxLayout):
         ticks into one motor write per debounce window, matching the
         ``_CoalescingApplier`` pattern used for ``frame_size`` and
         ``apply_settings``. Final settle of the slider always lands on the
-        last value the user picked. Layer-audit Cluster A LV-7. Sourced from
-        ``docs/AUDIT_LAYER_VIOLATIONS_2026-05-01.md``.
+        last value the user picked.
         """
         ctx = _app_ctx.ctx
         with ctx.settings_lock:
@@ -257,7 +260,7 @@ class MicroscopeSettings(BoxLayout):
         Reads ``self._pending_acceleration_pct`` (latest stash from
         ``set_acceleration_limit``) and submits an IOTask through
         ``io_executor``. If the slider moved again while the trigger was
-        pending, only the latest value reaches the motor — no queued
+        pending, only the latest value reaches the motor -- no queued
         command burst. See MOT-1 docstring on ``set_acceleration_limit``.
         """
         ctx = _app_ctx.ctx
@@ -282,7 +285,7 @@ class MicroscopeSettings(BoxLayout):
         ctx = _app_ctx.ctx
         fps_val = int(self.ids['live_view_fps_slider'].value)
         gui_logger.slider('FPS', fps_val)
-        # Values above 60 mean "uncapped" — store 0 as sentinel
+        # Values above 60 mean "uncapped" -- store 0 as sentinel
         if fps_val > 60:
             fps_val = 0
         ctx.live_view_fps = fps_val
@@ -310,16 +313,14 @@ class MicroscopeSettings(BoxLayout):
             # Settings are imported at the very beginning of file
 
             if settings['profiling']['enabled']:
-                ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-                profiling_save_path = os.path.join(ctx.source_path, f'./logs/profiling')
+                ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')  # noqa: F841 -- deferred
+                profiling_save_path = os.path.join(ctx.source_path, './logs/profiling')
                 MemoryLeakProfiler.start(root_log_dir=profiling_save_path)
                 logger.info('[LVP Main  ] Memory Profiler started.')
 
             # Handle / object-type leak diagnostic. Same opt-in pattern as
             # the memory profiler above; settings-driven so customers and
-            # bench operators can enable without rebuilding or setting
-            # env vars. Env var LVP_HANDLE_TRACE=1 also works (handled at
-            # module load in lib/handle_trace.py).
+            # bench operators can enable without rebuilding.
             if settings.get('profiling', {}).get('handle_trace_enabled', False):
                 from lib import handle_trace as _handle_trace
 
@@ -360,7 +361,7 @@ class MicroscopeSettings(BoxLayout):
                     live_folder = pathlib.Path.home() / 'Documents' / 'LumaViewPro' / 'capture'
                 live_folder = live_folder.resolve()
                 live_folder.mkdir(exist_ok=True, parents=True)
-                logger.info(f'[LVP Main  ] Defaulting live image folder to {str(live_folder)}')
+                logger.info(f'[LVP Main  ] Defaulting live image folder to {live_folder!s}')
 
             settings['live_folder'] = str(live_folder)
 
@@ -368,7 +369,7 @@ class MicroscopeSettings(BoxLayout):
 
             # Scope auto-detection
             detected_model = lumaview.scope.diagnostics.get_microscope_model()
-            if detected_model in self.scopes.keys():
+            if detected_model in self.scopes:
                 logger.info(f'[LVP Main  ] Auto-detected scope as {detected_model}')
                 self.ids['scope_spinner'].text = detected_model
             else:
@@ -396,11 +397,23 @@ class MicroscopeSettings(BoxLayout):
             self.ids['live_image_output_format_spinner'].text = settings['image_output_format'][
                 'live'
             ]
+            # JPG quality slider reflects the saved preference; enable
+            # state is set by select_live_image_output_format (JPG only).
+            jpg_quality = int(settings.get('jpg_quality', 90))
+            self.ids['jpg_quality_slider'].value = jpg_quality
+            self.ids['jpg_quality_value_label'].text = str(jpg_quality)
             self.select_live_image_output_format()
 
-            self.ids['sequenced_image_output_format_spinner'].text = settings[
-                'image_output_format'
-            ]['sequenced']
+            # Migrate legacy 'ImageJ Hyperstack' spinner value to the
+            # honest 'OME-TIFF Hyperstack' label. The underlying file
+            # format never changed (always OME-TIFF); only the label
+            # was misleading. Migrating on load means existing user
+            # settings.json files keep working without manual edits.
+            sequenced_fmt = settings['image_output_format']['sequenced']
+            if sequenced_fmt == 'ImageJ Hyperstack':
+                sequenced_fmt = 'OME-TIFF Hyperstack'
+                settings['image_output_format']['sequenced'] = sequenced_fmt
+            self.ids['sequenced_image_output_format_spinner'].text = sequenced_fmt
             self.select_sequenced_image_output_format()
 
             # camera_max_exposure returns None when no camera is connected;
@@ -409,7 +422,7 @@ class MicroscopeSettings(BoxLayout):
 
             ctx.max_exposure = max_exposure
 
-            # Parallel treatment for gain — see #gain-slider-clamp note.
+            # Parallel treatment for gain -- see #gain-slider-clamp note.
             # Pre-fix, the gain slider was hardcoded 0-48 dB in the kv,
             # which let users overdrive LS620 past its usable range (the
             # image went black at high gain). Pulling the cap from the
@@ -427,7 +440,7 @@ class MicroscopeSettings(BoxLayout):
             manual_video = settings.get('manual_video', {})
             self.ids['manual_video_max_fps_input'].text = str(manual_video.get('max_fps', 0))
             self.ids['manual_video_max_duration_input'].text = str(
-                manual_video.get('max_duration_seconds', 30)
+                get_manual_video_max_duration(settings)
             )
 
             if 'live_view_fps' in settings:
@@ -453,7 +466,7 @@ class MicroscopeSettings(BoxLayout):
             self.ids['frame_width_id'].text = str(settings['frame']['width'] * binning_size)
             self.ids['frame_height_id'].text = str(settings['frame']['height'] * binning_size)
 
-            # Pixel Binning — UI recalculation only, scope.imaging.set_binning_size()
+            # Pixel Binning -- UI recalculation only, scope.imaging.set_binning_size()
             # handled by scope.initialize() below
             self.ids['binning_spinner'].text = binning_size_str
             self.select_binning_size()
@@ -520,7 +533,7 @@ class MicroscopeSettings(BoxLayout):
             else:
                 self.ids['enable_scale_bar_btn'].state = 'normal'
 
-            # Single hardware initialization call — replaces scattered
+            # Single hardware initialization call -- replaces scattered
             # scope.imaging.set_frame_size / set_binning_size / set_stage_offset /
             # set_turret_config / set_objective / set_scale_bar / set_acceleration_limit
             labware_id, labware = get_selected_labware()
@@ -684,17 +697,16 @@ class MicroscopeSettings(BoxLayout):
                     layer_obj.update_stim_controls_visibility()
 
         except json.JSONDecodeError as e:
-            # Real "incompatible JSON" — file content can't be parsed.
+            # Real "incompatible JSON" -- file content can't be parsed.
             logger.error(f'[LVP Main  ] load_settings: JSON parse error in {filename}: {e}')
         except FileNotFoundError as e:
             logger.error(f'[LVP Main  ] load_settings: settings file missing: {e}')
         except Exception as e:
             # LOG-3 / UI-LOAD-1: this used to log "Incompatible JSON file
-            # for Microscope Settings" for ANY exception during load. Per
-            # CLAUDE.md Rule 20, the message must name the actual failure
-            # mode — kivy widget exceptions, attribute errors, etc. were
-            # being misattributed to the JSON file. Bit us 2026-05-03
-            # debugging the UI-1 follow-up: the wrapped wording sent the
+            # for Microscope Settings" for ANY exception during load. The
+            # message must name the actual failure mode -- kivy widget
+            # exceptions, attribute errors, etc. were being misattributed
+            # to the JSON file. Bit us when the wrapped wording sent the
             # operator to the JSON file when the bug was in widget code,
             # AND the swallow let execution continue into a second crash
             # in set_ui_features_for_scope below.
@@ -706,7 +718,7 @@ class MicroscopeSettings(BoxLayout):
             # the build path. Without this, a kivy WidgetException in the
             # accordion-widget tree was caught and swallowed, then the
             # next call to set_ui_features_for_scope hit the same bug
-            # uncaught — a misleading "double-crash with first one
+            # uncaught -- a misleading "double-crash with first one
             # hidden" pattern.
             raise
 
@@ -772,17 +784,31 @@ class MicroscopeSettings(BoxLayout):
     def update_false_color_16bit_state(self):
         settings = _app_ctx.ctx.settings
         enabled = self.ids['false_color_16bit_btn'].state == 'down'
+        gui_logger.toggle('FALSE_COLOR_16BIT', enabled)
         settings['false_color_16bit'] = enabled
 
     def select_live_image_output_format(self):
         settings = _app_ctx.ctx.settings
-        settings['image_output_format']['live'] = self.ids['live_image_output_format_spinner'].text
+        fmt = self.ids['live_image_output_format_spinner'].text
+        gui_logger.select('LIVE_IMAGE_OUTPUT_FORMAT', fmt)
+        settings['image_output_format']['live'] = fmt
+        # The JPG-quality row's visibility (and disabled state) follows the
+        # selected format declaratively in lumaviewpro.kv (jpg_quality_row binds
+        # to live_image_output_format_spinner.text), so no toggle is needed here.
+
+    def update_jpg_quality(self, value):
+        settings = _app_ctx.ctx.settings
+        quality = int(value)
+        settings['jpg_quality'] = quality
+        if 'jpg_quality_value_label' in self.ids:
+            self.ids['jpg_quality_value_label'].text = str(quality)
+        gui_logger.slider('JPG_QUALITY', quality)
 
     def select_sequenced_image_output_format(self):
         settings = _app_ctx.ctx.settings
-        settings['image_output_format']['sequenced'] = self.ids[
-            'sequenced_image_output_format_spinner'
-        ].text
+        fmt = self.ids['sequenced_image_output_format_spinner'].text
+        gui_logger.select('SEQUENCED_IMAGE_OUTPUT_FORMAT', fmt)
+        settings['image_output_format']['sequenced'] = fmt
 
     def select_video_recording_format(self):
         settings = _app_ctx.ctx.settings
@@ -815,6 +841,7 @@ class MicroscopeSettings(BoxLayout):
             return
         settings.setdefault('manual_video', {})
         settings['manual_video']['max_fps'] = value
+        gui_logger.text_input_debounced('MANUAL_VIDEO_MAX_FPS', value)
 
     def update_manual_video_max_duration(self):
         # Memmap allocates max_fps * duration frames; the disk-space
@@ -830,15 +857,16 @@ class MicroscopeSettings(BoxLayout):
 
             notifications.warning(
                 'Settings',
-                'Invalid duration',
-                'Manual Video Duration must be between 1 and 3600 '
+                'Invalid time limit',
+                'Video Time Limit must be between 1 and 3600 '
                 'seconds. Reverting to previous value.',
             )
             settings.setdefault('manual_video', {})
-            widget.text = str(settings['manual_video'].get('max_duration_seconds', 30))
+            widget.text = str(get_manual_video_max_duration(settings))
             return
         settings.setdefault('manual_video', {})
         settings['manual_video']['max_duration_seconds'] = value
+        gui_logger.text_input_debounced('MANUAL_VIDEO_MAX_DURATION_S', value)
 
     def update_scale_bar_state(self):
         ctx = _app_ctx.ctx
@@ -866,34 +894,30 @@ class MicroscopeSettings(BoxLayout):
 
     def update_live_image_histogram_equalization(self):
         ctx = _app_ctx.ctx
-        if self.ids['enable_live_image_histogram_equalization_btn'].state == 'down':
-            ctx.scope_display.use_live_image_histogram_equalization = True
-            ctx.live_histo_setting = True
-        else:
-            ctx.scope_display.use_live_image_histogram_equalization = False
-            ctx.live_histo_setting = False
+        enabled = self.ids['enable_live_image_histogram_equalization_btn'].state == 'down'
+        gui_logger.toggle('LIVE_HISTOGRAM_EQUALIZATION', enabled)
+        ctx.scope_display.use_live_image_histogram_equalization = enabled
+        ctx.live_histo_setting = enabled
 
     def update_show_tooltips(self):
         ctx = _app_ctx.ctx
         settings = ctx.settings
-        if self.ids['show_tooltips_btn'].state == 'down':
-            ctx.show_tooltips = True
-            settings['show_tooltips'] = True
-        else:
-            ctx.show_tooltips = False
-            settings['show_tooltips'] = False
+        enabled = self.ids['show_tooltips_btn'].state == 'down'
+        gui_logger.toggle('SHOW_TOOLTIPS', enabled)
+        ctx.show_tooltips = enabled
+        settings['show_tooltips'] = enabled
 
     def update_protocol_led_on(self):
         settings = _app_ctx.ctx.settings
-        if self.ids['protocol_led_on_btn'].state == 'down':
-            settings['protocol_led_on'] = True
-        else:
-            settings['protocol_led_on'] = False
+        enabled = self.ids['protocol_led_on_btn'].state == 'down'
+        gui_logger.toggle('PROTOCOL_LED_ON', enabled)
+        settings['protocol_led_on'] = enabled
 
     def update_stimulation_settings(self):
         """Toggle stimulation features globally across all channels."""
         settings = _app_ctx.ctx.settings
         stimulation_enabled = self.ids['stimulation_settings_btn'].state == 'down'
+        gui_logger.toggle('STIMULATION_ENABLED', stimulation_enabled)
         settings['stimulation_enabled'] = stimulation_enabled
 
         # Update all layer controls
@@ -922,7 +946,7 @@ class MicroscopeSettings(BoxLayout):
         """Save the current settings dict to disk as JSON.
 
         LVP-A-4: when ``force=False`` (default), the save is skipped if
-        no hardware was connected during the session — without hardware
+        no hardware was connected during the session -- without hardware
         the slider defaults (0.01ms exposure, etc.) would overwrite the
         user's real per-channel settings in current.json. The gate
         previously lived inline in ``lumaviewpro.py:on_stop``; lifted
@@ -952,7 +976,7 @@ class MicroscopeSettings(BoxLayout):
             )
             if not had_hardware:
                 logger.info(
-                    '[LVP Main  ] save_settings: skipped — no hardware was '
+                    '[LVP Main  ] save_settings: skipped -- no hardware was '
                     'connected this session (would overwrite real per-channel '
                     'values with slider defaults). Pass force=True to override.'
                 )
@@ -994,37 +1018,100 @@ class MicroscopeSettings(BoxLayout):
             sizes = [1, 2, 4]
         spinner.values = [f'{s}x{s}' for s in sizes]
 
+    def _native_roi(self) -> dict:
+        """Return the unbinned ROI -- the source of truth for frame sizing.
+
+        Persisted as ``settings['frame']['native_width']/['native_height']``.
+        When absent (older settings files that stored only the displayed
+        size), reconstruct it from the displayed frame size times the current
+        binning, capped at the sensor native resolution.
+        """
+        ctx = _app_ctx.ctx
+        frame = ctx.settings['frame']
+        imaging = ctx.lumaview.scope.imaging
+        native_max = imaging.get_native_resolution()
+        if 'native_width' in frame and 'native_height' in frame:
+            native = {
+                'width': int(frame['native_width']),
+                'height': int(frame['native_height']),
+            }
+        else:
+            cur_binning = imaging.get_binning_size()
+            displayed = {'width': int(frame['width']), 'height': int(frame['height'])}
+            cap = native_max or {
+                'width': displayed['width'] * cur_binning,
+                'height': displayed['height'] * cur_binning,
+            }
+            native = binning.displayed_to_native(displayed, cur_binning, cap)
+        if native_max:
+            native['width'] = min(native['width'], native_max['width'])
+            native['height'] = min(native['height'], native_max['height'])
+        return native
+
+    def _store_native_roi(self, native: dict) -> None:
+        """Persist the native ROI source of truth into settings['frame']."""
+        frame = _app_ctx.ctx.settings['frame']
+        frame['native_width'] = int(native['width'])
+        frame['native_height'] = int(native['height'])
+
     def select_binning_size(self):
         ctx = _app_ctx.ctx
         settings = ctx.settings
-
         lumaview = ctx.lumaview
-        orig_binning_size = lumaview.scope.imaging.get_binning_size()
-        orig_frame_size = get_current_frame_dimensions()
+        imaging = lumaview.scope.imaging
 
         new_binning_size_str = self.ids['binning_spinner'].text
-
         new_binning_size = binning.binning_size_str_to_int(new_binning_size_str)
+
+        # Reject a binning level this camera does not support and restore the
+        # spinner to the camera's actual binning.
+        if new_binning_size not in imaging.get_available_binning_sizes():
+            from modules.notification_center import notifications
+
+            notifications.warning(
+                'Camera',
+                'Binning not supported',
+                f'This camera does not support {new_binning_size_str} binning.',
+            )
+            self.ids['binning_spinner'].text = binning.binning_size_int_to_str(
+                imaging.get_binning_size()
+            )
+            return
+
         settings['binning']['size'] = new_binning_size_str
-        ratio = new_binning_size / orig_binning_size
-        new_frame_size = {
-            'width': math.floor(orig_frame_size['width'] / ratio),
-            'height': math.floor(orig_frame_size['height'] / ratio),
-        }
-        self.ids['frame_width_id'].text = str(new_frame_size['width'])
-        self.ids['frame_height_id'].text = str(new_frame_size['height'])
+
+        # Native ROI is the source of truth; the displayed/captured size is
+        # native / binning. Deriving from the fixed native ROI (not the prior
+        # displayed value) is what makes binning round-trip: iterating on the
+        # already-floored displayed value lost pixels that never came back.
+        #
+        # Persist the native ROI here too, not just on a frame-field edit.
+        # Without this, settings that never had native_* stored fall through
+        # _native_roi's reconstruction (displayed * binning) on every binning
+        # change -- and at a coarse binning the displayed value is already
+        # floored, so reconstruction shrinks native a little each step and the
+        # cycle drifts (1x1 -> 4x4 -> 1x1 came back smaller). Storing the
+        # native ROI on the first change locks the source of truth so later
+        # changes read a fixed value and round-trip exactly.
+        native = self._native_roi()
+        self._store_native_roi(native)
+        new_frame = binning.native_to_displayed(
+            native, new_binning_size, imaging.get_pixel_alignment()
+        )
+        self.ids['frame_width_id'].text = str(new_frame['width'])
+        self.ids['frame_height_id'].text = str(new_frame['height'])
 
         # During app init, scope.initialize() handles all hardware calls
         if ctx.initializing:
             return
 
-        # Route through camera executor to prevent race with live view grab loop
+        # Route through camera executor to prevent race with live view grab
+        # loop. The frame push is enqueued after, so it lands once the new
+        # binning is applied and the driver can clamp to the right max.
         ctx.camera_executor.put(
-            IOTask(
-                action=lumaview.scope.imaging.set_binning_size, kwargs={'size': new_binning_size}
-            )
+            IOTask(action=imaging.set_binning_size, kwargs={'size': new_binning_size})
         )
-        self.frame_size()
+        self._apply_displayed_frame(new_frame)
 
     def load_scopes(self):
         logger.info('[LVP Main  ] MicroscopeSettings.load_scopes()')
@@ -1093,12 +1180,12 @@ class MicroscopeSettings(BoxLayout):
         # holder when XYStage=False so we don't render an empty hole
         # where the plate-layout used to be. The kv-defined
         # ``protocol_stage_holder_id`` FloatLayout has
-        # ``height: self.width * 2 / 3`` — that allocation is
+        # ``height: self.width * 2 / 3`` -- that allocation is
         # unconditional, so removing the stage widget left the space
         # but no content. Setting height=0 collapses it; re-binding to
         # width on switch back restores it. The xy_stage_holder lives
         # inside the xy-stage AccordionItem which is itself hidden via
-        # set_xystage_control_visibility(False) — no separate fix
+        # set_xystage_control_visibility(False) -- no separate fix
         # needed there.
         protocol_stage_holder = protocol_settings.ids.get('protocol_stage_holder_id')
         if protocol_stage_holder is not None:
@@ -1117,11 +1204,11 @@ class MicroscopeSettings(BoxLayout):
                 protocol_stage_holder.size_hint_y = None
                 protocol_stage_holder.height = 0
 
-        # UI-1 follow-up (2026-05-03): cheap "reset on switch" — explicit
+        # UI-1 follow-up (2026-05-03): cheap "reset on switch" -- explicit
         # resort of both accordions after any scope-config change so
-        # successive LS850 ↔ LS820 ↔ LS620 transitions can't leave the
+        # successive LS850 <-> LS820 <-> LS620 transitions can't leave the
         # children list in a non-canonical state. Eric 2026-05-03:
-        # "maybe it could do a fully reset when you switch" — this is
+        # "maybe it could do a fully reset when you switch" -- this is
         # that approach.
         try:
             ctx.motion_settings._resort_accordion()
@@ -1144,7 +1231,7 @@ class MicroscopeSettings(BoxLayout):
             ctx = _app_ctx.ctx
             settings = ctx.settings
 
-            # #631: idempotent — if the spinner text matches current settings, no
+            # #631: idempotent -- if the spinner text matches current settings, no
             # work to do. Defends against on_text firing for programmatic text
             # writes (e.g. settings load, mirror-spinner sync) without redoing
             # hardware calls or notifications.
@@ -1167,7 +1254,7 @@ class MicroscopeSettings(BoxLayout):
                     notifications.warning(
                         'Objective',
                         'Objective Not in Turret',
-                        f"[Objective] Cannot select '{objective_id}' — not assigned "
+                        f"[Objective] Cannot select '{objective_id}' -- not assigned "
                         f'to any turret position. Assign it in Objective Control > '
                         f'Turret before using.',
                     )
@@ -1184,9 +1271,9 @@ class MicroscopeSettings(BoxLayout):
             vc_objective_spinner.text = objective_id
 
             if lumaview.scope.motion.has_turret():
-                lumaview.scope.set_turret_config(turret_config=settings['turret_objectives'])
+                lumaview.scope.runtime_state.set_turret_config(turret_config=settings['turret_objectives'])
 
-            lumaview.scope.set_objective(objective_id=objective_id)
+            lumaview.scope.runtime_state.set_objective(objective_id=objective_id)
 
             fov_size = common_utils.get_field_of_view(
                 focal_length=objective['focal_length'],
@@ -1202,9 +1289,51 @@ class MicroscopeSettings(BoxLayout):
             show_notification_popup(title='Error', message=str(e))
 
     def frame_size(self):
+        """Apply a user edit of the frame width/height fields.
+
+        The typed value is a displayed (post-binning) size, so the native ROI
+        becomes ``displayed * binning`` capped at the sensor native resolution.
+        The displayed size is then re-derived from that native ROI and applied,
+        keeping the native source of truth and the camera in sync.
+        """
         logger.info('[LVP Main  ] MicroscopeSettings.frame_size()')
         ctx = _app_ctx.ctx
+        lumaview = ctx.lumaview
 
+        if not lumaview.scope.camera_connected:
+            return
+
+        imaging = lumaview.scope.imaging
+        try:
+            typed = get_current_frame_dimensions()
+        except ValueError:
+            frame = ctx.settings['frame']
+            typed = {'width': frame['width'], 'height': frame['height']}
+
+        cur_binning = imaging.get_binning_size()
+        native_max = imaging.get_native_resolution() or {
+            'width': int(typed['width']) * cur_binning,
+            'height': int(typed['height']) * cur_binning,
+        }
+        native = binning.displayed_to_native(typed, cur_binning, native_max)
+        self._store_native_roi(native)
+
+        displayed = binning.native_to_displayed(
+            native, cur_binning, imaging.get_pixel_alignment()
+        )
+        self._apply_displayed_frame(displayed)
+
+    def _apply_displayed_frame(self, frame: dict) -> None:
+        """Persist a displayed frame size, update the UI + FOV, push to camera.
+
+        Does NOT change the native ROI -- callers that change native (a binning
+        change or a frame-field edit) do so before calling this. The size is
+        already native-anchored and aligned; the driver's set_frame_size does
+        the final clamp to the camera max at the active binning, so no live
+        max clamp is applied here (it would read a stale max during a binning
+        change before the executor applies it).
+        """
+        ctx = _app_ctx.ctx
         lumaview = ctx.lumaview
         settings = ctx.settings
         objective_helper = ctx.objective_helper
@@ -1212,27 +1341,14 @@ class MicroscopeSettings(BoxLayout):
         if not lumaview.scope.camera_connected:
             return
 
-        try:
-            current_frame_size = get_current_frame_dimensions()
-        except ValueError:
-            current_frame_size = {
-                'width': settings['frame']['width'],
-                'height': settings['frame']['height'],
-            }
-
-        width = int(min(current_frame_size['width'], lumaview.scope.imaging.get_max_width()))
-        height = int(min(current_frame_size['height'], lumaview.scope.imaging.get_max_height()))
-
+        width = int(frame['width'])
+        height = int(frame['height'])
         try:
             min_frame_size = lumaview.scope.imaging.camera_min_frame_size
             width = max(width, min_frame_size['width'])
             height = max(height, min_frame_size['height'])
-
-            max_w, max_h = lumaview.scope.capabilities.camera_max_frame_size
-            width = min(width, max_w)
-            height = min(height, max_h)
         except Exception:
-            logger.warning('[LVP Main  ] Could not clamp frame size to camera limits.')
+            logger.warning('[LVP Main  ] Could not clamp frame size to camera minimum.')
 
         settings['frame']['width'] = width
         settings['frame']['height'] = height
@@ -1251,7 +1367,7 @@ class MicroscopeSettings(BoxLayout):
         self.ids['field_of_view_width_id'].text = str(round(fov_size['width'], 0))
         self.ids['field_of_view_height_id'].text = str(round(fov_size['height'], 0))
 
-        # Coalesce rapid frame_size() calls — see _CoalescingApplier
+        # Coalesce rapid frame_size() calls -- see _CoalescingApplier
         # + issue #624. The UI can fire this method several times in
         # quick succession when the user tabs between width and height
         # text fields (on_focus loss + on_text_validate both bound to

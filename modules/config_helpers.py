@@ -116,6 +116,38 @@ def get_auto_gain_settings(settings: dict) -> dict:
     return autogain_settings
 
 
+def get_manual_video_max_duration(settings: dict) -> float:
+    """Return the manual-video max recording duration in seconds.
+
+    Owns the canonical 30-second default so it lives in one place instead of
+    being repeated at each read site, where one copy could drift from the rest.
+    """
+    return settings.get('manual_video', {}).get('max_duration_seconds', 30)
+
+
+def get_ag_ae_max_exposure_ms(layer: str, settings: dict | None = None) -> float:
+    """Return the AG/AE exposure upper bound (ms) for a layer's channel class.
+
+    AG/AE is capped per channel class so auto-exposure cannot drive the
+    sensor toward its native max on dim scenes. Resolves the layer to its
+    class, then returns the per-install override
+    (settings['ag_ae_max_exposure_ms'][<class>]) when present, else the
+    DEFAULT_AG_AE_MAX_EXPOSURE_MS default. Unknown layers fall back to the
+    fluorescence cap.
+    """
+    if layer in common_utils.get_transmitted_layers():
+        channel_class = 'transmitted'
+    elif layer in common_utils.get_luminescence_layers():
+        channel_class = 'luminescence'
+    else:
+        channel_class = 'fluorescence'
+    if settings:
+        override = settings.get('ag_ae_max_exposure_ms', {}).get(channel_class)
+        if override is not None:
+            return float(override)
+    return DEFAULT_AG_AE_MAX_EXPOSURE_MS[channel_class]
+
+
 def get_current_objective_info(settings: dict, objective_helper) -> tuple[str, dict]:
     """Return (objective_id, objective_info_dict) from current settings."""
     objective_id = settings['objective_id']
@@ -192,7 +224,7 @@ def get_current_plate_position(
 
 
 def log_environment_once():
-    """Log fixed environment fingerprint — system boot time, uptime, OS build,
+    """Log fixed environment fingerprint -- system boot time, uptime, OS build,
     Pylon SDK version, Defender state. Once-per-startup pairs with the
     per-tick log_system_metrics surface so post-mortem can correlate a
     runtime metric trace against the host's exact version state.
@@ -270,7 +302,6 @@ def log_system_metrics(settings: dict):
     # Resolve relative paths and handle missing directories gracefully.
     # On installed apps, live_folder may still be './capture' before
     # microscope_settings resolves it to Documents.
-    import pathlib
 
     resolved = pathlib.Path(path).resolve()
     if not resolved.exists():
@@ -287,7 +318,7 @@ def log_system_metrics(settings: dict):
             f'Low disk space: {free_space:.1f} MB remaining',
         )
 
-    # System uptime per-tick — pairs with [ENV METRICS] boot timestamp
+    # System uptime per-tick -- pairs with [ENV METRICS] boot timestamp
     # logged once at startup. Lets post-hoc log analysis tag each tick
     # with "system has been up for N hours" to filter out runs
     # contaminated by long-uptime memory exhaustion.
@@ -326,7 +357,7 @@ def log_system_metrics(settings: dict):
     # unhealthy patterns.
 
     # GDI / USER objects (Windows only). The #1 cause of "Windows feels
-    # slow after 24 hours" — process limit is 10k, desktop degrades at ~5k.
+    # slow after 24 hours" -- process limit is 10k, desktop degrades at ~5k.
     gdi = metrics.get('gdi_objects', -1)
     if gdi >= 0:
         metrics_logger.info(
@@ -356,6 +387,38 @@ def log_system_metrics(settings: dict):
         names_str = ', '.join(f'{k}={v}' for k, v in sorted(name_summary.items()))
         metrics_logger.info(
             f'[THREAD METRICS] count={thread_count} | {names_str}',
+        )
+
+    # Per-thread CPU over the interval -- which thread is hot (protocol vs
+    # scope_display vs camera). Pairs with [THREAD METRICS] counts above; same
+    # names. Empty on the first tick (needs a baseline). Percentages are
+    # per-core (100 = one full core) so total tracks [PROCESS METRICS] CPU.
+    try:
+        thread_cpu = common_utils.thread_cpu_percentages()
+    except Exception:
+        thread_cpu = {}
+    if thread_cpu:
+        ranked = sorted(thread_cpu.items(), key=lambda kv: kv[1], reverse=True)
+        hot = ' '.join(f'{name}={pct:.1f}%' for name, pct in ranked if pct >= 0.1)
+        total = sum(thread_cpu.values())
+        metrics_logger.info(
+            f'[THREAD CPU] total={total:.1f}% | {hot if hot else "(all idle)"}',
+        )
+
+    # GPU utilization + memory (Windows, vendor-agnostic via PDH GPU Engine
+    # counters -- AMD / Intel / NVIDIA alike). Empty on non-Windows or if the
+    # counters are unavailable. 3D is the OpenGL/Kivy render engine; shared
+    # memory is the meaningful figure on an integrated GPU (no dedicated VRAM).
+    try:
+        gpu = common_utils.query_gpu_metrics()
+    except Exception:
+        gpu = {}
+    if gpu:
+        metrics_logger.info(
+            f'[GPU METRICS] util={gpu.get("gpu_util_total_percent", 0.0):.1f}% '
+            f'(3d={gpu.get("gpu_util_3d_percent", 0.0):.1f}%) | '
+            f'shared_mem={gpu.get("gpu_shared_mem_mb", 0.0):.0f} MB | '
+            f'dedicated_mem={gpu.get("gpu_dedicated_mem_mb", 0.0):.0f} MB',
         )
 
     # Python GC objects. Steady growth = closures or observers holding refs.
@@ -406,10 +469,10 @@ def log_system_metrics(settings: dict):
     # diagnosing buffer-churn / slow-onset memory growth on Windows.
     #
     # Standby split: Normal + Reserve + Core = total standby cache.
-    #   - Standby growing while RAM available stays high → mapped-file
+    #   - Standby growing while RAM available stays high -> mapped-file
     #     accumulation (the slowdown signal).
-    #   - Nonpaged pool growing → kernel-side leak (Pylon DMA, drivers).
-    #   - System cache (\Memory\Cache Bytes) is the file-system cache —
+    #   - Nonpaged pool growing -> kernel-side leak (Pylon DMA, drivers).
+    #   - System cache (\Memory\Cache Bytes) is the file-system cache --
     #     overlaps with standby on Windows; track both for cross-check.
     pdh_keys = [
         'pdh_standby_normal_bytes',
@@ -450,8 +513,8 @@ def log_system_metrics(settings: dict):
         )
 
     # --- Buffer-churn signals from the live capture path ---
-    # capture_fps × frame_nbytes = MB/sec the camera produces. Each frame
-    # currently allocates ~3 fresh OS-level buffers (camera copy, 12→8 LUT,
+    # capture_fps x frame_nbytes = MB/sec the camera produces. Each frame
+    # currently allocates ~3 fresh OS-level buffers (camera copy, 12->8 LUT,
     # tobytes()). The standby-cache growth in [PDH METRICS] should track
     # this product roughly.
     try:
@@ -475,7 +538,7 @@ def log_system_metrics(settings: dict):
         except Exception as e:
             logger.debug(f'[BUFFER METRICS] unavailable: {e}')
 
-        # Frame-interval percentiles — consumer-stall detection.
+        # Frame-interval percentiles -- consumer-stall detection.
         # Spikes in p99/max correlate with main-thread congestion
         # or worker-thread blocks; tracking these surfaces UI lock
         # contention and IO scheduling issues.
@@ -497,7 +560,7 @@ def log_system_metrics(settings: dict):
     # --- Defender (MsMpEng.exe) metrics ---
     # Direct signal for the "Defender memory-maps every TIFF write"
     # interaction. If defender_io_read_mbps tracks our io_write_mbps
-    # × ~1, Defender is the slowdown source. defender_private_mb
+    # x ~1, Defender is the slowdown source. defender_private_mb
     # growing alongside standby_total_mb is also implicating.
     defender_private = metrics.get('defender_private_mb')
     if defender_private is not None:
@@ -598,7 +661,7 @@ def log_system_metrics(settings: dict):
     # --- tracemalloc top-N (settings-gated) ---
     # Off by default. Enable with tracemalloc_enabled: true in
     # data/settings.json. Adds 10-30% process memory overhead so reserved
-    # for targeted runs. When on, logs top-5 allocators by current size —
+    # for targeted runs. When on, logs top-5 allocators by current size --
     # direct pre/post verification that audited buffer-reuse sites no
     # longer allocate on hot path.
     try:
@@ -623,13 +686,13 @@ def log_system_metrics(settings: dict):
 
 def focus_log(positions, values, focus_round: int, source_path: str) -> int:
     """Log autofocus positions and scores to file. Returns incremented focus_round."""
-    if False:  # disabled — kept for future use
+    if False:  # disabled -- kept for future use
         log_file = os.path.join(source_path, 'logs', 'focus_log.txt')
         try:
             file = open(log_file, 'a')
-        except Exception:
+        except Exception as e:
             if not os.path.isdir(os.path.join(source_path, 'logs')):
-                raise FileNotFoundError("Couldn't find 'logs' directory.")
+                raise FileNotFoundError("Couldn't find 'logs' directory.") from e
             else:
                 raise
         for i, p in enumerate(positions):
@@ -649,7 +712,7 @@ def block_wait_for_threads(futures: list, log_loc: str = 'LVP') -> None:
 
 
 # ---------------------------------------------------------------------------
-# Headless config getters — GUI-free equivalents of config_ui_getters.py
+# Headless config getters -- GUI-free equivalents of config_ui_getters.py
 #
 # These read from the settings dict (or scope object) instead of Kivy widgets.
 # Used by the REST API and any non-GUI context.
@@ -659,6 +722,19 @@ def block_wait_for_threads(futures: list, log_loc: str = 'LVP') -> None:
 # Lumascope.camera_max_exposure returns None in that case; callers pattern
 # is `scope.imaging.camera_max_exposure or DEFAULT_MAX_EXPOSURE_MS`. See #616.
 DEFAULT_MAX_EXPOSURE_MS = 1000.0
+
+# Per-channel-class upper bound on the exposure AG/AE may drive to, in ms.
+# Distinct from the manual exposure-slider limits: on dim scenes (especially
+# with the MinimizeGain profile) AG/AE would otherwise push exposure to the
+# sensor's native max, washing out brightfield and making the live-view auto
+# loop hunt. Transmitted light is bright (short exposures); fluorescence needs
+# more; luminescence integrates long. Overridable per install via
+# settings['ag_ae_max_exposure_ms'][<class>]; these are the defaults.
+DEFAULT_AG_AE_MAX_EXPOSURE_MS = {
+    'transmitted': 50.0,
+    'fluorescence': 200.0,
+    'luminescence': 1000.0,
+}
 
 # Fallback gain slider upper bound used when no camera is connected.
 # Matches the legacy kv default (48 dB); the actual per-camera cap is
@@ -684,6 +760,22 @@ def get_frame_dimensions_from_settings(settings: dict) -> dict:
     }
 
 
+# Protocol period/duration floor. 0 is the single-scan marker and is
+# preserved; any positive value below 1 second is bumped to 1 second so a
+# short time-lapse interval/duration stays representable and doesn't round
+# to 0 on display (#568). Negative values are loader-rejected upstream.
+MIN_PROTOCOL_TIME_SECONDS = 1.0
+
+
+def floor_protocol_time(td: datetime.timedelta) -> datetime.timedelta:
+    """Clamp a protocol period/duration to a 1-second minimum, preserving
+    the 0 single-scan marker. See MIN_PROTOCOL_TIME_SECONDS."""
+    seconds = td.total_seconds()
+    if 0 < seconds < MIN_PROTOCOL_TIME_SECONDS:
+        return datetime.timedelta(seconds=MIN_PROTOCOL_TIME_SECONDS)
+    return td
+
+
 def get_protocol_time_params_from_settings(settings: dict) -> dict:
     """Read protocol time params from settings dict (no UI needed).
 
@@ -693,8 +785,8 @@ def get_protocol_time_params_from_settings(settings: dict) -> dict:
     period_minutes = float(protocol.get('period', 1))
     duration_hours = float(protocol.get('duration', 1))
     return {
-        'period': datetime.timedelta(minutes=period_minutes),
-        'duration': datetime.timedelta(hours=duration_hours),
+        'period': floor_protocol_time(datetime.timedelta(minutes=period_minutes)),
+        'duration': floor_protocol_time(datetime.timedelta(hours=duration_hours)),
     }
 
 
@@ -708,6 +800,7 @@ def get_image_capture_config_from_settings(settings: dict) -> dict:
         },
         'use_full_pixel_depth': settings.get('use_full_pixel_depth', False),
         'false_color_16bit': settings.get('false_color_16bit', False),
+        'jpg_quality': int(settings.get('jpg_quality', 90)),
     }
 
 
@@ -730,7 +823,7 @@ def get_selected_labware_from_settings(
     the cluster by construction.
 
     The only way this raises is if the wellplate loader is empty (broken
-    install / labware.json missing) — that's a genuine fatal that the
+    install / labware.json missing) -- that's a genuine fatal that the
     caller cannot reasonably recover from.
     """
     labware_id = settings.get('protocol', {}).get('labware', '') or DEFAULT_LABWARE_ID
@@ -772,6 +865,38 @@ def get_zstack_params_from_settings(settings: dict) -> dict:
     }
 
 
+def build_sequenced_capture_config(values: dict) -> dict:
+    """Assemble the canonical sequenced-capture input_config from a flat values
+    dict.
+
+    Single source for the key set Protocol.from_config consumes. Every source
+    lane (UI / settings / zstack) routes its values through here, so no lane can
+    silently omit a key -- in particular tiling_overlap_percent, whose omission
+    used to force the settings/headless lane to a silent 0% overlap. The key is
+    always present here (defaulting to 0.0) rather than relying on each lane to
+    remember it. `positions` is included only when a lane supplies explicit
+    positions (the z-stack single-position case); otherwise Protocol.from_config
+    derives positions from the labware.
+    """
+    config = {
+        'labware_id': values['labware_id'],
+        'objective_id': values['objective_id'],
+        'zstack_params': values['zstack_params'],
+        'use_zstacking': values['use_zstacking'],
+        'tiling': values['tiling'],
+        'tiling_overlap_percent': values.get('tiling_overlap_percent', 0.0),
+        'layer_configs': values['layer_configs'],
+        'period': values['period'],
+        'duration': values['duration'],
+        'frame_dimensions': values['frame_dimensions'],
+        'binning_size': values['binning_size'],
+        'stim_config': values['stim_config'],
+    }
+    if 'positions' in values:
+        config['positions'] = values['positions']
+    return config
+
+
 def get_sequenced_capture_config_from_settings(
     settings: dict,
     objective_helper,
@@ -783,23 +908,19 @@ def get_sequenced_capture_config_from_settings(
     """
     objective_id, _ = get_current_objective_info(settings, objective_helper)
     time_params = get_protocol_time_params_from_settings(settings)
-    labware_id = settings.get('protocol', {}).get('labware', '')
-    tiling = settings.get('protocol', {}).get('tiling', '1x1')
-    use_zstacking = settings.get('protocol', {}).get('use_zstacking', False)
-    frame_dimensions = get_frame_dimensions_from_settings(settings)
-    zstack_params = get_zstack_params_from_settings(settings)
-    layer_configs = get_layer_configs(settings)
+    protocol = settings.get('protocol', {})
 
-    return {
-        'labware_id': labware_id,
+    return build_sequenced_capture_config({
+        'labware_id': protocol.get('labware', ''),
         'objective_id': objective_id,
-        'zstack_params': zstack_params,
-        'use_zstacking': use_zstacking,
-        'tiling': tiling,
-        'layer_configs': layer_configs,
+        'zstack_params': get_zstack_params_from_settings(settings),
+        'use_zstacking': protocol.get('use_zstacking', False),
+        'tiling': protocol.get('tiling', '1x1'),
+        'tiling_overlap_percent': protocol.get('tiling_overlap_percent', 0.0),
+        'layer_configs': get_layer_configs(settings),
         'period': time_params['period'],
         'duration': time_params['duration'],
-        'frame_dimensions': frame_dimensions,
+        'frame_dimensions': get_frame_dimensions_from_settings(settings),
         'binning_size': get_binning_from_settings(settings),
         'stim_config': get_stim_configs(settings),
-    }
+    })

@@ -81,13 +81,15 @@ def test_camera_driver_routes_warning_error_exception_to_cam_log(driver_path):
     )
 
 
-def test_camera_driver_files_define_cam_log_alias():
-    """Each driver file must import or define `_cam_log` at module scope
-    so the renamed call sites resolve. Defensive against a future commit
+def test_camera_driver_modules_define_cam_log_alias():
+    """Each driver module must bind `_cam_log` at module scope so the
+    routed call sites resolve. Defensive against a future commit
     removing the alias without removing its users."""
-    for driver_path in DRIVER_FILES:
-        source = driver_path.read_text()
-        assert '_cam_log' in source, (
-            f'{driver_path.name} is missing the _cam_log alias but contains '
+    import importlib
+
+    for module_name in ('drivers.pyloncamera', 'drivers.camera', 'drivers.idscamera'):
+        module = importlib.import_module(module_name)
+        assert getattr(module, '_cam_log', None) is not None, (
+            f'{module_name} is missing the _cam_log alias but contains '
             f'_cam_log.* call sites. Add the alias to keep the routing intact.'
         )

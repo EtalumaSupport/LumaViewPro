@@ -16,7 +16,7 @@ class ScopeInitConfig:
     `expects_motion` / `expects_led` reflect what the selected scope's
     `scopes.json` entry says it should have, used by `initialize()` to
     filter the partial-hardware notification (LS620 correctly has no
-    motor — don't pop a "Motor Controller missing" warning). Defaults
+    motor -- don't pop a "Motor Controller missing" warning). Defaults
     are True so callers that don't supply scope_config preserve the
     pre-filter behavior.
     """
@@ -63,8 +63,8 @@ class ScopeInitConfig:
             objective_id=settings.get('objective_id', '4x'),
             turret_config=settings.get('turret_objectives', None),
             binning_size=binning_size,
-            frame_width=settings['frame']['width'] * binning_size,
-            frame_height=settings['frame']['height'] * binning_size,
+            frame_width=settings['frame']['width'],
+            frame_height=settings['frame']['height'],
             acceleration_pct=settings.get('motion', {}).get('acceleration_max_pct', 100),
             stage_offset=settings.get('stage_offset', {'x': 0, 'y': 0}),
             scale_bar_enabled=settings.get('scale_bar', {}).get('enabled', False),

@@ -69,15 +69,18 @@ class TestPostProcessingEmptyResultMessages:
     def test_load_folder_empty_message_actionable(self):
         # When the folder truly contains no images: tell the user that's
         # what we checked for, and what to verify.
+        # pin-justified: the user-facing message wording is the contract.
         src = (REPO_ROOT / 'modules' / 'protocol_post_processor.py').read_text()
         assert 'No image files were found in the selected folder' in src
         assert 'captured scan images' in src
 
     def test_helper_empty_message_actionable(self):
+        # pin-justified: the user-facing message wording is the contract.
         src = (REPO_ROOT / 'modules' / 'protocol_post_processing_helper.py').read_text()
         assert 'captured scan images' in src
 
     def test_composite_no_channels_message_specific(self):
+        # pin-justified: the user-facing message wording is the contract.
         src = (REPO_ROOT / 'modules' / 'composite_generation.py').read_text()
         assert 'no channel images' in src
         # The old generic wording must not survive a future merge.
@@ -165,10 +168,13 @@ class TestZprojectionFolderPickerDefaultDepth_629:
         """Helper must exist at module scope, take live_folder, return
         a str. Pure (no Kivy / no app_ctx / no settings access). Future
         behavioral tests can import it directly without conftest changes."""
-        src = (REPO_ROOT / 'ui' / 'file_dialogs.py').read_text()
-        assert 'def _zprojection_picker_default_path(' in src, (
-            'Helper _zprojection_picker_default_path() must exist; '
-            'FolderChooseBTN.choose() delegates to it (#629).'
+        from tests.ast_seams import assert_def
+
+        assert_def(
+            'ui/file_dialogs.py', '_zprojection_picker_default_path',
+            has_params=['live_folder'],
+            msg='Helper _zprojection_picker_default_path() must exist; '
+                'FolderChooseBTN.choose() delegates to it (#629).',
         )
 
     def test_helper_descends_manual_z_stacks_first(self):

@@ -37,4 +37,4 @@ class ZStackConfig:
         position_values = (np.arange(n_steps) * self._step_size + start_pos).tolist()
         max_precision = common_utils.max_decimal_precision(parameter='z')
         position_values = [round(val, max_precision) for val in position_values]
-        return {index: value for index, value in enumerate(position_values)}
+        return dict(enumerate(position_values))

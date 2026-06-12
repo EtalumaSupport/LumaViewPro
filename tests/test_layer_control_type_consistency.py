@@ -1,8 +1,8 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Regression tests for P2 bug fix — stim slider writes must match text-path type.
+"""Regression tests for P2 bug fix -- stim slider writes must match text-path type.
 
 Audit source: /Users/ericweiner/Documents/Firmware/docs/NUMBER_INPUT_AUDIT_2026-04-21.md
-              §P2 Pulse Count + Pulse Width type-mismatch.
+              sec.P2 Pulse Count + Pulse Width type-mismatch.
 
 Bug
 ---
@@ -154,7 +154,7 @@ def pulse_width_handler(handler_globals):
 
 
 # ---------------------------------------------------------------------------
-# pulse_count — slider path
+# pulse_count -- slider path
 # ---------------------------------------------------------------------------
 
 
@@ -200,7 +200,7 @@ class TestCrossPathConsistency:
     The text path goes through `_validate_and_apply_text_input` which already
     has `cast=int` wiring (see layer_control.py lines 119+127). Stubbing it
     here would only re-test our stub, so we model the text path's final
-    settings write in-line — the thing under test is that the slider path
+    settings write in-line -- the thing under test is that the slider path
     does not later clobber the int with a float.
     """
 

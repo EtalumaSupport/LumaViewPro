@@ -46,7 +46,11 @@ import hashlib
 import logging
 import time
 
-logger = logging.getLogger(__name__)
+# Parent under the LVP tree so raw-REPL flash / bootloader / config-backup
+# I/O reaches the log handlers. Bare __name__ ('drivers.raw_repl') has no
+# handler, so this board-bricking-capable transport was logging into the
+# void; LVP.raw_repl propagates to the main + error logs.
+logger = logging.getLogger('LVP.raw_repl')
 
 # ---------------------------------------------------------------------------
 # MicroPython raw REPL control characters
@@ -383,9 +387,9 @@ def read_file(serial_port, filename, verify=True):
             time.sleep(0.5)
             data3 = _do_read()
             if data3 == data:
-                logger.info(f'Third read matches first -- using first read')
+                logger.info('Third read matches first -- using first read')
             elif data3 == data2:
-                logger.info(f'Third read matches second -- using second read')
+                logger.info('Third read matches second -- using second read')
                 data = data2
             else:
                 logger.error(
@@ -558,7 +562,7 @@ def verify_firmware_running(serial_port, command='INFO', timeout=10):
         while time.time() < deadline:
             try:
                 _drain_input(serial_port)
-                serial_port.write(f'{command}\n'.encode('utf-8'))
+                serial_port.write(f'{command}\n'.encode())
                 time.sleep(0.5)
                 response = serial_port.read(4096)
                 if response:

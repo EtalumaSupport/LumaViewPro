@@ -19,7 +19,7 @@ logger = logging.getLogger('LVP.ui.motion_settings')
 
 
 # ============================================================================
-# MotionSettings — Left Sidebar Panel (Motion, Protocol, Post-Processing)
+# MotionSettings -- Left Sidebar Panel (Motion, Protocol, Post-Processing)
 # ============================================================================
 
 
@@ -30,7 +30,7 @@ class MotionSettings(BoxLayout):
     # Canonical top-to-bottom display order for the LEFT-side accordion.
     # Mirrors the right-side _LAYER_DISPLAY_ORDER pattern in
     # ui/image_settings.py. Used by _resort_accordion() so live
-    # scope-model transitions (LS850 ↔ LS820 ↔ LS620, etc.) keep the
+    # scope-model transitions (LS850 <-> LS820 <-> LS620, etc.) keep the
     # accordion items in canonical order regardless of which were
     # hidden / re-shown along the way (UI-1 left-side follow-up,
     # 2026-05-03).
@@ -51,7 +51,7 @@ class MotionSettings(BoxLayout):
         # (wrapping VerticalControl); its widget ref lives in self.ids and
         # is resolved lazily on first show/hide. Visible-by-default here
         # matches the kv starting state; set_objective_control_visibility
-        # hides it for scopes that declare Focus=false (LS560/LS620 — no
+        # hides it for scopes that declare Focus=false (LS560/LS620 -- no
         # motorised Z axis).
         self._accordion_item_objective_control = None
         self._accordion_item_objective_control_visible = True
@@ -98,8 +98,8 @@ class MotionSettings(BoxLayout):
         # removes it once at config load via remove_parent(); without this
         # guard, opening the protocol or XY-stage accordion brings the plate
         # view + crosshair back. Mirrors the same selected_scope_config check
-        # that microscope_settings.set_ui_features_for_scope uses (Rule 9 —
-        # query capabilities, don't assume).
+        # that microscope_settings.set_ui_features_for_scope uses -- query
+        # capabilities, don't assume.
         settings = ctx.settings
         microscope_settings = self.ids['microscope_settings_id']
         scope_configs = microscope_settings.scopes
@@ -201,13 +201,13 @@ class MotionSettings(BoxLayout):
         """Rebuild the left-side accordion children list in canonical order.
 
         Mirrors ui/image_settings.ImageSettings._resort_accordion. Live
-        scope-model transitions (LS850 ↔ LS620 ↔ LS820) re-add
-        previously hidden accordion items via add_widget — and after
+        scope-model transitions (LS850 <-> LS620 <-> LS820) re-add
+        previously hidden accordion items via add_widget -- and after
         multiple switches the children list ends up out of canonical
         order (e.g. Objective Control re-shown ends up at the bottom
         instead of below Microscope Settings). Called from every
         ``_show_*`` path after the add_widget call. Walks
-        ``_LAYER_DISPLAY_ORDER`` forward — Kivy renders children[0]
+        ``_LAYER_DISPLAY_ORDER`` forward -- Kivy renders children[0]
         last (= bottom), so the first canonical layer added ends up
         at children[-1] = TOP of the visual accordion.
         """
@@ -234,22 +234,22 @@ class MotionSettings(BoxLayout):
         # canonical-order map is an untracked accordion item (e.g. the
         # ``etaluma_engineering`` plugin tab, registered at runtime
         # AFTER kv build). Untracked items belong at the BOTTOM of the
-        # display per Eric 2026-05-03 — they're auxiliary surfaces, not
+        # display per Eric 2026-05-03 -- they're auxiliary surfaces, not
         # primary navigation.
         #
         # Kivy gotcha (caught 2026-05-03 via runtime diagnostic): the
         # ``self.ids.get('foo_id')`` lookup returns a Kivy ``WeakProxy``
-        # — ``id(weakproxy) != id(real_widget)``. So a tracked-set keyed
+        # -- ``id(weakproxy) != id(real_widget)``. So a tracked-set keyed
         # on Python ``id()`` matched ONLY widgets that were stored
         # directly as instance attributes (xystage), and the four
         # kv-id-resolved widgets (microscope / objective / protocol /
         # postproc) were misclassified as untracked. They got re-added
         # in their pre-resort order at children index 0, which moved
         # XY Stage Control to the top instead of leaving it in slot 2.
-        # Fix: compare via ``widget.uid`` — Kivy's stable per-widget
+        # Fix: compare via ``widget.uid`` -- Kivy's stable per-widget
         # integer that proxies correctly through WeakProxy.
         tracked_uids = {w.uid for w in widget_for_layer.values() if w is not None}
-        # Capture untracked widgets in their pre-resort order — they
+        # Capture untracked widgets in their pre-resort order -- they
         # render in REVERSE children order, so children[0] is the
         # bottom-most in the display today.
         untracked_in_display_order = [
@@ -265,7 +265,7 @@ class MotionSettings(BoxLayout):
                 pass
 
         # Re-add tracked widgets first in canonical order. Each
-        # ``add_widget`` (no index) PREPENDS to children — Kivy
+        # ``add_widget`` (no index) PREPENDS to children -- Kivy
         # renders children[0] LAST (= bottom). So forward iteration
         # over canonical order lands the FIRST canonical layer
         # (microscope) at children[-1] = visual top, and the LAST
@@ -284,7 +284,7 @@ class MotionSettings(BoxLayout):
             accordion.add_widget(widget)
 
         # Append untracked widgets at the bottom of the display.
-        # ``add_widget(w, 0)`` inserts at children index 0 → renders
+        # ``add_widget(w, 0)`` inserts at children index 0 -> renders
         # LAST = bottom. We process untracked items in their original
         # display order, so the first untracked one ends up just below
         # 'postproc' and any subsequent untracked items below that.
@@ -333,8 +333,6 @@ class MotionSettings(BoxLayout):
     # Hide (and unhide) motion settings
     def toggle_settings(self):
         logger.info('[LVP Main  ] MotionSettings.toggle_settings()')
-        scope_display = _app_ctx.ctx.scope_display
-        # scope_display.stop()
         self.ids['verticalcontrol_id'].update_gui()
         self.ids['protocol_settings_id'].select_labware()
 
@@ -359,7 +357,7 @@ class MotionSettings(BoxLayout):
 
 
 # ============================================================================
-# XYStageControl — XY Stage Movement and Bookmarks
+# XYStageControl -- XY Stage Movement and Bookmarks
 # ============================================================================
 
 
@@ -368,7 +366,7 @@ class XYStageControl(BoxLayout):
         ctx = _app_ctx.ctx
         if ctx.sequenced_capture_runner.run_in_progress():
             # During protocol: update crosshair directly from position cache
-            # (zero serial I/O). Don't go through IO executor — its callback
+            # (zero serial I/O). Don't go through IO executor -- its callback
             # runs on a worker thread which can't touch Kivy widgets.
             result = self.get_xy_targets()
             self.get_targets_ui_callback(result=result)
@@ -408,10 +406,10 @@ class XYStageControl(BoxLayout):
 
             # Convert from plate position to stage position
             _, labware = get_selected_labware()
-            # Periodic Clock-tick callback — short-circuit when no labware
+            # Periodic Clock-tick callback -- short-circuit when no labware
             # is selected. Without this guard, the coord transform would
             # raise NoLabwareSelectedError on every tick (~1 Hz), filling
-            # the log with identical tracebacks (#634 cluster fallout —
+            # the log with identical tracebacks (#634 cluster fallout --
             # log showed 24x in one startup). Steady-state empty-selection
             # is the default first-launch state; it's not a user-action
             # error and shouldn't notify.
@@ -455,7 +453,7 @@ class XYStageControl(BoxLayout):
             logger.warning(f'[Motion] {label}: no objective info: {e}')
             return
         step = objective['xy_coarse' if coarse else 'xy_fine']
-        ctx.io_executor.put(IOTask(action=move_relative_position, args=(axis, direction * step)))
+        move_relative_position(axis, direction * step)
 
     @debounce(0.2)
     def fine_left(self):
@@ -499,6 +497,7 @@ class XYStageControl(BoxLayout):
         except Exception:
             logger.debug(f'[LVP Main  ] Invalid X position input: {x_pos!r}')
             return
+        gui_logger.button('SET_X_POSITION', f'plate_mm={x_pos:.3f}')
 
         # x_pos is the the plate position in mm
         # Find the coordinates for the stage
@@ -512,7 +511,7 @@ class XYStageControl(BoxLayout):
         logger.info(f'[LVP Main  ] X pos {x_pos} Stage X {stage_x}')
 
         # Move to x-position
-        ctx.io_executor.put(IOTask(action=move_absolute_position, args=('X', stage_x)))
+        move_absolute_position('X', stage_x)
 
     def set_yposition(self, y_pos):
         ctx = _app_ctx.ctx
@@ -525,6 +524,7 @@ class XYStageControl(BoxLayout):
         except Exception:
             logger.debug(f'[LVP Main  ] Invalid Y position input: {y_pos!r}')
             return
+        gui_logger.button('SET_Y_POSITION', f'plate_mm={y_pos:.3f}')
 
         # y_pos is the the plate position in mm
         # Find the coordinates for the stage
@@ -536,7 +536,7 @@ class XYStageControl(BoxLayout):
         )
 
         # Move to y-position
-        ctx.io_executor.put(IOTask(action=move_absolute_position, args=('Y', stage_y)))
+        move_absolute_position('Y', stage_y)
 
     def set_xbookmark(self):
         gui_logger.button('SET_X_BOOKMARK')
@@ -597,7 +597,7 @@ class XYStageControl(BoxLayout):
         stage_x, _ = coordinate_transformer.plate_to_stage(
             labware=labware, stage_offset=settings['stage_offset'], px=x_pos, py=0
         )
-        ctx.io_executor.put(IOTask(move_absolute_position, args=('X', stage_x)))
+        move_absolute_position('X', stage_x)
 
     def goto_ybookmark(self):
         gui_logger.button('GOTO_Y_BOOKMARK')
@@ -615,9 +615,7 @@ class XYStageControl(BoxLayout):
         _, stage_y = coordinate_transformer.plate_to_stage(
             labware=labware, stage_offset=settings['stage_offset'], px=0, py=y_pos
         )
-        ctx.io_executor.put(
-            IOTask(move_absolute_position, args=('Y', stage_y))
-        )  # set current y position in um
+        move_absolute_position('Y', stage_y)  # set current y position in um
 
     # def calibrate(self):
     #     logger.info('[LVP Main  ] XYStageControl.calibrate()')
@@ -643,7 +641,7 @@ class XYStageControl(BoxLayout):
             logger.info('[LVP Main  ] XYStageControl.home()')
 
             if ctx.lumaview.scope.motor_connected:  # motor controller is actively connected
-                ctx.io_executor.put(IOTask(move_home, kwargs={'axis': 'ALL'}))
+                move_home(axis='ALL')
 
                 # Firmware seems to move the turret back to position 1 when performing XY homing
                 # Use this command to make sure the UI is in-sync

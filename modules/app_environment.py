@@ -1,5 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Application environment initialization — paths, version, platform detection."""
+"""Application environment initialization -- paths, version, platform detection."""
 
 import logging
 import os
@@ -40,6 +40,10 @@ def init_environment(main_file: str) -> AppEnvironment:
 
     _logger.info(f'Script Location: {script_path}')
 
+    # Recomputed independently of lvp_logger's identical os.name check by
+    # design: this is a constant, not divergent state, and lvp_logger is the
+    # lowest-level module (imported before this runs), so sharing one source
+    # buys nothing and only adds an early-startup import coupling.
     windows_machine = os.name == 'nt'
 
     # Read version and build timestamp via shared reader
@@ -65,7 +69,7 @@ def init_environment(main_file: str) -> AppEnvironment:
     # Check if running as installed application
     lvp_installed = False
     try:
-        with open(os.path.join(script_path, 'marker.lvpinstalled')) as f:
+        with open(os.path.join(script_path, 'marker.lvpinstalled')):
             lvp_installed = True
     except Exception:
         pass

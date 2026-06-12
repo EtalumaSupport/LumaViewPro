@@ -1,6 +1,6 @@
 @echo off
 REM LumaViewPro Windows install script
-REM Scans for Python 3.11-3.13, installs dependencies.
+REM Scans for Python 3.12-3.13, installs dependencies.
 REM
 REM Usage:
 REM   install_windows.bat          Install into system Python (default)
@@ -31,7 +31,7 @@ python --version >nul 2>&1 && set "BOOT_PY=python" && goto :have_boot
 python3 --version >nul 2>&1 && set "BOOT_PY=python3" && goto :have_boot
 
 echo Error: No Python installation found.
-echo Install Python 3.11+ from https://www.python.org/downloads/
+echo Install Python 3.12+ from https://www.python.org/downloads/
 echo Make sure to check "Add python.exe to PATH" during installation.
 pause
 exit /b 1
@@ -48,8 +48,8 @@ if "%BEST_PY%"=="ERROR" goto :no_python
 goto :have_python
 
 :no_python
-echo Error: No suitable Python 3.11-3.13 found.
-echo Install Python 3.11+ from https://www.python.org/downloads/
+echo Error: No suitable Python 3.12-3.13 found.
+echo Install Python 3.12+ from https://www.python.org/downloads/
 pause
 exit /b 1
 

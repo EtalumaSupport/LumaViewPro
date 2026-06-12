@@ -30,10 +30,10 @@ class ProtocolExecutionRecord:
         records: pd.DataFrame | None = None,
     ):
         if (outfile is not None) and (records is not None):
-            raise Exception(f'Specify only outfile OR records')
+            raise Exception('Specify only outfile OR records')
 
         if (outfile is None) and (records is None):
-            raise Exception(f'Must specify outfile or records')
+            raise Exception('Must specify outfile or records')
 
         self._protocol_file_loc = pathlib.Path(protocol_file_loc)
 
@@ -76,7 +76,7 @@ class ProtocolExecutionRecord:
     ):
         if self._mode != 'to_file':
             raise Exception(
-                f"add_step() can only be called when the instance is initialized with an 'outfile'."
+                "add_step() can only be called when the instance is initialized with an 'outfile'."
             )
 
         try:
@@ -113,22 +113,22 @@ class ProtocolExecutionRecord:
 
     @classmethod
     def from_file(cls, file_path: pathlib.Path):
-        with open(file_path, 'r') as fp:
+        with open(file_path) as fp:
             csvreader = csv.reader(fp, delimiter='\t')
             header = next(csvreader)
             if header[0] != cls.FILE_HEADER:
-                raise Exception(f'Invalid protocol execution record')
+                raise Exception('Invalid protocol execution record')
 
             version = next(csvreader)
             if version[0] != 'Version':
-                raise Exception(f'Version key not found')
+                raise Exception('Version key not found')
 
             if int(version[1]) not in (2, 3):  # Add 3 to supported versions
-                raise Exception(f'Unsupported protocol execution record version')
+                raise Exception('Unsupported protocol execution record version')
 
             protocol_file_loc_row = next(csvreader)
             if protocol_file_loc_row[0] != 'Protocol File':
-                raise Exception(f'Protocol file location not found in file')
+                raise Exception('Protocol file location not found in file')
 
             protocol_file_loc = protocol_file_loc_row[1]
 

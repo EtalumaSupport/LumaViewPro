@@ -7,9 +7,9 @@ these tests use real simulated hardware and verify end-to-end behavior by
 inspecting simulator state after protocol runs.
 
 Test tiers:
-  - Tier 1: Single-step protocols — verify LED, motor, camera state
-  - Tier 2: Multi-step protocols — multi-channel, Z-stack, tiling
-  - Tier 3: Autofocus — real AutofocusRunner with SimulatedCamera focus simulation
+  - Tier 1: Single-step protocols -- verify LED, motor, camera state
+  - Tier 2: Multi-step protocols -- multi-channel, Z-stack, tiling
+  - Tier 3: Autofocus -- real AutofocusRunner with SimulatedCamera focus simulation
 """
 
 import datetime
@@ -210,7 +210,7 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
 
     callbacks = run_kwargs.pop('callbacks', {})
     callbacks['run_complete'] = on_complete
-    # Don't provide go_to_step — let the executor use _default_move for real motor movement
+    # Don't provide go_to_step -- let the executor use _default_move for real motor movement
     callbacks.setdefault('move_position', lambda axis: None)
 
     executor.run(
@@ -276,7 +276,7 @@ def executor(scope, executors):
     from modules.labware_loader import WellPlateLoader
 
     # Use a mock autofocus executor for non-AF tests.
-    # AF executor is the one mock we keep — real AF needs real camera focus
+    # AF executor is the one mock we keep -- real AF needs real camera focus
     # simulation which is only set up in the af_executor fixture.
     mock_af = MagicMock()
     mock_af.reset = MagicMock()
@@ -334,7 +334,7 @@ class TestIntegrationSingleStep:
     """Verify that single-step protocols drive real simulator state correctly."""
 
     def test_completes_with_simulated_scope(self, executor, scope, tmp_path):
-        """Most basic integration test — protocol runs to completion on simulated hardware."""
+        """Most basic integration test -- protocol runs to completion on simulated hardware."""
         protocol = _make_protocol([{'color': 'BF', 'illumination_ma': 100.0}])
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed, 'Protocol did not complete within timeout'
@@ -365,7 +365,7 @@ class TestIntegrationSingleStep:
         assert completed
 
         # The camera should have had gain and exposure set during the protocol.
-        # After completion, values may be restored — but the simulator should have
+        # After completion, values may be restored -- but the simulator should have
         # received the calls. We verify the camera is still functional.
         assert scope._camera_driver.is_connected()
 
@@ -425,7 +425,7 @@ class TestIntegrationAutoGain:
         """After auto-gain, camera gain should have been modified."""
         # Set initial gain to something we can detect changed
         scope._camera_driver.gain(1.0)
-        initial_gain = scope._camera_driver.get_gain()
+        initial_gain = scope._camera_driver.get_gain()  # noqa: F841 -- deferred
 
         protocol = _make_protocol(
             [
@@ -611,7 +611,7 @@ class TestIntegrationAutofocus:
         )
 
         # Simulate the multi-channel scenario: camera is at Green settings
-        # when BF AF starts. This is the state AF will save and later restore.
+        # when BF AF starts with its own explicit targets.
         scope.imaging.set_gain(20.0)
         scope.imaging.set_exposure_time(100.0)
 
@@ -634,20 +634,24 @@ class TestIntegrationAutofocus:
         finally:
             thread.stop(timeout=2.0)
 
-        # The moment the Future resolves, camera state must already
-        # reflect the restored (pre-AF) values. AFE.run()'s finally
-        # block restores camera state BEFORE clearing _af_in_progress;
-        # the Future resolves AFTER AFE.run() returns, so the read
-        # below cannot race the restoration.
+        # The moment the Future resolves, camera state must already be
+        # FINAL -- AFE.run()'s finally block settles camera state BEFORE
+        # clearing _af_in_progress; the Future resolves AFTER AFE.run()
+        # returns, so the read below cannot race the settling. (That
+        # ordering is the #610 regression contract this test guards.)
+        # WHICH values are final changed with the #695 retention
+        # contract: explicit AF targets (the committed layer/step
+        # values, 1.0 dB / 2.0 ms here) are KEPT after AF rather than
+        # reverted to the pre-AF snapshot (20.0 / 100.0).
         actual_gain = scope.imaging.get_gain()
         actual_exp = scope.imaging.get_exposure_time()
-        assert abs(actual_gain - 20.0) < 0.1, (
-            f'Camera gain should be restored to 20.0 (pre-AF) when '
-            f'the AF Future resolves, but got {actual_gain}'
+        assert abs(actual_gain - 1.0) < 0.1, (
+            f'Camera gain should remain at the committed AF target 1.0 '
+            f'when the AF Future resolves, but got {actual_gain}'
         )
-        assert abs(actual_exp - 100.0) < 0.1, (
-            f'Camera exposure should be restored to 100.0ms (pre-AF) when '
-            f'the AF Future resolves, but got {actual_exp}'
+        assert abs(actual_exp - 2.0) < 0.1, (
+            f'Camera exposure should remain at the committed AF target '
+            f'2.0ms when the AF Future resolves, but got {actual_exp}'
         )
 
 
@@ -699,15 +703,6 @@ class TestIntegrationStateAssertions:
         # Camera grabbing state is managed externally, should still be active
         assert scope._camera_driver.is_grabbing()
 
-    @pytest.mark.skip(
-        reason='Executor reuse bug: second run() starts but run_complete callback '
-        'never fires. Debug shows: run enters, _reset_vars clears state, '
-        "protocol_start sets flags, run_loop task submitted — but cleanup's "
-        "run_complete callback doesn't reach the test's done.set(). "
-        'Two fixes applied (is_protocol_queue_active, protocol_start clears '
-        'stale protocol_finish), but deeper issue remains in cleanup callback '
-        'dispatch. Needs executor simplification in 4.1.'
-    )
     def test_second_run_after_first(self, executor, scope, tmp_path):
         """A second protocol run completes after the first finishes."""
         protocol = _make_protocol([{'color': 'BF', 'illumination_ma': 50.0}])
@@ -720,7 +715,7 @@ class TestIntegrationStateAssertions:
         idle = _wait_for_executor_idle(executor, timeout=5.0)
         assert idle, 'Executor did not reach idle state after first run'
 
-        # Second run — should start without being blocked
+        # Second run -- should start without being blocked
         completed_2, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed_2, 'Second protocol run did not complete (back-to-back blocked)'
 
@@ -801,6 +796,17 @@ class TestHeadlessSession:
         runner = session.create_protocol_runner()
         assert isinstance(runner, ProtocolRunner)
         assert runner.session is session
+
+    def test_protocol_runner_reuses_session_file_executor(self):
+        """ProtocolRunner must reuse the session's one shared FILE executor, not
+        build a duplicate -- two executors on one disk target compete. The
+        fallback previously constructed a second FILE executor on this path.
+        """
+        session = ScopeSession.create_headless()
+        assert session.file_io_executor is not None
+        assert session.file_io_executor is session.executor_bundle.file_io_executor
+        runner = session.create_protocol_runner()
+        assert runner._file_io_executor is session.file_io_executor
 
     def test_protocol_runner_runs_protocol(self, tmp_path):
         """ProtocolRunner should execute a protocol to completion on headless session."""
@@ -906,6 +912,34 @@ class TestRestAPIPrep:
         assert 'firmware_version' in info
         assert info['model'] is not None
 
+    def test_get_motor_info_serves_identity_from_cache(self):
+        """get_motor_info() must not issue a live FULLINFO.
+
+        It is called once per saved frame to stamp image metadata. Model
+        and serial number are fixed for the life of a connection, so they
+        come from the FULLINFO response cached at connect; a wire query
+        here would put a serial round-trip on every capture.
+        """
+        session = ScopeSession.create_headless()
+        driver = session.scope._motion_driver
+        original_fullinfo = driver.fullinfo
+        fullinfo_calls = []
+
+        def _counting_fullinfo(*args, **kwargs):
+            fullinfo_calls.append(1)
+            return original_fullinfo(*args, **kwargs)
+
+        driver.fullinfo = _counting_fullinfo
+        info = session.scope.diagnostics.get_motor_info()
+
+        assert fullinfo_calls == [], (
+            'get_motor_info() called fullinfo(): it must serve model and '
+            'serial number from the cached connect-time FULLINFO, not '
+            're-query the serial bus on every saved frame'
+        )
+        assert info['model'] not in (None, 'unknown')
+        assert info['serial_number'] not in (None, 'unknown')
+
     def test_get_led_info(self):
         """get_led_info() should return firmware and connection status."""
         session = ScopeSession.create_headless()
@@ -993,7 +1027,7 @@ class TestRestAPIPrep:
     def test_get_available_objectives(self):
         """get_available_objectives() should return list of objective IDs."""
         session = ScopeSession.create_headless()
-        objectives = session.scope.get_available_objectives()
+        objectives = session.scope.runtime_state.get_available_objectives()
         assert isinstance(objectives, list)
         assert len(objectives) > 0
         # Should contain known objectives from objectives.json
@@ -1002,14 +1036,14 @@ class TestRestAPIPrep:
     def test_get_current_objective_none_by_default(self):
         """get_current_objective() should return None before setting one."""
         session = ScopeSession.create_headless()
-        assert session.scope.get_current_objective() is None
+        assert session.scope.runtime_state.get_current_objective() is None
 
     def test_get_current_objective_after_set(self):
         """get_current_objective() should return info after set_objective()."""
         session = ScopeSession.create_headless()
-        objectives = session.scope.get_available_objectives()
-        session.scope.set_objective(objectives[0])
-        current = session.scope.get_current_objective()
+        objectives = session.scope.runtime_state.get_available_objectives()
+        session.scope.runtime_state.set_objective(objectives[0])
+        current = session.scope.runtime_state.get_current_objective()
         assert current is not None
         assert isinstance(current, dict)
 
@@ -1061,7 +1095,7 @@ class TestRestAPIPrep:
             thread = AutofocusThread(afe=af)
             thread.start()
             try:
-                objectives = session.scope.get_available_objectives()
+                objectives = session.scope.runtime_state.get_available_objectives()
                 future = thread.run_autofocus(objective_id=objectives[0])
                 result = future.result(timeout=30)
                 assert result is not None
@@ -1086,7 +1120,7 @@ class TestRestAPIPrep:
             thread = AutofocusThread(afe=af)
             thread.start()
             try:
-                objectives = session.scope.get_available_objectives()
+                objectives = session.scope.runtime_state.get_available_objectives()
                 future = thread.run_autofocus(objective_id=objectives[0])
 
                 # Give the thread a moment to enter AFE.run()
@@ -1115,3 +1149,41 @@ class TestRestAPIPrep:
         assert settings['rest_api']['enabled'] is False
         assert settings['rest_api']['host'] == '127.0.0.1'
         assert settings['rest_api']['port'] == 8000
+
+
+class TestAbortedAutofocusRestoresLeds:
+    """An aborted AF run must never leave its LED lit, even when the
+    caller requested keep_led_on. keep_led_on exists so the capture
+    that follows AF in the same protocol step inherits the LED state;
+    on abort that capture never runs, so honoring keep_led_on would
+    leave the LED on with no owner to ever turn it off (overnight
+    sample damage). The LED skip applies on success only."""
+
+    def test_aborted_af_turns_led_off_despite_keep_led_on(self, scope, executors):
+        from modules.exceptions import AutofocusAborted
+
+        af = AutofocusRunner(
+            scope=scope,
+            camera_executor=executors['camera'],
+            io_executor=executors['io'],
+            file_io_executor=executors['file_io'],
+        )
+        abort = threading.Event()
+        abort.set()  # abort lands before the first AF iteration
+
+        with pytest.raises(AutofocusAborted):
+            af.run(
+                objective_id='10x Oly',
+                led_color='BF',
+                led_illumination=20.0,
+                abort_event=abort,
+                keep_led_on=True,
+            )
+
+        # AF setup lit the BF channel via leds_exclusive before the
+        # abort was observed; the aborted exit must have turned it off.
+        state = scope.illumination.get_led_state('BF')
+        assert not state['enabled'], (
+            'Aborted AF left its LED lit: keep_led_on must skip the LED '
+            'restore only when AF completes successfully.'
+        )
