@@ -3388,6 +3388,8 @@ from tests.camera_fakes import (
     bare_image_handler as _bare_image_handler,
     bare_pylon_camera as _bare_pylon_camera,
     disconnectable_pylon_camera as _disconnectable_pylon_camera,
+    fake_trigger_entry as _fake_trigger_entry,
+    init_configurable_pylon_camera as _init_configurable_pylon_camera,
 )
 
 
@@ -5276,75 +5278,62 @@ class TestPylonInitCameraConfigStyleConsistency:
     Audit finding B22.
     """
 
-    def _pyloncamera_source(self):
-        from pathlib import Path
-
-        return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-
-    def test_user_set_selector_uses_set_value(self):
-        """init_camera_config must call camera.UserSetSelector.SetValue('Default')
-        rather than `camera.UserSetSelector = 'Default'`. Consistent
-        exception envelope; consistent with the rest of the file."""
-        src = self._pyloncamera_source()
-        assert "camera.UserSetSelector = 'Default'" not in src, (
-            "Use camera.UserSetSelector.SetValue('Default') -- attribute "
-            'assignment routes through pypylon __setattr__ which has a '
-            'slightly different exception envelope than the explicit '
-            'SetValue call used elsewhere in this file.'
+    def test_user_set_selected_then_loaded(self):
+        """init_camera_config must select the 'Default' user set via the
+        explicit SetValue call (consistent exception envelope with the
+        rest of the file) and only then execute UserSetLoad."""
+        cam = _init_configurable_pylon_camera()
+        fake = cam.active
+        sequence = []
+        fake.UserSetSelector.SetValue.side_effect = (
+            lambda value: sequence.append(('selector', value))
         )
-        assert "UserSetSelector.SetValue('Default')" in src, (
-            "init_camera_config must select the 'Default' user set via "
-            "UserSetSelector.SetValue('Default')."
+        fake.UserSetLoad.Execute.side_effect = lambda: sequence.append('load')
+        cam.init_camera_config()
+        assert sequence == [('selector', 'Default'), 'load'], (
+            "init_camera_config must call UserSetSelector.SetValue('Default') "
+            f'then UserSetLoad.Execute(); got {sequence!r}'
         )
 
     def test_init_asserts_free_run_acquisition(self):
-        """init_camera_config must explicitly assert AcquisitionMode=
+        """init_camera_config must explicitly re-assert AcquisitionMode=
         Continuous + TriggerMode=Off after UserSetLoad. The 'Default'
         set is documented to leave these in free-run state, but a
         firmware bug or future user-set change could leak a different
         default."""
-        src = self._pyloncamera_source()
-        idx = src.find('def init_camera_config(self)')
-        assert idx != -1
-        end = src.find('def ', idx + 10)
-        body = src[idx:end]
-        assert "AcquisitionMode.SetValue('Continuous')" in body, (
-            "init_camera_config must call AcquisitionMode.SetValue('Continuous')."
-        )
-        assert "TriggerMode.SetValue('Off')" in body, (
-            "init_camera_config must call TriggerMode.SetValue('Off')."
-        )
+        cam = _init_configurable_pylon_camera()
+        fake = cam.active
+        fake.TriggerSelector.GetEntries.return_value = [_fake_trigger_entry('FrameStart')]
+        cam.init_camera_config()
+        fake.AcquisitionMode.SetValue.assert_called_with('Continuous')
+        fake.TriggerMode.SetValue.assert_called_with('Off')
 
-    def test_init_iterates_all_trigger_selector_entries(self):
+    def test_init_sets_trigger_off_for_every_available_trigger_type(self):
         """Per Basler doc free-run-image-acquisition.html, 'Repeat the
         steps above for all available trigger types.' A camera exposing
         AcquisitionStart / FrameBurstStart / ExposureStart in addition
         to FrameStart needs each of them set to TriggerMode=Off, or a
         stray non-Off type leaks through and blocks free-run.
-
-        Pins the iteration over TriggerSelector.GetEntries() so a future
-        cleanup that collapses the loop back to a single FrameStart
-        write fires this test."""
-        src = self._pyloncamera_source()
-        idx = src.find('def init_camera_config(self)')
-        assert idx != -1
-        end = src.find('def ', idx + 10)
-        body = src[idx:end]
-        assert 'TriggerSelector.GetEntries()' in body, (
-            'init_camera_config must iterate '
-            'camera.TriggerSelector.GetEntries() so TriggerMode=Off is '
-            'applied to every available trigger type, not just '
-            'FrameStart (per Basler doc free-run-image-acquisition.html).'
+        Unavailable enum entries must be skipped."""
+        cam = _init_configurable_pylon_camera()
+        fake = cam.active
+        fake.TriggerSelector.GetEntries.return_value = [
+            _fake_trigger_entry('FrameStart'),
+            _fake_trigger_entry('AcquisitionStart'),
+            _fake_trigger_entry('ExposureStart', available=False),
+        ]
+        cam.init_camera_config()
+        selected = [call.args[0] for call in fake.TriggerSelector.SetValue.call_args_list]
+        assert selected == ['FrameStart', 'AcquisitionStart'], (
+            'init_camera_config must select every AVAILABLE trigger type '
+            f'(and only those); selected {selected!r}'
         )
-        assert '.IsAvailable()' in body, (
-            'init_camera_config trigger-types loop must filter on '
-            'entry.IsAvailable() to skip entries that exist in the '
-            "enum but aren't supported on this camera model."
-        )
-        assert '.GetSymbolic()' in body, (
-            'init_camera_config trigger-types loop must call '
-            "entry.GetSymbolic() to feed the enum's string name back "
-            'into TriggerSelector.SetValue.'
+        off_writes = [
+            call for call in fake.TriggerMode.SetValue.call_args_list if call.args == ('Off',)
+        ]
+        assert len(off_writes) == 2, (
+            'TriggerMode=Off must be written once per available trigger '
+            f'type; got {len(off_writes)} writes'
         )
 
 
@@ -6676,36 +6665,51 @@ class TestPylonInitWaitsForIdleBeforeUserSetLoad:
     silently raise inside the outer try/except.
     """
 
-    def _pyloncamera_source(self):
-        from pathlib import Path
+    def test_init_polls_is_grabbing_until_idle_before_user_set_load(self):
+        """The bounded idle poll must run BEFORE UserSetLoad.Execute()
+        and stop polling as soon as the camera reports idle."""
+        from unittest import mock
 
-        return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
+        from drivers import pyloncamera
 
-    def test_init_polls_is_grabbing_before_user_set_load(self):
-        body = _function_source(self._pyloncamera_source(), 'init_camera_config')
-        # The poll must be inside init_camera_config and BEFORE the
-        # UserSetLoad call.
-        assert 'self.is_grabbing()' in body, (
-            'init_camera_config must poll self.is_grabbing() before '
-            'UserSetLoad (Basler user-sets.html idle requirement).'
-        )
-        idle_idx = body.find('is_grabbing()')
-        load_idx = body.find('UserSetLoad.Execute(')
-        assert idle_idx >= 0 and load_idx >= 0
-        assert idle_idx < load_idx, (
-            'init_camera_config must poll is_grabbing BEFORE UserSetLoad.Execute(), not after.'
+        cam = _init_configurable_pylon_camera()
+        sequence = []
+        grab_states = iter([True, False])
+        cam.is_grabbing = lambda: (
+            sequence.append('poll'),
+            next(grab_states, False),
+        )[1]
+        cam.active.UserSetLoad.Execute.side_effect = lambda: sequence.append('load')
+        with mock.patch.object(pyloncamera, 'time', MagicMock()):
+            cam.init_camera_config()
+        assert sequence == ['poll', 'poll', 'load'], (
+            'init_camera_config must poll is_grabbing until idle BEFORE '
+            f'UserSetLoad.Execute(); got {sequence!r}'
         )
 
-    def test_init_warns_if_still_grabbing_after_poll(self):
-        body = _function_source(self._pyloncamera_source(), 'init_camera_config')
-        assert (
-            'still' in body.lower() and 'grabbing' in body.lower() and 'warning' in body.lower()
-        ), (
-            'init_camera_config must log a warning if is_grabbing() '
-            'stays True past the bounded poll -- silently letting '
-            'UserSetLoad raise inside the outer try/except hides the '
-            'condition from operators.'
+    def test_init_warns_and_proceeds_if_still_grabbing_after_poll(self):
+        """If is_grabbing() stays True past the bounded poll, a warning
+        must fire (silently letting UserSetLoad raise inside the outer
+        try/except hides the condition from operators) and UserSetLoad
+        is still attempted."""
+        from unittest import mock
+
+        from drivers import pyloncamera
+
+        cam = _init_configurable_pylon_camera()
+        cam.is_grabbing = lambda: True
+        log = MagicMock()
+        with (
+            mock.patch.object(pyloncamera, 'time', MagicMock()),
+            mock.patch.object(pyloncamera, '_cam_log', log),
+        ):
+            cam.init_camera_config()
+        warnings = [str(call.args[0]) for call in log.warning.call_args_list]
+        assert any('grabbing' in message for message in warnings), (
+            'init_camera_config must warn when the camera is still '
+            f'grabbing after the bounded poll; got {warnings!r}'
         )
+        assert cam.active.UserSetLoad.Execute.called
 
 
 class TestPylonGainSelectorBeforeGainSetValue:
@@ -6721,46 +6725,40 @@ class TestPylonGainSelectorBeforeGainSetValue:
     bug that would otherwise be model-firmware-conditional.
     """
 
-    def _pyloncamera_source(self):
-        from pathlib import Path
-
-        return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-
     def test_gain_method_sets_selector_to_all_first(self):
-        body = _function_source(self._pyloncamera_source(), 'gain')
-        sel_idx = body.find("GainSelector.SetValue('All')")
-        gain_idx = body.find('Gain.SetValue(float(value))')
-        assert sel_idx >= 0, (
-            "PylonCamera.gain must call GainSelector.SetValue('All') "
-            'before Gain.SetValue (Basler 3-step recipe).'
+        cam = _bare_pylon_camera()
+        fake = cam.active
+        fake.Gain.GetValue.return_value = 10.0
+        sequence = []
+        fake.GainSelector.SetValue.side_effect = (
+            lambda value: sequence.append(('selector', value))
         )
-        assert gain_idx >= 0
-        assert sel_idx < gain_idx, (
-            "GainSelector.SetValue('All') must precede "
-            'Gain.SetValue(...) -- the order is the load-bearing part '
-            'of the doc-named recipe.'
+        fake.Gain.SetValue.side_effect = lambda value: sequence.append(('gain', value))
+        cam.gain(2.0)
+        assert sequence == [('selector', 'All'), ('gain', 2.0)], (
+            "PylonCamera.gain must call GainSelector.SetValue('All') "
+            'before Gain.SetValue (Basler 3-step recipe); got '
+            f'{sequence!r}'
         )
 
     def test_gain_method_tolerates_missing_gain_selector(self):
-        """The selector write must be in its own try/except so a
-        camera model that doesn't expose GainSelector doesn't break
-        Gain.SetValue."""
-        body = _function_source(self._pyloncamera_source(), 'gain')
-        # The selector and the actual write should be in separate
-        # try blocks; an inner try around the selector preserves the
-        # outer try/except's contract.
-        sel_idx = body.find("GainSelector.SetValue('All')")
-        # Find the closest 'try:' before the selector write.
-        try_idx = body.rfind('try:', 0, sel_idx)
-        # Find the closest 'except ' after the selector write but
-        # before the Gain.SetValue line.
-        gain_idx = body.find('Gain.SetValue(float(value))')
-        except_idx = body.find('except ', sel_idx, gain_idx)
-        assert try_idx >= 0 and except_idx >= 0, (
-            "GainSelector.SetValue('All') must be wrapped in its own "
-            "try/except so a missing selector doesn't break "
-            "Gain.SetValue on cameras that don't expose it."
-        )
+        """A camera model that doesn't expose GainSelector must not
+        break the actual gain write."""
+        cam = _bare_pylon_camera()
+        fake = cam.active
+        fake.Gain.GetValue.return_value = 10.0
+        fake.GainSelector.SetValue.side_effect = RuntimeError('node not present')
+        cam.gain(2.0)
+        fake.Gain.SetValue.assert_called_once_with(2.0)
+
+    def test_gain_short_circuits_when_already_at_target(self):
+        """A write to the value the camera already reports is skipped
+        (read-back tolerance below the GenICam gain increment)."""
+        cam = _bare_pylon_camera()
+        fake = cam.active
+        fake.Gain.GetValue.return_value = 2.0
+        cam.gain(2.0)
+        assert not fake.Gain.SetValue.called
 
 
 class TestDltlSetterDocstringGigeCaveat:

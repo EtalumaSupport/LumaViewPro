@@ -52,6 +52,40 @@ def disconnectable_pylon_camera():
     return cam
 
 
+def init_configurable_pylon_camera():
+    """bare_pylon_camera prepared so the REAL init_camera_config() can
+    run.
+
+    The sub-setters it fans out to (chunks, pixel format, gain,
+    exposure, frame size, AG init) are stubbed, leaving the UserSet /
+    acquisition-mode / trigger SDK writes observable on the fake
+    camera handle.
+    """
+    cam = bare_pylon_camera()
+    cam.is_grabbing = lambda: False
+    cam._use_camera_emulation = True
+    for name in (
+        '_enable_validity_chunks',
+        '_read_timestamp_tick_frequency',
+        'set_pixel_format',
+        'auto_gain',
+        'gain',
+        'exposure_t',
+        'set_frame_size',
+        'init_auto_gain_focus',
+    ):
+        setattr(cam, name, MagicMock())
+    return cam
+
+
+def fake_trigger_entry(symbolic: str, available: bool = True):
+    """One TriggerSelector.GetEntries() element for init-config tests."""
+    entry = MagicMock()
+    entry.IsAvailable.return_value = available
+    entry.GetSymbolic.return_value = symbolic
+    return entry
+
+
 def bare_ids_camera():
     """IDSCamera analog of bare_pylon_camera: fake remote_nodemap."""
     from drivers import idscamera
