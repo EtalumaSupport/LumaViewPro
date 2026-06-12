@@ -1853,67 +1853,83 @@ class TestHomeReturnsBool:
                 f'{method.__name__} docstring must have a Returns: section'
             )
 
-    def test_motorboard_zhome_raises_hardware_error(self):
-        """Tier 3b D1: MotorBoard.zhome must raise HardwareError on
-        no-response and firmware-error paths, not return False (Rule 29)."""
-        import pathlib
+    @staticmethod
+    def _make_motorboard(reply):
+        """MotorBoard stub with exchange_command returning a fixed reply
+        (None simulates the no-response / timeout path)."""
+        from drivers.motorboard import MotorBoard
 
-        source = pathlib.Path('drivers/motorboard.py').read_text()
-        idx = source.find('def zhome(self) -> bool:')
-        assert idx != -1, 'MotorBoard.zhome must declare `-> bool` (Tier 1-A / Rule 37)'
-        next_def = source.find('\n    def ', idx + 1)
-        body = source[idx:next_def] if next_def != -1 else source[idx : idx + 2000]
-        # Two error paths: no-response and firmware-error
-        assert body.count('raise HardwareError(') >= 2, (
-            'MotorBoard.zhome must raise HardwareError on no-response AND firmware-error (D1)'
-        )
-        assert 'Raises:' in body, 'MotorBoard.zhome docstring must document HardwareError (Rule 38)'
+        board = MotorBoard.__new__(MotorBoard)
+        board._state_lock = threading.Lock()
+        board.initial_homing_complete = False
+        board.initial_t_homing_complete = False
+        board.exchange_command = MagicMock(return_value=reply)
+        return board
 
-    def test_motorboard_home_raises_hardware_error(self):
-        """Tier 3b D1."""
-        import pathlib
+    @pytest.mark.parametrize('method', ['zhome', 'home', 'thome'])
+    def test_motorboard_homing_raises_on_no_response(self, method):
+        """Driver contract (Rule 29): no serial response raises
+        HardwareError instead of returning False."""
+        board = self._make_motorboard(None)
+        with pytest.raises(HardwareError, match='no response'):
+            getattr(board, method)()
 
-        source = pathlib.Path('drivers/motorboard.py').read_text()
-        idx = source.find('def home(self) -> bool:')
-        assert idx != -1
-        next_def = source.find('\n    def ', idx + 1)
-        body = source[idx:next_def] if next_def != -1 else source[idx : idx + 3000]
-        assert body.count('raise HardwareError(') >= 2, (
-            'MotorBoard.home must raise HardwareError on each failure path (D1)'
-        )
-        assert 'Raises:' in body, 'MotorBoard.home docstring must document HardwareError (Rule 38)'
+    @pytest.mark.parametrize(
+        ('method', 'reply'),
+        [
+            ('zhome', 'ERROR: Z homing failed'),
+            ('home', 'ERROR: homing aborted'),
+            ('thome', 'ERROR: T homing failed'),
+        ],
+    )
+    def test_motorboard_homing_raises_on_firmware_error(self, method, reply):
+        board = self._make_motorboard(reply)
+        with pytest.raises(HardwareError, match='firmware error'):
+            getattr(board, method)()
 
-    def test_motorboard_thome_raises_hardware_error(self):
-        """Tier 3b D1."""
-        import pathlib
+    @pytest.mark.parametrize(
+        ('method', 'reply'),
+        [
+            ('zhome', 'Z home successful'),
+            ('home', 'XYZ home complete'),
+            ('home', 'ERROR: X not present'),
+            ('thome', 'T home successful'),
+            ('thome', 'T not present'),
+        ],
+    )
+    def test_motorboard_homing_success_and_partial_paths_return_true(
+        self, method, reply
+    ):
+        """Success replies -- including the partial-home (X/Y absent) and
+        no-turret cases the firmware reports on smaller boards -- return
+        True rather than raising."""
+        board = self._make_motorboard(reply)
+        assert getattr(board, method)() is True
 
-        source = pathlib.Path('drivers/motorboard.py').read_text()
-        idx = source.find('def thome(self) -> bool:')
-        assert idx != -1
-        next_def = source.find('\n    def ', idx + 1)
-        body = source[idx:next_def] if next_def != -1 else source[idx : idx + 2000]
-        assert body.count('raise HardwareError(') >= 2, (
-            'MotorBoard.thome must raise HardwareError on each failure path (D1)'
-        )
-        assert 'Raises:' in body, 'MotorBoard.thome docstring must document HardwareError (Rule 38)'
+    def test_motorboard_homing_docstrings_document_raises(self):
+        from drivers.motorboard import MotorBoard
 
-    def test_simulated_motorboard_home_family_raises_hardware_error(self):
-        """Tier 3b D1: SimulatedMotorBoard mirrors MotorBoard contract so
-        sim-backed tests exercise the same exception path as production."""
-        import pathlib
-
-        source = pathlib.Path('drivers/simulated_motorboard.py').read_text()
-        assert 'from drivers.exceptions import HardwareError' in source, (
-            'SimulatedMotorBoard must import HardwareError'
-        )
-        for method in ('zhome', 'home', 'thome'):
-            idx = source.find(f'def {method}(self) -> bool:')
-            assert idx != -1, f'SimulatedMotorBoard.{method} must declare `-> bool`'
-            next_def = source.find('\n    def ', idx + 1)
-            body = source[idx:next_def] if next_def != -1 else source[idx : idx + 2000]
-            assert 'raise HardwareError(' in body, (
-                f'SimulatedMotorBoard.{method} must raise HardwareError on failure (D1)'
+        for method in (MotorBoard.zhome, MotorBoard.home, MotorBoard.thome):
+            assert 'Raises:' in (method.__doc__ or ''), (
+                f'MotorBoard.{method.__name__} docstring must document '
+                'HardwareError (Rule 38)'
             )
+
+    @pytest.mark.parametrize('method', ['zhome', 'home', 'thome'])
+    def test_simulated_motorboard_mirrors_raise_contract(self, method, monkeypatch):
+        """SimulatedMotorBoard mirrors the MotorBoard exception contract
+        so sim-backed tests exercise the same raise path as production."""
+        from drivers.simulated_motorboard import SimulatedMotorBoard
+
+        board = SimulatedMotorBoard(timing='instant')
+        monkeypatch.setattr(board, 'exchange_command', lambda *a, **k: None)
+        with pytest.raises(HardwareError, match='no response'):
+            getattr(board, method)()
+        monkeypatch.setattr(
+            board, 'exchange_command', lambda *a, **k: 'ERROR: homing failed'
+        )
+        with pytest.raises(HardwareError, match='firmware error'):
+            getattr(board, method)()
 
 
 class TestDisconnectReturnsBool:
@@ -2054,34 +2070,51 @@ class TestEnterEngineeringModeRaises:
             msg='LEDBoard.enter_engineering_mode must declare `-> bool` (Tier 1-A; Rule 37)',
         )
 
-    def test_ledboard_enter_engineering_mode_raises(self):
-        """Two failure paths must raise HardwareError."""
-        import pathlib
+    @staticmethod
+    def _make_ledboard(multiline_reply):
+        """LEDBoard stub with exchange_multiline returning a fixed reply
+        (None simulates the no-response / timeout path)."""
+        from drivers.ledboard import LEDBoard
 
-        source = pathlib.Path('drivers/ledboard.py').read_text()
-        idx = source.find('def enter_engineering_mode(self, timeout: float = 5.0) -> bool:')
-        assert idx != -1
-        next_def = source.find('\n    def ', idx + 1)
-        body = source[idx:next_def] if next_def != -1 else source[idx : idx + 3000]
-        assert body.count('raise HardwareError(') >= 2, (
-            'enter_engineering_mode must raise HardwareError on both failure paths (D2)'
+        board = LEDBoard.__new__(LEDBoard)
+        board._lock = threading.RLock()
+        board._label = '[LED Class ]'
+        board.driver = None
+        board.exchange_multiline = MagicMock(return_value=multiline_reply)
+        return board
+
+    def test_enter_engineering_mode_raises_on_no_response(self):
+        """Driver contract (Rule 29): no serial response raises
+        HardwareError instead of returning False."""
+        board = self._make_ledboard(None)
+        with pytest.raises(HardwareError, match='no response'):
+            board.enter_engineering_mode(timeout=0.1)
+
+    def test_enter_engineering_mode_raises_without_yn_prompt(self):
+        """A reply with no Y/N confirmation prompt (firmware too old for
+        engineering mode) must raise, not silently return False."""
+        board = self._make_ledboard('Version: EL-0925 Gen3 LED Controller')
+        with pytest.raises(HardwareError, match='Y/N'):
+            board.enter_engineering_mode(timeout=0.1)
+
+    def test_enter_engineering_mode_confirms_and_returns_true(self, monkeypatch):
+        """With a Y/N prompt presented, the method confirms with Y and
+        returns True."""
+        import time as time_mod
+
+        board = self._make_ledboard('FACTORY mode? Y/N')
+        monkeypatch.setattr(time_mod, 'sleep', lambda s: None)
+        assert board.enter_engineering_mode(timeout=0.1) is True
+        sent = [c.args[0] for c in board.exchange_multiline.call_args_list]
+        assert sent[0] == 'FACTORY' and 'Y' in sent[1:], (
+            f'must send FACTORY then confirm with Y; sent {sent}'
         )
-        assert 'Raises:' in body, (
+
+    def test_enter_engineering_mode_docstring_documents_raises(self):
+        from drivers.ledboard import LEDBoard
+
+        assert 'Raises:' in (LEDBoard.enter_engineering_mode.__doc__ or ''), (
             'enter_engineering_mode docstring must document HardwareError (Rule 38)'
-        )
-        # The legacy `return False` paths must be gone:
-        # (Sanity check -- the only `return` in the body should be
-        # `return True` on success; `return False` means migration regressed.)
-        assert 'return False' not in body, (
-            'enter_engineering_mode must no longer `return False` (Rule 29 / D2)'
-        )
-
-    def test_ledboard_imports_hardware_error(self):
-        import pathlib
-
-        source = pathlib.Path('drivers/ledboard.py').read_text()
-        assert 'from drivers.exceptions import HardwareError' in source, (
-            'ledboard must import HardwareError'
         )
 
 
@@ -2151,26 +2184,93 @@ class TestG4_MotorLogSuppression:
             'motorboard.py must not use pause_thread() -- suppresses all thread logging (G4)'
         )
 
-    def test_connect_log_suppressed_flag_exists(self, _mock_heavy_deps):
-        """MotorBoard must have _connect_log_suppressed flag."""
-        import pathlib
+    class _RecordingLogger:
+        def __init__(self):
+            self.records = []
 
-        source = pathlib.Path('drivers/motorboard.py').read_text()
-        assert '_connect_log_suppressed' in source, (
-            'MotorBoard must use _connect_log_suppressed flag for targeted suppression (G4)'
+        def __getattr__(self, level):
+            def _log(msg, *args, **kwargs):
+                self.records.append((level.upper(), str(msg)))
+
+            return _log
+
+        def count(self, level, substring=''):
+            return sum(
+                1
+                for lvl, msg in self.records
+                if lvl == level and substring in msg
+            )
+
+    def _make_failing_board(self, monkeypatch):
+        """MotorBoard whose _open_serial always raises, with a recording
+        logger swapped into the module. connect() is the real method."""
+        import drivers.motorboard as motorboard_mod
+
+        recorder = self._RecordingLogger()
+        monkeypatch.setattr(motorboard_mod, 'logger', recorder)
+
+        board = motorboard_mod.MotorBoard.__new__(motorboard_mod.MotorBoard)
+        board._lock = threading.RLock()
+        board._state_lock = threading.Lock()
+        board._label = '[XYZ Class ]'
+        board.port = '/dev/fake'
+        board.driver = None
+        board._connect_fails = 0
+        board._connect_log_suppressed = False
+
+        def fail_open():
+            raise OSError('port disappeared')
+
+        monkeypatch.setattr(board, '_open_serial', fail_open, raising=False)
+        monkeypatch.setattr(board, '_close_driver', lambda: None, raising=False)
+        return board, recorder
+
+    def test_connect_errors_suppressed_after_ten_failures(self, monkeypatch):
+        """Failures 1-9 log errors; the 10th replaces its error with ONE
+        critical announcing suppression; failures 11+ stay silent so a
+        permanently absent board cannot flood the error log."""
+        board, recorder = self._make_failing_board(monkeypatch)
+        for _ in range(12):
+            board.connect()
+        assert recorder.count('ERROR', 'connect() failed') == 9, (
+            f'only the pre-suppression failures may log errors; records: '
+            f'{recorder.records}'
+        )
+        assert recorder.count('CRITICAL', 'suppressing') == 1, (
+            'the 10th failure must announce suppression once at critical'
         )
 
-    def test_connect_log_suppressed_resets_on_success(self):
-        """_connect_log_suppressed must be reset when connection succeeds."""
-        import pathlib
+    def test_connect_error_logging_resumes_after_success(self, monkeypatch):
+        """A successful connect resets the suppression, so a LATER failure
+        logs again -- suppression is per outage, not forever."""
+        board, recorder = self._make_failing_board(monkeypatch)
+        for _ in range(11):
+            board.connect()
+        assert recorder.count('ERROR', 'connect() failed') == 9
 
-        source = pathlib.Path('drivers/motorboard.py').read_text()
-        # Find the success path (where _connect_fails = 0)
-        idx = source.find('self._connect_fails = 0', source.find('def connect'))
-        assert idx != -1
-        nearby = source[idx : idx + 200]
-        assert '_connect_log_suppressed = False' in nearby, (
-            '_connect_log_suppressed must be reset to False on successful connection (G4)'
+        # Successful connect: _open_serial provides an open driver and the
+        # post-open steps are stubbed to no-ops.
+        def ok_open():
+            board.driver = MagicMock()
+            board.driver.is_open = True
+
+        monkeypatch.setattr(board, '_open_serial', ok_open, raising=False)
+        monkeypatch.setattr(board, '_reset_firmware', lambda: None, raising=False)
+        monkeypatch.setattr(
+            board, 'fullinfo', lambda: {'model': 'LS850'}, raising=False
+        )
+        board.connect()
+
+        board.driver = None
+
+        def fail_open():
+            raise OSError('port disappeared again')
+
+        monkeypatch.setattr(board, '_open_serial', fail_open, raising=False)
+        board.connect()
+        assert recorder.count('ERROR', 'connect() failed') == 10, (
+            'after a successful connect, a fresh failure must log again '
+            f'(suppression must reset); records: {recorder.records}'
         )
 
 
@@ -2322,20 +2422,16 @@ class TestPylonChunkTimestampEnabled:
         assert chunks is not None and chunks['Timestamp'] == 987654321
 
     def test_camera_base_has_timestamp_tick_frequency_hz(self):
-        # The Camera base class declares the attribute so callers
-        # (Lumascope.generate_image_metadata) can read it without a
-        # hasattr() guard.
-        from drivers.camera import Camera
+        """The Camera base __init__ declares the attribute so callers
+        (Lumascope.generate_image_metadata) can read it without a
+        hasattr() guard. Proven on a constructed subclass -- the sim
+        camera runs the real base __init__."""
+        from drivers.simulated_camera import SimulatedCamera
 
-        # Attribute is declared in __init__; check via the source since
-        # instantiating Camera requires hardware. AST-walk would be more
-        # robust but a substring check is enough for a regression test.
-        import pathlib
-
-        source = pathlib.Path('drivers/camera.py').read_text()
-        assert 'self.timestamp_tick_frequency_hz' in source, (
-            'Camera base must declare self.timestamp_tick_frequency_hz '
-            'so generate_image_metadata can read it'
+        cam = SimulatedCamera()
+        assert hasattr(cam, 'timestamp_tick_frequency_hz'), (
+            'Camera base __init__ must set timestamp_tick_frequency_hz '
+            'so generate_image_metadata can read it without a guard'
         )
 
 
@@ -8352,51 +8448,104 @@ class TestFx2DriverLibusbBackendProbe:
     'FX2 not applicable to this install' rather than crashing with
     NoBackendError mid-_connect.
 
-    Static-source assertions because monkeypatching pyusb backend
-    state at import time isn't reliable in unit-test env.
+    Behavioral: the module is executed FRESH under a controlled fake
+    usb tree (pyusb importable, get_backend() controllable) and fake
+    registries, so the load-time classification itself is what's
+    proven -- on this machine's real pyusb state it would be
+    environment-dependent.
     """
 
-    def _src(self):
-        import pathlib
+    @staticmethod
+    def _load_fx2_module(monkeypatch, backend):
+        import importlib.util
+        import types
 
-        return pathlib.Path('drivers/fx2driver.py').read_text()
+        # Fake pyusb tree: importable, with a controllable backend probe.
+        usb_mod = types.ModuleType('usb')
+        usb_core = types.ModuleType('usb.core')
+        usb_core.USBError = type('USBError', (OSError,), {})
+        usb_core.USBTimeoutError = type('USBTimeoutError', (OSError,), {})
+        usb_util = types.ModuleType('usb.util')
+        usb_backend = types.ModuleType('usb.backend')
+        usb_libusb1 = types.ModuleType('usb.backend.libusb1')
+        usb_libusb1.get_backend = lambda: backend
+        usb_backend.libusb1 = usb_libusb1
+        usb_mod.core = usb_core
+        usb_mod.util = usb_util
+        usb_mod.backend = usb_backend
+        usb1_mod = types.ModuleType('usb1')
 
-    def test_module_probes_libusb_backend_at_load(self):
-        src = self._src()
-        assert 'usb.backend.libusb1.get_backend()' in src, (
-            'fx2driver.py must probe usb.backend.libusb1.get_backend() '
-            'at module load so missing libusb-1.0.dll is classified '
-            'before _connect runs.'
-        )
-        assert '_HAS_USB_BACKEND' in src, (
-            'fx2driver.py must record the backend-loadable state in '
-            '_HAS_USB_BACKEND for use by the _FX2_AVAILABLE gate.'
-        )
+        for name, mod in (
+            ('usb', usb_mod),
+            ('usb.core', usb_core),
+            ('usb.util', usb_util),
+            ('usb.backend', usb_backend),
+            ('usb.backend.libusb1', usb_libusb1),
+            ('usb1', usb1_mod),
+        ):
+            monkeypatch.setitem(sys.modules, name, mod)
 
-    def test_fx2_available_gate_includes_backend_check(self):
-        src = self._src()
-        idx = src.find('_FX2_AVAILABLE = ')
-        assert idx >= 0
-        # Read up to the closing of the assignment (next blank line or
-        # next top-level statement). Captures the multi-line form.
-        end = src.find('\nif not _FX2_AVAILABLE', idx)
-        assert end > idx
-        expr = src[idx:end]
-        assert '_HAS_USB_BACKEND' in expr, (
-            '_FX2_AVAILABLE must AND in _HAS_USB_BACKEND so a '
-            'pyusb-installed-but-no-native-backend system does not '
-            'register FX2 drivers.'
-        )
+        # Recording logger + inert registries so the fresh module exec
+        # cannot touch the real driver registry or log stack.
+        records = []
 
-    def test_missing_backend_path_logs_install_hint(self):
-        src = self._src()
-        # The else-if branch for the missing-backend case must fire
-        # an INFO with concrete install instructions per platform.
-        assert 'libusb-1.0 native library not loadable' in src, (
-            'fx2driver.py must log a clear INFO when the libusb-1.0 '
-            'backend is not loadable, with platform-specific install '
-            'instructions.'
+        class _Recorder:
+            def __getattr__(self, level):
+                return lambda msg, *a, **k: records.append((level.upper(), str(msg)))
+
+        lvp_logger_mod = types.ModuleType('lvp_logger')
+        lvp_logger_mod.logger = _Recorder()
+        lvp_logger_mod.camera_logger = _Recorder()
+        monkeypatch.setitem(sys.modules, 'lvp_logger', lvp_logger_mod)
+
+        registry_mod = types.ModuleType('drivers.registry')
+        registered = []
+
+        class _Registry:
+            def register(self, name, **kwargs):
+                registered.append(name)
+                return lambda cls: cls
+
+        registry_mod.camera_registry = _Registry()
+        registry_mod.led_registry = _Registry()
+        monkeypatch.setitem(sys.modules, 'drivers.registry', registry_mod)
+
+        spec = importlib.util.spec_from_file_location(
+            'fx2driver_backend_probe_under_test', 'drivers/fx2driver.py'
         )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module, records, registered
+
+    def test_missing_backend_classifies_unavailable_and_logs_hint(
+        self, monkeypatch
+    ):
+        """pyusb importable but get_backend() -> None (the missing-DLL
+        case): FX2 must classify as not-applicable, register nothing,
+        and log the install hint instead of raising NoBackendError."""
+        module, records, registered = self._load_fx2_module(monkeypatch, backend=None)
+        assert module._HAS_USB is True
+        assert module._HAS_USB_BACKEND is False
+        assert module._FX2_AVAILABLE is False, (
+            'pyusb-installed-but-no-native-backend must not register FX2 drivers'
+        )
+        assert registered == [], (
+            f'no driver registration may happen without a backend; got {registered}'
+        )
+        assert any(
+            lvl == 'INFO' and 'libusb-1.0 native library not loadable' in msg
+            for lvl, msg in records
+        ), f'missing-backend case must log the install hint; got {records}'
+
+    def test_loadable_backend_classifies_available(self, monkeypatch):
+        """With a loadable backend (and usb1 importable), the gate opens
+        and the FX2 drivers register."""
+        module, records, registered = self._load_fx2_module(
+            monkeypatch, backend=object()
+        )
+        assert module._HAS_USB_BACKEND is True
+        assert module._FX2_AVAILABLE is True
+        assert registered, 'FX2 drivers must register when prerequisites are met'
 
 
 # ---------------------------------------------------------------------------

@@ -87,31 +87,66 @@ class TestMotorStopCapabilityProbe:
 
 class TestExchangeCommandExpectUnsupportedSuppresses:
     """exchange_command(expect_unsupported=True) must NOT fire the
-    FIRMWARE ERROR warning when the response carries an ERROR token."""
+    FIRMWARE ERROR warning when the response carries an ERROR token --
+    and the warning must still fire for default callers. Driven through
+    the real exchange_command against a mock serial port."""
 
-    def test_warning_fires_by_default_on_error_response(self):
+    def _make_wire_board(self, reply):
+        import threading
+
+        import serial
+
+        from drivers.motorboard import MotorBoard
+
+        board = MotorBoard.__new__(MotorBoard)
+        board._lock = threading.RLock()
+        board._label = '[XYZ Class ]'
+        driver = MagicMock(spec=serial.Serial)
+        driver.timeout = 1.0
+        driver.in_waiting = 0
+        driver.readline.return_value = reply.encode('utf-8') + b'\r\n'
+        board.driver = driver
+        return board
+
+    def _firmware_error_records(self, caplog):
+        return [
+            r for r in caplog.records
+            if r.name == 'LVP.serial'
+            and r.levelno == 30
+            and 'FIRMWARE ERROR' in r.getMessage()
+        ]
+
+    def test_warning_fires_by_default_on_error_response(self, caplog):
         """Sanity: default exchange_command (no flag) DOES fire the
-        warning when response contains ERROR. This guards against the
-        flag being inverted or always-suppressing."""
-        # Static source check -- the warning line exists with the
-        # `if not expect_unsupported` guard.
-        from pathlib import Path
+        warning when the response contains ERROR. This guards against
+        the flag being inverted or always-suppressing."""
+        import logging
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'serialboard.py').read_text()
-        assert 'if not expect_unsupported:' in src, (
-            'serialboard.py must gate the FIRMWARE ERROR warning on '
-            '`if not expect_unsupported:` so callers opting into '
-            'the probe shape can suppress the false alarm.'
+        board = self._make_wire_board("ERROR: command 'STOP' not found:")
+        with caplog.at_level(logging.INFO, logger='LVP.serial'):
+            resp = board.exchange_command('STOP')
+        assert resp is not None and 'ERROR' in resp
+        records = self._firmware_error_records(caplog)
+        assert len(records) == 1, (
+            'a real firmware ERROR must fire the FIRMWARE ERROR warning '
+            f'for non-probe callers; got {[r.getMessage() for r in caplog.records]}'
         )
-        # Format-agnostic: the warning call may be one-line or wrapped
-        # across multiple lines by ruff/black. Assert both halves are
-        # present rather than coupling to whitespace.
-        assert '_serial_log.warning(' in src, (
-            'FIRMWARE ERROR warning must still fire via _serial_log.warning '
-            'for non-probe callers -- the warning is the diagnostic for '
-            'real firmware errors.'
+        assert '[XYZ Class ]' in records[0].getMessage(), (
+            'the warning must cite the board label so the log line '
+            'identifies which board emitted the error'
         )
-        assert "f'{self._label} FIRMWARE ERROR:" in src, (
-            'FIRMWARE ERROR warning template must still cite {self._label} '
-            'so the log line identifies which board emitted the error.'
+
+    def test_expect_unsupported_suppresses_warning(self, caplog):
+        """The capability-probe shape: same ERROR reply, flag on -- no
+        FIRMWARE ERROR warning."""
+        import logging
+
+        board = self._make_wire_board("ERROR: command 'STOP' not found:")
+        with caplog.at_level(logging.INFO, logger='LVP.serial'):
+            resp = board.exchange_command('STOP', expect_unsupported=True)
+        assert resp is not None and 'ERROR' in resp
+        assert self._firmware_error_records(caplog) == [], (
+            'expect_unsupported=True must suppress the FIRMWARE ERROR '
+            'warning -- the probe call site already handles the '
+            'unsupported case'
         )
