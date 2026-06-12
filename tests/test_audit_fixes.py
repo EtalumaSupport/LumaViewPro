@@ -1617,63 +1617,90 @@ class TestSetBinningSizeReturnsBool:
 
     def test_pyloncamera_set_binning_size_raises_hardware_error(self):
         """Tier 3a / C2: PylonCamera.set_binning_size must raise HardwareError
-        on caught exception paths, not return False (Rule 29)."""
-        import pathlib
+        on every SDK failure, not return False (Rule 29). RuntimeException
+        marks the camera disconnected; a transient timeout does not."""
+        from pypylon import genicam
 
-        source = pathlib.Path('drivers/pyloncamera.py').read_text()
-        idx = source.find('def set_binning_size(self, size: int) -> bool:')
-        assert idx != -1
-        next_def = source.find('\n    def ', idx + 1)
-        body = source[idx:next_def] if next_def != -1 else source[idx : idx + 3000]
-        # Three exception classes; each must raise HardwareError, not return False
-        for exc_clause in (
-            'except genicam.TimeoutException',
-            'except genicam.RuntimeException',
-            'except Exception',
-        ):
-            assert exc_clause in body, f'PylonCamera.set_binning_size must keep {exc_clause}'
-        assert body.count('raise HardwareError(') >= 3, (
-            'PylonCamera.set_binning_size must raise HardwareError on each caught exception (C2)'
-        )
+        from drivers.exceptions import HardwareError
+
+        cam = _bare_pylon_camera()
+        cam.active.BinningVertical.SetValue.side_effect = genicam.RuntimeException('usb gone')
+        with pytest.raises(HardwareError):
+            cam.set_binning_size(2)
+        cam._mark_disconnected.assert_called_once()
+
+        cam = _bare_pylon_camera()
+        cam.active.BinningVertical.SetValue.side_effect = genicam.TimeoutException('slow bus')
+        with pytest.raises(HardwareError):
+            cam.set_binning_size(2)
+        cam._mark_disconnected.assert_not_called()
+
+        cam = _bare_pylon_camera()
+        cam.active.BinningVertical.SetValue.side_effect = ValueError('unexpected')
+        with pytest.raises(HardwareError):
+            cam.set_binning_size(2)
+
+    def test_pyloncamera_set_binning_size_guards_return_false(self):
+        """Caller-correctable guards return False without touching the SDK."""
+        cam = _bare_pylon_camera()
+        assert cam.set_binning_size(9) is False
+        cam.active.BinningVertical.SetValue.assert_not_called()
+
+        cam = _bare_pylon_camera()
+        cam.active = None
+        assert cam.set_binning_size(2) is False
 
     def test_pyloncamera_set_pixel_format_raises_hardware_error(self):
-        """Tier 3a / C1."""
-        import pathlib
+        """Tier 3a / C1: SDK failure surfaces as HardwareError;
+        RuntimeException marks the camera disconnected."""
+        from pypylon import genicam
 
-        source = pathlib.Path('drivers/pyloncamera.py').read_text()
-        idx = source.find('def set_pixel_format(self, pixel_format: str) -> bool:')
-        assert idx != -1
-        next_def = source.find('\n    def ', idx + 1)
-        body = source[idx:next_def] if next_def != -1 else source[idx : idx + 3000]
-        assert body.count('raise HardwareError(') >= 2, (
-            'PylonCamera.set_pixel_format must raise HardwareError on each caught exception (C1)'
-        )
+        from drivers.exceptions import HardwareError
+
+        cam = _bare_pylon_camera()
+        cam.get_supported_pixel_formats = lambda: ['Mono12']
+        cam.active.PixelFormat.GetValue.return_value = 'Mono8'
+        cam.active.PixelFormat.SetValue.side_effect = genicam.RuntimeException('usb gone')
+        with pytest.raises(HardwareError):
+            cam.set_pixel_format('Mono12')
+        cam._mark_disconnected.assert_called_once()
+
+        cam = _bare_pylon_camera()
+        cam.get_supported_pixel_formats = lambda: ['Mono12']
+        cam.active.PixelFormat.GetValue.return_value = 'Mono8'
+        cam.active.PixelFormat.SetValue.side_effect = ValueError('unexpected')
+        with pytest.raises(HardwareError):
+            cam.set_pixel_format('Mono12')
 
     def test_idscamera_set_binning_size_raises_hardware_error(self):
         """Tier 3a / C5."""
-        import pathlib
+        from drivers.exceptions import HardwareError
 
-        source = pathlib.Path('drivers/idscamera.py').read_text()
-        idx = source.find('def set_binning_size(self, size: int) -> bool:')
-        assert idx != -1
-        next_def = source.find('\n    def ', idx + 1)
-        body = source[idx:next_def] if next_def != -1 else source[idx : idx + 3000]
-        assert 'raise HardwareError(' in body, (
-            'IDSCamera.set_binning_size must raise HardwareError on caught exception (C5)'
-        )
+        cam = _bare_ids_camera()
+        cam.remote_nodemap.FindNode.return_value.SetValue.side_effect = RuntimeError('sdk')
+        with pytest.raises(HardwareError):
+            cam.set_binning_size(2)
 
     def test_idscamera_set_pixel_format_raises_and_annotated(self):
-        """Tier 3a / C3 + Tier 1-A: annotation added, raises HardwareError."""
-        import pathlib
+        """Tier 3a / C3 + Tier 1-A: annotation declared, raises
+        HardwareError and marks disconnected on SDK failure."""
+        from tests.ast_seams import assert_def
 
-        source = pathlib.Path('drivers/idscamera.py').read_text()
-        idx = source.find('def set_pixel_format(self, pixel_format: str) -> bool:')
-        assert idx != -1, 'IDSCamera.set_pixel_format must declare `-> bool` (Wave 1 C3 / Rule 37)'
-        next_def = source.find('\n    def ', idx + 1)
-        body = source[idx:next_def] if next_def != -1 else source[idx : idx + 3000]
-        assert 'raise HardwareError(' in body, (
-            'IDSCamera.set_pixel_format must raise HardwareError on caught exception (C3)'
+        from drivers.exceptions import HardwareError
+
+        assert_def(
+            'drivers/idscamera.py', 'set_pixel_format', returns='bool',
+            msg='IDSCamera.set_pixel_format must declare `-> bool` (Wave 1 C3 / Rule 37)',
         )
+
+        cam = _bare_ids_camera()
+        cam._resolve_logical_format = lambda fmt: 'Mono8'
+        cam.remote_nodemap.FindNode.return_value.SetCurrentEntry.side_effect = (
+            RuntimeError('sdk')
+        )
+        with pytest.raises(HardwareError):
+            cam.set_pixel_format('Mono8')
+        cam._mark_disconnected.assert_called_once()
 
 
 class TestHomeReturnsBool:
@@ -3353,6 +3380,45 @@ def _function_body_calls(source: str, func_name: str) -> set[str]:
     return calls
 
 
+def _bare_pylon_camera():
+    """PylonCamera with a fake SDK camera attached.
+
+    Drives the REAL driver methods against controllable node behavior:
+    `cam.active` is a MagicMock standing in for the pylon InstantCamera,
+    so tests set side_effects on its node accessors and assert on the
+    driver's observable behavior (return value, raise, disconnect mark).
+    update_camera_config is replaced with a no-op context manager so the
+    grab-loop bounce stays out of unit scope.
+    """
+    import contextlib
+    import threading
+
+    from drivers import pyloncamera
+
+    cam = pyloncamera.PylonCamera.__new__(pyloncamera.PylonCamera)
+    cam._state_lock = threading.Lock()
+    cam.active = MagicMock()
+    cam._mark_disconnected = MagicMock()
+    cam.update_camera_config = lambda: contextlib.nullcontext()
+    return cam
+
+
+def _bare_ids_camera():
+    """IDSCamera analog of _bare_pylon_camera: fake remote_nodemap."""
+    import contextlib
+    import threading
+
+    from drivers import idscamera
+
+    cam = idscamera.IDSCamera.__new__(idscamera.IDSCamera)
+    cam._state_lock = threading.Lock()
+    cam.active = True
+    cam.remote_nodemap = MagicMock()
+    cam._mark_disconnected = MagicMock()
+    cam.update_camera_config = lambda: contextlib.nullcontext()
+    return cam
+
+
 def _function_source(source: str, func_name: str) -> str:
     """Return the raw source text of a named top-level or method function.
 
@@ -4735,24 +4801,17 @@ class TestDeviceLinkThroughputLimitSetter:
         """Per the Raises: docstring section, the Pylon setter raises
         HardwareError on genicam.RuntimeException so the API layer can
         notify and the caller can handle it (Rule 29 typed-exception
-        contract; matches set_binning_size / set_pixel_format).
+        contract; matches set_binning_size / set_pixel_format)."""
+        from pypylon import genicam
 
-        Pins the raise so a future cleanup that swaps it for return-False
-        is caught here instead of in the field.
-        """
-        from pathlib import Path
+        from drivers.exceptions import HardwareError
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        body = _function_source(src, 'set_device_link_throughput_limit')
-        assert 'except genicam.RuntimeException' in body, (
-            'PylonCamera.set_device_link_throughput_limit must keep its '
-            'RuntimeException catch (Rule 29 typed-exception contract).'
+        cam = _bare_pylon_camera()
+        cam.active.DeviceLinkThroughputLimitMode.SetValue.side_effect = (
+            genicam.RuntimeException('usb gone')
         )
-        assert 'raise HardwareError(' in body, (
-            'PylonCamera.set_device_link_throughput_limit must raise '
-            'HardwareError on RuntimeException, not return False -- the '
-            'API layer catches and notifies.'
-        )
+        with pytest.raises(HardwareError):
+            cam.set_device_link_throughput_limit('Off')
 
 
 class TestPylonAsciiOnlyInLoggerStrings:
@@ -5450,8 +5509,9 @@ class TestPylonUnderrunCounterSingleCanonical:
         return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
 
     def test_canonical_underrun_node_name_constant(self):
-        src = self._pyloncamera_source()
-        assert "_UNDERRUN_NODE_NAME = 'Statistic_Buffer_Underrun_Count'" in src, (
+        from drivers.pyloncamera import PylonCamera
+
+        assert PylonCamera._UNDERRUN_NODE_NAME == 'Statistic_Buffer_Underrun_Count', (
             'Single canonical underrun-counter name '
             'Statistic_Buffer_Underrun_Count must be the constant.'
         )
@@ -6878,8 +6938,9 @@ class TestPylonChunkSelectorProbeWithFramecounterFallback:
         FrameID first, then Framecounter -- pinning the order so a
         future cleanup that swaps them or alphabetises the tuple
         fires this test."""
-        src = self._pyloncamera_source()
-        assert "_FRAME_IDENTITY_CHUNK_CANDIDATES = ('FrameID', 'Framecounter')" in src, (
+        from drivers.pyloncamera import PylonCamera
+
+        assert PylonCamera._FRAME_IDENTITY_CHUNK_CANDIDATES == ('FrameID', 'Framecounter'), (
             'PylonCamera must declare _FRAME_IDENTITY_CHUNK_CANDIDATES '
             'with FrameID first, Framecounter second (B32 fallback).'
         )
@@ -7012,19 +7073,20 @@ class TestAcquisitionStopModeSetter:
 
     def test_pylon_driver_validates_mode_argument(self):
         """Mode must be one of Complete / CancelExposure / AbortExposure
-        per Basler Specifics table."""
-        from pathlib import Path
+        per Basler Specifics table; an invalid mode returns False without
+        touching the SDK."""
+        from drivers.pyloncamera import PylonCamera
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        body = _function_source(src, 'set_acquisition_stop_mode')
-        assert '_ACQ_STOP_MODES' in body, (
-            'PylonCamera.set_acquisition_stop_mode must validate the '
-            'mode argument against _ACQ_STOP_MODES.'
-        )
-        assert "_ACQ_STOP_MODES = ('Complete', 'CancelExposure', 'AbortExposure')" in src, (
+        assert PylonCamera._ACQ_STOP_MODES == (
+            'Complete', 'CancelExposure', 'AbortExposure',
+        ), (
             'PylonCamera._ACQ_STOP_MODES must list the three doc-named '
             'values per acquisition-start-stop-and-abort.html.'
         )
+
+        cam = _bare_pylon_camera()
+        assert cam.set_acquisition_stop_mode('Bogus') is False
+        cam.active.GetNodeMap.assert_not_called()
 
     def test_pylon_driver_does_not_wrap_in_update_camera_config(self):
         """BslAcquisitionStopMode is a configuration property; setting
@@ -7043,18 +7105,23 @@ class TestAcquisitionStopModeSetter:
         )
 
     def test_pylon_driver_raises_hardware_error_on_runtime_exception(self):
-        """Rule 29 typed-exception contract; matches DLTL setter."""
-        from pathlib import Path
+        """Rule 29 typed-exception contract; matches DLTL setter.
+        RuntimeException marks the camera disconnected; a missing node
+        is a documented no-op returning False."""
+        from pypylon import genicam
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        body = _function_source(src, 'set_acquisition_stop_mode')
-        assert 'except genicam.RuntimeException' in body, (
-            'PylonCamera.set_acquisition_stop_mode must catch genicam.RuntimeException.'
-        )
-        assert 'raise HardwareError(' in body, (
-            'PylonCamera.set_acquisition_stop_mode must raise '
-            'HardwareError on RuntimeException, not return False.'
-        )
+        from drivers.exceptions import HardwareError
+
+        cam = _bare_pylon_camera()
+        node = cam.active.GetNodeMap.return_value.GetNode.return_value
+        node.SetValue.side_effect = genicam.RuntimeException('usb gone')
+        with pytest.raises(HardwareError):
+            cam.set_acquisition_stop_mode('Complete')
+        cam._mark_disconnected.assert_called_once()
+
+        cam = _bare_pylon_camera()
+        cam.active.GetNodeMap.return_value.GetNode.return_value = None
+        assert cam.set_acquisition_stop_mode('Complete') is False
 
     def test_ids_driver_stub_returns_false(self):
         from drivers.idscamera import IDSCamera
@@ -7191,33 +7258,31 @@ class TestGigeSetters:
             )
 
     def test_pylon_bandwidth_reserve_mode_validates(self):
-        from pathlib import Path
+        from drivers.pyloncamera import PylonCamera
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        body = _function_source(src, 'set_bandwidth_reserve_mode')
-        assert '_BANDWIDTH_RESERVE_MODES' in body, (
-            'set_bandwidth_reserve_mode must validate against _BANDWIDTH_RESERVE_MODES.'
-        )
-        assert "_BANDWIDTH_RESERVE_MODES = ('Default', 'Performance')" in src
+        assert PylonCamera._BANDWIDTH_RESERVE_MODES == ('Default', 'Performance')
+
+        cam = _bare_pylon_camera()
+        assert cam.set_bandwidth_reserve_mode('Turbo') is False
+        cam.active.GetNodeMap.assert_not_called()
 
     def test_pylon_setters_raise_hardware_error(self):
         """All three setters raise HardwareError on RuntimeException
         (Rule 29; matches DLTL + AbortExposure setters)."""
-        from pathlib import Path
+        from pypylon import genicam
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        for name in (
-            'set_bandwidth_reserve_mode',
-            'set_gev_packet_size',
-            'set_gev_inter_packet_delay',
+        from drivers.exceptions import HardwareError
+
+        for call in (
+            lambda cam: cam.set_bandwidth_reserve_mode('Performance'),
+            lambda cam: cam.set_gev_packet_size(9000),
+            lambda cam: cam.set_gev_inter_packet_delay(100),
         ):
-            body = _function_source(src, name)
-            assert 'except genicam.RuntimeException' in body, (
-                f'{name} must catch genicam.RuntimeException.'
-            )
-            assert 'raise HardwareError(' in body, (
-                f'{name} must raise HardwareError on RuntimeException.'
-            )
+            cam = _bare_pylon_camera()
+            node = cam.active.GetNodeMap.return_value.GetNode.return_value
+            node.SetValue.side_effect = genicam.RuntimeException('usb gone')
+            with pytest.raises(HardwareError):
+                call(cam)
 
     def test_ids_stubs_return_false(self):
         from drivers.idscamera import IDSCamera
@@ -7413,22 +7478,24 @@ class TestStreamGrabberSetters:
             )
 
     def test_pylon_driver_raises_hardware_error_on_runtime_exception(self):
-        """Per Rule 29 typed-exception contract, the Pylon setters raise
-        HardwareError on genicam.RuntimeException AND on missing-node
-        (GigE / non-USB3 cameras). Pins the raise shape against a future
-        cleanup that swaps it for return-False."""
-        from pathlib import Path
+        """Per Rule 29 typed-exception contract, the StreamGrabber
+        setters raise HardwareError on genicam.RuntimeException AND on
+        missing-node (GigE / non-USB3 cameras) -- silent return-False
+        would mislead bench operators into thinking the knob applied."""
+        from pypylon import genicam
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        body = _function_source(src, '_set_stream_grabber_int_node')
-        assert 'except genicam.RuntimeException' in body
-        assert 'raise HardwareError(' in body
-        assert 'node is None' in body, (
-            '_set_stream_grabber_int_node must check for missing node '
-            '(GigE / non-USB3 cameras) and raise HardwareError -- '
-            'silent return-False would mislead bench operators into '
-            'thinking the knob applied.'
-        )
+        from drivers.exceptions import HardwareError
+
+        cam = _bare_pylon_camera()
+        node = cam.active.GetStreamGrabberNodeMap.return_value.GetNode.return_value
+        node.SetValue.side_effect = genicam.RuntimeException('usb gone')
+        with pytest.raises(HardwareError):
+            cam.set_max_transfer_size(262144)
+
+        cam = _bare_pylon_camera()
+        cam.active.GetStreamGrabberNodeMap.return_value.GetNode.return_value = None
+        with pytest.raises(HardwareError):
+            cam.set_num_max_queued_urbs(64)
 
 
 class TestPylonAcquisitionIdleWait:
