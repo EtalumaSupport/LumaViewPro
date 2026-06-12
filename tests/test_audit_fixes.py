@@ -2684,19 +2684,43 @@ class TestAOC1_SaturationCheckShortCircuit:
     saturated / non-saturated / single-pixel-different / all-zero arrays.
     """
 
-    def test_source_uses_saturation_fraction_guard(self):
-        # The saturation check now measures the fraction of near-full-scale
-        # pixels: a real blown frame has a handful of sub-max pixels, so the
-        # old all-pixels-exactly-max test missed it and saved it silently.
+    def test_blown_frame_triggers_retry_grab(self, monkeypatch):
+        """A first frame at/above the blown fraction must trigger exactly
+        one retry grab, and a clean retry frame must be the one returned.
+        The fraction guard catches real blown frames (a handful of sub-max
+        pixels) that the old all-pixels-exactly-max check saved silently."""
+        import numpy as np
+
+        imaging, cam = _sim_backed_imaging()
+        blown = np.full((4, 4), 255, dtype=np.uint8)
+        clean = np.zeros((4, 4), dtype=np.uint8)
+        arrays = [blown, clean]
+        monkeypatch.setattr(cam, 'get_array', lambda: arrays.pop(0))
+        out = imaging.get_image(all_ones_check=True)
+        assert not arrays, 'the blown first frame must trigger one retry grab'
+        assert np.array_equal(out, clean), 'the clean retry frame must be returned'
+
+    def test_below_threshold_frame_does_not_retry(self, monkeypatch):
+        """A half-saturated frame is a normal image -- no retry grab."""
+        import numpy as np
+
+        imaging, cam = _sim_backed_imaging()
+        partial = np.zeros((4, 4), dtype=np.uint8)
+        partial[:2, :] = 255  # 50% saturated, well below the blown fraction
+        arrays = [partial]
+        monkeypatch.setattr(cam, 'get_array', lambda: arrays.pop(0))
+        out = imaging.get_image(all_ones_check=True)
+        assert not arrays, 'a below-threshold frame must not trigger a retry'
+        assert np.array_equal(out, partial)
+
+    def test_old_exact_max_forms_absent(self):
+        # Absence guard: the all-pixels-exactly-max forms missed real blown
+        # frames; the fraction guard replaced them.
         from pathlib import Path
 
         src = (
             Path(__file__).resolve().parent.parent / 'modules' / 'lumascope_api' / 'imaging.py'
         ).read_text()
-        assert '_saturated_fraction' in src, (
-            'get_image() saturation check should use the near-full-scale '
-            'fraction guard.'
-        )
         assert 'np.all(tmp == np.iinfo(tmp.dtype).max)' not in src
         assert 'not np.any(tmp != np.iinfo(tmp.dtype).max)' not in src, (
             'the all-pixels-exactly-max check missed real blown frames; replaced.'
@@ -2748,45 +2772,63 @@ class TestAOC2_RetrySaturationCheckOutsideCamLock:
     (feedback_default_to_expanding_scope -- fix the cluster).
     """
 
-    def test_retry_saturation_walk_is_outside_cam_lock(self):
-        from pathlib import Path
+    def test_retry_saturation_walk_runs_outside_cam_lock(self, monkeypatch):
+        """The saturation walk needs no camera state; it must run with
+        cam_lock RELEASED so concurrent set_gain/set_exposure are not
+        blocked. Proven by probing the lock from a helper thread inside
+        every fraction call: each must find the lock acquirable."""
+        import numpy as np
 
-        src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'lumascope_api' / 'imaging.py'
-        ).read_text()
-        assert 'np.all(retry_frame == np.iinfo(retry_frame.dtype).max)' not in src, (
-            'old `np.all(retry_frame == max)` form should be replaced.'
+        imaging, cam = _sim_backed_imaging()
+        blown = np.full((4, 4), 255, dtype=np.uint8)
+        arrays = [blown, blown]  # initial + retry both blown -> full walk runs
+        monkeypatch.setattr(cam, 'get_array', lambda: arrays.pop(0))
+
+        orig_fraction = ImagingAPI._saturated_fraction
+        lock_was_free = []
+
+        def probing_fraction(frame):
+            seen = {}
+
+            def try_acquire():
+                got = imaging._cam_lock.acquire(blocking=False)
+                if got:
+                    imaging._cam_lock.release()
+                seen['free'] = got
+
+            probe = threading.Thread(target=try_acquire)
+            probe.start()
+            probe.join()
+            lock_was_free.append(seen['free'])
+            return orig_fraction(frame)
+
+        monkeypatch.setattr(
+            ImagingAPI, '_saturated_fraction', staticmethod(probing_fraction)
         )
-        # The retry-frame saturation walk must still run OUTSIDE cam_lock: the
-        # walk needs no camera state, and holding the lock blocked concurrent
-        # set_gain/set_exposure. The marker comment + the new fraction guard on
-        # the retry frame confirm both.
-        assert 'Saturation walk is outside cam_lock' in src, (
-            'expected lock-release marker comment near retry-frame walk.'
-        )
-        assert '_saturated_fraction(retry_frame)' in src, (
-            'retry-frame check should use the near-full-scale fraction guard.'
+        out = imaging.get_image(all_ones_check=True)
+        assert out is not None
+        assert len(lock_was_free) >= 2, 'gate + retry walk must both run'
+        assert all(lock_was_free), (
+            'every saturation-fraction walk must run with cam_lock released; '
+            f'probe results: {lock_was_free}'
         )
 
-    def test_retry_frame_initialized_before_lock_block(self):
-        """Structural: retry_frame must be initialized before the with block so the
-        outside-lock check can reference it whether or not the grab succeeded.
+    def test_failed_retry_grab_degrades_gracefully(self, monkeypatch):
+        """When the retry grab fails, get_image must still return the
+        original (blown) frame -- never crash on an uninitialized retry
+        buffer."""
+        import datetime as _dt
 
-        get_image body and its cam_lock now both live on ImagingAPI;
-        access is self._cam_lock directly.
-        """
-        from pathlib import Path
+        import numpy as np
 
-        src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'lumascope_api' / 'imaging.py'
-        ).read_text()
-        # Find the retry block; verify retry_frame = None precedes the with statement.
-        idx_init = src.find('retry_frame = None')
-        idx_lock = src.find('with self._cam_lock:', idx_init)
-        idx_retry_grab = src.find('retry_status', idx_lock)
-        assert idx_init != -1, 'AOC-2: expected `retry_frame = None` initializer.'
-        assert idx_init < idx_lock < idx_retry_grab, (
-            'AOC-2: retry_frame should be initialized BEFORE the with cam_lock block.'
+        imaging, cam = _sim_backed_imaging()
+        blown = np.full((4, 4), 255, dtype=np.uint8)
+        monkeypatch.setattr(cam, 'get_array', lambda: blown)
+        grab_results = iter([(True, _dt.datetime.now()), (False, None)])
+        monkeypatch.setattr(cam, 'grab', lambda: next(grab_results))
+        out = imaging.get_image(all_ones_check=True)
+        assert np.array_equal(out, blown), (
+            'a failed retry grab must fall back to the original frame'
         )
 
 
