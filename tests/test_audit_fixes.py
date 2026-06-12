@@ -2804,32 +2804,33 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
     preserving behavior for ad-hoc callers.
     """
 
-    def test_save_image_threads_param_to_write_tiff(self):
-        from pathlib import Path
+    def test_save_image_threads_param_to_write_tiff(self, monkeypatch, tmp_path):
+        from types import SimpleNamespace
 
-        # Wave 7 Phase 6c (2026-05-19) retired the *_static chain as
-        # dead code. save_image is now the sole carrier of the
-        # use_false_color_16bit plumbing; the count-form parity check
-        # that previously enforced instance/static synchronization is
-        # vestigial. Presence-only ('in src') preserves the semantic
-        # intent: the param is accepted by save_image AND threaded to
-        # write_tiff.
-        api_src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'lumascope_api' / '_lumascope.py'
-        ).read_text()
-        module_src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'image_save.py'
-        ).read_text()
-        # save_image accepts the param (defined on Lumascope wrapper or
-        # the free function in modules.image_save -- either source carries
-        # the signature; the wrapper retires in 6f).
-        assert (
-            'use_false_color_16bit: bool | None = None' in api_src
-            or 'use_false_color_16bit: bool | None = None' in module_src
-        ), 'PIW-3: save_image should accept use_false_color_16bit.'
-        # save_image threads the param through to write_tiff.
-        assert 'use_false_color_16bit=use_false_color_16bit' in module_src, (
-            'PIW-3: save_image should pass use_false_color_16bit to write_tiff.'
+        import numpy as np
+
+        from modules import image_save
+
+        recorded = {}
+        monkeypatch.setattr(
+            'modules.image_utils.write_tiff', lambda **kwargs: recorded.update(kwargs)
+        )
+        monkeypatch.setattr(
+            image_save, 'generate_image_metadata', lambda scope, color, x, y, z: {}
+        )
+        image_save.save_image(
+            SimpleNamespace(),
+            np.zeros((4, 4), dtype=np.uint8),
+            save_folder=str(tmp_path),
+            file_root='fc_',
+            append='BF',
+            color='BF',
+            tail_id_mode=None,
+            use_false_color_16bit=True,
+        )
+        assert recorded.get('use_false_color_16bit') is True, (
+            'save_image must thread the pre-resolved use_false_color_16bit '
+            f'through to write_tiff; write_tiff saw {sorted(recorded)}'
         )
 
     def test_protocol_image_writer_caches_at_init(self):
@@ -2922,27 +2923,36 @@ class TestPIW5_Convert12to16OutBuffer:
             'PIW-5: _write_capture should pass the convert buffer to save_image.'
         )
 
-    def test_save_image_threads_out_12to16_to_prepare(self):
-        # Phase 6c (2026-05-19) relocated save_image +
-        # prepare_image_for_saving bodies from Lumascope to
-        # modules.image_save. Path retarget per Rule 48 (c); semantic
-        # intent (out_12to16 plumbing from save_image through
-        # prepare_image_for_saving to convert_12bit_to_16bit) preserved.
-        from pathlib import Path
+    def test_save_image_reuses_out_12to16_buffer(self, monkeypatch, tmp_path):
+        """The caller-supplied buffer must be the 12->16 conversion
+        destination on every save -- the whole point of the plumbing."""
+        from types import SimpleNamespace
 
-        src = (Path(__file__).resolve().parent.parent / 'modules' / 'image_save.py').read_text()
-        # save_image accepts the param.
-        assert 'out_12to16: np.ndarray | None = None' in src, (
-            'PIW-5: save_image / prepare_image_for_saving should accept out_12to16.'
+        import numpy as np
+
+        from modules import image_save
+
+        monkeypatch.setattr('modules.image_utils.write_tiff', lambda **kwargs: None)
+        monkeypatch.setattr(
+            image_save, 'generate_image_metadata', lambda scope, color, x, y, z: {}
         )
-        # save_image passes to prepare_image_for_saving.
-        assert 'out_12to16=out_12to16' in src, (
-            'PIW-5: save_image should pass out_12to16 to prepare_image_for_saving.'
-        )
-        # prepare_image_for_saving passes to convert_12bit_to_16bit.
-        assert 'convert_12bit_to_16bit(array, out=out_12to16)' in src, (
-            'PIW-5: prepare_image_for_saving should pass out_12to16 to the convert call.'
-        )
+        buf = np.zeros((4, 4), dtype=np.uint16)
+        for fill in (1, 3):
+            arr = np.full((4, 4), fill, dtype=np.uint16)
+            image_save.save_image(
+                SimpleNamespace(),
+                arr,
+                save_folder=str(tmp_path),
+                file_root='buf_',
+                append='BF',
+                color='BF',
+                tail_id_mode=None,
+                out_12to16=buf,
+            )
+            assert np.array_equal(buf, arr * 16), (
+                'save_image must use the caller-supplied out_12to16 buffer '
+                'as the 12->16 conversion destination on every save'
+            )
 
 
 class TestPIW6_PF3_FalseColorRgbPreallocated:
@@ -3002,19 +3012,17 @@ class TestPIW6_PF3_FalseColorRgbPreallocated:
             'PIW-6: protocol writer should not hold a pre-allocated rgb_buf.'
         )
 
-    def test_save_image_threads_buffers_to_write_tiff(self):
-        # Phase 6f (2026-05-19) retired the Lumascope.save_image wrapper;
-        # the free function in modules.image_save is the sole carrier of
-        # the false_color_buf / rgb_buf signature. Path retarget per
-        # Rule 48 (c); semantic intent preserved.
-        from pathlib import Path
+    def test_save_image_signature_includes_buffers(self):
+        # Post mono-native these params are pass-throughs retained as the
+        # color-audit enforcement surface (see class docstring); the
+        # signature seam is the contract until that surface retires.
+        from tests.ast_seams import assert_def
 
-        src = (Path(__file__).resolve().parent.parent / 'modules' / 'image_save.py').read_text()
-        assert 'false_color_buf: np.ndarray | None = None' in src, (
-            'PF-3: save_image should accept false_color_buf.'
-        )
-        assert 'rgb_buf: np.ndarray | None = None' in src, (
-            'PIW-6: save_image should accept rgb_buf.'
+        assert_def(
+            'modules/image_save.py', 'save_image',
+            has_params=['false_color_buf', 'rgb_buf'],
+            msg='save_image must accept the false_color_buf / rgb_buf '
+                'color-audit surface params.',
         )
 
     def test_add_false_color_uses_output_buffer(self):
@@ -3556,53 +3564,6 @@ class TestPF1_CpuPoolRetired:
         )
 
 
-_SCOPE_LIKE_RECEIVERS = frozenset({'self', 'scope'})
-
-
-def _function_body_calls(source: str, func_name: str) -> set[str]:
-    """Return the set of `<scope>.<method>(...)` (or `<scope>.<subapi>.<method>(...)`)
-    attribute calls in a named function's body, where `<scope>` is either `self`
-    (instance method) or `scope` (module-level free function with scope as first arg).
-
-    Post-Wave-7 Phase 4: routes through sub-APIs (e.g. `self.imaging.capture_and_wait`)
-    are recognized as semantically equivalent to bare `self.capture_and_wait` --
-    the helper returns the leaf method name in either case. The frame-validity
-    ship-gate assertion is "the function reaches X somewhere through the API,"
-    independent of whether X is a forwarder or a sub-API method.
-
-    Post-Wave-7 Phase 6: module-level free functions in `modules.image_save`
-    (and any future class-to-module-functions extraction) take `scope` as their
-    first arg and reach the API through `scope.<subapi>.<method>`; the same
-    leaf-name recognition applies.
-    """
-    import ast
-
-    tree = ast.parse(source)
-    target = None
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == func_name:
-            target = node
-            break
-    if target is None:
-        raise AssertionError(f'function {func_name!r} not found in source')
-    calls: set[str] = set()
-    for sub in ast.walk(target):
-        if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute):
-            value = sub.func.value
-            # Bare <receiver>.<method> -- receiver is self or scope.
-            if isinstance(value, ast.Name) and value.id in _SCOPE_LIKE_RECEIVERS:
-                calls.add(sub.func.attr)
-            # <receiver>.<subapi>.<method> (e.g. self.imaging.capture_and_wait
-            # or scope.imaging.capture_and_wait).
-            elif (
-                isinstance(value, ast.Attribute)
-                and isinstance(value.value, ast.Name)
-                and value.value.id in _SCOPE_LIKE_RECEIVERS
-            ):
-                calls.add(sub.func.attr)
-    return calls
-
-
 # Bare camera-driver builders shared with the other behavioral driver
 # test files; bodies live in tests/camera_fakes.py.
 from tests.camera_fakes import (
@@ -3646,30 +3607,38 @@ class TestFrameValidity_SaveLiveImageDrainsBeforeGrab:
     Bare self.get_image(...) ships a mid-transition frame to disk on every
     manual save; the canonical helper is self.capture_and_wait(...)."""
 
-    def test_save_live_image_calls_capture_and_wait(self):
-        # Phase 6c (2026-05-19) relocated save_live_image body from
-        # Lumascope to modules.image_save (composes scope.imaging
-        # rather than self.imaging). Path retarget per Rule 48 (c);
-        # semantic intent (drain-then-grab via capture_and_wait)
-        # preserved.
-        from pathlib import Path
+    def test_save_live_image_drains_via_capture_and_wait(self, monkeypatch, tmp_path):
+        """save_live_image must grab through capture_and_wait (drain-then-
+        grab) and hand THAT frame to save_image -- never the bare
+        get_image, which would ship a mid-transition frame to disk."""
+        from types import SimpleNamespace
 
-        src = (Path(__file__).resolve().parent.parent / 'modules' / 'image_save.py').read_text()
-        calls = _function_body_calls(src, 'save_live_image')
-        assert 'capture_and_wait' in calls, (
-            'save_live_image must call scope.imaging.capture_and_wait(...) for drain-then-grab.'
+        import numpy as np
+
+        from modules import image_save
+
+        calls = []
+        frame = np.zeros((4, 4), dtype=np.uint8)
+        scope = SimpleNamespace(
+            imaging=SimpleNamespace(
+                capture_and_wait=lambda **kw: calls.append('capture_and_wait') or frame,
+                get_image=lambda **kw: calls.append('get_image') or frame,
+            ),
+            illumination=SimpleNamespace(leds_off=lambda: None),
         )
-
-    def test_save_live_image_does_not_call_bare_get_image(self):
-        # Phase 6c (2026-05-19) path retarget per Rule 48 (c); see
-        # companion test_save_live_image_calls_capture_and_wait above.
-        from pathlib import Path
-
-        src = (Path(__file__).resolve().parent.parent / 'modules' / 'image_save.py').read_text()
-        calls = _function_body_calls(src, 'save_live_image')
-        assert 'get_image' not in calls, (
-            'save_live_image must not call scope.imaging.get_image(...) directly -- '
-            'that bypasses frame_validity. Route through scope.imaging.capture_and_wait(...).'
+        saved = {}
+        monkeypatch.setattr(
+            image_save, 'save_image',
+            lambda scope, array, *args, **kwargs: saved.update(array=array)
+            or str(tmp_path / 'live.tiff'),
+        )
+        out = image_save.save_live_image(scope, save_folder=str(tmp_path))
+        assert out is not None
+        assert calls == ['capture_and_wait'], (
+            f'save_live_image must drain via capture_and_wait only; saw {calls}'
+        )
+        assert saved['array'] is frame, (
+            'the drained frame must be the one handed to save_image'
         )
 
     def test_capture_and_wait_accepts_earliest_image_ts(self):
@@ -3689,7 +3658,7 @@ class TestFrameValidity_SaveLiveImageDrainsBeforeGrab:
 def _scope_attribute_calls(source: str, func_name: str) -> set[str]:
     """Return the set of `self._scope.<method>(...)` (or
     `self._scope.<subapi>.<method>(...)`) attribute calls in a named function's
-    body. Mirrors `_function_body_calls` for the AF executor's indirect-via-_scope
+    body -- the AF executor's indirect-via-_scope
     grab pattern. Post-Wave-7 Phase 4: walks through `self._scope.imaging.<method>`
     too -- the leaf method name is returned regardless of sub-API hop."""
     import ast

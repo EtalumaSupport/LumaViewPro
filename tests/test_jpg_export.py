@@ -13,7 +13,6 @@ extension routing.
 
 from __future__ import annotations
 
-import ast
 import pathlib
 import sys
 
@@ -86,13 +85,28 @@ def test_quality_affects_file_size():
     assert len(lo) < len(hi)
 
 
-def test_save_image_routes_jpg_to_encoder():
-    # Structural lock: the save path must route the JPG format to
-    # encode_display_jpg and resolve a .jpg extension. Pins the wiring
-    # without standing up a full Lumascope + app context.
-    src = (REPO / 'modules' / 'image_save.py').read_text()
-    tree = ast.parse(src)  # also guards against a broken edit
-    assert tree is not None
-    assert 'encode_display_jpg' in src, 'save path must call encode_display_jpg'
-    assert "output_format == 'JPG'" in src, 'save path must branch on JPG'
-    assert "file_extension = '.jpg'" in src, 'JPG must resolve a .jpg extension'
+def test_save_image_routes_jpg_to_encoder(tmp_path):
+    # The save path must route the JPG format to the display encoder and
+    # resolve a .jpg extension -- proven by saving and decoding the file.
+    from types import SimpleNamespace
+
+    from modules import image_save
+
+    path = image_save.save_image(
+        SimpleNamespace(),
+        _bright_mono(),
+        save_folder=str(tmp_path),
+        file_root='snap_',
+        append='BF',
+        color='BF',
+        tail_id_mode=None,
+        output_format='JPG',
+        jpeg_quality=95,
+    )
+    saved = pathlib.Path(path)
+    assert saved.suffix == '.jpg', 'JPG format must resolve a .jpg extension'
+    assert saved.exists(), 'the JPG file must land on disk'
+    bgr = _decode_bgr(saved.read_bytes())
+    assert bgr is not None and bgr.shape[:2] == (32, 32), (
+        'the saved file must be a decodable JPEG of the input frame'
+    )

@@ -31,22 +31,29 @@ TILING_CONFIGS = REPO_ROOT / 'data' / 'tiling.json'
 # ---------------------------------------------------------------------------
 
 
-def test_lumascope_api_supports_if_collision_mode():
-    # Phase 6c (2026-05-19) relocated generate_image_save_path body
-    # from Lumascope to modules.image_save; the if_collision branch
-    # lives there now. Path retarget per Rule 48 (c); semantic intent
-    # ("generate_image_save_path supports if_collision mode") preserved.
-    #
-    # Quote-agnostic: ruff format may emit either single- or double-
-    # quoted string literals depending on the formatter pass that last
-    # touched the line (commit 4a5a2422 converted production to single
-    # quotes on 2026-05-22). Assert the comparison + the value rather
-    # than coupling to the specific quote character.
-    src = (REPO_ROOT / 'modules' / 'image_save.py').read_text()
-    assert re.search(r"""tail_id_mode\s*==\s*['"]if_collision['"]""", src), (
-        'image_save.generate_image_save_path must support the '
-        '"if_collision" tail_id_mode for write-time defense against '
-        'duplicate filenames. (#636)'
+def test_generate_image_save_path_supports_if_collision_mode(tmp_path):
+    # Write-time defense against duplicate filenames (#636): the plain
+    # name when free, a numeric suffix only on actual collision.
+    from types import SimpleNamespace
+
+    from modules import image_save
+
+    kwargs = dict(
+        scope=SimpleNamespace(),
+        save_folder=tmp_path,
+        file_root='step_',
+        append='BF',
+        tail_id_mode='if_collision',
+        output_format='TIFF',
+    )
+    first = image_save.generate_image_save_path(**kwargs)
+    assert first.name == 'step_BF.tiff', (
+        'no collision -> the plain filename, unchanged'
+    )
+    first.touch()
+    second = image_save.generate_image_save_path(**kwargs)
+    assert second.name == 'step_BF_000001.tiff', (
+        'an existing file must produce a suffixed name, never an overwrite'
     )
 
 
