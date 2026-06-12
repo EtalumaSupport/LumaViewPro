@@ -1,0 +1,5 @@
+# Repo-wide ruff finding-count ceiling enforced by tools/ruff_ratchet.py.
+# The pre-commit hook blocks commits that push the count above this
+# number and rewrites it downward automatically as cleanup lands.
+# Retires (with the ratchet tool) when the count reaches zero.
+495
