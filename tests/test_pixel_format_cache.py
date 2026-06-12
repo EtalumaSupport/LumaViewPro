@@ -7,52 +7,46 @@ set_pixel_format(), so the pylon and ids drivers cache it (refreshed in the
 setter, cleared on disconnect) instead of hitting the SDK node map on every
 capture.
 
-Source-scan guards: the SDK-coupled camera drivers can't be unit-constructed
-(the base ctor auto-connects against a real SDK), so these assert the cache
-is consulted in the getter and refreshed in the setter -- catching a future
-revert to an unconditional live read.
+Behavioral since the typed pypylon stub + bare-driver builders landed:
+each test drives the real getter/setter and watches the node map.
 """
 
-from pathlib import Path
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-
-
-def _func_body(rel, func):
-    src = (REPO_ROOT / rel).read_text()
-    start = src.find(f'def {func}(')
-    assert start != -1, f'{func} not found in {rel}'
-    body = src[start : start + 1500]
-    end = body.find('\n    def ', 1)
-    return body if end == -1 else body[:end]
+from tests.camera_fakes import bare_ids_camera, bare_pylon_camera
 
 
 class TestPylonPixelFormatCache:
     def test_getter_consults_cache(self):
-        body = _func_body('drivers/pyloncamera.py', 'get_pixel_format')
-        assert '_pixel_format_cache' in body, (
-            'pylon get_pixel_format must serve from _pixel_format_cache before '
-            'a live GenICam node read (called once per saved frame)'
-        )
+        cam = bare_pylon_camera()
+        cam._pixel_format_cache = 'Mono12'
+        assert cam.get_pixel_format() == 'Mono12'
+        cam.active.PixelFormat.GetValue.assert_not_called()
+
+    def test_getter_populates_cache_on_first_live_read(self):
+        cam = bare_pylon_camera()
+        cam._pixel_format_cache = None
+        cam.active.PixelFormat.GetValue.return_value = 'Mono8'
+        assert cam.get_pixel_format() == 'Mono8'
+        assert cam._pixel_format_cache == 'Mono8'
 
     def test_setter_refreshes_cache(self):
-        body = _func_body('drivers/pyloncamera.py', 'set_pixel_format')
-        assert '_pixel_format_cache' in body, (
-            'pylon set_pixel_format must refresh _pixel_format_cache so the '
-            'getter never serves a stale format'
-        )
+        cam = bare_pylon_camera()
+        cam._pixel_format_cache = None
+        cam.get_supported_pixel_formats = lambda: ['Mono12']
+        cam.active.PixelFormat.GetValue.return_value = 'Mono8'
+        assert cam.set_pixel_format('Mono12') is True
+        assert cam._pixel_format_cache == 'Mono12'
 
 
 class TestIdsPixelFormatCache:
     def test_getter_consults_cache(self):
-        body = _func_body('drivers/idscamera.py', 'get_pixel_format')
-        assert '_pixel_format_cache' in body, (
-            'ids get_pixel_format must serve from _pixel_format_cache before '
-            'a live node-map read'
-        )
+        cam = bare_ids_camera()
+        cam._pixel_format_cache = 'Mono8'
+        assert cam.get_pixel_format() == 'Mono8'
+        cam.remote_nodemap.FindNode.assert_not_called()
 
     def test_setter_refreshes_cache(self):
-        body = _func_body('drivers/idscamera.py', 'set_pixel_format')
-        assert '_pixel_format_cache' in body, (
-            'ids set_pixel_format must refresh _pixel_format_cache'
-        )
+        cam = bare_ids_camera()
+        cam._pixel_format_cache = None
+        cam._resolve_logical_format = lambda fmt: 'Mono8'
+        assert cam.set_pixel_format('Mono8') is True
+        assert cam._pixel_format_cache == 'Mono8'
