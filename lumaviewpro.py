@@ -931,6 +931,48 @@ class LumaViewProApp(TooltipMixin, App):
 
         register_builtins(ctx)
 
+        # A plugin exception reaching the Kivy event loop must not take
+        # down the host: plugins are separately versioned (and may not be
+        # written by us), and one bad button handler in one crashed the
+        # whole app at the bench. Exceptions whose traceback enters a
+        # loaded plugin's package are contained -- logged, recorded in
+        # the plugin's health ledger, surfaced as a popup -- and the app
+        # continues. Anything NOT attributable to plugin code re-raises,
+        # so core defects keep their full crash post-mortem.
+        from kivy.base import ExceptionHandler, ExceptionManager
+
+        class _PluginCrashGuard(ExceptionHandler):
+            def handle_exception(self, inst):
+                plugin_name = None
+                try:
+                    plugin_name = ctx.plugins.attribute_exception(sys.exc_info()[2])
+                except Exception as e:
+                    logger.debug(f'[Plugins ] crash attribution failed: {e}')
+                if plugin_name is None:
+                    return ExceptionManager.RAISE
+                logger.exception(
+                    f'[Plugins ] contained a crash from plugin {plugin_name!r}: {inst}'
+                )
+                try:
+                    ctx.plugins.ui.record_runtime_error(plugin_name, 'ui_event', inst)
+                except Exception as e:
+                    logger.debug(f'[Plugins ] runtime-error record failed: {e}')
+                try:
+                    from modules.notification_center import notifications
+
+                    notifications.error(
+                        'Plugins',
+                        'Plugin Error',
+                        f'The "{plugin_name}" plugin hit an error and the action '
+                        'was cancelled. The rest of the application is '
+                        'unaffected. See the log for details.',
+                    )
+                except Exception as e:
+                    logger.debug(f'[Plugins ] plugin-error popup failed: {e}')
+                return ExceptionManager.PASS
+
+        ExceptionManager.add_handler(_PluginCrashGuard())
+
         # Attach UI-namespace plugin mounts now that the widget tree
         # exists. Each registered (name, mount, builder) tuple is
         # invoked here; builder() returns the Kivy widget which is
