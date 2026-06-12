@@ -24,20 +24,22 @@ to the node's physical range) instead of the sensor max.
 
 Test approach
 -------------
-Functional tests for the pure resolver. Source-structural (AST/regex)
-locks for the pylon driver -- a real pypylon Camera() can't be
-instantiated in the test env (same constraint as #551) -- plus a
+Functional tests for the pure resolver. Behavioral tests for the pylon
+driver (real _set_auto_exposure_time_bounds / auto_gain /
+auto_gain_once on a bare PylonCamera via tests/camera_fakes.py), plus a
 caller-cluster check that every AG-enable site forwards the cap.
 Bench verification gates the actual stability claim (diag/issue-655).
 """
 
 from __future__ import annotations
 
-import ast
 import pathlib
 import re
+from unittest.mock import MagicMock
 
 import modules.config_helpers as config_helpers
+
+from tests.camera_fakes import bare_pylon_camera
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -73,15 +75,15 @@ def test_unknown_layer_falls_back_to_fluorescence_cap():
 
 
 # --------------------------------------------------------------------------
-# Source-structural: pylon driver applies the cap (not the sensor max)
+# Behavioral: pylon driver applies the cap (not the sensor max)
 # --------------------------------------------------------------------------
 
-def _method_src(method_name: str) -> str:
-    tree = ast.parse(PYLON_SRC.read_text())
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == method_name:
-            return ast.unparse(node)
-    raise AssertionError(f'{method_name} not found in {PYLON_SRC}')
+def _bounded_camera(node_min=30.0, node_max=1_000_000.0, sensor_min=20.0):
+    cam = bare_pylon_camera()
+    cam.active.AutoExposureTimeLowerLimit.Min = sensor_min
+    cam.active.AutoExposureTimeUpperLimit.Min = node_min
+    cam.active.AutoExposureTimeUpperLimit.Max = node_max
+    return cam
 
 
 def test_old_sensor_max_bound_helper_is_gone():
@@ -94,33 +96,44 @@ def test_old_sensor_max_bound_helper_is_gone():
     )
 
 
-def test_bound_helper_converts_ms_and_clamps_to_node_max():
-    src = _method_src('_set_auto_exposure_time_bounds')
-    # ms -> us conversion on the requested cap.
-    assert re.search(r'max_exposure_ms\s*\*\s*1000', src), (
-        '_set_auto_exposure_time_bounds must convert the ms cap to '
-        'microseconds (Pylon AutoExposureTime nodes are in us). (#655)'
-    )
-    # Clamp the requested cap against the node's own Max (never exceed it).
-    assert 'AutoExposureTimeUpperLimit.Max' in src and 'min(' in src, (
-        'The upper bound must be min(requested_us, node Max) -- clamped to '
-        'the cap, not opened to the sensor max. (#655)'
-    )
+def test_bound_helper_converts_ms_cap_to_microseconds():
+    """A 50 ms class cap must land on the camera as 50_000 us (Pylon
+    AutoExposureTime nodes are in us), with the lower bound opened to
+    the sensor minimum so AG can still drop exposure."""
+    cam = _bounded_camera()
+    cam._set_auto_exposure_time_bounds(max_exposure_ms=50.0)
+    cam.active.AutoExposureTimeUpperLimit.SetValue.assert_called_once_with(50_000.0)
+    cam.active.AutoExposureTimeLowerLimit.SetValue.assert_called_once_with(20.0)
+
+
+def test_bound_helper_clamps_cap_to_node_max():
+    """A cap above the node's physical range must clamp to the node Max
+    -- never exceed it (the SDK would raise)."""
+    cam = _bounded_camera(node_max=1_000_000.0)
+    cam._set_auto_exposure_time_bounds(max_exposure_ms=2000.0)
+    cam.active.AutoExposureTimeUpperLimit.SetValue.assert_called_once_with(1_000_000.0)
+
+
+def test_bound_helper_opens_to_node_max_when_uncapped():
+    """max_exposure_ms=None keeps the legacy open-to-node-max behavior
+    for callers that do not supply a class ceiling."""
+    cam = _bounded_camera(node_max=1_000_000.0)
+    cam._set_auto_exposure_time_bounds(max_exposure_ms=None)
+    cam.active.AutoExposureTimeUpperLimit.SetValue.assert_called_once_with(1_000_000.0)
 
 
 def test_auto_gain_forwards_cap_to_bound_helper():
-    for method_name in ('auto_gain', 'auto_gain_once'):
-        src = _method_src(method_name)
-        assert 'ae_max_exposure_ms' in src, (
-            f'{method_name} must accept ae_max_exposure_ms. (#655)'
-        )
-        assert re.search(
-            r'_set_auto_exposure_time_bounds\(\s*max_exposure_ms\s*=\s*ae_max_exposure_ms',
-            src,
-        ), (
-            f'{method_name} must pass ae_max_exposure_ms to '
-            f'_set_auto_exposure_time_bounds. (#655)'
-        )
+    """Both AG-arm entry points must pass the per-class cap down to the
+    bound helper before enabling the auto loop."""
+    for method_name, expected_mode in (('auto_gain', 'Continuous'), ('auto_gain_once', 'Once')):
+        cam = bare_pylon_camera()
+        cam.update_auto_gain_target_brightness = MagicMock()
+        cam.update_auto_gain_min_max = MagicMock()
+        cam._set_auto_exposure_time_bounds = MagicMock()
+        getattr(cam, method_name)(state=True, ae_max_exposure_ms=123.0)
+        cam._set_auto_exposure_time_bounds.assert_called_once_with(max_exposure_ms=123.0)
+        cam.active.GainAuto.SetValue.assert_called_once_with(expected_mode)
+        cam.active.ExposureAuto.SetValue.assert_called_once_with(expected_mode)
 
 
 # --------------------------------------------------------------------------

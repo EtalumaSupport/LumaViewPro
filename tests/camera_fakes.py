@@ -187,6 +187,127 @@ def chunk_config_pylon_camera(advertised):
     return cam
 
 
+class FakeAutoRoiCamera:
+    """Stateful AutoFunction-ROI simulator enforcing the Basler node
+    interdependency that bit the dart family: Width/Height.Max shrink
+    while an offset is applied, each Offset.Max is the sensor extent
+    minus the CURRENT ROI size, and SetValue outside [0, Max] raises
+    like the SDK. Records every write in .calls as (node, value);
+    final geometry readable via .roi = (w, h, off_x, off_y)."""
+
+    def __init__(
+        self,
+        sensor_w=3536,
+        sensor_h=2624,
+        roi_w_cap=None,
+        roi_h_cap=None,
+        initial_offset_x=0,
+        initial_offset_y=0,
+    ):
+        cam = self
+        self.calls = []
+        self._sensor_w = sensor_w
+        self._sensor_h = sensor_h
+        self._off_x = initial_offset_x
+        self._off_y = initial_offset_y
+        self._roi_w = sensor_w - initial_offset_x
+        self._roi_h = sensor_h - initial_offset_y
+        self._roi_w_cap = roi_w_cap if roi_w_cap is not None else sensor_w
+        self._roi_h_cap = roi_h_cap if roi_h_cap is not None else sensor_h
+
+        class _Sensor:
+            def __init__(self, maximum):
+                self.Max = maximum
+
+        class _Recorder:
+            def __init__(self, name):
+                self._name = name
+
+            def SetValue(self, value):
+                cam.calls.append((self._name, value))
+
+        class _GainLimit(_Recorder):
+            Min = 0.0
+            Max = 24.0
+
+        class _WidthNode:
+            @property
+            def Max(self):
+                return min(cam._roi_w_cap, cam._sensor_w - cam._off_x)
+
+            def SetValue(self, value):
+                if not 0 <= value <= self.Max:
+                    raise RuntimeError(
+                        f'AutoFunctionROIWidth.SetValue({value}) out of range (Max={self.Max})'
+                    )
+                cam._roi_w = value
+                cam.calls.append(('AutoFunctionROIWidth', value))
+
+        class _HeightNode:
+            @property
+            def Max(self):
+                return min(cam._roi_h_cap, cam._sensor_h - cam._off_y)
+
+            def SetValue(self, value):
+                if not 0 <= value <= self.Max:
+                    raise RuntimeError(
+                        f'AutoFunctionROIHeight.SetValue({value}) out of range (Max={self.Max})'
+                    )
+                cam._roi_h = value
+                cam.calls.append(('AutoFunctionROIHeight', value))
+
+        class _OffsetXNode:
+            @property
+            def Max(self):
+                return cam._sensor_w - cam._roi_w
+
+            def SetValue(self, value):
+                if not 0 <= value <= self.Max:
+                    raise RuntimeError(
+                        f'AutoFunctionROIOffsetX.SetValue({value}) out of range (Max={self.Max})'
+                    )
+                cam._off_x = value
+                cam.calls.append(('AutoFunctionROIOffsetX', value))
+
+        class _OffsetYNode:
+            @property
+            def Max(self):
+                return cam._sensor_h - cam._roi_h
+
+            def SetValue(self, value):
+                if not 0 <= value <= self.Max:
+                    raise RuntimeError(
+                        f'AutoFunctionROIOffsetY.SetValue({value}) out of range (Max={self.Max})'
+                    )
+                cam._off_y = value
+                cam.calls.append(('AutoFunctionROIOffsetY', value))
+
+        self.Width = _Sensor(sensor_w)
+        self.Height = _Sensor(sensor_h)
+        self.AutoFunctionROISelector = _Recorder('AutoFunctionROISelector')
+        self.AutoTargetBrightness = _Recorder('AutoTargetBrightness')
+        self.AutoFunctionProfile = _Recorder('AutoFunctionProfile')
+        self.AutoGainLowerLimit = _GainLimit('AutoGainLowerLimit')
+        self.AutoGainUpperLimit = _GainLimit('AutoGainUpperLimit')
+        self.AutoFunctionROIWidth = _WidthNode()
+        self.AutoFunctionROIHeight = _HeightNode()
+        self.AutoFunctionROIOffsetX = _OffsetXNode()
+        self.AutoFunctionROIOffsetY = _OffsetYNode()
+
+    @property
+    def roi(self):
+        return (self._roi_w, self._roi_h, self._off_x, self._off_y)
+
+
+def auto_roi_pylon_camera(**kwargs):
+    """bare_pylon_camera whose active handle is a FakeAutoRoiCamera,
+    so the REAL init_auto_gain_focus() can run against the enforced
+    ROI node interdependencies."""
+    cam = bare_pylon_camera()
+    cam.active = FakeAutoRoiCamera(**kwargs)
+    return cam
+
+
 def bare_ids_camera():
     """IDSCamera analog of bare_pylon_camera: fake remote_nodemap."""
     from drivers import idscamera

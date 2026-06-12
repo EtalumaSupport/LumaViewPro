@@ -25,178 +25,104 @@ Fix
 
 Test approach
 -------------
-AST + source-level structural lock on init_auto_gain_focus -- direct
-exec is impractical (needs a real pypylon Camera() instance). Verifies
-the two specific Basler parameter changes are present and the previous
-full-frame / MinimizeExposureTime path is gone.
+Behavioral: the REAL init_auto_gain_focus runs against
+camera_fakes.FakeAutoRoiCamera, a stateful simulator that enforces the
+Basler node interdependency (Offset.Max = sensor extent - current ROI
+size; Width/Height.Max shrink while an offset is applied; SetValue
+outside [0, Max] raises like the SDK). The dart-family geometry that
+originally rejected the centered offset is reproduced by construction,
+so the offset-zero-before-sizing ordering and the per-node Max clamps
+are load-bearing, not source-text pins.
 
-Bench verification gates the actual stability claim; this test is a
-regression catch for the structural fix.
+Bench verification gates the actual stability claim; these tests are
+the regression catch for the structural fix.
 """
 
 from __future__ import annotations
 
-import ast
-import pathlib
-import re
+from tests.camera_fakes import auto_roi_pylon_camera
 
-
-REPO = pathlib.Path(__file__).resolve().parent.parent
-PYLON_SRC = REPO / 'drivers' / 'pyloncamera.py'
-
-
-def _method_node(class_name: str, method_name: str) -> ast.FunctionDef:
-    source = PYLON_SRC.read_text()
-    tree = ast.parse(source)
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ClassDef) and node.name == class_name:
-            for child in node.body:
-                if isinstance(child, ast.FunctionDef) and child.name == method_name:
-                    return child
-    raise AssertionError(f'{class_name}.{method_name} not found in {PYLON_SRC}')
+# Geometry for the default simulator (ace-2-like 3536x2624 sensor):
+# width 3536 // 2 = 1768 -> 16-px align-down 1760; height 2624 // 2 =
+# 1312 (already aligned); centered offsets (3536-1760)//2 = 888 -> 880
+# and (2624-1312)//2 = 656.
+_EXPECTED_DEFAULT_ROI = (1760, 1312, 880, 656)
 
 
 def test_init_auto_gain_focus_uses_minimize_gain_profile():
-    """The AutoFunctionProfile SetValue call must pass 'MinimizeGain'."""
-    method = _method_node('PylonCamera', 'init_auto_gain_focus')
-
-    # Find every Call node that targets AutoFunctionProfile.SetValue and
-    # inspect its first arg. AST inspection so explanatory comments
-    # mentioning the old profile name don't trip a substring check.
-    profile_setvalues = []
-    for node in ast.walk(method):
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-            attr = node.func.attr
-            if attr != 'SetValue':
-                continue
-            target = node.func.value
-            if isinstance(target, ast.Attribute) and target.attr == 'AutoFunctionProfile':
-                if node.args and isinstance(node.args[0], ast.Constant):
-                    profile_setvalues.append(node.args[0].value)
-
-    assert profile_setvalues, (
-        'init_auto_gain_focus must call AutoFunctionProfile.SetValue '
-        'with a string constant. (#551)'
+    """Every AutoFunctionProfile write must be 'MinimizeGain' -- the
+    'MinimizeExposureTime' profile caused BF gain bouncing."""
+    cam = auto_roi_pylon_camera()
+    cam.init_auto_gain_focus()
+    profile_writes = [
+        value for node, value in cam.active.calls if node == 'AutoFunctionProfile'
+    ]
+    assert profile_writes, (
+        'init_auto_gain_focus must set AutoFunctionProfile. (#551)'
     )
-    assert all(v == 'MinimizeGain' for v in profile_setvalues), (
-        f'AutoFunctionProfile.SetValue must use "MinimizeGain" for BF '
-        f'stability; found {profile_setvalues}. (#551)'
-    )
-    assert 'MinimizeExposureTime' not in profile_setvalues, (
-        'AutoFunctionProfile must NOT be set to "MinimizeExposureTime" '
-        '-- that profile caused BF gain bouncing. (#551)'
+    assert profile_writes == ['MinimizeGain'], (
+        f'AutoFunctionProfile must be set to "MinimizeGain" for BF '
+        f'stability; got {profile_writes}. (#551)'
     )
 
 
-def test_init_auto_gain_focus_shrinks_roi_to_half():
-    method = _method_node('PylonCamera', 'init_auto_gain_focus')
-    src = ast.unparse(method)
-
-    # ROI now uses Width.Max // 2 + Height.Max // 2 with centered offsets.
-    # Quote-agnostic + whitespace-agnostic per source-style cluster.
-    width_half = re.search(r'Width\.Max\s*//\s*2', src)
-    height_half = re.search(r'Height\.Max\s*//\s*2', src)
-    assert width_half is not None, (
-        'AutoFunction ROI width must derive from Width.Max // 2 '
-        '(centered 50% crop). (#551)'
+def test_init_auto_gain_focus_sets_half_centered_aligned_roi():
+    """The committed ROI must be the 50% centered crop, 16-px aligned --
+    not the old full-frame derivation that sampled plate edges."""
+    cam = auto_roi_pylon_camera()
+    cam.init_auto_gain_focus()
+    roi = cam.active.roi
+    assert roi == _EXPECTED_DEFAULT_ROI, (
+        f'Expected 50% centered 16-px-aligned ROI {_EXPECTED_DEFAULT_ROI}; got {roi}. (#551)'
     )
-    assert height_half is not None, (
-        'AutoFunction ROI height must derive from Height.Max // 2 '
-        '(centered 50% crop). (#551)'
-    )
-
-    # The old full-frame ROI computation (Width.Max - 2*offsetX) must
-    # be gone.
-    assert not re.search(r'Width\.Max\s*-\s*2\s*\*\s*self\.active\.AutoFunctionROIOffsetX', src), (
-        'init_auto_gain_focus must not use the old full-frame ROI '
-        'derivation (Width.Max - 2*offsetX) which caused BF '
-        'oscillation. (#551)'
+    assert all(value % 16 == 0 for value in roi), (
+        f'Every ROI dimension must be 16-px aligned (Basler ace 2 / dart '
+        f'step granularity); got {roi}. (#551)'
     )
 
 
-def test_init_auto_gain_focus_aligns_to_16():
-    """Basler ace 2 / dart ROI step granularity is 16 px -- the new
-    ROI computation must align down to 16."""
-    method = _method_node('PylonCamera', 'init_auto_gain_focus')
-    src = ast.unparse(method)
-    assert '_align_down' in src or '// 16' in src or '* 16' in src, (
-        'New ROI computation must align to the 16-px granularity Basler '
-        'requires (use _align_down or explicit // 16 / * 16). (#551)'
+def test_init_auto_gain_focus_zeroes_offsets_before_sizing():
+    """Pylon node interdependency: a pre-existing non-zero offset caps
+    the achievable Width/Height (Width.Max = sensor - offset). Starting
+    from a dart-shaped state with large committed offsets, only the
+    zero-offsets-first ordering reaches the full 50% centered crop --
+    skipping the zero step (or sizing first) either raises in the
+    simulator or commits a smaller, off-center ROI."""
+    cam = auto_roi_pylon_camera(initial_offset_x=1800, initial_offset_y=1400)
+    cam.init_auto_gain_focus()
+    roi = cam.active.roi
+    assert roi == _EXPECTED_DEFAULT_ROI, (
+        f'With pre-existing offsets the method must still commit the '
+        f'full centered crop {_EXPECTED_DEFAULT_ROI} (zero offsets '
+        f'first, then size, then re-center); got {roi}.'
+    )
+    profile_writes = [
+        value for node, value in cam.active.calls if node == 'AutoFunctionProfile'
+    ]
+    assert profile_writes == ['MinimizeGain'], (
+        'The configuration pass must complete (a mid-sequence '
+        'OutOfRange raise would skip the profile write).'
     )
 
 
-def test_init_auto_gain_focus_zeroes_offset_before_sizing():
-    """Pylon node interdependency: AutoFunctionROIOffsetX/Y.Max equals
-    (sensor bound) - (current AutoFunctionROIWidth/Height). A non-zero
-    offset caps the achievable Width/Height; the centered-offset setpoint
-    computed against sensor Max is rejected if OffsetX.Max is still
-    constrained by the previous Width.
-
-    The dart daA3840-45um reports AutoFunctionROIOffsetX.Max = 20 by
-    default while ace 2 reports the full sensor extent; a centered
-    offset of ~960 (half of (Width.Max - roi_width)) raises
-    OutOfRangeException on the dart unless offsets are zeroed first.
-
-    Regression test: AutoFunctionROIOffsetX/Y(0) must appear in the
-    source BEFORE the centered SetValue on the same nodes, AND before
-    AutoFunctionROIWidth/Height get set.
-    """
-    method = _method_node('PylonCamera', 'init_auto_gain_focus')
-    src = ast.unparse(method)
-
-    offset_zero_x = src.find('AutoFunctionROIOffsetX.SetValue(0)')
-    offset_zero_y = src.find('AutoFunctionROIOffsetY.SetValue(0)')
-    width_set = src.find('AutoFunctionROIWidth.SetValue(')
-    height_set = src.find('AutoFunctionROIHeight.SetValue(')
-
-    assert offset_zero_x != -1, (
-        'init_auto_gain_focus must call AutoFunctionROIOffsetX.SetValue(0) '
-        'before setting Width / Height -- non-zero offset caps the '
-        'achievable Width and rejects the post-sizing centered offset '
-        'on smaller-sensor cameras (dart daA3840-45um).'
-    )
-    assert offset_zero_y != -1, (
-        'init_auto_gain_focus must call AutoFunctionROIOffsetY.SetValue(0) '
-        'before setting Width / Height -- same constraint as X axis.'
-    )
-    assert width_set != -1 and height_set != -1, (
-        'init_auto_gain_focus must set AutoFunctionROIWidth + '
-        'AutoFunctionROIHeight (the 50% centered ROI per #551).'
-    )
-    assert offset_zero_x < width_set, (
-        'Offset-zero must precede Width-set. Setting Width first while '
-        'an existing OffsetX exceeds the post-sizing OffsetX.Max raises '
-        'OutOfRangeException on the dart family.'
-    )
-    assert offset_zero_y < height_set, (
-        'Offset-zero must precede Height-set. Same reasoning as X.'
-    )
-
-
-def test_init_auto_gain_focus_clamps_to_autofunction_roi_max():
+def test_init_auto_gain_focus_clamps_to_autofunction_roi_node_max():
     """Defensive clamp against the AutoFunctionROI* node's own Max --
-    some cameras (dart family) report tighter bounds on these nodes
-    than on the sensor's Width / Height proper. Without the clamp, a
-    50% centered crop derived from Width.Max can exceed
-    AutoFunctionROIWidth.Max and raise OutOfRangeException."""
-    method = _method_node('PylonCamera', 'init_auto_gain_focus')
-    src = ast.unparse(method)
-
-    # The clamp uses min(...) against the per-node Max.
-    assert re.search(r'AutoFunctionROIWidth\.Max', src), (
-        'init_auto_gain_focus must read AutoFunctionROIWidth.Max for '
-        'defensive clamp (dart family reports tighter bounds here than '
-        'on sensor Width.Max).'
+    the dart family reports tighter bounds on these nodes than on the
+    sensor's Width / Height proper. Without the clamp, the 50% crop
+    derived from Width.Max would exceed AutoFunctionROIWidth.Max and
+    raise OutOfRangeException."""
+    cam = auto_roi_pylon_camera(roi_w_cap=1000, roi_h_cap=800)
+    cam.init_auto_gain_focus()
+    roi_w, roi_h, off_x, off_y = cam.active.roi
+    assert roi_w == 992 and roi_h == 800, (
+        f'ROI must clamp to the AutoFunctionROI node caps (992x800 '
+        f'after 16-px alignment of caps 1000x800); got {roi_w}x{roi_h}.'
     )
-    assert re.search(r'AutoFunctionROIHeight\.Max', src), (
-        'init_auto_gain_focus must read AutoFunctionROIHeight.Max for '
-        'defensive clamp.'
+    assert (off_x, off_y) == (1264, 912), (
+        f'Offsets must re-center the clamped ROI (and 16-px align); '
+        f'got ({off_x}, {off_y}).'
     )
-    assert re.search(r'AutoFunctionROIOffsetX\.Max', src), (
-        'init_auto_gain_focus must read AutoFunctionROIOffsetX.Max for '
-        'defensive clamp on the centered offset.'
-    )
-    assert re.search(r'AutoFunctionROIOffsetY\.Max', src), (
-        'init_auto_gain_focus must read AutoFunctionROIOffsetY.Max for '
-        'defensive clamp.'
-    )
+    profile_writes = [
+        value for node, value in cam.active.calls if node == 'AutoFunctionProfile'
+    ]
+    assert profile_writes == ['MinimizeGain']
