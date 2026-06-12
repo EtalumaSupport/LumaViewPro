@@ -83,6 +83,13 @@ ignore = [
     "B008",
     # SIM108 (use ternary) -- often hurts readability for non-trivial branches.
     "SIM108",
+    # SIM105 (use contextlib.suppress) -- every flagged site is an intentional
+    # suppress-and-continue (teardown/atexit paths, listener deregistration,
+    # best-effort probes, may-already-be-done USB ops), and roughly a third
+    # carry load-bearing trailing comments that a contextlib.suppress rewrite
+    # would relocate or orphan. Comments are preserve-by-default; the
+    # try/except form keeps them attached to the statement they explain.
+    "SIM105",
     # N802 (function lowercase) -- Kivy on_X / on_release / on_value handlers and on_*
     # event names follow Kivy convention; SDK names (Pylon/IDS) use PascalCase too.
     "N802",
@@ -112,6 +119,17 @@ ignore = [
     # body lives inside `if __name__ == "__main__":` so imports follow
     # Config calls by design (Rule 36 config-must-run-first exception).
     "E402",
+    # The Factory-import block exists solely so Kivy's Builder can resolve
+    # class names referenced from .kv files; ruff cannot see .kv consumers,
+    # so every one of those imports reads as unused. The in-file comment at
+    # the import block documents the grep-the-.kv-first removal rule.
+    "F401",
+]
+"drivers/camera_profiles.py" = [
+    # Profile globals are named after the exact camera model strings
+    # (e.g. _daA3840_45um for the Basler daA3840-45um) so a profile is
+    # greppable by the model name the camera reports.
+    "N816",
 ]
 "tests/*.py" = [
     # Tests use sys.modules monkeypatching at module level by design.
