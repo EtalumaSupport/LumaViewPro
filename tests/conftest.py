@@ -35,6 +35,10 @@ os.environ.setdefault('KIVY_NO_FILELOG', '1')
 # ---------------------------------------------------------------------------
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Typed pypylon stand-in (real handler bases + exception types). Needs the
+# repo-root path insert above.
+from tests import pypylon_stub as _pypylon_stub
+
 
 # ---------------------------------------------------------------------------
 # Hardware-flag detection (must run before mock install)
@@ -107,10 +111,14 @@ def install_mock_deps():
         'usb.core': MagicMock(),
         'usb.util': MagicMock(),
         'usb1': MagicMock(),
-        # Camera SDKs -- skipped when their --run-*-hardware flag is set
-        'pypylon': MagicMock(),
-        'pypylon.pylon': MagicMock(),
-        'pypylon.genicam': MagicMock(),
+        # Camera SDKs -- skipped when their --run-*-hardware flag is set.
+        # pypylon gets a typed stub (real subclassable handler bases +
+        # exception types) instead of a blanket MagicMock so the driver's
+        # ImageHandler / _CameraRemovalHandler classes can be instantiated
+        # and their callbacks driven directly in unit tests.
+        'pypylon': _pypylon_stub.pypylon,
+        'pypylon.pylon': _pypylon_stub.pylon,
+        'pypylon.genicam': _pypylon_stub.genicam,
         'ids_peak': MagicMock(),
         'ids_peak.ids_peak': MagicMock(),
         'ids_peak.ids_peak_ipl_extension': MagicMock(),
