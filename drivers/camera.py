@@ -739,11 +739,11 @@ class Camera(ABC):
         pass
 
     @abstractmethod
-    def gain(self, gain: float) -> None:
+    def gain(self, value: float) -> None:
         """Set the camera gain.
 
         Args:
-            gain: Gain in dB.
+            value: Gain in dB.
         """
         pass
 

@@ -15,6 +15,7 @@ IMPORTANT: This file does NOT manipulate sys.modules at module level.
 All mocking is done inside fixtures/test methods and cleaned up afterward.
 """
 
+import ast
 import inspect
 import sys
 import threading
@@ -5324,32 +5325,49 @@ class TestPylonInitCameraConfigStyleConsistency:
         )
 
 
-class TestPylonGainParameterNotShadowingMethod:
+class TestDriverParametersNotShadowingMethods:
     """CLAUDE.md Rule 36 (identifier clarity).
 
-    PylonCamera.gain(self, gain) had the parameter shadow the method
-    name. Inside the method body, the symbol `gain` resolved to the
-    parameter -- the bound method `self.gain` was still reachable but
-    any future refactor that called the method recursively would
-    silently fail in a confusing way. Renaming to `value` removes the
-    ambiguity. Method name itself (`gain`) is L2-public and not
-    changed (Rule 30 stability); only the internal parameter name.
+    `def gain(self, gain)` had the parameter shadow the method name in
+    several camera drivers. Inside such a method body the symbol
+    resolves to the parameter -- the bound method `self.gain` is still
+    reachable, but a future refactor that calls the method recursively
+    (or reads `self.gain` expecting the method) fails in a confusing
+    way. The de-shadowed parameter name is `value`; the method names
+    themselves are L2-public and unchanged (Rule 30 stability).
 
-    Audit finding A15.
+    Originally a PylonCamera-only signature pin (audit finding A15);
+    widened to a driver-wide AST scan when the same shape was found in
+    camera.py / idscamera.py / simulated_camera.py.
     """
 
-    def test_gain_method_signature_no_self_param_shadow(self):
-        """The parameter must not shadow the method name
-        (`def gain(self, gain)`); the de-shadowed name is `value`."""
-        from tests.ast_seams import assert_def
+    def test_no_driver_method_param_shadows_its_method_name(self):
+        """No function in any drivers/*.py module may take a parameter
+        named identically to the function itself."""
+        from tests.ast_seams import REPO_ROOT, parse_module
 
-        assert_def(
-            'drivers/pyloncamera.py',
-            'gain',
-            class_name='PylonCamera',
-            params=['self', 'value'],
-            msg='PylonCamera.gain must not shadow the method name with '
-            'its parameter; use `def gain(self, value)`.',
+        offenders = []
+        for path in sorted((REPO_ROOT / 'drivers').glob('*.py')):
+            rel = path.relative_to(REPO_ROOT).as_posix()
+            tree = parse_module(rel)
+            for node in ast.walk(tree):
+                if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                args = node.args
+                params = [
+                    a.arg
+                    for a in (*args.posonlyargs, *args.args, *args.kwonlyargs)
+                ]
+                if args.vararg:
+                    params.append(args.vararg.arg)
+                if args.kwarg:
+                    params.append(args.kwarg.arg)
+                if node.name in params:
+                    offenders.append(f'{rel}:{node.lineno} def {node.name}')
+        assert not offenders, (
+            'Driver function parameters must not shadow the method name '
+            '(use `value` for single-value setters): '
+            + ', '.join(offenders)
         )
 
 
