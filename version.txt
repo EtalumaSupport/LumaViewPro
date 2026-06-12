@@ -1,4 +1,3 @@
 4.0.0-beta17
 2026-06-12 16:55
-audit/fableaudit-b6
-b9732a69
+4.0.0-beta
