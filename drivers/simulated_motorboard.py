@@ -210,14 +210,25 @@ class SimulatedMotorBoard:
         return self.driver is not None
 
     def motor_stop(self) -> bool:
-        """LVP-A-1 followup: simulator answers True (sim firmware
-        always supports STOP). Mirrors the production MotorBoard
-        method so Lumascope.stop_motion works identically against
-        the simulator.
+        """Simulator answers True (sim firmware always supports STOP).
+        Mirrors the production MotorBoard method so
+        Lumascope.stop_motion works identically against the simulator.
 
         Returns:
             bool: Always True.
         """
+        return True
+
+    def supports_motor_stop(self) -> bool:
+        """Sim firmware supports every command family."""
+        return True
+
+    def supports_fan(self) -> bool:
+        """Sim firmware supports every command family."""
+        return True
+
+    def supports_diagnostics(self) -> bool:
+        """Sim firmware supports every command family."""
         return True
 
     def _close_driver(self):

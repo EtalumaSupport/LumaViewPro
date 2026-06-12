@@ -474,11 +474,23 @@ class NullMotionBoard:
         return []
 
     def motor_stop(self) -> bool:
-        """LVP-A-1 followup: no motor, no stop.
+        """No motor, no stop.
 
         Returns:
             bool: Always False.
         """
+        return False
+
+    def supports_motor_stop(self) -> bool:
+        """No motor hardware: no command family is supported."""
+        return False
+
+    def supports_fan(self) -> bool:
+        """No motor hardware: no command family is supported."""
+        return False
+
+    def supports_diagnostics(self) -> bool:
+        """No motor hardware: no command family is supported."""
         return False
 
     # ------------------------------------------------------------------

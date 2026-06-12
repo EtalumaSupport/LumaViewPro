@@ -252,8 +252,8 @@ class MotionAPI:
         if not self._scope.motor_connected:
             return
         try:
-            # LVP-A-1 followup: route through MotorBoard.motor_stop so
-            # field firmware (2024-09-10 EL-0940-02) silently no-ops
+            # Route through MotorBoard.motor_stop so field firmware
+            # (2024-09-10 EL-0940-02, no STOP command) silently no-ops
             # instead of producing two FIRMWARE ERROR warnings per
             # shutdown. motor_stop returns True if STOP was accepted,
             # False if firmware doesn't implement it (cached).

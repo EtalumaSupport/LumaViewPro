@@ -63,11 +63,20 @@ class MotorBoardProtocol(Protocol):
     def has_thomed(self) -> bool: ...
 
     # --- Motion control ---
-    # LVP-A-1: emergency stop. Returns True if firmware accepted STOP,
-    # False if firmware doesn't implement it (cached on first attempt
-    # so subsequent calls skip the wire). Drivers without motors
-    # always return False.
+    # Emergency stop. Returns True if firmware accepted STOP, False if
+    # firmware doesn't implement it (cached on first attempt so
+    # subsequent calls skip the wire). Drivers without motors always
+    # return False.
     def motor_stop(self) -> bool: ...
+
+    # --- Capability probes ---
+    # Probe-and-cache whether the connected firmware implements a
+    # command family. ScopeCapabilities.from_drivers registers these
+    # at boot so callers gate on scope.capabilities.* instead of
+    # firmware version strings or per-call ERROR handling.
+    def supports_motor_stop(self) -> bool: ...
+    def supports_fan(self) -> bool: ...
+    def supports_diagnostics(self) -> bool: ...
 
     # --- Info ---
     def fullinfo(self) -> dict: ...
