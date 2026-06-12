@@ -1932,27 +1932,90 @@ class TestDisconnectReturnsBool:
             msg='Lumascope.disconnect must declare `-> bool` (Wave 4 B2; Rule 37)',
         )
 
-    def test_disconnect_aggregates_and_returns_bool(self):
-        """Method body must aggregate three sub-system bools and return."""
-        import pathlib
+    @staticmethod
+    def _record_errors(monkeypatch):
+        """Route notifications.error into a list of (component, title, body)."""
+        from modules.notification_center import notifications
 
-        source = pathlib.Path('modules/lumascope_api/_lumascope.py').read_text()
-        idx = source.find('def disconnect(self) -> bool:')
-        assert idx != -1
-        next_def = source.find('\n    def ', idx + 1)
-        body = source[idx:next_def] if next_def != -1 else source[idx : idx + 4000]
-        # Each sub-system tracked independently:
-        for var in ('led_ok', 'motion_ok', 'camera_ok'):
-            assert var in body, f'disconnect must track {var} (Wave 4 B2)'
-        # Aggregation + return:
-        assert 'led_ok and motion_ok and camera_ok' in body, (
-            'disconnect must aggregate the three sub-bools (Wave 4 B2)'
+        calls = []
+        monkeypatch.setattr(
+            notifications, 'error', lambda *args, **kwargs: calls.append(args)
         )
-        assert 'return all_ok' in body, 'disconnect must return the aggregate (Wave 4 B2)'
-        # Per-failure notification (Rule 14):
-        assert 'notifications.error(' in body, 'disconnect must notify per failure (Rule 14)'
-        # Returns: docstring section (Rule 38):
-        assert 'Returns:' in body, 'disconnect docstring must have a Returns: section (Rule 38)'
+        return calls
+
+    def test_disconnect_led_failure_returns_false_and_notifies(
+        self, sim_scope, monkeypatch
+    ):
+        """An LED teardown raise must flip the aggregate to False, fire a
+        user notification, and still reset the slot to NullLEDBoard."""
+        from drivers.null_ledboard import NullLEDBoard
+
+        errors = self._record_errors(monkeypatch)
+        monkeypatch.setattr(
+            sim_scope._led_driver,
+            'disconnect',
+            MagicMock(side_effect=RuntimeError('boom')),
+            raising=False,
+        )
+        result = sim_scope.disconnect()
+        assert result is False, 'disconnect must return False when LED teardown raises'
+        assert any('LED disconnect failed' in e for e in errors), (
+            f'LED teardown raise must notify the user (Rule 14); got {errors}'
+        )
+        assert isinstance(sim_scope._led_driver, NullLEDBoard), (
+            'disconnect must reset the LED slot to NullLEDBoard even on failure'
+        )
+
+    def test_disconnect_motion_failure_returns_false_and_notifies(
+        self, sim_scope, monkeypatch
+    ):
+        from drivers.null_motorboard import NullMotionBoard
+
+        errors = self._record_errors(monkeypatch)
+        monkeypatch.setattr(
+            sim_scope._motion_driver,
+            'disconnect',
+            MagicMock(side_effect=RuntimeError('boom')),
+            raising=False,
+        )
+        result = sim_scope.disconnect()
+        assert result is False, 'disconnect must return False when motor teardown raises'
+        assert any('Motor disconnect failed' in e for e in errors), (
+            f'motor teardown raise must notify the user (Rule 14); got {errors}'
+        )
+        assert isinstance(sim_scope._motion_driver, NullMotionBoard), (
+            'disconnect must reset the motion slot to NullMotionBoard even on failure'
+        )
+
+    def test_disconnect_partial_failure_still_tears_down_others(
+        self, sim_scope, monkeypatch
+    ):
+        """Best-effort teardown: an early LED failure must not skip the
+        motion + camera teardown or the state reset."""
+        from drivers.null_ledboard import NullLEDBoard
+        from drivers.null_motorboard import NullMotionBoard
+
+        self._record_errors(monkeypatch)
+        monkeypatch.setattr(
+            sim_scope._led_driver,
+            'disconnect',
+            MagicMock(side_effect=RuntimeError('boom')),
+            raising=False,
+        )
+        result = sim_scope.disconnect()
+        assert result is False
+        assert isinstance(sim_scope._led_driver, NullLEDBoard)
+        assert isinstance(sim_scope._motion_driver, NullMotionBoard)
+        assert sim_scope._camera_driver is None, (
+            'camera teardown must still run after an LED failure'
+        )
+
+    def test_disconnect_docstring_documents_returns(self):
+        from modules.lumascope_api import Lumascope
+
+        assert 'Returns:' in (Lumascope.disconnect.__doc__ or ''), (
+            'disconnect docstring must have a Returns: section'
+        )
 
     def test_disconnect_on_simulator_returns_true(self, sim_scope):
         """Sim path: every sub-system disconnects cleanly -> True."""
@@ -3636,30 +3699,28 @@ class TestFrameValidity_AllLedMutatorsInvalidate:
     `self._scope.imaging.frame_validity.invalidate(...)`.
     """
 
-    LED_MUTATORS = (
-        'led_on',
-        'led_off',
-        'led_on_fast',
-        'led_off_fast',
-        'leds_off_fast',
-        'leds_off',
-    )
-
-    def test_each_led_mutator_invalidates_validity(self):
-        from pathlib import Path
-
-        src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'lumascope_api' / 'illumination.py'
-        ).read_text()
+    def test_each_led_mutator_invalidates_validity(self, sim_scope):
+        illum = sim_scope.illumination
+        validity = sim_scope.imaging.frame_validity
+        mutator_calls = {
+            'led_on': lambda: illum.led_on(channel=0, mA=10),
+            'led_off': lambda: illum.led_off(channel=0),
+            'led_on_fast': lambda: illum.led_on_fast(channel=0, mA=10),
+            'led_off_fast': lambda: illum.led_off_fast(channel=0),
+            'leds_off_fast': lambda: illum.leds_off_fast(),
+            'leds_off': lambda: illum.leds_off(),
+        }
         missing = []
-        for func in self.LED_MUTATORS:
-            method_src = _function_source(src, func)
-            if 'self._scope.imaging.frame_validity.invalidate(' not in method_src:
-                missing.append(func)
+        for name, call in mutator_calls.items():
+            validity.reset()
+            assert validity.is_valid, f'reset must yield a valid baseline before {name}'
+            call()
+            if validity.is_valid or 'led' not in validity.pending_sources:
+                missing.append(name)
         assert not missing, (
-            'LED mutator coverage: each IlluminationAPI LED state-mutator must call '
-            "self._scope.imaging.frame_validity.invalidate('led') so frame_validity sees "
-            f'the transition. Missing: {missing!r}.'
+            'LED mutator coverage: each IlluminationAPI LED state-mutator must '
+            "invalidate frame validity with the 'led' source so the settle-check "
+            f'sees the transition. Missing: {missing!r}.'
         )
 
 
@@ -9986,17 +10047,26 @@ class TestPreReleaseFutureWarning:
         assert 'PRE-RELEASE' in str(future_warnings[0].message)
 
     def test_warning_text_references_migration_plan(self):
-        # Static-source assertion the helper text names the migration
-        # plan + Etaluma support, so retiring the warning requires
-        # editing the bundle text alongside the other 3 mechanisms.
-        import pathlib
+        """The live warning message must point users at the migration
+        plan and a support contact -- editing the bundle text without
+        those pointers breaks the warning's purpose. README banner /
+        LumascopeSkills preface / CHANGELOG note are the other three
+        mechanisms, verified outside this test file."""
+        import warnings
+        from modules.lumascope_api import Lumascope
 
-        src = pathlib.Path('modules/lumascope_api/_lumascope.py').read_text()
-        assert '_PRE_RELEASE_WARNING_TEXT' in src
-        assert '_fire_pre_release_warning' in src
-        # README banner / LumascopeSkills preface / CHANGELOG note are
-        # the other three mechanisms; their existence is verified
-        # outside this test file (4-mechanism PRE-RELEASE bundle).
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            Lumascope(simulate=True)
+        future_warnings = [w for w in caught if issubclass(w.category, FutureWarning)]
+        assert future_warnings, 'PRE-RELEASE FutureWarning must fire on first Lumascope()'
+        msg = str(future_warnings[0].message)
+        assert 'migration plan' in msg, (
+            f'warning text must point at the migration plan; got: {msg}'
+        )
+        assert 'support' in msg.lower(), (
+            f'warning text must name a support contact; got: {msg}'
+        )
 
 
 class TestAutoGainArmedInScanIterate:
@@ -11601,86 +11671,87 @@ class TestEmergencyShutdownBoundedLeds_F6:
     its unbounded `with` semantics.
     """
 
-    def _illumination_src(self):
-        from pathlib import Path
+    @staticmethod
+    def _hold_led_lock_from_other_thread(illum):
+        """Acquire _led_lock on a helper thread (RLock is reentrant, so
+        holding it on the test thread would not block the call under
+        test). Returns the release event + the holder thread."""
+        held = threading.Event()
+        release = threading.Event()
 
-        return (
-            Path(__file__).resolve().parent.parent / 'modules' / 'lumascope_api' / 'illumination.py'
-        ).read_text()
+        def holder():
+            with illum._led_lock:
+                held.set()
+                release.wait(timeout=30.0)
 
-    def _lumascope_src(self):
-        from pathlib import Path
+        thread = threading.Thread(target=holder, daemon=True)
+        thread.start()
+        assert held.wait(timeout=5.0), 'lock-holder thread failed to start'
+        return release, thread
 
-        return (
-            Path(__file__).resolve().parent.parent / 'modules' / 'lumascope_api' / '_lumascope.py'
-        ).read_text()
-
-    def test_leds_off_emergency_method_exists(self):
-        """The bounded variant must exist as a callable method on the
-        illumination API."""
-        import re
-
-        src = self._illumination_src()
-        assert re.search(r'def leds_off_emergency\s*\(', src), (
-            'F6 regression: illumination must expose leds_off_emergency '
-            'with bounded _led_lock acquire for atexit / abnormal exit '
-            'paths.'
+    def test_leds_off_emergency_turns_leds_off_when_lock_free(self, sim_scope):
+        """Asserts at the DRIVER level: the emergency variant deliberately
+        skips the API-side state/owner/listener cleanup (those surfaces
+        may be torn down by the time atexit fires), so get_led_states()
+        is not the observable -- the hardware-off command is."""
+        illum = sim_scope.illumination
+        driver = sim_scope._led_driver
+        illum.led_on(channel=0, mA=10)
+        assert any(ma > 0 for ma in driver._channel_states.values()), (
+            'precondition: at least one LED on at the driver'
+        )
+        illum.leds_off_emergency()
+        assert not any(ma > 0 for ma in driver._channel_states.values()), (
+            'leds_off_emergency must drive every LED off when the lock is free'
         )
 
-    def test_leds_off_emergency_uses_bounded_acquire(self):
-        """The variant body must call `_led_lock.acquire(timeout=...)`
-        (NOT `with self._led_lock:`). Quote-/format-agnostic regex
-        tolerates whitespace + keyword-vs-positional timeout."""
-        import re
+    def test_leds_off_emergency_returns_when_lock_held(self, sim_scope):
+        """With _led_lock held by another thread, the bounded variant
+        must give up after its timeout and RETURN -- an unbounded
+        acquire here is the atexit deadlock."""
+        illum = sim_scope.illumination
+        release, holder = self._hold_led_lock_from_other_thread(illum)
+        try:
+            finished = threading.Event()
 
-        src = self._illumination_src()
-        # Match from `def leds_off_emergency` up to the next sibling
-        # method / decorator / class definition. Tolerates `-> None:`
-        # return annotations (`\):` would not match because the colon
-        # follows the annotation, not the paren).
-        match = re.search(
-            r'def leds_off_emergency.*?(?=\n    def |\n    @|\nclass |\Z)',
-            src,
-            re.DOTALL,
-        )
-        assert match is not None, 'leds_off_emergency body not found'
-        body = match.group(0)
-        # Must acquire with a timeout (positional or keyword).
-        bounded = re.search(
-            r'_led_lock\.acquire\s*\(\s*(timeout\s*=\s*)?[^)]*\)',
-            body,
-        )
-        assert bounded is not None, (
-            'F6 regression: leds_off_emergency must call '
-            '`_led_lock.acquire(timeout=...)`. Unbounded `with` '
-            'semantics defeat the atexit-deadlock fix.'
-        )
-        # Must NOT use the unbounded `with` form inside the body.
-        assert not re.search(r'with\s+self\._led_lock\s*:', body), (
-            'F6 regression: leds_off_emergency must not use `with '
-            'self._led_lock:` -- that is unbounded and would re-'
-            'introduce the atexit deadlock.'
-        )
+            def call():
+                illum.leds_off_emergency(timeout_s=0.2)
+                finished.set()
 
-    def test_emergency_shutdown_calls_bounded_variant(self):
-        """`_emergency_shutdown` must call `leds_off_emergency`, not
-        the unbounded `leds_off`. A revert that drops the `_emergency`
-        suffix re-introduces the deadlock surface."""
-        import re
+            worker = threading.Thread(target=call, daemon=True)
+            worker.start()
+            assert finished.wait(timeout=5.0), (
+                'leds_off_emergency must return after its bounded timeout '
+                'when _led_lock is held -- blocking here is the atexit '
+                'deadlock the bounded acquire exists to prevent'
+            )
+        finally:
+            release.set()
+            holder.join(timeout=5.0)
 
-        src = self._lumascope_src()
-        match = re.search(
-            r'def _emergency_shutdown\s*\(self\):.*?(?=\n    def |\n    @|\nclass )',
-            src,
-            re.DOTALL,
-        )
-        assert match is not None, '_emergency_shutdown body not found'
-        body = match.group(0)
-        assert re.search(r'\.leds_off_emergency\s*\(', body), (
-            'F6 regression: _emergency_shutdown must call '
-            'leds_off_emergency (bounded lock acquire) -- not '
-            'leds_off (unbounded).'
-        )
+    def test_emergency_shutdown_completes_with_led_lock_held(self, sim_scope):
+        """_emergency_shutdown must route LED teardown through the
+        bounded variant: with _led_lock held by an in-flight command, it
+        still completes. Calling unbounded leds_off would hang here."""
+        illum = sim_scope.illumination
+        release, holder = self._hold_led_lock_from_other_thread(illum)
+        try:
+            finished = threading.Event()
+
+            def call():
+                sim_scope._emergency_shutdown()
+                finished.set()
+
+            worker = threading.Thread(target=call, daemon=True)
+            worker.start()
+            assert finished.wait(timeout=10.0), (
+                '_emergency_shutdown must complete while _led_lock is held '
+                '-- it must use the bounded leds_off_emergency, not the '
+                'unbounded leds_off'
+            )
+        finally:
+            release.set()
+            holder.join(timeout=5.0)
 
 
 class TestSequentialIoExecutorWaitForIdle_F7:
