@@ -7,33 +7,48 @@ LatestImageOnly grab-strategy pressure, so logging them is misleading noise
 device was already marked removed. OnImageGrabbed already early-returns on
 self._parent._device_removed; OnImagesSkipped must do the same.
 
-ImageHandler subclasses the pypylon SDK handler (a MagicMock base under
-conftest), so it can't be instantiated in unit tests -- the codebase tests
-these callbacks by source assertion (cf. test_audit_fixes OnImageGrabbed
-tests). Same approach here.
+Behavioral since the typed pypylon stub landed: the handler is
+instantiated and the callback driven directly (this file was previously
+the canonical source-assertion fallback).
 """
 
-import ast
-import pathlib
+from unittest.mock import MagicMock
 
-PYLON_SRC = pathlib.Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py'
-
-
-def _function_body(src: str, name: str) -> str:
-    tree = ast.parse(src)
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == name:
-            return ast.unparse(node)
-    raise AssertionError(f'{name} not found in {PYLON_SRC}')
+import pytest
 
 
-def test_on_images_skipped_guards_on_device_removed():
-    body = _function_body(PYLON_SRC.read_text(encoding='utf-8'), 'OnImagesSkipped')
-    assert '_device_removed' in body, (
-        'OnImagesSkipped must early-return on self._parent._device_removed so '
-        'teardown skip-bursts are not logged as LatestImageOnly drops (#653)'
-    )
-    # The guard must precede the info log so removal-time skips are silenced.
-    guard_pos = body.index('_device_removed')
-    log_pos = body.index('OnImagesSkipped:')  # the info-log message literal
-    assert guard_pos < log_pos, 'the device-removed guard must come before the skip log'
+@pytest.fixture
+def handler_and_log(monkeypatch):
+    from drivers import pyloncamera
+
+    parent = pyloncamera.PylonCamera.__new__(pyloncamera.PylonCamera)
+    parent._device_removed = False
+    handler = pyloncamera.ImageHandler(parent)
+    cam_log = MagicMock()
+    monkeypatch.setattr(pyloncamera, '_cam_log', cam_log)
+    return handler, parent, cam_log
+
+
+def test_removal_skip_burst_is_silent(handler_and_log):
+    """Skips fired after the device is marked removed must not log --
+    they are teardown artifacts, not grab-strategy drops."""
+    handler, parent, cam_log = handler_and_log
+    parent._device_removed = True
+    handler.OnImagesSkipped(camera=MagicMock(), countOfSkippedImages=16)
+    cam_log.info.assert_not_called()
+    cam_log.warning.assert_not_called()
+
+
+def test_live_skip_is_logged(handler_and_log):
+    """With the device present, a real grab-strategy drop logs once so
+    the skip distribution stays visible in camera.log."""
+    handler, _parent, cam_log = handler_and_log
+    handler.OnImagesSkipped(camera=MagicMock(), countOfSkippedImages=3)
+    assert cam_log.info.call_count == 1
+
+
+def test_zero_count_skip_is_silent(handler_and_log):
+    """The SDK can fire with countOfSkippedImages=0; nothing to report."""
+    handler, _parent, cam_log = handler_and_log
+    handler.OnImagesSkipped(camera=MagicMock(), countOfSkippedImages=0)
+    cam_log.info.assert_not_called()
