@@ -80,6 +80,8 @@ def test_jpg_branch_applies_shared_orientation_helper():
 
 def test_orientation_helper_is_single_definition():
     """Exactly one definition of the orientation convention."""
+    # pin-justified: single-canonical-implementation guard; the behavioral
+    # twin above proves the pixels, this proves there is only one transform.
     src = IMAGE_SAVE_SRC.read_text()
     assert src.count('def _apply_save_orientation(') == 1
     # The literal flip lives only inside the helper, nowhere else.

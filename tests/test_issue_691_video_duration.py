@@ -95,6 +95,8 @@ def test_video_duration_text_allows_beyond_slider():
 
 
 def test_video_duration_slider_ceiling_is_60():
+    # pin-justified: kv is declarative source with no headless seam; the
+    # slider ceiling in the kv text is the contract.
     kv = (REPO_ROOT / 'ui' / 'lumaviewpro.kv').read_text(encoding='utf-8')
     # Find the video_duration_slider block and assert its max is 60.
     idx = kv.index('id: video_duration_slider')

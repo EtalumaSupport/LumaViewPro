@@ -22,6 +22,8 @@ toggle, these assertions fail.
 
 import pathlib
 
+# pin-justified: kv is declarative source with no headless seam; the kv
+# text is the contract.
 _UI = pathlib.Path(__file__).resolve().parents[1] / 'ui'
 _KV = (_UI / 'lumaviewpro.kv').read_text()
 _MS = (_UI / 'microscope_settings.py').read_text()

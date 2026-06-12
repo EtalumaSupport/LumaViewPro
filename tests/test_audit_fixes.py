@@ -631,6 +631,8 @@ class TestLvpLock:
         """
         import pathlib
 
+        # pin-justified: lock-before-kivy-import ordering within the file
+        # is the contract; textual position is the only observable.
         src = pathlib.Path('lumaviewpro.py').read_text()
         lock_idx = src.find('_lvp_lock_singleton.lock()')
         assert lock_idx >= 0, (
@@ -773,6 +775,7 @@ class TestPyprojectConfig:
         import pathlib
 
         root = pathlib.Path(__file__).parent.parent
+        # pin-justified: packaging/test-runner config text is the contract.
         content = (root / 'pyproject.toml').read_text()
         assert '[tool.pytest.ini_options]' in content
         assert '[tool.coverage.run]' in content
@@ -791,6 +794,8 @@ class TestGdiSamplerCtypesSignatures:
     def _read_common_utils(self):
         import pathlib
 
+        # pin-justified: Win32 FFI restype/argtypes declarations are the
+        # contract; there is no Mac-side behavioral seam to exercise them.
         root = pathlib.Path(__file__).parent.parent
         return (root / 'modules' / 'common_utils.py').read_text()
 
@@ -1598,6 +1603,8 @@ class TestSetBinningSizeReturnsBool:
         """Rule 38: public methods declare what they return."""
         import pathlib
 
+        # pin-justified: the Returns: docstring section is the documented
+        # contract (doc convention guard, not an implementation pin).
         source = pathlib.Path('modules/lumascope_api/imaging.py').read_text()
         idx = source.find('def set_binning_size(self, size: int) -> bool:')
         next_def = source.find('\n    def ', idx + 1)
@@ -2334,6 +2341,8 @@ class TestIssue643_LumiLS820PlateViewInProtocol:
         import json
         import pathlib
 
+        # pin-justified: data/scopes.json is the shipped capability matrix;
+        # the values are the contract.
         scopes = json.loads(pathlib.Path('data/scopes.json').read_text())
         assert 'Lumi' in scopes, 'Lumi scope config missing from data/scopes.json'
         assert 'LS820' in scopes, 'LS820 scope config missing from data/scopes.json'
@@ -3991,6 +4000,8 @@ class TestPylonCancelHandlingDefensive:
     def _pyloncamera_source(self):
         from pathlib import Path
 
+        # pin-justified: the bench-witnessed cancel-code constant and its
+        # explanatory comment pair are the contract (no SDK symbol exists).
         return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
 
     def test_buffer_cancel_constant_value_matches_bench(self):
@@ -4760,6 +4771,8 @@ class TestPylonAsciiOnlyInLoggerStrings:
     def _pyloncamera_source_lines(self):
         from pathlib import Path
 
+        # pin-justified: ASCII-only log text is the contract (logger-safe
+        # output); the deg-C spelling is the load-bearing detail.
         return (
             (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py')
             .read_text()
@@ -6791,11 +6804,15 @@ class TestDltlSetterDocstringGigeCaveat:
     def _pyloncamera_source(self):
         from pathlib import Path
 
+        # pin-justified: the GigE wire-limit docstring is the documented
+        # contract these tests guard.
         return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
 
     def _lumascope_api_source(self):
         # set_device_link_throughput_limit body relocated to ImagingAPI
         # in Wave 7 Phase 4c. Helper name kept for diff-readability.
+        # pin-justified: the GigE wire-limit docstring is the documented
+        # contract these tests guard.
         from pathlib import Path
 
         return (
@@ -7784,6 +7801,8 @@ class TestManualVideoSpinners:
     def _kv_text(self):
         import pathlib
 
+        # pin-justified: kv is declarative source with no headless seam;
+        # the kv text is the contract.
         return pathlib.Path('ui/lumaviewpro.kv').read_text()
 
     def _ms_text(self):
@@ -7904,6 +7923,8 @@ class TestManualVideoSpinners:
         import json
         import pathlib
 
+        # pin-justified: the shipped default in data/settings.json is the
+        # contract a fresh install receives.
         path = pathlib.Path('data/settings.json')
         data = json.loads(path.read_text())
         assert data.get('manual_video', {}).get('max_fps') == 0, (
@@ -8154,6 +8175,8 @@ class TestModSliderAwareScrollView:
     def _kv(self):
         import pathlib
 
+        # pin-justified: kv is declarative source with no headless seam;
+        # the kv text is the contract.
         return pathlib.Path('ui/lumaviewpro.kv').read_text()
 
     def test_class_defined(self):
@@ -9687,6 +9710,8 @@ class TestLumascopeSkillsApiPluginDocBatch:
     def _doc(self):
         import pathlib
 
+        # pin-justified: the published doc text is the L2 contract surface;
+        # these tests guard doc-vs-API sync.
         return pathlib.Path('docs/LumascopeSkills.md').read_text()
 
     def test_objective_setters_not_cited_on_composition_root(self):
@@ -9812,6 +9837,8 @@ class TestGetLedStateShape:
     def test_doc_example_matches_shape(self):
         import pathlib
 
+        # pin-justified: the published doc example text is the L2 contract
+        # surface; this guards doc-vs-API sync.
         doc = pathlib.Path('docs/LumascopeSkills.md').read_text()
         assert "'owner': '…'" in doc or "'owner': '...'" in doc, (
             'LumascopeSkills get_led_state example must include the '
@@ -10090,6 +10117,8 @@ class TestWindowsBuildIsWindowed_559:
     def _spec_src(self):
         from pathlib import Path
 
+        # pin-justified: the shipped Windows build spec IS the artifact;
+        # console=False has no runtime seam to assert behaviorally.
         return (
             Path(__file__).resolve().parent.parent
             / 'scripts'
@@ -12024,6 +12053,8 @@ class TestSequentialIOExecutorDocstringSingleWorker:
     def _src(self):
         import pathlib
 
+        # pin-justified: the one-worker-thread docstring is the executor
+        # topology contract; the doc text is the load-bearing record.
         root = pathlib.Path(__file__).resolve().parent.parent
         return (root / 'modules' / 'sequential_io_executor.py').read_text()
 

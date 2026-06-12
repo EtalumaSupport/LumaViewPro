@@ -50,6 +50,8 @@ def test_focus_function_gated_by_the_toggle():
 
 
 def test_setting_seeded_in_defaults():
+    # pin-justified: the shipped default in data/settings.json is the
+    # contract a fresh install receives.
     settings = json.loads((REPO / 'data' / 'settings.json').read_text())
     # Seeded so _deep_merge_defaults supplies it to existing current.json;
     # default OFF.

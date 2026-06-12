@@ -69,15 +69,18 @@ class TestPostProcessingEmptyResultMessages:
     def test_load_folder_empty_message_actionable(self):
         # When the folder truly contains no images: tell the user that's
         # what we checked for, and what to verify.
+        # pin-justified: the user-facing message wording is the contract.
         src = (REPO_ROOT / 'modules' / 'protocol_post_processor.py').read_text()
         assert 'No image files were found in the selected folder' in src
         assert 'captured scan images' in src
 
     def test_helper_empty_message_actionable(self):
+        # pin-justified: the user-facing message wording is the contract.
         src = (REPO_ROOT / 'modules' / 'protocol_post_processing_helper.py').read_text()
         assert 'captured scan images' in src
 
     def test_composite_no_channels_message_specific(self):
+        # pin-justified: the user-facing message wording is the contract.
         src = (REPO_ROOT / 'modules' / 'composite_generation.py').read_text()
         assert 'no channel images' in src
         # The old generic wording must not survive a future merge.

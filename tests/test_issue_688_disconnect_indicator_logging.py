@@ -19,6 +19,8 @@ _SCOPE_DISPLAY = Path(__file__).resolve().parents[1] / 'ui' / 'scope_display.py'
 
 
 def _method_source(method_name):
+    # pin-justified: the indicator log text is the contract -- the log line
+    # is what bench triage greps for when diagnosing camera disconnects.
     tree = ast.parse(_SCOPE_DISPLAY.read_text())
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef) and node.name == method_name:

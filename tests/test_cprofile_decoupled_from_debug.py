@@ -16,6 +16,8 @@ from __future__ import annotations
 import json
 import pathlib
 
+# pin-justified (settings read): the shipped default in data/settings.json
+# is the contract a fresh install receives.
 REPO = pathlib.Path(__file__).resolve().parent.parent
 LVP = (REPO / 'lumaviewpro.py').read_text()
 PUTIL = (REPO / 'modules' / 'profiling_utils.py').read_text()
