@@ -18,6 +18,8 @@ from __future__ import annotations
 import json
 import pathlib
 
+# pin-justified: the shipped defaults in data/settings.json are the
+# contract a fresh install receives.
 SETTINGS = json.loads(
     (pathlib.Path(__file__).resolve().parent.parent / 'data' / 'settings.json').read_text()
 )

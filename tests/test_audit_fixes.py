@@ -631,6 +631,8 @@ class TestLvpLock:
         """
         import pathlib
 
+        # pin-justified: lock-before-kivy-import ordering within the file
+        # is the contract; textual position is the only observable.
         src = pathlib.Path('lumaviewpro.py').read_text()
         lock_idx = src.find('_lvp_lock_singleton.lock()')
         assert lock_idx >= 0, (
@@ -773,6 +775,7 @@ class TestPyprojectConfig:
         import pathlib
 
         root = pathlib.Path(__file__).parent.parent
+        # pin-justified: packaging/test-runner config text is the contract.
         content = (root / 'pyproject.toml').read_text()
         assert '[tool.pytest.ini_options]' in content
         assert '[tool.coverage.run]' in content
@@ -791,6 +794,8 @@ class TestGdiSamplerCtypesSignatures:
     def _read_common_utils(self):
         import pathlib
 
+        # pin-justified: Win32 FFI restype/argtypes declarations are the
+        # contract; there is no Mac-side behavioral seam to exercise them.
         root = pathlib.Path(__file__).parent.parent
         return (root / 'modules' / 'common_utils.py').read_text()
 
@@ -1569,11 +1574,13 @@ class TestSetBinningSizeReturnsBool:
 
     def test_set_binning_size_has_bool_return_annotation(self):
         # Body relocated to imaging.py in Wave 7 Phase 4d.
-        import pathlib
+        from tests.ast_seams import assert_def
 
-        source = pathlib.Path('modules/lumascope_api/imaging.py').read_text()
-        idx = source.find('def set_binning_size(self, size: int) -> bool:')
-        assert idx != -1, 'ImagingAPI.set_binning_size must declare `-> bool` (Wave 1 B1; Rule 37)'
+        assert_def(
+            'modules/lumascope_api/imaging.py', 'set_binning_size',
+            params=['self', 'size'], returns='bool',
+            msg='ImagingAPI.set_binning_size must declare `-> bool` (Wave 1 B1; Rule 37)',
+        )
 
     def test_set_binning_size_returns_driver_value(self):
         """Method body must capture and return the driver's return value
@@ -1598,6 +1605,8 @@ class TestSetBinningSizeReturnsBool:
         """Rule 38: public methods declare what they return."""
         import pathlib
 
+        # pin-justified: the Returns: docstring section is the documented
+        # contract (doc convention guard, not an implementation pin).
         source = pathlib.Path('modules/lumascope_api/imaging.py').read_text()
         idx = source.find('def set_binning_size(self, size: int) -> bool:')
         next_def = source.find('\n    def ', idx + 1)
@@ -1608,63 +1617,90 @@ class TestSetBinningSizeReturnsBool:
 
     def test_pyloncamera_set_binning_size_raises_hardware_error(self):
         """Tier 3a / C2: PylonCamera.set_binning_size must raise HardwareError
-        on caught exception paths, not return False (Rule 29)."""
-        import pathlib
+        on every SDK failure, not return False (Rule 29). RuntimeException
+        marks the camera disconnected; a transient timeout does not."""
+        from pypylon import genicam
 
-        source = pathlib.Path('drivers/pyloncamera.py').read_text()
-        idx = source.find('def set_binning_size(self, size: int) -> bool:')
-        assert idx != -1
-        next_def = source.find('\n    def ', idx + 1)
-        body = source[idx:next_def] if next_def != -1 else source[idx : idx + 3000]
-        # Three exception classes; each must raise HardwareError, not return False
-        for exc_clause in (
-            'except genicam.TimeoutException',
-            'except genicam.RuntimeException',
-            'except Exception',
-        ):
-            assert exc_clause in body, f'PylonCamera.set_binning_size must keep {exc_clause}'
-        assert body.count('raise HardwareError(') >= 3, (
-            'PylonCamera.set_binning_size must raise HardwareError on each caught exception (C2)'
-        )
+        from drivers.exceptions import HardwareError
+
+        cam = _bare_pylon_camera()
+        cam.active.BinningVertical.SetValue.side_effect = genicam.RuntimeException('usb gone')
+        with pytest.raises(HardwareError):
+            cam.set_binning_size(2)
+        cam._mark_disconnected.assert_called_once()
+
+        cam = _bare_pylon_camera()
+        cam.active.BinningVertical.SetValue.side_effect = genicam.TimeoutException('slow bus')
+        with pytest.raises(HardwareError):
+            cam.set_binning_size(2)
+        cam._mark_disconnected.assert_not_called()
+
+        cam = _bare_pylon_camera()
+        cam.active.BinningVertical.SetValue.side_effect = ValueError('unexpected')
+        with pytest.raises(HardwareError):
+            cam.set_binning_size(2)
+
+    def test_pyloncamera_set_binning_size_guards_return_false(self):
+        """Caller-correctable guards return False without touching the SDK."""
+        cam = _bare_pylon_camera()
+        assert cam.set_binning_size(9) is False
+        cam.active.BinningVertical.SetValue.assert_not_called()
+
+        cam = _bare_pylon_camera()
+        cam.active = None
+        assert cam.set_binning_size(2) is False
 
     def test_pyloncamera_set_pixel_format_raises_hardware_error(self):
-        """Tier 3a / C1."""
-        import pathlib
+        """Tier 3a / C1: SDK failure surfaces as HardwareError;
+        RuntimeException marks the camera disconnected."""
+        from pypylon import genicam
 
-        source = pathlib.Path('drivers/pyloncamera.py').read_text()
-        idx = source.find('def set_pixel_format(self, pixel_format: str) -> bool:')
-        assert idx != -1
-        next_def = source.find('\n    def ', idx + 1)
-        body = source[idx:next_def] if next_def != -1 else source[idx : idx + 3000]
-        assert body.count('raise HardwareError(') >= 2, (
-            'PylonCamera.set_pixel_format must raise HardwareError on each caught exception (C1)'
-        )
+        from drivers.exceptions import HardwareError
+
+        cam = _bare_pylon_camera()
+        cam.get_supported_pixel_formats = lambda: ['Mono12']
+        cam.active.PixelFormat.GetValue.return_value = 'Mono8'
+        cam.active.PixelFormat.SetValue.side_effect = genicam.RuntimeException('usb gone')
+        with pytest.raises(HardwareError):
+            cam.set_pixel_format('Mono12')
+        cam._mark_disconnected.assert_called_once()
+
+        cam = _bare_pylon_camera()
+        cam.get_supported_pixel_formats = lambda: ['Mono12']
+        cam.active.PixelFormat.GetValue.return_value = 'Mono8'
+        cam.active.PixelFormat.SetValue.side_effect = ValueError('unexpected')
+        with pytest.raises(HardwareError):
+            cam.set_pixel_format('Mono12')
 
     def test_idscamera_set_binning_size_raises_hardware_error(self):
         """Tier 3a / C5."""
-        import pathlib
+        from drivers.exceptions import HardwareError
 
-        source = pathlib.Path('drivers/idscamera.py').read_text()
-        idx = source.find('def set_binning_size(self, size: int) -> bool:')
-        assert idx != -1
-        next_def = source.find('\n    def ', idx + 1)
-        body = source[idx:next_def] if next_def != -1 else source[idx : idx + 3000]
-        assert 'raise HardwareError(' in body, (
-            'IDSCamera.set_binning_size must raise HardwareError on caught exception (C5)'
-        )
+        cam = _bare_ids_camera()
+        cam.remote_nodemap.FindNode.return_value.SetValue.side_effect = RuntimeError('sdk')
+        with pytest.raises(HardwareError):
+            cam.set_binning_size(2)
 
     def test_idscamera_set_pixel_format_raises_and_annotated(self):
-        """Tier 3a / C3 + Tier 1-A: annotation added, raises HardwareError."""
-        import pathlib
+        """Tier 3a / C3 + Tier 1-A: annotation declared, raises
+        HardwareError and marks disconnected on SDK failure."""
+        from tests.ast_seams import assert_def
 
-        source = pathlib.Path('drivers/idscamera.py').read_text()
-        idx = source.find('def set_pixel_format(self, pixel_format: str) -> bool:')
-        assert idx != -1, 'IDSCamera.set_pixel_format must declare `-> bool` (Wave 1 C3 / Rule 37)'
-        next_def = source.find('\n    def ', idx + 1)
-        body = source[idx:next_def] if next_def != -1 else source[idx : idx + 3000]
-        assert 'raise HardwareError(' in body, (
-            'IDSCamera.set_pixel_format must raise HardwareError on caught exception (C3)'
+        from drivers.exceptions import HardwareError
+
+        assert_def(
+            'drivers/idscamera.py', 'set_pixel_format', returns='bool',
+            msg='IDSCamera.set_pixel_format must declare `-> bool` (Wave 1 C3 / Rule 37)',
         )
+
+        cam = _bare_ids_camera()
+        cam._resolve_logical_format = lambda fmt: 'Mono8'
+        cam.remote_nodemap.FindNode.return_value.SetCurrentEntry.side_effect = (
+            RuntimeError('sdk')
+        )
+        with pytest.raises(HardwareError):
+            cam.set_pixel_format('Mono8')
+        cam._mark_disconnected.assert_called_once()
 
 
 class TestHomeReturnsBool:
@@ -1679,27 +1715,27 @@ class TestHomeReturnsBool:
     """
 
     def test_lumascope_zhome_has_bool_return_annotation(self):
-        import pathlib
+        from tests.ast_seams import assert_def
 
-        source = pathlib.Path('modules/lumascope_api/motion.py').read_text()
-        assert 'def zhome(self) -> bool:' in source, (
-            'MotionAPI.zhome must declare `-> bool` (Rule 37)'
+        assert_def(
+            'modules/lumascope_api/motion.py', 'zhome', returns='bool',
+            msg='MotionAPI.zhome must declare `-> bool` (Rule 37)',
         )
 
     def test_lumascope_home_has_bool_return_annotation(self):
-        import pathlib
+        from tests.ast_seams import assert_def
 
-        source = pathlib.Path('modules/lumascope_api/motion.py').read_text()
-        assert 'def home(self) -> bool:' in source, (
-            'MotionAPI.home must declare `-> bool` (Rule 37)'
+        assert_def(
+            'modules/lumascope_api/motion.py', 'home', returns='bool',
+            msg='MotionAPI.home must declare `-> bool` (Rule 37)',
         )
 
     def test_lumascope_thome_has_bool_return_annotation(self):
-        import pathlib
+        from tests.ast_seams import assert_def
 
-        source = pathlib.Path('modules/lumascope_api/motion.py').read_text()
-        assert 'def thome(self) -> bool:' in source, (
-            'MotionAPI.thome must declare `-> bool` (Rule 37)'
+        assert_def(
+            'modules/lumascope_api/motion.py', 'thome', returns='bool',
+            msg='MotionAPI.thome must declare `-> bool` (Rule 37)',
         )
 
     def test_lumascope_zhome_returns_driver_value(self):
@@ -1840,11 +1876,12 @@ class TestDisconnectReturnsBool:
     """
 
     def test_disconnect_has_bool_return_annotation(self):
-        import pathlib
+        from tests.ast_seams import assert_def
 
-        source = pathlib.Path('modules/lumascope_api/_lumascope.py').read_text()
-        assert 'def disconnect(self) -> bool:' in source, (
-            'Lumascope.disconnect must declare `-> bool` (Wave 4 B2; Rule 37)'
+        assert_def(
+            'modules/lumascope_api/_lumascope.py', 'disconnect',
+            class_name='Lumascope', returns='bool',
+            msg='Lumascope.disconnect must declare `-> bool` (Wave 4 B2; Rule 37)',
         )
 
     def test_disconnect_aggregates_and_returns_bool(self):
@@ -1898,11 +1935,12 @@ class TestEnterEngineeringModeRaises:
     """
 
     def test_ledboard_enter_engineering_mode_has_bool_return(self):
-        import pathlib
+        from tests.ast_seams import assert_def
 
-        source = pathlib.Path('drivers/ledboard.py').read_text()
-        assert 'def enter_engineering_mode(self, timeout: float = 5.0) -> bool:' in source, (
-            'LEDBoard.enter_engineering_mode must declare `-> bool` (Tier 1-A; Rule 37)'
+        assert_def(
+            'drivers/ledboard.py', 'enter_engineering_mode',
+            params=['self', 'timeout'], returns='bool',
+            msg='LEDBoard.enter_engineering_mode must declare `-> bool` (Tier 1-A; Rule 37)',
         )
 
     def test_ledboard_enter_engineering_mode_raises(self):
@@ -2334,6 +2372,8 @@ class TestIssue643_LumiLS820PlateViewInProtocol:
         import json
         import pathlib
 
+        # pin-justified: data/scopes.json is the shipped capability matrix;
+        # the values are the contract.
         scopes = json.loads(pathlib.Path('data/scopes.json').read_text())
         assert 'Lumi' in scopes, 'Lumi scope config missing from data/scopes.json'
         assert 'LS820' in scopes, 'LS820 scope config missing from data/scopes.json'
@@ -2726,14 +2766,13 @@ class TestPIW6_PF3_FalseColorRgbPreallocated:
     """
 
     def test_write_tiff_signature_includes_buffers(self):
-        from pathlib import Path
+        from tests.ast_seams import assert_def
 
-        src = (Path(__file__).resolve().parent.parent / 'modules' / 'image_utils.py').read_text()
-        assert 'false_color_buf: np.ndarray | None = None' in src, (
-            'PF-3: write_tiff should accept false_color_buf param.'
-        )
-        assert 'rgb_buf: np.ndarray | None = None' in src, (
-            'PIW-6: write_tiff should accept rgb_buf param.'
+        assert_def(
+            'modules/image_utils.py', 'write_tiff',
+            has_params=['false_color_buf', 'rgb_buf'],
+            msg='PF-3 + PIW-6: write_tiff should accept the reusable '
+                'false_color_buf and rgb_buf params.',
         )
 
     def test_protocol_image_writer_does_not_preallocate_dead_buffers(self):
@@ -3339,6 +3378,16 @@ def _function_body_calls(source: str, func_name: str) -> set[str]:
             ):
                 calls.add(sub.func.attr)
     return calls
+
+
+# Bare camera-driver builders shared with the other behavioral driver
+# test files; bodies live in tests/camera_fakes.py.
+from tests.camera_fakes import (
+    bare_grab_worker as _bare_grab_worker,
+    bare_ids_camera as _bare_ids_camera,
+    bare_image_handler as _bare_image_handler,
+    bare_pylon_camera as _bare_pylon_camera,
+)
 
 
 def _function_source(source: str, func_name: str) -> str:
@@ -3991,6 +4040,8 @@ class TestPylonCancelHandlingDefensive:
     def _pyloncamera_source(self):
         from pathlib import Path
 
+        # pin-justified: the bench-witnessed cancel-code constant and its
+        # explanatory comment pair are the contract (no SDK symbol exists).
         return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
 
     def test_buffer_cancel_constant_value_matches_bench(self):
@@ -4080,9 +4131,9 @@ class TestPylonPayloadDiscardedClassification:
       these toward MAX_CONSECUTIVE_FAILURES would falsely trip the
       128-consec auto-disconnect during AF-heavy protocols.
 
-    These tests lock the source-level shape so a future cleanup that
-    removes the elif branch or adds _record_failure inside it fires
-    the regression.
+    Behavioral since the typed pypylon stub landed: Stage B's
+    classification (_PylonImageGrabWorker._process_failure) is driven
+    directly with fake grab results and a spied failure counter.
     """
 
     def _pyloncamera_source(self):
@@ -4117,67 +4168,45 @@ class TestPylonPayloadDiscardedClassification:
             'reason payload-discarded events are safe to skip _record_failure.'
         )
 
-    def test_payload_discarded_branch_in_onimagegrabbed(self):
-        """The classification branch must exist. Structural check: a
-        future cleanup that drops the elif (collapsing payload-discarded
-        back into the warning fallback) would reintroduce log noise +
-        spurious failure-counter increments.
+    def test_payload_discarded_not_counted_logged_at_info(self):
+        """Payload-discarded is healthy acquisition: the worker logs the
+        cause at info (distribution stays visible) and does NOT count it
+        toward MAX_CONSECUTIVE_FAILURES -- counting would falsely trip
+        the auto-disconnect during AF-heavy protocols."""
+        import datetime
 
-        Post-R12 the classification lives in `_PylonImageGrabWorker._process_failure`.
-        """
-        src = self._pyloncamera_source()
-        body = _function_source(src, '_process_failure')
-        assert '_PYLON_ERR_PAYLOAD_DISCARDED' in body, (
-            '_process_failure must contain a classification branch for '
-            '_PYLON_ERR_PAYLOAD_DISCARDED. See class docstring.'
-        )
+        from drivers.pyloncamera import _PYLON_ERR_PAYLOAD_DISCARDED
 
-    def test_payload_discarded_branch_skips_record_failure(self):
-        """Key invariant: the payload-discarded branch MUST NOT call
-        _record_failure. The branch represents healthy acquisition where
-        the camera dropped a frame during a host stall; counting it
-        toward MAX_CONSECUTIVE_FAILURES would falsely trip
-        auto-disconnect during AF-heavy protocols.
+        worker, base = _bare_grab_worker()
+        gr = MagicMock()
+        gr.GetErrorCode.return_value = _PYLON_ERR_PAYLOAD_DISCARDED
+        worker._process_failure(gr, datetime.datetime.now())
+        base._record_failure.assert_not_called()
 
-        Test approach: extract the elif block in _process_failure and
-        assert _record_failure does not appear in it. Worker-side
-        classification has exactly 1 _record_failure call total (the
-        generic non-classified fallback in the else branch); the cancel
-        and payload-discarded branches both skip _record_failure for
-        branch-specific reasons (lifecycle / healthy-FIFO-drop).
-        _process_frame has its own _record_failure for GetArray
-        exceptions (different concern: GetArray failure implies device
-        gone, which IS a counted-failure-class event).
-        """
-        src = self._pyloncamera_source()
-        body = _function_source(src, '_process_failure')
-        # Total count is the structural guard.
-        total_calls = body.count('self._base._record_failure()')
-        assert total_calls == 1, (
-            f'_process_failure must have exactly 1 _record_failure() '
-            f'call (generic non-classified fallback in the else branch); '
-            f'found {total_calls}. If a second was added inside the '
-            f'payload-discarded classification branch, remove it -- '
-            f'that branch is by-design not counted toward '
-            f'MAX_CONSECUTIVE_FAILURES.'
-        )
-        # Extract just the elif block as belt-and-suspenders. Indent
-        # level is 8 spaces (method body in _process_failure).
-        elif_marker = 'elif err_code == _PYLON_ERR_PAYLOAD_DISCARDED:'
-        elif_idx = body.find(elif_marker)
-        assert elif_idx >= 0, 'elif marker not found (precondition)'
-        tail = body[elif_idx + len(elif_marker) :]
-        end = len(tail)
-        for marker in ('\n        else:', '\n        elif '):
-            i = tail.find(marker)
-            if 0 <= i < end:
-                end = i
-        elif_block = tail[:end]
-        assert '_record_failure' not in elif_block, (
-            'Payload-discarded elif branch contains _record_failure() -- '
-            "that breaks the 'healthy acquisition, not a counted failure' "
-            'invariant. See class docstring.'
-        )
+    def test_cancelled_buffer_not_counted(self):
+        """Cancelled buffers (StopGrabbing mid-flight) are SDK lifecycle
+        events, not transport failures."""
+        import datetime
+
+        from drivers.pyloncamera import _PYLON_ERR_BUFFER_CANCELED
+
+        worker, base = _bare_grab_worker()
+        gr = MagicMock()
+        gr.GetErrorCode.return_value = _PYLON_ERR_BUFFER_CANCELED
+        worker._process_failure(gr, datetime.datetime.now())
+        base._record_failure.assert_not_called()
+
+    def test_generic_transport_failure_is_counted(self):
+        """Unclassified err_codes (USB CRC, partial frame, underrun)
+        count toward the consecutive-failure cascade so a wedged
+        transport eventually trips auto-disconnect."""
+        import datetime
+
+        worker, base = _bare_grab_worker()
+        gr = MagicMock()
+        gr.GetErrorCode.return_value = 0xDEAD
+        worker._process_failure(gr, datetime.datetime.now())
+        base._record_failure.assert_called_once()
 
 
 class TestPylonDeviceNotFoundClassification:
@@ -4204,11 +4233,8 @@ class TestPylonDeviceNotFoundClassification:
       detect transport degradation (incomplete buffers, CRC errors).
       Physical removal is a different class with its own signal.
 
-    These tests lock the source-level shape so a future cleanup that
-    drops the branch or adds _record_failure inside it fires the
-    regression. Behavioral test (full cascade simulation) would
-    require a Pylon SDK callback harness; static lock is the primary
-    regression gate.
+    Behavioral since the typed pypylon stub landed: the handler is
+    instantiated and OnImageGrabbed driven with fake grab results.
     """
 
     def _pyloncamera_source(self):
@@ -4244,77 +4270,48 @@ class TestPylonDeviceNotFoundClassification:
             'the slow-path mechanism that fast classification short-circuits.'
         )
 
-    def test_device_not_found_branch_in_onimagegrabbed(self):
-        """The OnImageGrabbed body must contain the elif classification
-        branch. Structural check: a future cleanup that drops the elif
-        would reintroduce the 4-second cascade delay + log spam."""
-        src = self._pyloncamera_source()
-        body = _function_source(src, 'OnImageGrabbed')
-        assert '_PYLON_ERR_DEVICE_NOT_FOUND' in body, (
-            'OnImageGrabbed must contain a classification branch for '
-            '_PYLON_ERR_DEVICE_NOT_FOUND. See class docstring.'
-        )
-        assert 'success_no_grab_device_not_found' in body, (
-            'OnImageGrabbed device-not-found branch must set its '
-            "outcome name to 'success_no_grab_device_not_found' for "
-            'trace gating.'
-        )
+    def test_device_not_found_marks_disconnected_immediately(self):
+        """The fast path flips the connection flag in 1 frame instead of
+        128 (so the API-layer notification fires immediately) and
+        schedules async teardown off the SDK callback thread. A cleanup
+        that drops this classification would reintroduce the 4-second
+        cascade delay + log spam."""
+        from drivers.pyloncamera import _PYLON_ERR_DEVICE_NOT_FOUND
 
-    def test_device_not_found_branch_marks_disconnected(self):
-        """The device-not-found branch must call _mark_disconnected.
-        That is the entire structural point of fast classification:
-        flip the connection flag in 1 frame instead of 128 so the
-        API-layer notification fires immediately.
+        handler, parent = _bare_image_handler()
+        gr = MagicMock()
+        gr.GrabSucceeded.return_value = False
+        gr.GetErrorCode.return_value = _PYLON_ERR_DEVICE_NOT_FOUND
+        handler.OnImageGrabbed(camera=MagicMock(), grabResult=gr)
+        parent._mark_disconnected.assert_called_once()
+        parent._schedule_async_teardown.assert_called_once()
 
-        Post-R12 the disconnect fast-path stays INLINE in OnImageGrabbed
-        Stage A (so the disconnect notification doesn't wait behind
-        Stage B's worker queue). With cancel/payload-discarded/generic
-        moved to Stage B, DEVICE_NOT_FOUND is now the only err_code
-        check in Stage A -- the `elif` chain collapsed to a single `if`.
-        """
-        src = self._pyloncamera_source()
-        body = _function_source(src, 'OnImageGrabbed')
-        branch_marker = 'if err_code == _PYLON_ERR_DEVICE_NOT_FOUND:'
-        idx = body.find(branch_marker)
-        assert idx >= 0, 'DEVICE_NOT_FOUND branch marker not found (precondition)'
-        tail = body[idx + len(branch_marker) :]
-        end = len(tail)
-        for marker in ('\n                else:', '\n                elif '):
-            i = tail.find(marker)
-            if 0 <= i < end:
-                end = i
-        branch_block = tail[:end]
-        assert '_mark_disconnected' in branch_block, (
-            'Device-not-found branch must call '
-            'self._parent._mark_disconnected() -- that is the structural '
-            'point of fast classification. See class docstring.'
-        )
+    def test_device_not_found_skips_stage_b_and_failure_counter(self):
+        """Physical removal is not a counted failure: the fast path
+        handles it inline (so the notification doesn't wait behind
+        Stage B's queue) and hands NOTHING to the worker -- the
+        consecutive-failure counter exists for transport degradation,
+        and inflating it from one physical event would be misleading."""
+        from drivers.pyloncamera import _PYLON_ERR_DEVICE_NOT_FOUND
 
-    def test_device_not_found_branch_skips_record_failure(self):
-        """Physical removal is not a counted failure; the consecutive-
-        failure counter exists for transport degradation. Counting
-        device-not-found toward MAX_CONSECUTIVE_FAILURES is at best
-        redundant (we've already marked disconnected) and at worst
-        misleading (failure count inflates from a single physical
-        event)."""
-        src = self._pyloncamera_source()
-        body = _function_source(src, 'OnImageGrabbed')
-        branch_marker = 'if err_code == _PYLON_ERR_DEVICE_NOT_FOUND:'
-        idx = body.find(branch_marker)
-        assert idx >= 0, 'DEVICE_NOT_FOUND branch marker not found (precondition)'
-        tail = body[idx + len(branch_marker) :]
-        end = len(tail)
-        for marker in ('\n                else:', '\n                elif '):
-            i = tail.find(marker)
-            if 0 <= i < end:
-                end = i
-        branch_block = tail[:end]
-        assert '_record_failure' not in branch_block, (
-            'Device-not-found branch contains _record_failure() -- '
-            'physical removal is a different class of event with its '
-            'own signal (_mark_disconnected); double-counting inflates '
-            'the failure counter from one physical event. See class docstring.'
-        )
+        handler, _parent = _bare_image_handler()
+        gr = MagicMock()
+        gr.GrabSucceeded.return_value = False
+        gr.GetErrorCode.return_value = _PYLON_ERR_DEVICE_NOT_FOUND
+        handler.OnImageGrabbed(camera=MagicMock(), grabResult=gr)
+        handler._worker.enqueue.assert_not_called()
+
+    def test_other_grab_failures_hand_off_to_stage_b(self):
+        """Non-removal failures take the slow path: enqueued to the
+        worker for classification, never handled inline."""
+        handler, parent = _bare_image_handler()
+        gr = MagicMock()
+        gr.GrabSucceeded.return_value = False
+        gr.GetErrorCode.return_value = 0xDEAD
+        handler.OnImageGrabbed(camera=MagicMock(), grabResult=gr)
+        parent._mark_disconnected.assert_not_called()
+        assert handler._worker.enqueue.call_count == 1
+        assert handler._worker.enqueue.call_args[0][0] == 'fail'
 
 
 class TestPylonDisconnectDestroyDevice:
@@ -4567,14 +4564,14 @@ class TestPylonDiagnosticProbe:
         assert 'pylon_sdk_version' in result
 
     def test_pylon_camera_has_read_diagnostic_snapshot(self):
-        """Source-shape lock: PylonCamera must implement the driver
-        method the API depends on."""
-        from pathlib import Path
+        """Seam lock: PylonCamera must implement the driver method the
+        API depends on."""
+        from tests.ast_seams import assert_def
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        assert 'def read_diagnostic_snapshot(' in src, (
-            'PylonCamera must implement read_diagnostic_snapshot for '
-            'DiagnosticsAPI.run_pylon_diagnostic_probe to function.'
+        assert_def(
+            'drivers/pyloncamera.py', 'read_diagnostic_snapshot',
+            msg='PylonCamera must implement read_diagnostic_snapshot for '
+                'DiagnosticsAPI.run_pylon_diagnostic_probe to function.',
         )
 
     def test_ids_camera_has_read_diagnostic_snapshot_stub(self):
@@ -4583,11 +4580,14 @@ class TestPylonDiagnosticProbe:
         raising AttributeError when an IDS camera is connected."""
         from pathlib import Path
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'idscamera.py').read_text()
-        assert 'def read_diagnostic_snapshot(' in src, (
-            'IDSCamera must have a read_diagnostic_snapshot stub '
-            'returning supported=False until the IDS implementation lands.'
+        from tests.ast_seams import assert_def
+
+        assert_def(
+            'drivers/idscamera.py', 'read_diagnostic_snapshot',
+            msg='IDSCamera must have a read_diagnostic_snapshot stub '
+                'returning supported=False until the IDS implementation lands.',
         )
+        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'idscamera.py').read_text()
         body = _function_source(src, 'read_diagnostic_snapshot')
         assert "'supported': False" in body or '"supported": False' in body, (
             'IDS read_diagnostic_snapshot stub must return supported=False'
@@ -4682,13 +4682,12 @@ class TestDeviceLinkThroughputLimitSetter:
         assert called_with == {'mode': 'On', 'value_bps': 160_000_000}
 
     def test_pylon_driver_method_present(self):
-        from pathlib import Path
+        from tests.ast_seams import assert_def
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        assert 'def set_device_link_throughput_limit(' in src, (
-            'PylonCamera must implement set_device_link_throughput_limit '
-            "for tomorrow's bench-probe sweep to function without "
-            'Rule 1 violations.'
+        assert_def(
+            'drivers/pyloncamera.py', 'set_device_link_throughput_limit',
+            msg='PylonCamera must implement set_device_link_throughput_limit '
+                'so the bench-probe sweep can stay above the driver layer.',
         )
 
     def test_pylon_driver_does_not_wrap_in_update_camera_config(self):
@@ -4706,37 +4705,30 @@ class TestDeviceLinkThroughputLimitSetter:
         )
 
     def test_ids_driver_stub_present(self):
-        from pathlib import Path
+        from tests.ast_seams import assert_def
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'idscamera.py').read_text()
-        assert 'def set_device_link_throughput_limit(' in src, (
-            'IDSCamera must have a set_device_link_throughput_limit '
-            'stub so the API method does not need to know which driver '
-            'is connected when called by the sweep tool.'
+        assert_def(
+            'drivers/idscamera.py', 'set_device_link_throughput_limit',
+            msg='IDSCamera must have a set_device_link_throughput_limit '
+                'stub so the API method does not need to know which driver '
+                'is connected when called by the sweep tool.',
         )
 
     def test_pylon_driver_raises_hardware_error_on_runtime_exception(self):
         """Per the Raises: docstring section, the Pylon setter raises
         HardwareError on genicam.RuntimeException so the API layer can
         notify and the caller can handle it (Rule 29 typed-exception
-        contract; matches set_binning_size / set_pixel_format).
+        contract; matches set_binning_size / set_pixel_format)."""
+        from pypylon import genicam
 
-        Pins the raise so a future cleanup that swaps it for return-False
-        is caught here instead of in the field.
-        """
-        from pathlib import Path
+        from drivers.exceptions import HardwareError
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        body = _function_source(src, 'set_device_link_throughput_limit')
-        assert 'except genicam.RuntimeException' in body, (
-            'PylonCamera.set_device_link_throughput_limit must keep its '
-            'RuntimeException catch (Rule 29 typed-exception contract).'
+        cam = _bare_pylon_camera()
+        cam.active.DeviceLinkThroughputLimitMode.SetValue.side_effect = (
+            genicam.RuntimeException('usb gone')
         )
-        assert 'raise HardwareError(' in body, (
-            'PylonCamera.set_device_link_throughput_limit must raise '
-            'HardwareError on RuntimeException, not return False -- the '
-            'API layer catches and notifies.'
-        )
+        with pytest.raises(HardwareError):
+            cam.set_device_link_throughput_limit('Off')
 
 
 class TestPylonAsciiOnlyInLoggerStrings:
@@ -4760,6 +4752,8 @@ class TestPylonAsciiOnlyInLoggerStrings:
     def _pyloncamera_source_lines(self):
         from pathlib import Path
 
+        # pin-justified: ASCII-only log text is the contract (logger-safe
+        # output); the deg-C spelling is the load-bearing detail.
         return (
             (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py')
             .read_text()
@@ -5044,31 +5038,27 @@ class TestPylonOnImageGrabbedExceptionContext:
         return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
 
     def test_on_image_grabbed_outer_except_uses_contextual_message(self):
-        """Bare `logger.exception(e)` is forbidden in OnImageGrabbed.
-        The fix uses an f-string with [CAM Class ] prefix and a callback
-        identifier."""
-        src = self._pyloncamera_source()
-        idx = src.find('def OnImageGrabbed(')
-        assert idx != -1, 'Could not find ImageHandler.OnImageGrabbed.'
-        end = src.find('def ', idx + 10)
-        body = src[idx:end]
-        # Find the outer except clause (indented less than the inner ones)
-        # Easiest: the literal `_outcome = 'exception_outer'` is unique.
-        marker = "_outcome = 'exception_outer'"
-        m_idx = body.find(marker)
-        assert m_idx != -1, (
-            'Could not find OnImageGrabbed outer-except sentinel '
-            "(_outcome = 'exception_outer'). If renamed, update test."
-        )
-        window = body[m_idx : m_idx + 250]
-        assert 'logger.exception(e)' not in window, (
-            'OnImageGrabbed outer-except must NOT call logger.exception(e) '
-            'with the bare exception object -- the rendered log line lacks '
-            '[CAM Class ] prefix and callback context.'
-        )
-        assert 'OnImageGrabbed' in window or '[CAM Class ]' in window, (
-            'OnImageGrabbed outer-except logger.exception call must include '
-            'a contextual prefix. Found:\n' + window
+        """An unexpected exception inside the callback must be swallowed
+        (anything escaping into Pylon's native grab thread can resolve
+        to std::terminate on Windows) and logged with a message that
+        names the callback -- a bare exception line gives the operator
+        no indication it came from the grab path."""
+        from drivers import pyloncamera
+
+        logged = []
+        original = pyloncamera._log_safely
+        pyloncamera._log_safely = logged.append
+        try:
+            handler, _parent = _bare_image_handler()
+            handler._worker.enqueue.side_effect = ValueError('boom')
+            gr = MagicMock()
+            gr.GrabSucceeded.return_value = True
+            handler.OnImageGrabbed(camera=MagicMock(), grabResult=gr)
+        finally:
+            pyloncamera._log_safely = original
+        assert any('OnImageGrabbed' in m for m in logged), (
+            'The outer guard must log with callback context; got: '
+            f'{logged!r}'
         )
 
 
@@ -5432,8 +5422,9 @@ class TestPylonUnderrunCounterSingleCanonical:
         return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
 
     def test_canonical_underrun_node_name_constant(self):
-        src = self._pyloncamera_source()
-        assert "_UNDERRUN_NODE_NAME = 'Statistic_Buffer_Underrun_Count'" in src, (
+        from drivers.pyloncamera import PylonCamera
+
+        assert PylonCamera._UNDERRUN_NODE_NAME == 'Statistic_Buffer_Underrun_Count', (
             'Single canonical underrun-counter name '
             'Statistic_Buffer_Underrun_Count must be the constant.'
         )
@@ -5847,17 +5838,21 @@ class TestPylonIsConnectedCallsSdkQuery:
         return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
 
     def test_is_connected_calls_is_camera_device_removed(self):
-        src = self._pyloncamera_source()
-        idx = src.find('def is_connected(self) -> bool:')
-        assert idx != -1, 'Could not find PylonCamera.is_connected.'
-        end = src.find('def ', idx + 10)
-        body = src[idx:end]
-        assert '.IsCameraDeviceRemoved()' in body, (
-            'is_connected must call self.active.IsCameraDeviceRemoved() '
-            'as a third check (after _device_removed flag + active is '
-            "None). The docstring already promises 'the SDK's "
-            "device-removed query'; the implementation must match."
-        )
+        """The SDK-side query is the third check (after the
+        _device_removed flag + active-is-None): it covers removals the
+        _CameraRemovalHandler callback missed. A removed-per-SDK camera
+        must read as disconnected AND get marked."""
+        cam = _bare_pylon_camera()
+        cam._device_removed = False
+        cam.active.IsCameraDeviceRemoved.return_value = True
+        assert cam.is_connected() is False
+        cam._mark_disconnected.assert_called_once()
+
+        cam = _bare_pylon_camera()
+        cam._device_removed = False
+        cam.active.IsCameraDeviceRemoved.return_value = False
+        assert cam.is_connected() is True
+        cam._mark_disconnected.assert_not_called()
 
 
 class TestPylonBslPrefixedNodeFallbacks:
@@ -6791,11 +6786,15 @@ class TestDltlSetterDocstringGigeCaveat:
     def _pyloncamera_source(self):
         from pathlib import Path
 
+        # pin-justified: the GigE wire-limit docstring is the documented
+        # contract these tests guard.
         return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
 
     def _lumascope_api_source(self):
         # set_device_link_throughput_limit body relocated to ImagingAPI
         # in Wave 7 Phase 4c. Helper name kept for diff-readability.
+        # pin-justified: the GigE wire-limit docstring is the documented
+        # contract these tests guard.
         from pathlib import Path
 
         return (
@@ -6856,8 +6855,9 @@ class TestPylonChunkSelectorProbeWithFramecounterFallback:
         FrameID first, then Framecounter -- pinning the order so a
         future cleanup that swaps them or alphabetises the tuple
         fires this test."""
-        src = self._pyloncamera_source()
-        assert "_FRAME_IDENTITY_CHUNK_CANDIDATES = ('FrameID', 'Framecounter')" in src, (
+        from drivers.pyloncamera import PylonCamera
+
+        assert PylonCamera._FRAME_IDENTITY_CHUNK_CANDIDATES == ('FrameID', 'Framecounter'), (
             'PylonCamera must declare _FRAME_IDENTITY_CHUNK_CANDIDATES '
             'with FrameID first, Framecounter second (B32 fallback).'
         )
@@ -6979,30 +6979,31 @@ class TestAcquisitionStopModeSetter:
         assert called_with == {'mode': 'AbortExposure'}
 
     def test_pylon_driver_method_present(self):
-        from pathlib import Path
+        from tests.ast_seams import assert_def
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        assert 'def set_acquisition_stop_mode(' in src, (
-            'PylonCamera must implement set_acquisition_stop_mode for '
-            'the bench-probe sweep to exercise BslAcquisitionStopMode '
-            'without bypassing the API layer.'
+        assert_def(
+            'drivers/pyloncamera.py', 'set_acquisition_stop_mode',
+            msg='PylonCamera must implement set_acquisition_stop_mode for '
+                'the bench-probe sweep to exercise BslAcquisitionStopMode '
+                'without bypassing the API layer.',
         )
 
     def test_pylon_driver_validates_mode_argument(self):
         """Mode must be one of Complete / CancelExposure / AbortExposure
-        per Basler Specifics table."""
-        from pathlib import Path
+        per Basler Specifics table; an invalid mode returns False without
+        touching the SDK."""
+        from drivers.pyloncamera import PylonCamera
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        body = _function_source(src, 'set_acquisition_stop_mode')
-        assert '_ACQ_STOP_MODES' in body, (
-            'PylonCamera.set_acquisition_stop_mode must validate the '
-            'mode argument against _ACQ_STOP_MODES.'
-        )
-        assert "_ACQ_STOP_MODES = ('Complete', 'CancelExposure', 'AbortExposure')" in src, (
+        assert PylonCamera._ACQ_STOP_MODES == (
+            'Complete', 'CancelExposure', 'AbortExposure',
+        ), (
             'PylonCamera._ACQ_STOP_MODES must list the three doc-named '
             'values per acquisition-start-stop-and-abort.html.'
         )
+
+        cam = _bare_pylon_camera()
+        assert cam.set_acquisition_stop_mode('Bogus') is False
+        cam.active.GetNodeMap.assert_not_called()
 
     def test_pylon_driver_does_not_wrap_in_update_camera_config(self):
         """BslAcquisitionStopMode is a configuration property; setting
@@ -7021,18 +7022,23 @@ class TestAcquisitionStopModeSetter:
         )
 
     def test_pylon_driver_raises_hardware_error_on_runtime_exception(self):
-        """Rule 29 typed-exception contract; matches DLTL setter."""
-        from pathlib import Path
+        """Rule 29 typed-exception contract; matches DLTL setter.
+        RuntimeException marks the camera disconnected; a missing node
+        is a documented no-op returning False."""
+        from pypylon import genicam
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        body = _function_source(src, 'set_acquisition_stop_mode')
-        assert 'except genicam.RuntimeException' in body, (
-            'PylonCamera.set_acquisition_stop_mode must catch genicam.RuntimeException.'
-        )
-        assert 'raise HardwareError(' in body, (
-            'PylonCamera.set_acquisition_stop_mode must raise '
-            'HardwareError on RuntimeException, not return False.'
-        )
+        from drivers.exceptions import HardwareError
+
+        cam = _bare_pylon_camera()
+        node = cam.active.GetNodeMap.return_value.GetNode.return_value
+        node.SetValue.side_effect = genicam.RuntimeException('usb gone')
+        with pytest.raises(HardwareError):
+            cam.set_acquisition_stop_mode('Complete')
+        cam._mark_disconnected.assert_called_once()
+
+        cam = _bare_pylon_camera()
+        cam.active.GetNodeMap.return_value.GetNode.return_value = None
+        assert cam.set_acquisition_stop_mode('Complete') is False
 
     def test_ids_driver_stub_returns_false(self):
         from drivers.idscamera import IDSCamera
@@ -7156,44 +7162,44 @@ class TestGigeSetters:
         assert called_with == {'delay_ticks': 100}
 
     def test_pylon_setters_present(self):
-        from pathlib import Path
+        from tests.ast_seams import assert_def
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
         for name in (
             'set_bandwidth_reserve_mode',
             'set_gev_packet_size',
             'set_gev_inter_packet_delay',
         ):
-            assert f'def {name}(' in src, f'PylonCamera must implement {name}.'
+            assert_def(
+                'drivers/pyloncamera.py', name,
+                msg=f'PylonCamera must implement {name}.',
+            )
 
     def test_pylon_bandwidth_reserve_mode_validates(self):
-        from pathlib import Path
+        from drivers.pyloncamera import PylonCamera
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        body = _function_source(src, 'set_bandwidth_reserve_mode')
-        assert '_BANDWIDTH_RESERVE_MODES' in body, (
-            'set_bandwidth_reserve_mode must validate against _BANDWIDTH_RESERVE_MODES.'
-        )
-        assert "_BANDWIDTH_RESERVE_MODES = ('Default', 'Performance')" in src
+        assert PylonCamera._BANDWIDTH_RESERVE_MODES == ('Default', 'Performance')
+
+        cam = _bare_pylon_camera()
+        assert cam.set_bandwidth_reserve_mode('Turbo') is False
+        cam.active.GetNodeMap.assert_not_called()
 
     def test_pylon_setters_raise_hardware_error(self):
         """All three setters raise HardwareError on RuntimeException
         (Rule 29; matches DLTL + AbortExposure setters)."""
-        from pathlib import Path
+        from pypylon import genicam
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        for name in (
-            'set_bandwidth_reserve_mode',
-            'set_gev_packet_size',
-            'set_gev_inter_packet_delay',
+        from drivers.exceptions import HardwareError
+
+        for call in (
+            lambda cam: cam.set_bandwidth_reserve_mode('Performance'),
+            lambda cam: cam.set_gev_packet_size(9000),
+            lambda cam: cam.set_gev_inter_packet_delay(100),
         ):
-            body = _function_source(src, name)
-            assert 'except genicam.RuntimeException' in body, (
-                f'{name} must catch genicam.RuntimeException.'
-            )
-            assert 'raise HardwareError(' in body, (
-                f'{name} must raise HardwareError on RuntimeException.'
-            )
+            cam = _bare_pylon_camera()
+            node = cam.active.GetNodeMap.return_value.GetNode.return_value
+            node.SetValue.side_effect = genicam.RuntimeException('usb gone')
+            with pytest.raises(HardwareError):
+                call(cam)
 
     def test_ids_stubs_return_false(self):
         from drivers.idscamera import IDSCamera
@@ -7357,11 +7363,10 @@ class TestStreamGrabberSetters:
         assert called_with == {'value': 32}
 
     def test_pylon_driver_methods_present(self):
-        from pathlib import Path
+        from tests.ast_seams import assert_def
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        assert 'def set_max_transfer_size(' in src
-        assert 'def set_num_max_queued_urbs(' in src
+        assert_def('drivers/pyloncamera.py', 'set_max_transfer_size')
+        assert_def('drivers/pyloncamera.py', 'set_num_max_queued_urbs')
 
     def test_ids_driver_stubs_return_false(self):
         from drivers.idscamera import IDSCamera
@@ -7390,22 +7395,24 @@ class TestStreamGrabberSetters:
             )
 
     def test_pylon_driver_raises_hardware_error_on_runtime_exception(self):
-        """Per Rule 29 typed-exception contract, the Pylon setters raise
-        HardwareError on genicam.RuntimeException AND on missing-node
-        (GigE / non-USB3 cameras). Pins the raise shape against a future
-        cleanup that swaps it for return-False."""
-        from pathlib import Path
+        """Per Rule 29 typed-exception contract, the StreamGrabber
+        setters raise HardwareError on genicam.RuntimeException AND on
+        missing-node (GigE / non-USB3 cameras) -- silent return-False
+        would mislead bench operators into thinking the knob applied."""
+        from pypylon import genicam
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        body = _function_source(src, '_set_stream_grabber_int_node')
-        assert 'except genicam.RuntimeException' in body
-        assert 'raise HardwareError(' in body
-        assert 'node is None' in body, (
-            '_set_stream_grabber_int_node must check for missing node '
-            '(GigE / non-USB3 cameras) and raise HardwareError -- '
-            'silent return-False would mislead bench operators into '
-            'thinking the knob applied.'
-        )
+        from drivers.exceptions import HardwareError
+
+        cam = _bare_pylon_camera()
+        node = cam.active.GetStreamGrabberNodeMap.return_value.GetNode.return_value
+        node.SetValue.side_effect = genicam.RuntimeException('usb gone')
+        with pytest.raises(HardwareError):
+            cam.set_max_transfer_size(262144)
+
+        cam = _bare_pylon_camera()
+        cam.active.GetStreamGrabberNodeMap.return_value.GetNode.return_value = None
+        with pytest.raises(HardwareError):
+            cam.set_num_max_queued_urbs(64)
 
 
 class TestPylonAcquisitionIdleWait:
@@ -7424,10 +7431,9 @@ class TestPylonAcquisitionIdleWait:
     """
 
     def test_helper_method_present(self):
-        from pathlib import Path
+        from tests.ast_seams import assert_def
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        assert 'def _wait_for_acquisition_idle(' in src
+        assert_def('drivers/pyloncamera.py', '_wait_for_acquisition_idle')
 
     def test_disconnect_calls_idle_wait_after_stop_grabbing(self):
         """Pin call-site shape: disconnect() must invoke
@@ -7571,10 +7577,9 @@ class TestPylonStreamGrabberStatusLog:
     """
 
     def test_helper_method_present(self):
-        from pathlib import Path
+        from tests.ast_seams import assert_def
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        assert 'def _log_stream_grabber_status(' in src
+        assert_def('drivers/pyloncamera.py', '_log_stream_grabber_status')
 
     def test_start_grabbing_logs_status_before_start_call(self):
         """Pin call-site shape: _log_stream_grabber_status fires in
@@ -7784,6 +7789,8 @@ class TestManualVideoSpinners:
     def _kv_text(self):
         import pathlib
 
+        # pin-justified: kv is declarative source with no headless seam;
+        # the kv text is the contract.
         return pathlib.Path('ui/lumaviewpro.kv').read_text()
 
     def _ms_text(self):
@@ -7904,6 +7911,8 @@ class TestManualVideoSpinners:
         import json
         import pathlib
 
+        # pin-justified: the shipped default in data/settings.json is the
+        # contract a fresh install receives.
         path = pathlib.Path('data/settings.json')
         data = json.loads(path.read_text())
         assert data.get('manual_video', {}).get('max_fps') == 0, (
@@ -8154,6 +8163,8 @@ class TestModSliderAwareScrollView:
     def _kv(self):
         import pathlib
 
+        # pin-justified: kv is declarative source with no headless seam;
+        # the kv text is the contract.
         return pathlib.Path('ui/lumaviewpro.kv').read_text()
 
     def test_class_defined(self):
@@ -9687,6 +9698,8 @@ class TestLumascopeSkillsApiPluginDocBatch:
     def _doc(self):
         import pathlib
 
+        # pin-justified: the published doc text is the L2 contract surface;
+        # these tests guard doc-vs-API sync.
         return pathlib.Path('docs/LumascopeSkills.md').read_text()
 
     def test_objective_setters_not_cited_on_composition_root(self):
@@ -9812,6 +9825,8 @@ class TestGetLedStateShape:
     def test_doc_example_matches_shape(self):
         import pathlib
 
+        # pin-justified: the published doc example text is the L2 contract
+        # surface; this guards doc-vs-API sync.
         doc = pathlib.Path('docs/LumascopeSkills.md').read_text()
         assert "'owner': '…'" in doc or "'owner': '...'" in doc, (
             'LumascopeSkills get_led_state example must include the '
@@ -10090,6 +10105,8 @@ class TestWindowsBuildIsWindowed_559:
     def _spec_src(self):
         from pathlib import Path
 
+        # pin-justified: the shipped Windows build spec IS the artifact;
+        # console=False has no runtime seam to assert behaviorally.
         return (
             Path(__file__).resolve().parent.parent
             / 'scripts'
@@ -12024,6 +12041,8 @@ class TestSequentialIOExecutorDocstringSingleWorker:
     def _src(self):
         import pathlib
 
+        # pin-justified: the one-worker-thread docstring is the executor
+        # topology contract; the doc text is the load-bearing record.
         root = pathlib.Path(__file__).resolve().parent.parent
         return (root / 'modules' / 'sequential_io_executor.py').read_text()
 

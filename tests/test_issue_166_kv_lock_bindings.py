@@ -40,6 +40,8 @@ BIND_NOSPACE = 'disabled:app.protocol_running'
 
 
 def _kv_lines() -> list[str]:
+    # pin-justified: kv is declarative source with no headless seam; the
+    # per-widget disabled binds in the kv text are the lockout contract.
     return KV.read_text().splitlines()
 
 

@@ -24,6 +24,8 @@ from modules import config_helpers
 from modules.composite_generation import CompositeGeneration
 from modules.protocol_runner import ProtocolRunner
 
+# pin-justified: kv is declarative source with no headless seam; the kv
+# text is the contract.
 _UI = pathlib.Path(__file__).resolve().parents[1] / 'ui'
 _KV = (_UI / 'lumaviewpro.kv').read_text()
 
