@@ -611,7 +611,7 @@ class TestIntegrationAutofocus:
         )
 
         # Simulate the multi-channel scenario: camera is at Green settings
-        # when BF AF starts. This is the state AF will save and later restore.
+        # when BF AF starts with its own explicit targets.
         scope.imaging.set_gain(20.0)
         scope.imaging.set_exposure_time(100.0)
 
@@ -634,20 +634,24 @@ class TestIntegrationAutofocus:
         finally:
             thread.stop(timeout=2.0)
 
-        # The moment the Future resolves, camera state must already
-        # reflect the restored (pre-AF) values. AFE.run()'s finally
-        # block restores camera state BEFORE clearing _af_in_progress;
-        # the Future resolves AFTER AFE.run() returns, so the read
-        # below cannot race the restoration.
+        # The moment the Future resolves, camera state must already be
+        # FINAL -- AFE.run()'s finally block settles camera state BEFORE
+        # clearing _af_in_progress; the Future resolves AFTER AFE.run()
+        # returns, so the read below cannot race the settling. (That
+        # ordering is the #610 regression contract this test guards.)
+        # WHICH values are final changed with the #695 retention
+        # contract: explicit AF targets (the committed layer/step
+        # values, 1.0 dB / 2.0 ms here) are KEPT after AF rather than
+        # reverted to the pre-AF snapshot (20.0 / 100.0).
         actual_gain = scope.imaging.get_gain()
         actual_exp = scope.imaging.get_exposure_time()
-        assert abs(actual_gain - 20.0) < 0.1, (
-            f'Camera gain should be restored to 20.0 (pre-AF) when '
-            f'the AF Future resolves, but got {actual_gain}'
+        assert abs(actual_gain - 1.0) < 0.1, (
+            f'Camera gain should remain at the committed AF target 1.0 '
+            f'when the AF Future resolves, but got {actual_gain}'
         )
-        assert abs(actual_exp - 100.0) < 0.1, (
-            f'Camera exposure should be restored to 100.0ms (pre-AF) when '
-            f'the AF Future resolves, but got {actual_exp}'
+        assert abs(actual_exp - 2.0) < 0.1, (
+            f'Camera exposure should remain at the committed AF target '
+            f'2.0ms when the AF Future resolves, but got {actual_exp}'
         )
 
 
