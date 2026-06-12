@@ -6,24 +6,95 @@ against the camera's ACTUAL (live) values, so the reads must stay live --
 but they were firing on every protocol step even in normal operation,
 because the f-string arguments evaluate before logger.debug decides to drop
 the line. The two live SDK reads are now gated on debug being enabled.
+
+Driven behaviorally: capture() runs once with debug off and once with debug
+on (a stub logger controls isEnabledFor), counting the live driver reads.
 """
 
-from pathlib import Path
+import threading
+from types import SimpleNamespace
+from unittest.mock import MagicMock
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+import numpy as np
+
+from modules.protocol_callbacks import ProtocolCallbacks
+from modules.protocol_image_writer import ProtocolImageWriter
 
 
-def test_capture_diag_camera_reads_gated_on_debug():
-    src = (REPO_ROOT / 'modules' / 'protocol_image_writer.py').read_text()
-    idx = src.find('[CAPTURE DIAG]')
-    assert idx != -1, 'CAPTURE DIAG diagnostic not found'
-    window = src[max(0, idx - 500) : idx]
-    assert 'isEnabledFor(logging.DEBUG)' in window, (
-        'the live get_gain()/get_exposure_time() reads feeding the CAPTURE '
-        'DIAG line must be gated on logger.isEnabledFor(logging.DEBUG) so '
-        'they do not run every step when the debug line is dropped'
+def _drive_capture(monkeypatch, debug_enabled):
+    writer = ProtocolImageWriter(
+        scope=MagicMock(),
+        callbacks=ProtocolCallbacks(),
+        aborted=threading.Event(),
+        file_io_executor=MagicMock(),
+        abort_fn=lambda: None,
+        execution_record=None,
+        leds_off_fn=lambda: None,
+        led_on_fn=lambda **kw: None,
+        is_run_in_progress_fn=lambda: True,
     )
-    assert 'get_gain()' in window and 'get_exposure_time()' in window, (
-        'the diagnostic must still read the live camera values when enabled '
+    scope = writer._scope
+    scope.motion.has_turret.return_value = False
+    scope.led_connected = False
+    scope.imaging.capture_and_wait.return_value = np.zeros((4, 4), dtype=np.uint8)
+
+    def quiet(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(
+        'modules.protocol_image_writer.logger',
+        SimpleNamespace(
+            isEnabledFor=lambda level: debug_enabled,
+            debug=quiet,
+            info=quiet,
+            warning=quiet,
+            error=quiet,
+            exception=quiet,
+            critical=quiet,
+        ),
+    )
+    protocol = MagicMock()
+    protocol.capture_root.return_value = ''
+    writer.capture(
+        save_folder='/tmp',
+        step={
+            'Name': 'stepA',
+            'Acquire': 'image',
+            'Auto_Gain': False,
+            'Color': 'BF',
+            'Gain': 2.0,
+            'Exposure': 10.0,
+            'Objective': '4x',
+            'Well': 'A1',
+            'Z-Slice': 0,
+            'Tile': '',
+            'Illumination': 50.0,
+            'False_Color': False,
+        },
+        output_format='TIFF',
+        protocol=protocol,
+        image_capture_config={'use_full_pixel_depth': False},
+        enable_image_saving=True,
+    )
+    return scope.imaging
+
+
+def test_camera_reads_skipped_when_debug_disabled(monkeypatch):
+    imaging = _drive_capture(monkeypatch, debug_enabled=False)
+    assert imaging.get_gain.call_count == 0, (
+        'the diagnostic live gain read must not run when debug is off'
+    )
+    assert imaging.get_exposure_time.call_count == 0, (
+        'the diagnostic live exposure read must not run when debug is off'
+    )
+
+
+def test_camera_reads_run_when_debug_enabled(monkeypatch):
+    imaging = _drive_capture(monkeypatch, debug_enabled=True)
+    assert imaging.get_gain.call_count == 1, (
+        'with debug on, the diagnostic must read the live gain '
         '(comparing intended vs actual is the whole point)'
+    )
+    assert imaging.get_exposure_time.call_count == 1, (
+        'with debug on, the diagnostic must read the live exposure'
     )

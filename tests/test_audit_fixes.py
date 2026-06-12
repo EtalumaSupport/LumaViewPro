@@ -2790,6 +2790,51 @@ class TestAOC2_RetrySaturationCheckOutsideCamLock:
         )
 
 
+def _bare_protocol_writer(**overrides):
+    """ProtocolImageWriter on stub collaborators; kwargs override any slot."""
+    from unittest.mock import MagicMock
+
+    from modules.protocol_callbacks import ProtocolCallbacks
+    from modules.protocol_image_writer import ProtocolImageWriter
+
+    kwargs = {
+        'scope': MagicMock(),
+        'callbacks': ProtocolCallbacks(),
+        'aborted': threading.Event(),
+        'file_io_executor': MagicMock(),
+        'abort_fn': lambda: None,
+        'execution_record': None,
+        'leds_off_fn': lambda: None,
+        'led_on_fn': lambda **kw: None,
+        'is_run_in_progress_fn': lambda: True,
+    }
+    kwargs.update(overrides)
+    return ProtocolImageWriter(**kwargs)
+
+
+def _protocol_step(**overrides):
+    """Minimal protocol step dict covering every key capture()/write_capture() read."""
+    step = {
+        'Name': 'stepA',
+        'Acquire': 'image',
+        'Auto_Gain': False,
+        'Color': 'BF',
+        'Gain': 2.0,
+        'Exposure': 10.0,
+        'Objective': '4x',
+        'Well': 'A1',
+        'Z-Slice': 0,
+        'Tile': '',
+        'Illumination': 50.0,
+        'False_Color': False,
+        'X': 0.0,
+        'Y': 0.0,
+        'Z': 0.0,
+    }
+    step.update(overrides)
+    return step
+
+
 class TestPIW3_FalseColor16bitCachedAtRunStart:
     """PIW-3: image_utils.write_tiff used to acquire `_app_ctx.ctx.settings_lock`
     on every TIFF save to read the `false_color_16bit` flag. Same Rule 14 / Rule 2
@@ -2833,20 +2878,30 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
             f'through to write_tiff; write_tiff saw {sorted(recorded)}'
         )
 
-    def test_protocol_image_writer_caches_at_init(self):
-        from pathlib import Path
+    def test_protocol_image_writer_caches_at_init(self, monkeypatch, tmp_path):
+        """The writer must hand save_image the value it was CONSTRUCTED
+        with -- the run-start read, not a per-save settings read."""
+        import numpy as np
 
-        src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'protocol_image_writer.py'
-        ).read_text()
-        assert 'false_color_16bit: bool = False' in src, (
-            'PIW-3: ProtocolImageWriter.__init__ should accept false_color_16bit.'
+        writer = _bare_protocol_writer(false_color_16bit=True)
+        recorded = []
+        monkeypatch.setattr(
+            'modules.protocol_image_writer.save_image',
+            lambda scope, **kwargs: recorded.append(kwargs) or (tmp_path / 'out.tiff'),
         )
-        assert 'self._false_color_16bit = false_color_16bit' in src, (
-            'PIW-3: ProtocolImageWriter should cache false_color_16bit on self.'
+        writer.write_capture(
+            enable_image_saving=True,
+            is_video=False,
+            captured_image=np.zeros((4, 4), dtype=np.uint8),
+            step=_protocol_step(),
+            name='stepA_BF',
+            save_folder=str(tmp_path),
+            use_color='BF',
+            output_format='TIFF',
         )
-        assert 'use_false_color_16bit=self._false_color_16bit' in src, (
-            'PIW-3: ProtocolImageWriter should pass the cached value to save_image.'
+        assert recorded, 'write_capture must reach save_image'
+        assert recorded[0]['use_false_color_16bit'] is True, (
+            'the constructor-cached false_color_16bit must arrive at save_image'
         )
 
     def test_sequenced_capture_runner_reads_once_at_run_start(self):
@@ -2902,26 +2957,43 @@ class TestPIW5_Convert12to16OutBuffer:
         assert result3 is not src, 'PIW-5: no-out path should still allocate a fresh array.'
         np.testing.assert_array_equal(result3, src * 16)
 
-    def test_protocol_image_writer_holds_reusable_buffer(self):
-        from pathlib import Path
+    def test_protocol_image_writer_reuses_convert_buffer(self, monkeypatch, tmp_path):
+        """Consecutive same-shape uint16 saves must share ONE conversion
+        buffer; a shape change reallocates; uint8 saves pass none."""
+        import numpy as np
 
-        src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'protocol_image_writer.py'
-        ).read_text()
-        assert 'self._convert_buf_12to16 = None' in src, (
-            'PIW-5: ProtocolImageWriter should initialize the convert buffer to None.'
+        writer = _bare_protocol_writer()
+        buffers = []
+        monkeypatch.setattr(
+            'modules.protocol_image_writer.save_image',
+            lambda scope, **kwargs: buffers.append(kwargs['out_12to16'])
+            or (tmp_path / 'out.tiff'),
         )
-        assert '_get_convert_buf_12to16' in src, (
-            'PIW-5: ProtocolImageWriter should have a buffer-getter helper.'
+
+        def write(frame):
+            writer.write_capture(
+                enable_image_saving=True,
+                is_video=False,
+                captured_image=frame,
+                step=_protocol_step(),
+                name='stepA_BF',
+                save_folder=str(tmp_path),
+                use_color='BF',
+                output_format='TIFF',
+            )
+
+        write(np.zeros((6, 5), dtype=np.uint16))
+        write(np.zeros((6, 5), dtype=np.uint16))
+        assert buffers[0] is not None and buffers[0].shape == (6, 5)
+        assert buffers[1] is buffers[0], (
+            'same-shape saves must reuse one conversion buffer'
         )
-        # Shape/dtype guard: the helper must re-allocate on shape change.
-        assert 'self._convert_buf_12to16.shape != array.shape' in src, (
-            'PIW-5: buffer helper must re-allocate when input shape changes.'
+        write(np.zeros((3, 3), dtype=np.uint16))
+        assert buffers[2] is not buffers[0] and buffers[2].shape == (3, 3), (
+            'a shape change must reallocate the buffer'
         )
-        # Save-call site passes the buffer.
-        assert 'out_12to16=out_12to16' in src, (
-            'PIW-5: _write_capture should pass the convert buffer to save_image.'
-        )
+        write(np.zeros((6, 5), dtype=np.uint8))
+        assert buffers[3] is None, '8-bit saves need no 12->16 conversion buffer'
 
     def test_save_image_reuses_out_12to16_buffer(self, monkeypatch, tmp_path):
         """The caller-supplied buffer must be the 12->16 conversion
@@ -3109,21 +3181,41 @@ class TestPIW2_DisksUsageDeduped:
             'PIW-2: corresponding warn log should be removed.'
         )
 
-    def test_protocol_image_writer_disk_check_kept(self):
-        from pathlib import Path
+    def test_protocol_image_writer_disk_exhaustion_aborts(self, monkeypatch, tmp_path):
+        """A failed save-folder disk check must notify, abort the protocol,
+        and never reach save_image -- the useful check stays load-bearing."""
+        import numpy as np
 
-        src = (
-            Path(__file__).resolve().parent.parent / 'modules' / 'protocol_image_writer.py'
-        ).read_text()
-        # The useful check (correct path + abort on exhaustion) must remain.
-        # Rule-35 audit 2026-05-19 finding 3 consolidated the probe call onto
-        # common_utils.check_disk_space_ok; the abort policy stayed local.
-        assert 'common_utils.check_disk_space_ok(save_folder' in src, (
-            "PIW-2: protocol_image_writer's save-folder disk check should be kept (it's the useful one)."
+        from modules.notification_center import notifications
+
+        aborts = []
+        writer = _bare_protocol_writer(abort_fn=lambda: aborts.append(1))
+        monkeypatch.setattr(
+            'modules.common_utils.check_disk_space_ok',
+            lambda folder, min_mb: (False, 12.0),
         )
-        assert 'self._abort_fn()' in src, (
-            "PIW-2: protocol_image_writer's abort-on-low-disk path should still be present."
+        saves = []
+        monkeypatch.setattr(
+            'modules.protocol_image_writer.save_image',
+            lambda scope, **kwargs: saves.append(kwargs) or (tmp_path / 'out.tiff'),
         )
+        notes = []
+        monkeypatch.setattr(
+            notifications, 'critical', lambda *args, **kwargs: notes.append(args)
+        )
+        writer.write_capture(
+            enable_image_saving=True,
+            is_video=False,
+            captured_image=np.zeros((4, 4), dtype=np.uint8),
+            step=_protocol_step(),
+            name='stepA_BF',
+            save_folder=str(tmp_path),
+            use_color='BF',
+            output_format='TIFF',
+        )
+        assert aborts == [1], 'low disk must abort the protocol'
+        assert not saves, 'no write may happen after a failed disk check'
+        assert notes, 'low disk must surface a critical notification'
 
 
 class TestProtocolCleanupRestoresLayerShader_ShaderHygiene:
@@ -10305,25 +10397,47 @@ class TestAutoGainArmedInScanIterate:
             'the apply is serialized with other protocol-thread IO.'
         )
 
+    @staticmethod
+    def _drive_capture(auto_gain):
+        from unittest.mock import MagicMock
+
+        import numpy as np
+
+        writer = _bare_protocol_writer()
+        scope = writer._scope
+        scope.motion.has_turret.return_value = False
+        scope.led_connected = False
+        scope.imaging.capture_and_wait.return_value = np.zeros((4, 4), dtype=np.uint8)
+        protocol = MagicMock()
+        protocol.capture_root.return_value = ''
+        writer.capture(
+            save_folder='/tmp',
+            step=_protocol_step(Auto_Gain=auto_gain),
+            output_format='TIFF',
+            protocol=protocol,
+            image_capture_config={'use_full_pixel_depth': False},
+            enable_image_saving=True,
+        )
+        return scope.imaging
+
     def test_capture_does_not_double_apply_for_ag_step(self):
-        src = self._writer_src()
-        # The AG branch in capture() must not call apply (scan_iterate already
-        # armed AG). Locate the "Auto_Gain step" branch and assert there is no
-        # apply_layer_camera_settings call in its body.
-        marker = '# Auto_Gain step: scan_iterate already lit the LED and armed AG'
-        idx = src.find(marker)
-        assert idx >= 0, (
-            'capture() Auto_Gain branch must document that scan_iterate '
-            'lit the LED and armed AG; the comment is the contract.'
+        """An Auto_Gain step's capture must apply NO camera settings --
+        scan_iterate already lit the LED and armed AG against the lit
+        scene; a re-apply here would restart AG mid-grab and discard the
+        settling the capture_and_wait drain produced."""
+        imaging = self._drive_capture(auto_gain=True)
+        assert not imaging.apply_layer_camera_settings.called, (
+            'AG-step capture must not re-apply layer camera settings'
         )
-        # Look at the next 800 chars of the branch body.
-        branch_window = src[idx : idx + 800]
-        assert 'self._scope.imaging.apply_layer_camera_settings(' not in branch_window, (
-            'capture() Auto_Gain branch must not call '
-            'self._scope.imaging.apply_layer_camera_settings(...) -- '
-            'doing so would restart AG mid-grab and discard the settling '
-            'the capture_and_wait drain produced.'
+        assert not imaging.set_gain.called and not imaging.set_exposure_time.called, (
+            'AG-step capture must not drive manual gain/exposure either'
         )
+
+    def test_capture_applies_settings_for_manual_step(self):
+        """Control: a non-AG step DOES drive the step gain/exposure."""
+        imaging = self._drive_capture(auto_gain=False)
+        imaging.set_gain.assert_called_once_with(2.0)
+        imaging.set_exposure_time.assert_called_once_with(10.0)
 
     def test_arm_block_returns_after_arming(self):
         """The arm block must `return` after arming so the next scan_iterate
