@@ -1202,8 +1202,25 @@ class LumaViewProApp(TooltipMixin, App):
             if fut is not None:
                 try:
                     fut.result(timeout=2.0)
+                except TimeoutError:
+                    # The io_executor can still be draining protocol-abort
+                    # cleanup at exit, and that cleanup turns LEDs off
+                    # itself -- this expiry does not mean LEDs were left
+                    # on. Log the cached channel state so the post-mortem
+                    # answers that question directly.
+                    states = lumaview.scope.illumination.get_led_states()
+                    lit = sorted(c for c, s in states.items() if s.get('enabled'))
+                    state_text = (
+                        'channels still ON: ' + ', '.join(lit) if lit
+                        else 'all channels OFF'
+                    )
+                    logger.warning(
+                        f'[LVP Main  ] shutdown leds_off still queued on '
+                        f'io_executor after 2.0s; LED state cache reports '
+                        f'{state_text}'
+                    )
                 except Exception as e:
-                    logger.warning(f'[LVP Main  ] leds_off via io_executor timed out / failed: {e}')
+                    logger.warning(f'[LVP Main  ] shutdown leds_off failed: {e}')
             else:
                 logger.warning('[LVP Main  ] io_executor unavailable for shutdown leds_off')
         except Exception as e:  # grain: ignore NAKED_EXCEPT
