@@ -6,7 +6,7 @@ real validation is the hook running on actual commits.
 
 import pytest
 
-from tools.ruff_ratchet import decide, parse_baseline
+from tools.ruff_ratchet import decide, parse_baseline, rewrite_baseline
 
 
 class TestParseBaseline:
@@ -37,3 +37,12 @@ class TestDecide:
 
     def test_zero_count_lowers_to_zero(self):
         assert decide(0, 1) == 'lower'
+
+
+class TestRewriteBaseline:
+    def test_comment_header_preserved(self, tmp_path):
+        bfile = tmp_path / 'ruff_baseline.txt'
+        bfile.write_text('# ceiling notes\n# second line\n495\n')
+        rewrite_baseline(bfile, 368)
+        assert bfile.read_text() == '# ceiling notes\n# second line\n368\n'
+        assert parse_baseline(bfile.read_text()) == 368

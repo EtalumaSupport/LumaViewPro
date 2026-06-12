@@ -101,6 +101,16 @@ def decide(count: int, baseline: int) -> str:
     return 'ok'
 
 
+def rewrite_baseline(path: Path, count: int) -> None:
+    """Write the new count, preserving the file's comment header lines."""
+    header = [
+        line
+        for line in path.read_text(encoding='utf-8').splitlines()
+        if line.strip().startswith('#')
+    ]
+    path.write_text('\n'.join([*header, str(count)]) + '\n', encoding='utf-8')
+
+
 def run(pre_commit: bool) -> int:
     root = repo_root()
     bpath = baseline_path(root)
@@ -126,7 +136,7 @@ def run(pre_commit: bool) -> int:
         return 1
 
     if verdict == 'lower':
-        bpath.write_text(f'{count}\n', encoding='utf-8')
+        rewrite_baseline(bpath, count)
         print(f'ruff_ratchet: count dropped {baseline} -> {count}; baseline lowered')
         if pre_commit:
             subprocess.run(['git', 'add', str(bpath)], cwd=root, check=True)
