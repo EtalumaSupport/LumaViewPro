@@ -1574,11 +1574,13 @@ class TestSetBinningSizeReturnsBool:
 
     def test_set_binning_size_has_bool_return_annotation(self):
         # Body relocated to imaging.py in Wave 7 Phase 4d.
-        import pathlib
+        from tests.ast_seams import assert_def
 
-        source = pathlib.Path('modules/lumascope_api/imaging.py').read_text()
-        idx = source.find('def set_binning_size(self, size: int) -> bool:')
-        assert idx != -1, 'ImagingAPI.set_binning_size must declare `-> bool` (Wave 1 B1; Rule 37)'
+        assert_def(
+            'modules/lumascope_api/imaging.py', 'set_binning_size',
+            params=['self', 'size'], returns='bool',
+            msg='ImagingAPI.set_binning_size must declare `-> bool` (Wave 1 B1; Rule 37)',
+        )
 
     def test_set_binning_size_returns_driver_value(self):
         """Method body must capture and return the driver's return value
@@ -1686,27 +1688,27 @@ class TestHomeReturnsBool:
     """
 
     def test_lumascope_zhome_has_bool_return_annotation(self):
-        import pathlib
+        from tests.ast_seams import assert_def
 
-        source = pathlib.Path('modules/lumascope_api/motion.py').read_text()
-        assert 'def zhome(self) -> bool:' in source, (
-            'MotionAPI.zhome must declare `-> bool` (Rule 37)'
+        assert_def(
+            'modules/lumascope_api/motion.py', 'zhome', returns='bool',
+            msg='MotionAPI.zhome must declare `-> bool` (Rule 37)',
         )
 
     def test_lumascope_home_has_bool_return_annotation(self):
-        import pathlib
+        from tests.ast_seams import assert_def
 
-        source = pathlib.Path('modules/lumascope_api/motion.py').read_text()
-        assert 'def home(self) -> bool:' in source, (
-            'MotionAPI.home must declare `-> bool` (Rule 37)'
+        assert_def(
+            'modules/lumascope_api/motion.py', 'home', returns='bool',
+            msg='MotionAPI.home must declare `-> bool` (Rule 37)',
         )
 
     def test_lumascope_thome_has_bool_return_annotation(self):
-        import pathlib
+        from tests.ast_seams import assert_def
 
-        source = pathlib.Path('modules/lumascope_api/motion.py').read_text()
-        assert 'def thome(self) -> bool:' in source, (
-            'MotionAPI.thome must declare `-> bool` (Rule 37)'
+        assert_def(
+            'modules/lumascope_api/motion.py', 'thome', returns='bool',
+            msg='MotionAPI.thome must declare `-> bool` (Rule 37)',
         )
 
     def test_lumascope_zhome_returns_driver_value(self):
@@ -1847,11 +1849,12 @@ class TestDisconnectReturnsBool:
     """
 
     def test_disconnect_has_bool_return_annotation(self):
-        import pathlib
+        from tests.ast_seams import assert_def
 
-        source = pathlib.Path('modules/lumascope_api/_lumascope.py').read_text()
-        assert 'def disconnect(self) -> bool:' in source, (
-            'Lumascope.disconnect must declare `-> bool` (Wave 4 B2; Rule 37)'
+        assert_def(
+            'modules/lumascope_api/_lumascope.py', 'disconnect',
+            class_name='Lumascope', returns='bool',
+            msg='Lumascope.disconnect must declare `-> bool` (Wave 4 B2; Rule 37)',
         )
 
     def test_disconnect_aggregates_and_returns_bool(self):
@@ -1905,11 +1908,12 @@ class TestEnterEngineeringModeRaises:
     """
 
     def test_ledboard_enter_engineering_mode_has_bool_return(self):
-        import pathlib
+        from tests.ast_seams import assert_def
 
-        source = pathlib.Path('drivers/ledboard.py').read_text()
-        assert 'def enter_engineering_mode(self, timeout: float = 5.0) -> bool:' in source, (
-            'LEDBoard.enter_engineering_mode must declare `-> bool` (Tier 1-A; Rule 37)'
+        assert_def(
+            'drivers/ledboard.py', 'enter_engineering_mode',
+            params=['self', 'timeout'], returns='bool',
+            msg='LEDBoard.enter_engineering_mode must declare `-> bool` (Tier 1-A; Rule 37)',
         )
 
     def test_ledboard_enter_engineering_mode_raises(self):
@@ -2735,14 +2739,13 @@ class TestPIW6_PF3_FalseColorRgbPreallocated:
     """
 
     def test_write_tiff_signature_includes_buffers(self):
-        from pathlib import Path
+        from tests.ast_seams import assert_def
 
-        src = (Path(__file__).resolve().parent.parent / 'modules' / 'image_utils.py').read_text()
-        assert 'false_color_buf: np.ndarray | None = None' in src, (
-            'PF-3: write_tiff should accept false_color_buf param.'
-        )
-        assert 'rgb_buf: np.ndarray | None = None' in src, (
-            'PIW-6: write_tiff should accept rgb_buf param.'
+        assert_def(
+            'modules/image_utils.py', 'write_tiff',
+            has_params=['false_color_buf', 'rgb_buf'],
+            msg='PF-3 + PIW-6: write_tiff should accept the reusable '
+                'false_color_buf and rgb_buf params.',
         )
 
     def test_protocol_image_writer_does_not_preallocate_dead_buffers(self):
@@ -4578,14 +4581,14 @@ class TestPylonDiagnosticProbe:
         assert 'pylon_sdk_version' in result
 
     def test_pylon_camera_has_read_diagnostic_snapshot(self):
-        """Source-shape lock: PylonCamera must implement the driver
-        method the API depends on."""
-        from pathlib import Path
+        """Seam lock: PylonCamera must implement the driver method the
+        API depends on."""
+        from tests.ast_seams import assert_def
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        assert 'def read_diagnostic_snapshot(' in src, (
-            'PylonCamera must implement read_diagnostic_snapshot for '
-            'DiagnosticsAPI.run_pylon_diagnostic_probe to function.'
+        assert_def(
+            'drivers/pyloncamera.py', 'read_diagnostic_snapshot',
+            msg='PylonCamera must implement read_diagnostic_snapshot for '
+                'DiagnosticsAPI.run_pylon_diagnostic_probe to function.',
         )
 
     def test_ids_camera_has_read_diagnostic_snapshot_stub(self):
@@ -4594,11 +4597,14 @@ class TestPylonDiagnosticProbe:
         raising AttributeError when an IDS camera is connected."""
         from pathlib import Path
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'idscamera.py').read_text()
-        assert 'def read_diagnostic_snapshot(' in src, (
-            'IDSCamera must have a read_diagnostic_snapshot stub '
-            'returning supported=False until the IDS implementation lands.'
+        from tests.ast_seams import assert_def
+
+        assert_def(
+            'drivers/idscamera.py', 'read_diagnostic_snapshot',
+            msg='IDSCamera must have a read_diagnostic_snapshot stub '
+                'returning supported=False until the IDS implementation lands.',
         )
+        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'idscamera.py').read_text()
         body = _function_source(src, 'read_diagnostic_snapshot')
         assert "'supported': False" in body or '"supported": False' in body, (
             'IDS read_diagnostic_snapshot stub must return supported=False'
@@ -4693,13 +4699,12 @@ class TestDeviceLinkThroughputLimitSetter:
         assert called_with == {'mode': 'On', 'value_bps': 160_000_000}
 
     def test_pylon_driver_method_present(self):
-        from pathlib import Path
+        from tests.ast_seams import assert_def
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        assert 'def set_device_link_throughput_limit(' in src, (
-            'PylonCamera must implement set_device_link_throughput_limit '
-            "for tomorrow's bench-probe sweep to function without "
-            'Rule 1 violations.'
+        assert_def(
+            'drivers/pyloncamera.py', 'set_device_link_throughput_limit',
+            msg='PylonCamera must implement set_device_link_throughput_limit '
+                'so the bench-probe sweep can stay above the driver layer.',
         )
 
     def test_pylon_driver_does_not_wrap_in_update_camera_config(self):
@@ -4717,13 +4722,13 @@ class TestDeviceLinkThroughputLimitSetter:
         )
 
     def test_ids_driver_stub_present(self):
-        from pathlib import Path
+        from tests.ast_seams import assert_def
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'idscamera.py').read_text()
-        assert 'def set_device_link_throughput_limit(' in src, (
-            'IDSCamera must have a set_device_link_throughput_limit '
-            'stub so the API method does not need to know which driver '
-            'is connected when called by the sweep tool.'
+        assert_def(
+            'drivers/idscamera.py', 'set_device_link_throughput_limit',
+            msg='IDSCamera must have a set_device_link_throughput_limit '
+                'stub so the API method does not need to know which driver '
+                'is connected when called by the sweep tool.',
         )
 
     def test_pylon_driver_raises_hardware_error_on_runtime_exception(self):
@@ -6996,13 +7001,13 @@ class TestAcquisitionStopModeSetter:
         assert called_with == {'mode': 'AbortExposure'}
 
     def test_pylon_driver_method_present(self):
-        from pathlib import Path
+        from tests.ast_seams import assert_def
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        assert 'def set_acquisition_stop_mode(' in src, (
-            'PylonCamera must implement set_acquisition_stop_mode for '
-            'the bench-probe sweep to exercise BslAcquisitionStopMode '
-            'without bypassing the API layer.'
+        assert_def(
+            'drivers/pyloncamera.py', 'set_acquisition_stop_mode',
+            msg='PylonCamera must implement set_acquisition_stop_mode for '
+                'the bench-probe sweep to exercise BslAcquisitionStopMode '
+                'without bypassing the API layer.',
         )
 
     def test_pylon_driver_validates_mode_argument(self):
@@ -7173,15 +7178,17 @@ class TestGigeSetters:
         assert called_with == {'delay_ticks': 100}
 
     def test_pylon_setters_present(self):
-        from pathlib import Path
+        from tests.ast_seams import assert_def
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
         for name in (
             'set_bandwidth_reserve_mode',
             'set_gev_packet_size',
             'set_gev_inter_packet_delay',
         ):
-            assert f'def {name}(' in src, f'PylonCamera must implement {name}.'
+            assert_def(
+                'drivers/pyloncamera.py', name,
+                msg=f'PylonCamera must implement {name}.',
+            )
 
     def test_pylon_bandwidth_reserve_mode_validates(self):
         from pathlib import Path
@@ -7374,11 +7381,10 @@ class TestStreamGrabberSetters:
         assert called_with == {'value': 32}
 
     def test_pylon_driver_methods_present(self):
-        from pathlib import Path
+        from tests.ast_seams import assert_def
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        assert 'def set_max_transfer_size(' in src
-        assert 'def set_num_max_queued_urbs(' in src
+        assert_def('drivers/pyloncamera.py', 'set_max_transfer_size')
+        assert_def('drivers/pyloncamera.py', 'set_num_max_queued_urbs')
 
     def test_ids_driver_stubs_return_false(self):
         from drivers.idscamera import IDSCamera
@@ -7441,10 +7447,9 @@ class TestPylonAcquisitionIdleWait:
     """
 
     def test_helper_method_present(self):
-        from pathlib import Path
+        from tests.ast_seams import assert_def
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        assert 'def _wait_for_acquisition_idle(' in src
+        assert_def('drivers/pyloncamera.py', '_wait_for_acquisition_idle')
 
     def test_disconnect_calls_idle_wait_after_stop_grabbing(self):
         """Pin call-site shape: disconnect() must invoke
@@ -7588,10 +7593,9 @@ class TestPylonStreamGrabberStatusLog:
     """
 
     def test_helper_method_present(self):
-        from pathlib import Path
+        from tests.ast_seams import assert_def
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        assert 'def _log_stream_grabber_status(' in src
+        assert_def('drivers/pyloncamera.py', '_log_stream_grabber_status')
 
     def test_start_grabbing_logs_status_before_start_call(self):
         """Pin call-site shape: _log_stream_grabber_status fires in

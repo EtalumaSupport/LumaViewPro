@@ -168,10 +168,13 @@ class TestZprojectionFolderPickerDefaultDepth_629:
         """Helper must exist at module scope, take live_folder, return
         a str. Pure (no Kivy / no app_ctx / no settings access). Future
         behavioral tests can import it directly without conftest changes."""
-        src = (REPO_ROOT / 'ui' / 'file_dialogs.py').read_text()
-        assert 'def _zprojection_picker_default_path(' in src, (
-            'Helper _zprojection_picker_default_path() must exist; '
-            'FolderChooseBTN.choose() delegates to it (#629).'
+        from tests.ast_seams import assert_def
+
+        assert_def(
+            'ui/file_dialogs.py', '_zprojection_picker_default_path',
+            has_params=['live_folder'],
+            msg='Helper _zprojection_picker_default_path() must exist; '
+                'FolderChooseBTN.choose() delegates to it (#629).',
         )
 
     def test_helper_descends_manual_z_stacks_first(self):
