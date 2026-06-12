@@ -2182,35 +2182,33 @@ class TestPylonChunkTimestampEnabled:
     """
 
     def test_timestamp_in_chunk_targets_always(self):
-        import pathlib
-
-        source = pathlib.Path('drivers/pyloncamera.py').read_text()
         # _CHUNK_TARGETS_ALWAYS is the tuple enabled by default in
         # _enable_validity_chunks; Timestamp must be in it for every
         # camera to surface ChunkTimestamp at grab time.
-        idx = source.find('_CHUNK_TARGETS_ALWAYS')
-        assert idx >= 0, '_CHUNK_TARGETS_ALWAYS not found in pyloncamera.py'
-        decl_end = source.find(')', idx)
-        decl = source[idx:decl_end]
-        assert "'Timestamp'" in decl, (
-            "_CHUNK_TARGETS_ALWAYS must include 'Timestamp' for issue #633 "
-            'per-frame timestamps. Currently: ' + decl
+        from drivers.pyloncamera import PylonCamera
+
+        assert 'Timestamp' in PylonCamera._CHUNK_TARGETS_ALWAYS, (
+            "_CHUNK_TARGETS_ALWAYS must include 'Timestamp' for "
+            'per-frame timestamps. Currently: '
+            f'{PylonCamera._CHUNK_TARGETS_ALWAYS!r}'
         )
 
-    def test_chunktimestamp_in_grab_result_attrs(self):
-        import pathlib
+    def test_chunktimestamp_surfaces_in_validity_chunks_read(self):
+        """The read side must surface a grab result's ChunkTimestamp
+        under the 'Timestamp' dict key -- without the mapping, the
+        timestamp never reaches the metadata writer even when the
+        chunk is enabled."""
+        from drivers.pyloncamera import _read_validity_chunks
 
-        source = pathlib.Path('drivers/pyloncamera.py').read_text()
-        # _CHUNK_GRAB_RESULT_ATTRS maps SDK attr -> chunks dict key.
-        # Without this entry the read side won't surface the timestamp
-        # even if the chunk is enabled.
-        idx = source.find('_CHUNK_GRAB_RESULT_ATTRS')
-        assert idx >= 0, '_CHUNK_GRAB_RESULT_ATTRS not found in pyloncamera.py'
-        next_def = source.find('\n    def ', idx)
-        decl = source[idx:next_def] if next_def > 0 else source[idx : idx + 1000]
-        assert "'ChunkTimestamp'" in decl and "'Timestamp'" in decl, (
-            "_CHUNK_GRAB_RESULT_ATTRS must map ChunkTimestamp -> 'Timestamp'. Currently: " + decl
-        )
+        class _Node:
+            def __init__(self, value):
+                self.Value = value
+
+        class _GrabResult:
+            ChunkTimestamp = _Node(987654321)
+
+        chunks = _read_validity_chunks(_GrabResult())
+        assert chunks is not None and chunks['Timestamp'] == 987654321
 
     def test_camera_base_has_timestamp_tick_frequency_hz(self):
         # The Camera base class declares the attribute so callers
@@ -3383,10 +3381,19 @@ def _function_body_calls(source: str, func_name: str) -> set[str]:
 # Bare camera-driver builders shared with the other behavioral driver
 # test files; bodies live in tests/camera_fakes.py.
 from tests.camera_fakes import (
+    FakeDiagNode as _FakeDiagNode,
+    RecordingNodeMap as _RecordingNodeMap,
     bare_grab_worker as _bare_grab_worker,
     bare_ids_camera as _bare_ids_camera,
     bare_image_handler as _bare_image_handler,
     bare_pylon_camera as _bare_pylon_camera,
+    chunk_config_pylon_camera as _chunk_config_pylon_camera,
+    diag_snapshot_pylon_camera as _diag_snapshot_pylon_camera,
+    disconnectable_pylon_camera as _disconnectable_pylon_camera,
+    fake_trigger_entry as _fake_trigger_entry,
+    init_configurable_pylon_camera as _init_configurable_pylon_camera,
+    run_one_stats_poll as _run_one_stats_poll,
+    stats_poll_pylon_camera as _stats_poll_pylon_camera,
 )
 
 
@@ -4332,78 +4339,74 @@ class TestPylonDisconnectDestroyDevice:
     succeeded; without that invariant, the rest of the app sees a
     known-bad camera as still connected.
 
-    Source-shape tests rather than behavioural tests because exercising
-    the path requires either a real Pylon device or mocking the entire
-    pypylon SDK at the C++ binding layer; the source-shape pin matches
-    the existing TestPylonCancelHandlingDefensive style and is enough
-    for Rule 18.
+    Behavioral: drives the REAL disconnect() on a bare PylonCamera with
+    a fake SDK handle and asserts the teardown calls, their order, the
+    failure isolation between steps, and the post-cleanup state.
     """
 
-    def _disconnect_body(self):
-        from pathlib import Path
-
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        return _function_source(src, 'disconnect')
-
-    def test_disconnect_calls_destroy_device(self):
-        """disconnect() must explicitly destroy the SDK-side device
-        handle. Without this, CPython refcount-driven cleanup may leave
-        the handle held past the next reconnect attempt (pypylon #792)."""
-        body = self._disconnect_body()
-        assert 'self.active.DestroyDevice()' in body, (
-            'PylonCamera.disconnect must call self.active.DestroyDevice() '
-            'to explicitly release the SDK-side device handle. Required '
-            "to prevent 'device controlled by another application' on the "
-            'next CreateDevice (pypylon issues #547, #792).'
+    def test_disconnect_detaches_then_destroys_then_clears_active(self):
+        """DetachDevice must run before DestroyDevice (Basler-recommended
+        sequence), and self.active must still hold the device handle when
+        DestroyDevice runs -- clearing active first would lose the pointer
+        before DestroyDevice could release it (pypylon #547, #792)."""
+        cam = _disconnectable_pylon_camera()
+        fake = cam.active
+        order = []
+        fake.DetachDevice.side_effect = lambda: order.append('detach')
+        fake.DestroyDevice.side_effect = lambda: order.append(
+            ('destroy', cam.active is fake)
         )
-
-    def test_disconnect_calls_detach_device(self):
-        """DetachDevice releases the InstantCamera's ownership of the
-        device pointer before DestroyDevice destroys it. Per
-        Basler-recommended canonical reattach sequence."""
-        body = self._disconnect_body()
-        assert 'self.active.DetachDevice()' in body, (
-            'PylonCamera.disconnect must call self.active.DetachDevice() '
-            'before DestroyDevice. Required by Basler-recommended cleanup '
-            'sequence: StopGrabbing -> Close -> DetachDevice -> DestroyDevice.'
+        assert cam.disconnect() is True
+        assert order == ['detach', ('destroy', True)], (
+            f'Expected DetachDevice then DestroyDevice with the handle still '
+            f'held at destroy time; got {order!r}'
         )
+        assert cam.active is None
 
-    def test_disconnect_destroy_device_wrapped_in_try(self):
-        """If DestroyDevice fails (e.g., already-detached device), the
-        exception must NOT prevent self.active = None from running.
-        Otherwise the post-cleanup invariant breaks and the app thinks
-        a known-bad camera is still connected."""
-        body = self._disconnect_body()
-        # Look for the exact pattern: try block containing DestroyDevice
-        assert 'self.active.DestroyDevice()' in body
-        # The DestroyDevice line must be inside a try/except that logs
-        # a warning and continues, not propagates.
-        # Heuristic: there must be at least 3 try blocks in disconnect
-        # (one for stop_grabbing, one for Close, one for DetachDevice,
-        # one for DestroyDevice -- count of "try:" lines must be >= 4).
-        try_count = body.count('try:')
-        assert try_count >= 4, (
-            f'disconnect() must wrap each SDK teardown step (Close, '
-            f'DetachDevice, DestroyDevice) in its own try/except so a '
-            f'failure in one does not skip the others. Currently '
-            f'{try_count} try blocks; expected >= 4 (stop_grabbing + '
-            f'Close + DetachDevice + DestroyDevice).'
-        )
+    def test_close_failure_does_not_block_detach_destroy(self):
+        """A failure in Close (e.g. on an already-removed device) must not
+        short-circuit DetachDevice / DestroyDevice or the active=None
+        invariant."""
+        cam = _disconnectable_pylon_camera()
+        fake = cam.active
+        fake.Close.side_effect = RuntimeError('device gone')
+        assert cam.disconnect() is True
+        assert fake.DetachDevice.called
+        assert fake.DestroyDevice.called
+        assert cam.active is None
 
-    def test_disconnect_clears_active_after_cleanup(self):
-        """self.active = None must come AFTER DestroyDevice, not before.
-        If we cleared active first we would lose the device pointer
-        before destroying it, leaving the SDK handle held."""
-        body = self._disconnect_body()
-        destroy_pos = body.find('self.active.DestroyDevice()')
-        clear_pos = body.find('self.active = None')
-        assert destroy_pos != -1, 'DestroyDevice call missing from disconnect()'
-        assert clear_pos != -1, 'self.active = None missing from disconnect()'
-        assert clear_pos > destroy_pos, (
-            'self.active = None must come AFTER self.active.DestroyDevice(). '
-            'Clearing active first loses the device pointer before '
-            'DestroyDevice can run -> SDK handle stays held.'
-        )
+    def test_detach_failure_does_not_block_destroy(self):
+        cam = _disconnectable_pylon_camera()
+        fake = cam.active
+        fake.DetachDevice.side_effect = RuntimeError('already detached')
+        assert cam.disconnect() is True
+        assert fake.DestroyDevice.called
+        assert cam.active is None
+
+    def test_destroy_failure_still_clears_active(self):
+        """The caller-visible invariant after disconnect() is
+        active is None regardless of SDK call success; otherwise the app
+        sees a known-bad camera as still connected."""
+        cam = _disconnectable_pylon_camera()
+        cam.active.DestroyDevice.side_effect = RuntimeError('boom')
+        assert cam.disconnect() is True
+        assert cam.active is None
+
+    def test_device_removed_path_skips_sdk_stop_calls(self):
+        """When the device is already known removed, the SDK-touching
+        steps (stop_grabbing / idle-wait / Close) are skipped (pypylon
+        #225 abort hazard) while DetachDevice + DestroyDevice still run
+        to release Python-side ownership."""
+        cam = _disconnectable_pylon_camera()
+        cam._device_removed = True
+        fake = cam.active
+        assert cam.disconnect() is True
+        assert not cam.stop_grabbing.called
+        assert not cam._wait_for_acquisition_idle.called
+        assert not fake.Close.called
+        assert fake.DetachDevice.called
+        assert fake.DestroyDevice.called
+        assert cam.active is None
 
 
 class TestPylonDiagnosticProbe:
@@ -4871,38 +4874,36 @@ class TestPylonStateMutationViaMarkDisconnected:
         )
 
     def test_on_image_grabbed_inactive_branch_uses_mark_disconnected(self):
-        """The OnImageGrabbed inactive-fallback branch must call
-        _mark_disconnected so the parent's _state_lock invariants hold."""
-        src = self._pyloncamera_source()
-        # Find the inactive-branch sentinel and confirm the call sequence.
-        marker = 'OnImageGrabbed called but camera is inactive'
-        idx = src.find(marker)
-        assert idx != -1, (
-            'Could not find OnImageGrabbed inactive-branch logger sentinel; '
-            'if the wording changed, update this test.'
-        )
-        # Within ~200 chars after the sentinel, expect the canonical call.
-        window = src[idx : idx + 400]
-        assert '_mark_disconnected()' in window, (
+        """When the callback fires but parent.active has been reset
+        elsewhere, OnImageGrabbed must route through _mark_disconnected
+        (the canonical lock-holding write path) and must not enqueue the
+        frame to Stage B."""
+        handler, parent = _bare_image_handler()
+        parent.active = None
+        handler.OnImageGrabbed(camera=MagicMock(), grabResult=MagicMock())
+        assert parent._mark_disconnected.called, (
             'OnImageGrabbed inactive-branch must call '
             'self._parent._mark_disconnected() to preserve the '
-            '_state_lock invariant. Found instead:\n' + window
+            '_state_lock invariant.'
         )
+        assert not handler._worker.enqueue.called
 
     def test_on_camera_device_removed_uses_mark_disconnected(self):
         """The _CameraRemovalHandler SDK callback must call
-        _mark_disconnected. _mark_disconnected's docstring states it is
-        safe from any thread (including SDK callbacks); the prior
-        comment claiming otherwise was stale."""
-        src = self._pyloncamera_source()
-        marker = 'def OnCameraDeviceRemoved('
-        idx = src.find(marker)
-        assert idx != -1, 'Could not find OnCameraDeviceRemoved method.'
-        window = src[idx : idx + 800]
-        assert '_mark_disconnected()' in window, (
+        _mark_disconnected (safe from any thread per its docstring) and
+        hand the heavy teardown to the async path rather than running it
+        on the SDK callback thread."""
+        from drivers import pyloncamera
+
+        parent = _bare_pylon_camera()
+        parent._schedule_async_teardown = MagicMock()
+        handler = pyloncamera._CameraRemovalHandler(parent)
+        handler.OnCameraDeviceRemoved(camera=MagicMock())
+        assert parent._mark_disconnected.called, (
             'OnCameraDeviceRemoved must call self._parent._mark_disconnected() '
             'to atomically clear _active under _state_lock.'
         )
+        assert parent._schedule_async_teardown.called
 
 
 class TestPylonStatsPollerStopJoin:
@@ -4926,44 +4927,49 @@ class TestPylonStatsPollerStopJoin:
     drops the join fires the regression.
     """
 
-    def _pyloncamera_source(self):
-        from pathlib import Path
-
-        return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-
     def test_stop_stats_poller_captures_thread_before_signalling(self):
         """The thread reference must be read before the event is set;
-        otherwise a concurrent _stats_poller_thread = None elsewhere
-        could cause join() to be called on None."""
-        src = self._pyloncamera_source()
-        idx = src.find('def _stop_stats_poller(self):')
-        assert idx != -1, 'Could not find _stop_stats_poller.'
-        end = src.find('def ', idx + 10)
-        body = src[idx:end]
-        # Order check: thread getattr before event set.
-        thread_get = body.find('_stats_poller_thread')
-        ev_set = body.find('.set()')
-        assert thread_get != -1 and ev_set != -1, (
-            '_stop_stats_poller must reference both _stats_poller_thread and the '
-            'event. Body:\n' + body
+        otherwise a concurrent _stats_poller_thread = None (e.g. a racing
+        second stop) could null the join target out from under us.
+        Simulated by clearing the reference from the event's set()."""
+        cam = _bare_pylon_camera()
+        fake_thread = MagicMock()
+        fake_thread.is_alive.side_effect = [True, False]
+        ev = MagicMock()
+
+        def _clear_reference():
+            cam._stats_poller_thread = None
+
+        ev.set.side_effect = _clear_reference
+        cam._stats_poller_stop = ev
+        cam._stats_poller_thread = fake_thread
+        cam._stop_stats_poller()
+        assert fake_thread.join.called, (
+            '_stop_stats_poller must join the captured thread even when '
+            'the _stats_poller_thread reference is cleared concurrently '
+            'after the stop event is set.'
         )
-        assert thread_get < ev_set, (
-            '_stop_stats_poller must capture the thread reference BEFORE '
-            'signalling the stop event, so the join() target is stable.'
+        _, join_kwargs = fake_thread.join.call_args
+        assert join_kwargs.get('timeout', 0) > 0, (
+            '_stop_stats_poller must join with a bounded timeout so a '
+            'wedged poller cannot block the caller indefinitely.'
         )
 
-    def test_stop_stats_poller_joins_with_timeout(self):
-        """_stop_stats_poller must join the prior thread with a bounded
-        timeout to symmetrise _start_stats_poller's join."""
-        src = self._pyloncamera_source()
-        idx = src.find('def _stop_stats_poller(self):')
-        assert idx != -1
-        end = src.find('def ', idx + 10)
-        body = src[idx:end]
-        assert '.join(timeout=' in body, (
-            '_stop_stats_poller must call .join(timeout=...) on the prior '
-            'stats-poller thread before clearing the reference.'
+    def test_stop_stats_poller_joins_real_thread_to_exit(self):
+        """End-to-end on a real thread parked on the stop event: stop must
+        signal the event, join the thread out, and release the reference
+        -- symmetric with _start_stats_poller's join-on-entry."""
+        cam = _bare_pylon_camera()
+        ev = threading.Event()
+        t = threading.Thread(target=ev.wait, daemon=True)
+        t.start()
+        cam._stats_poller_stop = ev
+        cam._stats_poller_thread = t
+        cam._stop_stats_poller()
+        assert not t.is_alive(), (
+            'stats poller thread still alive after _stop_stats_poller'
         )
+        assert cam._stats_poller_thread is None
 
 
 class TestPylonDisconnectStopGrabbingLogged:
@@ -4983,35 +4989,31 @@ class TestPylonDisconnectStopGrabbingLogged:
     Audit finding A6.
     """
 
-    def _pyloncamera_source(self):
-        from pathlib import Path
+    def test_disconnect_stop_grabbing_failure_is_logged_and_teardown_continues(self):
+        """A stop_grabbing failure during disconnect must produce a
+        warning naming the failed step (a bare `pass` is a Rule 5
+        violation -- zero log evidence) and must not block the rest of
+        teardown."""
+        from drivers import pyloncamera
 
-        return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-
-    def test_disconnect_stop_grabbing_failure_is_logged(self):
-        """The bare `except Exception: pass` on stop_grabbing during
-        disconnect is a Rule 5 violation. The fix logs at warning
-        level."""
-        src = self._pyloncamera_source()
-        # Find the disconnect method body
-        idx = src.find('def disconnect(self) -> bool:')
-        assert idx != -1, 'Could not find PylonCamera.disconnect.'
-        # Walk forward to the stop_grabbing block
-        sg_idx = src.find('self.stop_grabbing()', idx)
-        assert sg_idx != -1, 'Could not find stop_grabbing call in disconnect.'
-        # The except block immediately follows; check the next ~250 chars
-        window = src[sg_idx : sg_idx + 350]
-        assert (
-            'except Exception:' not in window
-            or 'pass' not in window.split('except Exception:')[1].split('\n', 5)[0]
-            if 'except Exception:' in window
-            else True
+        cam = _disconnectable_pylon_camera()
+        cam.is_grabbing = lambda: True
+        cam.stop_grabbing = MagicMock(side_effect=RuntimeError('wedged'))
+        fake = cam.active
+        log = MagicMock()
+        original = pyloncamera._cam_log
+        pyloncamera._cam_log = log
+        try:
+            assert cam.disconnect() is True
+        finally:
+            pyloncamera._cam_log = original
+        warnings = [str(call.args[0]) for call in log.warning.call_args_list]
+        assert any('stop_grabbing' in message for message in warnings), (
+            "disconnect's stop_grabbing except branch must log a warning "
+            f'naming the failed step, not silently pass. Got: {warnings!r}'
         )
-        # Simpler: assert the warning-log phrase is present
-        assert 'stop_grabbing during disconnect' in window, (
-            "disconnect's stop_grabbing except branch must log a warning, "
-            'not silently pass. Found:\n' + window
-        )
+        assert fake.DestroyDevice.called
+        assert cam.active is None
 
 
 class TestPylonOnImageGrabbedExceptionContext:
@@ -5085,41 +5087,37 @@ class TestPylonOnImageGrabbedOwningCopy:
     queue.
     """
 
-    def _pyloncamera_source(self):
-        from pathlib import Path
+    def _grab_with_copy_recorder(self, grab_succeeded, err_code=None):
+        """Drive OnImageGrabbed with pylon.GrabResult patched to a
+        recorder, so the enqueue payload reveals whether the owning
+        copy ctor was invoked on the raw grabResult."""
+        from unittest import mock
 
-        return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
+        from drivers import pyloncamera
 
-    def _on_image_grabbed_body(self):
-        src = self._pyloncamera_source()
-        idx = src.find('def OnImageGrabbed(')
-        assert idx != -1, 'Could not find ImageHandler.OnImageGrabbed.'
-        end = src.find('def ', idx + 10)
-        return src[idx:end]
+        handler, _parent = _bare_image_handler()
+        gr = MagicMock()
+        gr.GrabSucceeded.return_value = grab_succeeded
+        if err_code is not None:
+            gr.GetErrorCode.return_value = err_code
+        with mock.patch.object(
+            pyloncamera.pylon, 'GrabResult', side_effect=lambda source: ('owned', source)
+        ):
+            handler.OnImageGrabbed(camera=MagicMock(), grabResult=gr)
+        assert handler._worker.enqueue.called, 'expected an enqueue to Stage B'
+        return gr, handler._worker.enqueue.call_args.args
 
     def test_frame_enqueue_uses_owning_copy(self):
         """The 'frame' success-path enqueue must hand the worker an
         owning wrapper produced by ``pylon.GrabResult(grabResult)``,
-        not the raw SDK-delivered grabResult."""
-        body = self._on_image_grabbed_body()
-        marker = "self._worker.enqueue('frame'"
-        m_idx = body.find(marker)
-        assert m_idx != -1, (
-            "Could not find the 'frame' enqueue site in OnImageGrabbed. If renamed, update test."
-        )
-        window_start = max(0, m_idx - 400)
-        window = body[window_start : m_idx + 200]
-        assert 'pylon.GrabResult(grabResult)' in window, (
-            "OnImageGrabbed 'frame' enqueue must be preceded by an "
-            'explicit owning-copy invocation: '
-            'owned = pylon.GrabResult(grabResult). Without it, the '
-            'queued wrapper goes dangling when OnImageGrabbed returns. '
-            'Window:\n' + window
-        )
-        assert "self._worker.enqueue('frame', grabResult," not in window, (
-            'OnImageGrabbed must NOT pass the raw grabResult straight to '
-            'the worker queue -- the SWIG-director wrapper is non-owning '
-            'for callback parameters.'
+        not the raw SDK-delivered grabResult -- the raw wrapper goes
+        dangling when OnImageGrabbed returns."""
+        gr, args = self._grab_with_copy_recorder(grab_succeeded=True)
+        kind, payload = args[0], args[1]
+        assert kind == 'frame'
+        assert payload == ('owned', gr), (
+            'OnImageGrabbed must enqueue the copy-constructed owning '
+            f'wrapper, not the raw grabResult; got {payload!r}'
         )
 
     def test_fail_enqueue_uses_owning_copy(self):
@@ -5127,25 +5125,12 @@ class TestPylonOnImageGrabbedOwningCopy:
         thread handoff as the success path and needs the same owning
         wrapper. Stage B reads GetErrorCode / GetErrorDescription /
         GetBlockID through the queued reference."""
-        body = self._on_image_grabbed_body()
-        marker = "self._worker.enqueue('fail'"
-        m_idx = body.find(marker)
-        assert m_idx != -1, (
-            "Could not find the 'fail' enqueue site in OnImageGrabbed. If renamed, update test."
-        )
-        window_start = max(0, m_idx - 400)
-        window = body[window_start : m_idx + 200]
-        assert 'pylon.GrabResult(grabResult)' in window, (
-            "OnImageGrabbed 'fail' enqueue must be preceded by an "
-            'explicit owning-copy invocation: '
-            'owned = pylon.GrabResult(grabResult). Stage B reads '
-            'GetErrorCode/GetErrorDescription/GetBlockID through the '
-            'queued reference; same dangling-wrapper hazard as the '
-            'success path. Window:\n' + window
-        )
-        assert "self._worker.enqueue('fail', grabResult," not in window, (
-            'OnImageGrabbed must NOT pass the raw grabResult straight to '
-            'the worker queue on the failure path either.'
+        gr, args = self._grab_with_copy_recorder(grab_succeeded=False, err_code=123)
+        kind, payload = args[0], args[1]
+        assert kind == 'fail'
+        assert payload == ('owned', gr), (
+            'OnImageGrabbed must enqueue the copy-constructed owning '
+            f'wrapper on the failure path too; got {payload!r}'
         )
 
 
@@ -5280,75 +5265,62 @@ class TestPylonInitCameraConfigStyleConsistency:
     Audit finding B22.
     """
 
-    def _pyloncamera_source(self):
-        from pathlib import Path
-
-        return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-
-    def test_user_set_selector_uses_set_value(self):
-        """init_camera_config must call camera.UserSetSelector.SetValue('Default')
-        rather than `camera.UserSetSelector = 'Default'`. Consistent
-        exception envelope; consistent with the rest of the file."""
-        src = self._pyloncamera_source()
-        assert "camera.UserSetSelector = 'Default'" not in src, (
-            "Use camera.UserSetSelector.SetValue('Default') -- attribute "
-            'assignment routes through pypylon __setattr__ which has a '
-            'slightly different exception envelope than the explicit '
-            'SetValue call used elsewhere in this file.'
+    def test_user_set_selected_then_loaded(self):
+        """init_camera_config must select the 'Default' user set via the
+        explicit SetValue call (consistent exception envelope with the
+        rest of the file) and only then execute UserSetLoad."""
+        cam = _init_configurable_pylon_camera()
+        fake = cam.active
+        sequence = []
+        fake.UserSetSelector.SetValue.side_effect = (
+            lambda value: sequence.append(('selector', value))
         )
-        assert "UserSetSelector.SetValue('Default')" in src, (
-            "init_camera_config must select the 'Default' user set via "
-            "UserSetSelector.SetValue('Default')."
+        fake.UserSetLoad.Execute.side_effect = lambda: sequence.append('load')
+        cam.init_camera_config()
+        assert sequence == [('selector', 'Default'), 'load'], (
+            "init_camera_config must call UserSetSelector.SetValue('Default') "
+            f'then UserSetLoad.Execute(); got {sequence!r}'
         )
 
     def test_init_asserts_free_run_acquisition(self):
-        """init_camera_config must explicitly assert AcquisitionMode=
+        """init_camera_config must explicitly re-assert AcquisitionMode=
         Continuous + TriggerMode=Off after UserSetLoad. The 'Default'
         set is documented to leave these in free-run state, but a
         firmware bug or future user-set change could leak a different
         default."""
-        src = self._pyloncamera_source()
-        idx = src.find('def init_camera_config(self)')
-        assert idx != -1
-        end = src.find('def ', idx + 10)
-        body = src[idx:end]
-        assert "AcquisitionMode.SetValue('Continuous')" in body, (
-            "init_camera_config must call AcquisitionMode.SetValue('Continuous')."
-        )
-        assert "TriggerMode.SetValue('Off')" in body, (
-            "init_camera_config must call TriggerMode.SetValue('Off')."
-        )
+        cam = _init_configurable_pylon_camera()
+        fake = cam.active
+        fake.TriggerSelector.GetEntries.return_value = [_fake_trigger_entry('FrameStart')]
+        cam.init_camera_config()
+        fake.AcquisitionMode.SetValue.assert_called_with('Continuous')
+        fake.TriggerMode.SetValue.assert_called_with('Off')
 
-    def test_init_iterates_all_trigger_selector_entries(self):
+    def test_init_sets_trigger_off_for_every_available_trigger_type(self):
         """Per Basler doc free-run-image-acquisition.html, 'Repeat the
         steps above for all available trigger types.' A camera exposing
         AcquisitionStart / FrameBurstStart / ExposureStart in addition
         to FrameStart needs each of them set to TriggerMode=Off, or a
         stray non-Off type leaks through and blocks free-run.
-
-        Pins the iteration over TriggerSelector.GetEntries() so a future
-        cleanup that collapses the loop back to a single FrameStart
-        write fires this test."""
-        src = self._pyloncamera_source()
-        idx = src.find('def init_camera_config(self)')
-        assert idx != -1
-        end = src.find('def ', idx + 10)
-        body = src[idx:end]
-        assert 'TriggerSelector.GetEntries()' in body, (
-            'init_camera_config must iterate '
-            'camera.TriggerSelector.GetEntries() so TriggerMode=Off is '
-            'applied to every available trigger type, not just '
-            'FrameStart (per Basler doc free-run-image-acquisition.html).'
+        Unavailable enum entries must be skipped."""
+        cam = _init_configurable_pylon_camera()
+        fake = cam.active
+        fake.TriggerSelector.GetEntries.return_value = [
+            _fake_trigger_entry('FrameStart'),
+            _fake_trigger_entry('AcquisitionStart'),
+            _fake_trigger_entry('ExposureStart', available=False),
+        ]
+        cam.init_camera_config()
+        selected = [call.args[0] for call in fake.TriggerSelector.SetValue.call_args_list]
+        assert selected == ['FrameStart', 'AcquisitionStart'], (
+            'init_camera_config must select every AVAILABLE trigger type '
+            f'(and only those); selected {selected!r}'
         )
-        assert '.IsAvailable()' in body, (
-            'init_camera_config trigger-types loop must filter on '
-            'entry.IsAvailable() to skip entries that exist in the '
-            "enum but aren't supported on this camera model."
-        )
-        assert '.GetSymbolic()' in body, (
-            'init_camera_config trigger-types loop must call '
-            "entry.GetSymbolic() to feed the enum's string name back "
-            'into TriggerSelector.SetValue.'
+        off_writes = [
+            call for call in fake.TriggerMode.SetValue.call_args_list if call.args == ('Off',)
+        ]
+        assert len(off_writes) == 2, (
+            'TriggerMode=Off must be written once per available trigger '
+            f'type; got {len(off_writes)} writes'
         )
 
 
@@ -5366,17 +5338,18 @@ class TestPylonGainParameterNotShadowingMethod:
     Audit finding A15.
     """
 
-    def _pyloncamera_source(self):
-        from pathlib import Path
-
-        return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-
     def test_gain_method_signature_no_self_param_shadow(self):
-        """Forbid the shadowed signature `def gain(self, gain)`."""
-        src = self._pyloncamera_source()
-        assert 'def gain(self, gain)' not in src, (
-            'PylonCamera.gain(self, gain) shadows the method name with '
-            'the parameter. Use `def gain(self, value)` instead.'
+        """The parameter must not shadow the method name
+        (`def gain(self, gain)`); the de-shadowed name is `value`."""
+        from tests.ast_seams import assert_def
+
+        assert_def(
+            'drivers/pyloncamera.py',
+            'gain',
+            class_name='PylonCamera',
+            params=['self', 'value'],
+            msg='PylonCamera.gain must not shadow the method name with '
+            'its parameter; use `def gain(self, value)`.',
         )
 
 
@@ -5388,18 +5361,11 @@ class TestPylonDisconnectResetsSelfValidationFlag:
     its own probe.
     """
 
-    def _pyloncamera_source(self):
-        from pathlib import Path
-
-        return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-
     def test_disconnect_clears_self_validation_flag(self):
-        src = self._pyloncamera_source()
-        idx = src.find('def disconnect(self) -> bool:')
-        assert idx != -1
-        end = src.find('def ', idx + 10)
-        body = src[idx:end]
-        assert '_pylon_self_validation_done = False' in body, (
+        cam = _disconnectable_pylon_camera()
+        cam._pylon_self_validation_done = True
+        assert cam.disconnect() is True
+        assert cam._pylon_self_validation_done is False, (
             'disconnect() must clear _pylon_self_validation_done so the '
             'next connect re-runs the StreamGrabber probe.'
         )
@@ -5465,20 +5431,12 @@ class TestPylonGigeDiagnosticNodeCoverage:
     set; GigE cameras report '<missing>' for URB / MaxTransferSize.
     """
 
-    def _pyloncamera_source(self):
-        from pathlib import Path
-
-        return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-
     def test_camera_nodemap_probes_gev_network_parameters(self):
-        """The 11 canonical GigE network-related camera-side nodes
-        from network-related-parameters.md must appear in the
-        camera-config probe in read_diagnostic_snapshot."""
-        src = self._pyloncamera_source()
-        idx = src.find('def read_diagnostic_snapshot(')
-        assert idx != -1
-        end = src.find('\n    def ', idx + 10)
-        body = src[idx:end]
+        """The canonical GigE network-related camera-side nodes from
+        network-related-parameters.md must be probed (and reported,
+        sentinel or value) by a real read_diagnostic_snapshot run."""
+        cam, nodemap, _grabber = _diag_snapshot_pylon_camera()
+        result = cam.read_diagnostic_snapshot(duration_s=0)
         for node in (
             'GevHeartbeatTimeout',
             'GevSCPSPacketSize',
@@ -5493,20 +5451,27 @@ class TestPylonGigeDiagnosticNodeCoverage:
             'PayloadSize',
             'BslDeviceLinkCurrentThroughput',
         ):
-            assert node in body, (
+            assert node in nodemap.requested, (
                 f'read_diagnostic_snapshot must probe {node!r} '
                 f'(per network-related-parameters.md). Missing nodes '
                 f'will not surface on dmA3536-9gm bench.'
             )
+        for key in (
+            'gev_heartbeat_timeout_ms',
+            'gev_packet_size_bytes',
+            'gev_bandwidth_assigned_bps',
+            'bandwidth_reserve_mode',
+            'payload_size_bytes',
+            'current_throughput_bps',
+        ):
+            assert key in result['config']
 
     def test_stream_grabber_probes_gige_resend_config(self):
-        """The 8 canonical GigE Packet Resend Mechanism stream-
-        grabber config nodes from stream-grabber-parameters.html
-        must appear in the stream-grabber config probe."""
-        src = self._pyloncamera_source()
-        idx = src.find('def read_diagnostic_snapshot(')
-        end = src.find('\n    def ', idx + 10)
-        body = src[idx:end]
+        """The canonical GigE Packet Resend Mechanism stream-grabber
+        config nodes from stream-grabber-parameters.html must be probed
+        on the stream-grabber nodemap."""
+        cam, _nodemap, grabber = _diag_snapshot_pylon_camera()
+        cam.read_diagnostic_snapshot(duration_s=0)
         for node in (
             'EnableResend',
             'PacketTimeout',
@@ -5516,48 +5481,41 @@ class TestPylonGigeDiagnosticNodeCoverage:
             'AutoPacketSize',
             'SocketBufferSize',
         ):
-            assert node in body, (
+            assert node in grabber.requested, (
                 f'read_diagnostic_snapshot stream-grabber config '
                 f'must probe {node!r} (per stream-grabber-parameters.'
                 f'html Packet Resend Mechanism Parameters).'
             )
 
-    def test_diag_stat_nodes_includes_gige_stat_counters(self):
-        """The 3 GigE-specific stream-grabber stat counters must be
-        in _DIAG_STAT_NODES so the pre/post deltas surface them."""
-        src = self._pyloncamera_source()
-        # Find the _DIAG_STAT_NODES tuple body
-        idx = src.find('_DIAG_STAT_NODES = (')
-        assert idx != -1
-        end = src.find(')', idx)
-        body = src[idx:end]
+    def test_diag_node_sets_include_gige_stat_counters(self):
+        """The 3 GigE-specific stream-grabber stat counters must be in
+        both _DIAG_STAT_NODES (probed pre/post) and _DIAG_STAT_COUNTERS
+        (delta computation)."""
+        from drivers.pyloncamera import PylonCamera
+
         for counter in (
             'Statistic_Resend_Packet_Count',
             'Statistic_Resend_Request_Count',
             'Statistic_Failed_Packet_Count',
         ):
-            assert counter in body, (
+            assert counter in PylonCamera._DIAG_STAT_NODES, (
                 f'_DIAG_STAT_NODES must include {counter!r} so the '
                 f'GigE resend traffic surfaces in the diagnostic '
                 f'snapshot. Per stream-grabber-parameters.html '
                 f'Statistics Parameters.'
             )
-
-    def test_diag_stat_counters_includes_gige_counters_for_deltas(self):
-        """Delta computation requires the same names in _DIAG_STAT_COUNTERS."""
-        src = self._pyloncamera_source()
-        idx = src.find('_DIAG_STAT_COUNTERS = (')
-        assert idx != -1
-        end = src.find(')', idx)
-        body = src[idx:end]
-        for counter in (
-            'Statistic_Resend_Packet_Count',
-            'Statistic_Resend_Request_Count',
-            'Statistic_Failed_Packet_Count',
-        ):
-            assert counter in body, (
+            assert counter in PylonCamera._DIAG_STAT_COUNTERS, (
                 f'_DIAG_STAT_COUNTERS must include {counter!r} for delta computation.'
             )
+
+    def test_gige_stat_counter_delta_computed_from_pre_post_reads(self):
+        """A GigE counter that advances during the sampling window must
+        come back as a numeric delta."""
+        cam, _nodemap, _grabber = _diag_snapshot_pylon_camera(
+            grabber_values={'Statistic_Resend_Packet_Count': _FakeDiagNode(2, 7)}
+        )
+        result = cam.read_diagnostic_snapshot(duration_s=0)
+        assert result['deltas']['Statistic_Resend_Packet_Count'] == 5
 
 
 class TestPylonDltlClampAndDocWarnings:
@@ -5575,59 +5533,69 @@ class TestPylonDltlClampAndDocWarnings:
     transports.
     """
 
-    def _pyloncamera_source(self):
-        from pathlib import Path
+    def _camera_with_dltl_range(self, lo=1000, hi=5000):
+        cam = _bare_pylon_camera()
+        cam.active.DeviceLinkThroughputLimit.GetMin.return_value = lo
+        cam.active.DeviceLinkThroughputLimit.GetMax.return_value = hi
+        return cam
 
-        return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
+    def _set_dltl(self, cam, value_bps):
+        from unittest import mock
 
-    def test_clamp_helper_present(self):
-        src = self._pyloncamera_source()
-        assert 'def _clamp_dltl_value_bps(self, value_bps: int) -> int:' in src, (
-            '_clamp_dltl_value_bps helper must exist with the documented signature.'
+        from drivers import pyloncamera
+
+        log = MagicMock()
+        with mock.patch.object(pyloncamera, '_cam_log', log):
+            result = cam.set_device_link_throughput_limit('On', value_bps=value_bps)
+        warnings = [str(call.args[0]) for call in log.warning.call_args_list]
+        return result, warnings
+
+    def test_below_minimum_clamps_to_min_and_warns(self):
+        cam = self._camera_with_dltl_range()
+        result, warnings = self._set_dltl(cam, 500)
+        assert result is True
+        cam.active.DeviceLinkThroughputLimit.SetValue.assert_called_once_with(1000)
+        assert any('clamping' in m for m in warnings), (
+            f'A clamped low DLTL value must warn the operator; got {warnings!r}'
         )
 
-    def test_clamp_calls_min_max_query(self):
-        src = self._pyloncamera_source()
-        idx = src.find('def _clamp_dltl_value_bps(')
-        assert idx != -1
-        end = src.find('\n    def ', idx + 10)
-        body = src[idx:end]
-        assert '.GetMin()' in body and '.GetMax()' in body, (
-            '_clamp_dltl_value_bps must query DeviceLinkThroughputLimit'
-            '.GetMin() and .GetMax() to determine the clamp range.'
-        )
+    def test_above_maximum_clamps_to_max_and_warns(self):
+        cam = self._camera_with_dltl_range()
+        result, warnings = self._set_dltl(cam, 9000)
+        assert result is True
+        cam.active.DeviceLinkThroughputLimit.SetValue.assert_called_once_with(5000)
+        assert any('clamping' in m for m in warnings)
 
-    def test_setter_calls_clamp_helper(self):
-        src = self._pyloncamera_source()
-        idx = src.find('def set_device_link_throughput_limit(')
-        assert idx != -1
-        end = src.find('\n    def ', idx + 10)
-        body = src[idx:end]
-        assert '_clamp_dltl_value_bps' in body, (
-            'set_device_link_throughput_limit must run value_bps '
-            'through _clamp_dltl_value_bps before SetValue.'
-        )
+    def test_in_range_value_passes_unclamped(self):
+        cam = self._camera_with_dltl_range()
+        result, warnings = self._set_dltl(cam, 3000)
+        assert result is True
+        cam.active.DeviceLinkThroughputLimit.SetValue.assert_called_once_with(3000)
+        assert not warnings
 
-    def test_docstring_records_too_low_warning(self):
-        """Rolling-shutter distortion warning must appear in the docstring."""
-        src = self._pyloncamera_source()
-        idx = src.find('def set_device_link_throughput_limit(')
-        assert idx != -1
-        end = src.find('"""', src.find('"""', idx) + 3) + 3
-        docstring = src[idx:end]
-        assert 'rolling shutter' in docstring.lower() or 'rolling-shutter' in docstring.lower(), (
+    def test_minmax_query_failure_passes_value_through(self):
+        """Best-effort contract: if the range query fails, the value is
+        written unchanged (the SDK's own OutOfRangeException then
+        surfaces through the RuntimeException branch)."""
+        cam = _bare_pylon_camera()
+        cam.active.DeviceLinkThroughputLimit.GetMin.side_effect = RuntimeError('no node')
+        result, _warnings = self._set_dltl(cam, 12345)
+        assert result is True
+        cam.active.DeviceLinkThroughputLimit.SetValue.assert_called_once_with(12345)
+
+    def test_docstring_records_both_basler_range_warnings(self):
+        # pin-justified: the docstring is the documented operator
+        # contract for picking a DLTL value (per-camera spec pages name
+        # rolling-shutter distortion when too low, corrupt/dropped
+        # frames when too high); the warning text itself is the artifact.
+        from drivers.pyloncamera import PylonCamera
+
+        docstring = (PylonCamera.set_device_link_throughput_limit.__doc__ or '').lower()
+        assert 'rolling shutter' in docstring or 'rolling-shutter' in docstring, (
             'DLTL setter docstring must record the rolling-shutter '
             'distortion warning per per-camera spec pages.'
         )
-
-    def test_docstring_records_too_high_warning(self):
-        """Corrupt/dropped frames warning must appear in the docstring."""
-        src = self._pyloncamera_source()
-        idx = src.find('def set_device_link_throughput_limit(')
-        assert idx != -1
-        end = src.find('"""', src.find('"""', idx) + 3) + 3
-        docstring = src[idx:end]
-        assert 'corrupt' in docstring.lower() or 'dropped' in docstring.lower(), (
+        assert 'corrupt' in docstring or 'dropped' in docstring, (
             'DLTL setter docstring must record the too-high warning '
             '(corrupt or dropped frames) per per-camera spec pages.'
         )
@@ -5648,53 +5616,67 @@ class TestPylonResyncProminentLog:
     Audit finding B5.
     """
 
-    def _pyloncamera_source(self):
-        from pathlib import Path
+    def _poll_once(self, cam):
+        """Run one real poller cycle with _cam_log + profile_trace
+        captured; returns (warning messages, stats-trace calls)."""
+        from unittest import mock
 
-        return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
+        from drivers import pyloncamera
+
+        log = MagicMock()
+        trace_mod = MagicMock()
+        with (
+            mock.patch.object(pyloncamera, '_cam_log', log),
+            mock.patch.object(pyloncamera, 'profile_trace', trace_mod),
+        ):
+            _run_one_stats_poll(cam)
+        warnings = [str(call.args[0]) for call in log.warning.call_args_list]
+        stats_calls = [
+            call
+            for call in trace_mod.trace.call_args_list
+            if call.args[0] == 'pylon_stats_trace.csv'
+        ]
+        return warnings, stats_calls
 
     def test_resync_node_in_stats_node_names(self):
         """Statistic_Resynchronization_Count must be in the live
         stats poll set so the delta tracker has fresh data."""
-        src = self._pyloncamera_source()
-        idx = src.find('_STATS_NODE_NAMES = (')
-        assert idx != -1
-        end = src.find(')', idx)
-        body = src[idx:end]
-        assert 'Statistic_Resynchronization_Count' in body, (
-            'Statistic_Resynchronization_Count must be in '
-            '_STATS_NODE_NAMES so the live poller reads it each cycle.'
-        )
+        from drivers.pyloncamera import PylonCamera
 
-    def test_resync_prominent_log_on_positive_delta(self):
-        """Stats poller must emit a [INSTR RESYNC] warning when the
-        delta is positive."""
-        src = self._pyloncamera_source()
-        idx = src.find('def _stats_poller_loop(self):')
-        assert idx != -1
-        end = src.find('\n    def ', idx + 10)
-        body = src[idx:end]
-        assert '[INSTR RESYNC]' in body, (
-            'Stats poller must emit a [INSTR RESYNC] log line on '
-            'positive resync delta -- per Basler doc this is the '
-            'most serious error case in USB 3.0 / USB3 Vision.'
+        assert 'Statistic_Resynchronization_Count' in PylonCamera._STATS_NODE_NAMES
+
+    def test_resync_warning_on_positive_delta(self):
+        """The poller must emit a [INSTR RESYNC] warning when the count
+        advanced since the prior cycle, and track the new total."""
+        cam = _stats_poll_pylon_camera()
+        cam.active.StreamGrabber.Statistic_Resynchronization_Count.GetValue.return_value = 7
+        cam._prev_resync_count = 2
+        warnings, _ = self._poll_once(cam)
+        assert any('[INSTR RESYNC]' in m and 'delta=5' in m for m in warnings), (
+            'Stats poller must warn with [INSTR RESYNC] + the delta on '
+            'positive resync delta -- per Basler doc this is the most '
+            f'serious error case in USB 3.0 / USB3 Vision. Got {warnings!r}'
         )
-        assert '_cam_log.warning' in body and 'RESYNC' in body, (
-            'Resync delta must be logged at warning level (operator-actionable; not info).'
-        )
+        assert cam._prev_resync_count == 7
+
+    def test_resync_quiet_when_count_unchanged(self):
+        cam = _stats_poll_pylon_camera()
+        cam.active.StreamGrabber.Statistic_Resynchronization_Count.GetValue.return_value = 7
+        cam._prev_resync_count = 7
+        warnings, _ = self._poll_once(cam)
+        assert not any('[INSTR RESYNC]' in m for m in warnings)
 
     def test_resync_csv_column_present(self):
-        """The pylon_stats_trace.csv header must include the resync
-        column so historical analysis can correlate."""
-        src = self._pyloncamera_source()
-        idx = src.find("'pylon_stats_trace.csv'")
-        assert idx != -1
-        # Header is the next ~150 chars after the filename argument.
-        window = src[idx : idx + 500]
-        assert 'resync_count' in window, (
-            'pylon_stats_trace.csv header must include resync_count '
-            'column so the running total is captured per row.'
-        )
+        """The pylon_stats_trace.csv row must carry the running resync
+        total under a resync_count column."""
+        cam = _stats_poll_pylon_camera()
+        cam.active.StreamGrabber.Statistic_Resynchronization_Count.GetValue.return_value = 7
+        _, stats_calls = self._poll_once(cam)
+        assert stats_calls, 'poller cycle must write a pylon_stats_trace.csv row'
+        columns = stats_calls[0].args[1].split(',')
+        row = stats_calls[0].args[2]
+        assert 'resync_count' in columns
+        assert row[columns.index('resync_count')] == 7
 
 
 class TestPylonTemperatureStateMonitoring:
@@ -5711,57 +5693,75 @@ class TestPylonTemperatureStateMonitoring:
     Audit finding B13.
     """
 
-    def _pyloncamera_source(self):
-        from pathlib import Path
+    def _poll_once(self, cam):
+        from unittest import mock
 
-        return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
+        from drivers import pyloncamera
 
-    def test_stats_poller_reads_temperature_state(self):
-        src = self._pyloncamera_source()
-        idx = src.find('def _stats_poller_loop(self):')
-        assert idx != -1
-        end = src.find('\n    def ', idx + 10)
-        body = src[idx:end]
-        assert 'TemperatureState' in body, (
-            'Stats poller must read TemperatureState each cycle '
-            'so over-temp events surface in the log.'
+        log = MagicMock()
+        info_log = MagicMock()
+        trace_mod = MagicMock()
+        with (
+            mock.patch.object(pyloncamera, '_cam_log', log),
+            mock.patch.object(pyloncamera, 'logger', info_log),
+            mock.patch.object(pyloncamera, 'profile_trace', trace_mod),
+        ):
+            _run_one_stats_poll(cam)
+        warnings = [str(call.args[0]) for call in log.warning.call_args_list]
+        infos = [str(call.args[0]) for call in info_log.info.call_args_list]
+        stats_calls = [
+            call
+            for call in trace_mod.trace.call_args_list
+            if call.args[0] == 'pylon_stats_trace.csv'
+        ]
+        return warnings, infos, stats_calls
+
+    def test_stats_poller_warns_on_critical_temperature_state(self):
+        """A transition into Critical must surface as an [INSTR TEMP]
+        warning (over-temp halts acquisition and otherwise presents as
+        an unattributed frame-rate stall), and the new state is
+        tracked."""
+        cam = _stats_poll_pylon_camera()
+        cam.active.TemperatureState.GetValue.return_value = 'Critical'
+        warnings, _infos, _ = self._poll_once(cam)
+        assert any('[INSTR TEMP]' in m and 'Critical' in m for m in warnings), (
+            f'Critical temperature state must warn with [INSTR TEMP]; got {warnings!r}'
         )
-        assert '[INSTR TEMP]' in body, (
-            'Stats poller must emit [INSTR TEMP] on temperature '
-            'state changes for log-grep visibility.'
-        )
-        assert 'Critical' in body and 'Error' in body, (
-            'Stats poller must distinguish Critical / Error states '
-            '(WARNING level) from Ok transitions (INFO level).'
-        )
+        assert cam._prev_temp_state == 'Critical'
+
+    def test_stats_poller_logs_ok_transition_at_info(self):
+        """Non-error temperature transitions are informational, not
+        operator-actionable warnings."""
+        cam = _stats_poll_pylon_camera()
+        warnings, infos, _ = self._poll_once(cam)
+        assert not any('[INSTR TEMP]' in m for m in warnings)
+        assert any('[INSTR TEMP]' in m and 'Ok' in m for m in infos)
 
     def test_read_diagnostic_snapshot_captures_thermal_state(self):
-        src = self._pyloncamera_source()
-        idx = src.find('def read_diagnostic_snapshot(')
-        assert idx != -1
-        end = src.find('\n    def ', idx + 10)
-        body = src[idx:end]
-        for node in (
-            'TemperatureState',
-            'BslTemperatureMax',
-            'BslTemperatureStatusErrorCount',
-        ):
-            assert node in body, (
-                f'read_diagnostic_snapshot must probe {node!r} so '
-                f"the camera's thermal history is captured for "
-                f'cross-host comparison.'
-            )
+        cam, _nodemap, _grabber = _diag_snapshot_pylon_camera(
+            camera_values={
+                'TemperatureState': 'Ok',
+                'BslTemperatureMax': 61.2,
+                'BslTemperatureStatusErrorCount': 0,
+            }
+        )
+        result = cam.read_diagnostic_snapshot(duration_s=0)
+        assert result['config']['temperature_state'] == 'Ok'
+        assert result['config']['temperature_max_degC'] == 61.2
+        assert result['config']['temperature_status_error_count'] == 0
 
     def test_temperature_csv_column_present(self):
-        src = self._pyloncamera_source()
-        idx = src.find("'pylon_stats_trace.csv'")
-        assert idx != -1
-        window = src[idx : idx + 500]
-        assert 'temperature_state' in window, (
-            'pylon_stats_trace.csv header must include '
-            'temperature_state column so post-hoc analysis '
-            'can correlate stalls with temperature history.'
-        )
+        """The pylon_stats_trace.csv row must carry the temperature
+        state so post-hoc analysis can correlate stalls with thermal
+        history."""
+        cam = _stats_poll_pylon_camera()
+        cam.active.TemperatureState.GetValue.return_value = 'Critical'
+        _warnings, _infos, stats_calls = self._poll_once(cam)
+        assert stats_calls
+        columns = stats_calls[0].args[1].split(',')
+        row = stats_calls[0].args[2]
+        assert 'temperature_state' in columns
+        assert row[columns.index('temperature_state')] == 'Critical'
 
 
 class TestPylonMissedFrameDeltaLog:
@@ -5778,42 +5778,55 @@ class TestPylonMissedFrameDeltaLog:
     Audit finding B14.
     """
 
-    def _pyloncamera_source(self):
-        from pathlib import Path
+    def _poll_once(self, cam):
+        from unittest import mock
 
-        return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
+        from drivers import pyloncamera
+
+        log = MagicMock()
+        trace_mod = MagicMock()
+        with (
+            mock.patch.object(pyloncamera, '_cam_log', log),
+            mock.patch.object(pyloncamera, 'profile_trace', trace_mod),
+        ):
+            _run_one_stats_poll(cam)
+        warnings = [str(call.args[0]) for call in log.warning.call_args_list]
+        stats_calls = [
+            call
+            for call in trace_mod.trace.call_args_list
+            if call.args[0] == 'pylon_stats_trace.csv'
+        ]
+        return warnings, stats_calls
 
     def test_missed_frame_node_in_stats_node_names(self):
-        src = self._pyloncamera_source()
-        idx = src.find('_STATS_NODE_NAMES = (')
-        assert idx != -1
-        end = src.find(')', idx)
-        body = src[idx:end]
-        assert 'Statistic_Missed_Frame_Count' in body, (
+        from drivers.pyloncamera import PylonCamera
+
+        assert 'Statistic_Missed_Frame_Count' in PylonCamera._STATS_NODE_NAMES, (
             'Statistic_Missed_Frame_Count must be in _STATS_NODE_NAMES '
             'so the live poller reads it each cycle.'
         )
 
-    def test_missed_frame_prominent_log_on_positive_delta(self):
-        src = self._pyloncamera_source()
-        idx = src.find('def _stats_poller_loop(self):')
-        assert idx != -1
-        end = src.find('\n    def ', idx + 10)
-        body = src[idx:end]
-        assert '[INSTR MISSED]' in body, (
-            'Stats poller must emit [INSTR MISSED] on positive '
-            'missed-frame delta -- early bandwidth-stress signal.'
+    def test_missed_frame_warning_on_positive_delta(self):
+        """An advancing missed-frame count must surface as an
+        [INSTR MISSED] warning -- the early bandwidth-stress signal."""
+        cam = _stats_poll_pylon_camera()
+        cam.active.StreamGrabber.Statistic_Missed_Frame_Count.GetValue.return_value = 12
+        cam._prev_missed_frame_count = 10
+        warnings, _ = self._poll_once(cam)
+        assert any('[INSTR MISSED]' in m and 'delta=2' in m for m in warnings), (
+            f'Stats poller must warn with [INSTR MISSED] + delta; got {warnings!r}'
         )
+        assert cam._prev_missed_frame_count == 12
 
     def test_missed_frame_csv_column_present(self):
-        src = self._pyloncamera_source()
-        idx = src.find("'pylon_stats_trace.csv'")
-        assert idx != -1
-        window = src[idx : idx + 500]
-        assert 'missed_frame_count' in window, (
-            'pylon_stats_trace.csv header must include '
-            'missed_frame_count column for historical correlation.'
-        )
+        cam = _stats_poll_pylon_camera()
+        cam.active.StreamGrabber.Statistic_Missed_Frame_Count.GetValue.return_value = 12
+        _, stats_calls = self._poll_once(cam)
+        assert stats_calls
+        columns = stats_calls[0].args[1].split(',')
+        row = stats_calls[0].args[2]
+        assert 'missed_frame_count' in columns
+        assert row[columns.index('missed_frame_count')] == 12
 
 
 class TestPylonIsConnectedCallsSdkQuery:
@@ -5885,97 +5898,115 @@ class TestPylonBslPrefixedNodeFallbacks:
     Audit findings B1 + B2.
     """
 
-    def _pyloncamera_source(self):
-        from pathlib import Path
+    class _PlainNode:
+        def __init__(self, value):
+            self._value = value
 
-        return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
+        def GetValue(self):
+            return self._value
 
-    def test_node_attr_get_helper_present(self):
-        """The _node_attr_get helper must exist and accept *names."""
-        src = self._pyloncamera_source()
-        assert 'def _node_attr_get(camera, *names: str)' in src, (
-            '_node_attr_get(camera, *names) helper missing -- this is '
-            'the canonical Bsl-prefix-then-legacy fallback for live '
-            'attribute-style reads.'
+    def test_node_attr_get_prefers_first_resolvable_name(self):
+        from drivers.pyloncamera import PylonCamera
+
+        class _Cam:
+            BslEffectiveExposureTime = self._PlainNode(5000.0)
+            ExposureTime = self._PlainNode(4000.0)
+
+        value = PylonCamera._node_attr_get(
+            _Cam(), 'BslEffectiveExposureTime', 'ExposureTime'
         )
-
-    def test_safe_node_accepts_multiple_names(self):
-        """_safe_node must accept *names so the diagnostic snapshot
-        can probe Bsl-prefixed-then-legacy nodes via the nodemap."""
-        src = self._pyloncamera_source()
-        assert 'def _safe_node(nodemap, *names: str)' in src, (
-            '_safe_node must accept *names (varargs) so call sites '
-            'can pass multiple candidate names for the same logical '
-            'parameter. Single-name calls remain backwards-compatible.'
+        assert value == 5000.0, (
+            '_node_attr_get must return the FIRST resolvable name '
+            '(Bsl-prefixed canonical before legacy).'
         )
 
-    def test_stats_poller_uses_bsl_resulting_frame_rate_first(self):
-        """Live frame-rate read in _stats_poller_loop must try
-        BslResultingAcquisitionFrameRate before ResultingFrameRate."""
-        src = self._pyloncamera_source()
-        idx = src.find('def _stats_poller_loop(self):')
-        assert idx != -1
-        end = src.find('def ', idx + 10)
-        body = src[idx:end]
-        assert 'BslResultingAcquisitionFrameRate' in body, (
-            '_stats_poller_loop must probe BslResultingAcquisitionFrameRate '
-            '(canonical for ace 2 / dart M/R per Basler doc).'
-        )
-        assert 'ResultingFrameRate' in body, (
-            '_stats_poller_loop must keep ResultingFrameRate as the '
-            'fallback for legacy ace cameras.'
-        )
-        # Bsl variant must come first in the call.
-        bsl_pos = body.find('BslResultingAcquisitionFrameRate')  # noqa: F841 -- deferred
-        legacy_pos = body.find("'ResultingFrameRate'")
-        if legacy_pos != -1:  # legacy may also appear in a comment first
-            # Just assert the call site has both; ordering inside the call
-            # is structural so check a tighter window.
-            pass
-        # Assert _node_attr_get is used (rather than direct attribute access)
-        assert '_node_attr_get(' in body, (
-            '_stats_poller_loop must use _node_attr_get(...) for the '
-            'frame-rate read so the Bsl-fallback pattern is centralised.'
-        )
+    def test_node_attr_get_falls_back_when_first_name_absent(self):
+        from drivers.pyloncamera import PylonCamera
 
-    def test_get_exposure_t_uses_bsl_effective_first(self):
-        """get_exposure_t must read BslEffectiveExposureTime first
-        (the doc-canonical effective value) and fall back to
-        ExposureTime (the requested set value)."""
-        src = self._pyloncamera_source()
-        idx = src.find('def get_exposure_t(self)')
-        assert idx != -1
-        end = src.find('def ', idx + 10)
-        body = src[idx:end]
-        assert 'BslEffectiveExposureTime' in body, (
-            'get_exposure_t must read BslEffectiveExposureTime first -- '
-            'per Basler exposure-time.html doc, this is the effective '
-            'value the camera actually used (vs ExposureTime which is '
-            'the requested set value).'
-        )
-        assert '_node_attr_get(' in body, (
-            'get_exposure_t must use _node_attr_get(...) for the Bsl-fallback pattern.'
-        )
+        class _Cam:
+            ExposureTime = self._PlainNode(4000.0)
 
-    def test_diag_snapshot_config_tuple_uses_bsl_fallbacks(self):
-        """read_diagnostic_snapshot config tuple must include the
-        Bsl-prefixed canonical names for ResultingFrameRate and
-        ExposureTime so cross-host comparison probes the correct
-        node on ace 2 / dart M/R."""
-        src = self._pyloncamera_source()
-        idx = src.find('def read_diagnostic_snapshot(')
-        assert idx != -1
-        end = src.find('\n    def ', idx + 10)
-        body = src[idx:end]
-        assert "'BslResultingAcquisitionFrameRate'" in body, (
-            'read_diagnostic_snapshot must probe '
-            'BslResultingAcquisitionFrameRate before ResultingFrameRate.'
+        value = PylonCamera._node_attr_get(
+            _Cam(), 'BslEffectiveExposureTime', 'ExposureTime'
         )
-        assert "'BslEffectiveExposureTime'" in body, (
-            'read_diagnostic_snapshot must probe BslEffectiveExposureTime '
-            'before ExposureTime so the snapshot reports effective '
-            'exposure on ace 2 / dart M/R.'
+        assert value == 4000.0
+
+    def test_safe_node_falls_back_across_names(self):
+        """_safe_node must probe each candidate name in order so call
+        sites can pass Bsl-prefixed-then-legacy pairs."""
+        from drivers.pyloncamera import PylonCamera
+
+        nodemap = _RecordingNodeMap({'ResultingFrameRate': 10.0})
+        value = PylonCamera._safe_node(
+            nodemap, 'BslResultingAcquisitionFrameRate', 'ResultingFrameRate'
         )
+        assert value == 10.0
+        assert nodemap.requested == [
+            'BslResultingAcquisitionFrameRate',
+            'ResultingFrameRate',
+        ]
+
+    def test_stats_poller_prefers_bsl_resulting_frame_rate(self):
+        """The live fps written to pylon_stats_trace.csv must come from
+        BslResultingAcquisitionFrameRate when the camera exposes it
+        (canonical for ace 2 / dart M/R per Basler doc)."""
+        cam = _stats_poll_pylon_camera()
+        cam.active.ResultingFrameRate.GetValue.return_value = 10.0
+        columns, row = self._poll_csv_row(cam)
+        assert row[columns.index('resulting_fps')] == '30.000'
+
+    def test_stats_poller_falls_back_to_legacy_frame_rate(self):
+        cam = _stats_poll_pylon_camera()
+        cam.active.BslResultingAcquisitionFrameRate = None
+        cam.active.ResultingFrameRate.GetValue.return_value = 10.0
+        columns, row = self._poll_csv_row(cam)
+        assert row[columns.index('resulting_fps')] == '10.000'
+
+    def _poll_csv_row(self, cam):
+        from unittest import mock
+
+        from drivers import pyloncamera
+
+        trace_mod = MagicMock()
+        with mock.patch.object(pyloncamera, 'profile_trace', trace_mod):
+            _run_one_stats_poll(cam)
+        stats_calls = [
+            call
+            for call in trace_mod.trace.call_args_list
+            if call.args[0] == 'pylon_stats_trace.csv'
+        ]
+        assert stats_calls
+        return stats_calls[0].args[1].split(','), stats_calls[0].args[2]
+
+    def test_get_exposure_t_prefers_bsl_effective(self):
+        """get_exposure_t must report the effective exposure (what the
+        camera actually used, per exposure-time.html) when the Bsl node
+        is exposed -- not the requested set value."""
+        cam = _bare_pylon_camera()
+        cam.active.BslEffectiveExposureTime.GetValue.return_value = 5000.0
+        cam.active.ExposureTime.GetValue.return_value = 4000.0
+        assert cam.get_exposure_t() == 5.0
+
+    def test_get_exposure_t_falls_back_to_set_value(self):
+        cam = _bare_pylon_camera()
+        cam.active.BslEffectiveExposureTime = None
+        cam.active.ExposureTime.GetValue.return_value = 4000.0
+        assert cam.get_exposure_t() == 4.0
+
+    def test_diag_snapshot_prefers_bsl_nodes(self):
+        """The snapshot's exposure / frame-rate entries must come from
+        the Bsl-prefixed canonical nodes when both forms are exposed."""
+        cam, _nodemap, _grabber = _diag_snapshot_pylon_camera(
+            camera_values={
+                'BslEffectiveExposureTime': 5000.0,
+                'ExposureTime': 4000.0,
+                'BslResultingAcquisitionFrameRate': 30.0,
+                'ResultingFrameRate': 10.0,
+            }
+        )
+        result = cam.read_diagnostic_snapshot(duration_s=0)
+        assert result['config']['exposure_us'] == 5000.0
+        assert result['config']['resulting_frame_rate'] == 30.0
 
     def test_node_attr_get_suppresses_getattr_exception(self):
         """_node_attr_get must NOT propagate the exception that
@@ -6542,60 +6573,34 @@ class TestPylonAutoGainNoUpdateCameraConfigWrap:
     .test_pylon_driver_does_not_wrap_in_update_camera_config.
     """
 
-    def _pyloncamera_source(self):
-        from pathlib import Path
-
-        return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-
-    def test_update_auto_gain_target_brightness_does_not_wrap(self):
-        body = _function_source(
-            self._pyloncamera_source(),
-            'update_auto_gain_target_brightness',
-        )
-        assert 'with self.update_camera_config' not in body, (
-            'PylonCamera.update_auto_gain_target_brightness must NOT '
-            'wrap the AutoTargetBrightness write in update_camera_config '
-            '(runtime-modifiable per Basler; wrapping would impose the '
-            'STALL-1 over-stop pattern).'
+    def test_update_auto_gain_target_brightness_writes_live(self):
+        """The write must land on the live node WITHOUT entering the
+        update_camera_config stop/start cycle."""
+        cam = _bare_pylon_camera()
+        cam.update_camera_config = MagicMock()
+        cam.active.AutoTargetBrightness.GetValue.return_value = 0.1
+        cam.update_auto_gain_target_brightness(0.5)
+        cam.active.AutoTargetBrightness.SetValue.assert_called_once_with(0.5)
+        assert not cam.update_camera_config.called, (
+            'update_auto_gain_target_brightness must NOT enter '
+            'update_camera_config -- AutoTargetBrightness is runtime-'
+            'modifiable per Basler; wrapping would impose the over-stop '
+            'pattern.'
         )
 
-    def test_update_auto_gain_min_max_does_not_wrap(self):
-        body = _function_source(
-            self._pyloncamera_source(),
-            'update_auto_gain_min_max',
-        )
-        assert 'with self.update_camera_config' not in body, (
-            'PylonCamera.update_auto_gain_min_max must NOT wrap the '
-            'AutoGainLowerLimit / AutoGainUpperLimit writes in '
-            'update_camera_config (runtime-modifiable per Basler; '
-            'wrapping would impose the STALL-1 over-stop pattern).'
-        )
-
-    def test_pylon_driver_writes_auto_target_brightness_directly(self):
-        """Sanity: the method really does call .SetValue on the node so
-        the no-wrap test isn't passing because the method is empty."""
-        body = _function_source(
-            self._pyloncamera_source(),
-            'update_auto_gain_target_brightness',
-        )
-        assert 'AutoTargetBrightness.SetValue(' in body, (
-            'PylonCamera.update_auto_gain_target_brightness must call '
-            'AutoTargetBrightness.SetValue(...) on the live nodemap.'
-        )
-
-    def test_pylon_driver_writes_auto_gain_limits_directly(self):
-        """Sanity: same as above for the min/max pair."""
-        body = _function_source(
-            self._pyloncamera_source(),
-            'update_auto_gain_min_max',
-        )
-        assert 'AutoGainLowerLimit.SetValue(' in body, (
-            'PylonCamera.update_auto_gain_min_max must call '
-            'AutoGainLowerLimit.SetValue(...) on the live nodemap.'
-        )
-        assert 'AutoGainUpperLimit.SetValue(' in body, (
-            'PylonCamera.update_auto_gain_min_max must call '
-            'AutoGainUpperLimit.SetValue(...) on the live nodemap.'
+    def test_update_auto_gain_min_max_writes_live(self):
+        cam = _bare_pylon_camera()
+        cam.update_camera_config = MagicMock()
+        cam.active.AutoGainLowerLimit.GetValue.return_value = 5.0
+        cam.active.AutoGainUpperLimit.GetValue.return_value = 20.0
+        cam.update_auto_gain_min_max(0.0, 24.0)
+        cam.active.AutoGainLowerLimit.SetValue.assert_called_once_with(0.0)
+        cam.active.AutoGainUpperLimit.SetValue.assert_called_once_with(24.0)
+        assert not cam.update_camera_config.called, (
+            'update_auto_gain_min_max must NOT enter '
+            'update_camera_config -- the auto-gain limits are runtime-'
+            'modifiable per Basler; wrapping would impose the over-stop '
+            'pattern (twice per auto_gain call).'
         )
 
 
@@ -6686,36 +6691,51 @@ class TestPylonInitWaitsForIdleBeforeUserSetLoad:
     silently raise inside the outer try/except.
     """
 
-    def _pyloncamera_source(self):
-        from pathlib import Path
+    def test_init_polls_is_grabbing_until_idle_before_user_set_load(self):
+        """The bounded idle poll must run BEFORE UserSetLoad.Execute()
+        and stop polling as soon as the camera reports idle."""
+        from unittest import mock
 
-        return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
+        from drivers import pyloncamera
 
-    def test_init_polls_is_grabbing_before_user_set_load(self):
-        body = _function_source(self._pyloncamera_source(), 'init_camera_config')
-        # The poll must be inside init_camera_config and BEFORE the
-        # UserSetLoad call.
-        assert 'self.is_grabbing()' in body, (
-            'init_camera_config must poll self.is_grabbing() before '
-            'UserSetLoad (Basler user-sets.html idle requirement).'
-        )
-        idle_idx = body.find('is_grabbing()')
-        load_idx = body.find('UserSetLoad.Execute(')
-        assert idle_idx >= 0 and load_idx >= 0
-        assert idle_idx < load_idx, (
-            'init_camera_config must poll is_grabbing BEFORE UserSetLoad.Execute(), not after.'
+        cam = _init_configurable_pylon_camera()
+        sequence = []
+        grab_states = iter([True, False])
+        cam.is_grabbing = lambda: (
+            sequence.append('poll'),
+            next(grab_states, False),
+        )[1]
+        cam.active.UserSetLoad.Execute.side_effect = lambda: sequence.append('load')
+        with mock.patch.object(pyloncamera, 'time', MagicMock()):
+            cam.init_camera_config()
+        assert sequence == ['poll', 'poll', 'load'], (
+            'init_camera_config must poll is_grabbing until idle BEFORE '
+            f'UserSetLoad.Execute(); got {sequence!r}'
         )
 
-    def test_init_warns_if_still_grabbing_after_poll(self):
-        body = _function_source(self._pyloncamera_source(), 'init_camera_config')
-        assert (
-            'still' in body.lower() and 'grabbing' in body.lower() and 'warning' in body.lower()
-        ), (
-            'init_camera_config must log a warning if is_grabbing() '
-            'stays True past the bounded poll -- silently letting '
-            'UserSetLoad raise inside the outer try/except hides the '
-            'condition from operators.'
+    def test_init_warns_and_proceeds_if_still_grabbing_after_poll(self):
+        """If is_grabbing() stays True past the bounded poll, a warning
+        must fire (silently letting UserSetLoad raise inside the outer
+        try/except hides the condition from operators) and UserSetLoad
+        is still attempted."""
+        from unittest import mock
+
+        from drivers import pyloncamera
+
+        cam = _init_configurable_pylon_camera()
+        cam.is_grabbing = lambda: True
+        log = MagicMock()
+        with (
+            mock.patch.object(pyloncamera, 'time', MagicMock()),
+            mock.patch.object(pyloncamera, '_cam_log', log),
+        ):
+            cam.init_camera_config()
+        warnings = [str(call.args[0]) for call in log.warning.call_args_list]
+        assert any('grabbing' in message for message in warnings), (
+            'init_camera_config must warn when the camera is still '
+            f'grabbing after the bounded poll; got {warnings!r}'
         )
+        assert cam.active.UserSetLoad.Execute.called
 
 
 class TestPylonGainSelectorBeforeGainSetValue:
@@ -6731,46 +6751,40 @@ class TestPylonGainSelectorBeforeGainSetValue:
     bug that would otherwise be model-firmware-conditional.
     """
 
-    def _pyloncamera_source(self):
-        from pathlib import Path
-
-        return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-
     def test_gain_method_sets_selector_to_all_first(self):
-        body = _function_source(self._pyloncamera_source(), 'gain')
-        sel_idx = body.find("GainSelector.SetValue('All')")
-        gain_idx = body.find('Gain.SetValue(float(value))')
-        assert sel_idx >= 0, (
-            "PylonCamera.gain must call GainSelector.SetValue('All') "
-            'before Gain.SetValue (Basler 3-step recipe).'
+        cam = _bare_pylon_camera()
+        fake = cam.active
+        fake.Gain.GetValue.return_value = 10.0
+        sequence = []
+        fake.GainSelector.SetValue.side_effect = (
+            lambda value: sequence.append(('selector', value))
         )
-        assert gain_idx >= 0
-        assert sel_idx < gain_idx, (
-            "GainSelector.SetValue('All') must precede "
-            'Gain.SetValue(...) -- the order is the load-bearing part '
-            'of the doc-named recipe.'
+        fake.Gain.SetValue.side_effect = lambda value: sequence.append(('gain', value))
+        cam.gain(2.0)
+        assert sequence == [('selector', 'All'), ('gain', 2.0)], (
+            "PylonCamera.gain must call GainSelector.SetValue('All') "
+            'before Gain.SetValue (Basler 3-step recipe); got '
+            f'{sequence!r}'
         )
 
     def test_gain_method_tolerates_missing_gain_selector(self):
-        """The selector write must be in its own try/except so a
-        camera model that doesn't expose GainSelector doesn't break
-        Gain.SetValue."""
-        body = _function_source(self._pyloncamera_source(), 'gain')
-        # The selector and the actual write should be in separate
-        # try blocks; an inner try around the selector preserves the
-        # outer try/except's contract.
-        sel_idx = body.find("GainSelector.SetValue('All')")
-        # Find the closest 'try:' before the selector write.
-        try_idx = body.rfind('try:', 0, sel_idx)
-        # Find the closest 'except ' after the selector write but
-        # before the Gain.SetValue line.
-        gain_idx = body.find('Gain.SetValue(float(value))')
-        except_idx = body.find('except ', sel_idx, gain_idx)
-        assert try_idx >= 0 and except_idx >= 0, (
-            "GainSelector.SetValue('All') must be wrapped in its own "
-            "try/except so a missing selector doesn't break "
-            "Gain.SetValue on cameras that don't expose it."
-        )
+        """A camera model that doesn't expose GainSelector must not
+        break the actual gain write."""
+        cam = _bare_pylon_camera()
+        fake = cam.active
+        fake.Gain.GetValue.return_value = 10.0
+        fake.GainSelector.SetValue.side_effect = RuntimeError('node not present')
+        cam.gain(2.0)
+        fake.Gain.SetValue.assert_called_once_with(2.0)
+
+    def test_gain_short_circuits_when_already_at_target(self):
+        """A write to the value the camera already reports is skipped
+        (read-back tolerance below the GenICam gain increment)."""
+        cam = _bare_pylon_camera()
+        fake = cam.active
+        fake.Gain.GetValue.return_value = 2.0
+        cam.gain(2.0)
+        assert not fake.Gain.SetValue.called
 
 
 class TestDltlSetterDocstringGigeCaveat:
@@ -6844,11 +6858,6 @@ class TestPylonChunkSelectorProbeWithFramecounterFallback:
     diagnostic completeness, not validity correctness.
     """
 
-    def _pyloncamera_source(self):
-        from pathlib import Path
-
-        return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-
     def test_frame_identity_chunk_candidates_lists_frameid_first(self):
         """FrameID is the canonical name on most Basler cameras (data-
         chunks.html). Framecounter is the documented fallback. Probe
@@ -6862,44 +6871,62 @@ class TestPylonChunkSelectorProbeWithFramecounterFallback:
             'with FrameID first, Framecounter second (B32 fallback).'
         )
 
-    def test_enable_validity_chunks_probes_advertised_first(self):
-        """The method must call _probe_advertised_chunks before
-        attempting to enable per-chunk; otherwise it silently fails
-        on cameras advertising Framecounter instead of FrameID."""
-        body = _function_source(self._pyloncamera_source(), '_enable_validity_chunks')
-        assert '_probe_advertised_chunks(' in body, (
-            '_enable_validity_chunks must probe ChunkSelector entries '
-            'before enabling chunks (B32; refactor shares '
-            '_probe_advertised_chunks with probe_chunk_capabilities).'
+    def test_enable_validity_chunks_skips_unadvertised_targets(self):
+        """Probe-first contract: only chunks the camera actually
+        advertises are selected/enabled; unadvertised targets are
+        skipped instead of provoking SDK raises."""
+        cam = _chunk_config_pylon_camera(['ExposureTime', 'Gain'])
+        cam._enable_validity_chunks()
+        assert cam.active.ChunkSelector.writes == ['ExposureTime', 'Gain'], (
+            'only the advertised chunks may be selected; got '
+            f'{cam.active.ChunkSelector.writes!r}'
         )
 
     def test_enable_validity_chunks_falls_back_to_framecounter(self):
-        """The method must walk _FRAME_IDENTITY_CHUNK_CANDIDATES and
-        pick the first advertised name (FrameID first, Framecounter
-        second)."""
-        body = _function_source(self._pyloncamera_source(), '_enable_validity_chunks')
-        assert '_FRAME_IDENTITY_CHUNK_CANDIDATES' in body, (
-            '_enable_validity_chunks must consult '
-            '_FRAME_IDENTITY_CHUNK_CANDIDATES to fall back from '
-            'FrameID to Framecounter (B32).'
+        """A camera advertising Framecounter (not FrameID) must still
+        get a frame-identity chunk enabled, after the always-on set."""
+        cam = _chunk_config_pylon_camera(
+            ['ExposureTime', 'Gain', 'Timestamp', 'Framecounter']
+        )
+        cam._enable_validity_chunks()
+        assert cam.active.ChunkModeActive.writes == [True]
+        assert cam.active.ChunkSelector.writes == [
+            'ExposureTime',
+            'Gain',
+            'Timestamp',
+            'Framecounter',
+        ]
+        assert cam.active.ChunkEnable.writes == [True] * 4
+
+    def test_enable_validity_chunks_prefers_frameid_when_both_advertised(self):
+        cam = _chunk_config_pylon_camera(
+            ['ExposureTime', 'Gain', 'Timestamp', 'FrameID', 'Framecounter']
+        )
+        cam._enable_validity_chunks()
+        writes = cam.active.ChunkSelector.writes
+        assert 'FrameID' in writes and 'Framecounter' not in writes, (
+            'FrameID is the canonical first candidate; Framecounter '
+            f'must only be used as the fallback. Selected: {writes!r}'
         )
 
-    def test_chunk_grab_result_attrs_aliases_framecounter(self):
-        """The read-side map must include ChunkFramecounter aliased to
-        the same 'FrameID' dict key so the read works regardless of
-        which spelling the camera enabled."""
-        src = self._pyloncamera_source()
-        assert "('ChunkFrameID', 'FrameID')" in src, (
-            'ImageHandler._CHUNK_GRAB_RESULT_ATTRS must keep the '
-            "ChunkFrameID -> 'FrameID' mapping for cameras that "
-            'advertise FrameID.'
-        )
-        assert "('ChunkFramecounter', 'FrameID')" in src, (
-            'ImageHandler._CHUNK_GRAB_RESULT_ATTRS must include the '
-            "ChunkFramecounter -> 'FrameID' alias so cameras that "
-            'advertise Framecounter still produce a frame-identity '
-            'value in the chunk dict (B32).'
-        )
+    def test_read_side_aliases_framecounter_to_frameid_key(self):
+        """The read side must surface frame identity under the same
+        'FrameID' dict key regardless of which spelling the camera
+        enabled."""
+        from drivers.pyloncamera import _read_validity_chunks
+
+        class _Node:
+            def __init__(self, value):
+                self.Value = value
+
+        class _FramecounterResult:
+            ChunkFramecounter = _Node(77)
+
+        class _FrameIdResult:
+            ChunkFrameID = _Node(42)
+
+        assert _read_validity_chunks(_FramecounterResult())['FrameID'] == 77
+        assert _read_validity_chunks(_FrameIdResult())['FrameID'] == 42
 
 
 class TestAcquisitionStopModeSetter:
@@ -7436,24 +7463,21 @@ class TestPylonAcquisitionIdleWait:
         assert_def('drivers/pyloncamera.py', '_wait_for_acquisition_idle')
 
     def test_disconnect_calls_idle_wait_after_stop_grabbing(self):
-        """Pin call-site shape: disconnect() must invoke
-        _wait_for_acquisition_idle AFTER stop_grabbing and BEFORE
-        Close, not before stop_grabbing or after Close (the latter
-        would defeat the purpose -- the device handle is gone)."""
-        from pathlib import Path
-
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        body = _function_source(src, 'disconnect')
-        assert '_wait_for_acquisition_idle' in body, (
-            'disconnect() must call _wait_for_acquisition_idle'
+        """disconnect() must invoke _wait_for_acquisition_idle AFTER
+        stop_grabbing and BEFORE Close -- after Close the device handle
+        is gone and the drain window is meaningless."""
+        cam = _disconnectable_pylon_camera()
+        sequence = []
+        cam.is_grabbing = lambda: True
+        cam.stop_grabbing = lambda: sequence.append('stop_grabbing')
+        cam._wait_for_acquisition_idle = (
+            lambda timeout_s: sequence.append('idle_wait')
         )
-        # Order check: stop_grabbing -> _wait_for_acquisition_idle -> Close
-        idx_stop = body.find('stop_grabbing')
-        idx_wait = body.find('_wait_for_acquisition_idle')
-        idx_close = body.find('.Close()')
-        assert 0 <= idx_stop < idx_wait < idx_close, (
-            f'Order violated in disconnect(): '
-            f'stop_grabbing={idx_stop} wait={idx_wait} Close={idx_close}'
+        cam.active.Close.side_effect = lambda: sequence.append('close')
+        assert cam.disconnect() is True
+        assert sequence == ['stop_grabbing', 'idle_wait', 'close'], (
+            f'Order violated in disconnect(): {sequence!r} (expected '
+            "stop_grabbing -> idle_wait -> Close)"
         )
 
     def test_idle_wait_returns_true_when_inactive(self):
@@ -7582,24 +7606,21 @@ class TestPylonStreamGrabberStatusLog:
         assert_def('drivers/pyloncamera.py', '_log_stream_grabber_status')
 
     def test_start_grabbing_logs_status_before_start_call(self):
-        """Pin call-site shape: _log_stream_grabber_status fires in
-        start_grabbing BEFORE camera.StartGrabbing(...) so the trace
-        log captures the entry state, not post-start state."""
-        from pathlib import Path
-
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        body = _function_source(src, 'start_grabbing')
-        assert '_log_stream_grabber_status' in body
-        idx_log = body.find('_log_stream_grabber_status')
-        idx_start = body.find('StartGrabbing(')
-        # idx_start of literal text "StartGrabbing(" appears in
-        # comments + the actual call. Find LAST occurrence to land
-        # on the call site (comments come first).
-        idx_start = body.rfind('StartGrabbing(')
-        assert 0 <= idx_log < idx_start, (
-            f'_log_stream_grabber_status must fire BEFORE '
-            f'StartGrabbing() in start_grabbing(); '
-            f'log_idx={idx_log} start_idx={idx_start}'
+        """_log_stream_grabber_status must fire in start_grabbing
+        BEFORE camera.StartGrabbing(...) so the trace log captures the
+        grabber's entry state, not its post-start state."""
+        cam = _bare_pylon_camera()
+        sequence = []
+        cam._log_stream_grabber_status = lambda label: sequence.append('status_log')
+        cam._start_stats_poller = MagicMock()
+        cam._grab_strategy_name = 'LatestImageOnly'
+        cam.active.IsGrabbing.return_value = False
+        cam.active.StartGrabbing.side_effect = (
+            lambda *args: sequence.append('start_grabbing')
+        )
+        cam.start_grabbing()
+        assert sequence == ['status_log', 'start_grabbing'], (
+            f'_log_stream_grabber_status must fire BEFORE StartGrabbing(); got {sequence!r}'
         )
 
     def test_log_helper_no_op_when_active_none(self):
@@ -7668,59 +7689,35 @@ class TestPylonChunkModeActiveWriteRaceGuard:
     refusing the write is safe by default.
     """
 
-    def test_guard_present_in_enable_validity_chunks(self):
-        """Pin the structural fix shape: an is_grabbing()-guarded
-        early-return at the top of _enable_validity_chunks before
-        any ChunkModeActive write."""
-        from pathlib import Path
+    def test_guard_skips_write_and_warns_when_grabbing(self):
+        """When is_grabbing() is True the method must return without
+        touching ChunkModeActive AND warn. The fake camera here is
+        fully probe-capable, so the guard is the ONLY thing standing
+        between the call and the write."""
+        from unittest import mock
 
-        src = (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
-        body = _function_source(src, '_enable_validity_chunks')
-        # Guard must reference is_grabbing AND must come BEFORE the
-        # ChunkModeActive write site.
-        assert 'is_grabbing' in body, (
-            '_enable_validity_chunks must guard with is_grabbing() to '
-            'avoid the ChunkModeActive write-while-grabbing race.'
+        from drivers import pyloncamera
+
+        cam = _chunk_config_pylon_camera(['ExposureTime', 'Gain', 'Timestamp', 'FrameID'])
+        cam.is_grabbing = lambda: True
+        log = MagicMock()
+        with mock.patch.object(pyloncamera, '_cam_log', log):
+            cam._enable_validity_chunks()
+        assert cam.active.ChunkModeActive.writes == [], (
+            'ChunkModeActive write must be skipped while grabbing; got '
+            f'{cam.active.ChunkModeActive.writes!r}'
         )
-        idx_guard = body.find('is_grabbing')
-        idx_write = body.find('ChunkModeActive.Value = True')
-        assert 0 <= idx_guard < idx_write, (
-            f'is_grabbing() guard must precede ChunkModeActive write; '
-            f'guard_idx={idx_guard} write_idx={idx_write}'
+        warnings = [str(call.args[0]) for call in log.warning.call_args_list]
+        assert any('ChunkModeActive' in m for m in warnings), (
+            f'the skipped write must be warned about; got {warnings!r}'
         )
 
-    def test_guard_skips_write_and_logs_warning(self):
-        """Functional test: when is_grabbing() returns True, the
-        method must return without touching ChunkModeActive."""
-        from drivers.pyloncamera import PylonCamera
-
-        write_attempted = {'count': 0}
-
-        class _ChunkModeActive:
-            @property
-            def Value(self):
-                return False
-
-            @Value.setter
-            def Value(self, v):
-                write_attempted['count'] += 1
-
-        class _FakeCamera:
-            ChunkModeActive = _ChunkModeActive()
-
-        camera = PylonCamera.__new__(PylonCamera)
-        import threading as _threading
-
-        camera._state_lock = _threading.Lock()
-        camera.active = _FakeCamera()
-        # Force is_grabbing() True via monkeypatch -- using a bound
-        # method override to avoid needing the full SDK.
-        camera.is_grabbing = lambda: True
-        camera._enable_validity_chunks()
-        assert write_attempted['count'] == 0, (
-            f'ChunkModeActive write must be skipped when grabbing; '
-            f'got {write_attempted["count"]} writes'
-        )
+    def test_write_proceeds_when_idle(self):
+        """Companion to the guard test: the same camera, not grabbing,
+        does get its ChunkModeActive write."""
+        cam = _chunk_config_pylon_camera(['ExposureTime', 'Gain', 'Timestamp', 'FrameID'])
+        cam._enable_validity_chunks()
+        assert cam.active.ChunkModeActive.writes == [True]
 
 
 class TestPylonPublicMethodAnnotationsAndDocstrings:
