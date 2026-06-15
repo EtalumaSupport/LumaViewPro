@@ -160,7 +160,7 @@ class MicroscopeSettings(BoxLayout):
         lumaview.scope = lumascope_api.Lumascope(
             camera_type=settings['camera_type'], simulate=ctx.simulate_mode
         )
-        labware_id, labware = get_selected_labware()
+        _labware_id, labware = get_selected_labware()
 
         # Single hardware initialization call
         scope_config = self.scopes.get(settings.get('microscope'))
@@ -536,7 +536,7 @@ class MicroscopeSettings(BoxLayout):
             # Single hardware initialization call -- replaces scattered
             # scope.imaging.set_frame_size / set_binning_size / set_stage_offset /
             # set_turret_config / set_objective / set_scale_bar / set_acceleration_limit
-            labware_id, labware = get_selected_labware()
+            _labware_id, labware = get_selected_labware()
             scope_config = self.scopes.get(settings.get('microscope'))
             config = ScopeInitConfig.from_settings(settings, labware, scope_config=scope_config)
             lumaview.scope.initialize(config)

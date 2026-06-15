@@ -347,7 +347,7 @@ def test_add_frame_listener_notifies_user_on_driver_registration_failure(monkeyp
         f'add_frame_listener must fire exactly one notifications.warning '
         f'when the driver rejects registration. Captured: {captured}'
     )
-    category, title, message = captured[0]
+    category, title, _message = captured[0]
     assert category == 'Frame Listener', (
         f"Notification category must be 'Frame Listener'; got {category!r}"
     )

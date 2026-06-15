@@ -1,4 +1,4 @@
 4.0.0-beta17
 2026-06-15 12:27
 chore/ruff-endgame
-00da8949
+dc310434

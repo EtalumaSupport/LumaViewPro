@@ -723,7 +723,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
                 )
                 return memmap_path
 
-            color, active_layer_config = ui_snapshot['active_layer_config']
+            color, _active_layer_config = ui_snapshot['active_layer_config']
 
             include_hyperstack_generation = False
 

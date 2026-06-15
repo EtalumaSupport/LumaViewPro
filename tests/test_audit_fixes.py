@@ -8776,7 +8776,7 @@ class TestFx2DriverLibusbBackendProbe:
     def test_loadable_backend_classifies_available(self, monkeypatch):
         """With a loadable backend (and usb1 importable), the gate opens
         and the FX2 drivers register."""
-        module, records, registered = self._load_fx2_module(monkeypatch, backend=object())
+        module, _records, registered = self._load_fx2_module(monkeypatch, backend=object())
         assert module._HAS_USB_BACKEND is True
         assert module._FX2_AVAILABLE is True
         assert registered, 'FX2 drivers must register when prerequisites are met'

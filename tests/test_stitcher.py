@@ -33,7 +33,7 @@ class TestImageStats:
         lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
         stats = _image_stats(lab)
         assert len(stats) == 6  # (lMean, lStd, aMean, aStd, bMean, bStd)
-        l_mean, l_std, a_mean, a_std, b_mean, b_std = stats
+        _l_mean, l_std, _a_mean, a_std, _b_mean, b_std = stats
         assert l_std == 0.0  # uniform -> zero std
         assert a_std == 0.0
         assert b_std == 0.0
@@ -43,7 +43,7 @@ class TestImageStats:
         img = rng.randint(0, 256, (50, 50, 3), dtype=np.uint8)
         lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
         stats = _image_stats(lab)
-        l_mean, l_std, a_mean, a_std, b_mean, b_std = stats
+        _l_mean, l_std, _a_mean, a_std, _b_mean, b_std = stats
         assert l_std > 0
         assert a_std > 0
         assert b_std > 0
@@ -120,7 +120,7 @@ class TestGrabContours:
         contours = _grab_contours(raw)
         assert len(contours) == 1
         # Bounding rect should roughly match the rectangle
-        x, y, w, h = cv2.boundingRect(contours[0])
+        x, _y, w, _h = cv2.boundingRect(contours[0])
         assert 15 <= x <= 25
         assert 55 <= w <= 65
 

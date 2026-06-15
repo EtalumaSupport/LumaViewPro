@@ -214,7 +214,7 @@ def test_add_frame_listener_called_per_frame():
     time.sleep(0.2)
     t.stop()
     assert received, 'listener was never called'
-    data, shape, gen, ts = received[0]
+    data, shape, gen, _ts = received[0]
     assert data == b'frame_bytes'
     assert shape == (10, 10)
     assert gen == t.generation

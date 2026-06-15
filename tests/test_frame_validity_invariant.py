@@ -110,7 +110,7 @@ class TestAutoGainOnceInvalidates:
     could grab before the converged values flushed the pipeline."""
 
     def test_auto_gain_once_turns_marker_red(self, sim_imaging):
-        imaging, cam = sim_imaging
+        imaging, _cam = sim_imaging
         imaging.set_gain(5.0)
         imaging.frame_validity.reset()
         assert imaging.frame_validity.is_valid

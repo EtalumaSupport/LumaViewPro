@@ -176,7 +176,7 @@ class CellCount:
             return_images['denoised'] = denoised_img
 
         # Threshold
-        th, threshold_img = cv2.threshold(
+        _th, threshold_img = cv2.threshold(
             denoised_img,
             digital_settings['segmentation']['parameters']['threshold'],
             255,
@@ -187,7 +187,7 @@ class CellCount:
             return_images['threshold'] = threshold_img
 
         # Countours
-        contours, hierarchy = cv2.findContours(
+        contours, _hierarchy = cv2.findContours(
             threshold_img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
         )
 

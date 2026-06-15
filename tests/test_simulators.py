@@ -740,7 +740,7 @@ class TestSimulatedCamera:
     def test_grab_not_grabbing_returns_false(self):
         cam = SimulatedCamera()
         cam.stop_grabbing()
-        result, ts = cam.grab()
+        result, _ts = cam.grab()
         assert result is False
 
     def test_image_brightness_varies_with_exposure(self):

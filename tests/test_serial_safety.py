@@ -2210,12 +2210,12 @@ class TestCameraStateLock:
         assert cam.active is True
 
         # Normal grab without image handler should return False (no handler)
-        result, ts = cam.grab()
+        result, _ts = cam.grab()
         assert result is False
 
         # After disconnect, grab should return False immediately
         cam._mark_disconnected()
-        result, ts = cam.grab()
+        result, _ts = cam.grab()
         assert result is False
 
     def test_concurrent_mark_disconnected(self):

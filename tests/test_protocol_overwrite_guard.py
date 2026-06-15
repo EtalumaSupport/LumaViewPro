@@ -237,7 +237,7 @@ def test_load_warns_on_cross_tgid_filename_collision(tmp_path, monkeypatch):
         f'Cross-TGID duplicate filenames must fire exactly one '
         f'notifications.warning at load time. Captured: {captured_notifications}'
     )
-    category, title, message = captured_notifications[0]
+    _category, _title, message = captured_notifications[0]
     assert 'Tile Group ID' in message, (
         'Notification message must point the user at Tile Group ID as '
         'the actionable fix (per Rule 28 -- direct + action-focused).'

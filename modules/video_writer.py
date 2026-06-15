@@ -278,7 +278,7 @@ class VideoWriter:
         if not cap.isOpened():
             logger.error('VideoWriter: Output file is corrupt or unreadable')
             return False
-        ok, test_frame = cap.read()
+        ok, _test_frame = cap.read()
         if not ok:
             logger.error('VideoWriter: No frames could be read back; file is probably corrupt')
             return False
