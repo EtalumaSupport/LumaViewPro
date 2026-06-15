@@ -33,7 +33,9 @@ _serial_log = logging.getLogger('LVP.serial')
 class SimulatedLEDBoard:
     TIMING_INSTANT: ClassVar[dict] = {'delay': 0.0}  # Zero delay -- for unit tests only
     TIMING_FAST: ClassVar[dict] = {'delay': 0.001}  # 1ms minimum -- nothing returns instantly
-    TIMING_REALISTIC: ClassVar[dict] = {'delay': 0.012}  # ~12ms per exchange (1ms flush + 10ms write + 1ms read)
+    TIMING_REALISTIC: ClassVar[dict] = {
+        'delay': 0.012
+    }  # ~12ms per exchange (1ms flush + 10ms write + 1ms read)
 
     _COLOR_TO_CH: ClassVar[dict] = {
         'Blue': 0,

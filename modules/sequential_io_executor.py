@@ -773,9 +773,10 @@ class SequentialIOExecutor:
                             )
                     continue
 
-                if not (
-                    self.protocol_running.is_set() or self.protocol_finish.is_set()
-                ) and not self.protocol_queue.empty():
+                if (
+                    not (self.protocol_running.is_set() or self.protocol_finish.is_set())
+                    and not self.protocol_queue.empty()
+                ):
                     self.protocol_queue.queue.clear()
                 if self.pending_shutdown:
                     return

@@ -79,7 +79,6 @@ def test_iterate_callback_reports_per_scan_remaining_count():
         cb(0)
 
     reported = [
-        call.kwargs['remaining_scans']
-        for call in p._callbacks.protocol_iterate_pre.call_args_list
+        call.kwargs['remaining_scans'] for call in p._callbacks.protocol_iterate_pre.call_args_list
     ]
     assert reported == [2, 1]

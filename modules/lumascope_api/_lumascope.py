@@ -26,6 +26,7 @@ try:
 except ImportError:
     pass
 from drivers.camera import Camera
+
 # Registration-only imports: loading each driver module fires its
 # @*_registry.register(...) decorator so the registry can instantiate it
 # by kind ('pylon', 'sim') via create(). No name below is referenced

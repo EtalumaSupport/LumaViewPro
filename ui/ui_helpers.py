@@ -288,10 +288,7 @@ def reset_stim_ui():
     ctx = _app_ctx.ctx
     for layer in common_utils.get_layers():
         layer_obj = ctx.image_settings.layer_lookup(layer=layer)
-        if (
-            'stim_config' in ctx.settings[layer]
-            and ctx.settings[layer]['stim_config'] is not None
-        ):
+        if 'stim_config' in ctx.settings[layer] and ctx.settings[layer]['stim_config'] is not None:
             with ctx.settings_lock:
                 ctx.settings[layer]['stim_config']['enabled'] = False
             layer_obj._initializing = True

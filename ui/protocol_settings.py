@@ -765,10 +765,7 @@ class ProtocolSettings(FloatLayout):
         layer_settings_from_protocol = self._protocol.layer_settings()
         for layer in common_utils.get_layers():
             settings[layer]['acquire'] = None
-            if (
-                'stim_config' in settings[layer]
-                and settings[layer]['stim_config'] is not None
-            ):
+            if 'stim_config' in settings[layer] and settings[layer]['stim_config'] is not None:
                 settings[layer]['stim_config']['enabled'] = False
         for layer_name, vals in (layer_settings_from_protocol or {}).items():
             if layer_name not in common_utils.get_layers():
@@ -1454,15 +1451,15 @@ class ProtocolSettings(FloatLayout):
         if ctx.lumaview.scope.motion.has_turret() and not self._validate_objectives_in_protocol(
             protocol_df=self._protocol.steps()
         ):
-                turret_objectives = settings.get('turret_objectives', {})
-                assigned = [v for v in turret_objectives.values() if v is not None]
-                show_notification_popup(
-                    title='Turret Configuration Required',
-                    message='Protocol uses objectives not assigned to turret positions.\n\n'
-                    f'Assigned: {assigned if assigned else "None"}\n\n'
-                    'Please assign objectives in Objective Control > Turret before running.',
-                )
-                return False
+            turret_objectives = settings.get('turret_objectives', {})
+            assigned = [v for v in turret_objectives.values() if v is not None]
+            show_notification_popup(
+                title='Turret Configuration Required',
+                message='Protocol uses objectives not assigned to turret positions.\n\n'
+                f'Assigned: {assigned if assigned else "None"}\n\n'
+                'Please assign objectives in Objective Control > Turret before running.',
+            )
+            return False
 
         return True
 

@@ -93,7 +93,9 @@ class CellCount:
             'intensity_max': 0,
         }
 
-        for (region_idx, region), contour in zip(region_info['regions'].items(), contours, strict=False):
+        for (region_idx, region), contour in zip(
+            region_info['regions'].items(), contours, strict=False
+        ):
             if not _within_bounds(region, 'area', settings, 'area'):
                 filter_stats['area'] += 1
                 continue
