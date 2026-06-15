@@ -2,6 +2,7 @@
 """Application environment initialization -- paths, version, platform detection."""
 
 import logging
+import os
 import pathlib
 import shutil
 import subprocess
