@@ -143,11 +143,13 @@ def test_processor_catches_exceptions_and_returns_failure(harness_ctx):
     fake = MagicMock()
     fake.load_folder.side_effect = RuntimeError('boom')
 
-    with patch.object(stitcher_plugin, 'Stitcher', return_value=fake, create=True):
-        # Patch the lazy import target -- the processor does
-        # `from modules.stitcher import Stitcher` inside the call.
-        with patch('modules.stitcher.Stitcher', return_value=fake):
-            result = processor('/some/path', {}, '/some/out')
+    # Patch the lazy import target -- the processor does
+    # `from modules.stitcher import Stitcher` inside the call.
+    with (
+        patch.object(stitcher_plugin, 'Stitcher', return_value=fake, create=True),
+        patch('modules.stitcher.Stitcher', return_value=fake),
+    ):
+        result = processor('/some/path', {}, '/some/out')
 
     assert isinstance(result, ProcessorResult)
     assert result.success is False

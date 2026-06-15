@@ -27,8 +27,8 @@ from lvp_logger import logger
 
 def _image_stats(image):
     """Compute mean and std for each channel of an L*a*b* image."""
-    (l, a, b) = cv2.split(image)
-    return (l.mean(), l.std(), a.mean(), a.std(), b.mean(), b.std())
+    (l_chan, a, b) = cv2.split(image)
+    return (l_chan.mean(), l_chan.std(), a.mean(), a.std(), b.mean(), b.std())
 
 
 def color_transfer(source, target):
@@ -56,24 +56,24 @@ def color_transfer(source, target):
     (lMeanSrc, lStdSrc, aMeanSrc, aStdSrc, bMeanSrc, bStdSrc) = _image_stats(source)
     (lMeanTar, lStdTar, aMeanTar, aStdTar, bMeanTar, bStdTar) = _image_stats(target)
 
-    (l, a, b) = cv2.split(target)
-    l -= lMeanTar
+    (l_chan, a, b) = cv2.split(target)
+    l_chan -= lMeanTar
     a -= aMeanTar
     b -= bMeanTar
 
-    l = (lStdTar / lStdSrc) * l if lStdSrc > 0 else l
+    l_chan = (lStdTar / lStdSrc) * l_chan if lStdSrc > 0 else l_chan
     a = (aStdTar / aStdSrc) * a if aStdSrc > 0 else a
     b = (bStdTar / bStdSrc) * b if bStdSrc > 0 else b
 
-    l += lMeanSrc
+    l_chan += lMeanSrc
     a += aMeanSrc
     b += bMeanSrc
 
-    l = np.clip(l, 0, 255)
+    l_chan = np.clip(l_chan, 0, 255)
     a = np.clip(a, 0, 255)
     b = np.clip(b, 0, 255)
 
-    transfer = cv2.merge([l, a, b])
+    transfer = cv2.merge([l_chan, a, b])
     transfer = cv2.cvtColor(transfer.astype('uint8'), cv2.COLOR_LAB2BGR)
     return transfer
 

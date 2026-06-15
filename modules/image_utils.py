@@ -1042,7 +1042,7 @@ def write_tiff(
     ome: bool,
     color: str,
     video_frame: bool = False,
-    extratags: list = None,
+    extratags: list | None = None,
     use_false_color_16bit: bool | None = None,
     false_color_buf: np.ndarray | None = None,
     rgb_buf: np.ndarray | None = None,
@@ -1570,7 +1570,7 @@ def add_scale_bar(
     image,
     objective: dict,
     binning_size: int,
-    color: str = None,
+    color: str | None = None,
 ):
     global _scale_bar_cache
 

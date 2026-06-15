@@ -1321,7 +1321,7 @@ class MotorBoard(SerialBoard):
             if resp is None:
                 return []
 
-        lines = [l.strip() for l in resp.split('\n') if l.strip()]
+        lines = [ln.strip() for ln in resp.split('\n') if ln.strip()]
         results = []
         for line in lines:
             entry = {'raw_line': line}
@@ -1354,7 +1354,7 @@ class MotorBoard(SerialBoard):
         resp = self.exchange_multiline('MOTORDETECT', timeout=5, end_markers=['T:'])
         if resp is None:
             return []
-        lines = [l.strip() for l in resp.split('\n') if l.strip()]
+        lines = [ln.strip() for ln in resp.split('\n') if ln.strip()]
         results = []
         for line in lines:
             entry = {'raw_line': line}
@@ -1378,7 +1378,7 @@ class MotorBoard(SerialBoard):
             return []
         import re as _re
 
-        lines = [l.strip() for l in resp.split('\n') if l.strip()]
+        lines = [ln.strip() for ln in resp.split('\n') if ln.strip()]
         results = []
         for line in lines:
             entry = {'raw_line': line}

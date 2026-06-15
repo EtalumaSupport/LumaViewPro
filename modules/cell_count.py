@@ -41,10 +41,7 @@ class CellCount:
                 if param == 'area':
                     val = round(region[param] / (pixels_per_um**2), 2)
                     units = 'um^2'
-                elif param == 'perimeter':
-                    val = round(region[param] / (pixels_per_um), 2)
-                    units = 'um'
-                elif param == 'equivalent_diameter':
+                elif param in ('perimeter', 'equivalent_diameter'):
                     val = round(region[param] / (pixels_per_um), 2)
                     units = 'um'
                 elif param in ['intensity_min', 'intensity_mean', 'intensity_max']:

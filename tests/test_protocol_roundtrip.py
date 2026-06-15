@@ -2398,7 +2398,7 @@ class TestPerRowConfigParsing:
 
         lines = tsv_path.read_text().splitlines()
         # Find the header line (starts with "Name\t")
-        header_idx = next(i for i, l in enumerate(lines) if l.startswith('Name\t'))
+        header_idx = next(i for i, line in enumerate(lines) if line.startswith('Name\t'))
         header = lines[header_idx].split('\t')
         col_idx = header.index(column)
 

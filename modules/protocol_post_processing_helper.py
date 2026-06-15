@@ -51,10 +51,9 @@ class ProtocolPostProcessingHelper:
             else:
                 parent_dir = str(image_name.parent)
 
-            if len(exclude_subpaths) > 0 and (parent_dir in exclude_subpaths):
-                continue
-
-            elif len(include_subpaths) > 0 and (parent_dir not in include_subpaths):
+            if (len(exclude_subpaths) > 0 and (parent_dir in exclude_subpaths)) or (
+                len(include_subpaths) > 0 and (parent_dir not in include_subpaths)
+            ):
                 continue
 
             if parent_dir not in raw_image_dirs:

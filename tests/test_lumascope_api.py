@@ -1175,10 +1175,9 @@ class TestSetExposureTimeValueWarningSuppression:
     def test_flag_restored_after_exception_in_context(self):
         scope = Lumascope(simulate=True)
         assert scope.imaging._suppress_value_warnings is False
-        with pytest.raises(RuntimeError, match='boom'):
-            with scope.imaging.suppress_value_warnings():
-                assert scope.imaging._suppress_value_warnings is True
-                raise RuntimeError('boom')
+        with pytest.raises(RuntimeError, match='boom'), scope.imaging.suppress_value_warnings():
+            assert scope.imaging._suppress_value_warnings is True
+            raise RuntimeError('boom')
         assert scope.imaging._suppress_value_warnings is False
 
     def test_nested_context_managers_restore_to_outer_value(self):

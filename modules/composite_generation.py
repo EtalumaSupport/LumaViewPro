@@ -164,7 +164,7 @@ class CompositeGeneration(ProtocolPostProcessor):
     def _create_composite_image(
         path: pathlib.Path,
         df: pd.DataFrame,
-        output_file_loc: pathlib.Path = None,
+        output_file_loc: pathlib.Path | None = None,
         output_format: str = 'TIFF',
     ):
 

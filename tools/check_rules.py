@@ -578,9 +578,9 @@ def _check_rule_31b(tree: ast.AST, path: str) -> list[Violation]:
         if not isinstance(node, ast.Call):
             continue
         f = node.func
-        if isinstance(f, ast.Attribute) and f.attr == 'add_false_color':
-            pass
-        elif isinstance(f, ast.Name) and f.id == 'add_false_color':
+        if (isinstance(f, ast.Attribute) and f.attr == 'add_false_color') or (
+            isinstance(f, ast.Name) and f.id == 'add_false_color'
+        ):
             pass
         else:
             continue

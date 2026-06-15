@@ -375,7 +375,7 @@ class SequentialIOExecutor:
     def __init__(
         self,
         max_workers: int = 1,
-        name: str = None,
+        name: str | None = None,
         ui_dispatcher=None,
         protocol_queue_maxsize: int = 0,
         priority_aware: bool = False,

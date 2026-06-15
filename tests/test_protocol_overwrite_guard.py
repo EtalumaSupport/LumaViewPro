@@ -37,14 +37,14 @@ def test_generate_image_save_path_supports_if_collision_mode(tmp_path):
 
     from modules import image_save
 
-    kwargs = dict(
-        scope=SimpleNamespace(),
-        save_folder=tmp_path,
-        file_root='step_',
-        append='BF',
-        tail_id_mode='if_collision',
-        output_format='TIFF',
-    )
+    kwargs = {
+        'scope': SimpleNamespace(),
+        'save_folder': tmp_path,
+        'file_root': 'step_',
+        'append': 'BF',
+        'tail_id_mode': 'if_collision',
+        'output_format': 'TIFF',
+    }
     first = image_save.generate_image_save_path(**kwargs)
     assert first.name == 'step_BF.tiff', 'no collision -> the plain filename, unchanged'
     first.touch()

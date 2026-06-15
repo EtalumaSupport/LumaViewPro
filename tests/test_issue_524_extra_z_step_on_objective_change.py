@@ -49,7 +49,7 @@ def _module_tree(path: pathlib.Path) -> ast.Module:
     return ast.parse(path.read_text())
 
 
-def _function_node(tree: ast.Module, name: str, class_name: str = None) -> ast.FunctionDef:
+def _function_node(tree: ast.Module, name: str, class_name: str | None = None) -> ast.FunctionDef:
     for node in ast.walk(tree):
         if class_name is not None:
             if isinstance(node, ast.ClassDef) and node.name == class_name:

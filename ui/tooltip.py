@@ -133,18 +133,11 @@ class TooltipMixin:
                         accordion_parents = self.widget_to_accordion_dict[widget]
                         self.widget_being_described = widget
 
-                        # If widget is not in an Accordion, it is always visible, so show tooltip
-                        if len(accordion_parents) < 1:
-                            on_widget = True
-                            if not self.tt_shown:
-                                self.tt_widget.text = widget.tooltip_text
-                                self.tt_clock_event = Clock.schedule_once(
-                                    self.show_tooltip, delay_until_tooltip
-                                )
-                            break
-
-                        # If all accordions above the widget are not collapsed, show the widget
-                        elif True not in [accordion.collapse for accordion in accordion_parents]:
+                        # Show the tooltip when the widget is not in an Accordion
+                        # (always visible), or when no accordion above it is collapsed.
+                        if len(accordion_parents) < 1 or True not in [
+                            accordion.collapse for accordion in accordion_parents
+                        ]:
                             on_widget = True
                             if not self.tt_shown:
                                 self.tt_widget.text = widget.tooltip_text

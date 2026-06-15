@@ -524,25 +524,24 @@ class MotionAPI:
         # wait_until_finished_moving() inside safe_turret_move's Z move.
         _api_log.info('thome START')
         try:
-            with self.reference_position_logger():
-                with self.safe_turret_move():
-                    self._set_axis_state('T', AxisState.HOMING)
-                    self._scope.imaging.frame_validity.invalidate('turret')
-                    result = self._driver.thome()
-                    # Transition T out of HOMING BEFORE exiting
-                    # safe_turret_move. The context manager's finally
-                    # restores Z via wait_until_complete=True, which calls
-                    # wait_until_finished_moving and iterates EVERY axis
-                    # arrival event. A still-HOMING T has a cleared event
-                    # and the motion monitor only polls MOVING (not
-                    # HOMING) axes, so the Z-restore's wait would hang on
-                    # T until the 120s default timeout fires. Setting T
-                    # to its post-homing state here keeps the Z restore
-                    # blocked only on the axis that's actually moving.
-                    if result is False:
-                        self._set_axis_state('T', AxisState.UNKNOWN)
-                    else:
-                        self._set_axis_state('T', AxisState.IDLE)
+            with self.reference_position_logger(), self.safe_turret_move():
+                self._set_axis_state('T', AxisState.HOMING)
+                self._scope.imaging.frame_validity.invalidate('turret')
+                result = self._driver.thome()
+                # Transition T out of HOMING BEFORE exiting
+                # safe_turret_move. The context manager's finally
+                # restores Z via wait_until_complete=True, which calls
+                # wait_until_finished_moving and iterates EVERY axis
+                # arrival event. A still-HOMING T has a cleared event
+                # and the motion monitor only polls MOVING (not
+                # HOMING) axes, so the Z-restore's wait would hang on
+                # T until the 120s default timeout fires. Setting T
+                # to its post-homing state here keeps the Z restore
+                # blocked only on the axis that's actually moving.
+                if result is False:
+                    self._set_axis_state('T', AxisState.UNKNOWN)
+                else:
+                    self._set_axis_state('T', AxisState.IDLE)
             if result is False:
                 logger.error('[SCOPE API ] Turret homing failed')
                 notifications.error(

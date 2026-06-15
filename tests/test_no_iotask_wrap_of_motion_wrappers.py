@@ -52,9 +52,9 @@ def _iotask_action_argument(call: ast.Call) -> ast.expr | None:
     """Return the AST node passed as the IOTask action (first positional or
     ``action=`` kwarg), or None if the call isn't an IOTask invocation."""
     func = call.func
-    if isinstance(func, ast.Name) and func.id == 'IOTask':
-        pass
-    elif isinstance(func, ast.Attribute) and func.attr == 'IOTask':
+    if (isinstance(func, ast.Name) and func.id == 'IOTask') or (
+        isinstance(func, ast.Attribute) and func.attr == 'IOTask'
+    ):
         pass
     else:
         return None

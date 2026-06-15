@@ -276,7 +276,7 @@ class ProtocolSettings(FloatLayout):
         gui_logger.text_input_debounced('CAPTURE_ROOT', sanitized)
 
     # Labware Selection
-    def select_labware(self, labware: str = None):
+    def select_labware(self, labware: str | None = None):
         settings = _app_ctx.ctx.settings
         ctx = _app_ctx.ctx
         wellplate_loader = ctx.wellplate_loader

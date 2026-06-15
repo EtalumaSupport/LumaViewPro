@@ -539,9 +539,8 @@ class TestLoadCameraTimingLumascope:
 
         import json
 
-        with pytest.raises(json.JSONDecodeError):
-            with open(timing_dir / 'BadCam.json') as f:
-                json.load(f)
+        with pytest.raises(json.JSONDecodeError), open(timing_dir / 'BadCam.json') as f:
+            json.load(f)
 
 
 class TestSetTarget:

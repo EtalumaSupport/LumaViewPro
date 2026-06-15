@@ -1050,10 +1050,9 @@ class TestSimulatedCamera:
         """Grabbing must restart even if config change throws."""
         cam = SimulatedCamera()
         assert cam.is_grabbing() is True
-        with pytest.raises(ValueError):
-            with cam.update_camera_config():
-                assert cam.is_grabbing() is False
-                raise ValueError('simulated config failure')
+        with pytest.raises(ValueError), cam.update_camera_config():
+            assert cam.is_grabbing() is False
+            raise ValueError('simulated config failure')
         # Grabbing must be restored despite the exception
         assert cam.is_grabbing() is True
 
@@ -1104,11 +1103,10 @@ class TestSimulatedCamera:
         """If an inner level raises, the outer level still restarts."""
         cam = SimulatedCamera()
         assert cam.is_grabbing() is True
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError), cam.update_camera_config():
+            assert cam.is_grabbing() is False
             with cam.update_camera_config():
-                assert cam.is_grabbing() is False
-                with cam.update_camera_config():
-                    raise ValueError('inner failure')
+                raise ValueError('inner failure')
         assert cam.is_grabbing() is True
 
     def test_update_camera_config_reentrant_when_not_grabbing(self):
@@ -1133,9 +1131,8 @@ class TestSimulatedCamera:
         cam.stop_grabbing = counting_stop
         cam.start_grabbing = counting_start
 
-        with cam.update_camera_config():
-            with cam.update_camera_config():
-                pass
+        with cam.update_camera_config(), cam.update_camera_config():
+            pass
 
         # Was not grabbing on entry; must not start anything.
         assert len(stop_calls) == 0

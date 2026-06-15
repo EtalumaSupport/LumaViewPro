@@ -2283,7 +2283,7 @@ class ImagingAPI:
         with self._state_lock:
             return bool(self._scale_bar.get('enabled', False))
 
-    def set_scale_bar(self, enabled: bool, color: str = None) -> None:
+    def set_scale_bar(self, enabled: bool, color: str | None = None) -> None:
         """Configure the scale bar overlay on captured images.
 
         Args:

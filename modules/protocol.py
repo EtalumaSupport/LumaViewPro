@@ -199,7 +199,7 @@ class Protocol:
         r'^(?P<well_label>[A-Z][0-9]+)(_(?P<color>(Blue|Green|Red|BF|DF|PC|Lumi)))(_T(?P<tile_label>[A-Z][0-9]+))?(_Z(?P<z_slice>[0-9]+))?(_([0-9]*))?(.tif[f])?$'
     )
 
-    def __init__(self, tiling_configs_file_loc: pathlib.Path, config: dict = None):
+    def __init__(self, tiling_configs_file_loc: pathlib.Path, config: dict | None = None):
 
         self._objective_loader = ObjectiveLoader()
 
@@ -495,7 +495,7 @@ class Protocol:
     VALID_COLORS: ClassVar[set] = {c.name for c in color_channels.ColorChannel}
     VALID_ACQUIRE_MODES: ClassVar[set] = {'image', 'video'}
 
-    def validate_steps(self, objectives_file: str = None) -> list:
+    def validate_steps(self, objectives_file: str | None = None) -> list:
         """Validate all step fields and return a list of error strings.
 
         Returns an empty list if all steps are valid.
@@ -590,7 +590,7 @@ class Protocol:
 
         return errors
 
-    def validate_for_run(self, axis_limits: dict = None) -> list:
+    def validate_for_run(self, axis_limits: dict | None = None) -> list:
         """Validate protocol is safe to execute on hardware.
 
         Checks positions are within axis travel limits. Call this before

@@ -12616,12 +12616,17 @@ class TestAxisStateLivesOnConstants:
         assert AxisState.__module__ == 'modules.lumascope_api._constants'
 
     def test_all_back_compat_paths_are_one_identity(self):
-        from modules.lumascope_api import AxisState as via_pkg
-        from modules.lumascope_api._constants import AxisState as via_constants
-        from modules.lumascope_api._lumascope import AxisState as via_lumascope
-        from modules.lumascope_api.motion import AxisState as via_motion
+        from modules.lumascope_api import AxisState as AxisState_via_pkg
+        from modules.lumascope_api._constants import AxisState as AxisState_via_constants
+        from modules.lumascope_api._lumascope import AxisState as AxisState_via_lumascope
+        from modules.lumascope_api.motion import AxisState as AxisState_via_motion
 
-        assert via_constants is via_lumascope is via_pkg is via_motion
+        assert (
+            AxisState_via_constants
+            is AxisState_via_lumascope
+            is AxisState_via_pkg
+            is AxisState_via_motion
+        )
 
     def test_values_intact(self):
         from modules.lumascope_api._constants import AxisState

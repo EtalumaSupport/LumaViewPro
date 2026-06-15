@@ -166,7 +166,7 @@ class MetricsLogger:
 
         capture_fps = 0.0
         try:
-            from modules import app_context as _app_ctx  # noqa: WPS433
+            from modules import app_context as _app_ctx
 
             sd = _app_ctx.ctx.scope_display if _app_ctx.ctx is not None else None
             if sd is not None:
