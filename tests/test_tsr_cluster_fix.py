@@ -304,14 +304,27 @@ class TestMotorAndLedConnectionProbes:
 
     def test_target_str_resolves_illumination_not_legacy_led(self):
         # Post-Wave-7 the LED sub-API namespace is `scope.illumination`,
-        # not `scope.led`. _target_str must follow the rename so
+        # not `scope.led`. _target_str must resolve a board object to its
+        # canonical 'led'/'motor' string via the renamed namespace so
         # _cmd(self.led_board, ...) routes correctly.
-        src = (REPO_ROOT / 'modules' / 'tech_support_report.py').read_text()
-        assert "getattr(self._scope, 'illumination', None)" in src
-        # The legacy attribute must not survive in _target_str.
-        ts_block = src.split('def _target_str')[1].split('def ')[0]
-        assert "'led'" in ts_block  # the return string
-        assert "getattr(self._scope, 'led'" not in ts_block
+        from modules.tech_support_report import FirmwareDiagnostics
+
+        illum = object()
+        motion = object()
+        legacy_led = object()
+        scope = MagicMock()
+        scope.illumination = illum
+        scope.motion = motion
+        scope.led = legacy_led  # the retired attribute
+        diag = FirmwareDiagnostics(scope=scope)
+
+        assert diag._target_str(illum) == 'led'
+        assert diag._target_str(motion) == 'motor'
+        # A reference to the retired scope.led object must NOT resolve as
+        # the LED target -- only scope.illumination does.
+        assert diag._target_str(legacy_led) is None
+        # String targets pass through unchanged.
+        assert diag._target_str('led') == 'led'
 
 
 # ---------------------------------------------------------------------------
