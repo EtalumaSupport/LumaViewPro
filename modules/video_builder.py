@@ -196,12 +196,14 @@ class VideoBuilder(ProtocolPostProcessor):
 
         total_frames = len(df)
         i = 0
+        skipped = 0
         for _, row in df.iterrows():
             image_path = path / row['Filepath']
             try:
                 image = image_utils.read_tiff_with_legacy_collapse(image_path)
             except Exception as e:
                 logger.error(f'[{self._name}] Failed to read image: {image_path}: {e}')
+                skipped += 1
                 continue
 
             # Post-1d: image is mono 2D (legacy 3-channel collapses to mono
@@ -229,12 +231,28 @@ class VideoBuilder(ProtocolPostProcessor):
 
         video.close()
 
+        total_dropped = skipped + video.dropped_frames
+        if total_dropped > 0:
+            logger.warning(
+                f'[{self._name}] {total_dropped} of {total_frames} frames missing '
+                'from output (unreadable source or encode failure)'
+            )
+            from modules.notification_center import notifications
+
+            notifications.warning(
+                'Create Video',
+                'Video Frames Missing',
+                f'{total_dropped} of {total_frames} frames could not be added to '
+                f'"{output_file_loc}". The video is shorter than the source set. '
+                'Check the log for the cause.',
+            )
+
         logger.debug(f'[{self._name}] - Complete')
 
         return {
             'status': True,
             'error': None,
-            'metadata': {},
+            'metadata': {'dropped_frames': total_dropped},
         }
 
     def build_video(
@@ -296,6 +314,7 @@ class VideoBuilder(ProtocolPostProcessor):
         )
 
         frame_count = 0
+        skipped = 0
         status = True
         error = None
         try:
@@ -304,6 +323,7 @@ class VideoBuilder(ProtocolPostProcessor):
                     image = image_utils.read_tiff_with_legacy_collapse(tiff_path)
                 except Exception as e:
                     logger.error(f'[{self._name}] build_video: failed to read {tiff_path}: {e}')
+                    skipped += 1
                     continue
                 writer.add_frame(image)
                 frame_count += 1
@@ -314,10 +334,19 @@ class VideoBuilder(ProtocolPostProcessor):
         finally:
             writer.close()
 
+        # Unreadable sources + encode failures are returned so the caller can
+        # tell the user the built video is short rather than assume it is whole.
+        dropped = skipped + writer.dropped_frames
+        if dropped:
+            logger.warning(
+                f'[{self._name}] build_video: {dropped} of {len(tiff_paths)} frames '
+                'missing from output (unreadable source or encode failure)'
+            )
         return {
             'status': status,
             'error': error,
             'frame_count': frame_count,
+            'dropped_frames': dropped,
         }
 
     def build_from_folder(

@@ -1,4 +1,4 @@
 4.0.0-beta17
-2026-06-15 16:50
+2026-06-15 16:59
 fix/protocol-record-reconciliation
-1b827984
+01378aa1

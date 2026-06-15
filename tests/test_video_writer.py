@@ -203,3 +203,138 @@ class TestPyavEncoderThreadCap:
             )
 
         assert fake_stream.thread_count == 1, 'never below 1 thread on a 1-2 core box'
+
+
+class _FailingCv2VideoWriter:
+    """cv2 writer whose write() reports failure, to exercise drop accounting."""
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def isOpened(self):
+        return True
+
+    def write(self, frame):
+        return False
+
+    def release(self):
+        pass
+
+
+class TestVideoWriterDropAccounting:
+    """A frame the encoder fails to write is a dropped frame: it must be
+    counted as dropped and must NOT inflate the written-frame count."""
+
+    def test_cv2_write_failure_counts_as_drop(self, tmp_path):
+        fake = _FailingCv2VideoWriter()
+        with mock.patch('modules.video_writer.cv2.VideoWriter', return_value=fake):
+            writer = VideoWriter(
+                output_path=tmp_path / 'out.avi', fps=30, include_timestamp_overlay=False
+            )
+            writer._use_pyav = False
+            writer.add_frame(image=np.zeros((24, 32, 3), dtype=np.uint8), timestamp=None)
+        status = writer.get_progress()
+        assert status['frame_count'] == 0, 'a failed write must not count as a written frame'
+        assert status['dropped_frames'] == 1
+
+    def test_pyav_encode_error_counts_as_drop(self, tmp_path):
+        fake_stream = _FakeStream()
+
+        def _raise(_frame):
+            raise RuntimeError('encode boom')
+
+        fake_stream.encode = _raise
+        fake_av = mock.MagicMock()
+        fake_av.open.return_value = _FakeContainer(fake_stream)
+        fake_av.VideoFrame.from_ndarray.return_value = object()
+        with (
+            mock.patch.object(video_writer_module, '_HAS_PYAV', True),
+            mock.patch.object(video_writer_module, 'av', fake_av, create=True),
+        ):
+            writer = VideoWriter(
+                output_path=tmp_path / 'out.mp4',
+                fps=30,
+                width=32,
+                height=24,
+                include_timestamp_overlay=False,
+            )
+            writer.add_frame(image=np.zeros((24, 32, 3), dtype=np.uint8), timestamp=None)
+        status = writer.get_progress()
+        assert status['frame_count'] == 0
+        assert status['dropped_frames'] == 1
+
+
+class TestWriteVideoDropNotification:
+    """write_video must warn the user once when a recording loses frames --
+    otherwise a short video is discovered only by frame arithmetic, if ever."""
+
+    def _capture_warnings(self, monkeypatch):
+        from modules.notification_center import notifications
+
+        fired = []
+        monkeypatch.setattr(notifications, 'warning', lambda *a, **k: fired.append((a, k)))
+        return fired
+
+    def _empty_result(self, dropped):
+        import queue as _queue
+
+        from modules.video_capture import VideoCaptureResult
+
+        return VideoCaptureResult(
+            captured_frames=5,
+            calculated_fps=10,
+            video_images=_queue.Queue(),
+            duration_sec=0.5,
+            dropped_frames=dropped,
+        )
+
+    def test_producer_drops_fire_one_warning(self, tmp_path, monkeypatch):
+        from modules.video_capture import write_video
+
+        fired = self._capture_warnings(monkeypatch)
+        write_video(
+            result=self._empty_result(dropped=2),
+            save_folder=tmp_path,
+            name='clip',
+            video_as_frames=True,
+            step={'Color': 'Blue'},
+            callbacks={},
+        )
+        assert len(fired) == 1, 'a recording that dropped frames must warn exactly once'
+        body = ' '.join(str(x) for x in fired[0][0])
+        assert '2' in body
+
+    def test_no_drops_is_silent(self, tmp_path, monkeypatch):
+        from modules.video_capture import write_video
+
+        fired = self._capture_warnings(monkeypatch)
+        write_video(
+            result=self._empty_result(dropped=0),
+            save_folder=tmp_path,
+            name='clip',
+            video_as_frames=True,
+            step={'Color': 'Blue'},
+            callbacks={},
+        )
+        assert fired == [], 'a clean recording must not warn'
+
+
+class TestVideoBuilderDropAccounting:
+    """The post-processing video builder skips unreadable source frames; those
+    skips must be counted and returned, not silently dropped from the output."""
+
+    def test_unreadable_sources_counted_as_dropped(self, tmp_path):
+        from modules.video_builder import VideoBuilder
+
+        src = tmp_path / 'frames'
+        src.mkdir()
+        (src / 'a.tiff').write_bytes(b'not a real tiff')
+        (src / 'b.tiff').write_bytes(b'also garbage')
+        builder = VideoBuilder(has_turret=False)
+        result = builder.build_video(
+            source_dir=src,
+            output_file=tmp_path / 'out.mp4',
+            fps=10,
+        )
+        assert result['frame_count'] == 0, 'no readable frame should encode'
+        assert result['dropped_frames'] == 2, 'both unreadable sources must be counted'

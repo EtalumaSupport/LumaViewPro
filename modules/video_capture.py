@@ -27,11 +27,16 @@ from modules.video_writer import VideoWriter
 class VideoCaptureResult:
     """Result of a video capture session."""
 
-    def __init__(self, captured_frames, calculated_fps, video_images, duration_sec):
+    def __init__(
+        self, captured_frames, calculated_fps, video_images, duration_sec, dropped_frames=0
+    ):
         self.captured_frames = captured_frames
         self.calculated_fps = calculated_fps
         self.video_images = video_images
         self.duration_sec = duration_sec
+        # Frames the capture loop could not queue (consumer fell behind).
+        # Surfaced at write time so a short recording is not silent.
+        self.dropped_frames = dropped_frames
 
 
 class VideoCaptureSession:
@@ -111,6 +116,7 @@ class VideoCaptureSession:
         start_ts = time.time()
         stop_ts = start_ts + duration_sec
         captured_frames = 0
+        dropped_frames = 0
         seconds_per_frame = 1.0 / fps
         video_images = queue.Queue(maxsize=500)
 
@@ -207,12 +213,12 @@ class VideoCaptureSession:
                     video_images.put_nowait((image, datetime.datetime.now()))
                     captured_frames += 1
                 except queue.Full:
-                    # VF-5: do NOT `continue` here -- that bypasses the
-                    # per-frame sleep below and turns the capture loop into
-                    # a hot-spin against the writer thread when the queue
-                    # is full. Drop the frame, log it, fall through to the
-                    # normal frame-pacing sleep so the consumer has time to
-                    # drain.
+                    # Do NOT `continue` here -- that bypasses the per-frame
+                    # sleep below and turns the capture loop into a hot-spin
+                    # against the writer thread when the queue is full. Drop
+                    # the frame, count it, fall through to the normal
+                    # frame-pacing sleep so the consumer has time to drain.
+                    dropped_frames += 1
                     logger.warning(
                         f'[PROTOCOL-VIDEO] Frame queue full '
                         f'({video_images.maxsize}), dropping frame'
@@ -245,6 +251,8 @@ class VideoCaptureSession:
 
         logger.info(f'[PROTOCOL-VIDEO] Images present in video array: {not video_images.empty()}')
         logger.info(f'[PROTOCOL-VIDEO] Captured Frames: {captured_frames}')
+        if dropped_frames:
+            logger.warning(f'[PROTOCOL-VIDEO] Dropped Frames (queue full): {dropped_frames}')
         logger.info(f'[PROTOCOL-VIDEO] Video FPS: {calculated_fps}')
 
         return VideoCaptureResult(
@@ -252,6 +260,7 @@ class VideoCaptureSession:
             calculated_fps=calculated_fps,
             video_images=video_images,
             duration_sec=duration_sec,
+            dropped_frames=dropped_frames,
         )
 
 
@@ -280,6 +289,9 @@ def write_video(
     """
     video_images = result.video_images
     captured_frames = result.captured_frames
+    # Frames lost during the write/encode stage, on top of any the capture
+    # loop already dropped (result.dropped_frames).
+    lost_in_write = 0
 
     if 'set_writing_title' in callbacks:
         _schedule_ui(lambda dt: callbacks['set_writing_title'](progress=0), 0)
@@ -327,6 +339,7 @@ def write_video(
                 )
             except Exception as e:
                 logger.error(f'[PROTOCOL-VIDEO] Failed to write frame {frame_num}: {e}')
+                lost_in_write += 1
 
             del image
 
@@ -351,14 +364,23 @@ def write_video(
 
                 try:
                     image_pair = video_images.get_nowait()
+                except queue.Empty:
+                    # Normal producer/consumer race against the empty() guard,
+                    # not a failure -- stop draining.
+                    break
+                try:
                     video_writer.add_frame(image=image_pair[0], timestamp=image_pair[1])
-                    del image_pair
-                    video_images.task_done()
                     frame_num += 1
                 except Exception as e:
-                    logger.error(f'[PROTOCOL-VIDEO] FAILED TO WRITE FRAME: {e}')
+                    logger.error(f'[PROTOCOL-VIDEO] Failed to encode frame {frame_num}: {e}')
+                    lost_in_write += 1
+                finally:
+                    del image_pair
+                    video_images.task_done()
         finally:
             video_writer.close()
+            # Encode failures inside add_frame are counted by the writer.
+            lost_in_write += video_writer.dropped_frames
             del video_writer
 
         _drain_queue(video_images)
@@ -366,6 +388,17 @@ def write_video(
 
     if 'reset_title' in callbacks:
         _schedule_ui(lambda dt: callbacks['reset_title'](), 0)
+
+    total_dropped = result.dropped_frames + lost_in_write
+    if total_dropped > 0:
+        from modules.notification_center import notifications
+
+        notifications.warning(
+            'Protocol',
+            'Video Frames Dropped',
+            f'{total_dropped} frame(s) were dropped from "{name}" -- the video '
+            'is shorter than the recording. Check the log for the cause.',
+        )
 
     logger.info('[PROTOCOL-VIDEO] Video writing finished.')
 
