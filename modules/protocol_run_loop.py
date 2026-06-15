@@ -158,8 +158,8 @@ class ProtocolRunLoop:
                 # Time for next scan
                 if p._callbacks.protocol_iterate_pre:
                     _schedule_ui(
-                        lambda dt: p._callbacks.protocol_iterate_pre(
-                            remaining_scans=remaining_scans, interval=p._protocol.period()
+                        lambda dt, rs=remaining_scans: p._callbacks.protocol_iterate_pre(
+                            remaining_scans=rs, interval=p._protocol.period()
                         )
                     )
 
