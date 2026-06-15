@@ -26,6 +26,15 @@ try:
 except ImportError:
     pass
 from drivers.camera import Camera
+# Registration-only imports: loading each driver module fires its
+# @*_registry.register(...) decorator so the registry can instantiate it
+# by kind ('pylon', 'sim') via create(). No name below is referenced
+# directly here; dropping these empties the registry -- simulate mode then
+# finds no 'sim' drivers and startup aborts.
+from drivers.pyloncamera import PylonCamera  # noqa: F401
+from drivers.simulated_camera import SimulatedCamera  # noqa: F401
+from drivers.simulated_motorboard import SimulatedMotorBoard  # noqa: F401
+from drivers.simulated_ledboard import SimulatedLEDBoard  # noqa: F401
 from drivers.null_motorboard import NullMotionBoard
 from drivers.null_ledboard import NullLEDBoard
 from drivers.protocols import MotorBoardProtocol, LEDBoardProtocol
