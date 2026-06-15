@@ -17,9 +17,7 @@ fail before the fix and pass after.
 
 from __future__ import annotations
 
-import re
 import threading
-from pathlib import Path
 
 import numpy as np
 import pytest
@@ -43,25 +41,6 @@ def sim_imaging():
     imaging = ImagingAPI(scope, cam)
     scope.imaging = imaging
     return imaging, cam
-
-
-def _imaging_src() -> str:
-    return (
-        Path(__file__).resolve().parent.parent
-        / 'modules'
-        / 'lumascope_api'
-        / 'imaging.py'
-    ).read_text(encoding='utf-8')
-
-
-def _method_body(src: str, name: str) -> str:
-    m = re.search(
-        rf'def {name}.*?(?=\n    def |\n    @|\nclass |\Z)',
-        src,
-        re.DOTALL,
-    )
-    assert m is not None, f'could not find {name} body in imaging.py'
-    return m.group(0)
 
 
 class TestSetGainAlwaysInvalidatesDespiteStaleCache:
@@ -283,16 +262,32 @@ class TestSaturationGuard:
         assert ImagingAPI._saturated_fraction(near16) == pytest.approx(1.0)
         assert ImagingAPI._saturated_fraction(None) == 0.0
 
-    def test_blown_frame_logged_not_silent(self):
-        body = _method_body(_imaging_src(), 'get_image')
-        # A blown frame must be logged as a warning (visible in the
-        # post-mortem), replacing the prior silent debug-accept. No user
-        # notification -- a blown image is self-evident on screen.
-        assert 'logger.warning' in body and 'saturated' in body, (
-            'a blown/saturated capture must be logged as a warning'
+    def test_blown_frame_logged_not_silent(self, sim_imaging, monkeypatch):
+        # A blown frame that stays blown on retry must be logged as a
+        # warning (visible in the post-mortem), not silently accepted. No
+        # user notification -- a blown image is self-evident on screen.
+        from modules.lumascope_api import imaging as imaging_mod
+        from modules.lumascope_api.runtime_state import RuntimeState
+
+        imaging, cam = sim_imaging
+        # get_image's scale-bar gate reads scope.runtime_state past the
+        # saturation block; the lean fixture omits it.
+        imaging._scope.runtime_state = RuntimeState(imaging._scope)
+        blown = np.full((4, 4), 255, dtype=np.uint8)
+        frames = [blown, blown]  # blown on first grab AND on the retry grab
+        monkeypatch.setattr(cam, 'get_array', lambda: frames.pop(0))
+        warnings = []
+        monkeypatch.setattr(
+            imaging_mod.logger, 'warning', lambda msg, *a, **k: warnings.append(msg)
         )
-        assert 'saturated frame confirmed on retry' not in body
-        assert '_saturated_fraction' in body
+
+        out = imaging.get_image(all_ones_check=True)
+
+        assert not frames, 'a blown first frame must trigger exactly one retry grab'
+        assert any('saturated' in w for w in warnings), (
+            'a persistently blown capture must be logged as a warning, not silently accepted'
+        )
+        assert np.array_equal(out, blown)
 
 
 class TestRejectedSettingNotifiesAndKeepsCache:

@@ -15,7 +15,6 @@ screen:
    replaced with a Kivy popup that shows files too.
 """
 
-import re
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -24,19 +23,48 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 class TestFuturesMetricsFormat:
     """The metric line names its fields rather than abbreviating to A/P/L."""
 
-    def test_format_string_uses_explicit_field_names(self):
-        src = (REPO_ROOT / 'modules' / 'config_helpers.py').read_text()
-        # Quote-style agnostic: ruff format may use single or double
-        # quotes for the f-string.
-        m = re.search(
-            r"""futures_parts\.append\(\s*f["'](?P<fmt>[^"']+)["']\s*\)""",
-            src,
+    def test_futures_metrics_line_names_fields(self, tmp_path, monkeypatch):
+        # Drive log_system_metrics with a recording metrics_logger and a fake
+        # app context whose io_executor reports caller-future counters. The
+        # emitted [FUTURES METRICS] line must spell the fields out so a log
+        # reader cannot misread A/P/L as Active/Pending/Leaked.
+        from collections import defaultdict
+
+        from modules import app_context, config_helpers
+
+        class _RecordingLogger:
+            def __init__(self):
+                self.messages = []
+
+            def info(self, msg):
+                self.messages.append(msg)
+
+        class _FakeExec:
+            def caller_futures_stats(self):
+                return (5, 4, 1)
+
+        class _FakeCtx:
+            io_executor = _FakeExec()
+
+        rec = _RecordingLogger()
+        monkeypatch.setattr(config_helpers, 'metrics_logger', rec)
+        monkeypatch.setattr(app_context, 'ctx', _FakeCtx())
+        # psutil is conftest-stubbed, so the disk/metrics helpers return
+        # MagicMocks; feed them real values to reach the futures block.
+        monkeypatch.setattr(config_helpers.common_utils, 'check_disk_space', lambda **k: 1.0e5)
+        # defaultdict(float): direct-subscript metric keys resolve to 0.0;
+        # .get() still returns None so the optional-metric blocks skip.
+        monkeypatch.setattr(
+            config_helpers.common_utils,
+            'system_metrics',
+            lambda **k: defaultdict(float),
         )
-        assert m is not None, 'futures_parts append line not found'
-        fmt = m.group('fmt')
-        assert 'alloc=' in fmt, f'alloc= missing from: {fmt!r}'
-        assert 'pop=' in fmt, f'pop= missing from: {fmt!r}'
-        assert 'live=' in fmt, f'live= missing from: {fmt!r}'
+
+        config_helpers.log_system_metrics({'live_folder': str(tmp_path)})
+
+        futures_lines = [m for m in rec.messages if '[FUTURES METRICS]' in m]
+        assert futures_lines, 'no [FUTURES METRICS] line emitted'
+        assert 'io_executor: alloc=5 pop=4 live=1' in futures_lines[0]
 
     def test_old_abbreviated_format_not_present(self):
         src = (REPO_ROOT / 'modules' / 'config_helpers.py').read_text()
@@ -67,12 +95,26 @@ class TestPostProcessingEmptyResultMessages:
         assert 'tile' in _MULTI_FRAME_REQUIREMENT[PostFunction.STITCHED]
 
     def test_load_folder_empty_message_actionable(self):
-        # When the folder truly contains no images: tell the user that's
-        # what we checked for, and what to verify.
-        # pin-justified: the user-facing message wording is the contract.
-        src = (REPO_ROOT / 'modules' / 'protocol_post_processor.py').read_text()
-        assert 'No image files were found in the selected folder' in src
-        assert 'captured scan images' in src
+        # When the helper reports success but the loaded image set is empty,
+        # the post-processor's own branch must fire with the actionable
+        # message naming what was checked for and what to verify.
+        import pathlib
+
+        import pandas as pd
+
+        from modules.composite_generation import CompositeGeneration
+
+        comp = CompositeGeneration(has_turret=False)
+        comp._post_processing_helper.load_folder = lambda path, tiling_configs_file_loc: {
+            'status': True,
+            'images_df': pd.DataFrame(),
+            'root_path': pathlib.Path('.'),
+            'protocol_post_record': None,
+        }
+        result = comp.load_folder(path='run', tiling_configs_file_loc=pathlib.Path('tiling.json'))
+        assert result['status'] is False
+        assert 'No image files were found in the selected folder' in result['message']
+        assert 'captured scan images' in result['message']
 
     def test_helper_empty_message_actionable(self):
         # pin-justified: the user-facing message wording is the contract.

@@ -69,6 +69,9 @@ def _method_node(path: pathlib.Path, class_name: str, method_name: str) -> ast.F
 def test_base_load_folder_threads_capture_root_into_kwargs():
     """ProtocolPostProcessor.load_folder must read protocol.capture_root()
     and put it into kwargs before _generate_filename runs."""
+    # pin-justified: reaching the kwarg-threading behaviorally needs
+    # load_folder driven all the way to _generate_filename with a real
+    # protocol tree; the AST order-check pins the invariant directly.
     method = _method_node(BASE_PATH, 'ProtocolPostProcessor', 'load_folder')
     src = ast.unparse(method)
     assert 'capture_root' in src, (

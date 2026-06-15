@@ -450,31 +450,27 @@ class TestTechSupportReportPassesTimeoutS:
         ).read_text()
 
     def test_cmd_and_read_multiline_pass_timeout_s_to_diagnostics(self):
-        src = self._tsr_source()
-        # _cmd body must forward via timeout_s= ; _read_multiline same.
-        # The patterns below are sensitive to whitespace+newlines; loose
-        # match on the kwarg keyword itself is enough.
-        cmd_block_start = src.find('def _cmd(')
-        cmd_block_end = src.find('def _read_multiline(')
-        cmd_body = src[cmd_block_start:cmd_block_end]
-        assert 'send_diagnostic_command(' in cmd_body, '_cmd must call send_diagnostic_command'
-        assert 'timeout_s=' in cmd_body, (
-            '_cmd must pass timeout_s= (not timeout=) to '
-            'diagnostics.send_diagnostic_command after U6 sweep'
-        )
-        assert 'timeout=timeout' not in cmd_body, (
-            '_cmd must NOT pass bare timeout=timeout -- that was the 2026-05-22 SNlogs regression'
+        # _cmd / _read_multiline must forward the per-call timeout via the
+        # renamed timeout_s= kwarg; a bare timeout= raised TypeError and
+        # produced the SNlogs fallback. Drive both against a recording
+        # diagnostics sub-API and assert the forwarded kwargs.
+        from modules.tech_support_report import FirmwareDiagnostics
+
+        illum = object()
+        scope = MagicMock()
+        scope.illumination = illum
+        scope.motion = object()
+        diag = FirmwareDiagnostics(scope=scope)
+
+        diag._cmd(illum, 'INFO', timeout_s=7)
+        scope.diagnostics.send_diagnostic_command.assert_called_once_with(
+            'led', 'INFO', timeout_s=7
         )
 
-        rm_block_start = cmd_block_end
-        # Capture the next ~30 lines as the _read_multiline body window.
-        rm_window = src[rm_block_start : rm_block_start + 1500]
-        assert 'send_diagnostic_command_multiline(' in rm_window
-        assert 'timeout_s=' in rm_window, (
-            '_read_multiline must pass timeout_s= (not timeout=) to '
-            'diagnostics.send_diagnostic_command_multiline'
+        diag._read_multiline(illum, 'SELFTEST', timeout_s=12, end_markers=['DONE'])
+        scope.diagnostics.send_diagnostic_command_multiline.assert_called_once_with(
+            'led', 'SELFTEST', timeout_s=12, end_markers=['DONE']
         )
-        assert 'timeout=timeout' not in rm_window
 
     def test_no_caller_passes_bare_timeout_to_cmd_or_read_multiline(self):
         import re
