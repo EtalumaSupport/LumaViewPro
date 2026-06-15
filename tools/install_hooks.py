@@ -57,12 +57,19 @@ else
     echo "pre-commit: tools/check_rules.py absent on this branch -- skipping rule gate" >&2
 fi
 
-# Ruff finding-count ratchet: blocks commits that raise the repo-wide
-# ruff count above tools/ruff_baseline.txt; auto-lowers + stages the
-# baseline when cleanup reduces the count. The tool itself skips
-# gracefully when ruff or the baseline file is absent.
-if [ -f "$REPO_ROOT/tools/ruff_ratchet.py" ]; then
-    python3 "$REPO_ROOT/tools/ruff_ratchet.py" --pre-commit
+# Ruff gate (zero-tolerance): block any ruff check finding and any
+# format drift. Skips gracefully when ruff is unavailable so branches
+# without it never block. This replaced the finding-count ratchet once
+# the backlog reached zero -- a clean tree is the baseline now.
+if python3 -m ruff --version >/dev/null 2>&1; then
+    if ! python3 -m ruff check "$REPO_ROOT"; then
+        echo "pre-commit: ruff check found issues -- fix them or add a justified '# noqa: <RULE>' line" >&2
+        exit 1
+    fi
+    if ! python3 -m ruff format --check "$REPO_ROOT"; then
+        echo "pre-commit: ruff format drift -- run 'python3 -m ruff format .' then restage" >&2
+        exit 1
+    fi
 fi
 
 # version.txt refresh (LVP-specific). 4-line format:
