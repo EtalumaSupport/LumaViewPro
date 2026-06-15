@@ -14,15 +14,6 @@ re-exports below.
 from modules.lumascope_api._lumascope import (
     AxisState,
     Lumascope,
-    # Module-level names that tests / callers monkeypatch via
-    # `modules.lumascope_api.<name>`. Preserved as re-exports so the
-    # patch paths keep working; eligible for retirement once test
-    # fixtures stop patching them.
-    logger,
-    notifications,
-    _notify_board_failure,
-    _notify_camera_failure,
-    _try_connect_board,
 )
 from modules.lumascope_api.capabilities import Capabilities
 from modules.lumascope_api.diagnostics import DiagnosticsAPI

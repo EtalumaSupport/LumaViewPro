@@ -17,6 +17,7 @@ Failure injection (for testing error recovery):
 import logging
 import threading
 import time
+from typing import ClassVar
 from lvp_logger import logger
 from drivers.registry import led_registry
 
@@ -30,11 +31,11 @@ _serial_log = logging.getLogger('LVP.serial')
 
 @led_registry.register('sim', priority=100, is_simulator=True)
 class SimulatedLEDBoard:
-    TIMING_INSTANT = {'delay': 0.0}  # Zero delay -- for unit tests only
-    TIMING_FAST = {'delay': 0.001}  # 1ms minimum -- nothing returns instantly
-    TIMING_REALISTIC = {'delay': 0.012}  # ~12ms per exchange (1ms flush + 10ms write + 1ms read)
+    TIMING_INSTANT: ClassVar[dict] = {'delay': 0.0}  # Zero delay -- for unit tests only
+    TIMING_FAST: ClassVar[dict] = {'delay': 0.001}  # 1ms minimum -- nothing returns instantly
+    TIMING_REALISTIC: ClassVar[dict] = {'delay': 0.012}  # ~12ms per exchange (1ms flush + 10ms write + 1ms read)
 
-    _COLOR_TO_CH = {
+    _COLOR_TO_CH: ClassVar[dict] = {
         'Blue': 0,
         'Green': 1,
         'Red': 2,
@@ -42,7 +43,7 @@ class SimulatedLEDBoard:
         'PC': 4,
         'DF': 5,
     }
-    _CH_TO_COLOR = {v: k for k, v in _COLOR_TO_CH.items()}
+    _CH_TO_COLOR: ClassVar[dict] = {v: k for k, v in _COLOR_TO_CH.items()}
 
     def __init__(
         self,

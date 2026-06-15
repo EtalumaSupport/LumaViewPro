@@ -10,6 +10,7 @@ import platform
 import re
 import threading
 import time as _time
+from typing import ClassVar
 
 import numpy as np
 import psutil
@@ -94,9 +95,8 @@ def generate_default_step_name(
     if color not in (None, '') and color not in name:
         name = f'{name}_{color}'
 
-    if tile_label not in (None, '', -1):
-        if f'_T{tile_label}' not in name:
-            name = f'{name}_T{tile_label}'
+    if tile_label not in (None, '', -1) and f'_T{tile_label}' not in name:
+        name = f'{name}_T{tile_label}'
 
     if objective_short_name not in (None, '', -1):
         name = f'{name}_{objective_short_name}'
@@ -104,9 +104,8 @@ def generate_default_step_name(
     if turret_position is not None:
         name = f'{name}_Turret{turret_position}'
 
-    if z_height_idx not in (None, '', -1):
-        if f'_Z{z_height_idx}' not in name:
-            name = f'{name}_Z{z_height_idx}'
+    if z_height_idx not in (None, '', -1) and f'_Z{z_height_idx}' not in name:
+        name = f'{name}_Z{z_height_idx}'
 
     DESIRED_SCAN_COUNT_DIGITS = 4
     if scan_count not in (None, ''):
@@ -433,7 +432,7 @@ class _PdhCountersOnce:
     # Counter paths -- match `Get-Counter` PowerShell paths exactly.
     # `\Memory\Available Bytes` is what Windows considers "available" -- equals
     # standby + free + zero pages. Useful as a sanity check against the breakdown.
-    _COUNTERS = {
+    _COUNTERS: ClassVar[dict] = {
         'standby_normal_bytes': r'\Memory\Standby Cache Normal Priority Bytes',
         'standby_reserve_bytes': r'\Memory\Standby Cache Reserve Bytes',
         'standby_core_bytes': r'\Memory\Standby Cache Core Bytes',
@@ -604,7 +603,7 @@ class _GpuPdhCountersOnce:
             query = ctypes.c_void_p()
             ret = self._PdhOpenQueryW(None, 0, ctypes.byref(query))
             if ret != self._ERROR_SUCCESS:
-                raise OSError(f'PdhOpenQueryW failed: 0x{ret & 0xffffffff:08x}')
+                raise OSError(f'PdhOpenQueryW failed: 0x{ret & 0xFFFFFFFF:08x}')
             self._query = query
 
             for name, path in (
@@ -633,15 +632,20 @@ class _GpuPdhCountersOnce:
         count = ctypes.c_ulong(0)
         # First pass with a null buffer reports the required size.
         ret = self._PdhGetFormattedCounterArrayW(
-            handle, self._PDH_FMT_DOUBLE,
-            ctypes.byref(size), ctypes.byref(count), None,
+            handle,
+            self._PDH_FMT_DOUBLE,
+            ctypes.byref(size),
+            ctypes.byref(count),
+            None,
         )
-        if (ret & 0xffffffff) != _PDH_MORE_DATA or size.value == 0:
+        if (ret & 0xFFFFFFFF) != _PDH_MORE_DATA or size.value == 0:
             return []
         buf = (ctypes.c_byte * size.value)()
         ret = self._PdhGetFormattedCounterArrayW(
-            handle, self._PDH_FMT_DOUBLE,
-            ctypes.byref(size), ctypes.byref(count),
+            handle,
+            self._PDH_FMT_DOUBLE,
+            ctypes.byref(size),
+            ctypes.byref(count),
             ctypes.cast(buf, ctypes.POINTER(self._ITEM)),
         )
         if ret != self._ERROR_SUCCESS:
@@ -682,8 +686,7 @@ class _GpuPdhCountersOnce:
             ):
                 if key in self._counters:
                     total = sum(
-                        v for n, v in self._read_array(self._counters[key])
-                        if self._pid_tag in n
+                        v for n, v in self._read_array(self._counters[key]) if self._pid_tag in n
                     )
                     out[field] = total / (1024 * 1024)
             return out

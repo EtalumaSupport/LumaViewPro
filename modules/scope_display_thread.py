@@ -304,9 +304,8 @@ class ScopeDisplayThread:
             # uncapped or already over budget.
             elapsed = time.monotonic() - cycle_start
             wait = max(0.0, min_frame_interval - elapsed)
-            if wait > 0:
-                if self._stop_event.wait(timeout=wait):
-                    return
+            if wait > 0 and self._stop_event.wait(timeout=wait):
+                return
 
         logger.info('scope_display_thread exiting')
 

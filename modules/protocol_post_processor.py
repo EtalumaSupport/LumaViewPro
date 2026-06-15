@@ -2,7 +2,6 @@
 
 import abc
 import datetime
-import enum
 import pathlib
 
 import pandas as pd
@@ -54,7 +53,7 @@ class ProtocolPostProcessor(abc.ABC):
         raise NotImplementedError('Implement in child class')
 
     @abc.abstractmethod
-    def _group_algorithm(path: pathlib.Path, df: pd.DataFrame):
+    def _group_algorithm(self, path: pathlib.Path, df: pd.DataFrame):
         raise NotImplementedError('Implement in child class')
 
     @staticmethod
@@ -235,9 +234,7 @@ class ProtocolPostProcessor(abc.ABC):
                 # in the algorithm itself. Surface the real failure instead of
                 # implying the folder lacked the data -- the prior message sent
                 # users hunting for missing Z-stacks when the operation broke.
-                logger.info(
-                    f'[{self._name} ] No {fname} output -- all groups failed: {last_error}'
-                )
+                logger.info(f'[{self._name} ] No {fname} output -- all groups failed: {last_error}')
                 return {
                     'status': False,
                     'reason': 'error',

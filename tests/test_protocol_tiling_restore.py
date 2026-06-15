@@ -42,6 +42,7 @@ TILING_JSON = REPO / 'data' / 'tiling.json'
 
 # --- (a) the inference workhorse the restore relies on ---
 
+
 def _tiling_config() -> TilingConfig:
     return TilingConfig(tiling_configs_file_loc=TILING_JSON)
 
@@ -49,19 +50,21 @@ def _tiling_config() -> TilingConfig:
 def test_infers_2x2_from_tiled_step_names():
     tc = _tiling_config()
     names = [
-        'A1_BF_TA1', 'A1_BF_TA2', 'A1_BF_TB1', 'A1_BF_TB2',
-        'A1_Green_TA1', 'A1_Green_TA2', 'A1_Green_TB1', 'A1_Green_TB2',
+        'A1_BF_TA1',
+        'A1_BF_TA2',
+        'A1_BF_TB1',
+        'A1_BF_TB2',
+        'A1_Green_TA1',
+        'A1_Green_TA2',
+        'A1_Green_TB1',
+        'A1_Green_TB2',
     ]
     assert tc.determine_tiling_label_from_names(names) == '2x2'
 
 
 def test_infers_3x3_from_tiled_step_names():
     tc = _tiling_config()
-    names = [
-        f'A1_BF_T{row}{col}'
-        for row in ('A', 'B', 'C')
-        for col in (1, 2, 3)
-    ]
+    names = [f'A1_BF_T{row}{col}' for row in ('A', 'B', 'C') for col in (1, 2, 3)]
     assert tc.determine_tiling_label_from_names(names) == '3x3'
 
 
@@ -77,6 +80,7 @@ def test_untiled_protocol_falls_back_to_no_tiling():
 
 
 # --- (b) the wiring is present in both UI methods ---
+
 
 def _method(name: str) -> ast.FunctionDef:
     tree = ast.parse(PROTOCOL_SETTINGS_SRC.read_text())
@@ -104,7 +108,7 @@ def test_load_protocol_restores_tiling_spinner():
         'so the spinner reflects an already-tiled protocol.'
     )
     src = ast.get_source_segment(PROTOCOL_SETTINGS_SRC.read_text(), load)
-    assert "tiling_size_spinner" in src, (
+    assert 'tiling_size_spinner' in src, (
         'load_protocol must set the tiling_size_spinner from the inferred label.'
     )
 

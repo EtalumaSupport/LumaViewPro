@@ -57,7 +57,7 @@ class IlluminationAPI:
         # is a @property that re-resolves `self._scope._led_driver` so
         # disconnect / reconnect / test hot-swap propagate without
         # rebinding IlluminationAPI. Same pattern as MotionAPI._driver.
-        del driver  # noqa -- intentionally unused, kept for backward call sites
+        del driver  # intentionally unused, kept for backward call sites
 
         # LED change listeners -- push-based UI update mechanism. Each
         # listener is called with (color, enabled, mA, owner) whenever
@@ -160,9 +160,12 @@ class IlluminationAPI:
                     is_enabled,
                     cached_entry,
                 )
-            if current_ma is not None and abs(float(mA) - float(current_ma)) < 0.01:
-                if self.led_enabled(color_name):
-                    return
+            if (
+                current_ma is not None
+                and abs(float(mA) - float(current_ma)) < 0.01
+                and self.led_enabled(color_name)
+            ):
+                return
 
         with self._led_lock:
             self._driver.led_on(channel, mA, block=block)

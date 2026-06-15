@@ -41,10 +41,7 @@ class CellCount:
                 if param == 'area':
                     val = round(region[param] / (pixels_per_um**2), 2)
                     units = 'um^2'
-                elif param == 'perimeter':
-                    val = round(region[param] / (pixels_per_um), 2)
-                    units = 'um'
-                elif param == 'equivalent_diameter':
+                elif param in ('perimeter', 'equivalent_diameter'):
                     val = round(region[param] / (pixels_per_um), 2)
                     units = 'um'
                 elif param in ['intensity_min', 'intensity_mean', 'intensity_max']:
@@ -96,7 +93,7 @@ class CellCount:
             'intensity_max': 0,
         }
 
-        for (region_idx, region), contour in zip(region_info['regions'].items(), contours):
+        for (region_idx, region), contour in zip(region_info['regions'].items(), contours, strict=False):
             if not _within_bounds(region, 'area', settings, 'area'):
                 filter_stats['area'] += 1
                 continue
@@ -139,7 +136,9 @@ class CellCount:
 
         return filtered_region_info, filtered_contours
 
-    def process_image(self, image, settings, include_images=['filtered_contours']):
+    def process_image(self, image, settings, include_images=None):
+        if include_images is None:
+            include_images = ['filtered_contours']
 
         if image.dtype != np.uint8:
             if image.dtype == np.uint16:
@@ -176,7 +175,7 @@ class CellCount:
             return_images['denoised'] = denoised_img
 
         # Threshold
-        th, threshold_img = cv2.threshold(
+        _th, threshold_img = cv2.threshold(
             denoised_img,
             digital_settings['segmentation']['parameters']['threshold'],
             255,
@@ -187,7 +186,7 @@ class CellCount:
             return_images['threshold'] = threshold_img
 
         # Countours
-        contours, hierarchy = cv2.findContours(
+        contours, _hierarchy = cv2.findContours(
             threshold_img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
         )
 

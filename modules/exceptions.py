@@ -24,7 +24,7 @@ class CaptureError(Exception):
     pass
 
 
-class AutofocusAborted(Exception):
+class AutofocusAborted(Exception):  # noqa: N818 -- cancellation/abort signal, not an error; non-Error suffix is intentional
     """Autofocus run aborted by caller (e.g. user cancelled, protocol
     aborted, or app teardown)."""
 

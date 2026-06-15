@@ -5,6 +5,7 @@ import os
 import pathlib
 import subprocess
 import sys
+from typing import ClassVar
 
 import matplotlib
 
@@ -113,9 +114,7 @@ class ZProjectionControls(BoxLayout):
         status_map = {True: 'Success', False: 'FAILED'}
         popup.text = 'Generating Z-Projection images...'
 
-        zproj = zprojector.ZProjector(
-            has_turret=ctx.lumaview.scope.motion.has_turret()
-        )
+        zproj = zprojector.ZProjector(has_turret=ctx.lumaview.scope.motion.has_turret())
         ctx.file_io_executor.put(
             IOTask(
                 action=zproj.load_folder,
@@ -323,7 +322,7 @@ class GraphingControls(BoxLayout):
     x_axis_label = 'X-Axis'
     y_axis_label = 'Y-Axis'
     graph_title = ''
-    available_axes = ['No Data Loaded']
+    available_axes: ClassVar[list] = ['No Data Loaded']
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

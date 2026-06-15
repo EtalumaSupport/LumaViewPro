@@ -72,7 +72,7 @@ def focus_vollath4_original(image: np.ndarray) -> float:
 
 
 def focus_skew(image: np.ndarray) -> float:
-    w, h = image.shape
+    _w, _h = image.shape
 
     hist = np.histogram(image, bins=256, range=(0, 256))
     hist = np.asarray(hist[0], dtype='int')

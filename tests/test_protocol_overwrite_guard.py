@@ -37,18 +37,16 @@ def test_generate_image_save_path_supports_if_collision_mode(tmp_path):
 
     from modules import image_save
 
-    kwargs = dict(
-        scope=SimpleNamespace(),
-        save_folder=tmp_path,
-        file_root='step_',
-        append='BF',
-        tail_id_mode='if_collision',
-        output_format='TIFF',
-    )
+    kwargs = {
+        'scope': SimpleNamespace(),
+        'save_folder': tmp_path,
+        'file_root': 'step_',
+        'append': 'BF',
+        'tail_id_mode': 'if_collision',
+        'output_format': 'TIFF',
+    }
     first = image_save.generate_image_save_path(**kwargs)
-    assert first.name == 'step_BF.tiff', (
-        'no collision -> the plain filename, unchanged'
-    )
+    assert first.name == 'step_BF.tiff', 'no collision -> the plain filename, unchanged'
     first.touch()
     second = image_save.generate_image_save_path(**kwargs)
     assert second.name == 'step_BF_000001.tiff', (
@@ -239,7 +237,7 @@ def test_load_warns_on_cross_tgid_filename_collision(tmp_path, monkeypatch):
         f'Cross-TGID duplicate filenames must fire exactly one '
         f'notifications.warning at load time. Captured: {captured_notifications}'
     )
-    category, title, message = captured_notifications[0]
+    _category, _title, message = captured_notifications[0]
     assert 'Tile Group ID' in message, (
         'Notification message must point the user at Tile Group ID as '
         'the actionable fix (per Rule 28 -- direct + action-focused).'

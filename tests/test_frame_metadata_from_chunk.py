@@ -37,9 +37,7 @@ def _metadata_scope(chunks, chunk_reads=None):
         _objective={'focal_length': 9.0},
         _labware=SimpleNamespace(config={'rows': 8, 'columns': 12, 'standard': 'SBS'}),
         _stage_offset={'x': 0, 'y': 0},
-        _coordinate_transformer=SimpleNamespace(
-            stage_to_plate=lambda **kwargs: (1.0, 2.0)
-        ),
+        _coordinate_transformer=SimpleNamespace(stage_to_plate=lambda **kwargs: (1.0, 2.0)),
         get_well_label=lambda: 'A1',
     )
     return SimpleNamespace(
@@ -78,17 +76,13 @@ def test_gain_metadata_prefers_chunk_with_live_fallback():
         f'chunk Gain must win over the live read; got {metadata["gain_db"]}'
     )
 
-    no_chunk = generate_image_metadata(
-        _metadata_scope(None), color='BF', x=0, y=0, z=0
-    )
+    no_chunk = generate_image_metadata(_metadata_scope(None), color='BF', x=0, y=0, z=0)
     assert no_chunk['exposure_time_ms'] == LIVE_EXPOSURE_MS
     assert no_chunk['gain_db'] == LIVE_GAIN_DB
 
 
 def test_chunk_provenance_fields_recorded():
-    scope = _metadata_scope(
-        {'ExposureTime': 5000.0, 'Gain': 3.0, 'Timestamp': 42, 'FrameID': 7}
-    )
+    scope = _metadata_scope({'ExposureTime': 5000.0, 'Gain': 3.0, 'Timestamp': 42, 'FrameID': 7})
     metadata = generate_image_metadata(scope, color='BF', x=0, y=0, z=0)
     assert metadata['timestamp_camera_ticks'] == 42
     assert metadata['timestamp_camera_tick_hz'] == 1_000_000_000
@@ -101,6 +95,4 @@ def test_chunk_read_not_duplicated():
     reads = []
     scope = _metadata_scope({'ExposureTime': 5000.0, 'Gain': 3.0}, chunk_reads=reads)
     generate_image_metadata(scope, color='BF', x=0, y=0, z=0)
-    assert len(reads) == 1, (
-        f'get_last_chunks() must run once per metadata build; ran {len(reads)}x'
-    )
+    assert len(reads) == 1, f'get_last_chunks() must run once per metadata build; ran {len(reads)}x'

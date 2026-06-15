@@ -56,9 +56,7 @@ class TestProtocolRunLoopNoCacheClearingLedsOffAtScanStart:
     def test_no_nuclear_leds_off_before_go_to_step(self):
         runner = run_loop_ready_runner(protocol_step())
         events = []
-        runner._callbacks.go_to_step.side_effect = (
-            lambda **kwargs: events.append('go_to_step')
-        )
+        runner._callbacks.go_to_step.side_effect = lambda **kwargs: events.append('go_to_step')
 
         def recording_put(task, **kwargs):
             if getattr(task, 'action', None) is runner._scope.illumination.leds_off:

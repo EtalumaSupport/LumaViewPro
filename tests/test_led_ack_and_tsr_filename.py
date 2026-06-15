@@ -115,8 +115,7 @@ class TestLedDriverRejectsNonAckResponses:
         led.led_on(channel=3, mA=2, block=True, timeout_s=0.1)
         elapsed = time.monotonic() - t0
         assert 0.08 < elapsed < 0.3, (
-            f'an unrelated reply must not break the polling loop early; '
-            f'elapsed={elapsed:.3f}s'
+            f'an unrelated reply must not break the polling loop early; elapsed={elapsed:.3f}s'
         )
         assert led.exchange_command.call_count >= 3, (
             'the loop must keep re-polling on non-ack replies'
@@ -132,8 +131,7 @@ class TestLedDriverRejectsNonAckResponses:
         led.led_on(channel=3, mA=2, block=True, timeout_s=0.1)
         elapsed = time.monotonic() - t0
         assert 0.08 < elapsed < 0.3, (
-            f'a wrong-channel reply must not count as an ack; '
-            f'elapsed={elapsed:.3f}s'
+            f'a wrong-channel reply must not count as an ack; elapsed={elapsed:.3f}s'
         )
         assert led.exchange_command.call_count >= 3
 

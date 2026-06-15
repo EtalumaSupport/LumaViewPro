@@ -24,8 +24,6 @@ callables instead of importing Kivy.
 
 from __future__ import annotations
 
-from typing import Optional
-
 from lvp_logger import logger
 import modules.config_helpers as config_helpers
 from modules.scheduler import Scheduler, _CallablePairScheduler
@@ -168,7 +166,7 @@ class MetricsLogger:
 
         capture_fps = 0.0
         try:
-            from modules import app_context as _app_ctx  # noqa: WPS433
+            from modules import app_context as _app_ctx
 
             sd = _app_ctx.ctx.scope_display if _app_ctx.ctx is not None else None
             if sd is not None:

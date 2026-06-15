@@ -3,6 +3,7 @@
 import itertools
 import json
 import pathlib
+from typing import ClassVar
 
 from lvp_logger import logger
 
@@ -10,7 +11,7 @@ import modules.common_utils as common_utils
 
 
 class TilingConfig:
-    DEFAULT_FILL_FACTORS = {
+    DEFAULT_FILL_FACTORS: ClassVar[dict] = {
         'position': 1.0  # No overlap needed for position-based tiling
     }
 
@@ -178,9 +179,7 @@ class TilingConfig:
         try:
             overlap_percent = float(overlap_percent)
         except (TypeError, ValueError):
-            raise ValueError(
-                f'Tile overlap must be a number, got {overlap_percent!r}'
-            ) from None
+            raise ValueError(f'Tile overlap must be a number, got {overlap_percent!r}') from None
 
         if overlap_percent < 0.0 or overlap_percent > 50.0:
             raise ValueError(

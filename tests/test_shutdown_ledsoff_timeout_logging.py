@@ -49,13 +49,12 @@ def test_shutdown_ledsoff_wait_distinguishes_timeout():
     consult the LED state cache in that branch."""
     tree = ast.parse(LVP_MAIN_SRC.read_text())
     for try_node in _result_try_nodes(tree):
-        handler_names = [
-            ast.unparse(h.type) for h in try_node.handlers if h.type is not None
-        ]
+        handler_names = [ast.unparse(h.type) for h in try_node.handlers if h.type is not None]
         if 'TimeoutError' not in handler_names:
             continue
         timeout_handler = next(
-            h for h in try_node.handlers
+            h
+            for h in try_node.handlers
             if h.type is not None and ast.unparse(h.type) == 'TimeoutError'
         )
         consults_cache = any(

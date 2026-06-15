@@ -14,7 +14,6 @@ Covers:
 
 from __future__ import annotations
 
-import sys
 import types
 from unittest.mock import MagicMock, patch
 
@@ -22,7 +21,6 @@ import pytest
 
 from modules.plugins import (
     PluginRegistrationError,
-    PluginRegistry,
     PluginSpec,
     ProcessorResult,
     UI_MOUNT_POINTS,

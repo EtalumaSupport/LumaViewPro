@@ -10,10 +10,8 @@ Verifies that simulators are drop-in replacements for real hardware:
 """
 
 import pytest
-import sys
 import threading
 import time
-from unittest.mock import MagicMock
 
 import numpy as np
 
@@ -523,7 +521,6 @@ class TestMotorConfigDefaults:
 
     def test_optics_fallback(self):
         from drivers.motorconfig import MotorConfig
-        import pathlib
 
         # Create a config without Optics section
         mc = MotorConfig.__new__(MotorConfig)
@@ -743,7 +740,7 @@ class TestSimulatedCamera:
     def test_grab_not_grabbing_returns_false(self):
         cam = SimulatedCamera()
         cam.stop_grabbing()
-        result, ts = cam.grab()
+        result, _ts = cam.grab()
         assert result is False
 
     def test_image_brightness_varies_with_exposure(self):
@@ -1053,10 +1050,9 @@ class TestSimulatedCamera:
         """Grabbing must restart even if config change throws."""
         cam = SimulatedCamera()
         assert cam.is_grabbing() is True
-        with pytest.raises(ValueError):
-            with cam.update_camera_config():
-                assert cam.is_grabbing() is False
-                raise ValueError('simulated config failure')
+        with pytest.raises(ValueError), cam.update_camera_config():
+            assert cam.is_grabbing() is False
+            raise ValueError('simulated config failure')
         # Grabbing must be restored despite the exception
         assert cam.is_grabbing() is True
 
@@ -1107,11 +1103,10 @@ class TestSimulatedCamera:
         """If an inner level raises, the outer level still restarts."""
         cam = SimulatedCamera()
         assert cam.is_grabbing() is True
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError), cam.update_camera_config():
+            assert cam.is_grabbing() is False
             with cam.update_camera_config():
-                assert cam.is_grabbing() is False
-                with cam.update_camera_config():
-                    raise ValueError('inner failure')
+                raise ValueError('inner failure')
         assert cam.is_grabbing() is True
 
     def test_update_camera_config_reentrant_when_not_grabbing(self):
@@ -1136,9 +1131,8 @@ class TestSimulatedCamera:
         cam.stop_grabbing = counting_stop
         cam.start_grabbing = counting_start
 
-        with cam.update_camera_config():
-            with cam.update_camera_config():
-                pass
+        with cam.update_camera_config(), cam.update_camera_config():
+            pass
 
         # Was not grabbing on entry; must not start anything.
         assert len(stop_calls) == 0

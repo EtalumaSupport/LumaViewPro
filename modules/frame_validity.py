@@ -31,6 +31,7 @@ defocused frame still produces a valid focus score:
 
 import threading
 import time
+from typing import ClassVar
 
 try:
     from lib import profile_trace
@@ -51,7 +52,7 @@ class FrameValidity:
     # Per-source skip frame counts (camera pipeline flush).
     # Default skip counts -- overridden by per-camera measured values
     # from data/camera_timing/<model>.json via load_camera_timing().
-    SKIP_FRAMES = {
+    SKIP_FRAMES: ClassVar[dict] = {
         'led': 2,  # LED on/off or current change (measured: 2 on a2A3536)
         'gain': 2,  # Camera gain change (measured: 2 on a2A3536)
         'exposure': 3,  # Camera exposure time change (measured: 3 on a2A3536)
@@ -90,7 +91,7 @@ class FrameValidity:
 
     # Maps our source names to the chunk_data dict keys used by camera
     # drivers (chunk_data uses the genicam attribute symbolic names).
-    CHUNK_KEY_FOR_SOURCE = {
+    CHUNK_KEY_FOR_SOURCE: ClassVar[dict] = {
         'gain': 'Gain',
         'exposure': 'ExposureTime',
     }
@@ -106,7 +107,7 @@ class FrameValidity:
     # Gain round-trip error peaked at ~5e-5 dB (float epsilon), exposure was
     # bit-exact in microseconds. Tolerances set ~20x above observed max
     # for safety across future firmware revisions.
-    DEFAULT_CHUNK_TOLERANCE = {
+    DEFAULT_CHUNK_TOLERANCE: ClassVar[dict] = {
         'gain': 0.001,  # dB
         'exposure': 2.0,  # microseconds
     }
@@ -334,7 +335,7 @@ class FrameValidity:
                 frame_remaining = target - self._frame_counter
                 if frame_remaining > 0:
                     max_remaining = max(max_remaining, frame_remaining)
-                elif source in self.MOTION_SOURCES and self._settle_check_fn is not None:
+                elif source in self.MOTION_SOURCES and self._settle_check_fn is not None:  # noqa: SIM102
                     # Frame count met but axis still moving -- keep draining
                     if not self._settle_check_fn(source):
                         max_remaining = max(max_remaining, 1)

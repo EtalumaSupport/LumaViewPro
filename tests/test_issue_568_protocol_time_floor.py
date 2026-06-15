@@ -65,12 +65,9 @@ def test_load_display_uses_six_decimal_precision():
     (which collapsed a 1s duration to 0.0)."""
     src = (REPO_ROOT / 'ui' / 'protocol_settings.py').read_text(encoding='utf-8')
     assert 'total_seconds() / 3600, 6)' in src, (
-        'load display must round duration to 6 decimals so short durations '
-        'do not show 0.0 (#568)'
+        'load display must round duration to 6 decimals so short durations do not show 0.0 (#568)'
     )
-    assert 'total_seconds() / 60, 6)' in src, (
-        'load display must round period to 6 decimals (#568)'
-    )
+    assert 'total_seconds() / 60, 6)' in src, 'load display must round period to 6 decimals (#568)'
 
 
 def test_save_preserves_one_second_interval(tmp_path):
@@ -97,6 +94,5 @@ def test_save_preserves_one_second_interval(tmp_path):
     # 1 second = 0.016667 min; the pre-fix 2-decimal round wrote 0.02.
     assert saved_minutes != 0.02, 'Period saved at 2-decimal minutes (data loss)'
     assert abs(saved_minutes * 60.0 - 1.0) < 0.1, (
-        f'1s Interval must survive save; got {saved_minutes} min '
-        f'({saved_minutes * 60.0:.4f} s)'
+        f'1s Interval must survive save; got {saved_minutes} min ({saved_minutes * 60.0:.4f} s)'
     )

@@ -34,8 +34,8 @@ def _check_hyperstack_memory(num_t, num_z, num_c, h, w, dtype):
 class StackBuilder(ProtocolPostProcessor):
     def __init__(self, *args, **kwargs):
         super().__init__(
-            post_function=PostFunction.HYPERSTACK,
             *args,
+            post_function=PostFunction.HYPERSTACK,
             **kwargs,
         )
         self._name = self.__class__.__name__

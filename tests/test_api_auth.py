@@ -3,7 +3,6 @@
 Tests for API authentication module (modules/api_auth.py).
 """
 
-import pytest
 from modules.api_auth import (
     generate_api_key,
     validate_api_key,
@@ -83,13 +82,13 @@ class TestCheckAuth:
 
     def test_localhost_no_key_allows_all(self):
         settings = {'rest_api': {'host': '127.0.0.1', 'api_key': None}}
-        ok, msg = check_auth(settings, None)
+        ok, _msg = check_auth(settings, None)
         assert ok is True
 
     def test_valid_key_accepted(self):
         key = generate_api_key()
         settings = {'rest_api': {'host': '127.0.0.1', 'api_key': key}}
-        ok, msg = check_auth(settings, key)
+        ok, _msg = check_auth(settings, key)
         assert ok is True
 
     def test_invalid_key_rejected(self):

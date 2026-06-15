@@ -32,7 +32,7 @@ from modules.path_utils import resolve_data_file
 from modules.scope_init_config import ScopeInitConfig
 from modules.memory_profiler import MemoryLeakProfiler
 from modules.sequential_io_executor import IOTask
-from ui.ui_helpers import move_absolute_position, move_home, scope_leds_off
+from ui.ui_helpers import scope_leds_off
 from modules.zstack_config import ZStackConfig
 
 logger = logging.getLogger('LVP.ui.microscope_settings')
@@ -160,7 +160,7 @@ class MicroscopeSettings(BoxLayout):
         lumaview.scope = lumascope_api.Lumascope(
             camera_type=settings['camera_type'], simulate=ctx.simulate_mode
         )
-        labware_id, labware = get_selected_labware()
+        _labware_id, labware = get_selected_labware()
 
         # Single hardware initialization call
         scope_config = self.scopes.get(settings.get('microscope'))
@@ -536,7 +536,7 @@ class MicroscopeSettings(BoxLayout):
             # Single hardware initialization call -- replaces scattered
             # scope.imaging.set_frame_size / set_binning_size / set_stage_offset /
             # set_turret_config / set_objective / set_scale_bar / set_acceleration_limit
-            labware_id, labware = get_selected_labware()
+            _labware_id, labware = get_selected_labware()
             scope_config = self.scopes.get(settings.get('microscope'))
             config = ScopeInitConfig.from_settings(settings, labware, scope_config=scope_config)
             lumaview.scope.initialize(config)
@@ -858,8 +858,7 @@ class MicroscopeSettings(BoxLayout):
             notifications.warning(
                 'Settings',
                 'Invalid time limit',
-                'Video Time Limit must be between 1 and 3600 '
-                'seconds. Reverting to previous value.',
+                'Video Time Limit must be between 1 and 3600 seconds. Reverting to previous value.',
             )
             settings.setdefault('manual_video', {})
             widget.text = str(get_manual_video_max_duration(settings))
@@ -1271,7 +1270,9 @@ class MicroscopeSettings(BoxLayout):
             vc_objective_spinner.text = objective_id
 
             if lumaview.scope.motion.has_turret():
-                lumaview.scope.runtime_state.set_turret_config(turret_config=settings['turret_objectives'])
+                lumaview.scope.runtime_state.set_turret_config(
+                    turret_config=settings['turret_objectives']
+                )
 
             lumaview.scope.runtime_state.set_objective(objective_id=objective_id)
 
@@ -1318,9 +1319,7 @@ class MicroscopeSettings(BoxLayout):
         native = binning.displayed_to_native(typed, cur_binning, native_max)
         self._store_native_roi(native)
 
-        displayed = binning.native_to_displayed(
-            native, cur_binning, imaging.get_pixel_alignment()
-        )
+        displayed = binning.native_to_displayed(native, cur_binning, imaging.get_pixel_alignment())
         self._apply_displayed_frame(displayed)
 
     def _apply_displayed_frame(self, frame: dict) -> None:

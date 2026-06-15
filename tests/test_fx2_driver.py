@@ -742,7 +742,9 @@ class TestFX2ConnectionSingleton:
         # Patch __init__ directly -- get() will still call cls() which
         # calls __new__ + __init__; if __init__ raises, cls._instance
         # is never assigned.
-        with patch.object(fx2driver._FX2Connection, '__init__', boom):
-            with pytest.raises(RuntimeError, match='no FX2 hardware'):
-                fx2driver._FX2Connection.get()
+        with (
+            patch.object(fx2driver._FX2Connection, '__init__', boom),
+            pytest.raises(RuntimeError, match='no FX2 hardware'),
+        ):
+            fx2driver._FX2Connection.get()
         assert fx2driver._FX2Connection._instance is None

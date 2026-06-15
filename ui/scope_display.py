@@ -373,8 +373,7 @@ class ScopeDisplay(Image):
 
                 gui_logger.button(
                     'SCOPE_CLICK_TO_CENTER',
-                    f'dx_um={x_dist_um:.1f} dy_um={y_dist_um:.1f} '
-                    f'pixel_um={pixel_size_um:.3f}',
+                    f'dx_um={x_dist_um:.1f} dy_um={y_dist_um:.1f} pixel_um={pixel_size_um:.3f}',
                 )
                 move_relative_position(axis='X', um=x_dist_um)
                 move_relative_position(axis='Y', um=y_dist_um)
@@ -646,8 +645,10 @@ class ScopeDisplay(Image):
         # (Re)allocate the reusable buffer to match the frame so the NEXT
         # frame's conversion writes into it. The 8-bit camera path returns
         # its own buffer and never uses this; the cost is one idle buffer.
-        if image.ndim == 2 and image.dtype == np.uint8 and (
-            self._display_8bit_buf is None or self._display_8bit_buf.shape != image.shape
+        if (
+            image.ndim == 2
+            and image.dtype == np.uint8
+            and (self._display_8bit_buf is None or self._display_8bit_buf.shape != image.shape)
         ):
             self._display_8bit_buf = np.empty(image.shape, dtype=np.uint8)
 

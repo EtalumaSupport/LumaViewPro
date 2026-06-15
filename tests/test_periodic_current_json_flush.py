@@ -39,7 +39,7 @@ def test_on_start_schedules_periodic_flush():
 
 def test_flush_writes_current_json():
     body = _method_body('_flush_current_json')
-    assert "save_settings(" in body and "current.json" in body, (
+    assert 'save_settings(' in body and 'current.json' in body, (
         '_flush_current_json must save_settings to current.json'
     )
 
@@ -47,8 +47,6 @@ def test_flush_writes_current_json():
 def test_flush_interval_is_positive():
     # Constant defined at module scope with a sane (multi-minute) cadence.
     assert '_CURRENT_JSON_FLUSH_INTERVAL_S = ' in SRC
-    line = next(
-        ln for ln in SRC.splitlines() if ln.startswith('_CURRENT_JSON_FLUSH_INTERVAL_S = ')
-    )
+    line = next(ln for ln in SRC.splitlines() if ln.startswith('_CURRENT_JSON_FLUSH_INTERVAL_S = '))
     value = int(line.split('=')[1].strip())
     assert value >= 60, 'flush cadence should be at least a minute to avoid churn'

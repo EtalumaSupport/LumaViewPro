@@ -137,9 +137,7 @@ def test_ome_path_omits_plate_when_dimensions_missing():
     md = _build_metadata()
     md['plate'] = {'name': 'Slide', 'rows': None, 'columns': None}
     data = np.zeros((128, 128), dtype=np.uint8)
-    result = image_utils.generate_tiff_data(
-        data=data, metadata=md, image_type='ome', color='BF'
-    )
+    result = image_utils.generate_tiff_data(data=data, metadata=md, image_type='ome', color='BF')
     assert 'Plate' not in result['metadata'], (
         'Plate block should be omitted when rows/columns are unset; '
         'degraded labware (slide/blank) has no plate dimensions to report.'
@@ -171,9 +169,7 @@ def test_ome_path_without_instrument_dict_does_not_crash():
     del md['instrument']
     del md['plate']
     data = np.zeros((128, 128), dtype=np.uint8)
-    result = image_utils.generate_tiff_data(
-        data=data, metadata=md, image_type='ome', color='BF'
-    )
+    result = image_utils.generate_tiff_data(data=data, metadata=md, image_type='ome', color='BF')
     assert 'Instrument' not in result['metadata']
     assert 'Plate' not in result['metadata']
     # Plane data must still be intact.

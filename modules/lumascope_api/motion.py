@@ -31,7 +31,7 @@ import contextlib
 import logging as _logging
 import threading
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 from collections.abc import Iterator
 
 from drivers.exceptions import HardwareError
@@ -64,9 +64,9 @@ class MotionAPI:
     # settle-check gates on the correct axis reaching IDLE. A turret
     # move that recorded 'xy_move' would clear the moment X/Y read idle,
     # before the turret physically finished.
-    _AXIS_VALIDITY_SOURCE = {'Z': 'z_move', 'T': 'turret'}
+    _AXIS_VALIDITY_SOURCE: ClassVar[dict] = {'Z': 'z_move', 'T': 'turret'}
 
-    def __init__(self, scope: Lumascope, driver: MotorBoardProtocol) -> None:  # noqa: ARG002
+    def __init__(self, scope: Lumascope, driver: MotorBoardProtocol) -> None:
         # `driver` is in the signature for backcompat (Phase 1 Lumascope
         # passes it explicitly). It is intentionally unused here: `_driver`
         # is a dynamic property that re-resolves through `_scope` on every
@@ -314,9 +314,11 @@ class MotionAPI:
         Returns:
             int | None: Turret position (1-4), or None if not found.
         """
-        if persisted_position is not None:
-            if self._scope.runtime_state._turret_config.get(persisted_position) == objective_id:
-                return persisted_position
+        if (
+            persisted_position is not None
+            and self._scope.runtime_state._turret_config.get(persisted_position) == objective_id
+        ):
+            return persisted_position
 
         if prefer_current:
             try:
@@ -482,9 +484,7 @@ class MotionAPI:
             # Z=0.
             self.is_turreting = False
             if restore_z:
-                logger.info(
-                    f'[SCOPE API ] Restoring Z to {initial_z}', extra={'force_error': True}
-                )
+                logger.info(f'[SCOPE API ] Restoring Z to {initial_z}', extra={'force_error': True})
                 self.move_absolute_position('Z', pos=initial_z, wait_until_complete=True)
             else:
                 logger.info(
@@ -524,25 +524,24 @@ class MotionAPI:
         # wait_until_finished_moving() inside safe_turret_move's Z move.
         _api_log.info('thome START')
         try:
-            with self.reference_position_logger():
-                with self.safe_turret_move():
-                    self._set_axis_state('T', AxisState.HOMING)
-                    self._scope.imaging.frame_validity.invalidate('turret')
-                    result = self._driver.thome()
-                    # Transition T out of HOMING BEFORE exiting
-                    # safe_turret_move. The context manager's finally
-                    # restores Z via wait_until_complete=True, which calls
-                    # wait_until_finished_moving and iterates EVERY axis
-                    # arrival event. A still-HOMING T has a cleared event
-                    # and the motion monitor only polls MOVING (not
-                    # HOMING) axes, so the Z-restore's wait would hang on
-                    # T until the 120s default timeout fires. Setting T
-                    # to its post-homing state here keeps the Z restore
-                    # blocked only on the axis that's actually moving.
-                    if result is False:
-                        self._set_axis_state('T', AxisState.UNKNOWN)
-                    else:
-                        self._set_axis_state('T', AxisState.IDLE)
+            with self.reference_position_logger(), self.safe_turret_move():
+                self._set_axis_state('T', AxisState.HOMING)
+                self._scope.imaging.frame_validity.invalidate('turret')
+                result = self._driver.thome()
+                # Transition T out of HOMING BEFORE exiting
+                # safe_turret_move. The context manager's finally
+                # restores Z via wait_until_complete=True, which calls
+                # wait_until_finished_moving and iterates EVERY axis
+                # arrival event. A still-HOMING T has a cleared event
+                # and the motion monitor only polls MOVING (not
+                # HOMING) axes, so the Z-restore's wait would hang on
+                # T until the 120s default timeout fires. Setting T
+                # to its post-homing state here keeps the Z restore
+                # blocked only on the axis that's actually moving.
+                if result is False:
+                    self._set_axis_state('T', AxisState.UNKNOWN)
+                else:
+                    self._set_axis_state('T', AxisState.IDLE)
             if result is False:
                 logger.error('[SCOPE API ] Turret homing failed')
                 notifications.error(
@@ -663,9 +662,7 @@ class MotionAPI:
         except HardwareError as e:
             # Typed disconnect/timeout at the moment of unplug (before
             # motor_connected flips). Expected; log without the traceback.
-            logger.warning(
-                f'[SCOPE API ] get_home_status({axis}): {e}; treating as not home'
-            )
+            logger.warning(f'[SCOPE API ] get_home_status({axis}): {e}; treating as not home')
             return False
         except Exception as e:
             logger.exception(
@@ -1314,7 +1311,9 @@ class MotionAPI:
         # on its first cycle. Target is held in _move_profile[axis], where
         # get_target_position picks it up during MOVING.
         self._fire_position_listeners(axis)
-        self._scope.imaging.frame_validity.invalidate(self._AXIS_VALIDITY_SOURCE.get(axis, 'xy_move'))
+        self._scope.imaging.frame_validity.invalidate(
+            self._AXIS_VALIDITY_SOURCE.get(axis, 'xy_move')
+        )
         _api_log.info(f'move_abs {axis}={pos:.1f}um{" wait" if wait_until_complete else ""}')
 
         if wait_until_complete is True:
@@ -1402,7 +1401,9 @@ class MotionAPI:
         # on its first cycle. Target is held in _move_profile[axis], where
         # get_target_position picks it up during MOVING.
         self._fire_position_listeners(axis)
-        self._scope.imaging.frame_validity.invalidate(self._AXIS_VALIDITY_SOURCE.get(axis, 'xy_move'))
+        self._scope.imaging.frame_validity.invalidate(
+            self._AXIS_VALIDITY_SOURCE.get(axis, 'xy_move')
+        )
         _api_log.info(f'move_rel {axis}={um:+.1f}um{" wait" if wait_until_complete else ""}')
 
         if wait_until_complete is True:
@@ -1517,7 +1518,7 @@ class MotionAPI:
                 with profile_trace.timer(
                     'motion_trace.csv',
                     'ts_ms,duration_ms,event,axis,detail',
-                    lambda: ['poll', ','.join(moving_axes), ''],
+                    lambda ma=moving_axes: ['poll', ','.join(ma), ''],
                 ):
                     for ax in moving_axes:
                         if self._motion_monitor_stop.is_set():

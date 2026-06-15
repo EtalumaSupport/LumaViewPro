@@ -157,12 +157,8 @@ class TestInstalledPackageInventory:
 
     def test_banner_logs_key_deps_and_full_freeze(self):
         src = self._src()
-        assert 'Key deps:' in src, (
-            'banner must log a Key deps highlights line (av, numpy, ...).'
-        )
-        assert 'Installed packages (' in src, (
-            'banner must log the full installed-package freeze.'
-        )
+        assert 'Key deps:' in src, 'banner must log a Key deps highlights line (av, numpy, ...).'
+        assert 'Installed packages (' in src, 'banner must log the full installed-package freeze.'
         assert "'av'" in src, 'av must be in the highlighted key deps.'
 
 

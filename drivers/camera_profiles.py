@@ -87,9 +87,10 @@ from dataclasses import dataclass, field
 @dataclass
 class GainInfo:
     """Gain architecture for a camera model."""
-    analog_max_db: float | None = None      # Max analog gain before digital kicks in
-    has_digital: bool = False                # Whether camera has digital gain
-    gain_selector: str = 'All'              # GainSelector value: 'All', 'AnalogAll', etc.
+
+    analog_max_db: float | None = None  # Max analog gain before digital kicks in
+    has_digital: bool = False  # Whether camera has digital gain
+    gain_selector: str = 'All'  # GainSelector value: 'All', 'AnalogAll', etc.
     # Dynamic -- populated at connect time from SDK
     total_min_db: float | None = None
     total_max_db: float | None = None
@@ -102,8 +103,8 @@ class CameraProfile:
     # --- Static (hardcoded per model) ---
     model_name: str = ''
     sensor: str = ''
-    pixel_size_um: float = 0.0              # Pixel pitch in micrometers
-    shutter: str = 'rolling'                # 'rolling' or 'global'
+    pixel_size_um: float = 0.0  # Pixel pitch in micrometers
+    shutter: str = 'rolling'  # 'rolling' or 'global'
     native_resolution: dict = field(default_factory=dict)  # {'width': int, 'height': int}
     pixel_formats: list[str] = field(default_factory=list)
     binning_sizes: list[int] = field(default_factory=lambda: [1])
@@ -113,7 +114,7 @@ class CameraProfile:
     has_auto_gain: bool = False
     has_auto_exposure: bool = False
     has_temperature: bool = False
-    driver: str = ''                        # 'pylon', 'ids', 'simulated'
+    driver: str = ''  # 'pylon', 'ids', 'simulated'
     notes: str = ''
 
     # --- Exposure ceiling (microseconds) ---
@@ -178,13 +179,13 @@ _dmA3536_9gm = CameraProfile(
     binning_modes=['Sum', 'Average'],
     alignment={'width': 4, 'height': 4},
     gain=GainInfo(
-        analog_max_db=30.0,         # IMX676 sensor max -- shared with a2A3536
+        analog_max_db=30.0,  # IMX676 sensor max -- shared with a2A3536
         has_digital=True,
         gain_selector='All',
     ),
-    has_auto_gain=True,             # sensor-shared default; bench-verify on MIPI body
-    has_auto_exposure=True,         # sensor-shared default; bench-verify on MIPI body
-    has_temperature=False,          # conservative default; bench-verify on MIPI body
+    has_auto_gain=True,  # sensor-shared default; bench-verify on MIPI body
+    has_auto_exposure=True,  # sensor-shared default; bench-verify on MIPI body
+    has_temperature=False,  # conservative default; bench-verify on MIPI body
     driver='pylon',
 )
 
@@ -201,7 +202,7 @@ _a2A3536_31umBAS = CameraProfile(
     binning_modes=['Sum', 'Average'],
     alignment={'width': 4, 'height': 4},
     gain=GainInfo(
-        analog_max_db=30.0,         # Confirmed from Basler docs
+        analog_max_db=30.0,  # Confirmed from Basler docs
         has_digital=True,
         gain_selector='All',
     ),
@@ -224,24 +225,24 @@ _U3_34L0XCP_M = CameraProfile(
     # sensor property. Always key support to camera model, not sensor.
     pixel_formats=['Mono10g40IDS', 'Mono12g24IDS'],
     exposure_max_us=2_000_000,
-    binning_sizes=[1, 2],           # Sensor 2x2 only, H+V joint
+    binning_sizes=[1, 2],  # Sensor 2x2 only, H+V joint
     binning_modes=['Sum'],
     alignment={'width': 48, 'height': 4},
     gain=GainInfo(
-        analog_max_db=None,         # 31.6x max -- query dB from SDK
+        analog_max_db=None,  # 31.6x max -- query dB from SDK
         has_digital=False,
         gain_selector='AnalogAll',
     ),
-    has_auto_gain=False,            # Not supported in hardware
-    has_auto_exposure=False,        # Not supported in hardware
+    has_auto_gain=False,  # Not supported in hardware
+    has_auto_exposure=False,  # Not supported in hardware
     has_temperature=False,
     driver='ids',
     notes='IDS Peak SDK on this body exposes only Mono10g40IDS / '
-          'Mono12g24IDS -- requires software ConvertTo for Mono8 '
-          'output. Same IMX676 sensor in Basler a2A3536 body exposes '
-          'Mono8 natively via Pylon (body/SDK difference, not a sensor '
-          'property). Binning H+V must be applied jointly. Max gain '
-          '31.6x (analog only).',
+    'Mono12g24IDS -- requires software ConvertTo for Mono8 '
+    'output. Same IMX676 sensor in Basler a2A3536 body exposes '
+    'Mono8 natively via Pylon (body/SDK difference, not a sensor '
+    'property). Binning H+V must be applied jointly. Max gain '
+    '31.6x (analog only).',
 )
 
 # Simulated camera
@@ -281,28 +282,28 @@ _MT9P031_LS620 = CameraProfile(
     pixel_size_um=2.2,
     shutter='rolling',
     native_resolution={'width': 1900, 'height': 1900},
-    pixel_formats=['Mono8'],          # 12-bit sensor, FX2 streams top 8 bits
-    exposure_max_us=7_366_000,        # 65535 rows x 0.1124 ms/row x 1000 us/ms
-                                      # Driver narrows to 178 ms at connect.
-    binning_sizes=[1],                # driver doesn't wire up sensor binning
+    pixel_formats=['Mono8'],  # 12-bit sensor, FX2 streams top 8 bits
+    exposure_max_us=7_366_000,  # 65535 rows x 0.1124 ms/row x 1000 us/ms
+    # Driver narrows to 178 ms at connect.
+    binning_sizes=[1],  # driver doesn't wire up sensor binning
     binning_modes=['Sum'],
     alignment={'width': 4, 'height': 4},  # matches set_frame_size() step
     gain=GainInfo(
-        analog_max_db=18.06,          # 8x analog = 20*log10(8) = 18.06 dB
-        has_digital=True,             # digital stage adds up to 16x more
+        analog_max_db=18.06,  # 8x analog = 20*log10(8) = 18.06 dB
+        has_digital=True,  # digital stage adds up to 16x more
         gain_selector='All',
         total_min_db=0.0,
-        total_max_db=42.1,            # audit-corrected per RR_A legal ranges
+        total_max_db=42.1,  # audit-corrected per RR_A legal ranges
     ),
-    has_auto_gain=False,              # no hardware AE/AG on MT9P031
+    has_auto_gain=False,  # no hardware AE/AG on MT9P031
     has_auto_exposure=False,
     has_temperature=False,
     driver='fx2',
     notes='Cypress FX2 USB + Aptina MT9P031 sensor. 4 LED channels via '
-          'I2C at 0x2A. No hardware auto gain/exposure. No binning. '
-          'Mono8 only (top 8 bits of 12-bit ADC). Exposure changes '
-          'have a 2-frame pipeline delay. Hardware-validated at 4.5 fps '
-          'on LS620 macOS (63/63 frames).',
+    'I2C at 0x2A. No hardware auto gain/exposure. No binning. '
+    'Mono8 only (top 8 bits of 12-bit ADC). Exposure changes '
+    'have a 2-frame pipeline delay. Hardware-validated at 4.5 fps '
+    'on LS620 macOS (63/63 frames).',
 )
 
 
@@ -312,16 +313,16 @@ _MT9P031_LS620 = CameraProfile(
 
 # Maps model name substrings to profiles. Checked in order -- first match wins.
 _PROFILES: list[tuple[str, CameraProfile]] = [
-    ('daA3840-45um',            _daA3840_45um),
-    ('dmA3536-9gm',             _dmA3536_9gm),
-    ('a2A3536-31umBAS',         _a2A3536_31umBAS),
-    ('U3-34L0XCP-M',            _U3_34L0XCP_M),   # spec sheet model
-    ('U3-34LxXCP-M',            _U3_34L0XCP_M),   # as reported by SDK
-    ('SimulatedCamera',         _simulated),
-    ('MT9P031',                 _MT9P031_LS620),  # FX2Camera sets model_name='MT9P031-LS620'
-    ('LS620',                   _MT9P031_LS620),  # explicit model-name match
-    ('LS560',                   _MT9P031_LS620),  # same sensor, same profile
-    ('LS720',                   _MT9P031_LS620),  # same sensor, same profile
+    ('daA3840-45um', _daA3840_45um),
+    ('dmA3536-9gm', _dmA3536_9gm),
+    ('a2A3536-31umBAS', _a2A3536_31umBAS),
+    ('U3-34L0XCP-M', _U3_34L0XCP_M),  # spec sheet model
+    ('U3-34LxXCP-M', _U3_34L0XCP_M),  # as reported by SDK
+    ('SimulatedCamera', _simulated),
+    ('MT9P031', _MT9P031_LS620),  # FX2Camera sets model_name='MT9P031-LS620'
+    ('LS620', _MT9P031_LS620),  # explicit model-name match
+    ('LS560', _MT9P031_LS620),  # same sensor, same profile
+    ('LS720', _MT9P031_LS620),  # same sensor, same profile
 ]
 
 # Default profile for unknown cameras
@@ -358,6 +359,7 @@ def lookup_profile(model_name: str | None) -> CameraProfile:
     logger = None
     try:
         from lvp_logger import logger as _logger
+
         logger = _logger
     except ImportError:
         pass

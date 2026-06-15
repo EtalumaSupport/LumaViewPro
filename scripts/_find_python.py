@@ -7,7 +7,6 @@ Prints "ERROR" if no suitable Python is found.
 
 import shutil
 import subprocess
-import sys
 
 SUPPORTED = (12, 13)
 

@@ -6,7 +6,6 @@ Uses simulated hardware -- no real boards or Kivy needed.
 """
 
 import threading
-import time
 
 import pytest
 
@@ -45,7 +44,7 @@ class TestLEDListener:
         scope.illumination.add_led_listener(lambda c, e, m, o: events.append((c, e, m, o)))
         scope.illumination.led_on(channel=0, mA=100)
         assert len(events) == 1
-        color, enabled, mA, owner = events[0]
+        _color, enabled, mA, owner = events[0]
         assert enabled is True
         assert mA == 100.0
         assert owner == ''

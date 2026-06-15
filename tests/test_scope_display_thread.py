@@ -10,15 +10,11 @@ import threading
 import time
 from collections import deque
 
-import pytest
-
 from modules import app_context as _app_ctx
 from modules.scope_display_thread import (
     ScopeDisplayThread,
     STATUS_OK,
     STATUS_EMPTY,
-    STATUS_DUPLICATE,
-    STATUS_NOT_READY,
 )
 
 
@@ -218,7 +214,7 @@ def test_add_frame_listener_called_per_frame():
     time.sleep(0.2)
     t.stop()
     assert received, 'listener was never called'
-    data, shape, gen, ts = received[0]
+    data, shape, gen, _ts = received[0]
     assert data == b'frame_bytes'
     assert shape == (10, 10)
     assert gen == t.generation

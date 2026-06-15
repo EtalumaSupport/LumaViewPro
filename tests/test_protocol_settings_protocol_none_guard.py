@@ -55,9 +55,8 @@ def _guard_linenos(method: ast.FunctionDef) -> list[int]:
     for node in ast.walk(method):
         if isinstance(node, ast.If):
             dumped = ast.dump(node.test)
-            if "'_protocol'" in dumped or "attr='_protocol'" in dumped:
-                if 'None' in dumped:
-                    out.append(node.lineno)
+            if ("'_protocol'" in dumped or "attr='_protocol'" in dumped) and 'None' in dumped:
+                out.append(node.lineno)
     return out
 
 

@@ -26,9 +26,7 @@ def _align_down(value: int, alignment: int) -> int:
     return max((int(value) // alignment) * alignment, alignment)
 
 
-def native_to_displayed(
-    native: dict, binning: int, alignment: dict | None = None
-) -> dict:
+def native_to_displayed(native: dict, binning: int, alignment: dict | None = None) -> dict:
     """Frame size shown and captured at a binning level: native / binning.
 
     ``native`` is the unbinned ROI -- the source of truth. Dividing by the

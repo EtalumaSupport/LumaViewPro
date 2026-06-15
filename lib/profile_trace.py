@@ -89,7 +89,7 @@ def trace(filename, header, fields):
             if fh is None:
                 path = _output_dir / filename
                 need_header = not path.exists()
-                fh = open(path, 'a', buffering=1)
+                fh = open(path, 'a', buffering=1)  # noqa: SIM115 -- long-lived handle stored in _writers, closed in disable() via atexit
                 if need_header:
                     fh.write(header + '\n')
                 _writers[filename] = fh
@@ -98,7 +98,7 @@ def trace(filename, header, fields):
         logger.warning(f'[PROFILE   ] trace write failed ({filename}): {e}')
 
 
-class timer:
+class timer:  # noqa: N801 -- deliberate stdlib-style lowercase context-manager name, used as profile_trace.timer(...) across files
     """Context manager: captures elapsed ms, writes one row on exit.
 
     Usage:

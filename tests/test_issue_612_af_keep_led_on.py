@@ -76,7 +76,7 @@ def test_runner_run_accepts_keep_led_on_with_false_default():
         if i >= n_pos - n_defaults:
             defaults_map[arg.arg] = args.defaults[i - (n_pos - n_defaults)]
     # Kwonly args + kw_defaults are 1:1.
-    for arg, default in zip(args.kwonlyargs, args.kw_defaults):
+    for arg, default in zip(args.kwonlyargs, args.kw_defaults, strict=False):
         if default is not None:
             defaults_map[arg.arg] = default
 
@@ -125,13 +125,14 @@ def test_protocol_step_runner_passes_keep_led_on_true():
     # Find any Call to run_autofocus(...) and check its kwargs.
     matches = []
     for node in ast.walk(psr_tree):
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-            if node.func.attr == 'run_autofocus':
-                kw_map = {k.arg: k.value for k in node.keywords}
-                matches.append(kw_map)
-    assert matches, (
-        'protocol_step_runner must invoke run_autofocus somewhere. (#612)'
-    )
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == 'run_autofocus'
+        ):
+            kw_map = {k.arg: k.value for k in node.keywords}
+            matches.append(kw_map)
+    assert matches, 'protocol_step_runner must invoke run_autofocus somewhere. (#612)'
     for kw in matches:
         assert 'keep_led_on' in kw, (
             'protocol_step_runner.run_autofocus call must include '
@@ -139,6 +140,5 @@ def test_protocol_step_runner_passes_keep_led_on_true():
         )
         val = kw['keep_led_on']
         assert isinstance(val, ast.Constant) and val.value is True, (
-            f'keep_led_on must be True in protocol_step_runner; '
-            f'got {ast.unparse(val)}. (#612)'
+            f'keep_led_on must be True in protocol_step_runner; got {ast.unparse(val)}. (#612)'
         )

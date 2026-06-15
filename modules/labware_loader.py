@@ -3,6 +3,7 @@
 import json
 import logging
 import pathlib
+from typing import ClassVar
 
 import modules.labware as labware
 from modules.path_utils import resolve_data_file
@@ -103,7 +104,7 @@ class WellPlateLoader(LabwareLoader):
 
     # Compatibility aliases for labware names that were renamed.
     # Protocols saved with the old name still load correctly.
-    _LABWARE_ALIASES = {
+    _LABWARE_ALIASES: ClassVar[dict] = {
         '384 well Corning Spheroid Microplate': '384 well microplate',
     }
 

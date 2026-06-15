@@ -518,7 +518,7 @@ def log_system_metrics(settings: dict):
     # tobytes()). The standby-cache growth in [PDH METRICS] should track
     # this product roughly.
     try:
-        from modules import app_context as _app_ctx  # noqa: WPS433
+        from modules import app_context as _app_ctx
 
         sd = _app_ctx.ctx.scope_display if _app_ctx.ctx is not None else None
     except Exception:
@@ -665,7 +665,7 @@ def log_system_metrics(settings: dict):
     # direct pre/post verification that audited buffer-reuse sites no
     # longer allocate on hot path.
     try:
-        from modules import common_utils as _cu  # noqa: WPS433
+        from modules import common_utils as _cu
 
         tm = _cu.query_tracemalloc_top_n(n=5)
         if tm:
@@ -689,7 +689,7 @@ def focus_log(positions, values, focus_round: int, source_path: str) -> int:
     if False:  # disabled -- kept for future use
         log_file = os.path.join(source_path, 'logs', 'focus_log.txt')
         try:
-            file = open(log_file, 'a')
+            file = open(log_file, 'a')  # noqa: SIM115 -- inside an unreachable block and closed explicitly; context manager not applicable
         except Exception as e:
             if not os.path.isdir(os.path.join(source_path, 'logs')):
                 raise FileNotFoundError("Couldn't find 'logs' directory.") from e
@@ -910,17 +910,19 @@ def get_sequenced_capture_config_from_settings(
     time_params = get_protocol_time_params_from_settings(settings)
     protocol = settings.get('protocol', {})
 
-    return build_sequenced_capture_config({
-        'labware_id': protocol.get('labware', ''),
-        'objective_id': objective_id,
-        'zstack_params': get_zstack_params_from_settings(settings),
-        'use_zstacking': protocol.get('use_zstacking', False),
-        'tiling': protocol.get('tiling', '1x1'),
-        'tiling_overlap_percent': protocol.get('tiling_overlap_percent', 0.0),
-        'layer_configs': get_layer_configs(settings),
-        'period': time_params['period'],
-        'duration': time_params['duration'],
-        'frame_dimensions': get_frame_dimensions_from_settings(settings),
-        'binning_size': get_binning_from_settings(settings),
-        'stim_config': get_stim_configs(settings),
-    })
+    return build_sequenced_capture_config(
+        {
+            'labware_id': protocol.get('labware', ''),
+            'objective_id': objective_id,
+            'zstack_params': get_zstack_params_from_settings(settings),
+            'use_zstacking': protocol.get('use_zstacking', False),
+            'tiling': protocol.get('tiling', '1x1'),
+            'tiling_overlap_percent': protocol.get('tiling_overlap_percent', 0.0),
+            'layer_configs': get_layer_configs(settings),
+            'period': time_params['period'],
+            'duration': time_params['duration'],
+            'frame_dimensions': get_frame_dimensions_from_settings(settings),
+            'binning_size': get_binning_from_settings(settings),
+            'stim_config': get_stim_configs(settings),
+        }
+    )

@@ -12,8 +12,6 @@ from __future__ import annotations
 import contextlib
 import datetime
 import logging as _logging
-import os
-import pathlib
 import threading
 import time
 from typing import TYPE_CHECKING, Any
@@ -23,7 +21,6 @@ import numpy as np
 
 from lib import profile_trace
 from lvp_logger import logger
-import modules.common_utils as common_utils
 import modules.image_utils as image_utils
 from modules.frame_validity import FrameValidity
 from modules.notification_center import notifications
@@ -133,7 +130,7 @@ class ImagingAPI:
         # disconnect / reconnect / test hot-swap propagate without
         # rebinding ImagingAPI. Same pattern as MotionAPI._driver /
         # IlluminationAPI._driver.
-        del driver  # noqa -- intentionally unused, kept for backward call sites
+        del driver  # intentionally unused, kept for backward call sites
 
         # State / camera locks. _state_lock guards _capture_return /
         # _autofocus_return / _scale_bar; _cam_lock serializes
@@ -350,8 +347,7 @@ class ImagingAPI:
         # ramped (under-converged -> dark capture); a gain at the ceiling
         # means the scene needs more light, not more settle frames.
         logger.debug(
-            f'[AG CONVERGE] auto cycle ended; camera converged to '
-            f'gain={gain} dB exposure={exp} ms'
+            f'[AG CONVERGE] auto cycle ended; camera converged to gain={gain} dB exposure={exp} ms'
         )
 
     def _invalidate_camera_cache(self) -> None:
@@ -1694,7 +1690,10 @@ class ImagingAPI:
                     time.sleep(0.05)
                     continue
 
-                if all_ones_check and self._saturated_fraction(tmp) >= self._SATURATION_BLOWN_FRACTION:
+                if (
+                    all_ones_check
+                    and self._saturated_fraction(tmp) >= self._SATURATION_BLOWN_FRACTION
+                ):
                     # Near-fully-saturated frame -- retry once in case it was a
                     # transient blip, then surface it. A blown frame is usually
                     # an over-exposure or stale-camera-gain symptom; accepting it
@@ -2284,7 +2283,7 @@ class ImagingAPI:
         with self._state_lock:
             return bool(self._scale_bar.get('enabled', False))
 
-    def set_scale_bar(self, enabled: bool, color: str = None) -> None:
+    def set_scale_bar(self, enabled: bool, color: str | None = None) -> None:
         """Configure the scale bar overlay on captured images.
 
         Args:

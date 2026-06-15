@@ -151,8 +151,7 @@ def run_cleanup(
         # failure -- surfacing it as one produced a popup per cycle when
         # the run button was clicked rapidly.
         logger.info(
-            f'[{logger_name}] Cleanup: LED restore superseded by an '
-            'overlapping run/abort cycle'
+            f'[{logger_name}] Cleanup: LED restore superseded by an overlapping run/abort cycle'
         )
     except Exception as ex:
         logger.error(f'[PROTOCOL] Error restoring LED states during cleanup: {ex}')

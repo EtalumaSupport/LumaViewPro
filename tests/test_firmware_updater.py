@@ -8,11 +8,10 @@ lookup, FWUPDATE command, config backup/restore, UpdateResult, and
 the top-level update_firmware orchestrator.
 """
 
-import hashlib
 import json
 import pytest
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch, call
+from unittest.mock import MagicMock, Mock, patch
 
 from drivers.firmware_updater import (
     _parse_uf2_version,
@@ -24,7 +23,6 @@ from drivers.firmware_updater import (
     _restore_configs,
     _report_progress,
     update_firmware,
-    BoardConfig,
     BoardType,
     BOARD_CONFIGS,
     UpdateError,

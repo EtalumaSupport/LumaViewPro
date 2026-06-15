@@ -24,8 +24,8 @@ _MANUAL_FRAME_GLOB = 'ManualVideo_Frame_[0-9]*.tif*'
 class VideoBuilder(ProtocolPostProcessor):
     def __init__(self, *args, **kwargs):
         super().__init__(
-            post_function=PostFunction.VIDEO,
             *args,
+            post_function=PostFunction.VIDEO,
             **kwargs,
         )
         self._name = self.__class__.__name__

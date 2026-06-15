@@ -86,7 +86,7 @@ class TestDiagnosticQueryCapabilityProbe:
         board = self._make_board(response="ERROR: command 'FAN:0' not found:")
         result = board.set_fan_duty(0)
         assert result is False
-        args, kwargs = board.exchange_command.call_args
+        _args, kwargs = board.exchange_command.call_args
         assert kwargs.get('expect_unsupported') is True
 
     def test_diagnostic_query_returns_response_when_supported(self):

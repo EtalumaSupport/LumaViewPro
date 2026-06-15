@@ -20,7 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from tools.check_rules import check_source  # noqa: E402
+from tools.check_rules import check_source
 
 
 def _violations(content: str, path: str) -> list:
@@ -51,10 +51,7 @@ class TestRule35dBlocksBareScopeMethodCalls:
         assert 'get_current_position' in violations[0].message
 
     def test_lumaview_scope_chain_blocks(self):
-        src = (
-            'def helper(lumaview):\n'
-            '    return lumaview.scope.get_target_status("Z")\n'
-        )
+        src = 'def helper(lumaview):\n    return lumaview.scope.get_target_status("Z")\n'
         violations = _violations(src, 'ui/motion_settings.py')
         assert len(violations) == 1
 

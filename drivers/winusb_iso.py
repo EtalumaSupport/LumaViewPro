@@ -6,19 +6,13 @@ Windows only -- uses winusb.dll, setupapi.dll, kernel32.dll directly.
 """
 
 import ctypes
-import ctypes.wintypes as wt
 import logging
-import struct
 import threading
-import time
 from ctypes import (
-    POINTER,
     Structure,
     byref,
     c_bool,
-    c_byte,
     c_ubyte,
-    c_uint,
     c_ulong,
     c_ushort,
     c_void_p,
@@ -228,9 +222,7 @@ class WinUsbDevice:
 
     def set_alt_interface(self, setting):
         if not winusb.WinUsb_SetCurrentAlternateSetting(self._iface_handle, c_ubyte(setting)):
-            raise RuntimeError(
-                f'SetAlternateSetting({setting}) failed: {kernel32.GetLastError()}'
-            )
+            raise RuntimeError(f'SetAlternateSetting({setting}) failed: {kernel32.GetLastError()}')
 
     def query_pipe(self, alt, index):
         pipe_info = WINUSB_PIPE_INFORMATION()

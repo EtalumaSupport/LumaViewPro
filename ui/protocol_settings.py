@@ -11,7 +11,6 @@ import pandas as pd
 
 from kivy.app import App
 from kivy.clock import Clock
-from kivy.core.window import Window
 from kivy.properties import BooleanProperty
 from kivy.uix.label import Label
 from kivy.uix.popup import Popup
@@ -218,9 +217,7 @@ class ProtocolSettings(FloatLayout):
         except Exception:
             logger.exception('[LVP Main  ] Update Period is not an acceptable value')
 
-        gui_logger.text_input_debounced(
-            'PROTOCOL_PERIOD', self.ids['capture_period'].text
-        )
+        gui_logger.text_input_debounced('PROTOCOL_PERIOD', self.ids['capture_period'].text)
 
         if not (hasattr(self, '_protocol') and self._protocol is not None):
             return
@@ -240,9 +237,7 @@ class ProtocolSettings(FloatLayout):
         except Exception:
             logger.warning('[LVP Main  ] Update Duration is not an acceptable value')
 
-        gui_logger.text_input_debounced(
-            'PROTOCOL_DURATION', self.ids['capture_dur'].text
-        )
+        gui_logger.text_input_debounced('PROTOCOL_DURATION', self.ids['capture_dur'].text)
 
         if not (hasattr(self, '_protocol') and self._protocol is not None):
             return
@@ -281,7 +276,7 @@ class ProtocolSettings(FloatLayout):
         gui_logger.text_input_debounced('CAPTURE_ROOT', sanitized)
 
     # Labware Selection
-    def select_labware(self, labware: str = None):
+    def select_labware(self, labware: str | None = None):
         settings = _app_ctx.ctx.settings
         ctx = _app_ctx.ctx
         wellplate_loader = ctx.wellplate_loader
@@ -423,7 +418,6 @@ class ProtocolSettings(FloatLayout):
         text = self.ids['tiling_overlap_spinner'].text.strip().rstrip('%')
         return TilingConfig.validate_overlap_percent(text)
 
-
     def apply_zstacking(self):
         try:
             ctx = _app_ctx.ctx
@@ -551,13 +545,9 @@ class ProtocolSettings(FloatLayout):
             # with channels enabled creates an empty protocol the user builds
             # up with Add at the current stage position.
             layer_configs = get_layer_configs()
-            any_channel_enabled = any(
-                lc['acquire'] is not None for lc in layer_configs.values()
-            )
+            any_channel_enabled = any(lc['acquire'] is not None for lc in layer_configs.values())
             if not any_channel_enabled:
-                logger.warning(
-                    '[LVP Main  ] new_protocol: no channels enabled for acquisition'
-                )
+                logger.warning('[LVP Main  ] new_protocol: no channels enabled for acquisition')
                 from ui.notification_popup import show_notification_popup
 
                 show_notification_popup(
@@ -775,9 +765,11 @@ class ProtocolSettings(FloatLayout):
         layer_settings_from_protocol = self._protocol.layer_settings()
         for layer in common_utils.get_layers():
             settings[layer]['acquire'] = None
-            if 'stim_config' in settings[layer]:
-                if settings[layer]['stim_config'] is not None:
-                    settings[layer]['stim_config']['enabled'] = False
+            if (
+                'stim_config' in settings[layer]
+                and settings[layer]['stim_config'] is not None
+            ):
+                settings[layer]['stim_config']['enabled'] = False
         for layer_name, vals in (layer_settings_from_protocol or {}).items():
             if layer_name not in common_utils.get_layers():
                 continue
@@ -1123,14 +1115,16 @@ class ProtocolSettings(FloatLayout):
             active_layer, active_layer_config = get_active_layer_config()
             stim_was_active = False
 
-            if 'stim_config' in active_layer_config:
-                if active_layer_config['stim_config'] is not None:
-                    if active_layer_config['stim_config']['enabled']:
-                        # We want to keep the same acquire channel when we are only modifying the stim config.
-                        true_step_layer = self._protocol.step(idx=self.curr_step)['Color']
-                        active_layer = true_step_layer
-                        active_layer_config = get_layer_configs()[active_layer]
-                        stim_was_active = True
+            if (
+                'stim_config' in active_layer_config
+                and active_layer_config['stim_config'] is not None
+                and active_layer_config['stim_config']['enabled']
+            ):
+                # We want to keep the same acquire channel when we are only modifying the stim config.
+                true_step_layer = self._protocol.step(idx=self.curr_step)['Color']
+                active_layer = true_step_layer
+                active_layer_config = get_layer_configs()[active_layer]
+                stim_was_active = True
 
             plate_position = get_current_plate_position()
             objective_id, _ = get_current_objective_info()
@@ -1140,7 +1134,9 @@ class ProtocolSettings(FloatLayout):
             if (ctx.lumaview.scope.motion.has_turret()) and (
                 not ctx.lumaview.scope.motion.is_current_turret_position_objective_set()
             ):
-                error_msg = 'Cannot modify protocol step. Please set objective for current turret position.'
+                error_msg = (
+                    'Cannot modify protocol step. Please set objective for current turret position.'
+                )
                 logger.error(error_msg)
                 # Runs on the io_executor worker; Kivy widgets must be
                 # built on the main thread, so marshal via Clock.
@@ -1230,7 +1226,9 @@ class ProtocolSettings(FloatLayout):
             if (ctx.lumaview.scope.motion.has_turret()) and (
                 not ctx.lumaview.scope.motion.is_current_turret_position_objective_set()
             ):
-                error_msg = 'Cannot add step to protocol. Please set objective for current turret position.'
+                error_msg = (
+                    'Cannot add step to protocol. Please set objective for current turret position.'
+                )
                 logger.error(error_msg)
                 Clock.schedule_once(
                     lambda dt: show_notification_popup(
@@ -1340,9 +1338,7 @@ class ProtocolSettings(FloatLayout):
             )
 
     def update_acquire_zstack(self):
-        gui_logger.toggle(
-            'ACQUIRE_ZSTACK', bool(self.ids['acquire_zstack_id'].active)
-        )
+        gui_logger.toggle('ACQUIRE_ZSTACK', bool(self.ids['acquire_zstack_id'].active))
 
     def update_show_step_locations(self):
         ctx = _app_ctx.ctx
@@ -1455,8 +1451,9 @@ class ProtocolSettings(FloatLayout):
 
         # If turret is present, validate all protocol objectives are assigned (#606)
         ctx = _app_ctx.ctx
-        if ctx.lumaview.scope.motion.has_turret():
-            if not self._validate_objectives_in_protocol(protocol_df=self._protocol.steps()):
+        if ctx.lumaview.scope.motion.has_turret() and not self._validate_objectives_in_protocol(
+            protocol_df=self._protocol.steps()
+        ):
                 turret_objectives = settings.get('turret_objectives', {})
                 assigned = [v for v in turret_objectives.values() if v is not None]
                 show_notification_popup(
@@ -2174,9 +2171,7 @@ class ProtocolSettings(FloatLayout):
             """
             ctx_inner = _app_ctx.ctx
             for layer_name in common_utils.get_layers():
-                accordion_item = ctx_inner.image_settings.accordion_item_lookup(
-                    layer=layer_name
-                )
+                accordion_item = ctx_inner.image_settings.accordion_item_lookup(layer=layer_name)
                 if not accordion_item.collapse:
                     layer_obj = ctx_inner.image_settings.layer_lookup(layer=layer_name)
                     layer_obj.update_shader(dt=0)

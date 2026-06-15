@@ -79,7 +79,7 @@ def test_ok_true_when_threshold_met(monkeypatch):
         'disk_usage',
         _stub_disk_usage(2_000_000_000),  # 2 GB free
     )
-    ok, free_mb = check_disk_space_ok('/', 500)
+    ok, _free_mb = check_disk_space_ok('/', 500)
     assert ok is True
 
 

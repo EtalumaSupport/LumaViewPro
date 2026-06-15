@@ -275,7 +275,9 @@ class VerticalControl(BoxLayout):
 
             # Set objective in lumascope
             if ctx.lumaview.scope.motion.has_turret():
-                ctx.lumaview.scope.runtime_state.set_turret_config(turret_config=settings['turret_objectives'])
+                ctx.lumaview.scope.runtime_state.set_turret_config(
+                    turret_config=settings['turret_objectives']
+                )
 
             ctx.lumaview.scope.runtime_state.set_objective(objective_id=objective_id)
 

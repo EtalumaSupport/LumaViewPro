@@ -46,9 +46,7 @@ from __future__ import annotations
 import ast
 import pathlib
 
-import numpy as np
 import pandas as pd
-import pytest
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -61,6 +59,7 @@ def _make_protocol_with_steps(rows: list[dict]):
     steps DataFrame, since update_layer_focus only walks that table.
     """
     import sys
+
     sys.path.insert(0, str(REPO))
     from modules.protocol import Protocol
 
@@ -77,22 +76,26 @@ def _make_protocol_with_steps(rows: list[dict]):
 
 class TestProtocolUpdateLayerFocus:
     def test_at_baseline_steps_update_to_new_z(self):
-        proto = _make_protocol_with_steps([
-            {'Name': 'A1_BF', 'Color': 'BF', 'Z': 7000.0, 'X': 1, 'Y': 1},
-            {'Name': 'B1_BF', 'Color': 'BF', 'Z': 7000.0, 'X': 1, 'Y': 1},
-            {'Name': 'C1_BF', 'Color': 'BF', 'Z': 7000.0, 'X': 1, 'Y': 1},
-        ])
+        proto = _make_protocol_with_steps(
+            [
+                {'Name': 'A1_BF', 'Color': 'BF', 'Z': 7000.0, 'X': 1, 'Y': 1},
+                {'Name': 'B1_BF', 'Color': 'BF', 'Z': 7000.0, 'X': 1, 'Y': 1},
+                {'Name': 'C1_BF', 'Color': 'BF', 'Z': 7000.0, 'X': 1, 'Y': 1},
+            ]
+        )
         count = proto.update_layer_focus(layer='BF', old_z=7000.0, new_z=5000.0)
         assert count == 3
         assert (proto.steps()['Z'] == 5000.0).all()
 
     def test_user_tuned_steps_preserved(self):
         # A1 was tuned away from baseline; B1 + C1 sit at baseline.
-        proto = _make_protocol_with_steps([
-            {'Name': 'A1_BF', 'Color': 'BF', 'Z': 5500.0, 'X': 1, 'Y': 1},  # tuned
-            {'Name': 'B1_BF', 'Color': 'BF', 'Z': 7000.0, 'X': 1, 'Y': 1},
-            {'Name': 'C1_BF', 'Color': 'BF', 'Z': 7000.0, 'X': 1, 'Y': 1},
-        ])
+        proto = _make_protocol_with_steps(
+            [
+                {'Name': 'A1_BF', 'Color': 'BF', 'Z': 5500.0, 'X': 1, 'Y': 1},  # tuned
+                {'Name': 'B1_BF', 'Color': 'BF', 'Z': 7000.0, 'X': 1, 'Y': 1},
+                {'Name': 'C1_BF', 'Color': 'BF', 'Z': 7000.0, 'X': 1, 'Y': 1},
+            ]
+        )
         count = proto.update_layer_focus(layer='BF', old_z=7000.0, new_z=4500.0)
         assert count == 2, 'Only the two at-baseline BF steps should update'
         steps = proto.steps()
@@ -103,23 +106,25 @@ class TestProtocolUpdateLayerFocus:
         assert steps.loc[2, 'Z'] == 4500.0
 
     def test_other_layers_untouched(self):
-        proto = _make_protocol_with_steps([
-            {'Name': 'A1_BF', 'Color': 'BF', 'Z': 7000.0, 'X': 1, 'Y': 1},
-            {'Name': 'A1_Blue', 'Color': 'Blue', 'Z': 7000.0, 'X': 1, 'Y': 1},
-            {'Name': 'A1_Green', 'Color': 'Green', 'Z': 7000.0, 'X': 1, 'Y': 1},
-        ])
+        proto = _make_protocol_with_steps(
+            [
+                {'Name': 'A1_BF', 'Color': 'BF', 'Z': 7000.0, 'X': 1, 'Y': 1},
+                {'Name': 'A1_Blue', 'Color': 'Blue', 'Z': 7000.0, 'X': 1, 'Y': 1},
+                {'Name': 'A1_Green', 'Color': 'Green', 'Z': 7000.0, 'X': 1, 'Y': 1},
+            ]
+        )
         proto.update_layer_focus(layer='BF', old_z=7000.0, new_z=5000.0)
         steps = proto.steps()
         assert steps.loc[0, 'Z'] == 5000.0
-        assert steps.loc[1, 'Z'] == 7000.0, (
-            'Blue layer must not be affected by BF Save Focus'
-        )
+        assert steps.loc[1, 'Z'] == 7000.0, 'Blue layer must not be affected by BF Save Focus'
         assert steps.loc[2, 'Z'] == 7000.0
 
     def test_first_save_no_baseline_returns_zero(self):
-        proto = _make_protocol_with_steps([
-            {'Name': 'A1_BF', 'Color': 'BF', 'Z': 7000.0, 'X': 1, 'Y': 1},
-        ])
+        proto = _make_protocol_with_steps(
+            [
+                {'Name': 'A1_BF', 'Color': 'BF', 'Z': 7000.0, 'X': 1, 'Y': 1},
+            ]
+        )
         count = proto.update_layer_focus(layer='BF', old_z=None, new_z=5000.0)
         assert count == 0
         assert proto.steps().loc[0, 'Z'] == 7000.0, (
@@ -135,9 +140,11 @@ class TestProtocolUpdateLayerFocus:
         # The saved-focus value comes from the motor board as a float;
         # round-trip through pandas / settings can introduce sub-um drift.
         # 0.0005 um drift must still be treated as "at baseline."
-        proto = _make_protocol_with_steps([
-            {'Name': 'A1_BF', 'Color': 'BF', 'Z': 7000.0005, 'X': 1, 'Y': 1},
-        ])
+        proto = _make_protocol_with_steps(
+            [
+                {'Name': 'A1_BF', 'Color': 'BF', 'Z': 7000.0005, 'X': 1, 'Y': 1},
+            ]
+        )
         count = proto.update_layer_focus(layer='BF', old_z=7000.0, new_z=5000.0)
         assert count == 1
         assert proto.steps().loc[0, 'Z'] == 5000.0
@@ -151,28 +158,36 @@ class TestStepAtLayerFocus:
     """
 
     def test_step_at_baseline_is_true(self):
-        proto = _make_protocol_with_steps([
-            {'Name': 'A1_BF', 'Color': 'BF', 'Z': 7000.0, 'X': 1, 'Y': 1},
-        ])
+        proto = _make_protocol_with_steps(
+            [
+                {'Name': 'A1_BF', 'Color': 'BF', 'Z': 7000.0, 'X': 1, 'Y': 1},
+            ]
+        )
         assert proto.step_at_layer_focus(step_idx=0, saved_focus=7000.0) is True
 
     def test_user_tuned_step_is_false(self):
-        proto = _make_protocol_with_steps([
-            {'Name': 'A1_BF', 'Color': 'BF', 'Z': 5500.0, 'X': 1, 'Y': 1},
-        ])
+        proto = _make_protocol_with_steps(
+            [
+                {'Name': 'A1_BF', 'Color': 'BF', 'Z': 5500.0, 'X': 1, 'Y': 1},
+            ]
+        )
         assert proto.step_at_layer_focus(step_idx=0, saved_focus=7000.0) is False
 
     def test_no_saved_focus_is_false(self):
-        proto = _make_protocol_with_steps([
-            {'Name': 'A1_BF', 'Color': 'BF', 'Z': 7000.0, 'X': 1, 'Y': 1},
-        ])
+        proto = _make_protocol_with_steps(
+            [
+                {'Name': 'A1_BF', 'Color': 'BF', 'Z': 7000.0, 'X': 1, 'Y': 1},
+            ]
+        )
         assert proto.step_at_layer_focus(step_idx=0, saved_focus=None) is False
 
     def test_sub_micron_drift_still_at_baseline(self):
         # Same tolerance as update_layer_focus: 0.0005 um drift is at-baseline.
-        proto = _make_protocol_with_steps([
-            {'Name': 'A1_BF', 'Color': 'BF', 'Z': 7000.0005, 'X': 1, 'Y': 1},
-        ])
+        proto = _make_protocol_with_steps(
+            [
+                {'Name': 'A1_BF', 'Color': 'BF', 'Z': 7000.0005, 'X': 1, 'Y': 1},
+            ]
+        )
         assert proto.step_at_layer_focus(step_idx=0, saved_focus=7000.0) is True
 
     def test_cue_and_propagation_agree(self):
@@ -205,10 +220,7 @@ class TestExecuteSaveFocusStructure:
         tree = ast.parse(src)
         target = None
         for node in ast.walk(tree):
-            if (
-                isinstance(node, ast.FunctionDef)
-                and node.name == 'execute_save_focus'
-            ):
+            if isinstance(node, ast.FunctionDef) and node.name == 'execute_save_focus':
                 target = node
                 break
         assert target is not None, 'execute_save_focus must exist'
@@ -231,7 +243,7 @@ class TestExecuteSaveFocusStructure:
         )
         assert 'old_focus' in names_read, (
             'execute_save_focus must capture old_focus as a local before '
-            "calling update_layer_focus, so the helper can match steps "
+            'calling update_layer_focus, so the helper can match steps '
             'against the prior value.'
         )
         # The update_layer_focus call must pass old_z=old_focus (so the
@@ -241,10 +253,7 @@ class TestExecuteSaveFocusStructure:
         for sub in ast.walk(target):
             if not isinstance(sub, ast.Call):
                 continue
-            if not (
-                isinstance(sub.func, ast.Attribute)
-                and sub.func.attr == 'update_layer_focus'
-            ):
+            if not (isinstance(sub.func, ast.Attribute) and sub.func.attr == 'update_layer_focus'):
                 continue
             for kw in sub.keywords:
                 if (

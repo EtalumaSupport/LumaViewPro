@@ -15,12 +15,9 @@ Covers:
 """
 
 import glob
-import importlib
 import os
-import sys
-import types
+from typing import ClassVar
 
-import cv2
 import numpy as np
 import pytest
 
@@ -308,7 +305,7 @@ class TestStitcherDeadCodeRemoved:
 class TestTinyFileConsolidation:
     """Verify tiny files were deleted and their contents moved to parent modules."""
 
-    DELETED_FILES = [
+    DELETED_FILES: ClassVar[list] = [
         'stitcher_helper.py',
         'processing_utils.py',
         'protocol_step.py',

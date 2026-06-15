@@ -11,6 +11,7 @@ import os
 import pathlib
 import re
 import copy
+from typing import ClassVar
 
 from lvp_logger import logger
 from modules.exceptions import ProtocolError
@@ -40,7 +41,7 @@ class Protocol:
     # scalar at-baseline test (step_at_layer_focus) so the cue and the
     # propagation can never disagree on what counts as "at the focus baseline."
     FOCUS_BASELINE_TOLERANCE_UM = 1e-3
-    COLUMNS = {
+    COLUMNS: ClassVar[dict] = {
         1: [
             'Name',
             'X',
@@ -183,7 +184,7 @@ class Protocol:
     # written-out order; rows that omit trailing columns (e.g. Stim_Enabled
     # blank for transmitted layers) are still valid as long as the leading
     # required columns are present.
-    LAYER_SETTINGS_COLUMNS = [
+    LAYER_SETTINGS_COLUMNS: ClassVar[list] = [
         'Layer',
         'Acquire',
         'Illumination',
@@ -198,7 +199,7 @@ class Protocol:
         r'^(?P<well_label>[A-Z][0-9]+)(_(?P<color>(Blue|Green|Red|BF|DF|PC|Lumi)))(_T(?P<tile_label>[A-Z][0-9]+))?(_Z(?P<z_slice>[0-9]+))?(_([0-9]*))?(.tif[f])?$'
     )
 
-    def __init__(self, tiling_configs_file_loc: pathlib.Path, config: dict = None):
+    def __init__(self, tiling_configs_file_loc: pathlib.Path, config: dict | None = None):
 
         self._objective_loader = ObjectiveLoader()
 
@@ -491,10 +492,10 @@ class Protocol:
         return df
 
     # Valid values for field validation
-    VALID_COLORS = {c.name for c in color_channels.ColorChannel}
-    VALID_ACQUIRE_MODES = {'image', 'video'}
+    VALID_COLORS: ClassVar[set] = {c.name for c in color_channels.ColorChannel}
+    VALID_ACQUIRE_MODES: ClassVar[set] = {'image', 'video'}
 
-    def validate_steps(self, objectives_file: str = None) -> list:
+    def validate_steps(self, objectives_file: str | None = None) -> list:
         """Validate all step fields and return a list of error strings.
 
         Returns an empty list if all steps are valid.
@@ -589,7 +590,7 @@ class Protocol:
 
         return errors
 
-    def validate_for_run(self, axis_limits: dict = None) -> list:
+    def validate_for_run(self, axis_limits: dict | None = None) -> list:
         """Validate protocol is safe to execute on hardware.
 
         Checks positions are within axis travel limits. Call this before
@@ -670,9 +671,7 @@ class Protocol:
     def steps(self) -> pd.DataFrame:
         return self._config['steps']
 
-    def update_layer_focus(
-        self, layer: str, old_z: float | None, new_z: float
-    ) -> int:
+    def update_layer_focus(self, layer: str, old_z: float | None, new_z: float) -> int:
         """Propagate a new saved-focus Z to in-memory protocol steps that
         sit at the layer's previous-focus Z.
 
@@ -888,9 +887,7 @@ class Protocol:
         # Add Step gives every channel the current stage Z instead of its
         # own focus, collapsing distinct per-channel focus to one value.
         step_z = (
-            layer_config['focus']
-            if layer_config.get('focus') is not None
-            else plate_position['z']
+            layer_config['focus'] if layer_config.get('focus') is not None else plate_position['z']
         )
 
         step_dict = self._create_step_dict(
@@ -1690,9 +1687,7 @@ class Protocol:
             # of the encoding bug was fixed (issue #669).
             if hours < 0:
                 logger.error(f"Invalid 'Duration' value in protocol file {file_path}: must be >= 0")
-                raise ProtocolFormatError(
-                    "Invalid 'Duration' value in protocol file: must be >= 0"
-                )
+                raise ProtocolFormatError("Invalid 'Duration' value in protocol file: must be >= 0")
 
             config['duration'] = datetime.timedelta(hours=hours)
 
@@ -1785,7 +1780,7 @@ class Protocol:
                                     config['layer_settings'] = {}
                                     ls_header = None
                                 continue
-                            row_dict = dict(zip(ls_header, sub_row))
+                            row_dict = dict(zip(ls_header, sub_row, strict=False))
                             layer_name = row_dict.get('Layer', '').strip()
                             if layer_name:
                                 config['layer_settings'][layer_name] = row_dict

@@ -98,10 +98,12 @@ def _is_notification_call(node: ast.AST) -> bool:
     if not isinstance(node, ast.Call):
         return False
     fn = node.func
-    if isinstance(fn, ast.Attribute) and isinstance(fn.value, ast.Name):
-        if fn.value.id in _NOTIFICATIONS_BASES and fn.attr in _NOTIFICATIONS_METHODS:
-            return True
-    return False
+    return (
+        isinstance(fn, ast.Attribute)
+        and isinstance(fn.value, ast.Name)
+        and fn.value.id in _NOTIFICATIONS_BASES
+        and fn.attr in _NOTIFICATIONS_METHODS
+    )
 
 
 def _walk_excluding_calls(node: ast.AST):
@@ -186,7 +188,7 @@ def _check_rule_24(source: str, path: str) -> list[Violation]:
                 ln,
                 m.start(),
                 'rule_24',
-                f"non-ASCII char {ch!r} (U+{ord(ch):04X}) in source; "
+                f'non-ASCII char {ch!r} (U+{ord(ch):04X}) in source; '
                 f"use ASCII (e.g. 'degC' not the degree sign, '--' not "
                 f"the em-dash, 'um' not the micro sign)",
             )
@@ -371,51 +373,59 @@ def _check_rule_27d(tree: ast.AST, path: str) -> list[Violation]:
     return violations
 
 
-_POST_PROCESSOR_WRITE_PATHS = frozenset({
-    'modules/zprojector.py',
-    'modules/stitcher.py',
-    'modules/composite_generation.py',
-    'modules/stack_builder.py',
-})
+_POST_PROCESSOR_WRITE_PATHS = frozenset(
+    {
+        'modules/zprojector.py',
+        'modules/stitcher.py',
+        'modules/composite_generation.py',
+        'modules/stack_builder.py',
+    }
+)
 
 _TIFFFILE_NAMES = frozenset({'tf', 'tifffile'})
 
-_FALSE_COLOR_HELPER_NAMES = frozenset({
-    'maybe_apply_false_color',
-    'write_tiff',
-})
+_FALSE_COLOR_HELPER_NAMES = frozenset(
+    {
+        'maybe_apply_false_color',
+        'write_tiff',
+    }
+)
 
 _RULE_31A_PATH_SCOPE = ('modules/', 'ui/')
-_RULE_31A_FILE_EXEMPT = frozenset({
-    # image_utils.py owns image_file_to_image (multi-format L1 file
-    # loader called from the post-processing UI + Kivy display path)
-    # plus the imread_color / imwrite_color / videowriter_color
-    # capability-flag wrappers. cv2 use is by definition boundary code.
-    'modules/image_utils.py',
-    # video_writer.py owns the cv2.VideoWriter XVID fallback for the
-    # canonical VideoWriter class -- the wrapper that surrounding
-    # callers consume; direct cv2.VideoWriter outside this class swaps
-    # BGR / RGB at the file boundary.
-    'modules/video_writer.py',
-})
+_RULE_31A_FILE_EXEMPT = frozenset(
+    {
+        # image_utils.py owns image_file_to_image (multi-format L1 file
+        # loader called from the post-processing UI + Kivy display path)
+        # plus the imread_color / imwrite_color / videowriter_color
+        # capability-flag wrappers. cv2 use is by definition boundary code.
+        'modules/image_utils.py',
+        # video_writer.py owns the cv2.VideoWriter XVID fallback for the
+        # canonical VideoWriter class -- the wrapper that surrounding
+        # callers consume; direct cv2.VideoWriter outside this class swaps
+        # BGR / RGB at the file boundary.
+        'modules/video_writer.py',
+    }
+)
 _RULE_31A_BANNED_CV2_ATTRS = frozenset({'imread', 'imwrite', 'VideoWriter'})
 
-_RULE_31B_BOUNDARY_PATHS = frozenset({
-    # The display / encode boundary where mono -> RGB false-color
-    # widening is correct. Save / process callers must apply false
-    # color via mono_to_rgb_falsecolor at the display / encode edge,
-    # not at the storage edge -- mono fluorescence saves keep the
-    # layer as TIFF metadata.
-    'ui/main_display.py',
-    'modules/video_capture.py',
-    # Sanctioned save-layer exception: the user-opt-in false_color_16bit
-    # setting (default OFF) deliberately widens 16-bit fluorescence to
-    # 3-channel RGB so it renders in color in Windows Preview, which
-    # cannot read the TIFF-metadata color path. maybe_apply_false_color
-    # is the single canonical gate for that opt-in; it no-ops when the
-    # setting is off, preserving the mono-native default everywhere else.
-    'modules/image_utils.py',
-})
+_RULE_31B_BOUNDARY_PATHS = frozenset(
+    {
+        # The display / encode boundary where mono -> RGB false-color
+        # widening is correct. Save / process callers must apply false
+        # color via mono_to_rgb_falsecolor at the display / encode edge,
+        # not at the storage edge -- mono fluorescence saves keep the
+        # layer as TIFF metadata.
+        'ui/main_display.py',
+        'modules/video_capture.py',
+        # Sanctioned save-layer exception: the user-opt-in false_color_16bit
+        # setting (default OFF) deliberately widens 16-bit fluorescence to
+        # 3-channel RGB so it renders in color in Windows Preview, which
+        # cannot read the TIFF-metadata color path. maybe_apply_false_color
+        # is the single canonical gate for that opt-in; it no-ops when the
+        # setting is off, preserving the mono-native default everywhere else.
+        'modules/image_utils.py',
+    }
+)
 
 
 def _check_rule_31c(tree: ast.AST, path: str) -> list[Violation]:
@@ -568,9 +578,9 @@ def _check_rule_31b(tree: ast.AST, path: str) -> list[Violation]:
         if not isinstance(node, ast.Call):
             continue
         f = node.func
-        if isinstance(f, ast.Attribute) and f.attr == 'add_false_color':
-            pass
-        elif isinstance(f, ast.Name) and f.id == 'add_false_color':
+        if (isinstance(f, ast.Attribute) and f.attr == 'add_false_color') or (
+            isinstance(f, ast.Name) and f.id == 'add_false_color'
+        ):
             pass
         else:
             continue
@@ -592,35 +602,37 @@ def _check_rule_31b(tree: ast.AST, path: str) -> list[Violation]:
     return violations
 
 
-_BROKEN_SCOPE_METHODS = frozenset({
-    # Methods that were on Lumascope pre-Wave-7 and are now ONLY reachable
-    # via a sub-API namespace (scope.motion.X, scope.imaging.X, etc.).
-    # Lumascope itself no longer exposes a same-named forwarder, so bare
-    # `scope.<name>(...)` raises AttributeError at runtime.
-    # Bench-day 2026-05-26 surfaced 68 such calls in
-    # etaluma-engineering/.../camera_characterization.py that the test
-    # suite missed because every test scope was a MagicMock that silently
-    # absorbs any attribute access. This rule catches new occurrences at
-    # pre-commit, before they ship.
-    #
-    # New entries get added here when a method moves off Lumascope onto a
-    # sub-API. Whitelist: scope.motion.X / scope.imaging.X / scope.illumination.X /
-    # scope.diagnostics.X / scope.capabilities.X / scope.io.X / scope.runtime_state.X.
-    'move_absolute_position',
-    'move_relative_position',
-    'get_current_position',
-    'get_target_position',
-    'get_target_status',
-    'set_motor_precision_mode',
-    'set_pixel_format',
-    'set_frame_size',
-    'set_gain',
-    'set_exposure_t',
-    'set_exposure_time',
-    'capture_and_wait',
-    'get_channels',
-    'run_pylon_diagnostic_probe',
-})
+_BROKEN_SCOPE_METHODS = frozenset(
+    {
+        # Methods that were on Lumascope pre-Wave-7 and are now ONLY reachable
+        # via a sub-API namespace (scope.motion.X, scope.imaging.X, etc.).
+        # Lumascope itself no longer exposes a same-named forwarder, so bare
+        # `scope.<name>(...)` raises AttributeError at runtime.
+        # Bench-day 2026-05-26 surfaced 68 such calls in
+        # etaluma-engineering/.../camera_characterization.py that the test
+        # suite missed because every test scope was a MagicMock that silently
+        # absorbs any attribute access. This rule catches new occurrences at
+        # pre-commit, before they ship.
+        #
+        # New entries get added here when a method moves off Lumascope onto a
+        # sub-API. Whitelist: scope.motion.X / scope.imaging.X / scope.illumination.X /
+        # scope.diagnostics.X / scope.capabilities.X / scope.io.X / scope.runtime_state.X.
+        'move_absolute_position',
+        'move_relative_position',
+        'get_current_position',
+        'get_target_position',
+        'get_target_status',
+        'set_motor_precision_mode',
+        'set_pixel_format',
+        'set_frame_size',
+        'set_gain',
+        'set_exposure_t',
+        'set_exposure_time',
+        'capture_and_wait',
+        'get_channels',
+        'run_pylon_diagnostic_probe',
+    }
+)
 
 
 def _check_rule_35d(tree: ast.AST, path: str) -> list[Violation]:
@@ -656,9 +668,8 @@ def _check_rule_35d(tree: ast.AST, path: str) -> list[Violation]:
         # ctx.scope.X, lumaview.scope.X). The base of node is the thing to
         # the left of `.X`; either a Name 'scope' or an Attribute whose
         # .attr is 'scope'.
-        is_scope_base = (
-            (isinstance(base, ast.Name) and base.id == 'scope')
-            or (isinstance(base, ast.Attribute) and base.attr == 'scope')
+        is_scope_base = (isinstance(base, ast.Name) and base.id == 'scope') or (
+            isinstance(base, ast.Attribute) and base.attr == 'scope'
         )
         if not is_scope_base:
             continue

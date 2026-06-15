@@ -189,21 +189,23 @@ class ZStack(FloatLayout):
                 tiling_configs_file_loc=pathlib.Path(ctx.source_path) / 'data' / 'tiling.json',
             )
 
-            config = config_helpers.build_sequenced_capture_config({
-                'labware_id': labware_id,
-                'positions': positions,
-                'objective_id': objective_id,
-                'zstack_params': zstack_params,
-                'use_zstacking': True,
-                'tiling': tiling_config.no_tiling_label(),
-                'tiling_overlap_percent': 0.0,
-                'layer_configs': {active_layer: active_layer_config},
-                'period': None,
-                'duration': None,
-                'frame_dimensions': get_current_frame_dimensions(),
-                'binning_size': get_binning_from_ui(),
-                'stim_config': get_stim_configs(),
-            })
+            config = config_helpers.build_sequenced_capture_config(
+                {
+                    'labware_id': labware_id,
+                    'positions': positions,
+                    'objective_id': objective_id,
+                    'zstack_params': zstack_params,
+                    'use_zstacking': True,
+                    'tiling': tiling_config.no_tiling_label(),
+                    'tiling_overlap_percent': 0.0,
+                    'layer_configs': {active_layer: active_layer_config},
+                    'period': None,
+                    'duration': None,
+                    'frame_dimensions': get_current_frame_dimensions(),
+                    'binning_size': get_binning_from_ui(),
+                    'stim_config': get_stim_configs(),
+                }
+            )
 
             zstack_sequence = ctx.scope.create_protocol(input_config=config)
 

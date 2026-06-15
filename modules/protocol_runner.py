@@ -20,18 +20,15 @@ Usage
     runner.wait_for_completion()
 """
 
-import datetime
 import pathlib
 import threading
 import typing
 
-from lvp_logger import logger
 import modules.common_utils as common_utils
 from modules.protocol import Protocol
 from modules.sequenced_capture_runner import SequencedCaptureRunner, SequencedCaptureRunMode
 from modules.sequential_io_executor import SequentialIOExecutor
 from modules.protocol_thread import ProtocolThread
-from modules.autofocus_runner import AutofocusRunner
 
 
 class ProtocolRunner:

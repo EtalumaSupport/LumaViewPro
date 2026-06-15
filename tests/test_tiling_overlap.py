@@ -9,54 +9,54 @@ from modules.protocol import Protocol
 from modules.tiling_config import TilingConfig
 
 
-TILING_CONFIGS = pathlib.Path(__file__).parent.parent / "data" / "tiling.json"
+TILING_CONFIGS = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
 
 
 def _tile_spacing(tiles):
-    x_spacing = abs(tiles["A2"]["x"] - tiles["A1"]["x"])
-    y_spacing = abs(tiles["B1"]["y"] - tiles["A1"]["y"])
+    x_spacing = abs(tiles['A2']['x'] - tiles['A1']['x'])
+    y_spacing = abs(tiles['B1']['y'] - tiles['A1']['y'])
     return x_spacing, y_spacing
 
 
 def _make_protocol_from_config(overlap_percent):
     input_config = {
-        "positions": [
+        'positions': [
             {
-                "x": 10.0,
-                "y": 20.0,
-                "z": 5000.0,
-                "name": "A1",
+                'x': 10.0,
+                'y': 20.0,
+                'z': 5000.0,
+                'name': 'A1',
             }
         ],
-        "labware_id": "custom",
-        "objective_id": "10x Oly",
-        "zstack_params": {
-            "range": 0,
-            "step_size": 0,
-            "z_reference": "center",
+        'labware_id': 'custom',
+        'objective_id': '10x Oly',
+        'zstack_params': {
+            'range': 0,
+            'step_size': 0,
+            'z_reference': 'center',
         },
-        "use_zstacking": False,
-        "tiling": "2x2",
-        "tiling_overlap_percent": overlap_percent,
-        "layer_configs": {
-            "BF": {
-                "acquire": "image",
-                "focus": 5000.0,
-                "autofocus": False,
-                "false_color": False,
-                "illumination_ma": 50.0,
-                "sum": 1,
-                "gain_db": 1.0,
-                "auto_gain": False,
-                "exposure_ms": 10.0,
-                "video_config": {},
+        'use_zstacking': False,
+        'tiling': '2x2',
+        'tiling_overlap_percent': overlap_percent,
+        'layer_configs': {
+            'BF': {
+                'acquire': 'image',
+                'focus': 5000.0,
+                'autofocus': False,
+                'false_color': False,
+                'illumination_ma': 50.0,
+                'sum': 1,
+                'gain_db': 1.0,
+                'auto_gain': False,
+                'exposure_ms': 10.0,
+                'video_config': {},
             }
         },
-        "period": datetime.timedelta(minutes=1),
-        "duration": datetime.timedelta(hours=1),
-        "frame_dimensions": {"width": 1920, "height": 1080},
-        "binning_size": 1,
-        "stim_config": {},
+        'period': datetime.timedelta(minutes=1),
+        'duration': datetime.timedelta(hours=1),
+        'frame_dimensions': {'width': 1920, 'height': 1080},
+        'binning_size': 1,
+        'stim_config': {},
     }
     return Protocol.from_config(
         input_config=input_config,
@@ -65,9 +65,9 @@ def _make_protocol_from_config(overlap_percent):
 
 
 def _protocol_tile_spacing(protocol):
-    steps = protocol.steps().set_index("Tile")
-    x_spacing = abs(steps.loc["A2", "X"] - steps.loc["A1", "X"])
-    y_spacing = abs(steps.loc["B1", "Y"] - steps.loc["A1", "Y"])
+    steps = protocol.steps().set_index('Tile')
+    x_spacing = abs(steps.loc['A2', 'X'] - steps.loc['A1', 'X'])
+    y_spacing = abs(steps.loc['B1', 'Y'] - steps.loc['A1', 'Y'])
     return x_spacing, y_spacing
 
 
@@ -78,7 +78,7 @@ def test_overlap_percent_to_fill_factor():
     assert TilingConfig.fill_factor_from_overlap_percent(20) == pytest.approx(0.8)
 
 
-@pytest.mark.parametrize("overlap_percent", [-1, 51, "abc", None])
+@pytest.mark.parametrize('overlap_percent', [-1, 51, 'abc', None])
 def test_invalid_overlap_percent_rejected(overlap_percent):
     with pytest.raises(ValueError):
         TilingConfig.fill_factor_from_overlap_percent(overlap_percent)
@@ -88,10 +88,10 @@ def test_ten_percent_overlap_reduces_tile_spacing_by_ten_percent():
     tiling_config = TilingConfig(tiling_configs_file_loc=TILING_CONFIGS)
 
     common_kwargs = {
-        "config_label": "2x2",
-        "focal_length": 50.0,
-        "frame_size": {"width": 1920, "height": 1080},
-        "binning_size": 1,
+        'config_label': '2x2',
+        'focal_length': 50.0,
+        'frame_size': {'width': 1920, 'height': 1080},
+        'binning_size': 1,
     }
 
     tiles_no_overlap = tiling_config.get_tile_centers(
@@ -132,10 +132,10 @@ def test_overlap_never_adds_tiles():
     tiling_config = TilingConfig(tiling_configs_file_loc=TILING_CONFIGS)
 
     common_kwargs = {
-        "config_label": "2x2",
-        "focal_length": 50.0,
-        "frame_size": {"width": 1920, "height": 1080},
-        "binning_size": 1,
+        'config_label': '2x2',
+        'focal_length': 50.0,
+        'frame_size': {'width': 1920, 'height': 1080},
+        'binning_size': 1,
     }
 
     for overlap_percent in (0, 10, 15, 20, 50):
@@ -144,6 +144,6 @@ def test_overlap_never_adds_tiles():
             fill_factor=TilingConfig.fill_factor_from_overlap_percent(overlap_percent),
         )
         assert len(tiles) == 4, (
-            f"2x2 produced {len(tiles)} tiles at {overlap_percent}% overlap; "
-            f"the requested count is the contract"
+            f'2x2 produced {len(tiles)} tiles at {overlap_percent}% overlap; '
+            f'the requested count is the contract'
         )

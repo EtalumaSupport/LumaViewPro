@@ -204,12 +204,10 @@ void main (void) {
 
             else:
                 # Digital zoom control
-                if touch.button == 'scrolldown':
-                    if self.scale < 100:
-                        self.scale = self.scale * 1.1
-                elif touch.button == 'scrollup':
-                    if self.scale > 1:
-                        self.scale = max(1, self.scale * 0.8)
+                if touch.button == 'scrolldown' and self.scale < 100:
+                    self.scale = self.scale * 1.1
+                elif touch.button == 'scrollup' and self.scale > 1:
+                    self.scale = max(1, self.scale * 0.8)
         # If some other kind of "touch": Fall back on Scatter's behavior
         else:
             # Let side panels handle touches that land on them

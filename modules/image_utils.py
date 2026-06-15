@@ -53,9 +53,7 @@ def mono_to_rgb_falsecolor(mono: np.ndarray, layer: str) -> np.ndarray:
         ValueError: ``mono`` is not 2D.
     """
     if mono.ndim != 2:
-        raise ValueError(
-            f'mono_to_rgb_falsecolor expects 2D input, got shape {mono.shape}'
-        )
+        raise ValueError(f'mono_to_rgb_falsecolor expects 2D input, got shape {mono.shape}')
 
     h, w = mono.shape
     rgb = np.zeros((h, w, 3), dtype=mono.dtype)
@@ -97,9 +95,7 @@ def _json_default_numpy(obj):
         return obj.item()
     if hasattr(obj, 'tolist'):
         return obj.tolist()
-    raise TypeError(
-        f'Object of type {type(obj).__name__} is not JSON serializable'
-    )
+    raise TypeError(f'Object of type {type(obj).__name__} is not JSON serializable')
 
 
 def read_tiff_with_legacy_collapse(path: pathlib.Path) -> np.ndarray:
@@ -139,9 +135,7 @@ def read_tiff_with_legacy_collapse(path: pathlib.Path) -> np.ndarray:
         # or CompositeGeneration.
         if len(nonzero_channels) == 1:
             if not _legacy_collapse_warned:
-                logger.info(
-                    f'Legacy false-color TIFF detected at {path}; loaded as mono'
-                )
+                logger.info(f'Legacy false-color TIFF detected at {path}; loaded as mono')
                 _legacy_collapse_warned = True
             return img[..., nonzero_channels[0]].copy()
     return img
@@ -653,9 +647,7 @@ def imread_color(path, *, is_color_native: bool = False) -> 'np.ndarray':
     raise NotImplementedError('Phase 2 activation pending')
 
 
-def imwrite_color(
-    path, data, *, is_color_native: bool = False, color: str | None = None
-) -> None:
+def imwrite_color(path, data, *, is_color_native: bool = False, color: str | None = None) -> None:
     """Color-camera-aware image write. Phase 2 activation pending.
 
     Stub helper for the color-native save path. Mono fluorescence saves
@@ -1050,7 +1042,7 @@ def write_tiff(
     ome: bool,
     color: str,
     video_frame: bool = False,
-    extratags: list = None,
+    extratags: list | None = None,
     use_false_color_16bit: bool | None = None,
     false_color_buf: np.ndarray | None = None,
     rgb_buf: np.ndarray | None = None,
@@ -1083,12 +1075,8 @@ def write_tiff(
         # Plate / Objective), not for re-deriving the file's render
         # hints. Bloats the sidecar by ~3 KB per channel of LUT data
         # for zero downstream value if left in.
-        sidecar_metadata = {
-            k: v for k, v in hyperstack_metadata.items() if k != 'LUTs'
-        }
-        sidecar_json = json.dumps(
-            sidecar_metadata, default=_json_default_numpy
-        )
+        sidecar_metadata = {k: v for k, v in hyperstack_metadata.items() if k != 'LUTs'}
+        sidecar_json = json.dumps(sidecar_metadata, default=_json_default_numpy)
         sidecar_extratag = (
             LVP_HYPERSTACK_METADATA_TIFF_TAG,
             's',
@@ -1582,7 +1570,7 @@ def add_scale_bar(
     image,
     objective: dict,
     binning_size: int,
-    color: str = None,
+    color: str | None = None,
 ):
     global _scale_bar_cache
 

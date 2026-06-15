@@ -26,11 +26,11 @@ import numpy as np
 REPO = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
-from modules import image_utils  # noqa: E402
+from modules import image_utils
 
 
 def test_convert_reuses_provided_out_buffer():
-    img = (np.arange(64, dtype=np.uint16).reshape(8, 8) * 60)  # 0..3780, < 4096
+    img = np.arange(64, dtype=np.uint16).reshape(8, 8) * 60  # 0..3780, < 4096
     out = np.empty((8, 8), dtype=np.uint8)
     result = image_utils.convert_12bit_to_8bit(img, out=out)
     assert result is out, 'must write into the caller buffer, not allocate'

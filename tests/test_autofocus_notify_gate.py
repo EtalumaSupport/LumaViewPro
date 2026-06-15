@@ -25,8 +25,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-import pytest
-
 from modules.autofocus_runner import AutofocusRunner
 import modules.autofocus_runner as autofocus_runner_mod
 

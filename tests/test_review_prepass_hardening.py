@@ -17,7 +17,6 @@ import numpy as np
 import tifffile as tf
 
 from modules import image_utils
-from modules import stitch_algorithms
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -32,11 +31,7 @@ def _method_src(rel_path: str, class_name: str | None, func_name: str) -> str:
             n for n in ast.walk(tree) if isinstance(n, ast.ClassDef) and n.name == class_name
         )
         nodes = ast.walk(cls)
-    fn = next(
-        n
-        for n in nodes
-        if isinstance(n, ast.FunctionDef) and n.name == func_name
-    )
+    fn = next(n for n in nodes if isinstance(n, ast.FunctionDef) and n.name == func_name)
     return ast.unparse(fn)
 
 

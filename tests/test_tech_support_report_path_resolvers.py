@@ -29,8 +29,6 @@ from __future__ import annotations
 
 import pathlib
 
-import pytest
-
 from modules import tech_support_report
 
 

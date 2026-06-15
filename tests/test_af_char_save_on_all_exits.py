@@ -97,7 +97,7 @@ class TestSaveQueuedOnEveryExitPath:
         runner, _scope = af_runner_and_scope()
         drive_af(runner, save_results_to_file=False)
         assert not self._queued_save_tasks(runner), (
-            "non-engineering-mode AF runs must not queue the diagnostic save"
+            'non-engineering-mode AF runs must not queue the diagnostic save'
         )
 
 

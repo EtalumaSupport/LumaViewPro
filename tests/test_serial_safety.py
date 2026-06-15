@@ -1303,11 +1303,11 @@ class TestLEDBoardStateLock:
         original_lock = board._state_lock
 
         class TrackingLock:
-            def __enter__(self_lock):
+            def __enter__(self):
                 acquired.append('enter')
                 return original_lock.__enter__()
 
-            def __exit__(self_lock, *args):
+            def __exit__(self, *args):
                 acquired.append('exit')
                 return original_lock.__exit__(*args)
 
@@ -1331,11 +1331,11 @@ class TestLEDBoardStateLock:
         original_lock = board._state_lock
 
         class TrackingLock:
-            def __enter__(self_lock):
+            def __enter__(self):
                 acquired.append('enter')
                 return original_lock.__enter__()
 
-            def __exit__(self_lock, *args):
+            def __exit__(self, *args):
                 return original_lock.__exit__(*args)
 
         board._state_lock = TrackingLock()
@@ -2114,7 +2114,7 @@ class TestCameraStateLock:
 
     def test_grab_returns_false_after_disconnect(self):
         """grab() should check flags under _state_lock and return False."""
-        from drivers.camera import Camera, ImageHandlerBase
+        from drivers.camera import Camera
 
         class StubCamera(Camera):
             def connect(self):
@@ -2210,12 +2210,12 @@ class TestCameraStateLock:
         assert cam.active is True
 
         # Normal grab without image handler should return False (no handler)
-        result, ts = cam.grab()
+        result, _ts = cam.grab()
         assert result is False
 
         # After disconnect, grab should return False immediately
         cam._mark_disconnected()
-        result, ts = cam.grab()
+        result, _ts = cam.grab()
         assert result is False
 
     def test_concurrent_mark_disconnected(self):

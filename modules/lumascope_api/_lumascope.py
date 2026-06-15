@@ -1,20 +1,13 @@
 #!/usr/bin/python3
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
-import datetime
-import os
 import pathlib
-import time
 import warnings
-from typing import TYPE_CHECKING, Any
-
-import numpy as np
+from typing import TYPE_CHECKING
 
 # Import Lumascope Hardware files
 from drivers.motorboard import MotorBoard
 from drivers.ledboard import LEDBoard
-from drivers.pyloncamera import PylonCamera
-from modules.exceptions import CaptureError, ConfigError
 from modules.lumascope_api import _constants as _api_constants
 
 try:
@@ -33,9 +26,15 @@ try:
 except ImportError:
     pass
 from drivers.camera import Camera
-from drivers.simulated_camera import SimulatedCamera
-from drivers.simulated_motorboard import SimulatedMotorBoard
-from drivers.simulated_ledboard import SimulatedLEDBoard
+# Registration-only imports: loading each driver module fires its
+# @*_registry.register(...) decorator so the registry can instantiate it
+# by kind ('pylon', 'sim') via create(). No name below is referenced
+# directly here; dropping these empties the registry -- simulate mode then
+# finds no 'sim' drivers and startup aborts.
+from drivers.pyloncamera import PylonCamera  # noqa: F401
+from drivers.simulated_camera import SimulatedCamera  # noqa: F401
+from drivers.simulated_motorboard import SimulatedMotorBoard  # noqa: F401
+from drivers.simulated_ledboard import SimulatedLEDBoard  # noqa: F401
 from drivers.null_motorboard import NullMotionBoard
 from drivers.null_ledboard import NullLEDBoard
 from drivers.protocols import MotorBoardProtocol, LEDBoardProtocol
@@ -43,13 +42,9 @@ from drivers.registry import motor_registry, led_registry, camera_registry
 from modules.scope_capabilities import ScopeCapabilities
 
 # Import additional libraries
-from lvp_logger import logger, version
+from lvp_logger import logger
 import logging as _logging
 
-import modules.common_utils as common_utils
-import modules.image_utils as image_utils
-from modules.sequential_io_executor import SequentialIOExecutor, IOTask
-from modules.frame_validity import FrameValidity
 from modules.notification_center import notifications
 
 _api_log = _logging.getLogger('LVP.api')
@@ -435,8 +430,7 @@ class Lumascope:
                 logger.info('[SCOPE API ] Using SIMULATED Camera')
         except Exception as _cam_exc:
             logger.error(
-                f'[SCOPE API ] Camera Board Not Initialized: '
-                f'{type(_cam_exc).__name__}: {_cam_exc}'
+                f'[SCOPE API ] Camera Board Not Initialized: {type(_cam_exc).__name__}: {_cam_exc}'
             )
             # Prior behavior logged only; the user saw no popup and
             # every camera-dependent UI action silently returned None/False.

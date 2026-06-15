@@ -30,8 +30,10 @@ def _is_popup_text_assign(stmt: ast.stmt) -> bool:
     if not isinstance(stmt, ast.Assign):
         return False
     return any(
-        isinstance(t, ast.Attribute) and t.attr == 'text'
-        and isinstance(t.value, ast.Name) and t.value.id == 'popup'
+        isinstance(t, ast.Attribute)
+        and t.attr == 'text'
+        and isinstance(t.value, ast.Name)
+        and t.value.id == 'popup'
         for t in stmt.targets
     )
 

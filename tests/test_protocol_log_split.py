@@ -27,7 +27,7 @@ def test_protocol_logger_defined_non_propagating():
     # pin-justified: conftest mocks lvp_logger wholesale, so the real
     # logger configuration never executes in pytest (see module docstring).
     src = _src('lvp_logger.py')
-    assert "PROTOCOL_LOG_FILE" in src and "'protocol.log'" in src, (
+    assert 'PROTOCOL_LOG_FILE' in src and "'protocol.log'" in src, (
         'lvp_logger must define PROTOCOL_LOG_FILE pointing at protocol.log'
     )
     idx = src.find("getLogger('LVP.protocol')")

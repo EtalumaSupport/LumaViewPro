@@ -262,9 +262,7 @@ class TestMoveRelProfile_674:
             result = orig_move_abs(axis, um, *args, **kwargs)
             with scope.motion._move_profile_lock:
                 profile = scope.motion._move_profile.get(axis)
-            observed['profile_at_driver_return'] = (
-                None if profile is None else dict(profile)
-            )
+            observed['profile_at_driver_return'] = None if profile is None else dict(profile)
             return result
 
         scope._motion_driver.move_abs_pos = snapshot_at_driver_return
@@ -279,8 +277,7 @@ class TestMoveRelProfile_674:
         with scope.motion._move_profile_lock:
             profile = scope.motion._move_profile.get('X')
         assert profile is not None, (
-            '_move_profile[X] must be written by the time '
-            'move_absolute_position returns'
+            '_move_profile[X] must be written by the time move_absolute_position returns'
         )
         assert profile['target_pos'] == pytest.approx(1400.0, abs=5.0)
 
@@ -303,9 +300,7 @@ class TestMoveRelProfile_674:
             if ax == 'X' and state == AxisState.MOVING:
                 with scope.motion._move_profile_lock:
                     profile = scope.motion._move_profile.get('X')
-                observed['profile_at_moving'] = (
-                    None if profile is None else dict(profile)
-                )
+                observed['profile_at_moving'] = None if profile is None else dict(profile)
             return orig_set_state(ax, state)
 
         scope.motion._set_axis_state = snapshot_at_moving
@@ -315,9 +310,7 @@ class TestMoveRelProfile_674:
         else:
             scope.motion.move_relative_position('X', 400.0, wait_until_complete=False)
 
-        assert 'profile_at_moving' in observed, (
-            'the move must transition X to MOVING'
-        )
+        assert 'profile_at_moving' in observed, 'the move must transition X to MOVING'
         assert observed['profile_at_moving'] is not None, (
             'profile must be written BEFORE _set_axis_state(MOVING) so the '
             'predictor is ready when the axis becomes observably MOVING'
@@ -352,9 +345,7 @@ class TestMoveRelProfile_674:
             # would already be set here.
             with scope.motion._move_profile_lock:
                 profile = scope.motion._move_profile.get(axis)
-            observed['profile_at_driver_return'] = (
-                None if profile is None else dict(profile)
-            )
+            observed['profile_at_driver_return'] = None if profile is None else dict(profile)
             return result
 
         scope._motion_driver.move_rel_pos = snapshot_at_driver_return
@@ -425,7 +416,9 @@ class TestMoveRelProfile_674:
 
         scope.motion.move_absolute_position('X', 1000.0, wait_until_complete=True)
 
-        DELAY_S = 0.040  # 40 ms -- well above scheduler jitter; below an arrow's perception threshold
+        DELAY_S = (
+            0.040  # 40 ms -- well above scheduler jitter; below an arrow's perception threshold
+        )
         orig_move_rel = scope._motion_driver.move_rel_pos
 
         def slow_driver(axis, um, *args, **kwargs):

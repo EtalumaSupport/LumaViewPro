@@ -11,7 +11,6 @@ The ``test_audit_fixes.TestPIW5_Convert12to16OutBuffer`` test covers the
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from modules.image_utils import convert_12bit_to_8bit
 
@@ -87,6 +86,5 @@ class TestConvert12to8OutBuffer:
                 convert_12bit_to_8bit(src, out=out)
 
         assert alloc_count['n'] < 10, (
-            f'Expected O(1) frame-sized allocations with reused out buffer; '
-            f"got {alloc_count['n']}."
+            f'Expected O(1) frame-sized allocations with reused out buffer; got {alloc_count["n"]}.'
         )

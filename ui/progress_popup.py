@@ -65,9 +65,7 @@ class _HostWidgetProxy:
         host = self._host
         descriptor = getattr(type(host), name, None)
         if isinstance(descriptor, Property):
-            Clock.schedule_once(
-                lambda dt, h=host, n=name, v=value: setattr(h, n, v), 0
-            )
+            Clock.schedule_once(lambda dt, h=host, n=name, v=value: setattr(h, n, v), 0)
         else:
             setattr(host, name, value)
 

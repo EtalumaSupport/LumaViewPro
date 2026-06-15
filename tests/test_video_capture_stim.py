@@ -310,7 +310,7 @@ def test_scheduler_pulse_width_jitter_within_tolerance():
         paired_offs.append(next_off)
         next_off = next(off_iter, None)
 
-    pulse_widths_ms = [(off - on) * 1000.0 for on, off in zip(ons, paired_offs)]
+    pulse_widths_ms = [(off - on) * 1000.0 for on, off in zip(ons, paired_offs, strict=False)]
     widths = np.asarray(pulse_widths_ms, dtype=float)
     stddev_ms = float(widths.std(ddof=0))
     worst_err_ms = float(np.max(np.abs(widths - 10.0)))

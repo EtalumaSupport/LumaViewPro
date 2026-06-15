@@ -4,11 +4,6 @@
 import csv
 import os
 import time
-from datetime import datetime
-import matplotlib
-import matplotlib.pyplot as plt
-from matplotlib.dates import ConciseDateFormatter
-import pandas
 import modules.image_utils as image_utils
 
 from lvp_logger import logger

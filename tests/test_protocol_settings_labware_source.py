@@ -57,12 +57,16 @@ def test_init_does_not_call_json_load():
     for node in ast.walk(init):
         if isinstance(node, ast.Call):
             func = node.func
-            if isinstance(func, ast.Attribute) and func.attr == 'load':
-                if isinstance(func.value, ast.Name) and func.value.id == 'json':
-                    raise AssertionError(
-                        'ProtocolSettings.__init__ contains json.load(); '
-                        'labware should come from ctx.wellplate_loader.labware'
-                    )
+            if (
+                isinstance(func, ast.Attribute)
+                and func.attr == 'load'
+                and isinstance(func.value, ast.Name)
+                and func.value.id == 'json'
+            ):
+                raise AssertionError(
+                    'ProtocolSettings.__init__ contains json.load(); '
+                    'labware should come from ctx.wellplate_loader.labware'
+                )
 
 
 def test_module_does_not_import_json():

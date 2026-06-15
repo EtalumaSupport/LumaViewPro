@@ -13,8 +13,6 @@ consumed it without None-checking.
 
 from unittest.mock import MagicMock
 
-import pytest
-
 
 def _patch_ctx(monkeypatch, *, spinner_text: str, settings: dict, loader):
     """Build a MagicMock app context shaped like the real one."""

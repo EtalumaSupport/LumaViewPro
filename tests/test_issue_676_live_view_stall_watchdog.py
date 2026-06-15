@@ -33,9 +33,7 @@ def _ctx(*, camera_active=True, camera_connected=True):
 
 def _count_stall_warnings(records):
     return sum(
-        1
-        for r in records
-        if r.levelno == logging.WARNING and 'frames stalled' in r.getMessage()
+        1 for r in records if r.levelno == logging.WARNING and 'frames stalled' in r.getMessage()
     )
 
 

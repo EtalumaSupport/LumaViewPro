@@ -22,8 +22,8 @@ CHANNEL_RGB_INDEX = {
 
 def build_composite(
     channel_images: dict,
-    transmitted_image: np.ndarray = None,
-    brightness_thresholds: dict = None,
+    transmitted_image: np.ndarray | None = None,
+    brightness_thresholds: dict | None = None,
     dtype: np.dtype = np.uint8,
     max_value: float = 255,
 ) -> np.ndarray:

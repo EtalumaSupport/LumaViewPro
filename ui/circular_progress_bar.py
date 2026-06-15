@@ -103,14 +103,12 @@ class CircularProgressBar(Widget):
 
     @thickness.setter
     def thickness(self, value):
-        if type(value) != int:
+        if type(value) is not int:
             raise TypeError(
                 f'Circular bar thickness only accepts an integer value, not {type(value)}!'
             )
         elif value <= 0:
-            raise ValueError(
-                f'Circular bar thickness must be a positive integer, not {value}!'
-            )
+            raise ValueError(f'Circular bar thickness must be a positive integer, not {value}!')
         else:
             self._thickness = value
 
@@ -120,7 +118,7 @@ class CircularProgressBar(Widget):
 
     @cap_style.setter
     def cap_style(self, value: str):
-        if type(value) != str:
+        if type(value) is not str:
             raise TypeError(f'Bar line cap argument must be a string, not {type(value)}!')
         value = value.lower().strip()
         if value not in _ACCEPTED_BAR_CAPS:
@@ -136,14 +134,12 @@ class CircularProgressBar(Widget):
 
     @cap_precision.setter
     def cap_precision(self, value: int):
-        if type(value) != int:
+        if type(value) is not int:
             raise TypeError(
                 f'Circular bar cap precision only accepts an integer value, not {type(value)}!'
             )
         elif value <= 0:
-            raise ValueError(
-                f'Circular bar cap precision must be a positive integer, not {value}!'
-            )
+            raise ValueError(f'Circular bar cap precision must be a positive integer, not {value}!')
         else:
             self._cap_precision = value
 
@@ -179,10 +175,8 @@ class CircularProgressBar(Widget):
 
     @max.setter
     def max(self, value: int):
-        if type(value) != int:
-            raise TypeError(
-                f'Maximum progress only accepts an integer value, not {type(value)}!'
-            )
+        if type(value) is not int:
+            raise TypeError(f'Maximum progress only accepts an integer value, not {type(value)}!')
         elif value <= self._min_progress:
             raise ValueError(
                 f'Maximum progress - {value} - must be greater than minimum progress ({self._min_progress})!'
@@ -196,10 +190,8 @@ class CircularProgressBar(Widget):
 
     @min.setter
     def min(self, value: int):
-        if type(value) != int:
-            raise TypeError(
-                f'Minimum progress only accepts an integer value, not {type(value)}!'
-            )
+        if type(value) is not int:
+            raise TypeError(f'Minimum progress only accepts an integer value, not {type(value)}!')
         elif value > self._max_progress:
             raise ValueError(
                 f'Minimum progress - {value} - must be smaller than maximum progress ({self._max_progress})!'
@@ -214,7 +206,7 @@ class CircularProgressBar(Widget):
 
     @value.setter
     def value(self, value: int):
-        if type(value) != int:
+        if type(value) is not int:
             raise TypeError(f'Progress must be an integer value, not {type(value)}!')
         elif self._min_progress > value or value > self._max_progress:
             raise ValueError(
@@ -230,14 +222,10 @@ class CircularProgressBar(Widget):
 
     @widget_size.setter
     def widget_size(self, value: int):
-        if type(value) != int:
-            raise TypeError(
-                f'Size of this widget must be an integer value, not {type(value)}!'
-            )
+        if type(value) is not int:
+            raise TypeError(f'Size of this widget must be an integer value, not {type(value)}!')
         elif value <= 0:
-            raise ValueError(
-                f'Size of this widget must be a positive integer, not {value}!'
-            )
+            raise ValueError(f'Size of this widget must be a positive integer, not {value}!')
         else:
             self._widget_size = value
 
@@ -303,7 +291,7 @@ class CircularProgressBar(Widget):
 
         :param norm_progress: Normalised value to update the progress with
         """
-        if type(norm_progress) != float and type(norm_progress) != int:
+        if type(norm_progress) is not float and type(norm_progress) is not int:
             raise TypeError(
                 f'Normalised progress must be a float or an integer, not {type(norm_progress)}!'
             )

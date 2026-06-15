@@ -2041,14 +2041,22 @@ class FX2Camera(Camera):
         return db
 
     def auto_gain(
-        self, state=True, target_brightness=0.5, min_gain_db=None, max_gain_db=None,
-        ae_max_exposure_ms=None
+        self,
+        state=True,
+        target_brightness=0.5,
+        min_gain_db=None,
+        max_gain_db=None,
+        ae_max_exposure_ms=None,
     ):
         pass  # no hardware auto-gain
 
     def auto_gain_once(
-        self, state=True, target_brightness=0.5, min_gain_db=None, max_gain_db=None,
-        ae_max_exposure_ms=None
+        self,
+        state=True,
+        target_brightness=0.5,
+        min_gain_db=None,
+        max_gain_db=None,
+        ae_max_exposure_ms=None,
     ):
         pass
 

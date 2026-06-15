@@ -164,10 +164,10 @@ class TestProcessFrame(unittest.TestCase):
         self.assertEqual(got_ts, ts)
 
     def test_drains_stale_before_putting(self):
-        worker, _, base, frame_queue = _make_worker()
+        worker, _, _base, frame_queue = _make_worker()
         frame_queue.put_nowait((True, 'stale_img', 0.0))
         worker._process_frame(_FakeGrabResult(), 99.0)
-        success, _, ts = frame_queue.get_nowait()
+        _success, _, ts = frame_queue.get_nowait()
         self.assertEqual(ts, 99.0)
         self.assertTrue(frame_queue.empty())
 
@@ -221,7 +221,7 @@ class TestRunLoop(unittest.TestCase):
     """End-to-end: items enqueued, worker drains them via _run."""
 
     def test_frame_kind_routes_to_process_frame(self):
-        worker, _, base, frame_queue = _make_worker()
+        worker, _, base, _frame_queue = _make_worker()
         worker.start()
         try:
             worker._worker_queue.put_nowait(('frame', _FakeGrabResult(), 42.0))
@@ -323,7 +323,7 @@ class TestGrabResultRelease(unittest.TestCase):
     """
 
     def test_processed_grabresult_is_dereferenced(self):
-        worker, _, base, _ = _make_worker()
+        worker, _, _base, _ = _make_worker()
 
         class _Releasable:
             """Smart-pointer stand-in supporting weakref."""

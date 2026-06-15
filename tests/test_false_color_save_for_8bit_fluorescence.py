@@ -24,9 +24,6 @@ Tests below exercise ``write_tiff`` directly for both bit depths.
 
 from __future__ import annotations
 
-import pathlib
-import tempfile
-
 import numpy as np
 import pytest
 import tifffile as tf

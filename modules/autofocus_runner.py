@@ -754,7 +754,7 @@ class AutofocusRunner:
                     s_fit_safe = np.clip(s_fit, 1.0, None)
                     log_s = np.log(s_fit_safe)
                     coeffs = np.polyfit(z_fit, log_s, 2)
-                    a, b, c = coeffs
+                    a, b, _c = coeffs
                     if a < 0:  # concave-down = valid Gaussian peak
                         fit_z = -b / (2 * a)
                         # Sanity: fit peak must be within the measured range

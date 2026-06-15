@@ -43,9 +43,7 @@ def test_source_parses():
 def test_no_bare_image_output_format_dict_passed_as_format():
     text = SRC.read_text()
     # The bug: output_format set to the bare dict (no ['live'] subscript).
-    bare = re.findall(
-        r"output_format=settings\['image_output_format'\]\s*[,)]", text
-    )
+    bare = re.findall(r"output_format=settings\['image_output_format'\]\s*[,)]", text)
     assert bare == [], (
         'live_capture must not pass the whole image_output_format dict as '
         "output_format; it must subscript ['live']. Found bare-dict "
@@ -55,12 +53,9 @@ def test_no_bare_image_output_format_dict_passed_as_format():
 
 def test_live_format_subscript_present():
     text = SRC.read_text()
-    keyed = re.findall(
-        r"output_format=settings\['image_output_format'\]\['live'\]", text
-    )
+    keyed = re.findall(r"output_format=settings\['image_output_format'\]\['live'\]", text)
     # Two save_image calls in live_capture (original + overlay), plus the
     # save_live_image call earlier in the same path.
     assert len(keyed) >= 2, (
-        "Expected the live save_image calls to pass ['live']; found "
-        f'{len(keyed)}'
+        f"Expected the live save_image calls to pass ['live']; found {len(keyed)}"
     )

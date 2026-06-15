@@ -5,6 +5,7 @@ import logging
 import pathlib
 import threading
 import time
+from typing import ClassVar
 from lvp_logger import logger
 
 from drivers.serialboard import SerialBoard
@@ -236,8 +237,7 @@ class MotorBoard(SerialBoard):
         # FANSPEED diagnostic probes already suppress on unsupported firmware).
         if 'UNKNOWN_CMD' in info or 'unknown command' in info.lower():
             logger.info(
-                '[XYZ Class ] FULLINFO not supported on this firmware; '
-                'using model/serial fallback'
+                '[XYZ Class ] FULLINFO not supported on this firmware; using model/serial fallback'
             )
             return {'model': 'unknown', 'serial_number': 'unknown'}
         try:
@@ -581,7 +581,7 @@ class MotorBoard(SerialBoard):
     # TMC5072 VSTOP register addresses per axis.
     # VSTOP sets the velocity threshold for declaring "stopped" --
     # lower = more accurate final position, slightly slower settle.
-    _VSTOP_ADDR = {
+    _VSTOP_ADDR: ClassVar[dict] = {
         'X': 0x2B,  # VSTOP_M1 on XY chip
         'Y': 0x4B,  # VSTOP_M2 on XY chip
         'Z': 0x4B,  # VSTOP_M2 on ZT chip
@@ -1321,7 +1321,7 @@ class MotorBoard(SerialBoard):
             if resp is None:
                 return []
 
-        lines = [l.strip() for l in resp.split('\n') if l.strip()]
+        lines = [ln.strip() for ln in resp.split('\n') if ln.strip()]
         results = []
         for line in lines:
             entry = {'raw_line': line}
@@ -1354,7 +1354,7 @@ class MotorBoard(SerialBoard):
         resp = self.exchange_multiline('MOTORDETECT', timeout=5, end_markers=['T:'])
         if resp is None:
             return []
-        lines = [l.strip() for l in resp.split('\n') if l.strip()]
+        lines = [ln.strip() for ln in resp.split('\n') if ln.strip()]
         results = []
         for line in lines:
             entry = {'raw_line': line}
@@ -1378,7 +1378,7 @@ class MotorBoard(SerialBoard):
             return []
         import re as _re
 
-        lines = [l.strip() for l in resp.split('\n') if l.strip()]
+        lines = [ln.strip() for ln in resp.split('\n') if ln.strip()]
         results = []
         for line in lines:
             entry = {'raw_line': line}

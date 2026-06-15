@@ -7,7 +7,6 @@ from kivy.metrics import dp
 from kivy.uix.boxlayout import BoxLayout
 
 import modules.app_context as _app_ctx
-import modules.common_utils as common_utils
 from modules import gui_logger
 from modules.config_ui_getters import get_current_objective_info, get_selected_labware
 from modules.debounce import debounce

@@ -5,7 +5,6 @@
 from kivy.lang import Builder
 from kivy.metrics import sp
 from kivy.uix.widget import Widget
-from kivy.uix.boxlayout import BoxLayout
 from kivy.properties import (
     NumericProperty,
     AliasProperty,
@@ -309,17 +308,16 @@ class RangeSlider(Widget):
         return True
 
     def on_touch_move(self, touch):
-        if touch.grab_current == self:
-            if 'cursorid' in touch.ud:
-                if touch.ud['cursorid'] == 1:
-                    self.value1_pos = touch.pos
-                    if self.value1 > self.value2:
-                        self.value1_pos = self.value2_pos
-                elif touch.ud['cursorid'] == 2:
-                    self.value2_pos = touch.pos
-                    if self.value2 < self.value1:
-                        self.value2_pos = self.value1_pos
-                return True
+        if touch.grab_current == self and 'cursorid' in touch.ud:
+            if touch.ud['cursorid'] == 1:
+                self.value1_pos = touch.pos
+                if self.value1 > self.value2:
+                    self.value1_pos = self.value2_pos
+            elif touch.ud['cursorid'] == 2:
+                self.value2_pos = touch.pos
+                if self.value2 < self.value1:
+                    self.value2_pos = self.value1_pos
+            return True
 
     def on_touch_up(self, touch):
         if touch.grab_current == self:

@@ -18,6 +18,7 @@ import logging
 import pathlib
 import threading
 import time
+from typing import ClassVar
 from lvp_logger import logger
 from drivers.exceptions import HardwareError
 from drivers.motorconfig import MotorConfig
@@ -32,7 +33,7 @@ _serial_log = logging.getLogger('LVP.serial')
 @motor_registry.register('sim', priority=100, is_simulator=True)
 class SimulatedMotorBoard:
     # Axis speeds in usteps/sec (realistic values for Etaluma hardware)
-    AXIS_SPEEDS = {
+    AXIS_SPEEDS: ClassVar[dict] = {
         'X': 20157 * 50,  # ~50 mm/s
         'Y': 20157 * 50,  # ~50 mm/s
         'Z': 170666 * 5,  # ~5 mm/s
@@ -40,26 +41,26 @@ class SimulatedMotorBoard:
     }
 
     # Homing durations in seconds (realistic)
-    HOMING_DURATIONS = {
+    HOMING_DURATIONS: ClassVar[dict] = {
         'XYZ': 3.0,
         'Z': 1.5,
         'T': 1.0,
     }
 
     # Timing presets
-    TIMING_INSTANT = {
+    TIMING_INSTANT: ClassVar[dict] = {
         'cmd_delay': 0.0,
         'move_delay': 0.0,
         'simulate_move_duration': False,  # Truly instant -- for unit tests only
         'fast_move_duration': 0.0,
     }
-    TIMING_FAST = {
+    TIMING_FAST: ClassVar[dict] = {
         'cmd_delay': 0.001,  # 1ms minimum -- nothing returns instantly
         'move_delay': 0.0,
         'simulate_move_duration': True,  # Simulates brief move duration
         'fast_move_duration': 0.003,  # 3ms per move in fast mode
     }
-    TIMING_REALISTIC = {
+    TIMING_REALISTIC: ClassVar[dict] = {
         'cmd_delay': 0.003,  # ~3ms serial round-trip
         'move_delay': 0.0,  # homing uses HOMING_DURATIONS instead
         'simulate_move_duration': True,

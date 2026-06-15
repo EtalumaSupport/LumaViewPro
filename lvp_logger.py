@@ -374,7 +374,7 @@ camera_logger.addHandler(error_file_handler)
 # path. The pure implementation lives in lib/ because conftest mocks
 # lvp_logger wholesale during pytest, and tests need to exercise the
 # real log_to.
-from lib.log_helpers import log_to  # noqa: E402
+from lib.log_helpers import log_to  # noqa: F401  intentional re-export so callers can import log_to from lvp_logger
 
 # Metrics log -- dedicated file for periodic runtime-health snapshots
 # (system metrics, handle/GC counts, buffer churn, frame-interval
@@ -743,9 +743,17 @@ def log_environment_banner(install_path: str, version_str: str):
         logger.info(f'[LVP Main  ] Installed packages: unavailable ({e})')
     if _pkgs:
         _highlights = (
-            'av', 'numpy', 'tifffile', 'imagecodecs', 'scikit-image',
-            'scipy', 'opencv-python', 'opencv-python-headless', 'pandas',
-            'matplotlib', 'Pillow',
+            'av',
+            'numpy',
+            'tifffile',
+            'imagecodecs',
+            'scikit-image',
+            'scipy',
+            'opencv-python',
+            'opencv-python-headless',
+            'pandas',
+            'matplotlib',
+            'Pillow',
         )
         _hl = ' | '.join(f'{_n}=={_pkgs[_n]}' for _n in _highlights if _n in _pkgs)
         if _hl:
@@ -754,7 +762,7 @@ def log_environment_banner(install_path: str, version_str: str):
         logger.info(f'[LVP Main  ] Installed packages ({len(_freeze)}):')
         _PER_LINE = 6
         for _i in range(0, len(_freeze), _PER_LINE):
-            logger.info('[LVP Main  ]   ' + ', '.join(_freeze[_i:_i + _PER_LINE]))
+            logger.info('[LVP Main  ]   ' + ', '.join(_freeze[_i : _i + _PER_LINE]))
 
     logger.info('[LVP Main  ] -----------------------------------------')
 

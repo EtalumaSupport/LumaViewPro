@@ -64,8 +64,7 @@ class TestRgbImageToGrayPreservesSinglePlaneFalseColor:
         arr = _single_plane_falsecolor(value=200, channel_index=channel_index)
         out = rgb_image_to_gray(arr)
         assert out.shape == (8, 8), (
-            f'{color} 3-channel input must collapse to 2D mono, got '
-            f'shape {out.shape}'
+            f'{color} 3-channel input must collapse to 2D mono, got shape {out.shape}'
         )
         assert (out == 200).all(), (
             f'{color} single-plane value 200 must be preserved at full '
@@ -83,9 +82,7 @@ class TestRgbImageToGrayPreservesSinglePlaneFalseColor:
         ],
     )
     def test_uint16_single_plane_value_preserved(self, color, channel_index):
-        arr = _single_plane_falsecolor(
-            value=3000, channel_index=channel_index, dtype=np.uint16
-        )
+        arr = _single_plane_falsecolor(value=3000, channel_index=channel_index, dtype=np.uint16)
         out = rgb_image_to_gray(arr)
         assert out.shape == (8, 8)
         assert (out == 3000).all(), (
@@ -121,17 +118,13 @@ class TestRgbImageToGrayPathDocumentedInCompositeGeneration:
         from pathlib import Path
 
         src = (
-            Path(__file__).resolve().parent.parent
-            / 'modules'
-            / 'composite_generation.py'
+            Path(__file__).resolve().parent.parent / 'modules' / 'composite_generation.py'
         ).read_text(encoding='utf-8')
         # Allow the pattern inside comments / docstrings (the file
         # documents the prior bug shape in commit-message commentary,
         # but no live code path may use it).
         # Scrub comment lines:
-        live = '\n'.join(
-            line for line in src.splitlines() if not line.lstrip().startswith('#')
-        )
+        live = '\n'.join(line for line in src.splitlines() if not line.lstrip().startswith('#'))
         m = re.search(r'cv2\.cvtColor\([^)]*RGB2GRAY', live)
         assert m is None, (
             f'cv2.cvtColor(..., RGB2GRAY) reintroduced in '
@@ -146,9 +139,7 @@ class TestRgbImageToGrayPathDocumentedInCompositeGeneration:
         from pathlib import Path
 
         src = (
-            Path(__file__).resolve().parent.parent
-            / 'modules'
-            / 'composite_generation.py'
+            Path(__file__).resolve().parent.parent / 'modules' / 'composite_generation.py'
         ).read_text(encoding='utf-8')
         assert 'image_utils.rgb_image_to_gray' in src, (
             'composite_generation.py must collapse 3-channel TIFFs via '

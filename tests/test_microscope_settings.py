@@ -17,11 +17,9 @@ Structural fix (4.1): `ImagingAPI.camera_max_exposure` now returns `None`
 `DEFAULT_MAX_EXPOSURE_MS` with `scope.imaging.camera_max_exposure or DEFAULT`.
 """
 
-import threading
 from unittest.mock import MagicMock
 
 from modules.config_helpers import DEFAULT_MAX_EXPOSURE_MS
-from modules.lumascope_api.imaging import ImagingAPI
 
 
 class TestCameraMaxExposureContract:
@@ -119,7 +117,6 @@ class TestCoalescingApplier:
         # kivy isn't importable in the test env, but _CoalescingApplier
         # is pure Python -- import it directly without dragging in the
         # MicroscopeSettings class (which imports Kivy).
-        import importlib.util
         import pathlib
 
         src = pathlib.Path(__file__).parent.parent / 'ui' / 'microscope_settings.py'

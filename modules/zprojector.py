@@ -25,8 +25,8 @@ class ZProjector(ProtocolPostProcessor):
         **kwargs,
     ):
         super().__init__(
-            post_function=PostFunction.ZPROJECT,
             *args,
+            post_function=PostFunction.ZPROJECT,
             **kwargs,
         )
         self._name = self.__class__.__name__
@@ -146,9 +146,7 @@ class ZProjector(ProtocolPostProcessor):
             for image_data in images_data:
                 images_for_color_plane.append(image_data[:, :, used_color_plane])
 
-            project_result = zprojection.zproject(
-                images_data=images_for_color_plane, method=method
-            )
+            project_result = zprojection.zproject(images_data=images_for_color_plane, method=method)
 
             if project_result is None:
                 error = f'Failed to create Z-Projection for color plane {used_color_plane}'

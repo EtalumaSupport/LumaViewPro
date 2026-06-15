@@ -178,16 +178,19 @@ class ProtocolStepRunner:
         # across steps within one scan. Snapshot is taken in
         # SequencedCaptureRunner.run() under settings_lock.
         bf_af_for_fluor = getattr(p, '_bf_af_for_fluorescence', False)
-        if bf_af_for_fluor and step['Color'] != 'BF':
-            if p._autofocus_runner.best_focus_position() is not None:
-                if p._update_z_pos_from_autofocus:
-                    new_z_pos = p._autofocus_runner.best_focus_position()
-                    p._protocol.modify_step_z_height(step_idx=p._curr_step, z=new_z_pos)
-                logger.info(
-                    f'[Capture   ] Skipping AF on {step["Color"]} -- using BF result Z={p._autofocus_runner.best_focus_position()}'
-                )
-                step = dict(step)
-                step['Auto_Focus'] = False
+        if (
+            bf_af_for_fluor
+            and step['Color'] != 'BF'
+            and p._autofocus_runner.best_focus_position() is not None
+        ):
+            if p._update_z_pos_from_autofocus:
+                new_z_pos = p._autofocus_runner.best_focus_position()
+                p._protocol.modify_step_z_height(step_idx=p._curr_step, z=new_z_pos)
+            logger.info(
+                f'[Capture   ] Skipping AF on {step["Color"]} -- using BF result Z={p._autofocus_runner.best_focus_position()}'
+            )
+            step = dict(step)
+            step['Auto_Focus'] = False
 
         if step['Auto_Focus'] and p._af_future is None:
             if p._callbacks.autofocus_in_progress:
@@ -573,8 +576,9 @@ class ProtocolStepRunner:
         # Sleep for 5 ms to ensure that LED properly turns on before next action
         time.sleep(0.005)
 
-    def leds_exclusive(self, color: str, illumination: float, block: bool = True,
-                       force: bool = False):
+    def leds_exclusive(
+        self, color: str, illumination: float, block: bool = True, force: bool = False
+    ):
         """Make a single channel the only lit LED, via the IO executor.
 
         Idempotent: a channel already lit at this illumination is left

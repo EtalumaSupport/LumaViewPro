@@ -5,6 +5,7 @@ import logging
 import re
 import threading
 import time
+from typing import ClassVar
 from lvp_logger import logger
 from drivers.exceptions import HardwareError
 from drivers.serialboard import SerialBoard
@@ -91,7 +92,7 @@ class LEDBoard(SerialBoard):
                 self.led_ma[color] = -1
         logger.info('[LED Class ] LED state cache cleared on disconnect')
 
-    _COLOR_TO_CH = {
+    _COLOR_TO_CH: ClassVar[dict] = {
         'Blue': 0,
         'Green': 1,
         'Red': 2,
@@ -100,7 +101,7 @@ class LEDBoard(SerialBoard):
         'DF': 5,
     }
 
-    _CH_TO_COLOR = {v: k for k, v in _COLOR_TO_CH.items()}
+    _CH_TO_COLOR: ClassVar[dict] = {v: k for k, v in _COLOR_TO_CH.items()}
 
     def color2ch(self, color: str) -> int:
         """Convert color name to numerical channel.

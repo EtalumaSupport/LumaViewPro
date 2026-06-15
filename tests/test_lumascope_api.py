@@ -26,6 +26,7 @@ Issue #616 / #618 follow-up -- the rename of `xyhome` to `home`:
 """
 
 import threading
+from typing import ClassVar
 from unittest.mock import MagicMock
 
 # Heavy deps are mocked by tests/conftest.py at module-import time.
@@ -157,7 +158,9 @@ class TestLumascopeHome:
         scope.motion.thome()
         elapsed = time.monotonic() - t0
 
-        assert elapsed < 0.5, f'thome() on disconnected motor took {elapsed:.2f}s -- must be < 0.5s.'
+        assert elapsed < 0.5, (
+            f'thome() on disconnected motor took {elapsed:.2f}s -- must be < 0.5s.'
+        )
         assert any('Motor Not Connected' in n.title for n in received), (
             f"thome() must notify 'Motor Not Connected', got: {[n.title for n in received]}"
         )
@@ -605,8 +608,8 @@ class TestLEDChannelDiscovery:
         scope = Lumascope(simulate=True)
 
         class FourChannelLED(SimulatedLEDBoard):
-            _COLOR_TO_CH = {'Blue': 0, 'Green': 1, 'Red': 2, 'BF': 3}
-            _CH_TO_COLOR = {v: k for k, v in _COLOR_TO_CH.items()}
+            _COLOR_TO_CH: ClassVar[dict] = {'Blue': 0, 'Green': 1, 'Red': 2, 'BF': 3}
+            _CH_TO_COLOR: ClassVar[dict] = {v: k for k, v in _COLOR_TO_CH.items()}
 
         scope._led_driver = FourChannelLED()
 
@@ -623,8 +626,8 @@ class TestLEDChannelDiscovery:
         scope = Lumascope(simulate=True)
 
         class TwoChannelLED(SimulatedLEDBoard):
-            _COLOR_TO_CH = {'BF': 0, 'Blue': 1}
-            _CH_TO_COLOR = {v: k for k, v in _COLOR_TO_CH.items()}
+            _COLOR_TO_CH: ClassVar[dict] = {'BF': 0, 'Blue': 1}
+            _CH_TO_COLOR: ClassVar[dict] = {v: k for k, v in _COLOR_TO_CH.items()}
 
         scope._led_driver = TwoChannelLED()
 
@@ -906,9 +909,7 @@ class TestRunGrabLifecycleBenchmark:
         monkeypatch.setattr(
             type(scope.diagnostics),
             '_safe_pylon_versions',
-            staticmethod(
-                lambda: {'pypylon_version': '26.4.1', 'pylon_sdk_version': '11.5.0.1169'}
-            ),
+            staticmethod(lambda: {'pypylon_version': '26.4.1', 'pylon_sdk_version': '11.5.0.1169'}),
         )
 
         info = scope.diagnostics.get_camera_diagnostic_info()
@@ -1062,8 +1063,8 @@ class TestScopeCapabilities:
         from modules.scope_capabilities import ScopeCapabilities
 
         class FourChannelLED(SimulatedLEDBoard):
-            _COLOR_TO_CH = {'Blue': 0, 'Green': 1, 'Red': 2, 'BF': 3}
-            _CH_TO_COLOR = {v: k for k, v in _COLOR_TO_CH.items()}
+            _COLOR_TO_CH: ClassVar[dict] = {'Blue': 0, 'Green': 1, 'Red': 2, 'BF': 3}
+            _CH_TO_COLOR: ClassVar[dict] = {v: k for k, v in _COLOR_TO_CH.items()}
 
         caps = ScopeCapabilities.from_drivers(
             motion=NullMotionBoard(),
@@ -1174,10 +1175,9 @@ class TestSetExposureTimeValueWarningSuppression:
     def test_flag_restored_after_exception_in_context(self):
         scope = Lumascope(simulate=True)
         assert scope.imaging._suppress_value_warnings is False
-        with pytest.raises(RuntimeError, match='boom'):
-            with scope.imaging.suppress_value_warnings():
-                assert scope.imaging._suppress_value_warnings is True
-                raise RuntimeError('boom')
+        with pytest.raises(RuntimeError, match='boom'), scope.imaging.suppress_value_warnings():
+            assert scope.imaging._suppress_value_warnings is True
+            raise RuntimeError('boom')
         assert scope.imaging._suppress_value_warnings is False
 
     def test_nested_context_managers_restore_to_outer_value(self):

@@ -81,10 +81,14 @@ class Stage(Widget):
     def _stage_limits_um(self):
         """Return (x_max_um, y_max_um) from motorconfig, with fallback defaults."""
         ctx = _app_ctx.ctx
-        if ctx is not None and hasattr(ctx, 'scope') and ctx.scope is not None:
-            if ctx.scope.capabilities.has_xy_stage:
-                limits = ctx.scope.capabilities.axis_travel_limits_um
-                return (limits['X'], limits['Y'])
+        if (
+            ctx is not None
+            and hasattr(ctx, 'scope')
+            and ctx.scope is not None
+            and ctx.scope.capabilities.has_xy_stage
+        ):
+            limits = ctx.scope.capabilities.axis_travel_limits_um
+            return (limits['X'], limits['Y'])
         from modules.common_utils import DEFAULT_STAGE_TRAVEL_UM
 
         return (DEFAULT_STAGE_TRAVEL_UM['x'], DEFAULT_STAGE_TRAVEL_UM['y'])
@@ -477,7 +481,7 @@ class Stage(Widget):
             logger.debug('[Stage     ] Position not available yet, drawing labware only')
             position_available = False
 
-        if not full_redraw and not self._protocol_step_redraw and position_available:
+        if not full_redraw and not self._protocol_step_redraw and position_available:  # noqa: SIM102
             if (
                 x_target == self._prev_x_target
                 and y_target == self._prev_y_target

@@ -13,8 +13,6 @@ The folder should contain a stimulation_profile/ subdirectory with
 profile text files from one or more protocol runs.
 """
 
-import math
-import os
 import re
 import statistics
 import sys
