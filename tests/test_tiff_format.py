@@ -13,8 +13,6 @@ Key requirements:
 - Windows Preview compatibility: no tag 320 (colormap) on uint16 MINISBLACK images
 """
 
-import pathlib
-import tempfile
 from unittest import mock
 
 import numpy as np

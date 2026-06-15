@@ -8,7 +8,6 @@ and video writing (MP4 and TIFF-frame paths).
 
 import ctypes
 import datetime
-import math
 import pathlib
 import queue
 import statistics

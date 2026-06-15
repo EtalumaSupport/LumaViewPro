@@ -2,7 +2,6 @@
 """Tests for stitcher modules -- stitch_algorithms.py (feature-based) and stitcher.py (grid-based)."""
 
 import pathlib
-import tempfile
 
 import cv2
 import numpy as np

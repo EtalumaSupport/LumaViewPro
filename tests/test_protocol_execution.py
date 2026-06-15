@@ -17,7 +17,6 @@ import threading
 import time
 from unittest.mock import MagicMock, patch
 
-import numpy as np
 import pytest
 
 # Heavy deps (lvp_logger, kivy, pypylon, ids_peak, ...) are mocked by

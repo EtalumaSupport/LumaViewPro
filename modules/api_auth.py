@@ -12,7 +12,6 @@ Security model:
   - When binding to non-localhost: api_key MUST be set (enforced at startup)
 """
 
-import hashlib
 import hmac
 import logging
 import secrets

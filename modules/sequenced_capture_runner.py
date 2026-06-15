@@ -9,7 +9,6 @@ import typing
 from modules.protocol_state_machine import (
     ProtocolState,
     SequencedCaptureRunMode,
-    PROTOCOL_STATE_TRANSITIONS,
     validate_transition,
 )
 from modules.protocol_callbacks import ProtocolCallbacks
@@ -17,9 +16,6 @@ from modules.protocol_image_writer import ProtocolImageWriter
 from modules.protocol_cleanup import run_cleanup
 from modules.protocol_step_runner import ProtocolStepRunner
 from modules.protocol_run_loop import ProtocolRunLoop
-
-from modules.kivy_utils import schedule_ui as _schedule_ui
-
 
 from modules.lumascope_api import Lumascope
 
@@ -31,7 +27,7 @@ from modules.autofocus_runner import AutofocusRunner
 from modules.protocol import Protocol
 from modules.protocol_execution_record import ProtocolExecutionRecord
 
-from modules.sequential_io_executor import SequentialIOExecutor, IOTask
+from modules.sequential_io_executor import SequentialIOExecutor
 from lvp_logger import logger
 import threading
 

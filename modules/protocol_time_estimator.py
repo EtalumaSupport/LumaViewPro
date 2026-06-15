@@ -6,7 +6,6 @@ Estimates total protocol execution time by modeling all timing components:
 stage movement, LED switching, camera exposure, autofocus, and overhead.
 """
 
-import math
 from dataclasses import dataclass, field
 from datetime import timedelta
 

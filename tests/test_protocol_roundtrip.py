@@ -16,9 +16,7 @@ These tests verify that:
 3. Step validation catches invalid configs before execution
 """
 
-import copy
 import datetime
-import json
 import pathlib
 import threading
 

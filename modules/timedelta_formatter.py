@@ -2,7 +2,6 @@
 # Ref: https://stackoverflow.com/questions/538666/format-timedelta-to-string
 
 from string import Formatter
-from datetime import timedelta
 
 
 def strfdelta(tdelta, fmt='{D:02}d {H:02}h {M:02}m {S:02}s', inputtype='timedelta'):

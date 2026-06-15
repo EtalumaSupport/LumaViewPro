@@ -5,11 +5,11 @@
 # direct invocation. The GUI layer passes Clock.schedule_once as
 # the ui_dispatcher parameter when constructing executors.
 
-from concurrent.futures import Future, CancelledError
+from concurrent.futures import CancelledError
 import itertools
 import queue
 from collections.abc import Sequence
-from lvp_logger import logger, debug
+from lvp_logger import logger
 from lib import profile_trace
 from modules.notification_center import notifications
 import threading

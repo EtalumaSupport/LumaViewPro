@@ -10,10 +10,8 @@ Verifies that simulators are drop-in replacements for real hardware:
 """
 
 import pytest
-import sys
 import threading
 import time
-from unittest.mock import MagicMock
 
 import numpy as np
 
@@ -523,7 +521,6 @@ class TestMotorConfigDefaults:
 
     def test_optics_fallback(self):
         from drivers.motorconfig import MotorConfig
-        import pathlib
 
         # Create a config without Optics section
         mc = MotorConfig.__new__(MotorConfig)

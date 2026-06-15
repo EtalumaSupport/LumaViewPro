@@ -9,7 +9,6 @@ the settings dict only.
 import datetime
 from unittest.mock import MagicMock
 
-import pytest
 from modules.config_helpers import (
     get_binning_from_settings,
     get_frame_dimensions_from_settings,
@@ -17,7 +16,6 @@ from modules.config_helpers import (
     get_image_capture_config_from_settings,
     get_selected_labware_from_settings,
     get_zstack_params_from_settings,
-    get_layer_configs,
     get_auto_gain_settings,
     get_current_objective_info,
 )

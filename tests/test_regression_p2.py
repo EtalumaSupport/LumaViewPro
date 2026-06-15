@@ -13,8 +13,7 @@ import datetime
 import pathlib
 import sys
 import threading
-import time
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest

@@ -20,11 +20,7 @@ import datetime
 import pathlib
 import sys
 import threading
-import time
 from unittest.mock import MagicMock
-
-import numpy as np
-import pytest
 
 
 # Heavy non-GUI deps (lvp_logger, pypylon, ids_peak, ...) are mocked by
@@ -87,11 +83,10 @@ class TestHeadlessImports:
 
         # Re-import the protocol chain (modules already in sys.modules will
         # be a no-op, so reload their state by dropping them first if needed)
-        import importlib
         import modules.lumascope_api
         import modules.sequenced_capture_runner
         import modules.protocol
-        import modules.kivy_utils
+        import modules.kivy_utils  # noqa: F401  -- imported to load the protocol chain so the no-kivy assertion below covers it
 
         # Verify no kivy module is in sys.modules
         kivy_loaded = [name for name in sys.modules if name == 'kivy' or name.startswith('kivy.')]

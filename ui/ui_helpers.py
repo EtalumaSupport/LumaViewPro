@@ -9,7 +9,6 @@ re-exports everything for existing callers.
 
 import logging
 
-from kivy.core.window import Window
 from kivy.uix.scrollview import ScrollView
 from modules.kivy_utils import schedule_ui as _schedule_ui
 

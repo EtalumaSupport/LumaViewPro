@@ -17,7 +17,6 @@ import numpy as np
 import tifffile as tf
 
 from modules import image_utils
-from modules import stitch_algorithms
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent

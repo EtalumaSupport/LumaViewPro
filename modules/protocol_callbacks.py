@@ -14,7 +14,7 @@ protocol-decomposition refactor.
 from __future__ import annotations
 
 import dataclasses
-from typing import Any, Optional
+from typing import Any
 from collections.abc import Callable
 
 

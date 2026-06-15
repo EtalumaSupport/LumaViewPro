@@ -2114,7 +2114,7 @@ class TestCameraStateLock:
 
     def test_grab_returns_false_after_disconnect(self):
         """grab() should check flags under _state_lock and return False."""
-        from drivers.camera import Camera, ImageHandlerBase
+        from drivers.camera import Camera
 
         class StubCamera(Camera):
             def connect(self):

@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import threading
 
-import numpy as np
 import pytest
 
 from drivers.simulated_camera import SimulatedCamera

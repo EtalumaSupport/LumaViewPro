@@ -32,7 +32,6 @@ that's the failure pattern this test was created to prevent.
 """
 
 import os
-import shutil
 import subprocess
 import sys
 

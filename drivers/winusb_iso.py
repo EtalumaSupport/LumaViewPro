@@ -6,19 +6,13 @@ Windows only -- uses winusb.dll, setupapi.dll, kernel32.dll directly.
 """
 
 import ctypes
-import ctypes.wintypes as wt
 import logging
-import struct
 import threading
-import time
 from ctypes import (
-    POINTER,
     Structure,
     byref,
     c_bool,
-    c_byte,
     c_ubyte,
-    c_uint,
     c_ulong,
     c_ushort,
     c_void_p,

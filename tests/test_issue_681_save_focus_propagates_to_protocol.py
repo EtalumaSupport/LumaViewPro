@@ -46,9 +46,7 @@ from __future__ import annotations
 import ast
 import pathlib
 
-import numpy as np
 import pandas as pd
-import pytest
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent

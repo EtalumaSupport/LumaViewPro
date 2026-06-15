@@ -24,8 +24,6 @@ callables instead of importing Kivy.
 
 from __future__ import annotations
 
-from typing import Optional
-
 from lvp_logger import logger
 import modules.config_helpers as config_helpers
 from modules.scheduler import Scheduler, _CallablePairScheduler

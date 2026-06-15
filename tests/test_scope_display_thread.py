@@ -10,15 +10,11 @@ import threading
 import time
 from collections import deque
 
-import pytest
-
 from modules import app_context as _app_ctx
 from modules.scope_display_thread import (
     ScopeDisplayThread,
     STATUS_OK,
     STATUS_EMPTY,
-    STATUS_DUPLICATE,
-    STATUS_NOT_READY,
 )
 
 

@@ -2,7 +2,6 @@
 
 import abc
 import datetime
-import enum
 import pathlib
 
 import pandas as pd

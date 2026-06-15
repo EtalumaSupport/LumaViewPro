@@ -11,7 +11,6 @@ The ``test_audit_fixes.TestPIW5_Convert12to16OutBuffer`` test covers the
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from modules.image_utils import convert_12bit_to_8bit
 

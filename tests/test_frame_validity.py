@@ -519,8 +519,6 @@ class TestLoadCameraTimingLumascope:
 
     def test_missing_file_no_error(self, tmp_path):
         """Missing timing file should not raise -- silently skipped."""
-        import pathlib
-
         timing_dir = tmp_path / 'data' / 'camera_timing'
         timing_dir.mkdir(parents=True)
         timing_path = timing_dir / 'NonExistent.json'

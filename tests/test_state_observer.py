@@ -6,7 +6,6 @@ Uses simulated hardware -- no real boards or Kivy needed.
 """
 
 import threading
-import time
 
 import pytest
 

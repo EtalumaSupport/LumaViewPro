@@ -37,8 +37,6 @@ during the transition.
 import ast
 import pathlib
 
-import pytest
-
 BANNED_ATTRS = frozenset({'camera', 'led'})
 
 # Production code roots; tests/ deliberately excluded (see docstring).

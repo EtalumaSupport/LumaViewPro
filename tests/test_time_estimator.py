@@ -6,15 +6,12 @@ Tests for ProtocolTimeEstimator -- protocol imaging time estimation.
 import datetime
 from unittest.mock import patch, MagicMock
 
-import numpy as np
 import pandas as pd
 import pytest
 
 from modules.protocol_time_estimator import (
     ProtocolTimeEstimator,
     StepTimeEstimate,
-    ScanTimeEstimate,
-    ProtocolTimeEstimate,
     XY_SPEED_UM_PER_S,
     Z_SPEED_UM_PER_S,
     LED_SETTLE_S,

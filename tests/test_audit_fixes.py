@@ -1006,8 +1006,6 @@ class TestAxisState:
 
     def test_is_any_axis_moving_false_when_all_idle(self, sim_scope):
         """is_any_axis_moving() returns False when all axes are IDLE."""
-        from modules.lumascope_api import AxisState
-
         sim_scope._motion_driver.set_timing_mode('instant')
         # Home all axes to set them IDLE
         sim_scope.motion.zhome()
@@ -3931,8 +3929,6 @@ class TestFrameValidity_SaveLiveImageDrainsBeforeGrab:
         public signature stays stable for L2 SDK callers."""
         import inspect
 
-        from modules import lumascope_api
-
         sig = inspect.signature(ImagingAPI.capture_and_wait)
         assert 'earliest_image_ts' in sig.parameters, (
             'capture_and_wait must accept earliest_image_ts so save_live_image '
@@ -5085,8 +5081,6 @@ class TestDeviceLinkThroughputLimitSetter:
         return scope
 
     def test_lumascope_method_exists(self):
-        from modules.lumascope_api import Lumascope
-
         assert hasattr(ImagingAPI, '_set_device_link_throughput_limit')
         assert callable(ImagingAPI._set_device_link_throughput_limit)
 
@@ -6748,7 +6742,6 @@ class TestSequentialIOExecutorPriorityAware:
         tasks in order. Release head_event and wait for all tasks to
         run. Returns the order in which the tasks' actions executed.
         """
-        import threading as _t
         import time as _t2
         from modules.sequential_io_executor import IOTask
 
@@ -7426,8 +7419,6 @@ class TestAcquisitionStopModeSetter:
         return scope
 
     def test_lumascope_method_exists(self):
-        from modules.lumascope_api import Lumascope
-
         assert hasattr(ImagingAPI, '_set_acquisition_stop_mode')
         assert callable(ImagingAPI._set_acquisition_stop_mode)
 

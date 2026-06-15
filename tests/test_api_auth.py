@@ -3,7 +3,6 @@
 Tests for API authentication module (modules/api_auth.py).
 """
 
-import pytest
 from modules.api_auth import (
     generate_api_key,
     validate_api_key,

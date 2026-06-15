@@ -12,8 +12,6 @@ import threading
 import time
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from modules.lumascope_api.imaging import (
     _BudgetedHandler,
     HANDLER_BUDGET_MS,

@@ -17,8 +17,6 @@ home() (when T is present) and thome() seed _last_turret_position = 1 on
 success, so a following tmove(1) is a no-op.
 """
 
-import pytest
-
 from modules.lumascope_api import Lumascope
 
 

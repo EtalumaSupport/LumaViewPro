@@ -11,7 +11,6 @@ import pandas as pd
 
 from kivy.app import App
 from kivy.clock import Clock
-from kivy.core.window import Window
 from kivy.properties import BooleanProperty
 from kivy.uix.label import Label
 from kivy.uix.popup import Popup

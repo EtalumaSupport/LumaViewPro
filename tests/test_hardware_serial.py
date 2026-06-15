@@ -18,7 +18,6 @@ import sys
 import time
 import threading
 import statistics
-from unittest.mock import MagicMock
 
 # Heavy deps are mocked by tests/conftest.py at module-import time.
 

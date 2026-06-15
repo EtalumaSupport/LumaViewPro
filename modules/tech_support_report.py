@@ -33,7 +33,6 @@ Recent protocols list (reusable from GUI):
     protocols = get_recent_protocols(10)
 """
 
-import base64
 import datetime
 import json
 import logging

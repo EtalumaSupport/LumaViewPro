@@ -10,9 +10,8 @@ Uses mock objects + Lumascope(simulate=True) -- no hardware or Kivy needed.
 """
 
 import datetime
-import threading
 from concurrent.futures import Future
-from unittest.mock import MagicMock, PropertyMock, call, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
 

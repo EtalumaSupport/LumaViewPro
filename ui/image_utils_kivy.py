@@ -5,8 +5,6 @@ from kivy.graphics.texture import Texture
 
 import modules.image_utils as image_utils
 
-from lvp_logger import logger
-
 
 def image_to_texture(image, existing: Texture | None = None) -> Texture:
     """Convert a numpy image to a Kivy Texture.

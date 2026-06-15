@@ -12,7 +12,6 @@ Lumascope.__init__. These tests cover:
 """
 
 import threading
-from unittest.mock import MagicMock
 
 # Heavy deps (lvp_logger, ...) are mocked by tests/conftest.py at
 # module-import time.

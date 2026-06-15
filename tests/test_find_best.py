@@ -3,7 +3,6 @@
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from modules.autofocus_runner import AutofocusRunner
 

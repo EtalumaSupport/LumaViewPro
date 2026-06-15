@@ -15,12 +15,8 @@ Covers:
 """
 
 import glob
-import importlib
 import os
-import sys
-import types
 
-import cv2
 import numpy as np
 import pytest
 

@@ -12,8 +12,6 @@ from __future__ import annotations
 import contextlib
 import datetime
 import logging as _logging
-import os
-import pathlib
 import threading
 import time
 from typing import TYPE_CHECKING, Any
@@ -23,7 +21,6 @@ import numpy as np
 
 from lib import profile_trace
 from lvp_logger import logger
-import modules.common_utils as common_utils
 import modules.image_utils as image_utils
 from modules.frame_validity import FrameValidity
 from modules.notification_center import notifications

@@ -14,7 +14,6 @@ import logging
 from modules.kivy_utils import schedule_ui as _schedule_ui
 
 import modules.app_context as _app_ctx
-import modules.common_utils as common_utils
 
 logger = logging.getLogger('LVP.ui.step_navigation')
 

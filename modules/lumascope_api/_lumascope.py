@@ -1,20 +1,13 @@
 #!/usr/bin/python3
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
-import datetime
-import os
 import pathlib
-import time
 import warnings
-from typing import TYPE_CHECKING, Any
-
-import numpy as np
+from typing import TYPE_CHECKING
 
 # Import Lumascope Hardware files
 from drivers.motorboard import MotorBoard
 from drivers.ledboard import LEDBoard
-from drivers.pyloncamera import PylonCamera
-from modules.exceptions import CaptureError, ConfigError
 from modules.lumascope_api import _constants as _api_constants
 
 try:
@@ -33,9 +26,6 @@ try:
 except ImportError:
     pass
 from drivers.camera import Camera
-from drivers.simulated_camera import SimulatedCamera
-from drivers.simulated_motorboard import SimulatedMotorBoard
-from drivers.simulated_ledboard import SimulatedLEDBoard
 from drivers.null_motorboard import NullMotionBoard
 from drivers.null_ledboard import NullLEDBoard
 from drivers.protocols import MotorBoardProtocol, LEDBoardProtocol
@@ -43,13 +33,9 @@ from drivers.registry import motor_registry, led_registry, camera_registry
 from modules.scope_capabilities import ScopeCapabilities
 
 # Import additional libraries
-from lvp_logger import logger, version
+from lvp_logger import logger
 import logging as _logging
 
-import modules.common_utils as common_utils
-import modules.image_utils as image_utils
-from modules.sequential_io_executor import SequentialIOExecutor, IOTask
-from modules.frame_validity import FrameValidity
 from modules.notification_center import notifications
 
 _api_log = _logging.getLogger('LVP.api')

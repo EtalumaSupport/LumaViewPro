@@ -25,8 +25,7 @@ never trigger a Kivy import path).
 from __future__ import annotations
 
 import threading
-import time
-from typing import Optional, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 from collections.abc import Callable
 
 

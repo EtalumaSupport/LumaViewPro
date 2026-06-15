@@ -34,7 +34,6 @@ from __future__ import annotations
 
 import ast
 import pathlib
-import sys
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 

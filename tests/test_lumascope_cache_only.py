@@ -25,7 +25,6 @@ spies fire, the test fails with a clear message.
 """
 
 import pytest
-from unittest.mock import MagicMock
 
 import modules.lumascope_api as lumascope_api
 

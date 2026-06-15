@@ -5,7 +5,6 @@
 from kivy.lang import Builder
 from kivy.metrics import sp
 from kivy.uix.widget import Widget
-from kivy.uix.boxlayout import BoxLayout
 from kivy.properties import (
     NumericProperty,
     AliasProperty,

@@ -2,11 +2,9 @@
 """Application environment initialization -- paths, version, platform detection."""
 
 import logging
-import os
 import pathlib
 import shutil
 import subprocess
-import sys
 from dataclasses import dataclass
 
 _logger = logging.getLogger('LVP.app_environment')

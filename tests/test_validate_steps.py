@@ -7,11 +7,9 @@ names in test steps must match real entries in data/objectives.json.
 """
 
 import datetime
-import pathlib
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from modules.protocol import Protocol
 
