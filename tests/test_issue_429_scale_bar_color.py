@@ -22,8 +22,8 @@ _OBJECTIVE = {'focal_length': 45.0, 'magnification': 20}
 @pytest.mark.parametrize(
     'color, expect_black',
     [
-        ('BF', True),   # bright background -> black bar
-        ('PC', True),   # bright background -> black bar
+        ('BF', True),  # bright background -> black bar
+        ('PC', True),  # bright background -> black bar
         ('DF', False),  # dark background -> white bar (the #429 fix)
         ('Blue', False),
         ('Green', False),

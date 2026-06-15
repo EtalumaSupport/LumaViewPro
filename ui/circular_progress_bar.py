@@ -108,9 +108,7 @@ class CircularProgressBar(Widget):
                 f'Circular bar thickness only accepts an integer value, not {type(value)}!'
             )
         elif value <= 0:
-            raise ValueError(
-                f'Circular bar thickness must be a positive integer, not {value}!'
-            )
+            raise ValueError(f'Circular bar thickness must be a positive integer, not {value}!')
         else:
             self._thickness = value
 
@@ -141,9 +139,7 @@ class CircularProgressBar(Widget):
                 f'Circular bar cap precision only accepts an integer value, not {type(value)}!'
             )
         elif value <= 0:
-            raise ValueError(
-                f'Circular bar cap precision must be a positive integer, not {value}!'
-            )
+            raise ValueError(f'Circular bar cap precision must be a positive integer, not {value}!')
         else:
             self._cap_precision = value
 
@@ -180,9 +176,7 @@ class CircularProgressBar(Widget):
     @max.setter
     def max(self, value: int):
         if type(value) != int:
-            raise TypeError(
-                f'Maximum progress only accepts an integer value, not {type(value)}!'
-            )
+            raise TypeError(f'Maximum progress only accepts an integer value, not {type(value)}!')
         elif value <= self._min_progress:
             raise ValueError(
                 f'Maximum progress - {value} - must be greater than minimum progress ({self._min_progress})!'
@@ -197,9 +191,7 @@ class CircularProgressBar(Widget):
     @min.setter
     def min(self, value: int):
         if type(value) != int:
-            raise TypeError(
-                f'Minimum progress only accepts an integer value, not {type(value)}!'
-            )
+            raise TypeError(f'Minimum progress only accepts an integer value, not {type(value)}!')
         elif value > self._max_progress:
             raise ValueError(
                 f'Minimum progress - {value} - must be smaller than maximum progress ({self._max_progress})!'
@@ -231,13 +223,9 @@ class CircularProgressBar(Widget):
     @widget_size.setter
     def widget_size(self, value: int):
         if type(value) != int:
-            raise TypeError(
-                f'Size of this widget must be an integer value, not {type(value)}!'
-            )
+            raise TypeError(f'Size of this widget must be an integer value, not {type(value)}!')
         elif value <= 0:
-            raise ValueError(
-                f'Size of this widget must be a positive integer, not {value}!'
-            )
+            raise ValueError(f'Size of this widget must be a positive integer, not {value}!')
         else:
             self._widget_size = value
 

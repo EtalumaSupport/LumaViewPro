@@ -46,9 +46,7 @@ def test_app_defines_protocol_running_boolean_property():
     src = _read('lumaviewpro.py')
     tree = ast.parse(src)
     cls = next(
-        n
-        for n in ast.walk(tree)
-        if isinstance(n, ast.ClassDef) and n.name == 'LumaViewProApp'
+        n for n in ast.walk(tree) if isinstance(n, ast.ClassDef) and n.name == 'LumaViewProApp'
     )
     found = any(
         isinstance(node, ast.Assign)

@@ -761,14 +761,13 @@ class LayerControl(BoxLayout):
             # New click without the user having to also tune every well.
             protocol = getattr(ctx, 'protocol', None)
             if protocol is not None:
-                updated = protocol.update_layer_focus(
-                    layer=self.layer, old_z=old_focus, new_z=pos
-                )
+                updated = protocol.update_layer_focus(layer=self.layer, old_z=old_focus, new_z=pos)
                 if updated > 0:
                     logger.info(
                         f'[LVP Main  ] save_focus: propagated layer={self.layer} '
                         f'Z={old_focus} -> Z={pos} to {updated} step(s)'
                     )
+
                     # Refresh the stage labware view + the steps table so
                     # the updated Z values are visible immediately.
                     def _refresh(_dt):
@@ -1036,9 +1035,7 @@ class LayerControl(BoxLayout):
                 self.ids['ill_text'].text = str(ill)
                 self.ids['ill_slider'].value = ill
         except Exception as e:
-            logger.warning(
-                f'[LVP Main  ] {self.layer} widget sync from settings failed: {e}'
-            )
+            logger.warning(f'[LVP Main  ] {self.layer} widget sync from settings failed: {e}')
 
     def apply_settings(self, ignore_auto_gain=False, update_led=True, protocol=False):
 

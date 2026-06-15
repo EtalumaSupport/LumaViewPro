@@ -82,9 +82,7 @@ def test_safe_turret_move_accepts_restore_z_default_true():
     method = _function_node(_module_tree(MOTION_SRC), 'safe_turret_move', class_name='MotionAPI')
     args = method.args
     all_names = [a.arg for a in args.args] + [a.arg for a in args.kwonlyargs]
-    assert 'restore_z' in all_names, (
-        'safe_turret_move must accept restore_z parameter. (#524)'
-    )
+    assert 'restore_z' in all_names, 'safe_turret_move must accept restore_z parameter. (#524)'
     default = _default_for(method, 'restore_z')
     assert default is not None, 'restore_z must have a default value. (#524)'
     assert isinstance(default, ast.Constant) and default.value is True, (
@@ -108,8 +106,7 @@ def test_safe_turret_move_gates_z_restore_on_flag():
                 found_guard = True
                 break
     assert found_guard, (
-        'safe_turret_move must gate the Z-restore call on restore_z '
-        '(skip when False). (#524)'
+        'safe_turret_move must gate the Z-restore call on restore_z (skip when False). (#524)'
     )
 
 
@@ -124,7 +121,9 @@ def test_tmove_threads_restore_z():
 
 
 def test_turret_select_threads_restore_z():
-    method = _function_node(_module_tree(VERTCTRL_SRC), 'turret_select', class_name='VerticalControl')
+    method = _function_node(
+        _module_tree(VERTCTRL_SRC), 'turret_select', class_name='VerticalControl'
+    )
     all_names = [a.arg for a in method.args.args] + [a.arg for a in method.args.kwonlyargs]
     assert 'restore_z' in all_names, 'turret_select must accept restore_z. (#524)'
     src = ast.unparse(method)

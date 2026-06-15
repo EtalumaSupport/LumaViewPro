@@ -34,9 +34,7 @@ def test_finds_running_unsaved_tsv_protocol(protocol_dir):
 
 
 def test_finds_legacy_json_protocol(protocol_dir):
-    (protocol_dir / 'legacy.json').write_text(
-        '{"steps": [], "period": 0}', encoding='utf-8'
-    )
+    (protocol_dir / 'legacy.json').write_text('{"steps": [], "period": 0}', encoding='utf-8')
     found = tech_support_report.get_recent_protocols()
     assert 'legacy' in {p['name'] for p in found}
 

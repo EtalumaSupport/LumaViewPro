@@ -65,9 +65,7 @@ def test_protocol_video_advisory_removed():
         'protocol video is uncapped now; the advisory method must not exist'
     )
     src = (REPO_ROOT / 'modules' / 'sequenced_capture_runner.py').read_text(encoding='utf-8')
-    assert 'video_steps_over_limit' not in src, (
-        'run-start video-limit advisory must be removed'
-    )
+    assert 'video_steps_over_limit' not in src, 'run-start video-limit advisory must be removed'
 
 
 # ---------------------------------------------------------------------------

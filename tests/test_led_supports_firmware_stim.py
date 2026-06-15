@@ -38,9 +38,7 @@ class TestSupportsFirmwareStimProbe:
         led.driver = MagicMock()
         led.driver.timeout = 0.1
         responses = list(readline_responses)
-        led.driver.readline = MagicMock(
-            side_effect=lambda: responses.pop(0) if responses else b''
-        )
+        led.driver.readline = MagicMock(side_effect=lambda: responses.pop(0) if responses else b'')
         led.driver.reset_input_buffer = MagicMock()
         led.driver.write = MagicMock()
         led.driver.in_waiting = 0
@@ -65,10 +63,12 @@ class TestSupportsFirmwareStimProbe:
     def test_command_echo_then_recognized_response(self):
         """Some firmware echoes the command first, then replies. The
         probe loop should ignore the echo + accept the second line."""
-        led = self._make_led([
-            b'STIM 0 0 1 2 1\r\n',  # command echo -- neither STIM: nor "not recognized"
-            b'STIM: mA must be > 0\r\n',  # parser recognition
-        ])
+        led = self._make_led(
+            [
+                b'STIM 0 0 1 2 1\r\n',  # command echo -- neither STIM: nor "not recognized"
+                b'STIM: mA must be > 0\r\n',  # parser recognition
+            ]
+        )
         assert led.supports_firmware_stim() is True
 
     def test_no_response_returns_false(self):

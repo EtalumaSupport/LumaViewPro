@@ -350,8 +350,7 @@ class ImagingAPI:
         # ramped (under-converged -> dark capture); a gain at the ceiling
         # means the scene needs more light, not more settle frames.
         logger.debug(
-            f'[AG CONVERGE] auto cycle ended; camera converged to '
-            f'gain={gain} dB exposure={exp} ms'
+            f'[AG CONVERGE] auto cycle ended; camera converged to gain={gain} dB exposure={exp} ms'
         )
 
     def _invalidate_camera_cache(self) -> None:
@@ -1694,7 +1693,10 @@ class ImagingAPI:
                     time.sleep(0.05)
                     continue
 
-                if all_ones_check and self._saturated_fraction(tmp) >= self._SATURATION_BLOWN_FRACTION:
+                if (
+                    all_ones_check
+                    and self._saturated_fraction(tmp) >= self._SATURATION_BLOWN_FRACTION
+                ):
                     # Near-fully-saturated frame -- retry once in case it was a
                     # transient blip, then surface it. A blown frame is usually
                     # an over-exposure or stale-camera-gain symptom; accepting it

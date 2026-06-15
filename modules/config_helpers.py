@@ -910,17 +910,19 @@ def get_sequenced_capture_config_from_settings(
     time_params = get_protocol_time_params_from_settings(settings)
     protocol = settings.get('protocol', {})
 
-    return build_sequenced_capture_config({
-        'labware_id': protocol.get('labware', ''),
-        'objective_id': objective_id,
-        'zstack_params': get_zstack_params_from_settings(settings),
-        'use_zstacking': protocol.get('use_zstacking', False),
-        'tiling': protocol.get('tiling', '1x1'),
-        'tiling_overlap_percent': protocol.get('tiling_overlap_percent', 0.0),
-        'layer_configs': get_layer_configs(settings),
-        'period': time_params['period'],
-        'duration': time_params['duration'],
-        'frame_dimensions': get_frame_dimensions_from_settings(settings),
-        'binning_size': get_binning_from_settings(settings),
-        'stim_config': get_stim_configs(settings),
-    })
+    return build_sequenced_capture_config(
+        {
+            'labware_id': protocol.get('labware', ''),
+            'objective_id': objective_id,
+            'zstack_params': get_zstack_params_from_settings(settings),
+            'use_zstacking': protocol.get('use_zstacking', False),
+            'tiling': protocol.get('tiling', '1x1'),
+            'tiling_overlap_percent': protocol.get('tiling_overlap_percent', 0.0),
+            'layer_configs': get_layer_configs(settings),
+            'period': time_params['period'],
+            'duration': time_params['duration'],
+            'frame_dimensions': get_frame_dimensions_from_settings(settings),
+            'binning_size': get_binning_from_settings(settings),
+            'stim_config': get_stim_configs(settings),
+        }
+    )

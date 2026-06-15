@@ -36,10 +36,10 @@ class TestRule24KvBlocksNonAscii:
         violations = _check_rule_24_kv(content, 'ui/foo.kv')
         assert len(violations) == 1
         assert violations[0].line == 2
-        assert "U+00B5" in violations[0].message or "U+03BC" in violations[0].message
+        assert 'U+00B5' in violations[0].message or 'U+03BC' in violations[0].message
 
     def test_multiple_lines_each_reported(self):
-        content = "# foo —\n# bar →\n# baz μ\n"
+        content = '# foo —\n# bar →\n# baz μ\n'
         violations = _check_rule_24_kv(content, 'ui/foo.kv')
         assert len(violations) == 3
         assert [v.line for v in violations] == [1, 2, 3]

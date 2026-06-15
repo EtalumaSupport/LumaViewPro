@@ -2197,9 +2197,7 @@ class TestProtocolLedNoFlash:
             elif c == color and enabled and seen_off:
                 blinked = True
                 break
-        assert not blinked, (
-            f'already-lit {color} was blinked off->on at run start: {events}'
-        )
+        assert not blinked, f'already-lit {color} was blinked off->on at run start: {events}'
 
 
 class TestMotionTimeoutEndsRunInsteadOfWedging:
@@ -2243,9 +2241,7 @@ class TestSaveFailureRecordsRow:
     leaving image AND record-row silently missing -- the worst silent-
     data-gap shape for record-keyed post-processing and run accounting."""
 
-    def test_save_image_raise_records_save_failed_row(
-        self, executor, scope, tmp_path, monkeypatch
-    ):
+    def test_save_image_raise_records_save_failed_row(self, executor, scope, tmp_path, monkeypatch):
         import modules.protocol_image_writer as piw
 
         def boom(*args, **kwargs):

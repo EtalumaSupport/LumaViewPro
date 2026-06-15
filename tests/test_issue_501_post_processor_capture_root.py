@@ -75,8 +75,7 @@ def test_base_load_folder_threads_capture_root_into_kwargs():
     method = _method_node(BASE_PATH, 'ProtocolPostProcessor', 'load_folder')
     src = ast.unparse(method)
     assert 'capture_root' in src, (
-        'ProtocolPostProcessor.load_folder must thread capture_root '
-        'into kwargs. (#501)'
+        'ProtocolPostProcessor.load_folder must thread capture_root into kwargs. (#501)'
     )
     assert '.capture_root()' in src, (
         'ProtocolPostProcessor.load_folder must call '
@@ -88,19 +87,18 @@ def test_base_load_folder_threads_capture_root_into_kwargs():
     call_idx = -1
     for i, stmt in enumerate(method.body):
         unparsed = ast.unparse(stmt)
-        if assign_idx == -1 and 'capture_root' in unparsed and (
-            'kwargs' in unparsed or 'setdefault' in unparsed
+        if (
+            assign_idx == -1
+            and 'capture_root' in unparsed
+            and ('kwargs' in unparsed or 'setdefault' in unparsed)
         ):
             assign_idx = i
         if 'self._generate_filename' in unparsed:
             call_idx = i
             break
-    assert assign_idx >= 0, (
-        'capture_root must be assigned into kwargs in load_folder. (#501)'
-    )
+    assert assign_idx >= 0, 'capture_root must be assigned into kwargs in load_folder. (#501)'
     assert call_idx >= 0, (
-        '_generate_filename call not found in load_folder; test needs '
-        'updating for the new shape.'
+        '_generate_filename call not found in load_folder; test needs updating for the new shape.'
     )
     assert assign_idx < call_idx, (
         f'capture_root must be threaded into kwargs at statement '
@@ -134,27 +132,19 @@ def test_composite_generation_uses_capture_root():
 
 
 def test_stitcher_uses_capture_root():
-    _assert_subclass_uses_capture_root_kwarg(
-        'Stitcher', POST_PROCESSORS['Stitcher']
-    )
+    _assert_subclass_uses_capture_root_kwarg('Stitcher', POST_PROCESSORS['Stitcher'])
 
 
 def test_zprojector_uses_capture_root():
-    _assert_subclass_uses_capture_root_kwarg(
-        'ZProjector', POST_PROCESSORS['ZProjector']
-    )
+    _assert_subclass_uses_capture_root_kwarg('ZProjector', POST_PROCESSORS['ZProjector'])
 
 
 def test_video_builder_uses_capture_root():
-    _assert_subclass_uses_capture_root_kwarg(
-        'VideoBuilder', POST_PROCESSORS['VideoBuilder']
-    )
+    _assert_subclass_uses_capture_root_kwarg('VideoBuilder', POST_PROCESSORS['VideoBuilder'])
 
 
 def test_stack_builder_uses_capture_root():
-    _assert_subclass_uses_capture_root_kwarg(
-        'StackBuilder', POST_PROCESSORS['StackBuilder']
-    )
+    _assert_subclass_uses_capture_root_kwarg('StackBuilder', POST_PROCESSORS['StackBuilder'])
 
 
 # ---------------------------------------------------------------------------

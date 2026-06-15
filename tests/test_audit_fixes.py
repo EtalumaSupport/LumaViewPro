@@ -1357,9 +1357,7 @@ class TestG3_AutofocusFailureNotification:
         captured.clear()
         with pytest.raises(RuntimeError, match='camera fault'):
             drive_af(runner, run_trigger_source='protocol')
-        assert captured == [], (
-            'unattended (protocol) AF failure must suppress the modal popup'
-        )
+        assert captured == [], 'unattended (protocol) AF failure must suppress the modal popup'
 
     def test_af_degenerate_curve_notifies_user(self, monkeypatch):
         """A flat focus curve must pop 'Autofocus Failed' and keep the
@@ -1639,9 +1637,7 @@ class TestRule14_A10_ProtocolCleanupErrorCollection:
         monkeypatch.setattr(notifications, 'warning', lambda *a, **k: captured.append(a))
         # Invoke UI-scheduled callables immediately so their raise lands in
         # the cleanup step's try/except (headless schedule_ui swallows).
-        monkeypatch.setattr(
-            'modules.protocol_cleanup._schedule_ui', lambda fn, timeout=0: fn(0)
-        )
+        monkeypatch.setattr('modules.protocol_cleanup._schedule_ui', lambda fn, timeout=0: fn(0))
 
         def _raiser(label):
             def _raise(*a, **k):
@@ -1727,9 +1723,7 @@ class TestSetBinningSizeFailureNotifies:
 
         imaging, cam = _sim_backed_imaging()
         captured = []
-        monkeypatch.setattr(
-            notifications, 'error', lambda *args, **kwargs: captured.append(args)
-        )
+        monkeypatch.setattr(notifications, 'error', lambda *args, **kwargs: captured.append(args))
 
         def raising_set_binning_size(size):
             raise RuntimeError('simulated SDK failure')
@@ -1759,8 +1753,10 @@ class TestSetBinningSizeReturnsBool:
         from tests.ast_seams import assert_def
 
         assert_def(
-            'modules/lumascope_api/imaging.py', 'set_binning_size',
-            params=['self', 'size'], returns='bool',
+            'modules/lumascope_api/imaging.py',
+            'set_binning_size',
+            params=['self', 'size'],
+            returns='bool',
             msg='ImagingAPI.set_binning_size must declare `-> bool` (Wave 1 B1; Rule 37)',
         )
 
@@ -1773,8 +1769,7 @@ class TestSetBinningSizeReturnsBool:
             'a driver-accepted binning change must propagate as True'
         )
         assert imaging.set_binning_size(5) is False, (
-            'a driver-rejected binning size (sim supports 1-4) must '
-            'propagate as False'
+            'a driver-rejected binning size (sim supports 1-4) must propagate as False'
         )
 
     def test_set_binning_size_has_returns_docstring_section(self):
@@ -1865,15 +1860,15 @@ class TestSetBinningSizeReturnsBool:
         from drivers.exceptions import HardwareError
 
         assert_def(
-            'drivers/idscamera.py', 'set_pixel_format', returns='bool',
+            'drivers/idscamera.py',
+            'set_pixel_format',
+            returns='bool',
             msg='IDSCamera.set_pixel_format must declare `-> bool` (Wave 1 C3 / Rule 37)',
         )
 
         cam = _bare_ids_camera()
         cam._resolve_logical_format = lambda fmt: 'Mono8'
-        cam.remote_nodemap.FindNode.return_value.SetCurrentEntry.side_effect = (
-            RuntimeError('sdk')
-        )
+        cam.remote_nodemap.FindNode.return_value.SetCurrentEntry.side_effect = RuntimeError('sdk')
         with pytest.raises(HardwareError):
             cam.set_pixel_format('Mono8')
         cam._mark_disconnected.assert_called_once()
@@ -1894,7 +1889,9 @@ class TestHomeReturnsBool:
         from tests.ast_seams import assert_def
 
         assert_def(
-            'modules/lumascope_api/motion.py', 'zhome', returns='bool',
+            'modules/lumascope_api/motion.py',
+            'zhome',
+            returns='bool',
             msg='MotionAPI.zhome must declare `-> bool` (Rule 37)',
         )
 
@@ -1902,7 +1899,9 @@ class TestHomeReturnsBool:
         from tests.ast_seams import assert_def
 
         assert_def(
-            'modules/lumascope_api/motion.py', 'home', returns='bool',
+            'modules/lumascope_api/motion.py',
+            'home',
+            returns='bool',
             msg='MotionAPI.home must declare `-> bool` (Rule 37)',
         )
 
@@ -1910,7 +1909,9 @@ class TestHomeReturnsBool:
         from tests.ast_seams import assert_def
 
         assert_def(
-            'modules/lumascope_api/motion.py', 'thome', returns='bool',
+            'modules/lumascope_api/motion.py',
+            'thome',
+            returns='bool',
             msg='MotionAPI.thome must declare `-> bool` (Rule 37)',
         )
 
@@ -1920,9 +1921,7 @@ class TestHomeReturnsBool:
         from modules.notification_center import notifications
 
         calls = []
-        monkeypatch.setattr(
-            notifications, 'error', lambda *args, **kwargs: calls.append(args)
-        )
+        monkeypatch.setattr(notifications, 'error', lambda *args, **kwargs: calls.append(args))
         return calls
 
     def test_zhome_propagates_driver_true(self, sim_scope, monkeypatch):
@@ -1931,9 +1930,7 @@ class TestHomeReturnsBool:
         assert sim_scope.motion.zhome() is True
         assert errors == [], f'success path must not notify; got {errors}'
 
-    def test_zhome_returns_false_and_notifies_on_driver_false(
-        self, sim_scope, monkeypatch
-    ):
+    def test_zhome_returns_false_and_notifies_on_driver_false(self, sim_scope, monkeypatch):
         errors = self._record_errors(monkeypatch)
         monkeypatch.setattr(sim_scope._motion_driver, 'zhome', lambda: False)
         assert sim_scope.motion.zhome() is False
@@ -1941,9 +1938,7 @@ class TestHomeReturnsBool:
             f'driver False must notify the user (Rule 14); got {errors}'
         )
 
-    def test_zhome_returns_false_and_notifies_on_driver_raise(
-        self, sim_scope, monkeypatch
-    ):
+    def test_zhome_returns_false_and_notifies_on_driver_raise(self, sim_scope, monkeypatch):
         errors = self._record_errors(monkeypatch)
 
         def boom():
@@ -1961,9 +1956,7 @@ class TestHomeReturnsBool:
         assert sim_scope.motion.home() is True
         assert errors == [], f'success path must not notify; got {errors}'
 
-    def test_home_returns_false_and_notifies_on_driver_false(
-        self, sim_scope, monkeypatch
-    ):
+    def test_home_returns_false_and_notifies_on_driver_false(self, sim_scope, monkeypatch):
         errors = self._record_errors(monkeypatch)
         monkeypatch.setattr(sim_scope._motion_driver, 'home', lambda: False)
         assert sim_scope.motion.home() is False
@@ -1971,9 +1964,7 @@ class TestHomeReturnsBool:
             f'driver False must notify the user (Rule 14); got {errors}'
         )
 
-    def test_home_returns_false_and_notifies_on_driver_raise(
-        self, sim_scope, monkeypatch
-    ):
+    def test_home_returns_false_and_notifies_on_driver_raise(self, sim_scope, monkeypatch):
         errors = self._record_errors(monkeypatch)
 
         def boom():
@@ -1992,9 +1983,7 @@ class TestHomeReturnsBool:
         assert sim_scope.motion.thome() is True
         assert errors == [], f'success path must not notify; got {errors}'
 
-    def test_thome_returns_false_and_notifies_on_driver_false(
-        self, sim_scope, monkeypatch
-    ):
+    def test_thome_returns_false_and_notifies_on_driver_false(self, sim_scope, monkeypatch):
         sim_scope._motion_driver.set_timing_mode('instant')
         errors = self._record_errors(monkeypatch)
         monkeypatch.setattr(sim_scope._motion_driver, 'thome', lambda: False)
@@ -2003,9 +1992,7 @@ class TestHomeReturnsBool:
             f'turret-homing failure must name the turret (Rule 14/20); got {errors}'
         )
 
-    def test_thome_returns_false_and_notifies_on_driver_raise(
-        self, sim_scope, monkeypatch
-    ):
+    def test_thome_returns_false_and_notifies_on_driver_raise(self, sim_scope, monkeypatch):
         sim_scope._motion_driver.set_timing_mode('instant')
         errors = self._record_errors(monkeypatch)
 
@@ -2072,9 +2059,7 @@ class TestHomeReturnsBool:
             ('thome', 'T not present'),
         ],
     )
-    def test_motorboard_homing_success_and_partial_paths_return_true(
-        self, method, reply
-    ):
+    def test_motorboard_homing_success_and_partial_paths_return_true(self, method, reply):
         """Success replies -- including the partial-home (X/Y absent) and
         no-turret cases the firmware reports on smaller boards -- return
         True rather than raising."""
@@ -2086,8 +2071,7 @@ class TestHomeReturnsBool:
 
         for method in (MotorBoard.zhome, MotorBoard.home, MotorBoard.thome):
             assert 'Raises:' in (method.__doc__ or ''), (
-                f'MotorBoard.{method.__name__} docstring must document '
-                'HardwareError (Rule 38)'
+                f'MotorBoard.{method.__name__} docstring must document HardwareError (Rule 38)'
             )
 
     @pytest.mark.parametrize('method', ['zhome', 'home', 'thome'])
@@ -2100,9 +2084,7 @@ class TestHomeReturnsBool:
         monkeypatch.setattr(board, 'exchange_command', lambda *a, **k: None)
         with pytest.raises(HardwareError, match='no response'):
             getattr(board, method)()
-        monkeypatch.setattr(
-            board, 'exchange_command', lambda *a, **k: 'ERROR: homing failed'
-        )
+        monkeypatch.setattr(board, 'exchange_command', lambda *a, **k: 'ERROR: homing failed')
         with pytest.raises(HardwareError, match='firmware error'):
             getattr(board, method)()
 
@@ -2118,8 +2100,10 @@ class TestDisconnectReturnsBool:
         from tests.ast_seams import assert_def
 
         assert_def(
-            'modules/lumascope_api/_lumascope.py', 'disconnect',
-            class_name='Lumascope', returns='bool',
+            'modules/lumascope_api/_lumascope.py',
+            'disconnect',
+            class_name='Lumascope',
+            returns='bool',
             msg='Lumascope.disconnect must declare `-> bool` (Wave 4 B2; Rule 37)',
         )
 
@@ -2129,14 +2113,10 @@ class TestDisconnectReturnsBool:
         from modules.notification_center import notifications
 
         calls = []
-        monkeypatch.setattr(
-            notifications, 'error', lambda *args, **kwargs: calls.append(args)
-        )
+        monkeypatch.setattr(notifications, 'error', lambda *args, **kwargs: calls.append(args))
         return calls
 
-    def test_disconnect_led_failure_returns_false_and_notifies(
-        self, sim_scope, monkeypatch
-    ):
+    def test_disconnect_led_failure_returns_false_and_notifies(self, sim_scope, monkeypatch):
         """An LED teardown raise must flip the aggregate to False, fire a
         user notification, and still reset the slot to NullLEDBoard."""
         from drivers.null_ledboard import NullLEDBoard
@@ -2157,9 +2137,7 @@ class TestDisconnectReturnsBool:
             'disconnect must reset the LED slot to NullLEDBoard even on failure'
         )
 
-    def test_disconnect_motion_failure_returns_false_and_notifies(
-        self, sim_scope, monkeypatch
-    ):
+    def test_disconnect_motion_failure_returns_false_and_notifies(self, sim_scope, monkeypatch):
         from drivers.null_motorboard import NullMotionBoard
 
         errors = self._record_errors(monkeypatch)
@@ -2178,9 +2156,7 @@ class TestDisconnectReturnsBool:
             'disconnect must reset the motion slot to NullMotionBoard even on failure'
         )
 
-    def test_disconnect_partial_failure_still_tears_down_others(
-        self, sim_scope, monkeypatch
-    ):
+    def test_disconnect_partial_failure_still_tears_down_others(self, sim_scope, monkeypatch):
         """Best-effort teardown: an early LED failure must not skip the
         motion + camera teardown or the state reset."""
         from drivers.null_ledboard import NullLEDBoard
@@ -2240,8 +2216,10 @@ class TestEnterEngineeringModeRaises:
         from tests.ast_seams import assert_def
 
         assert_def(
-            'drivers/ledboard.py', 'enter_engineering_mode',
-            params=['self', 'timeout'], returns='bool',
+            'drivers/ledboard.py',
+            'enter_engineering_mode',
+            params=['self', 'timeout'],
+            returns='bool',
             msg='LEDBoard.enter_engineering_mode must declare `-> bool` (Tier 1-A; Rule 37)',
         )
 
@@ -2370,11 +2348,7 @@ class TestG4_MotorLogSuppression:
             return _log
 
         def count(self, level, substring=''):
-            return sum(
-                1
-                for lvl, msg in self.records
-                if lvl == level and substring in msg
-            )
+            return sum(1 for lvl, msg in self.records if lvl == level and substring in msg)
 
     def _make_failing_board(self, monkeypatch):
         """MotorBoard whose _open_serial always raises, with a recording
@@ -2408,8 +2382,7 @@ class TestG4_MotorLogSuppression:
         for _ in range(12):
             board.connect()
         assert recorder.count('ERROR', 'connect() failed') == 9, (
-            f'only the pre-suppression failures may log errors; records: '
-            f'{recorder.records}'
+            f'only the pre-suppression failures may log errors; records: {recorder.records}'
         )
         assert recorder.count('CRITICAL', 'suppressing') == 1, (
             'the 10th failure must announce suppression once at critical'
@@ -2431,9 +2404,7 @@ class TestG4_MotorLogSuppression:
 
         monkeypatch.setattr(board, '_open_serial', ok_open, raising=False)
         monkeypatch.setattr(board, '_reset_firmware', lambda: None, raising=False)
-        monkeypatch.setattr(
-            board, 'fullinfo', lambda: {'model': 'LS850'}, raising=False
-        )
+        monkeypatch.setattr(board, 'fullinfo', lambda: {'model': 'LS850'}, raising=False)
         board.connect()
 
         board.driver = None
@@ -2978,9 +2949,7 @@ class TestAOC2_RetrySaturationCheckOutsideCamLock:
             lock_was_free.append(seen['free'])
             return orig_fraction(frame)
 
-        monkeypatch.setattr(
-            ImagingAPI, '_saturated_fraction', staticmethod(probing_fraction)
-        )
+        monkeypatch.setattr(ImagingAPI, '_saturated_fraction', staticmethod(probing_fraction))
         out = imaging.get_image(all_ones_check=True)
         assert out is not None
         assert len(lock_was_free) >= 2, 'gate + retry walk must both run'
@@ -3078,9 +3047,7 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
         monkeypatch.setattr(
             'modules.image_utils.write_tiff', lambda **kwargs: recorded.update(kwargs)
         )
-        monkeypatch.setattr(
-            image_save, 'generate_image_metadata', lambda scope, color, x, y, z: {}
-        )
+        monkeypatch.setattr(image_save, 'generate_image_metadata', lambda scope, color, x, y, z: {})
         image_save.save_image(
             SimpleNamespace(),
             np.zeros((4, 4), dtype=np.uint8),
@@ -3130,9 +3097,7 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
         import modules.app_context as app_context
 
         lock = threading.Lock()
-        settings = _LockWatchingSettings(
-            {'false_color_16bit': True}, lock, 'false_color_16bit'
-        )
+        settings = _LockWatchingSettings({'false_color_16bit': True}, lock, 'false_color_16bit')
         monkeypatch.setattr(
             app_context, 'ctx', SimpleNamespace(settings=settings, settings_lock=lock)
         )
@@ -3191,8 +3156,7 @@ class TestPIW5_Convert12to16OutBuffer:
         buffers = []
         monkeypatch.setattr(
             'modules.protocol_image_writer.save_image',
-            lambda scope, **kwargs: buffers.append(kwargs['out_12to16'])
-            or (tmp_path / 'out.tiff'),
+            lambda scope, **kwargs: buffers.append(kwargs['out_12to16']) or (tmp_path / 'out.tiff'),
         )
 
         def write(frame):
@@ -3210,9 +3174,7 @@ class TestPIW5_Convert12to16OutBuffer:
         write(np.zeros((6, 5), dtype=np.uint16))
         write(np.zeros((6, 5), dtype=np.uint16))
         assert buffers[0] is not None and buffers[0].shape == (6, 5)
-        assert buffers[1] is buffers[0], (
-            'same-shape saves must reuse one conversion buffer'
-        )
+        assert buffers[1] is buffers[0], 'same-shape saves must reuse one conversion buffer'
         write(np.zeros((3, 3), dtype=np.uint16))
         assert buffers[2] is not buffers[0] and buffers[2].shape == (3, 3), (
             'a shape change must reallocate the buffer'
@@ -3230,9 +3192,7 @@ class TestPIW5_Convert12to16OutBuffer:
         from modules import image_save
 
         monkeypatch.setattr('modules.image_utils.write_tiff', lambda **kwargs: None)
-        monkeypatch.setattr(
-            image_save, 'generate_image_metadata', lambda scope, color, x, y, z: {}
-        )
+        monkeypatch.setattr(image_save, 'generate_image_metadata', lambda scope, color, x, y, z: {})
         buf = np.zeros((4, 4), dtype=np.uint16)
         for fill in (1, 3):
             arr = np.full((4, 4), fill, dtype=np.uint16)
@@ -3280,10 +3240,11 @@ class TestPIW6_PF3_FalseColorRgbPreallocated:
         from tests.ast_seams import assert_def
 
         assert_def(
-            'modules/image_utils.py', 'write_tiff',
+            'modules/image_utils.py',
+            'write_tiff',
             has_params=['false_color_buf', 'rgb_buf'],
             msg='PF-3 + PIW-6: write_tiff should accept the reusable '
-                'false_color_buf and rgb_buf params.',
+            'false_color_buf and rgb_buf params.',
         )
 
     def test_protocol_image_writer_does_not_preallocate_dead_buffers(self):
@@ -3316,10 +3277,10 @@ class TestPIW6_PF3_FalseColorRgbPreallocated:
         from tests.ast_seams import assert_def
 
         assert_def(
-            'modules/image_save.py', 'save_image',
+            'modules/image_save.py',
+            'save_image',
             has_params=['false_color_buf', 'rgb_buf'],
-            msg='save_image must accept the false_color_buf / rgb_buf '
-                'color-audit surface params.',
+            msg='save_image must accept the false_color_buf / rgb_buf color-audit surface params.',
         )
 
     def test_add_false_color_uses_output_buffer(self):
@@ -3425,9 +3386,7 @@ class TestPIW2_DisksUsageDeduped:
             lambda scope, **kwargs: saves.append(kwargs) or (tmp_path / 'out.tiff'),
         )
         notes = []
-        monkeypatch.setattr(
-            notifications, 'critical', lambda *args, **kwargs: notes.append(args)
-        )
+        monkeypatch.setattr(notifications, 'critical', lambda *args, **kwargs: notes.append(args))
         writer.write_capture(
             enable_image_saving=True,
             is_video=False,
@@ -3480,14 +3439,14 @@ class TestProtocolCleanupRestoresLayerShader_ShaderHygiene:
             'ProtocolCallbacks must declare restore_layer_shader defaulting '
             'to None (the sibling-of-LED-state shader-hygiene-at-transition fix)'
         )
+
         def wired():
             return None
 
-        assert ProtocolCallbacks.from_dict(
-            {'restore_layer_shader': wired}
-        ).restore_layer_shader is wired, (
-            'from_dict must accept and carry the restore_layer_shader key'
-        )
+        assert (
+            ProtocolCallbacks.from_dict({'restore_layer_shader': wired}).restore_layer_shader
+            is wired
+        ), 'from_dict must accept and carry the restore_layer_shader key'
 
     def test_cleanup_invokes_restore_layer_shader(self, monkeypatch):
         """run_cleanup must invoke callbacks.restore_layer_shader through
@@ -3503,13 +3462,9 @@ class TestProtocolCleanupRestoresLayerShader_ShaderHygiene:
         )
         shader_restore = MagicMock()
         run_cleanup(
-            **_run_cleanup_kwargs(
-                callbacks=ProtocolCallbacks(restore_layer_shader=shader_restore)
-            )
+            **_run_cleanup_kwargs(callbacks=ProtocolCallbacks(restore_layer_shader=shader_restore))
         )
-        assert shader_restore.called, (
-            'run_cleanup must invoke callbacks.restore_layer_shader'
-        )
+        assert shader_restore.called, 'run_cleanup must invoke callbacks.restore_layer_shader'
         assert scheduled, (
             'restore_layer_shader must be UI-thread-dispatched via the '
             'schedule_ui seam, not called inline on the protocol thread'
@@ -3525,9 +3480,7 @@ class TestProtocolCleanupRestoresLayerShader_ShaderHygiene:
 
         captured = []
         monkeypatch.setattr(notifications, 'warning', lambda *a, **k: captured.append(a))
-        monkeypatch.setattr(
-            'modules.protocol_cleanup._schedule_ui', lambda fn, timeout=0: fn(0)
-        )
+        monkeypatch.setattr('modules.protocol_cleanup._schedule_ui', lambda fn, timeout=0: fn(0))
         kwargs = _run_cleanup_kwargs(
             callbacks=ProtocolCallbacks(
                 restore_layer_shader=MagicMock(side_effect=RuntimeError('shader boom'))
@@ -3539,8 +3492,7 @@ class TestProtocolCleanupRestoresLayerShader_ShaderHygiene:
         )
         kwargs['set_run_in_progress_fn'].assert_called_once_with(False)
         assert captured and 'Restore layer shader' in captured[0][2], (
-            'the shader failure must appear in the cleanup summary; '
-            f'got {captured}'
+            f'the shader failure must appear in the cleanup summary; got {captured}'
         )
 
     def test_protocol_settings_wires_restore_layer_shader_callback(self):
@@ -3593,9 +3545,7 @@ class TestAccordionStaysPutAcrossProtocolStopStart_AccordionDrift:
     def _src(self):
         from pathlib import Path
 
-        return (
-            Path(__file__).resolve().parent.parent / 'ui' / 'step_navigation.py'
-        ).read_text()
+        return (Path(__file__).resolve().parent.parent / 'ui' / 'step_navigation.py').read_text()
 
     def test_go_to_step_update_ui_takes_called_from_protocol_arg(self):
         """The UI callback function must accept the closure-captured
@@ -3673,9 +3623,7 @@ class TestProtocolStepPanelToggleIdempotent:
     def _body(self):
         from pathlib import Path
 
-        src = (
-            Path(__file__).resolve().parent.parent / 'ui' / 'step_navigation.py'
-        ).read_text()
+        src = (Path(__file__).resolve().parent.parent / 'ui' / 'step_navigation.py').read_text()
         start = src.find('def go_to_step_update_ui(')
         assert start != -1
         body = src[start : start + 4000]
@@ -3691,11 +3639,11 @@ class TestProtocolStepPanelToggleIdempotent:
         assert idx != -1, 'toggle_settings() call must exist in go_to_step_update_ui'
         guard_window = body[max(0, idx - 300) : idx]
         assert "!= 'down'" in guard_window, (
-            "the ImageSettings panel toggle must be guarded by a "
+            'the ImageSettings panel toggle must be guarded by a '
             "`state != 'down'` check so toggle_settings() runs once when the "
-            "preview opens the panel, not once per protocol step (avoids "
-            "per-step reposition + histogram churn and a misleading "
-            "toggle_settings log line)"
+            'preview opens the panel, not once per protocol step (avoids '
+            'per-step reposition + histogram churn and a misleading '
+            'toggle_settings log line)'
         )
 
 
@@ -3753,9 +3701,7 @@ class TestPF2_FileIoExecutorClearedOnAbort:
         from modules.protocol_cleanup import run_cleanup
         from modules.protocol_state_machine import ProtocolState
 
-        aborted = _run_cleanup_kwargs(
-            get_state_fn=MagicMock(return_value=ProtocolState.ERROR)
-        )
+        aborted = _run_cleanup_kwargs(get_state_fn=MagicMock(return_value=ProtocolState.ERROR))
         run_cleanup(**aborted)
         assert aborted['file_io_executor'].clear_protocol_pending.called, (
             "abort cleanup must clear file_io_executor's pending queue "
@@ -3831,9 +3777,7 @@ class TestPF5_ImageBufferRetired:
             lambda image, **kwargs: sentinel,
         )
         out = imaging.get_image(force_to_8bit=True, timeout_s=2.0)
-        assert out is sentinel, (
-            'get_image must return the convert_12bit_to_8bit result'
-        )
+        assert out is sentinel, 'get_image must return the convert_12bit_to_8bit result'
 
     def test_get_image_returns_scale_bar_result(self, monkeypatch):
         """The scale-bar step's return value must flow into the returned
@@ -3844,13 +3788,9 @@ class TestPF5_ImageBufferRetired:
         sentinel = np.full((4, 4), 9, dtype=np.uint8)
         imaging._scale_bar['enabled'] = True
         imaging._scope.runtime_state._objective = {'magnification': 4}
-        monkeypatch.setattr(
-            'modules.image_utils.add_scale_bar', lambda **kwargs: sentinel
-        )
+        monkeypatch.setattr('modules.image_utils.add_scale_bar', lambda **kwargs: sentinel)
         out = imaging.get_image(force_to_8bit=True, timeout_s=2.0)
-        assert out is sentinel, (
-            'get_image must return the add_scale_bar result'
-        )
+        assert out is sentinel, 'get_image must return the add_scale_bar result'
 
 
 class TestPF1_CpuPoolRetired:
@@ -3973,18 +3913,18 @@ class TestFrameValidity_SaveLiveImageDrainsBeforeGrab:
         )
         saved = {}
         monkeypatch.setattr(
-            image_save, 'save_image',
-            lambda scope, array, *args, **kwargs: saved.update(array=array)
-            or str(tmp_path / 'live.tiff'),
+            image_save,
+            'save_image',
+            lambda scope, array, *args, **kwargs: (
+                saved.update(array=array) or str(tmp_path / 'live.tiff')
+            ),
         )
         out = image_save.save_live_image(scope, save_folder=str(tmp_path))
         assert out is not None
         assert calls == ['capture_and_wait'], (
             f'save_live_image must drain via capture_and_wait only; saw {calls}'
         )
-        assert saved['array'] is frame, (
-            'the drained frame must be the one handed to save_image'
-        )
+        assert saved['array'] is frame, 'the drained frame must be the one handed to save_image'
 
     def test_capture_and_wait_accepts_earliest_image_ts(self):
         """capture_and_wait must forward earliest_image_ts so save_live_image's
@@ -4038,7 +3978,7 @@ class TestFrameValidity_AutofocusDrainsBeforeScore:
         assert grabs, 'the drive must reach the camera'
         for grab in grabs:
             assert grab.kwargs.get('exclude_sources') == ('z_move',), (
-                'every AF grab must pass exclude_sources=(\'z_move\',) since '
+                "every AF grab must pass exclude_sources=('z_move',) since "
                 f'is_moving() already gates motion; got {grab}'
             )
 
@@ -4879,9 +4819,7 @@ class TestPylonDisconnectDestroyDevice:
         fake = cam.active
         order = []
         fake.DetachDevice.side_effect = lambda: order.append('detach')
-        fake.DestroyDevice.side_effect = lambda: order.append(
-            ('destroy', cam.active is fake)
-        )
+        fake.DestroyDevice.side_effect = lambda: order.append(('destroy', cam.active is fake))
         assert cam.disconnect() is True
         assert order == ['detach', ('destroy', True)], (
             f'Expected DetachDevice then DestroyDevice with the handle still '
@@ -5098,9 +5036,10 @@ class TestPylonDiagnosticProbe:
         from tests.ast_seams import assert_def
 
         assert_def(
-            'drivers/pyloncamera.py', 'read_diagnostic_snapshot',
+            'drivers/pyloncamera.py',
+            'read_diagnostic_snapshot',
             msg='PylonCamera must implement read_diagnostic_snapshot for '
-                'DiagnosticsAPI.run_pylon_diagnostic_probe to function.',
+            'DiagnosticsAPI.run_pylon_diagnostic_probe to function.',
         )
 
     def test_ids_camera_has_read_diagnostic_snapshot_stub(self):
@@ -5112,9 +5051,10 @@ class TestPylonDiagnosticProbe:
         from tests.ast_seams import assert_def
 
         assert_def(
-            'drivers/idscamera.py', 'read_diagnostic_snapshot',
+            'drivers/idscamera.py',
+            'read_diagnostic_snapshot',
             msg='IDSCamera must have a read_diagnostic_snapshot stub '
-                'returning supported=False until the IDS implementation lands.',
+            'returning supported=False until the IDS implementation lands.',
         )
         src = (Path(__file__).resolve().parent.parent / 'drivers' / 'idscamera.py').read_text()
         body = _function_source(src, 'read_diagnostic_snapshot')
@@ -5214,9 +5154,10 @@ class TestDeviceLinkThroughputLimitSetter:
         from tests.ast_seams import assert_def
 
         assert_def(
-            'drivers/pyloncamera.py', 'set_device_link_throughput_limit',
+            'drivers/pyloncamera.py',
+            'set_device_link_throughput_limit',
             msg='PylonCamera must implement set_device_link_throughput_limit '
-                'so the bench-probe sweep can stay above the driver layer.',
+            'so the bench-probe sweep can stay above the driver layer.',
         )
 
     def test_pylon_driver_does_not_wrap_in_update_camera_config(self):
@@ -5237,10 +5178,11 @@ class TestDeviceLinkThroughputLimitSetter:
         from tests.ast_seams import assert_def
 
         assert_def(
-            'drivers/idscamera.py', 'set_device_link_throughput_limit',
+            'drivers/idscamera.py',
+            'set_device_link_throughput_limit',
             msg='IDSCamera must have a set_device_link_throughput_limit '
-                'stub so the API method does not need to know which driver '
-                'is connected when called by the sweep tool.',
+            'stub so the API method does not need to know which driver '
+            'is connected when called by the sweep tool.',
         )
 
     def test_pylon_driver_raises_hardware_error_on_runtime_exception(self):
@@ -5253,8 +5195,8 @@ class TestDeviceLinkThroughputLimitSetter:
         from drivers.exceptions import HardwareError
 
         cam = _bare_pylon_camera()
-        cam.active.DeviceLinkThroughputLimitMode.SetValue.side_effect = (
-            genicam.RuntimeException('usb gone')
+        cam.active.DeviceLinkThroughputLimitMode.SetValue.side_effect = genicam.RuntimeException(
+            'usb gone'
         )
         with pytest.raises(HardwareError):
             cam.set_device_link_throughput_limit('Off')
@@ -5492,9 +5434,7 @@ class TestPylonStatsPollerStopJoin:
         cam._stats_poller_stop = ev
         cam._stats_poller_thread = t
         cam._stop_stats_poller()
-        assert not t.is_alive(), (
-            'stats poller thread still alive after _stop_stats_poller'
-        )
+        assert not t.is_alive(), 'stats poller thread still alive after _stop_stats_poller'
         assert cam._stats_poller_thread is None
 
 
@@ -5585,8 +5525,7 @@ class TestPylonOnImageGrabbedExceptionContext:
         finally:
             pyloncamera._log_safely = original
         assert any('OnImageGrabbed' in m for m in logged), (
-            'The outer guard must log with callback context; got: '
-            f'{logged!r}'
+            f'The outer guard must log with callback context; got: {logged!r}'
         )
 
 
@@ -5798,8 +5737,8 @@ class TestPylonInitCameraConfigStyleConsistency:
         cam = _init_configurable_pylon_camera()
         fake = cam.active
         sequence = []
-        fake.UserSetSelector.SetValue.side_effect = (
-            lambda value: sequence.append(('selector', value))
+        fake.UserSetSelector.SetValue.side_effect = lambda value: sequence.append(
+            ('selector', value)
         )
         fake.UserSetLoad.Execute.side_effect = lambda: sequence.append('load')
         cam.init_camera_config()
@@ -5879,10 +5818,7 @@ class TestDriverParametersNotShadowingMethods:
                 if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     continue
                 args = node.args
-                params = [
-                    a.arg
-                    for a in (*args.posonlyargs, *args.args, *args.kwonlyargs)
-                ]
+                params = [a.arg for a in (*args.posonlyargs, *args.args, *args.kwonlyargs)]
                 if args.vararg:
                     params.append(args.vararg.arg)
                 if args.kwarg:
@@ -5891,8 +5827,7 @@ class TestDriverParametersNotShadowingMethods:
                     offenders.append(f'{rel}:{node.lineno} def {node.name}')
         assert not offenders, (
             'Driver function parameters must not shadow the method name '
-            '(use `value` for single-value setters): '
-            + ', '.join(offenders)
+            '(use `value` for single-value setters): ' + ', '.join(offenders)
         )
 
 
@@ -6455,9 +6390,7 @@ class TestPylonBslPrefixedNodeFallbacks:
             BslEffectiveExposureTime = self._PlainNode(5000.0)
             ExposureTime = self._PlainNode(4000.0)
 
-        value = PylonCamera._node_attr_get(
-            _Cam(), 'BslEffectiveExposureTime', 'ExposureTime'
-        )
+        value = PylonCamera._node_attr_get(_Cam(), 'BslEffectiveExposureTime', 'ExposureTime')
         assert value == 5000.0, (
             '_node_attr_get must return the FIRST resolvable name '
             '(Bsl-prefixed canonical before legacy).'
@@ -6469,9 +6402,7 @@ class TestPylonBslPrefixedNodeFallbacks:
         class _Cam:
             ExposureTime = self._PlainNode(4000.0)
 
-        value = PylonCamera._node_attr_get(
-            _Cam(), 'BslEffectiveExposureTime', 'ExposureTime'
-        )
+        value = PylonCamera._node_attr_get(_Cam(), 'BslEffectiveExposureTime', 'ExposureTime')
         assert value == 4000.0
 
     def test_safe_node_falls_back_across_names(self):
@@ -7299,9 +7230,7 @@ class TestPylonGainSelectorBeforeGainSetValue:
         fake = cam.active
         fake.Gain.GetValue.return_value = 10.0
         sequence = []
-        fake.GainSelector.SetValue.side_effect = (
-            lambda value: sequence.append(('selector', value))
-        )
+        fake.GainSelector.SetValue.side_effect = lambda value: sequence.append(('selector', value))
         fake.Gain.SetValue.side_effect = lambda value: sequence.append(('gain', value))
         cam.gain(2.0)
         assert sequence == [('selector', 'All'), ('gain', 2.0)], (
@@ -7421,16 +7350,13 @@ class TestPylonChunkSelectorProbeWithFramecounterFallback:
         cam = _chunk_config_pylon_camera(['ExposureTime', 'Gain'])
         cam._enable_validity_chunks()
         assert cam.active.ChunkSelector.writes == ['ExposureTime', 'Gain'], (
-            'only the advertised chunks may be selected; got '
-            f'{cam.active.ChunkSelector.writes!r}'
+            f'only the advertised chunks may be selected; got {cam.active.ChunkSelector.writes!r}'
         )
 
     def test_enable_validity_chunks_falls_back_to_framecounter(self):
         """A camera advertising Framecounter (not FrameID) must still
         get a frame-identity chunk enabled, after the always-on set."""
-        cam = _chunk_config_pylon_camera(
-            ['ExposureTime', 'Gain', 'Timestamp', 'Framecounter']
-        )
+        cam = _chunk_config_pylon_camera(['ExposureTime', 'Gain', 'Timestamp', 'Framecounter'])
         cam._enable_validity_chunks()
         assert cam.active.ChunkModeActive.writes == [True]
         assert cam.active.ChunkSelector.writes == [
@@ -7552,10 +7478,11 @@ class TestAcquisitionStopModeSetter:
         from tests.ast_seams import assert_def
 
         assert_def(
-            'drivers/pyloncamera.py', 'set_acquisition_stop_mode',
+            'drivers/pyloncamera.py',
+            'set_acquisition_stop_mode',
             msg='PylonCamera must implement set_acquisition_stop_mode for '
-                'the bench-probe sweep to exercise BslAcquisitionStopMode '
-                'without bypassing the API layer.',
+            'the bench-probe sweep to exercise BslAcquisitionStopMode '
+            'without bypassing the API layer.',
         )
 
     def test_pylon_driver_validates_mode_argument(self):
@@ -7565,7 +7492,9 @@ class TestAcquisitionStopModeSetter:
         from drivers.pyloncamera import PylonCamera
 
         assert PylonCamera._ACQ_STOP_MODES == (
-            'Complete', 'CancelExposure', 'AbortExposure',
+            'Complete',
+            'CancelExposure',
+            'AbortExposure',
         ), (
             'PylonCamera._ACQ_STOP_MODES must list the three doc-named '
             'values per acquisition-start-stop-and-abort.html.'
@@ -7740,7 +7669,8 @@ class TestGigeSetters:
             'set_gev_inter_packet_delay',
         ):
             assert_def(
-                'drivers/pyloncamera.py', name,
+                'drivers/pyloncamera.py',
+                name,
                 msg=f'PylonCamera must implement {name}.',
             )
 
@@ -8013,14 +7943,12 @@ class TestPylonAcquisitionIdleWait:
         sequence = []
         cam.is_grabbing = lambda: True
         cam.stop_grabbing = lambda: sequence.append('stop_grabbing')
-        cam._wait_for_acquisition_idle = (
-            lambda timeout_s: sequence.append('idle_wait')
-        )
+        cam._wait_for_acquisition_idle = lambda timeout_s: sequence.append('idle_wait')
         cam.active.Close.side_effect = lambda: sequence.append('close')
         assert cam.disconnect() is True
         assert sequence == ['stop_grabbing', 'idle_wait', 'close'], (
             f'Order violated in disconnect(): {sequence!r} (expected '
-            "stop_grabbing -> idle_wait -> Close)"
+            'stop_grabbing -> idle_wait -> Close)'
         )
 
     def test_idle_wait_returns_true_when_inactive(self):
@@ -8158,9 +8086,7 @@ class TestPylonStreamGrabberStatusLog:
         cam._start_stats_poller = MagicMock()
         cam._grab_strategy_name = 'LatestImageOnly'
         cam.active.IsGrabbing.return_value = False
-        cam.active.StartGrabbing.side_effect = (
-            lambda *args: sequence.append('start_grabbing')
-        )
+        cam.active.StartGrabbing.side_effect = lambda *args: sequence.append('start_grabbing')
         cam.start_grabbing()
         assert sequence == ['status_log', 'start_grabbing'], (
             f'_log_stream_grabber_status must fire BEFORE StartGrabbing(); got {sequence!r}'
@@ -8838,9 +8764,7 @@ class TestFx2DriverLibusbBackendProbe:
         spec.loader.exec_module(module)
         return module, records, registered
 
-    def test_missing_backend_classifies_unavailable_and_logs_hint(
-        self, monkeypatch
-    ):
+    def test_missing_backend_classifies_unavailable_and_logs_hint(self, monkeypatch):
         """pyusb importable but get_backend() -> None (the missing-DLL
         case): FX2 must classify as not-applicable, register nothing,
         and log the install hint instead of raising NoBackendError."""
@@ -8861,9 +8785,7 @@ class TestFx2DriverLibusbBackendProbe:
     def test_loadable_backend_classifies_available(self, monkeypatch):
         """With a loadable backend (and usb1 importable), the gate opens
         and the FX2 drivers register."""
-        module, records, registered = self._load_fx2_module(
-            monkeypatch, backend=object()
-        )
+        module, records, registered = self._load_fx2_module(monkeypatch, backend=object())
         assert module._HAS_USB_BACKEND is True
         assert module._FX2_AVAILABLE is True
         assert registered, 'FX2 drivers must register when prerequisites are met'
@@ -10546,12 +10468,8 @@ class TestPreReleaseFutureWarning:
         future_warnings = [w for w in caught if issubclass(w.category, FutureWarning)]
         assert future_warnings, 'PRE-RELEASE FutureWarning must fire on first Lumascope()'
         msg = str(future_warnings[0].message)
-        assert 'migration plan' in msg, (
-            f'warning text must point at the migration plan; got: {msg}'
-        )
-        assert 'support' in msg.lower(), (
-            f'warning text must name a support contact; got: {msg}'
-        )
+        assert 'migration plan' in msg, f'warning text must point at the migration plan; got: {msg}'
+        assert 'support' in msg.lower(), f'warning text must name a support contact; got: {msg}'
 
 
 class TestAutoGainArmedInScanIterate:
@@ -10616,9 +10534,7 @@ class TestAutoGainArmedInScanIterate:
         runner = scan_ready_runner(protocol_step(Auto_Gain=True))
         runner._step_executor.scan_iterate()
         applies = self._queued_ag_applies(runner)
-        assert len(applies) == 1, (
-            'the arm tick must queue exactly one AG apply on the io executor'
-        )
+        assert len(applies) == 1, 'the arm tick must queue exactly one AG apply on the io executor'
         task = applies[0]
         assert task.kwargs['auto_gain'] is True, 'the apply must arm continuous AG'
         assert task.kwargs['gain_db'] == 2.0 and task.kwargs['exposure_ms'] == 10.0, (
@@ -10688,9 +10604,7 @@ class TestAutoGainArmedInScanIterate:
         )
         runner._step_executor.scan_iterate()
         assert runner._auto_gain_armed_step == 0, 'the arm must be recorded for the step'
-        assert not runner._image_writer.capture.called, (
-            'the arm tick must return before capture'
-        )
+        assert not runner._image_writer.capture.called, 'the arm tick must return before capture'
         runner._step_executor.scan_iterate()
         assert runner._image_writer.capture.called, (
             'the tick after arming must fall through to capture'
@@ -11139,9 +11053,7 @@ class TestHeadlessSettingsResolutionMatchesGui:
         monkeypatch.setattr(settings_init, 'settings', None)
         (tmp_path / 'data').mkdir()
         (tmp_path / 'data' / 'current.json').write_text(json.dumps({'marker': 'from-current'}))
-        (tmp_path / 'data' / 'settings.json').write_text(
-            json.dumps({'marker': 'from-settings'})
-        )
+        (tmp_path / 'data' / 'settings.json').write_text(json.dumps({'marker': 'from-settings'}))
         session = ScopeSession.create_headless(source_path=str(tmp_path))
         assert session.settings.get('marker') == 'from-current', (
             'the headless fallback must pick current.json (live state) over '
@@ -12373,9 +12285,7 @@ class TestSequentialIoExecutorWaitForIdle_F7:
             'the wait must be bounded by the timeout, not block teardown'
         )
         executor.running_task = None
-        assert executor.wait_for_idle(timeout=0.5) is True, (
-            'an idle worker must report True'
-        )
+        assert executor.wait_for_idle(timeout=0.5) is True, 'an idle worker must report True'
 
     def test_protocol_end_does_not_sleep(self):
         """`protocol_end` body must not contain a bare `time.sleep`
@@ -12553,9 +12463,7 @@ class TestPostProcessingLoggerImported:
         tree = self._parse()
 
         references_logger = any(
-            isinstance(node, ast.Name)
-            and node.id == 'logger'
-            and isinstance(node.ctx, ast.Load)
+            isinstance(node, ast.Name) and node.id == 'logger' and isinstance(node.ctx, ast.Load)
             for node in ast.walk(tree)
         )
         assert references_logger, (
@@ -12739,8 +12647,10 @@ class TestAxisStateLivesOnConstants:
         root = pathlib.Path(__file__).resolve().parent.parent
         tree = ast.parse((root / 'modules' / 'lumascope_api' / 'motion.py').read_text())
         for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom) and node.module and node.module.endswith(
-                '_lumascope'
+            if (
+                isinstance(node, ast.ImportFrom)
+                and node.module
+                and node.module.endswith('_lumascope')
             ):
                 names = {a.name for a in node.names}
                 assert 'AxisState' not in names, 'motion.py must import AxisState from _constants'

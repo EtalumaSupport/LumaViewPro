@@ -113,9 +113,7 @@ class ZProjectionControls(BoxLayout):
         status_map = {True: 'Success', False: 'FAILED'}
         popup.text = 'Generating Z-Projection images...'
 
-        zproj = zprojector.ZProjector(
-            has_turret=ctx.lumaview.scope.motion.has_turret()
-        )
+        zproj = zprojector.ZProjector(has_turret=ctx.lumaview.scope.motion.has_turret())
         ctx.file_io_executor.put(
             IOTask(
                 action=zproj.load_folder,

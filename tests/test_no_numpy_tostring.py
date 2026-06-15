@@ -24,6 +24,6 @@ def test_no_tostring_calls_in_production_source():
             for i, line in enumerate(text.splitlines(), 1):
                 if '.tostring(' in line:
                     offenders.append(f'{path.relative_to(_ROOT)}:{i}: {line.strip()}')
-    assert not offenders, (
-        '.tostring() is removed in NumPy 2.0 -- use .tobytes():\n' + '\n'.join(offenders)
+    assert not offenders, '.tostring() is removed in NumPy 2.0 -- use .tobytes():\n' + '\n'.join(
+        offenders
     )

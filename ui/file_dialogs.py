@@ -258,9 +258,7 @@ class FileChooseBTN(HoverBehavior, Button):
     def on_selection_function(self, *a, **k):
         logger.info('[LVP Main  ] FileChooseBTN.on_selection_function()')
         if self.selection:
-            gui_logger.select(
-                'FILE_CHOOSE', f'context={self.context} path={self.selection[0]}'
-            )
+            gui_logger.select('FILE_CHOOSE', f'context={self.context} path={self.selection[0]}')
         ctx = _app_ctx.ctx
 
         if self.selection:
@@ -351,9 +349,7 @@ class FolderChooseBTN(HoverBehavior, Button):
         logger.info('[LVP Main  ] FolderChooseBTN.on_selection_function()')
         if self.selection:
             path = self.selection[0]
-            gui_logger.select(
-                'FOLDER_CHOOSE', f'context={self.context} path={path}'
-            )
+            gui_logger.select('FOLDER_CHOOSE', f'context={self.context} path={path}')
         else:
             return
 
@@ -437,9 +433,7 @@ class FileSaveBTN(HoverBehavior, Button):
     def on_selection_function(self, *a, **k):
         logger.info('[LVP Main  ] FileSaveBTN.on_selection_function()')
         if self.selection:
-            gui_logger.select(
-                'FILE_SAVE', f'context={self.context} path={self.selection[0]}'
-            )
+            gui_logger.select('FILE_SAVE', f'context={self.context} path={self.selection[0]}')
         ctx = _app_ctx.ctx
 
         if self.context == 'saveas_protocol':

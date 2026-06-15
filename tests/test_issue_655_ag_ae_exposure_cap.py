@@ -49,11 +49,16 @@ PYLON_SRC = REPO / 'drivers' / 'pyloncamera.py'
 # Functional: the per-class resolver
 # --------------------------------------------------------------------------
 
+
 def test_default_caps_per_channel_class():
     """Transmitted 50 ms, fluorescence 200 ms, luminescence 1000 ms."""
     expected = {
-        'BF': 50.0, 'PC': 50.0, 'DF': 50.0,
-        'Blue': 200.0, 'Green': 200.0, 'Red': 200.0,
+        'BF': 50.0,
+        'PC': 50.0,
+        'DF': 50.0,
+        'Blue': 200.0,
+        'Green': 200.0,
+        'Red': 200.0,
         'Lumi': 1000.0,
     }
     for layer, cap in expected.items():
@@ -76,6 +81,7 @@ def test_unknown_layer_falls_back_to_fluorescence_cap():
 # --------------------------------------------------------------------------
 # Behavioral: pylon driver applies the cap (not the sensor max)
 # --------------------------------------------------------------------------
+
 
 def _bounded_camera(node_min=30.0, node_max=1_000_000.0, sensor_min=20.0):
     cam = bare_pylon_camera()
@@ -138,6 +144,7 @@ def test_auto_gain_forwards_cap_to_bound_helper():
 # --------------------------------------------------------------------------
 # Caller cluster: every AG-enable site forwards the per-class cap (Rule 16)
 # --------------------------------------------------------------------------
+
 
 def test_api_set_auto_gain_forwards_cap_from_settings_dict():
     from drivers.simulated_camera import SimulatedCamera

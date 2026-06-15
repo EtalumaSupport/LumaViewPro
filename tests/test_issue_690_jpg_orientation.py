@@ -75,13 +75,25 @@ def test_tiff_and_jpg_save_identical_orientation(tmp_path, monkeypatch):
 
     scope = SimpleNamespace()
     tiff_path = image_save.save_image(
-        scope, arr.copy(), save_folder=str(tmp_path), file_root='o_',
-        append='t', color='BF', tail_id_mode=None, output_format='TIFF',
+        scope,
+        arr.copy(),
+        save_folder=str(tmp_path),
+        file_root='o_',
+        append='t',
+        color='BF',
+        tail_id_mode=None,
+        output_format='TIFF',
         use_false_color_16bit=False,
     )
     jpg_path = image_save.save_image(
-        scope, arr.copy(), save_folder=str(tmp_path), file_root='o_',
-        append='j', color='BF', tail_id_mode=None, output_format='JPG',
+        scope,
+        arr.copy(),
+        save_folder=str(tmp_path),
+        file_root='o_',
+        append='j',
+        color='BF',
+        tail_id_mode=None,
+        output_format='JPG',
         jpeg_quality=95,
     )
     tiff_px = tifffile.imread(tiff_path)
@@ -90,9 +102,7 @@ def test_tiff_and_jpg_save_identical_orientation(tmp_path, monkeypatch):
         cv2.IMREAD_GRAYSCALE,
     )
     # The bright camera-top edge must land at the BOTTOM in both formats.
-    assert tiff_px[-1].mean() > 200 and tiff_px[0].mean() < 50, (
-        'TIFF must save vertically flipped'
-    )
+    assert tiff_px[-1].mean() > 200 and tiff_px[0].mean() < 50, 'TIFF must save vertically flipped'
     assert jpg_px[-1].mean() > 200 and jpg_px[0].mean() < 50, (
         'JPG must share the TIFF save orientation, not the raw array'
     )
@@ -106,6 +116,5 @@ def test_orientation_helper_is_single_definition():
     assert src.count('def _apply_save_orientation(') == 1
     # The literal flip lives only inside the helper, nowhere else.
     assert src.count('np.flip(array, 0)') == 1, (
-        'the np.flip orientation step must exist only inside '
-        '_apply_save_orientation. (#690)'
+        'the np.flip orientation step must exist only inside _apply_save_orientation. (#690)'
     )

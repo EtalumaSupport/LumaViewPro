@@ -77,7 +77,7 @@ def test_end_protocol_mode_flushes_queued_protocol_writes():
         ex.protocol_put(IOTask(lambda: wrote.set()))  # queued behind the blocker
 
         ex.end_protocol_mode()  # signal graceful exit while a write is still queued
-        release.set()           # let the blocker finish; worker drains the write
+        release.set()  # let the blocker finish; worker drains the write
 
         assert wrote.wait(2.0), 'queued protocol write was dropped instead of flushed'
 

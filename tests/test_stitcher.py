@@ -272,10 +272,12 @@ class TestPositionAwareStitcher:
             binning_size=1,
         )
         half_fov_mm = fov['width'] / 2 / 1000
-        df = pd.DataFrame([
-            {'Filepath': 'left.tiff', 'X': 0.0, 'Y': 0.0, 'Objective': '10x Oly'},
-            {'Filepath': 'right.tiff', 'X': -half_fov_mm, 'Y': 0.0, 'Objective': '10x Oly'},
-        ])
+        df = pd.DataFrame(
+            [
+                {'Filepath': 'left.tiff', 'X': 0.0, 'Y': 0.0, 'Objective': '10x Oly'},
+                {'Filepath': 'right.tiff', 'X': -half_fov_mm, 'Y': 0.0, 'Objective': '10x Oly'},
+            ]
+        )
 
         result = Stitcher(has_turret=False)._position_stitcher(tmp_path, df)
 
@@ -354,15 +356,15 @@ class TestPositionAwareStitcher:
         red = np.full((50, 50), 120, dtype=np.uint8)
         cv2.imwrite(str(tmp_path / 'r0.tiff'), red)
         cv2.imwrite(str(tmp_path / 'r1.tiff'), red)
-        df = pd.DataFrame([
-            {'Filepath': 'r0.tiff', 'X': 0.0, 'Y': 0.0, 'Objective': '10x Oly', 'Color': 'Red'},
-            {'Filepath': 'r1.tiff', 'X': 1.0, 'Y': 0.0, 'Objective': '10x Oly', 'Color': 'Red'},
-        ])
+        df = pd.DataFrame(
+            [
+                {'Filepath': 'r0.tiff', 'X': 0.0, 'Y': 0.0, 'Objective': '10x Oly', 'Color': 'Red'},
+                {'Filepath': 'r1.tiff', 'X': 1.0, 'Y': 0.0, 'Objective': '10x Oly', 'Color': 'Red'},
+            ]
+        )
         out = pathlib.Path('stitched_red.tiff')
 
-        result = Stitcher(has_turret=False)._position_stitcher(
-            tmp_path, df, output_file_loc=out
-        )
+        result = Stitcher(has_turret=False)._position_stitcher(tmp_path, df, output_file_loc=out)
 
         assert result['status'] is True
         assert result['image'] is None  # subclass-wrote signal

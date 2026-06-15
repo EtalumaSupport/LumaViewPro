@@ -46,9 +46,7 @@ def test_generate_image_save_path_supports_if_collision_mode(tmp_path):
         output_format='TIFF',
     )
     first = image_save.generate_image_save_path(**kwargs)
-    assert first.name == 'step_BF.tiff', (
-        'no collision -> the plain filename, unchanged'
-    )
+    assert first.name == 'step_BF.tiff', 'no collision -> the plain filename, unchanged'
     first.touch()
     second = image_save.generate_image_save_path(**kwargs)
     assert second.name == 'step_BF_000001.tiff', (

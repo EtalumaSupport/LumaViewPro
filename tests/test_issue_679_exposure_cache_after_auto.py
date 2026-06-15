@@ -69,8 +69,7 @@ class TestSetAutoExposureRefreshesCacheAtAutoOff:
             cam._exposure_us = 14.0
         imaging.set_auto_exposure_time(state=False)
         assert imaging.camera_exposure_ms == pytest.approx(0.014, abs=0.001), (
-            'cache must reflect hardware truth after AE-off; '
-            f'got {imaging.camera_exposure_ms}'
+            f'cache must reflect hardware truth after AE-off; got {imaging.camera_exposure_ms}'
         )
 
     def test_set_exposure_after_ae_off_actually_writes_hardware(self, sim_imaging):
@@ -122,8 +121,7 @@ class TestSetAutoGainRefreshesCacheAtAutoOff:
             f'cache must reflect hardware gain after AG-off; got {imaging.camera_gain}'
         )
         assert imaging.camera_exposure_ms == pytest.approx(0.014, abs=0.001), (
-            f'cache must reflect hardware exposure after AG-off; '
-            f'got {imaging.camera_exposure_ms}'
+            f'cache must reflect hardware exposure after AG-off; got {imaging.camera_exposure_ms}'
         )
 
     def test_set_auto_gain_state_true_does_not_refresh_cache(self, sim_imaging):

@@ -235,9 +235,7 @@ class ProtocolPostProcessor(abc.ABC):
                 # in the algorithm itself. Surface the real failure instead of
                 # implying the folder lacked the data -- the prior message sent
                 # users hunting for missing Z-stacks when the operation broke.
-                logger.info(
-                    f'[{self._name} ] No {fname} output -- all groups failed: {last_error}'
-                )
+                logger.info(f'[{self._name} ] No {fname} output -- all groups failed: {last_error}')
                 return {
                     'status': False,
                     'reason': 'error',

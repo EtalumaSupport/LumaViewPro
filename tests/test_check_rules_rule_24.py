@@ -26,21 +26,21 @@ def _rule24_violations(content: str, path: str) -> list:
 
 class TestRule24Triggers:
     def test_degree_sign_in_logger_info(self):
-        src = textwrap.dedent('''
+        src = textwrap.dedent("""
             import logging
             logger = logging.getLogger(__name__)
             def f():
                 logger.info(f"temp: 25 °C")
-        ''')
+        """)
         vs = _rule24_violations(src, 'x.py')
         assert vs
-        assert "U+00B0" in vs[0].message
+        assert 'U+00B0' in vs[0].message
 
     def test_em_dash_in_comment(self):
         src = '# comment with — em-dash\nx = 1\n'
         vs = _rule24_violations(src, 'x.py')
         assert vs
-        assert "U+2014" in vs[0].message
+        assert 'U+2014' in vs[0].message
 
     def test_non_ascii_in_docstring(self):
         src = textwrap.dedent('''

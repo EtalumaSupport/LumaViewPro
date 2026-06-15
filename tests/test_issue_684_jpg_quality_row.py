@@ -33,7 +33,7 @@ def _jpg_row_block() -> str:
     start = _KV.index('id: jpg_quality_row')
     # The row block spans its own properties plus the slider and value label;
     # a generous window covers all three without reaching the next sibling.
-    return _KV[start:start + 1400]
+    return _KV[start : start + 1400]
 
 
 def _select_format_handler() -> str:

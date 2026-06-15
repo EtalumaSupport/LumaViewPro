@@ -435,8 +435,7 @@ class Lumascope:
                 logger.info('[SCOPE API ] Using SIMULATED Camera')
         except Exception as _cam_exc:
             logger.error(
-                f'[SCOPE API ] Camera Board Not Initialized: '
-                f'{type(_cam_exc).__name__}: {_cam_exc}'
+                f'[SCOPE API ] Camera Board Not Initialized: {type(_cam_exc).__name__}: {_cam_exc}'
             )
             # Prior behavior logged only; the user saw no popup and
             # every camera-dependent UI action silently returned None/False.

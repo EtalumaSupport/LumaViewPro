@@ -29,44 +29,44 @@ def _violations(content: str, path: str) -> list:
 
 class TestRule31aBlocksBareCv2InProductionPaths:
     def test_bare_cv2_imread_in_modules_blocks(self):
-        src = '''
+        src = """
 import cv2
 
 def load(path):
     return cv2.imread(path, cv2.IMREAD_UNCHANGED)
-'''
+"""
         violations = _violations(src, 'modules/some_processor.py')
         assert len(violations) == 1
         assert violations[0].line == 5
 
     def test_bare_cv2_imwrite_in_modules_blocks(self):
-        src = '''
+        src = """
 import cv2
 
 def save(arr, path):
     cv2.imwrite(path, arr)
-'''
+"""
         violations = _violations(src, 'modules/another_processor.py')
         assert len(violations) == 1
         assert violations[0].rule == 'rule_31a'
 
     def test_bare_cv2_VideoWriter_in_modules_blocks(self):
-        src = '''
+        src = """
 import cv2
 
 def make_writer():
     return cv2.VideoWriter('out.mp4', 0, 30, (640, 480))
-'''
+"""
         violations = _violations(src, 'modules/some_writer.py')
         assert len(violations) == 1
 
     def test_bare_cv2_imread_in_ui_blocks(self):
-        src = '''
+        src = """
 import cv2
 
 def load(path):
     return cv2.imread(path)
-'''
+"""
         violations = _violations(src, 'ui/preview.py')
         assert len(violations) == 1
 
@@ -76,46 +76,46 @@ class TestRule31aExemptsCanonicalOwners:
         # image_utils.py owns image_file_to_image (the multi-format L1
         # reader) plus the capability-flag wrappers; cv2 use here is
         # boundary-correct by construction.
-        src = '''
+        src = """
 import cv2
 
 def image_file_to_image(image_file):
     return cv2.imread(image_file, cv2.IMREAD_UNCHANGED)
-'''
+"""
         assert _violations(src, 'modules/image_utils.py') == []
 
     def test_video_writer_py_is_exempt(self):
         # video_writer.py owns the cv2.VideoWriter XVID fallback.
-        src = '''
+        src = """
 import cv2
 
 class VideoWriter:
     def _init_cv2(self, width, height):
         return cv2.VideoWriter('out.avi', 0, 30, (width, height))
-'''
+"""
         assert _violations(src, 'modules/video_writer.py') == []
 
 
 class TestRule31aScopedToProductionPaths:
     def test_test_file_does_not_fire(self):
         # Test files routinely build synthetic cv2 fixtures.
-        src = '''
+        src = """
 import cv2
 
 def test_helper(path):
     return cv2.imread(path)
-'''
+"""
         assert _violations(src, 'tests/test_image_utils.py') == []
 
     def test_top_level_script_does_not_fire(self):
         # Files outside modules/ and ui/ are not in scope -- e.g.
         # ad-hoc scripts at the repo root, tools/ helpers, lib/ files.
-        src = '''
+        src = """
 import cv2
 
 def main():
     return cv2.imread('foo.png')
-'''
+"""
         assert _violations(src, 'tools/some_helper.py') == []
         assert _violations(src, 'lib/some_lib.py') == []
 
@@ -126,20 +126,20 @@ class TestRule31aIgnoresNonCv2Calls:
         # cv2.cvtColor and other cv2 functions are out of scope (LAB
         # color transfer in stitch_algorithms uses cvtColor + split +
         # merge legitimately).
-        src = '''
+        src = """
 import cv2
 
 def to_gray(arr):
     return cv2.cvtColor(arr, cv2.COLOR_BGR2GRAY)
-'''
+"""
         assert _violations(src, 'modules/some_processor.py') == []
 
     def test_imread_from_other_module_does_not_fire(self):
         # tifffile.imread or some_module.imread are not bare cv2 calls.
-        src = '''
+        src = """
 import tifffile
 
 def load(path):
     return tifffile.imread(path)
-'''
+"""
         assert _violations(src, 'modules/some_processor.py') == []

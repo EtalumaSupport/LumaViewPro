@@ -482,9 +482,7 @@ class MotionAPI:
             # Z=0.
             self.is_turreting = False
             if restore_z:
-                logger.info(
-                    f'[SCOPE API ] Restoring Z to {initial_z}', extra={'force_error': True}
-                )
+                logger.info(f'[SCOPE API ] Restoring Z to {initial_z}', extra={'force_error': True})
                 self.move_absolute_position('Z', pos=initial_z, wait_until_complete=True)
             else:
                 logger.info(
@@ -663,9 +661,7 @@ class MotionAPI:
         except HardwareError as e:
             # Typed disconnect/timeout at the moment of unplug (before
             # motor_connected flips). Expected; log without the traceback.
-            logger.warning(
-                f'[SCOPE API ] get_home_status({axis}): {e}; treating as not home'
-            )
+            logger.warning(f'[SCOPE API ] get_home_status({axis}): {e}; treating as not home')
             return False
         except Exception as e:
             logger.exception(
@@ -1314,7 +1310,9 @@ class MotionAPI:
         # on its first cycle. Target is held in _move_profile[axis], where
         # get_target_position picks it up during MOVING.
         self._fire_position_listeners(axis)
-        self._scope.imaging.frame_validity.invalidate(self._AXIS_VALIDITY_SOURCE.get(axis, 'xy_move'))
+        self._scope.imaging.frame_validity.invalidate(
+            self._AXIS_VALIDITY_SOURCE.get(axis, 'xy_move')
+        )
         _api_log.info(f'move_abs {axis}={pos:.1f}um{" wait" if wait_until_complete else ""}')
 
         if wait_until_complete is True:
@@ -1402,7 +1400,9 @@ class MotionAPI:
         # on its first cycle. Target is held in _move_profile[axis], where
         # get_target_position picks it up during MOVING.
         self._fire_position_listeners(axis)
-        self._scope.imaging.frame_validity.invalidate(self._AXIS_VALIDITY_SOURCE.get(axis, 'xy_move'))
+        self._scope.imaging.frame_validity.invalidate(
+            self._AXIS_VALIDITY_SOURCE.get(axis, 'xy_move')
+        )
         _api_log.info(f'move_rel {axis}={um:+.1f}um{" wait" if wait_until_complete else ""}')
 
         if wait_until_complete is True:

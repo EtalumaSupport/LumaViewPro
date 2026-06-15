@@ -26,24 +26,24 @@ def _violations(content: str, path: str) -> list:
 
 class TestRule31cBlocksBareImwriteWithoutHelper:
     def test_bare_tf_imwrite_in_zprojector_with_no_helper_blocks(self):
-        src = '''
+        src = """
 import tifffile as tf
 
 def _zproject(self, path, df):
     tf.imwrite("out.tiff", data=some_array)
-'''
+"""
         violations = _violations(src, 'modules/zprojector.py')
         assert len(violations) == 1
         assert violations[0].rule == 'rule_31c'
         assert violations[0].line == 5
 
     def test_bare_tifffile_imwrite_in_stitcher_with_no_helper_blocks(self):
-        src = '''
+        src = """
 import tifffile
 
 def _stitch(path):
     tifffile.imwrite(path / "out.tiff", arr)
-'''
+"""
         violations = _violations(src, 'modules/stitcher.py')
         assert len(violations) == 1
         assert violations[0].rule == 'rule_31c'
@@ -51,14 +51,14 @@ def _stitch(path):
 
 class TestRule31cAllowsBareImwriteWithPairedHelper:
     def test_zprojector_with_maybe_apply_false_color_passes(self):
-        src = '''
+        src = """
 import tifffile as tf
 from modules import image_utils
 
 def _zproject(self, path, df):
     data = image_utils.maybe_apply_false_color(data=arr, color=df['Color'].iloc[0])
     tf.imwrite("out.tiff", data=data)
-'''
+"""
         assert _violations(src, 'modules/zprojector.py') == []
 
     def test_stitcher_with_write_tiff_passes(self):
@@ -66,12 +66,12 @@ def _zproject(self, path, df):
         # (no separate tf.imwrite), no bare-imwrite to flag at all --
         # but the regex still passes because write_tiff is in the
         # helper allowlist.
-        src = '''
+        src = """
 from modules import image_utils
 
 def _stitch(path):
     image_utils.write_tiff(data=arr, file_loc=path, ...)
-'''
+"""
         assert _violations(src, 'modules/stitcher.py') == []
 
 
@@ -81,22 +81,22 @@ class TestRule31cScopedToPostProcessorPaths:
         # (it is the canonical capture-side save path and already uses
         # write_tiff for fluorescence). A bare tf.imwrite somewhere in
         # protocol_image_writer is not in scope for rule_31c.
-        src = '''
+        src = """
 import tifffile as tf
 
 def helper(path, arr):
     tf.imwrite(path, arr)
-'''
+"""
         assert _violations(src, 'modules/protocol_image_writer.py') == []
 
     def test_bare_imwrite_in_test_file_does_not_fire(self):
         # Test files build synthetic TIFFs via tf.imwrite all the time.
-        src = '''
+        src = """
 import tifffile as tf
 
 def _write_mono(p, value):
     tf.imwrite(str(p), value)
-'''
+"""
         assert _violations(src, 'tests/test_zprojector.py') == []
 
 
@@ -104,7 +104,7 @@ class TestRule31cFunctionScopingHonored:
     def test_helper_in_one_function_does_not_satisfy_sibling_function(self):
         # Function A has the helper. Function B has a bare imwrite with
         # no helper. The pairing is per-function -- B must fire.
-        src = '''
+        src = """
 import tifffile as tf
 from modules import image_utils
 
@@ -113,7 +113,7 @@ def function_a(arr, color):
 
 def function_b(arr, path):
     tf.imwrite(str(path), arr)
-'''
+"""
         violations = _violations(src, 'modules/zprojector.py')
         assert len(violations) == 1
         assert violations[0].line == 9
@@ -126,23 +126,23 @@ class TestRule31cCompositeGenerationCovered:
         # through image_utils.write_tiff. A regression that reintroduces
         # a bare tifffile.imwrite there silently widens or strips the
         # false-color channel; the rule catches it.
-        src = '''
+        src = """
 import tifffile as tf
 
 def _build_composite(arr, path):
     tf.imwrite(str(path), arr)
-'''
+"""
         violations = _violations(src, 'modules/composite_generation.py')
         assert len(violations) == 1
         assert violations[0].rule == 'rule_31c'
 
     def test_composite_with_write_tiff_helper_passes(self):
-        src = '''
+        src = """
 from modules import image_utils
 
 def _build_composite(arr, path):
     image_utils.write_tiff(data=arr, file_loc=path)
-'''
+"""
         assert _violations(src, 'modules/composite_generation.py') == []
 
     def test_stack_builder_bare_tf_imwrite_blocks(self):
@@ -151,12 +151,12 @@ def _build_composite(arr, path):
         # (via the hyperstack_metadata override hook). A regression that
         # reintroduces a bare tifffile.imwrite in stack_builder bypasses
         # the canonical save path; the rule catches it.
-        src = '''
+        src = """
 import tifffile as tf
 
 def _save(arr, path):
     tf.imwrite(str(path), arr, ome=True)
-'''
+"""
         violations = _violations(src, 'modules/stack_builder.py')
         assert len(violations) == 1
         assert violations[0].rule == 'rule_31c'
@@ -166,7 +166,7 @@ def _save(arr, path):
         # the hyperstack_metadata override. The helper presence in the
         # same function satisfies the pairing requirement even if a
         # bare imwrite slipped in (belt-and-suspenders).
-        src = '''
+        src = """
 from modules import image_utils
 
 def _create_stack(arr, path):
@@ -178,5 +178,5 @@ def _create_stack(arr, path):
         color='',
         hyperstack_metadata={'axes': 'TZCYX'},
     )
-'''
+"""
         assert _violations(src, 'modules/stack_builder.py') == []

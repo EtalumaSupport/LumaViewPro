@@ -92,8 +92,12 @@ class TestEagerInitColorDeferral:
         out = tmp_path / 'eager.avi'
         with mock.patch('modules.video_writer.cv2.VideoWriter', side_effect=_fake_ctor):
             writer = VideoWriter(
-                output_path=out, fps=30, width=32, height=24,
-                color=None, include_timestamp_overlay=False,
+                output_path=out,
+                fps=30,
+                width=32,
+                height=24,
+                color=None,
+                include_timestamp_overlay=False,
             )
             writer._use_pyav = False
             # color=None -> encoder init deferred until the first frame's ndim.
@@ -115,8 +119,12 @@ class TestEagerInitColorDeferral:
         with mock.patch('modules.video_writer.cv2.VideoWriter', side_effect=_fake_ctor):
             with mock.patch('modules.video_writer._HAS_PYAV', False):
                 writer = VideoWriter(
-                    output_path=out, fps=30, width=32, height=24,
-                    color='Red', include_timestamp_overlay=False,
+                    output_path=out,
+                    fps=30,
+                    width=32,
+                    height=24,
+                    color='Red',
+                    include_timestamp_overlay=False,
                 )
             writer.close()
         # color set -> output is always RGB; encoder opens eagerly as color.
@@ -158,12 +166,18 @@ class TestPyavEncoderThreadCap:
         fake_av.open.return_value = _FakeContainer(fake_stream)
 
         out = tmp_path / 'capped.mp4'
-        with mock.patch.object(video_writer_module, '_HAS_PYAV', True), \
-             mock.patch.object(video_writer_module, 'av', fake_av, create=True), \
-             mock.patch.object(video_writer_module.os, 'cpu_count', return_value=8):
+        with (
+            mock.patch.object(video_writer_module, '_HAS_PYAV', True),
+            mock.patch.object(video_writer_module, 'av', fake_av, create=True),
+            mock.patch.object(video_writer_module.os, 'cpu_count', return_value=8),
+        ):
             VideoWriter(
-                output_path=out, fps=30, width=32, height=24,
-                color='Red', include_timestamp_overlay=False,
+                output_path=out,
+                fps=30,
+                width=32,
+                height=24,
+                color='Red',
+                include_timestamp_overlay=False,
             )
 
         assert fake_stream.thread_count == 6, 'cores-2 on an 8-core box leaves GUI headroom'
@@ -174,12 +188,18 @@ class TestPyavEncoderThreadCap:
         fake_av.open.return_value = _FakeContainer(fake_stream)
 
         out = tmp_path / 'floor.mp4'
-        with mock.patch.object(video_writer_module, '_HAS_PYAV', True), \
-             mock.patch.object(video_writer_module, 'av', fake_av, create=True), \
-             mock.patch.object(video_writer_module.os, 'cpu_count', return_value=1):
+        with (
+            mock.patch.object(video_writer_module, '_HAS_PYAV', True),
+            mock.patch.object(video_writer_module, 'av', fake_av, create=True),
+            mock.patch.object(video_writer_module.os, 'cpu_count', return_value=1),
+        ):
             VideoWriter(
-                output_path=out, fps=30, width=32, height=24,
-                color='Red', include_timestamp_overlay=False,
+                output_path=out,
+                fps=30,
+                width=32,
+                height=24,
+                color='Red',
+                include_timestamp_overlay=False,
             )
 
         assert fake_stream.thread_count == 1, 'never below 1 thread on a 1-2 core box'

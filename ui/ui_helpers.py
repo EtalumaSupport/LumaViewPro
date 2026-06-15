@@ -223,9 +223,7 @@ def set_recording_title(elapsed_sec=None, total_sec=None):
     if elapsed_sec is None:
         set_title_event_text('Recording Video...')
     elif total_sec:
-        set_title_event_text(
-            f'Recording Video... {int(elapsed_sec)}s / {int(total_sec)}s'
-        )
+        set_title_event_text(f'Recording Video... {int(elapsed_sec)}s / {int(total_sec)}s')
     else:
         set_title_event_text(f'Recording Video... {int(elapsed_sec)}s')
 

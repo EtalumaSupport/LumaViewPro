@@ -75,8 +75,7 @@ def live_count(root: Path) -> int | None:
     """
     try:
         proc = subprocess.run(
-            [sys.executable, '-m', 'ruff', 'check', '.', '--output-format', 'json',
-             '--exit-zero'],
+            [sys.executable, '-m', 'ruff', 'check', '.', '--output-format', 'json', '--exit-zero'],
             cwd=root,
             capture_output=True,
             text=True,

@@ -15,9 +15,18 @@ from modules.config_helpers import build_sequenced_capture_config
 
 # Mirrors what Protocol.from_config consumes (see protocol.py).
 _CANONICAL_KEYS = {
-    'labware_id', 'objective_id', 'zstack_params', 'use_zstacking', 'tiling',
-    'tiling_overlap_percent', 'layer_configs', 'period', 'duration',
-    'frame_dimensions', 'binning_size', 'stim_config',
+    'labware_id',
+    'objective_id',
+    'zstack_params',
+    'use_zstacking',
+    'tiling',
+    'tiling_overlap_percent',
+    'layer_configs',
+    'period',
+    'duration',
+    'frame_dimensions',
+    'binning_size',
+    'stim_config',
 }
 
 
@@ -58,9 +67,7 @@ def test_tiling_overlap_preserved_when_supplied():
 
 
 def test_positions_included_only_when_supplied():
-    with_positions = build_sequenced_capture_config(
-        _values(positions=[{'name': 'ZStack'}])
-    )
+    with_positions = build_sequenced_capture_config(_values(positions=[{'name': 'ZStack'}]))
     assert with_positions['positions'] == [{'name': 'ZStack'}]
 
     without_positions = build_sequenced_capture_config(_values())

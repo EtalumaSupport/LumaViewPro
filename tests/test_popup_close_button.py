@@ -27,11 +27,11 @@ class TestInjectorInvariants:
 
     def test_idempotency_guard_present(self):
         # on_open fires on every open; the injector must no-op after the first.
-        assert "_etaluma_close_added" in POPUP_CLOSE_SRC
+        assert '_etaluma_close_added' in POPUP_CLOSE_SRC
 
     def test_close_button_dismisses(self):
-        assert "on_release" in POPUP_CLOSE_SRC
-        assert "popup.dismiss()" in POPUP_CLOSE_SRC
+        assert 'on_release' in POPUP_CLOSE_SRC
+        assert 'popup.dismiss()' in POPUP_CLOSE_SRC
 
     def test_uses_ascii_x_glyph(self):
         # Rule 24: ASCII only. The close glyph is a plain capital X.

@@ -73,8 +73,7 @@ class TestTransmittedAndUnknownLayers:
         assert rgb.shape == (8, 8, 3)
         for ch in range(3):
             assert (rgb[:, :, ch] == 100).all(), (
-                f'layer {layer}: channel {ch} should tile mono value, '
-                f'got {rgb[:, :, ch].flatten()}'
+                f'layer {layer}: channel {ch} should tile mono value, got {rgb[:, :, ch].flatten()}'
             )
 
 

@@ -12,13 +12,14 @@ Two send paths bypassed the logged serial wrapper and went dark:
 These assert both paths now log.
 """
 
+
 def test_raw_repl_logger_under_lvp_tree():
     """raw_repl's module logger must parent under 'LVP.' so its records
     propagate to the main + error handlers (bare __name__ has none)."""
     import drivers.raw_repl as raw_repl
 
     assert raw_repl.logger.name.startswith('LVP.'), (
-        f"raw_repl logger is {raw_repl.logger.name!r}; it must be under the "
+        f'raw_repl logger is {raw_repl.logger.name!r}; it must be under the '
         f"'LVP.' tree or firmware-flash / bootloader I/O logs into the void"
     )
 
@@ -49,8 +50,7 @@ def test_stim_probe_logs_to_serial_log(caplog, monkeypatch):
         assert board.supports_firmware_stim() is True
 
     probe_records = [
-        r for r in caplog.records
-        if r.name == 'LVP.serial' and 'STIM 0 0 1 2 1' in r.getMessage()
+        r for r in caplog.records if r.name == 'LVP.serial' and 'STIM 0 0 1 2 1' in r.getMessage()
     ]
     assert probe_records, (
         'supports_firmware_stim must log its raw STIM probe send/reply to '

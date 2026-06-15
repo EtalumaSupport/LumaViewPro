@@ -39,7 +39,8 @@ def test_success_log_includes_response_content(caplog):
     assert result is not None and 'CAL line one' in result
 
     summary_records = [
-        r for r in caplog.records
+        r
+        for r in caplog.records
         if r.name == 'LVP.serial' and 'CALREAD' in r.getMessage() and 'lines' in r.getMessage()
     ]
     assert summary_records, 'exchange_multiline must log a serial.log summary line'

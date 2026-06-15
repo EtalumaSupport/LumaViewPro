@@ -604,7 +604,7 @@ class _GpuPdhCountersOnce:
             query = ctypes.c_void_p()
             ret = self._PdhOpenQueryW(None, 0, ctypes.byref(query))
             if ret != self._ERROR_SUCCESS:
-                raise OSError(f'PdhOpenQueryW failed: 0x{ret & 0xffffffff:08x}')
+                raise OSError(f'PdhOpenQueryW failed: 0x{ret & 0xFFFFFFFF:08x}')
             self._query = query
 
             for name, path in (
@@ -633,15 +633,20 @@ class _GpuPdhCountersOnce:
         count = ctypes.c_ulong(0)
         # First pass with a null buffer reports the required size.
         ret = self._PdhGetFormattedCounterArrayW(
-            handle, self._PDH_FMT_DOUBLE,
-            ctypes.byref(size), ctypes.byref(count), None,
+            handle,
+            self._PDH_FMT_DOUBLE,
+            ctypes.byref(size),
+            ctypes.byref(count),
+            None,
         )
-        if (ret & 0xffffffff) != _PDH_MORE_DATA or size.value == 0:
+        if (ret & 0xFFFFFFFF) != _PDH_MORE_DATA or size.value == 0:
             return []
         buf = (ctypes.c_byte * size.value)()
         ret = self._PdhGetFormattedCounterArrayW(
-            handle, self._PDH_FMT_DOUBLE,
-            ctypes.byref(size), ctypes.byref(count),
+            handle,
+            self._PDH_FMT_DOUBLE,
+            ctypes.byref(size),
+            ctypes.byref(count),
             ctypes.cast(buf, ctypes.POINTER(self._ITEM)),
         )
         if ret != self._ERROR_SUCCESS:
@@ -682,8 +687,7 @@ class _GpuPdhCountersOnce:
             ):
                 if key in self._counters:
                     total = sum(
-                        v for n, v in self._read_array(self._counters[key])
-                        if self._pid_tag in n
+                        v for n, v in self._read_array(self._counters[key]) if self._pid_tag in n
                     )
                     out[field] = total / (1024 * 1024)
             return out

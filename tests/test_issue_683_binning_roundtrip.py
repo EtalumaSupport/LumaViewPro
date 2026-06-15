@@ -119,18 +119,14 @@ class TestBinningRoundTrip:
         """At 2x2 showing 1000x1000 (native 2000x2000), typing 1500x1500
         implies native 3000x3000 -- capped at the sensor native max."""
         native_max = {'width': 2000, 'height': 2000}
-        native = binning.displayed_to_native(
-            {'width': 1500, 'height': 1500}, 2, native_max
-        )
+        native = binning.displayed_to_native({'width': 1500, 'height': 1500}, 2, native_max)
         assert native == {'width': 2000, 'height': 2000}
 
     def test_displayed_edit_shrinks_native(self):
         """At 2x2, changing 1000x1000 down to 500x500 drops native to
         1000x1000 (500 * 2)."""
         native_max = {'width': 2000, 'height': 2000}
-        native = binning.displayed_to_native(
-            {'width': 500, 'height': 500}, 2, native_max
-        )
+        native = binning.displayed_to_native({'width': 500, 'height': 500}, 2, native_max)
         assert native == {'width': 1000, 'height': 1000}
 
     def test_alignment_floors_to_multiple_of_4(self):
@@ -186,7 +182,7 @@ class TestSimPostBinningContract:
     def test_binning_change_reclamps_full_frame(self):
         cam = SimulatedCamera()
         cam.set_frame_size(1920, 1200)  # full at 1x1
-        cam.set_binning_size(2)         # observed: 1920x1200 -> 960x600
+        cam.set_binning_size(2)  # observed: 1920x1200 -> 960x600
         assert cam.get_frame_size() == {'width': 960, 'height': 600}
         assert self._grab_shape(cam) == (600, 960)
 

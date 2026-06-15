@@ -61,7 +61,7 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-REPORT_VERSION = "1.0.0"
+REPORT_VERSION = '1.0.0'
 
 # Config files to exclude when reading from board filesystem
 FIRMWARE_EXCLUDE_FILES = {'main.py', 'boot.py'}
@@ -72,10 +72,7 @@ RECENT_PROTOCOL_COUNT = 10
 BACKLASH_FOLDER_PATTERNS = ['backlash', 'Backlash', 'BACKLASH']
 
 LOG_DELIMITER = (
-    "\n"
-    "=" * 72 + "\n"
-    "=== TECH SUPPORT REPORT GENERATION STARTED -- {timestamp} ===\n"
-    "=" * 72 + "\n"
+    '\n=' * 72 + '\n=== TECH SUPPORT REPORT GENERATION STARTED -- {timestamp} ===\n=' * 72 + '\n'
 )
 
 # Camera bandwidth test defaults
@@ -83,13 +80,13 @@ BANDWIDTH_TEST_FRAMES = 5000
 BANDWIDTH_TEST_TIMEOUT_S = 300  # 5 min -- generous for slow cameras
 
 # Disk speed test defaults
-DISK_SPEED_TEST_MB = 256         # Write this many MB
-DISK_SPEED_WARN_MBPS = 100      # Warn below this (video recording will lag)
+DISK_SPEED_TEST_MB = 256  # Write this many MB
+DISK_SPEED_WARN_MBPS = 100  # Warn below this (video recording will lag)
 
 # Voltage tolerance thresholds
 VOLTAGE_NOMINAL = {'5V': 5.0, '3.3V': 3.3, '1.2V': 1.2}
-VOLTAGE_WARN_PCT = 5.0          # +/-5% = warning
-VOLTAGE_FAIL_PCT = 10.0         # +/-10% = fail
+VOLTAGE_WARN_PCT = 5.0  # +/-5% = warning
+VOLTAGE_FAIL_PCT = 10.0  # +/-10% = fail
 
 # LED leakage threshold (mA with all LEDs off)
 LED_LEAKAGE_WARN_MA = 0.5
@@ -103,19 +100,20 @@ SERIAL_LATENCY_ITERATIONS = 100
 # The DRVSTAT and SPI commands in firmware abstract this, but for a raw
 # register dump we document the key diagnostic registers here.
 TMC5072_DIAG_REGISTERS = {
-    'GSTAT':       0x01,   # Global status (reset, driver error, UV)
-    'IHOLD_IRUN0': 0x30,   # Motor 0 hold/run current
-    'IHOLD_IRUN1': 0x50,   # Motor 1 hold/run current
-    'CHOPCONF0':   0x6C,   # Motor 0 chopper config
-    'CHOPCONF1':   0x7C,   # Motor 1 chopper config
-    'DRV_STATUS0': 0x6F,   # Motor 0 driver status (open load, short, OT)
-    'DRV_STATUS1': 0x7F,   # Motor 1 driver status
+    'GSTAT': 0x01,  # Global status (reset, driver error, UV)
+    'IHOLD_IRUN0': 0x30,  # Motor 0 hold/run current
+    'IHOLD_IRUN1': 0x50,  # Motor 1 hold/run current
+    'CHOPCONF0': 0x6C,  # Motor 0 chopper config
+    'CHOPCONF1': 0x7C,  # Motor 1 chopper config
+    'DRV_STATUS0': 0x6F,  # Motor 0 driver status (open load, short, OT)
+    'DRV_STATUS1': 0x7F,  # Motor 1 driver status
 }
 
 
 # ---------------------------------------------------------------------------
 # Path helpers -- mirrors platformdirs conventions
 # ---------------------------------------------------------------------------
+
 
 def _get_app_root():
     """Return the LumaViewPro application root directory."""
@@ -199,6 +197,7 @@ def _get_desktop():
 # Recent Protocols -- reusable from GUI "Recent Protocols" menu
 # ---------------------------------------------------------------------------
 
+
 def get_recent_protocols(n=RECENT_PROTOCOL_COUNT):
     """Return the N most recently modified protocol files.
 
@@ -234,20 +233,20 @@ def get_recent_protocols(n=RECENT_PROTOCOL_COUNT):
             # into the run directory -- so TSV matching is what surfaces a
             # running protocol that was never explicitly saved. JSON is also
             # accepted for legacy / exported protocols.
-            is_tsv_protocol = (proto_file.suffix == '.tsv'
-                               and Protocol.PROTOCOL_FILE_HEADER in head)
-            is_json_protocol = (proto_file.suffix == '.json'
-                                and any(k in head for k in
-                                        ('"steps"', '"sequences"', '"scan"',
-                                         '"protocol"', '"Protocol"')))
+            is_tsv_protocol = proto_file.suffix == '.tsv' and Protocol.PROTOCOL_FILE_HEADER in head
+            is_json_protocol = proto_file.suffix == '.json' and any(
+                k in head for k in ('"steps"', '"sequences"', '"scan"', '"protocol"', '"Protocol"')
+            )
             if is_tsv_protocol or is_json_protocol:
                 stat = proto_file.stat()
-                protocol_files.append({
-                    'path': proto_file,
-                    'modified': datetime.datetime.fromtimestamp(stat.st_mtime),
-                    'name': proto_file.stem,
-                    'size': stat.st_size,
-                })
+                protocol_files.append(
+                    {
+                        'path': proto_file,
+                        'modified': datetime.datetime.fromtimestamp(stat.st_mtime),
+                        'name': proto_file.stem,
+                        'size': stat.st_size,
+                    }
+                )
 
     protocol_files.sort(key=lambda x: x['modified'], reverse=True)
     return protocol_files[:n]
@@ -256,6 +255,7 @@ def get_recent_protocols(n=RECENT_PROTOCOL_COUNT):
 # ---------------------------------------------------------------------------
 # System Information
 # ---------------------------------------------------------------------------
+
 
 def _collect_system_info():
     """Collect OS, CPU, RAM, disks, power/sleep config."""
@@ -282,10 +282,15 @@ def _collect_system_info():
 
     # CPU detail
     if is_win:
-        info['cpu_detail'] = _run([
-            'wmic', 'cpu', 'get',
-            'Name,NumberOfCores,NumberOfLogicalProcessors,MaxClockSpeed',
-            '/format:list'])
+        info['cpu_detail'] = _run(
+            [
+                'wmic',
+                'cpu',
+                'get',
+                'Name,NumberOfCores,NumberOfLogicalProcessors,MaxClockSpeed',
+                '/format:list',
+            ]
+        )
     elif is_mac:
         info['cpu_detail'] = _run(['sysctl', '-n', 'machdep.cpu.brand_string'])
         info['cpu_cores'] = _run(['sysctl', '-n', 'hw.ncpu'])
@@ -298,12 +303,12 @@ def _collect_system_info():
 
     # RAM
     if is_win:
-        info['ram_detail'] = _run([
-            'wmic', 'memorychip', 'get', 'Capacity,Speed,Manufacturer',
-            '/format:list'])
-        info['ram_total'] = _run([
-            'wmic', 'computersystem', 'get', 'TotalPhysicalMemory',
-            '/format:list'])
+        info['ram_detail'] = _run(
+            ['wmic', 'memorychip', 'get', 'Capacity,Speed,Manufacturer', '/format:list']
+        )
+        info['ram_total'] = _run(
+            ['wmic', 'computersystem', 'get', 'TotalPhysicalMemory', '/format:list']
+        )
     elif is_mac:
         try:
             mem_bytes = int(_run(['sysctl', '-n', 'hw.memsize']))
@@ -319,12 +324,24 @@ def _collect_system_info():
 
     # Disks
     if is_win:
-        info['disk_drives'] = _run([
-            'wmic', 'diskdrive', 'get',
-            'Model,Size,InterfaceType,MediaType,Status', '/format:list'])
-        info['disk_partitions'] = _run([
-            'wmic', 'logicaldisk', 'get',
-            'DeviceID,Size,FreeSpace,FileSystem,VolumeName', '/format:list'])
+        info['disk_drives'] = _run(
+            [
+                'wmic',
+                'diskdrive',
+                'get',
+                'Model,Size,InterfaceType,MediaType,Status',
+                '/format:list',
+            ]
+        )
+        info['disk_partitions'] = _run(
+            [
+                'wmic',
+                'logicaldisk',
+                'get',
+                'DeviceID,Size,FreeSpace,FileSystem,VolumeName',
+                '/format:list',
+            ]
+        )
     elif is_mac:
         info['disk_usage'] = _run(['df', '-h'])
         info['disk_drives'] = _run(['diskutil', 'list'], timeout=15)[:3000]
@@ -334,21 +351,36 @@ def _collect_system_info():
     # Power / sleep configuration
     if is_win:
         # Targeted: just the sleep timeout and USB selective suspend
-        info['power_sleep_ac'] = _run([
-            'powercfg', '/query', 'SCHEME_CURRENT',
-            '238c9fa8-0aad-41ed-83f4-97be242c8f20',  # Sleep subgroup
-            '29f6c1db-86da-48c5-9fdb-f2b67b1f44da'],  # Sleep after (AC)
-            timeout=5)
-        info['power_sleep_dc'] = _run([
-            'powercfg', '/query', 'SCHEME_CURRENT',
-            '238c9fa8-0aad-41ed-83f4-97be242c8f20',
-            '9d7815a6-7ee4-497e-8888-515a05f02364'],  # Sleep after (DC)
-            timeout=5)
-        info['usb_selective_suspend'] = _run([
-            'powercfg', '/query', 'SCHEME_CURRENT',
-            '2a737441-1930-4402-8d77-b2bebba308a3',  # USB subgroup
-            '48e6b7a6-50f5-4782-a5d4-53bb8f07e226'],  # USB selective suspend
-            timeout=5)
+        info['power_sleep_ac'] = _run(
+            [
+                'powercfg',
+                '/query',
+                'SCHEME_CURRENT',
+                '238c9fa8-0aad-41ed-83f4-97be242c8f20',  # Sleep subgroup
+                '29f6c1db-86da-48c5-9fdb-f2b67b1f44da',
+            ],  # Sleep after (AC)
+            timeout=5,
+        )
+        info['power_sleep_dc'] = _run(
+            [
+                'powercfg',
+                '/query',
+                'SCHEME_CURRENT',
+                '238c9fa8-0aad-41ed-83f4-97be242c8f20',
+                '9d7815a6-7ee4-497e-8888-515a05f02364',
+            ],  # Sleep after (DC)
+            timeout=5,
+        )
+        info['usb_selective_suspend'] = _run(
+            [
+                'powercfg',
+                '/query',
+                'SCHEME_CURRENT',
+                '2a737441-1930-4402-8d77-b2bebba308a3',  # USB subgroup
+                '48e6b7a6-50f5-4782-a5d4-53bb8f07e226',
+            ],  # USB selective suspend
+            timeout=5,
+        )
         # Also grab the human-readable active power scheme
         info['power_scheme'] = _run(['powercfg', '/getactivescheme'], timeout=5)
     elif is_mac:
@@ -356,34 +388,52 @@ def _collect_system_info():
 
     # Screen resolution and DPI scaling (Kivy rendering issues)
     if is_win:
-        info['display'] = _run([
-            'wmic', 'path', 'Win32_VideoController', 'get',
-            'Name,CurrentHorizontalResolution,CurrentVerticalResolution,'
-            'CurrentRefreshRate', '/format:list'])
+        info['display'] = _run(
+            [
+                'wmic',
+                'path',
+                'Win32_VideoController',
+                'get',
+                'Name,CurrentHorizontalResolution,CurrentVerticalResolution,CurrentRefreshRate',
+                '/format:list',
+            ]
+        )
         # DPI scaling -- reg query is more reliable than wmic here
-        info['dpi_scaling'] = _run([
-            'reg', 'query',
-            r'HKCU\Control Panel\Desktop\WindowMetrics',
-            '/v', 'AppliedDPI'], timeout=5)
+        info['dpi_scaling'] = _run(
+            ['reg', 'query', r'HKCU\Control Panel\Desktop\WindowMetrics', '/v', 'AppliedDPI'],
+            timeout=5,
+        )
         # Also try the per-monitor DPI awareness setting
-        info['dpi_awareness'] = _run([
-            'reg', 'query',
-            r'HKCU\Control Panel\Desktop',
-            '/v', 'LogPixels'], timeout=5)
+        info['dpi_awareness'] = _run(
+            ['reg', 'query', r'HKCU\Control Panel\Desktop', '/v', 'LogPixels'], timeout=5
+        )
     elif is_mac:
         info['display'] = _run(['system_profiler', 'SPDisplaysDataType'], timeout=10)
 
     # Python package versions (critical dependencies)
     try:
         result = subprocess.run(
-            [sys.executable, '-m', 'pip', 'freeze'],
-            capture_output=True, text=True, timeout=15)
+            [sys.executable, '-m', 'pip', 'freeze'], capture_output=True, text=True, timeout=15
+        )
         all_packages = result.stdout.strip()
         info['pip_freeze'] = all_packages
         # Also extract the critical ones for the summary
-        critical = ['kivy', 'pypylon', 'ids-peak', 'ids_peak', 'numpy',
-                     'pyserial', 'Pillow', 'pillow', 'scipy',
-                     'opencv', 'cv2', 'psutil', 'requests', 'fastapi']
+        critical = [
+            'kivy',
+            'pypylon',
+            'ids-peak',
+            'ids_peak',
+            'numpy',
+            'pyserial',
+            'Pillow',
+            'pillow',
+            'scipy',
+            'opencv',
+            'cv2',
+            'psutil',
+            'requests',
+            'fastapi',
+        ]
         critical_pkgs = []
         for line in all_packages.split('\n'):
             pkg_lower = line.lower()
@@ -397,37 +447,44 @@ def _collect_system_info():
     # Basler Pylon
     try:
         import pypylon.pylon as pylon
+
         info['pylon_version'] = pylon.GetPylonVersion()
     except Exception:
         # Try to find Pylon install from registry or filesystem
         if is_win:
-            info['pylon_install'] = _run([
-                'reg', 'query',
-                r'HKLM\SOFTWARE\Basler\pylon',
-                '/ve'], timeout=5)
+            info['pylon_install'] = _run(
+                ['reg', 'query', r'HKLM\SOFTWARE\Basler\pylon', '/ve'], timeout=5
+            )
         else:
             info['pylon_install'] = 'pypylon not importable'
 
     # IDS Peak
     try:
         import ids_peak
+
         info['ids_peak_version'] = getattr(ids_peak, '__version__', 'imported but no __version__')
     except Exception:
         if is_win:
-            info['ids_peak_install'] = _run([
-                'reg', 'query',
-                r'HKLM\SOFTWARE\IDS\ids peak',
-                '/ve'], timeout=5)
+            info['ids_peak_install'] = _run(
+                ['reg', 'query', r'HKLM\SOFTWARE\IDS\ids peak', '/ve'], timeout=5
+            )
         else:
             info['ids_peak_install'] = 'ids_peak not importable'
 
     # Windows event log -- recent USB/driver errors
     if is_win:
-        info['recent_usb_events'] = _run([
-            'wevtutil', 'qe', 'System',
-            '/q:*[System[(EventID=219 or EventID=507 or EventID=112) '
-            'and TimeCreated[timediff(@SystemTime) <= 604800000]]]',
-            '/f:text', '/c:50'], timeout=10)
+        info['recent_usb_events'] = _run(
+            [
+                'wevtutil',
+                'qe',
+                'System',
+                '/q:*[System[(EventID=219 or EventID=507 or EventID=112) '
+                'and TimeCreated[timediff(@SystemTime) <= 604800000]]]',
+                '/f:text',
+                '/c:50',
+            ],
+            timeout=10,
+        )
 
     return info
 
@@ -447,38 +504,70 @@ def _collect_usb_devices():
 
     if is_win:
         # PnP entities: USB devices, cameras, COM ports
-        devices.append(('PnP_USB_Camera_Ports', _run([
-            'wmic', 'path', 'Win32_PnPEntity', 'where',
-            "PNPClass='USB' or PNPClass='USBDevice' or PNPClass='Camera' or PNPClass='Ports'",
-            'get', 'Name,DeviceID,Status,PNPClass', '/format:list'])))
-        devices.append(('USB_Hubs', _run([
-            'wmic', 'path', 'Win32_USBHub', 'get',
-            'Name,DeviceID,Status', '/format:list'])))
-        devices.append(('USB_Controllers', _run([
-            'wmic', 'path', 'Win32_USBController', 'get',
-            'Name,DeviceID,Status', '/format:list'])))
+        devices.append(
+            (
+                'PnP_USB_Camera_Ports',
+                _run(
+                    [
+                        'wmic',
+                        'path',
+                        'Win32_PnPEntity',
+                        'where',
+                        "PNPClass='USB' or PNPClass='USBDevice' or PNPClass='Camera' or PNPClass='Ports'",
+                        'get',
+                        'Name,DeviceID,Status,PNPClass',
+                        '/format:list',
+                    ]
+                ),
+            )
+        )
+        devices.append(
+            (
+                'USB_Hubs',
+                _run(
+                    ['wmic', 'path', 'Win32_USBHub', 'get', 'Name,DeviceID,Status', '/format:list']
+                ),
+            )
+        )
+        devices.append(
+            (
+                'USB_Controllers',
+                _run(
+                    [
+                        'wmic',
+                        'path',
+                        'Win32_USBController',
+                        'get',
+                        'Name,DeviceID,Status',
+                        '/format:list',
+                    ]
+                ),
+            )
+        )
     elif platform.system() == 'Darwin':
-        devices.append(('SPUSBDataType', _run([
-            'system_profiler', 'SPUSBDataType'])))
+        devices.append(('SPUSBDataType', _run(['system_profiler', 'SPUSBDataType'])))
     else:
         devices.append(('lsusb', _run(['lsusb', '-v'])[:5000]))
 
     # pyserial port enumeration (always)
     try:
         from serial.tools import list_ports
+
         ports = []
         for port in list_ports.comports(include_links=True):
-            ports.append({
-                'device': port.device,
-                'description': port.description,
-                'hwid': port.hwid,
-                'vid': f'0x{port.vid:04X}' if port.vid else None,
-                'pid': f'0x{port.pid:04X}' if port.pid else None,
-                'serial_number': port.serial_number,
-                'manufacturer': port.manufacturer,
-                'product': port.product,
-                'location': port.location,
-            })
+            ports.append(
+                {
+                    'device': port.device,
+                    'description': port.description,
+                    'hwid': port.hwid,
+                    'vid': f'0x{port.vid:04X}' if port.vid else None,
+                    'pid': f'0x{port.pid:04X}' if port.pid else None,
+                    'serial_number': port.serial_number,
+                    'manufacturer': port.manufacturer,
+                    'product': port.product,
+                    'location': port.location,
+                }
+            )
         devices.append(('pyserial_ports', json.dumps(ports, indent=2)))
     except Exception as e:
         devices.append(('pyserial_error', str(e)))
@@ -492,9 +581,18 @@ def _collect_device_manager_full():
         return None
     try:
         r = subprocess.run(
-            ['wmic', 'path', 'Win32_PnPEntity', 'get',
-             'Name,DeviceID,Status,PNPClass,Manufacturer', '/format:csv'],
-            capture_output=True, text=True, timeout=30)
+            [
+                'wmic',
+                'path',
+                'Win32_PnPEntity',
+                'get',
+                'Name,DeviceID,Status,PNPClass,Manufacturer',
+                '/format:csv',
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
         return r.stdout
     except Exception as e:
         return f'Error: {e}'
@@ -513,6 +611,7 @@ def _collect_device_manager_full():
 # ---------------------------------------------------------------------------
 # Motorconfig Validator
 # ---------------------------------------------------------------------------
+
 
 def validate_motorconfig(config_data, source_label=''):
     """Validate motorconfig.json for syntax and sanity.
@@ -533,13 +632,13 @@ def validate_motorconfig(config_data, source_label=''):
             parsed = json.loads(config_data)
         except json.JSONDecodeError as e:
             result['valid'] = False
-            result['errors'].append(f"Invalid JSON: {e}")
+            result['errors'].append(f'Invalid JSON: {e}')
             return result
     elif isinstance(config_data, dict):
         parsed = config_data
     else:
         result['valid'] = False
-        result['errors'].append(f"Unexpected type: {type(config_data).__name__}")
+        result['errors'].append(f'Unexpected type: {type(config_data).__name__}')
         return result
 
     result['parsed'] = parsed
@@ -551,7 +650,7 @@ def validate_motorconfig(config_data, source_label=''):
 
     sn = parsed.get('Serial Number', '')
     if sn and not isinstance(sn, str):
-        result['errors'].append(f"Serial Number should be string, got {type(sn).__name__}")
+        result['errors'].append(f'Serial Number should be string, got {type(sn).__name__}')
     elif isinstance(sn, str) and len(sn) < 2:
         result['warnings'].append(f"Serial Number seems too short: '{sn}'")
 
@@ -560,25 +659,22 @@ def validate_motorconfig(config_data, source_label=''):
         axis = parsed.get(axis_name, {})
         if not isinstance(axis, dict):
             continue
-        for field in ['Steps Per mm', 'Steps Per Rev', 'Travel mm',
-                      'Initial Position after home']:
+        for field in ['Steps Per mm', 'Steps Per Rev', 'Travel mm', 'Initial Position after home']:
             val = axis.get(field)
             if val is not None:
                 if not isinstance(val, (int, float)):
                     result['errors'].append(
-                        f"{axis_name}.{field}: expected number, got {type(val).__name__}")
+                        f'{axis_name}.{field}: expected number, got {type(val).__name__}'
+                    )
                 elif val < 0 and field != 'Initial Position after home':
-                    result['warnings'].append(
-                        f"{axis_name}.{field}: negative ({val})")
+                    result['warnings'].append(f'{axis_name}.{field}: negative ({val})')
 
         travel = axis.get('Travel mm')
         if isinstance(travel, (int, float)):
             if axis_name in ('X Axis', 'Y Axis') and travel > 200:
-                result['warnings'].append(
-                    f"{axis_name}: Travel {travel}mm seems very large")
+                result['warnings'].append(f'{axis_name}: Travel {travel}mm seems very large')
             elif axis_name == 'Z Axis' and travel > 50:
-                result['warnings'].append(
-                    f"{axis_name}: Z Travel {travel}mm seems large")
+                result['warnings'].append(f'{axis_name}: Z Travel {travel}mm seems large')
 
     # Fan
     fan = parsed.get('Fan', {})
@@ -591,7 +687,8 @@ def validate_motorconfig(config_data, source_label=''):
     ts = parsed.get('Teststand', {})
     if isinstance(ts, dict) and ts.get('Enabled'):
         result['warnings'].append(
-            "Teststand mode is ENABLED -- should not be active on customer units")
+            'Teststand mode is ENABLED -- should not be active on customer units'
+        )
 
     return result
 
@@ -599,6 +696,7 @@ def validate_motorconfig(config_data, source_label=''):
 # ---------------------------------------------------------------------------
 # Camera Bandwidth Test
 # ---------------------------------------------------------------------------
+
 
 class CameraBandwidthTest:
     """Stress-test USB camera bandwidth.
@@ -640,6 +738,7 @@ class CameraBandwidthTest:
 # Firmware Diagnostics
 # ---------------------------------------------------------------------------
 
+
 class FirmwareDiagnostics:
     """Talks to LED and motor boards to collect diagnostic data.
 
@@ -666,9 +765,10 @@ class FirmwareDiagnostics:
         """
         try:
             from modules.lumascope_api import Lumascope
+
             self._scope = Lumascope.create_diagnostic()
         except Exception as e:
-            logger.warning(f"Diagnostic scope creation failed: {e}")
+            logger.warning(f'Diagnostic scope creation failed: {e}')
             self._scope = None
 
     @property
@@ -766,7 +866,8 @@ class FirmwareDiagnostics:
         if self._scope is None:
             return 'Board not connected'
         return self._scope.diagnostics.send_diagnostic_command(
-            target_str, command, timeout_s=timeout_s)
+            target_str, command, timeout_s=timeout_s
+        )
 
     def _read_multiline(self, target, command, timeout_s=60, end_markers=None):
         """Send command and read multi-line response (for SELFTEST etc.)."""
@@ -776,7 +877,8 @@ class FirmwareDiagnostics:
         if self._scope is None:
             return 'Board not connected'
         return self._scope.diagnostics.send_diagnostic_command_multiline(
-            target_str, command, timeout_s=timeout_s, end_markers=end_markers)
+            target_str, command, timeout_s=timeout_s, end_markers=end_markers
+        )
 
     def _target_str(self, target):
         """Resolve a target (string or board object) to 'led' / 'motor'.
@@ -804,7 +906,9 @@ class FirmwareDiagnostics:
 
     def get_led_info(self):
         return self._read_multiline(
-            self.led_board, 'INFO', timeout_s=5,
+            self.led_board,
+            'INFO',
+            timeout_s=5,
             end_markers=['RESET CAUSE', 'POWER-ON', 'HARD', 'WDT', 'CALIBRATION'],
         )
 
@@ -873,7 +977,9 @@ class FirmwareDiagnostics:
 
     def get_led_readings(self):
         return self._read_multiline(
-            self.led_board, 'LEDREADS', timeout_s=30,
+            self.led_board,
+            'LEDREADS',
+            timeout_s=30,
             end_markers=['LED7 LED_K', 'AIN1)', 'ERROR'],
         )
 
@@ -898,8 +1004,7 @@ class FirmwareDiagnostics:
         """
         if not self._scope:
             return dict.fromkeys('XYZT')
-        return {ax: self._scope.diagnostics.read_motor_drv_status(ax)
-                for ax in 'XYZT'}
+        return {ax: self._scope.diagnostics.read_motor_drv_status(ax) for ax in 'XYZT'}
 
     def get_motor_positions_all(self):
         """Actual/target/status for all 4 axes."""
@@ -942,11 +1047,11 @@ class FirmwareDiagnostics:
         result = {}
         try:
             if not board.enter_raw_repl():
-                logger.warning(f"Could not enter raw REPL on {label} board")
+                logger.warning(f'Could not enter raw REPL on {label} board')
                 return None
 
             files = board.repl_list_files()
-            logger.info(f"Files on {label} board: {files}")
+            logger.info(f'Files on {label} board: {files}')
 
             for fname in files:
                 if fname in FIRMWARE_EXCLUDE_FILES:
@@ -957,10 +1062,10 @@ class FirmwareDiagnostics:
                 content = board.repl_read_file(fname)
                 if content is not None:
                     result[fname] = content
-                    logger.info(f"  Read {label}/{fname} ({len(content)} bytes)")
+                    logger.info(f'  Read {label}/{fname} ({len(content)} bytes)')
 
         except Exception as e:
-            logger.warning(f"Raw REPL file read error ({label}): {e}")
+            logger.warning(f'Raw REPL file read error ({label}): {e}')
         finally:
             board.exit_raw_repl()
             # Verify firmware restarted after raw REPL exit -- the serial
@@ -968,9 +1073,9 @@ class FirmwareDiagnostics:
             # fail silently without this check.
             try:
                 board.verify_firmware_running(timeout=10)
-                logger.info(f"{label} board firmware verified after raw REPL")
+                logger.info(f'{label} board firmware verified after raw REPL')
             except Exception as e:
-                logger.warning(f"{label} board firmware not responding after raw REPL: {e}")
+                logger.warning(f'{label} board firmware not responding after raw REPL: {e}')
 
         return result if result else None
 
@@ -1046,14 +1151,18 @@ class FirmwareDiagnostics:
         """
         if not self._motor_ok():
             return {
-                'supported': False, 'passed': None, 'rails': {},
+                'supported': False,
+                'passed': None,
+                'rails': {},
                 'message': 'Motor board not connected',
             }
 
         rails_dict = self.get_voltages()
         if rails_dict is None:
             return {
-                'supported': False, 'passed': None, 'rails': {},
+                'supported': False,
+                'passed': None,
+                'rails': {},
                 'message': (
                     'Firmware does not support the VOLTAGE diagnostic. '
                     'Upgrade motor firmware to v3.1+ to enable this '
@@ -1062,15 +1171,19 @@ class FirmwareDiagnostics:
             }
 
         results = {
-            'supported': True, 'passed': True, 'rails': {},
+            'supported': True,
+            'passed': True,
+            'rails': {},
         }
         any_parsed = False
         for rail_name, nominal in VOLTAGE_NOMINAL.items():
             reading = rails_dict.get(rail_name)
             if reading is None:
                 results['rails'][rail_name] = {
-                    'nominal': nominal, 'reading': None,
-                    'status': 'UNKNOWN', 'deviation_pct': None,
+                    'nominal': nominal,
+                    'reading': None,
+                    'status': 'UNKNOWN',
+                    'deviation_pct': None,
                 }
                 continue
 
@@ -1191,21 +1304,25 @@ class FirmwareDiagnostics:
         rpm_50 = self._scope.diagnostics.read_motor_fanspeed()
 
         has_tach = rpm_50 is not None and rpm_50 > 100
-        results['tests'].append({
-            'duty_pct': 50,
-            'rpm': rpm_50,
-            'tachometer_detected': has_tach,
-        })
+        results['tests'].append(
+            {
+                'duty_pct': 50,
+                'rpm': rpm_50,
+                'tachometer_detected': has_tach,
+            }
+        )
 
         # Test 2: Fan off, read RPM
         self._scope.diagnostics.set_motor_fan_duty(0)
         time.sleep(3.0)
         rpm_off = self._scope.diagnostics.read_motor_fanspeed()
 
-        results['tests'].append({
-            'duty_pct': 0,
-            'rpm': rpm_off,
-        })
+        results['tests'].append(
+            {
+                'duty_pct': 0,
+                'rpm': rpm_off,
+            }
+        )
 
         results['tachometer_present'] = has_tach
 
@@ -1269,6 +1386,7 @@ class FirmwareDiagnostics:
 # Standalone-mode diagnostic-scope shim
 # ---------------------------------------------------------------------------
 
+
 class _BoardOnlyDiagnosticScope:
     """Minimal scope-shaped wrapper around explicit driver-board handles.
 
@@ -1292,11 +1410,9 @@ class _BoardOnlyDiagnosticScope:
             return self.led
         if target in ('motor', 'motion'):
             return self.motion
-        raise ValueError(
-            f"_BoardOnlyDiagnosticScope: unknown target {target!r}")
+        raise ValueError(f'_BoardOnlyDiagnosticScope: unknown target {target!r}')
 
-    def send_diagnostic_command(self, target, command, *,
-                                response_numlines=None, timeout_s=None):
+    def send_diagnostic_command(self, target, command, *, response_numlines=None, timeout_s=None):
         try:
             board = self._board(target)
         except ValueError as e:
@@ -1316,8 +1432,7 @@ class _BoardOnlyDiagnosticScope:
         except Exception as e:
             return f'Error: {e}'
 
-    def send_diagnostic_command_multiline(self, target, command, *,
-                                          timeout_s=60, end_markers=None):
+    def send_diagnostic_command_multiline(self, target, command, *, timeout_s=60, end_markers=None):
         try:
             board = self._board(target)
         except ValueError as e:
@@ -1327,8 +1442,7 @@ class _BoardOnlyDiagnosticScope:
         if end_markers is None:
             end_markers = ['PASS', 'FAIL', 'COMPLETE', 'DONE', 'ERROR']
         try:
-            result = board.exchange_multiline(
-                command, timeout=timeout_s, end_markers=end_markers)
+            result = board.exchange_multiline(command, timeout=timeout_s, end_markers=end_markers)
             return result if result else 'No response'
         except Exception as e:
             return f'Error: {e}'
@@ -1338,11 +1452,11 @@ class _BoardOnlyDiagnosticScope:
 # Main Report Generator
 # ---------------------------------------------------------------------------
 
+
 class TechSupportReport:
     """Generate a comprehensive diagnostic ZIP for Etaluma tech support."""
 
-    def __init__(self, scope=None, session=None,
-                 led_board=None, motor_board=None, camera=None):
+    def __init__(self, scope=None, session=None, led_board=None, motor_board=None, camera=None):
         # Store scope as primary interface -- avoid extracting raw driver
         # objects at this level.  FirmwareDiagnostics handles board access.
         if scope is not None:
@@ -1361,8 +1475,7 @@ class TechSupportReport:
         if self.scope is not None:
             self.diag = FirmwareDiagnostics(scope=self.scope)
         elif led_board is not None or motor_board is not None:
-            self.diag = FirmwareDiagnostics(
-                scope=_BoardOnlyDiagnosticScope(led_board, motor_board))
+            self.diag = FirmwareDiagnostics(scope=_BoardOnlyDiagnosticScope(led_board, motor_board))
         else:
             # No scope, no boards -- standalone will call diag.connect_standalone()
             self.diag = FirmwareDiagnostics()
@@ -1380,27 +1493,24 @@ class TechSupportReport:
         if self.scope is None:
             return False
         try:
-            return bool(
-                self.scope.diagnostics.get_camera_diagnostic_info().get('connected', False)
-            )
+            return bool(self.scope.diagnostics.get_camera_diagnostic_info().get('connected', False))
         except Exception:
             return False
 
     def cancel(self):
         self._cancelled = True
 
-    def generate(self, callback=None, include_bandwidth_test=False,
-                 output_dir=None):
+    def generate(self, callback=None, include_bandwidth_test=False, output_dir=None):
         """Generate report. Returns path to ZIP, or None on failure."""
         cb = callback or (lambda pct, msg: None)
         try:
             return self._generate(cb, include_bandwidth_test, output_dir)
         except _Cancelled:
-            cb(100, "Cancelled.")
+            cb(100, 'Cancelled.')
             return None
         except Exception as e:
-            logger.error(f"Report failed: {e}", exc_info=True)
-            cb(100, f"Error: {e}")
+            logger.error(f'Report failed: {e}', exc_info=True)
+            cb(100, f'Error: {e}')
             return None
 
     def _check_cancel(self):
@@ -1408,111 +1518,111 @@ class TechSupportReport:
             raise _Cancelled()
 
     def _generate(self, cb, include_bw, output_dir):
-        cb(0, "Starting report generation...")
+        cb(0, 'Starting report generation...')
         self._write_log_delimiter()
 
         with tempfile.TemporaryDirectory(prefix='lvp_report_') as tmp:
             tmp = pathlib.Path(tmp)
 
             # 1. Firmware info + serial number  (0-5%)
-            cb(1, "Querying firmware...")
+            cb(1, 'Querying firmware...')
             sn = self._step_firmware_info(tmp)
             self._check_cancel()
 
             # 2. Config files from both boards via raw REPL  (5-10%)
-            cb(6, "Backing up firmware config files...")
+            cb(6, 'Backing up firmware config files...')
             self._step_configbackup(tmp)
             self._check_cancel()
 
             # 3. LED selftest  (10-15%)
-            cb(11, "Running LED selftest...")
+            cb(11, 'Running LED selftest...')
             self._step_firmware_tests(tmp)
             self._check_cancel()
 
             # 4. Voltage tolerance + LED leakage checks  (15-18%)
-            cb(16, "Checking voltages and LED leakage...")
+            cb(16, 'Checking voltages and LED leakage...')
             self._step_voltage_and_led_checks(tmp)
             self._check_cancel()
 
             # 5. TMC5072 register dump  (18-20%)
-            cb(19, "Reading motor driver registers...")
+            cb(19, 'Reading motor driver registers...')
             self._step_tmc_registers(tmp)
             self._check_cancel()
 
             # 6. Fan tachometer verification  (20-23%)
-            cb(21, "Testing fan...")
+            cb(21, 'Testing fan...')
             self._step_fan_test(tmp)
             self._check_cancel()
 
             # 7. Serial latency measurement  (23-27%)
-            cb(24, "Measuring serial latency...")
+            cb(24, 'Measuring serial latency...')
             self._step_serial_latency(tmp)
             self._check_cancel()
 
             # 8. Homing test  (27-35%)
-            cb(28, "Homing all axes...")
+            cb(28, 'Homing all axes...')
             self._step_homing_test(tmp)
             self._check_cancel()
 
             # 9. Camera diagnostics (temp)  (38-41%)
-            cb(39, "Checking camera...")
+            cb(39, 'Checking camera...')
             self._step_camera_diagnostics(tmp)
             self._check_cancel()
 
             # 11. System info  (48-52%)
-            cb(49, "Collecting system information...")
+            cb(49, 'Collecting system information...')
             self._step_system_info(tmp)
             self._check_cancel()
 
             # 12. USB devices  (52-55%)
-            cb(53, "Scanning USB devices...")
+            cb(53, 'Scanning USB devices...')
             self._step_usb_devices(tmp)
             self._check_cancel()
 
             # 13. Disk speed test  (55-60%)
-            cb(56, "Testing disk write speed...")
+            cb(56, 'Testing disk write speed...')
             self._step_disk_speed(tmp)
             self._check_cancel()
 
             # 14. Data folder  (60-63%)
-            cb(61, "Copying data folder...")
+            cb(61, 'Copying data folder...')
             self._step_data_folder(tmp)
             self._check_cancel()
 
             # 15. Logs  (63-66%)
-            cb(64, "Copying log files...")
+            cb(64, 'Copying log files...')
             self._step_logs(tmp)
             self._check_cancel()
 
             # 16. Backlash results  (66-69%)
-            cb(67, "Collecting backlash test results...")
+            cb(67, 'Collecting backlash test results...')
             self._step_backlash(tmp)
             self._check_cancel()
 
             # 17. Recent protocols  (69-72%)
-            cb(70, "Collecting recent protocols...")
+            cb(70, 'Collecting recent protocols...')
             self._step_protocols(tmp)
             self._check_cancel()
 
             # 18. Hardware serial tests (pytest)  (72-80%)
-            cb(73, "Running hardware serial tests...")
+            cb(73, 'Running hardware serial tests...')
             self._step_hardware_tests(tmp)
             self._check_cancel()
 
             # 19. Bandwidth test (optional)  (80-94%)
             if include_bw and self._camera_active():
-                cb(81, "Running camera bandwidth test (this takes a while)...")
+                cb(81, 'Running camera bandwidth test (this takes a while)...')
                 self._step_bandwidth(tmp, cb)
                 self._check_cancel()
 
             # 20. Metadata + ZIP  (94-100%)
-            cb(95, "Writing metadata...")
+            cb(95, 'Writing metadata...')
             self._step_metadata(tmp, sn)
 
-            cb(97, "Creating ZIP file...")
+            cb(97, 'Creating ZIP file...')
             zip_path = self._create_zip(tmp, sn, output_dir)
 
-            cb(100, f"Done -- {zip_path.name}")
+            cb(100, f'Done -- {zip_path.name}')
             return zip_path
 
     # -- Steps ---------------------------------------------------------------
@@ -1527,33 +1637,33 @@ class TechSupportReport:
         sn = self.diag.get_serial_number()
 
         with open(d / 'led_info.txt', 'w') as f:
-            f.write(f"LED Board INFO:\n{led_info}\n")
+            f.write(f'LED Board INFO:\n{led_info}\n')
 
         with open(d / 'motor_info.txt', 'w') as f:
-            f.write(f"Motor Board INFO:\n{motor_info}\n\n")
-            f.write(f"Motor Board FULLINFO:\n{fullinfo}\n\n")
-            f.write(f"Serial Number: {sn}\n")
+            f.write(f'Motor Board INFO:\n{motor_info}\n\n')
+            f.write(f'Motor Board FULLINFO:\n{fullinfo}\n\n')
+            f.write(f'Serial Number: {sn}\n')
 
         voltages = self.diag.get_voltages()
         with open(d / 'voltages.txt', 'w') as f:
-            f.write(f"Power Rail Voltages:\n{voltages}\n")
+            f.write(f'Power Rail Voltages:\n{voltages}\n')
 
         positions = self.diag.get_motor_positions_all()
         drvstat = self.diag.get_driver_status_all()
         with open(d / 'motor_status.txt', 'w') as f:
-            f.write("Motor Positions:\n")
+            f.write('Motor Positions:\n')
             for ax, data in positions.items():
-                f.write(f"  {ax}: {json.dumps(data)}\n")
-            f.write("\nTMC5072 Driver Status:\n")
+                f.write(f'  {ax}: {json.dumps(data)}\n')
+            f.write('\nTMC5072 Driver Status:\n')
             for ax, st in drvstat.items():
-                f.write(f"  {ax}: {st}\n")
+                f.write(f'  {ax}: {st}\n')
 
         fan = self.diag.get_fan_status()
         i2c = self.diag.get_i2c_scan()
         led_readings = self.diag.get_led_readings()
         with open(d / 'peripherals.txt', 'w') as f:
-            f.write(f"Fan: {fan}\n\nI2C Scan: {i2c}\n\n")
-            f.write(f"LED Readings (baseline, all off):\n{led_readings}\n")
+            f.write(f'Fan: {fan}\n\nI2C Scan: {i2c}\n\n')
+            f.write(f'LED Readings (baseline, all off):\n{led_readings}\n')
 
         self._meta['serial_number'] = sn
         self._meta['led_info'] = str(led_info)
@@ -1570,13 +1680,13 @@ class TechSupportReport:
             if files is None:
                 with open(d / f'{label}_config_UNAVAILABLE.txt', 'w') as f:
                     f.write(
-                        f"Could not read config files from {label} board.\n"
-                        f"Board may not be connected or raw REPL entry failed.\n"
+                        f'Could not read config files from {label} board.\n'
+                        f'Board may not be connected or raw REPL entry failed.\n'
                     )
                     if label == 'led':
                         f.write(
-                            "Note: LED board raw REPL may require a power cycle "
-                            "before config files can be read (SPI state issue).\n"
+                            'Note: LED board raw REPL may require a power cycle '
+                            'before config files can be read (SPI state issue).\n'
                         )
                 continue
 
@@ -1590,24 +1700,24 @@ class TechSupportReport:
                 filepath = board_dir / safe_name
                 with open(filepath, 'wb') as f:
                     f.write(content)
-                logger.info(f"  Saved {label}/{safe_name} ({len(content)} bytes)")
+                logger.info(f'  Saved {label}/{safe_name} ({len(content)} bytes)')
 
                 # Validate motorconfig.json
                 if safe_name.lower() == 'motorconfig.json':
                     validation = validate_motorconfig(content, f'{label}/{safe_name}')
                     with open(d / f'{label}_motorconfig_validation.txt', 'w') as f:
-                        f.write(f"Motorconfig Validation ({label}/{safe_name})\n")
-                        f.write(f"Valid: {validation['valid']}\n\n")
+                        f.write(f'Motorconfig Validation ({label}/{safe_name})\n')
+                        f.write(f'Valid: {validation["valid"]}\n\n')
                         if validation['errors']:
-                            f.write("ERRORS:\n")
+                            f.write('ERRORS:\n')
                             for e in validation['errors']:
-                                f.write(f"  !! {e}\n")
+                                f.write(f'  !! {e}\n')
                         if validation['warnings']:
-                            f.write("WARNINGS:\n")
+                            f.write('WARNINGS:\n')
                             for w in validation['warnings']:
-                                f.write(f"  -- {w}\n")
+                                f.write(f'  -- {w}\n')
                         if not validation['errors'] and not validation['warnings']:
-                            f.write("All checks passed.\n")
+                            f.write('All checks passed.\n')
 
     def _step_firmware_tests(self, tmp):
         d = tmp / 'firmware_tests'
@@ -1615,7 +1725,7 @@ class TechSupportReport:
 
         selftest = self.diag.run_led_selftest()
         with open(d / 'led_selftest.txt', 'w') as f:
-            f.write(f"LED SELFTEST:\n\n{selftest}\n")
+            f.write(f'LED SELFTEST:\n\n{selftest}\n')
 
     def _step_voltage_and_led_checks(self, tmp):
         """Check voltage rails against tolerance and LED leakage."""
@@ -1629,10 +1739,10 @@ class TechSupportReport:
         # not say "PASS" when no rail was actually measured.
         vtol = self.diag.check_voltage_tolerance()
         with open(d / 'voltage_tolerance.txt', 'w') as f:
-            f.write("Power Rail Voltage Tolerance Check\n" + "=" * 45 + "\n\n")
+            f.write('Power Rail Voltage Tolerance Check\n' + '=' * 45 + '\n\n')
             if vtol.get('passed') is None:
                 msg = vtol.get('message', 'No voltage readings available.')
-                f.write(f"Overall: INCONCLUSIVE\n  {msg}\n")
+                f.write(f'Overall: INCONCLUSIVE\n  {msg}\n')
             else:
                 for rail, data in vtol.get('rails', {}).items():
                     r = data.get('reading')
@@ -1640,32 +1750,35 @@ class TechSupportReport:
                     d_pct = data.get('deviation_pct')
                     st = data.get('status', '?')
                     if r is not None:
-                        f.write(f"  {rail:6s}  nominal={n}V  actual={r}V  "
-                                f"deviation={d_pct}%  [{st}]\n")
+                        f.write(
+                            f'  {rail:6s}  nominal={n}V  actual={r}V  deviation={d_pct}%  [{st}]\n'
+                        )
                     else:
-                        f.write(f"  {rail:6s}  could not parse reading  [{st}]\n")
-                f.write(f"\nOverall: {'PASS' if vtol.get('passed') else 'FAIL/WARN'}\n")
-                f.write(f"(Warn >{VOLTAGE_WARN_PCT}%, Fail >{VOLTAGE_FAIL_PCT}%)\n")
+                        f.write(f'  {rail:6s}  could not parse reading  [{st}]\n')
+                f.write(f'\nOverall: {"PASS" if vtol.get("passed") else "FAIL/WARN"}\n')
+                f.write(f'(Warn >{VOLTAGE_WARN_PCT}%, Fail >{VOLTAGE_FAIL_PCT}%)\n')
         with open(d / 'voltage_tolerance.json', 'w') as f:
             json.dump(vtol, f, indent=2, default=str)
 
         # LED leakage
         leakage = self.diag.check_led_leakage()
         with open(d / 'led_leakage.txt', 'w') as f:
-            f.write("LED Leakage Check (all LEDs off)\n" + "=" * 40 + "\n\n")
-            f.write(f"Raw response: {leakage.get('raw_response', 'N/A')}\n\n")
+            f.write('LED Leakage Check (all LEDs off)\n' + '=' * 40 + '\n\n')
+            f.write(f'Raw response: {leakage.get("raw_response", "N/A")}\n\n')
             if 'error' in leakage:
-                f.write(f"Error: {leakage['error']}\n")
+                f.write(f'Error: {leakage["error"]}\n')
             else:
                 for ch, data in leakage.get('channels', {}).items():
                     val = data.get('i_sens_mA')
                     st = data.get('status', '?')
                     if val is not None:
-                        f.write(f"  {ch}: {val:7.3f} mA  [{st}]\n")
+                        f.write(f'  {ch}: {val:7.3f} mA  [{st}]\n')
                     else:
-                        f.write(f"  {ch}: could not parse  [{st}]\n")
-                f.write(f"\nOverall: {'PASS' if leakage.get('passed') else 'WARN -- leakage detected'}\n")
-                f.write(f"(Threshold: {LED_LEAKAGE_WARN_MA} mA)\n")
+                        f.write(f'  {ch}: could not parse  [{st}]\n')
+                f.write(
+                    f'\nOverall: {"PASS" if leakage.get("passed") else "WARN -- leakage detected"}\n'
+                )
+                f.write(f'(Threshold: {LED_LEAKAGE_WARN_MA} mA)\n')
 
     def _step_tmc_registers(self, tmp):
         """Dump key TMC5072 diagnostic registers."""
@@ -1674,24 +1787,24 @@ class TechSupportReport:
 
         regs = self.diag.read_tmc5072_registers()
         with open(d / 'tmc5072_registers.txt', 'w') as f:
-            f.write("TMC5072 Register Dump\n" + "=" * 40 + "\n\n")
+            f.write('TMC5072 Register Dump\n' + '=' * 40 + '\n\n')
             if 'error' in regs:
-                f.write(f"Error: {regs['error']}\n")
+                f.write(f'Error: {regs["error"]}\n')
             else:
                 for chip, registers in regs.items():
-                    f.write(f"--- {chip} chip ---\n")
+                    f.write(f'--- {chip} chip ---\n')
                     for reg_name, value in registers.items():
-                        f.write(f"  {reg_name:16s}: {value}\n")
-                    f.write("\n")
-                f.write("Key flags in DRV_STATUS:\n")
-                f.write("  Bit 0-1: SG_RESULT (StallGuard)\n")
-                f.write("  Bit 24: s2ga (short to GND coil A)\n")
-                f.write("  Bit 25: s2gb (short to GND coil B)\n")
-                f.write("  Bit 26: ola (open load A -- motor disconnected?)\n")
-                f.write("  Bit 27: olb (open load B -- motor disconnected?)\n")
-                f.write("  Bit 25: ot (overtemperature shutdown)\n")
-                f.write("  Bit 26: otpw (overtemperature pre-warning)\n")
-                f.write("  Bit 31: stst (standstill indicator)\n")
+                        f.write(f'  {reg_name:16s}: {value}\n')
+                    f.write('\n')
+                f.write('Key flags in DRV_STATUS:\n')
+                f.write('  Bit 0-1: SG_RESULT (StallGuard)\n')
+                f.write('  Bit 24: s2ga (short to GND coil A)\n')
+                f.write('  Bit 25: s2gb (short to GND coil B)\n')
+                f.write('  Bit 26: ola (open load A -- motor disconnected?)\n')
+                f.write('  Bit 27: olb (open load B -- motor disconnected?)\n')
+                f.write('  Bit 25: ot (overtemperature shutdown)\n')
+                f.write('  Bit 26: otpw (overtemperature pre-warning)\n')
+                f.write('  Bit 31: stst (standstill indicator)\n')
         with open(d / 'tmc5072_registers.json', 'w') as f:
             json.dump(regs, f, indent=2, default=str)
 
@@ -1702,22 +1815,20 @@ class TechSupportReport:
 
         fan = self.diag.verify_fan_tachometer()
         with open(d / 'fan_test.txt', 'w') as f:
-            f.write("Fan Test (informational)\n" + "=" * 40 + "\n")
-            f.write("Note: Many units in the field do not have a tachometer\n")
-            f.write("wire installed. Zero RPM does not necessarily mean the\n")
-            f.write("fan is broken.\n\n")
+            f.write('Fan Test (informational)\n' + '=' * 40 + '\n')
+            f.write('Note: Many units in the field do not have a tachometer\n')
+            f.write('wire installed. Zero RPM does not necessarily mean the\n')
+            f.write('fan is broken.\n\n')
             if not fan.get('supported', True):
                 msg = fan.get('message', 'Fan diagnostic not available.')
-                f.write(f"INCONCLUSIVE: {msg}\n")
+                f.write(f'INCONCLUSIVE: {msg}\n')
             else:
                 tach = fan.get('tachometer_present', False)
-                f.write(f"Tachometer detected: {'Yes' if tach else 'No'}\n\n")
+                f.write(f'Tachometer detected: {"Yes" if tach else "No"}\n\n')
                 for t in fan.get('tests', []):
                     rpm = t.get('rpm')
                     rpm_str = 'unknown' if rpm is None else str(rpm)
-                    f.write(
-                        f"  Duty {t.get('duty_pct', '?')}%:  RPM={rpm_str}\n"
-                    )
+                    f.write(f'  Duty {t.get("duty_pct", "?")}%:  RPM={rpm_str}\n')
 
     def _step_serial_latency(self, tmp):
         """Measure serial round-trip latency on both boards."""
@@ -1730,28 +1841,34 @@ class TechSupportReport:
             results[label] = self.diag.measure_serial_latency(board, 'INFO')
 
         with open(d / 'serial_latency.txt', 'w') as f:
-            f.write("Serial Round-Trip Latency\n" + "=" * 40 + "\n\n")
+            f.write('Serial Round-Trip Latency\n' + '=' * 40 + '\n\n')
             for label, latency in results.items():
-                f.write(f"--- {label} Board ({SERIAL_LATENCY_ITERATIONS}x INFO) ---\n")
+                f.write(f'--- {label} Board ({SERIAL_LATENCY_ITERATIONS}x INFO) ---\n')
                 if 'error' in latency:
-                    f.write(f"  Error: {latency['error']}\n\n")
+                    f.write(f'  Error: {latency["error"]}\n\n')
                 else:
-                    f.write(f"  Min:     {latency['min_ms']:7.2f} ms\n")
-                    f.write(f"  Max:     {latency['max_ms']:7.2f} ms\n")
-                    f.write(f"  Mean:    {latency['mean_ms']:7.2f} ms\n")
-                    f.write(f"  Std dev: {latency['std_dev_ms']:7.2f} ms\n")
-                    f.write(f"  Errors:  {latency['errors']}\n\n")
+                    f.write(f'  Min:     {latency["min_ms"]:7.2f} ms\n')
+                    f.write(f'  Max:     {latency["max_ms"]:7.2f} ms\n')
+                    f.write(f'  Mean:    {latency["mean_ms"]:7.2f} ms\n')
+                    f.write(f'  Std dev: {latency["std_dev_ms"]:7.2f} ms\n')
+                    f.write(f'  Errors:  {latency["errors"]}\n\n')
                     # Flag suspicious results
                     if latency['max_ms'] > 100:
-                        f.write(f"  ** WARNING: max latency {latency['max_ms']}ms "
-                                f"-- possible USB suspend or contention **\n\n")
+                        f.write(
+                            f'  ** WARNING: max latency {latency["max_ms"]}ms '
+                            f'-- possible USB suspend or contention **\n\n'
+                        )
                     if latency['std_dev_ms'] > 20:
-                        f.write(f"  ** WARNING: high variance (std={latency['std_dev_ms']}ms) "
-                                f"-- unstable USB connection **\n\n")
+                        f.write(
+                            f'  ** WARNING: high variance (std={latency["std_dev_ms"]}ms) '
+                            f'-- unstable USB connection **\n\n'
+                        )
 
         with open(d / 'serial_latency.json', 'w') as f:
-            summary = {label: {k: v for k, v in lat.items() if k != 'timings_ms'}
-                       for label, lat in results.items()}
+            summary = {
+                label: {k: v for k, v in lat.items() if k != 'timings_ms'}
+                for label, lat in results.items()
+            }
             json.dump(summary, f, indent=2, default=str)
 
     def _step_homing_test(self, tmp):
@@ -1761,17 +1878,17 @@ class TechSupportReport:
 
         homing = self.diag.run_homing_test()
         with open(d / 'homing_test.txt', 'w') as f:
-            f.write("Homing Test\n" + "=" * 40 + "\n\n")
+            f.write('Homing Test\n' + '=' * 40 + '\n\n')
             if 'error' in homing:
-                f.write(f"Error: {homing['error']}\n")
+                f.write(f'Error: {homing["error"]}\n')
             else:
-                f.write(f"Overall: {'PASS' if homing['passed'] else 'FAIL'}\n\n")
+                f.write(f'Overall: {"PASS" if homing["passed"] else "FAIL"}\n\n')
                 for ax, data in homing.get('axes', {}).items():
-                    f.write(f"  {ax} axis:\n")
-                    f.write(f"    Home response: {data.get('home_response')}\n")
-                    f.write(f"    Actual after:  {data.get('actual_after')}\n")
-                    f.write(f"    Target after:  {data.get('target_after')}\n")
-                    f.write(f"    Status:        {data.get('status')}\n\n")
+                    f.write(f'  {ax} axis:\n')
+                    f.write(f'    Home response: {data.get("home_response")}\n')
+                    f.write(f'    Actual after:  {data.get("actual_after")}\n')
+                    f.write(f'    Target after:  {data.get("target_after")}\n')
+                    f.write(f'    Status:        {data.get("status")}\n\n')
         with open(d / 'homing_test.json', 'w') as f:
             json.dump(homing, f, indent=2, default=str)
 
@@ -1781,7 +1898,7 @@ class TechSupportReport:
         d.mkdir()
 
         if not self._camera_active():
-            (d / 'no_camera.txt').write_text("No camera available.\n")
+            (d / 'no_camera.txt').write_text('No camera available.\n')
             return
 
         api_info = self.scope.diagnostics.get_camera_diagnostic_info()
@@ -1791,27 +1908,38 @@ class TechSupportReport:
         # 'Temperature_<name>' entry per sensor) downstream consumers
         # may rely on.
         info: dict = {}
-        for key in ('model', 'resolution', 'pixel_format', 'gain_db',
-                    'exposure_ms', 'max_gain_db', 'max_exposure_ms'):
+        for key in (
+            'model',
+            'resolution',
+            'pixel_format',
+            'gain_db',
+            'exposure_ms',
+            'max_gain_db',
+            'max_exposure_ms',
+        ):
             if key in api_info:
                 info[key] = api_info[key]
         for name, temp_c in (api_info.get('temperatures') or {}).items():
             info[f'Temperature_{name}'] = temp_c
 
         with open(d / 'camera_info.txt', 'w') as f:
-            f.write("Camera Information\n" + "=" * 40 + "\n\n")
-            f.write(f"Camera model: {api_info.get('model', '?')}\n\n")
+            f.write('Camera Information\n' + '=' * 40 + '\n\n')
+            f.write(f'Camera model: {api_info.get("model", "?")}\n\n')
             for key, val in info.items():
                 label = key.replace('get_', '').replace('_', ' ').title()
-                f.write(f"  {label}: {val}\n")
+                f.write(f'  {label}: {val}\n')
                 # Flag hot cameras
                 if 'temperature' in key.lower() and isinstance(val, (int, float)):
                     if val > 60:
-                        f.write(f"    ** WARNING: sensor temperature {val}degC "
-                                f"is high -- check cooling/ventilation **\n")
+                        f.write(
+                            f'    ** WARNING: sensor temperature {val}degC '
+                            f'is high -- check cooling/ventilation **\n'
+                        )
                     elif val > 45:
-                        f.write(f"    ** Note: sensor at {val}degC "
-                                f"(elevated, may affect image noise) **\n")
+                        f.write(
+                            f'    ** Note: sensor at {val}degC '
+                            f'(elevated, may affect image noise) **\n'
+                        )
         with open(d / 'camera_info.json', 'w') as f:
             json.dump(info, f, indent=2, default=str)
 
@@ -1869,7 +1997,9 @@ class TechSupportReport:
                 logger.debug(
                     '[TSR] disk_speed_test: disk_usage(%s) failed; '
                     'disk space fields omitted from report: %s: %s',
-                    test_dir, type(e).__name__, e,
+                    test_dir,
+                    type(e).__name__,
+                    e,
                 )
 
         except Exception as e:
@@ -1883,24 +2013,30 @@ class TechSupportReport:
                 pass
 
         with open(d / 'disk_speed.txt', 'w') as f:
-            f.write("Disk Speed Test\n" + "=" * 40 + "\n\n")
-            f.write(f"Test directory: {results.get('test_directory')}\n")
-            f.write(f"Test size:      {DISK_SPEED_TEST_MB} MB\n\n")
+            f.write('Disk Speed Test\n' + '=' * 40 + '\n\n')
+            f.write(f'Test directory: {results.get("test_directory")}\n')
+            f.write(f'Test size:      {DISK_SPEED_TEST_MB} MB\n\n')
             if 'error' in results:
-                f.write(f"Error: {results['error']}\n")
+                f.write(f'Error: {results["error"]}\n')
             else:
-                f.write(f"Write speed: {results.get('write_mbps', '?')} MB/s "
-                        f"({results.get('write_elapsed_s', '?')}s)\n")
-                f.write(f"Read speed:  {results.get('read_mbps', '?')} MB/s "
-                        f"({results.get('read_elapsed_s', '?')}s)\n\n")
+                f.write(
+                    f'Write speed: {results.get("write_mbps", "?")} MB/s '
+                    f'({results.get("write_elapsed_s", "?")}s)\n'
+                )
+                f.write(
+                    f'Read speed:  {results.get("read_mbps", "?")} MB/s '
+                    f'({results.get("read_elapsed_s", "?")}s)\n\n'
+                )
                 if 'disk_free_gb' in results:
-                    f.write(f"Disk total:  {results['disk_total_gb']} GB\n")
-                    f.write(f"Disk free:   {results['disk_free_gb']} GB\n")
-                    f.write(f"Disk used:   {results['disk_used_pct']}%\n\n")
-                f.write(f"Result: {'PASS' if results.get('passed') else 'FAIL'}\n")
+                    f.write(f'Disk total:  {results["disk_total_gb"]} GB\n')
+                    f.write(f'Disk free:   {results["disk_free_gb"]} GB\n')
+                    f.write(f'Disk used:   {results["disk_used_pct"]}%\n\n')
+                f.write(f'Result: {"PASS" if results.get("passed") else "FAIL"}\n')
                 if not results.get('passed'):
-                    f.write(f"** Write speed below {DISK_SPEED_WARN_MBPS} MB/s -- "
-                            f"video recording may drop frames **\n")
+                    f.write(
+                        f'** Write speed below {DISK_SPEED_WARN_MBPS} MB/s -- '
+                        f'video recording may drop frames **\n'
+                    )
         with open(d / 'disk_speed.json', 'w') as f:
             json.dump(results, f, indent=2, default=str)
 
@@ -1913,46 +2049,46 @@ class TechSupportReport:
             json.dump(info, f, indent=2, default=str)
 
         with open(d / 'summary.txt', 'w') as f:
-            f.write(f"OS:      {info.get('platform')}\n")
-            f.write(f"Python:  {info.get('python_version')}\n")
-            f.write(f"CPU:     {info.get('cpu')}\n")
+            f.write(f'OS:      {info.get("platform")}\n')
+            f.write(f'Python:  {info.get("python_version")}\n')
+            f.write(f'CPU:     {info.get("cpu")}\n')
             if 'cpu_detail' in info:
-                f.write(f"         {info['cpu_detail'][:200]}\n")
+                f.write(f'         {info["cpu_detail"][:200]}\n')
             for k in ['ram_total_gb', 'ram_total']:
                 if k in info:
-                    f.write(f"RAM:     {info[k]}\n")
+                    f.write(f'RAM:     {info[k]}\n')
                     break
-            f.write(f"\nPower scheme: {info.get('power_scheme', 'N/A')}\n")
+            f.write(f'\nPower scheme: {info.get("power_scheme", "N/A")}\n')
             if 'usb_selective_suspend' in info:
-                f.write(f"USB selective suspend:\n{info['usb_selective_suspend']}\n")
+                f.write(f'USB selective suspend:\n{info["usb_selective_suspend"]}\n')
 
             # Display / DPI
             if 'display' in info:
-                f.write(f"\nDisplay:\n{info['display'][:500]}\n")
+                f.write(f'\nDisplay:\n{info["display"][:500]}\n')
             if 'dpi_scaling' in info:
-                f.write(f"DPI scaling: {info['dpi_scaling']}\n")
+                f.write(f'DPI scaling: {info["dpi_scaling"]}\n')
 
             # Camera SDKs
             if 'pylon_version' in info:
-                f.write(f"\nBasler Pylon SDK: {info['pylon_version']}\n")
+                f.write(f'\nBasler Pylon SDK: {info["pylon_version"]}\n')
             elif 'pylon_install' in info:
-                f.write(f"\nBasler Pylon: {info['pylon_install']}\n")
+                f.write(f'\nBasler Pylon: {info["pylon_install"]}\n')
             if 'ids_peak_version' in info:
-                f.write(f"IDS Peak SDK: {info['ids_peak_version']}\n")
+                f.write(f'IDS Peak SDK: {info["ids_peak_version"]}\n')
             elif 'ids_peak_install' in info:
-                f.write(f"IDS Peak: {info['ids_peak_install']}\n")
+                f.write(f'IDS Peak: {info["ids_peak_install"]}\n')
 
             # Critical Python packages
             critical = info.get('critical_packages', [])
             if critical:
-                f.write("\nCritical Python packages:\n")
+                f.write('\nCritical Python packages:\n')
                 for pkg in critical:
-                    f.write(f"  {pkg}\n")
+                    f.write(f'  {pkg}\n')
 
             # Recent USB events
             usb_events = info.get('recent_usb_events', '')
             if usb_events and 'Error' not in usb_events[:20]:
-                f.write("\nRecent USB/driver events (last 7 days):\n")
+                f.write('\nRecent USB/driver events (last 7 days):\n')
                 f.write(usb_events[:3000] if usb_events else '  None found\n')
 
         # Also write full pip freeze as separate file for easy diff
@@ -1981,11 +2117,15 @@ class TechSupportReport:
             return
         dest = tmp / 'data'
         try:
-            shutil.copytree(data_dir, dest, dirs_exist_ok=True,
-                           ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+            shutil.copytree(
+                data_dir,
+                dest,
+                dirs_exist_ok=True,
+                ignore=shutil.ignore_patterns('__pycache__', '*.pyc'),
+            )
         except Exception as e:
             dest.mkdir(exist_ok=True)
-            (dest / 'ERROR.txt').write_text(f"Copy failed: {e}\n")
+            (dest / 'ERROR.txt').write_text(f'Copy failed: {e}\n')
 
     def _step_logs(self, tmp):
         logs_dir = _get_lvp_logs_dir()
@@ -1996,7 +2136,7 @@ class TechSupportReport:
             shutil.copytree(logs_dir, dest, dirs_exist_ok=True)
         except Exception as e:
             dest.mkdir(exist_ok=True)
-            (dest / 'ERROR.txt').write_text(f"Copy failed: {e}\n")
+            (dest / 'ERROR.txt').write_text(f'Copy failed: {e}\n')
 
     def _step_backlash(self, tmp):
         capture_dir = _get_capture_dir()
@@ -2016,7 +2156,8 @@ class TechSupportReport:
         if not found:
             dest.mkdir(exist_ok=True)
             (dest / 'none_found.txt').write_text(
-                "No backlash test folders found in capture directory.\n")
+                'No backlash test folders found in capture directory.\n'
+            )
 
     def _step_protocols(self, tmp):
         d = tmp / 'recent_protocols'
@@ -2024,26 +2165,25 @@ class TechSupportReport:
 
         protocols = get_recent_protocols(RECENT_PROTOCOL_COUNT)
         if not protocols:
-            (d / 'none_found.txt').write_text("No protocol files found.\n")
+            (d / 'none_found.txt').write_text('No protocol files found.\n')
             return
 
         with open(d / '_index.txt', 'w') as f:
-            f.write(f"Most Recent {len(protocols)} Protocols\n{'=' * 40}\n\n")
+            f.write(f'Most Recent {len(protocols)} Protocols\n{"=" * 40}\n\n')
             for i, p in enumerate(protocols, 1):
-                f.write(f"{i:2d}. {p['name']}\n")
-                f.write(f"    Modified: {p['modified']}\n")
-                f.write(f"    Path:     {p['path']}\n")
-                f.write(f"    Size:     {p['size']} bytes\n\n")
+                f.write(f'{i:2d}. {p["name"]}\n')
+                f.write(f'    Modified: {p["modified"]}\n')
+                f.write(f'    Path:     {p["path"]}\n')
+                f.write(f'    Size:     {p["size"]} bytes\n\n')
 
         for p in protocols:
             try:
-                shutil.copy2(p['path'], d / f"{p['name']}{p['path'].suffix}")
+                shutil.copy2(p['path'], d / f'{p["name"]}{p["path"].suffix}')
             except Exception as e:
-                logger.warning(f"Could not copy protocol {p['path']}: {e}")
+                logger.warning(f'Could not copy protocol {p["path"]}: {e}')
 
         self._meta['recent_protocols'] = [
-            {'name': p['name'], 'modified': p['modified'].isoformat()}
-            for p in protocols
+            {'name': p['name'], 'modified': p['modified'].isoformat()} for p in protocols
         ]
 
     def _step_hardware_tests(self, tmp):
@@ -2065,40 +2205,48 @@ class TechSupportReport:
         tests_dir = app_root / 'tests'
 
         if not tests_dir.is_dir():
-            (d / 'skipped.txt').write_text("Tests directory not found.\n")
+            (d / 'skipped.txt').write_text('Tests directory not found.\n')
             return
 
         test_file = tests_dir / 'test_hardware_serial.py'
         if not test_file.exists():
-            (d / 'skipped.txt').write_text(
-                "test_hardware_serial.py not found.\n")
+            (d / 'skipped.txt').write_text('test_hardware_serial.py not found.\n')
             return
 
         try:
             result = subprocess.run(
-                [sys.executable, '-m', 'pytest', str(test_file),
-                 '--run-hardware', '-v', '--tb=short', '-q'],
-                capture_output=True, text=True, timeout=180,
+                [
+                    sys.executable,
+                    '-m',
+                    'pytest',
+                    str(test_file),
+                    '--run-hardware',
+                    '-v',
+                    '--tb=short',
+                    '-q',
+                ],
+                capture_output=True,
+                text=True,
+                timeout=180,
                 cwd=str(app_root),
             )
             with open(d / 'test_hardware_serial.txt', 'w') as f:
-                f.write("test_hardware_serial.py (--run-hardware)\n")
-                f.write(f"Return code: {result.returncode}\n\n")
+                f.write('test_hardware_serial.py (--run-hardware)\n')
+                f.write(f'Return code: {result.returncode}\n\n')
                 f.write(result.stdout)
                 if result.stderr:
-                    f.write(f"\nSTDERR:\n{result.stderr}")
+                    f.write(f'\nSTDERR:\n{result.stderr}')
         except subprocess.TimeoutExpired:
-            (d / 'test_hardware_serial.txt').write_text(
-                "TIMED OUT after 180s\n")
+            (d / 'test_hardware_serial.txt').write_text('TIMED OUT after 180s\n')
         except Exception as e:
-            (d / 'test_hardware_serial.txt').write_text(f"Error: {e}\n")
+            (d / 'test_hardware_serial.txt').write_text(f'Error: {e}\n')
 
     def _step_bandwidth(self, tmp, cb):
         d = tmp / 'bandwidth_test'
         d.mkdir()
 
         def bw_cb(pct, msg):
-            cb(81 + int(pct * 0.13), f"Bandwidth: {msg}")
+            cb(81 + int(pct * 0.13), f'Bandwidth: {msg}')
 
         bw = CameraBandwidthTest(self.scope)
         results = bw.run(progress_callback=bw_cb)
@@ -2107,24 +2255,24 @@ class TechSupportReport:
             json.dump(results, f, indent=2, default=str)
 
         with open(d / 'summary.txt', 'w') as f:
-            f.write("Camera Bandwidth Test\n" + "=" * 40 + "\n\n")
-            f.write(f"Resolution:      {results.get('resolution', '?')}\n")
-            f.write(f"Pixel format:    {results.get('pixel_format', '?')}\n")
-            f.write(f"Configured FPS:  {results.get('configured_fps', '?')}\n\n")
-            f.write(f"Frames requested: {results['num_frames_requested']}\n")
-            f.write(f"Frames received:  {results['num_frames_received']}\n")
-            f.write(f"Frames None:      {results['num_frames_none']}\n")
-            f.write(f"Frames errored:   {results['num_frames_error']}\n\n")
+            f.write('Camera Bandwidth Test\n' + '=' * 40 + '\n\n')
+            f.write(f'Resolution:      {results.get("resolution", "?")}\n')
+            f.write(f'Pixel format:    {results.get("pixel_format", "?")}\n')
+            f.write(f'Configured FPS:  {results.get("configured_fps", "?")}\n\n')
+            f.write(f'Frames requested: {results["num_frames_requested"]}\n')
+            f.write(f'Frames received:  {results["num_frames_received"]}\n')
+            f.write(f'Frames None:      {results["num_frames_none"]}\n')
+            f.write(f'Frames errored:   {results["num_frames_error"]}\n\n')
             total_mb = results['total_bytes'] / (1024 * 1024)
-            f.write(f"Total data:   {total_mb:.1f} MB\n")
-            f.write(f"Elapsed:      {results['elapsed_seconds']:.1f} s\n")
-            f.write(f"Throughput:   {results['mb_per_second']:.1f} MB/s\n")
-            f.write(f"Actual FPS:   {results['fps_actual']:.1f}\n\n")
-            f.write(f"Result: {'PASS' if results['passed'] else 'FAIL'}\n")
+            f.write(f'Total data:   {total_mb:.1f} MB\n')
+            f.write(f'Elapsed:      {results["elapsed_seconds"]:.1f} s\n')
+            f.write(f'Throughput:   {results["mb_per_second"]:.1f} MB/s\n')
+            f.write(f'Actual FPS:   {results["fps_actual"]:.1f}\n\n')
+            f.write(f'Result: {"PASS" if results["passed"] else "FAIL"}\n')
             if results['errors']:
-                f.write(f"\nErrors ({len(results['errors'])}):\n")
+                f.write(f'\nErrors ({len(results["errors"])}):\n')
                 for err in results['errors']:
-                    f.write(f"  - {err}\n")
+                    f.write(f'  - {err}\n')
 
     def _step_metadata(self, tmp, sn):
         meta = {
@@ -2157,9 +2305,10 @@ class TechSupportReport:
 
     def _get_lvp_version(self):
         from modules.path_utils import read_version
+
         version, build_timestamp = read_version()
         if version:
-            return f"{version} ({build_timestamp})" if build_timestamp else version
+            return f'{version} ({build_timestamp})' if build_timestamp else version
         return 'Unknown'
 
     def generate_logs_only(self, callback=None, output_dir=None):
@@ -2174,16 +2323,16 @@ class TechSupportReport:
             with tempfile.TemporaryDirectory(prefix='lvp_logs_') as tmp:
                 tmp = pathlib.Path(tmp)
 
-                cb(5, "Copying log files...")
+                cb(5, 'Copying log files...')
                 self._step_logs(tmp)
 
-                cb(35, "Copying data folder...")
+                cb(35, 'Copying data folder...')
                 self._step_data_folder(tmp)
 
-                cb(70, "Copying recent protocols...")
+                cb(70, 'Copying recent protocols...')
                 self._step_protocols(tmp)
 
-                cb(85, "Writing metadata...")
+                cb(85, 'Writing metadata...')
                 # SN lookup chain:
                 # 1. motorconfig cache (populated at boot; no wire I/O).
                 # 2. FULLINFO via diag.get_serial_number() (one wire round
@@ -2210,7 +2359,8 @@ class TechSupportReport:
                     # SNlogs- filename symptom.
                     logger.exception(
                         '[Report   ] SN lookup via motorconfig failed; '
-                        'falling through to FULLINFO path')
+                        'falling through to FULLINFO path'
+                    )
                 if not sn_tag:
                     try:
                         sn = self.diag.get_serial_number()
@@ -2222,24 +2372,28 @@ class TechSupportReport:
                         # the cause is now visible in the log.
                         logger.exception(
                             '[Report   ] SN lookup via FULLINFO failed; '
-                            "falling through to 'logs' last-resort")
+                            "falling through to 'logs' last-resort"
+                        )
                 if not sn_tag:
                     sn_tag = 'logs'
                 self._meta['report_type'] = 'logs_only'
-                self._meta['report_generated_at'] = (
-                    datetime.datetime.now().isoformat(timespec='seconds')
+                self._meta['report_generated_at'] = datetime.datetime.now().isoformat(
+                    timespec='seconds'
                 )
                 (tmp / 'metadata.json').write_text(json.dumps(self._meta, indent=2))
 
-                cb(95, "Creating ZIP file...")
+                cb(95, 'Creating ZIP file...')
                 zip_path = self._create_zip(
-                    tmp, sn_tag, output_dir, report_type='logs_only',
+                    tmp,
+                    sn_tag,
+                    output_dir,
+                    report_type='logs_only',
                 )
-                cb(100, f"Done -- {zip_path.name}")
+                cb(100, f'Done -- {zip_path.name}')
                 return zip_path
         except Exception as e:
-            logger.error(f"Logs-only zip failed: {e}", exc_info=True)
-            cb(100, f"Error: {e}")
+            logger.error(f'Logs-only zip failed: {e}', exc_info=True)
+            cb(100, f'Error: {e}')
             return None
 
     def _create_zip(self, tmp, sn, output_dir=None, report_type='tsr'):
@@ -2256,28 +2410,31 @@ class TechSupportReport:
         # Logs-only bundles keep the plain shape -- they ARE the
         # SNlogs/SN<sn>-<ts>.zip dumps.
         token = '-TSR-' if report_type == 'tsr' else '-'
-        zip_path = output_dir / f"SN{clean_sn}{token}{ts}.zip"
+        zip_path = output_dir / f'SN{clean_sn}{token}{ts}.zip'
 
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
             # Include a privacy notice describing what data is collected
-            zf.writestr('PRIVACY_NOTICE.txt', (
-                'LumaViewPro Tech Support Report\n'
-                '================================\n\n'
-                'This ZIP contains diagnostic information to help Etaluma\n'
-                'troubleshoot your microscope system. It includes:\n\n'
-                '  - OS version, CPU model, RAM, disk info\n'
-                '  - Connected USB devices and display configuration\n'
-                '  - LumaViewPro settings, logs, and firmware versions\n'
-                '  - Power/sleep configuration\n\n'
-                'Please review the contents before sharing. Remove any\n'
-                'files you are not comfortable sending.\n\n'
-                'Contact: techsupport@etaluma.com\n'
-            ))
+            zf.writestr(
+                'PRIVACY_NOTICE.txt',
+                (
+                    'LumaViewPro Tech Support Report\n'
+                    '================================\n\n'
+                    'This ZIP contains diagnostic information to help Etaluma\n'
+                    'troubleshoot your microscope system. It includes:\n\n'
+                    '  - OS version, CPU model, RAM, disk info\n'
+                    '  - Connected USB devices and display configuration\n'
+                    '  - LumaViewPro settings, logs, and firmware versions\n'
+                    '  - Power/sleep configuration\n\n'
+                    'Please review the contents before sharing. Remove any\n'
+                    'files you are not comfortable sending.\n\n'
+                    'Contact: techsupport@etaluma.com\n'
+                ),
+            )
             for fp in sorted(tmp.rglob('*')):
                 if fp.is_file():
                     zf.write(fp, fp.relative_to(tmp))
 
-        logger.info(f"Report saved: {zip_path}")
+        logger.info(f'Report saved: {zip_path}')
         return zip_path
 
 
@@ -2409,6 +2566,7 @@ PYINSTALLER_SPEC = """\
 # Standalone CLI
 # ---------------------------------------------------------------------------
 
+
 def main():
     """Run diagnostics from command line without LumaViewPro."""
     import argparse
@@ -2416,12 +2574,17 @@ def main():
     parser = argparse.ArgumentParser(
         description='Etaluma LumaViewPro -- Tech Support Diagnostic Report',
     )
-    parser.add_argument('--output', '-o', type=str, default=None,
-                        help='Output directory (default: Desktop)')
-    parser.add_argument('--bandwidth-test', action='store_true',
-                        help='Include camera bandwidth test (~2-5 min)')
-    parser.add_argument('--no-firmware', action='store_true',
-                        help='Skip firmware communication (no hardware needed)')
+    parser.add_argument(
+        '--output', '-o', type=str, default=None, help='Output directory (default: Desktop)'
+    )
+    parser.add_argument(
+        '--bandwidth-test', action='store_true', help='Include camera bandwidth test (~2-5 min)'
+    )
+    parser.add_argument(
+        '--no-firmware',
+        action='store_true',
+        help='Skip firmware communication (no hardware needed)',
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -2429,69 +2592,69 @@ def main():
         format='%(asctime)s %(levelname)s %(name)s: %(message)s',
     )
 
-    logger.info("")
-    logger.info("=" * 56)
-    logger.info("  Etaluma Diagnostics -- Tech Support Report Generator")
-    logger.info("=" * 56)
-    logger.info("")
+    logger.info('')
+    logger.info('=' * 56)
+    logger.info('  Etaluma Diagnostics -- Tech Support Report Generator')
+    logger.info('=' * 56)
+    logger.info('')
 
     report = TechSupportReport()
 
     if not args.no_firmware:
-        logger.info("Connecting to hardware...")
+        logger.info('Connecting to hardware...')
         report.diag.connect_standalone()
         led_ok = report.diag._led_ok()
         mot_ok = report.diag._motor_ok()
-        logger.info(f"  LED board:   {'Connected' if led_ok else 'Not found'}")
-        logger.info(f"  Motor board: {'Connected' if mot_ok else 'Not found'}")
+        logger.info(f'  LED board:   {"Connected" if led_ok else "Not found"}')
+        logger.info(f'  Motor board: {"Connected" if mot_ok else "Not found"}')
 
         # If neither board found, prompt for power cycle before giving up
         if not led_ok and not mot_ok:
-            logger.info("")
-            logger.info("  ** No boards detected. **")
-            logger.info("  Please try the following:")
-            logger.info("    1. Check that the USB cable is connected")
-            logger.info("    2. Power-cycle the system (turn off, wait 10 seconds, turn on)")
-            logger.info("    3. Wait 30 seconds for the boards to boot")
+            logger.info('')
+            logger.info('  ** No boards detected. **')
+            logger.info('  Please try the following:')
+            logger.info('    1. Check that the USB cable is connected')
+            logger.info('    2. Power-cycle the system (turn off, wait 10 seconds, turn on)')
+            logger.info('    3. Wait 30 seconds for the boards to boot')
             try:
-                input("  Press Enter to retry (Ctrl-C to skip hardware)...")
+                input('  Press Enter to retry (Ctrl-C to skip hardware)...')
             except KeyboardInterrupt:
-                logger.info("  Skipping hardware.")
+                logger.info('  Skipping hardware.')
                 led_ok = False
                 mot_ok = False
             else:
-                logger.info("  Retrying...")
+                logger.info('  Retrying...')
                 report.diag.connect_standalone()
                 led_ok = report.diag._led_ok()
                 mot_ok = report.diag._motor_ok()
-                logger.info(f"  LED board:   {'Connected' if led_ok else 'Not found'}")
-                logger.info(f"  Motor board: {'Connected' if mot_ok else 'Not found'}")
+                logger.info(f'  LED board:   {"Connected" if led_ok else "Not found"}')
+                logger.info(f'  Motor board: {"Connected" if mot_ok else "Not found"}')
                 if not led_ok and not mot_ok:
-                    logger.info("")
-                    logger.info("  Still no boards found. Generating report without hardware.")
-                    logger.info("  Please include this report and contact techsupport@etaluma.com")
-                    logger.info("")
+                    logger.info('')
+                    logger.info('  Still no boards found. Generating report without hardware.')
+                    logger.info('  Please include this report and contact techsupport@etaluma.com')
+                    logger.info('')
 
         # Boards are owned by report.diag -- no need to copy them to report
         if mot_ok:
-            logger.info("")
-            logger.info("  ** The stage will be homed and moved during testing.  **")
-            logger.info("  ** This process may take 5-10 minutes to complete.    **")
+            logger.info('')
+            logger.info('  ** The stage will be homed and moved during testing.  **')
+            logger.info('  ** This process may take 5-10 minutes to complete.    **')
             try:
-                input("  Press Enter to continue (Ctrl-C to cancel)...")
+                input('  Press Enter to continue (Ctrl-C to cancel)...')
             except KeyboardInterrupt:
-                logger.info("  Cancelled.")
+                logger.info('  Cancelled.')
                 return 1
     else:
-        logger.info("Skipping firmware (--no-firmware)")
+        logger.info('Skipping firmware (--no-firmware)')
 
-    logger.info("")
+    logger.info('')
 
     def cli_progress(pct, msg):
         filled = int(30 * pct / 100)
         bar = '█' * filled + '░' * (30 - filled)
         # Progress bar uses carriage return -- keep as print for CLI display
-        print(f"\r  [{bar}] {pct:3d}%  {msg:<50s}", end='', flush=True)
+        print(f'\r  [{bar}] {pct:3d}%  {msg:<50s}', end='', flush=True)
 
     zip_path = report.generate(
         callback=cli_progress,
@@ -2501,12 +2664,12 @@ def main():
 
     print('\n')  # Newline after progress bar
     if zip_path:
-        logger.info(f"  Report saved: {zip_path}")
-        logger.info("  Please email to: techsupport@etaluma.com")
+        logger.info(f'  Report saved: {zip_path}')
+        logger.info('  Please email to: techsupport@etaluma.com')
     else:
-        logger.info("  Report generation failed.")
-        logger.info("  Contact techsupport@etaluma.com directly.")
-    logger.info("")
+        logger.info('  Report generation failed.')
+        logger.info('  Contact techsupport@etaluma.com directly.')
+    logger.info('')
 
     return 0 if zip_path else 1
 

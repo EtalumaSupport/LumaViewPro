@@ -28,8 +28,8 @@ PRIORITY_LOW = 2
 # disabled -- every timestamp site is guarded by
 # profile_trace.ENABLE_PROFILE_TRACE.
 _IOTASK_TRACE_HEADER = (
-    "ts_ms,duration_ms,executor,task_name,action,queue_kind,"
-    "queue_depth_at_enqueue,queue_wait_ms,exec_ms,exception"
+    'ts_ms,duration_ms,executor,task_name,action,queue_kind,'
+    'queue_depth_at_enqueue,queue_wait_ms,exec_ms,exception'
 )
 
 # F-2: sentinel returned from protocol_put when a bounded protocol_queue
@@ -99,7 +99,8 @@ class _ReusableTaskWaiter:
     def result(self, timeout=None):
         if not self._event.wait(timeout):
             from concurrent.futures import TimeoutError as _TimeoutError
-            raise _TimeoutError(f"task did not complete within {timeout}s")
+
+            raise _TimeoutError(f'task did not complete within {timeout}s')
         if self._exception is not None:
             raise self._exception
         return self._result
@@ -113,6 +114,7 @@ class _ReusableTaskWaiter:
         if self._event.is_set():
             return False
         from concurrent.futures import CancelledError as _CancelledError
+
         self._exception = _CancelledError()
         self._event.set()
         return True
@@ -162,121 +164,137 @@ IOTask
     )
     executor.enqueue(task)
 """
+
+
 class IOTask:
-        # Default threshold beyond which a task triggers the "Slow task"
-        # WARNING log line. Tasks that legitimately take longer than this
-        # (protocol run_loop, full homing, AF scans, etc.) should override
-        # via the `slow_task_threshold_sec` __init__ kwarg so the warning
-        # only fires when something actually unusual happens.
-        DEFAULT_SLOW_TASK_THRESHOLD_SEC = 5.0
+    # Default threshold beyond which a task triggers the "Slow task"
+    # WARNING log line. Tasks that legitimately take longer than this
+    # (protocol run_loop, full homing, AF scans, etc.) should override
+    # via the `slow_task_threshold_sec` __init__ kwarg so the warning
+    # only fires when something actually unusual happens.
+    DEFAULT_SLOW_TASK_THRESHOLD_SEC = 5.0
 
-        def __init__(self, action, args=None, kwargs=None, callback=None,
-                     cb_args=None, cb_kwargs=None, pass_result=False,
-                     slow_task_threshold_sec=None,
-                     silent_on_failure=False,
-                     droppable_live: bool = False,
-                     priority: int = PRIORITY_MED):
-            self.action = action
-            self.priority = priority
-            self._ui_dispatch = None  # Set by executor when task is dispatched
-            # When True, _on_task_done skips the generic "Task failed"
-            # notification on exception -- the caller's callback (or its
-            # surrounding context) is responsible for user-facing
-            # notification. Logs are unaffected. The API/caller decides
-            # whether to notify, not the executor.
-            self.silent_on_failure = silent_on_failure
-            # When True, this task carries a live/preview/record frame that the
-            # display or recording can drop when the single worker falls behind
-            # (latest-wins). The executor caps in-flight droppable_live tasks so
-            # a stalled worker can't pin GBs of frame buffers. Must-execute
-            # tasks (config, motor, save) leave this False and are never dropped.
-            self.droppable_live = droppable_live
-            if args is None:
-                self.args = ()
-            # if it's a sequence (list, tuple, etc) but not a string
-            elif isinstance(args, Sequence) and not isinstance(args, (str, bytes)):
-                self.args = tuple(args)
-            else:
-                self.args = (args,)
+    def __init__(
+        self,
+        action,
+        args=None,
+        kwargs=None,
+        callback=None,
+        cb_args=None,
+        cb_kwargs=None,
+        pass_result=False,
+        slow_task_threshold_sec=None,
+        silent_on_failure=False,
+        droppable_live: bool = False,
+        priority: int = PRIORITY_MED,
+    ):
+        self.action = action
+        self.priority = priority
+        self._ui_dispatch = None  # Set by executor when task is dispatched
+        # When True, _on_task_done skips the generic "Task failed"
+        # notification on exception -- the caller's callback (or its
+        # surrounding context) is responsible for user-facing
+        # notification. Logs are unaffected. The API/caller decides
+        # whether to notify, not the executor.
+        self.silent_on_failure = silent_on_failure
+        # When True, this task carries a live/preview/record frame that the
+        # display or recording can drop when the single worker falls behind
+        # (latest-wins). The executor caps in-flight droppable_live tasks so
+        # a stalled worker can't pin GBs of frame buffers. Must-execute
+        # tasks (config, motor, save) leave this False and are never dropped.
+        self.droppable_live = droppable_live
+        if args is None:
+            self.args = ()
+        # if it's a sequence (list, tuple, etc) but not a string
+        elif isinstance(args, Sequence) and not isinstance(args, (str, bytes)):
+            self.args = tuple(args)
+        else:
+            self.args = (args,)
 
-            self.kwargs = kwargs if kwargs is not None else {}
-            self.callback = callback
-            self.protocol = None
-            self.name = ""
+        self.kwargs = kwargs if kwargs is not None else {}
+        self.callback = callback
+        self.protocol = None
+        self.name = ''
 
-            # Per-task slow threshold. None -> use class default at run-time
-            # (allows the class default to be tuned without per-instance
-            # surprises). Pass an explicit float to override (e.g. 30.0
-            # for tasks expected to take up to ~30 sec under normal load).
-            self.slow_task_threshold_sec = slow_task_threshold_sec
+        # Per-task slow threshold. None -> use class default at run-time
+        # (allows the class default to be tuned without per-instance
+        # surprises). Pass an explicit float to override (e.g. 30.0
+        # for tasks expected to take up to ~30 sec under normal load).
+        self.slow_task_threshold_sec = slow_task_threshold_sec
 
-            if cb_args is None:
-                self.cb_args = ()
-            # if it's a sequence (list, tuple, etc) but not a string
-            elif isinstance(cb_args, Sequence) and not isinstance(cb_args, (str, bytes)):
-                self.cb_args = tuple(cb_args)
-            else:
-                self.cb_args = (cb_args,)
+        if cb_args is None:
+            self.cb_args = ()
+        # if it's a sequence (list, tuple, etc) but not a string
+        elif isinstance(cb_args, Sequence) and not isinstance(cb_args, (str, bytes)):
+            self.cb_args = tuple(cb_args)
+        else:
+            self.cb_args = (cb_args,)
 
-            self.cb_kwargs = cb_kwargs if cb_kwargs is not None else {}
-            self.pass_result = pass_result
+        self.cb_kwargs = cb_kwargs if cb_kwargs is not None else {}
+        self.pass_result = pass_result
 
-        def run(self):
+    def run(self):
+        try:
+            threading.current_thread().name = self.name
+            if not callable(self.action):
+                logger.warning(f'{self.name} Worker received non-callable action: {self.action!s}')
+            t_start = time.monotonic()
+            res = self.action(*self.args, **self.kwargs)
+            elapsed = time.monotonic() - t_start
+            threshold = (
+                self.slow_task_threshold_sec
+                if self.slow_task_threshold_sec is not None
+                else self.DEFAULT_SLOW_TASK_THRESHOLD_SEC
+            )
+            if elapsed > threshold:
+                action_name = getattr(self.action, '__name__', str(self.action))
+                logger.warning(
+                    f'[IOTask    ] Slow task ({elapsed:.1f}s, threshold {threshold:.1f}s): {action_name} on {self.name}'
+                )
+            return res, None
+        except Exception as e:
+            logger.error(f'Uncaught Thread Exception in {self.name} Worker: {e}', exc_info=True)
+            return None, e
+
+    def set_callback(self, callback, cb_args, cb_kwargs):
+        self.callback = callback
+        self.cb_args = cb_args
+        self.cb_kwargs = cb_kwargs if cb_kwargs is not None else {}
+
+    def on_complete(self, result, exception):
+        if self.callback is None:
+            return
+
+        def _safe_callback(dt):
             try:
-                threading.current_thread().name = self.name
-                if not callable(self.action):
-                    logger.warning(f"{self.name} Worker received non-callable action: {self.action!s}")
-                t_start = time.monotonic()
-                res = self.action(*self.args, **self.kwargs)
-                elapsed = time.monotonic() - t_start
-                threshold = (self.slow_task_threshold_sec
-                             if self.slow_task_threshold_sec is not None
-                             else self.DEFAULT_SLOW_TASK_THRESHOLD_SEC)
-                if elapsed > threshold:
-                    action_name = getattr(self.action, '__name__', str(self.action))
-                    logger.warning(f"[IOTask    ] Slow task ({elapsed:.1f}s, threshold {threshold:.1f}s): {action_name} on {self.name}")
-                return res, None
-            except Exception as e:
-                logger.error(f"Uncaught Thread Exception in {self.name} Worker: {e}", exc_info=True)
-                return None, e
+                self.callback(*cb_args, **cb_kwargs)
+            except Exception:
+                logger.error(
+                    f'[IOTask    ] Callback {self.callback} raised exception', exc_info=True
+                )
 
-        def set_callback(self, callback, cb_args, cb_kwargs):
-            self.callback = callback
-            self.cb_args = cb_args
-            self.cb_kwargs = cb_kwargs if cb_kwargs is not None else {}
+        if self.pass_result:
+            # Only copy when we need to mutate
+            cb_kwargs = dict(self.cb_kwargs)
+            cb_kwargs['result'] = result
+            cb_kwargs['exception'] = exception
+        else:
+            cb_kwargs = self.cb_kwargs
 
-        def on_complete(self, result, exception):
-            if self.callback is None:
-                return
+        cb_args = self.cb_args
+        if self._ui_dispatch is not None:
+            self._ui_dispatch(_safe_callback, 0)
+        else:
+            _direct_dispatch(_safe_callback, 0)
 
-            def _safe_callback(dt):
-                try:
-                    self.callback(*cb_args, **cb_kwargs)
-                except Exception:
-                    logger.error(f"[IOTask    ] Callback {self.callback} raised exception", exc_info=True)
+    def set_name(self, name):
+        self.name = name
 
-            if self.pass_result:
-                # Only copy when we need to mutate
-                cb_kwargs = dict(self.cb_kwargs)
-                cb_kwargs['result'] = result
-                cb_kwargs['exception'] = exception
-            else:
-                cb_kwargs = self.cb_kwargs
+    def __call__(self):
+        return self.run()
 
-            cb_args = self.cb_args
-            if self._ui_dispatch is not None:
-                self._ui_dispatch(_safe_callback, 0)
-            else:
-                _direct_dispatch(_safe_callback, 0)
-
-        def set_name(self, name):
-            self.name = name
-
-        def __call__(self):
-            return self.run()
-
-        def __repr__(self):
-            return f"<IOTask: Action: {self.action!s} Callback: {self.callback!s}>"
+    def __repr__(self):
+        return f'<IOTask: Action: {self.action!s} Callback: {self.callback!s}>'
 
 
 """
@@ -298,6 +316,8 @@ SequentialIOExecutor
     # ... later ...
     executor.shutdown(wait=True)
 """
+
+
 def _direct_dispatch(func, timeout=0):
     """Default UI dispatcher: call function directly (no GUI scheduling).
 
@@ -309,6 +329,7 @@ def _direct_dispatch(func, timeout=0):
             func(0)  # Call with dummy dt=0 (same as Clock passes)
         except Exception as e:
             import logging as _log
+
             _log.getLogger('LVP').debug(f'_direct_dispatch error: {e}')
 
 
@@ -351,9 +372,14 @@ class _PriorityFifoQueue:
 
 
 class SequentialIOExecutor:
-    def __init__(self, max_workers: int=1, name: str=None, ui_dispatcher=None,
-                 protocol_queue_maxsize: int = 0,
-                 priority_aware: bool = False):
+    def __init__(
+        self,
+        max_workers: int = 1,
+        name: str = None,
+        ui_dispatcher=None,
+        protocol_queue_maxsize: int = 0,
+        priority_aware: bool = False,
+    ):
         # priority_aware=True swaps the default queue for a priority
         # wrapper; protocol_queue stays FIFO so step ordering inside
         # a protocol is preserved.
@@ -380,9 +406,9 @@ class SequentialIOExecutor:
         self.protocol_finish = threading.Event()
         self.name = name
         if name is not None:
-            self.executor_name = name + "_" + "WORKER"
+            self.executor_name = name + '_' + 'WORKER'
         else:
-            self.executor_name = "WORKER"
+            self.executor_name = 'WORKER'
         # max_workers retained for signature back-compat; the worker is
         # a single thread by design (sequential per hardware boundary).
         self._max_workers = max_workers
@@ -428,7 +454,6 @@ class SequentialIOExecutor:
         with self._running_task_lock:
             self._running_task = value
 
-
     def start(self):
         # daemon=True so a hung in-flight task at app teardown cannot keep
         # the process alive. Cooperative shutdown is still preferred:
@@ -473,9 +498,10 @@ class SequentialIOExecutor:
             if over:
                 if n == 1 or n % 30 == 0:
                     logger.warning(
-                        f"[{self.executor_name}] LIVE FRAME QUEUE FULL "
-                        f"(maxsize={_LIVE_FRAME_MAXSIZE}) -- dropping frame; "
-                        f"total drops this run: {n}")
+                        f'[{self.executor_name}] LIVE FRAME QUEUE FULL '
+                        f'(maxsize={_LIVE_FRAME_MAXSIZE}) -- dropping frame; '
+                        f'total drops this run: {n}'
+                    )
                 return LIVE_FRAME_DROPPED
 
         # Push IO work item into queue. When return_future=True, hand
@@ -492,7 +518,7 @@ class SequentialIOExecutor:
         if profile_trace.ENABLE_PROFILE_TRACE:
             task._t_enqueue = time.monotonic()
             task._queue_depth_at_enqueue = self.queue.qsize() + (1 if self._running_task else 0)
-            task._queue_kind = "default"
+            task._queue_kind = 'default'
         self.queue.put(task)
         task.set_name(self.executor_name)
         return fut
@@ -514,9 +540,10 @@ class SequentialIOExecutor:
             n = self._live_dropped_count
         if n == 1 or n % 30 == 0:
             logger.warning(
-                f"[{self.executor_name}] LIVE FRAME backlog at cap "
-                f"({_LIVE_FRAME_MAXSIZE}) -- dropping frame before enqueue; "
-                f"total drops this run: {n}")
+                f'[{self.executor_name}] LIVE FRAME backlog at cap '
+                f'({_LIVE_FRAME_MAXSIZE}) -- dropping frame before enqueue; '
+                f'total drops this run: {n}'
+            )
         return False
 
     def protocol_put(self, task: IOTask, return_future: bool = False):
@@ -543,8 +570,10 @@ class SequentialIOExecutor:
             fut = None
         if profile_trace.ENABLE_PROFILE_TRACE:
             task._t_enqueue = time.monotonic()
-            task._queue_depth_at_enqueue = self.protocol_queue.qsize() + (1 if self._running_task else 0)
-            task._queue_kind = "protocol"
+            task._queue_depth_at_enqueue = self.protocol_queue.qsize() + (
+                1 if self._running_task else 0
+            )
+            task._queue_kind = 'protocol'
 
         # F-2: bounded queues use put_nowait so an overflowing save thread
         # surfaces a drop signal instead of blocking the protocol thread
@@ -559,13 +588,16 @@ class SequentialIOExecutor:
             # Throttle the warning to avoid log inflation on a sustained
             # overflow (per drop would mirror the queue depth growth we're
             # already trying to bound).
-            if self._protocol_queue_dropped_count == 1 or \
-                    self._protocol_queue_dropped_count % 10 == 0:
+            if (
+                self._protocol_queue_dropped_count == 1
+                or self._protocol_queue_dropped_count % 10 == 0
+            ):
                 logger.warning(
-                    f"[{self.executor_name}] PROTOCOL QUEUE FULL "
-                    f"(maxsize={self.protocol_queue_maxsize}, depth={depth}) -- "
-                    f"dropping task; total drops this run: "
-                    f"{self._protocol_queue_dropped_count}")
+                    f'[{self.executor_name}] PROTOCOL QUEUE FULL '
+                    f'(maxsize={self.protocol_queue_maxsize}, depth={depth}) -- '
+                    f'dropping task; total drops this run: '
+                    f'{self._protocol_queue_dropped_count}'
+                )
             # Discard the future so the caller doesn't get a leaked
             # never-completed Future that pins memory.
             if return_future:
@@ -580,8 +612,10 @@ class SequentialIOExecutor:
         # bounded queues will trip PROTOCOL_QUEUE_FULL at maxsize anyway.
         depth = self.protocol_queue.qsize()
         if depth > 20 and depth % 10 == 0:
-            logger.warning(f"[{self.executor_name}] Protocol queue depth: {depth} -- "
-                           f"file writes may be falling behind")
+            logger.warning(
+                f'[{self.executor_name}] Protocol queue depth: {depth} -- '
+                f'file writes may be falling behind'
+            )
         return fut
 
     def protocol_start(self):
@@ -591,9 +625,9 @@ class SequentialIOExecutor:
         # the new run -- that would clear protocol_running mid-execution.
         if self.protocol_finish.is_set():
             self.protocol_finish.clear()
-            logger.info(f"{self.name} Cleared stale protocol_finish flag")
+            logger.info(f'{self.name} Cleared stale protocol_finish flag')
         self.protocol_running.set()
-        logger.info(f"{self.name} Protocol Started")
+        logger.info(f'{self.name} Protocol Started')
 
     def protocol_end(self):
         was_running = self.protocol_running.is_set()
@@ -603,7 +637,7 @@ class SequentialIOExecutor:
         self.protocol_complete_cb_args = ()
         self.protocol_complete_cb_kwargs = {}
         if was_running:
-            logger.info(f"{self.name} Protocol Ended")
+            logger.info(f'{self.name} Protocol Ended')
 
     def wait_for_idle(self, timeout: float = 1.0) -> bool:
         """Block until the worker is between tasks (running_task is
@@ -634,7 +668,7 @@ class SequentialIOExecutor:
 
     def protocol_finish_then_end(self):
         self.protocol_finish.set()
-        logger.info(f"{self.name} set to complete protocol then end")
+        logger.info(f'{self.name} set to complete protocol then end')
 
     def end_protocol_mode(self):
         """Idempotent safety net for teardown paths that left this executor
@@ -652,8 +686,8 @@ class SequentialIOExecutor:
         """
         if self.protocol_running.is_set() and not self.protocol_finish.is_set():
             logger.warning(
-                f"{self.name} still in protocol-mode at teardown; "
-                f"draining protocol queue then returning to normal service"
+                f'{self.name} still in protocol-mode at teardown; '
+                f'draining protocol queue then returning to normal service'
             )
             self.protocol_finish_then_end()
 
@@ -677,8 +711,9 @@ class SequentialIOExecutor:
         already empty (the run_complete callback fires before protocol_finish
         clears).
         """
-        return (not self.protocol_queue.empty() or
-                (self.running_task is not None and getattr(self.running_task, 'protocol', False)))
+        return not self.protocol_queue.empty() or (
+            self.running_task is not None and getattr(self.running_task, 'protocol', False)
+        )
 
     def wait_for_task(self, task: IOTask, timeout: float):
         with self._caller_futures_lock:
@@ -689,8 +724,7 @@ class SequentialIOExecutor:
         try:
             fut.result(timeout=timeout)
         except Exception as e:
-            logger.error(f"{self.name} Worker Error: {e}")
-
+            logger.error(f'{self.name} Worker Error: {e}')
 
     def _run_loop(self):
         while True:
@@ -733,9 +767,7 @@ class SequentialIOExecutor:
                         self.protocol_end()
                         self.protocol_finish.clear()
                         if _cb is not None:
-                            self._ui_dispatch(
-                                lambda dt: _cb(*_cb_args, **_cb_kwargs), 0
-                            )
+                            self._ui_dispatch(lambda dt: _cb(*_cb_args, **_cb_kwargs), 0)
                     continue
 
                 if not (self.protocol_running.is_set() or self.protocol_finish.is_set()):
@@ -762,10 +794,9 @@ class SequentialIOExecutor:
                     self._on_task_done(task, run_result, None)
             except Exception as e:
                 logger.error(
-                    f"Uncaught Thread Exception in {self.name} Worker: {e}",
+                    f'Uncaught Thread Exception in {self.name} Worker: {e}',
                     exc_info=True,
                 )
-
 
     def _on_task_done(self, task: IOTask, result, exception):
         # Receives (result, exception) from worker, then schedules task.on_complete
@@ -792,8 +823,10 @@ class SequentialIOExecutor:
                 # so the popup doesn't leak raw Python class names; the
                 # full trace is already in the log via _run_task above.
                 from modules.exceptions import CaptureError, ProtocolError, ConfigError
+
                 try:
                     from drivers.exceptions import HardwareError
+
                     typed = (CaptureError, ProtocolError, ConfigError, HardwareError)
                 except ImportError:
                     typed = (CaptureError, ProtocolError, ConfigError)
@@ -801,10 +834,10 @@ class SequentialIOExecutor:
                     body = str(exception)
                 else:
                     body = (
-                        "A background task failed. The protocol may have skipped "
-                        "a step; check the main log for details."
+                        'A background task failed. The protocol may have skipped '
+                        'a step; check the main log for details.'
                     )
-                notifications.error("Task", f"{self.name} task failed", body)
+                notifications.error('Task', f'{self.name} task failed', body)
         self.last_task_done_monotonic = time.monotonic()
 
         # Threading audit -- emit per-IOTask timing row when opt-in tracing
@@ -814,25 +847,25 @@ class SequentialIOExecutor:
         # (queue_depth_at_enqueue). See lib/profile_trace.py for the unified
         # profile_trace_enabled settings gate.
         if profile_trace.ENABLE_PROFILE_TRACE:
-            t_enqueue = getattr(task, "_t_enqueue", None)
-            t_dequeue = getattr(task, "_t_dequeue", None)
+            t_enqueue = getattr(task, '_t_enqueue', None)
+            t_dequeue = getattr(task, '_t_dequeue', None)
             if t_enqueue is not None and t_dequeue is not None:
                 queue_wait_ms = (t_dequeue - t_enqueue) * 1000.0
                 exec_ms = (self.last_task_done_monotonic - t_dequeue) * 1000.0
                 profile_trace.trace(
-                    "iotask_trace.csv",
+                    'iotask_trace.csv',
                     _IOTASK_TRACE_HEADER,
                     [
-                        int(time.time() * 1000),              # ts_ms
-                        f"{(queue_wait_ms + exec_ms):.3f}",   # duration_ms (total)
-                        self.name or "",                       # executor
-                        task.name or "",                       # task_name (worker thread name)
-                        getattr(task.action, "__name__", str(task.action))[:40],
-                        getattr(task, "_queue_kind", "default"),
-                        getattr(task, "_queue_depth_at_enqueue", -1),
-                        f"{queue_wait_ms:.3f}",
-                        f"{exec_ms:.3f}",
-                        type(exception).__name__ if exception is not None else "",
+                        int(time.time() * 1000),  # ts_ms
+                        f'{(queue_wait_ms + exec_ms):.3f}',  # duration_ms (total)
+                        self.name or '',  # executor
+                        task.name or '',  # task_name (worker thread name)
+                        getattr(task.action, '__name__', str(task.action))[:40],
+                        getattr(task, '_queue_kind', 'default'),
+                        getattr(task, '_queue_depth_at_enqueue', -1),
+                        f'{queue_wait_ms:.3f}',
+                        f'{exec_ms:.3f}',
+                        type(exception).__name__ if exception is not None else '',
                     ],
                 )
         with self._caller_futures_lock:
@@ -865,7 +898,9 @@ class SequentialIOExecutor:
 
         self.running_task = None
         if self.global_callback is not None:
-            self._ui_dispatch(lambda dt: self.global_callback(*self.global_cb_args, **self.global_cb_kwargs), 0)
+            self._ui_dispatch(
+                lambda dt: self.global_callback(*self.global_cb_args, **self.global_cb_kwargs), 0
+            )
 
     def caller_futures_stats(self) -> tuple:
         """Return (allocs, pops, live_count) for the caller_futures dict.
@@ -944,7 +979,7 @@ class SequentialIOExecutor:
 
         self.cleared_queue = True
         if cleared_count > 0:
-            logger.info(f"{self.name} Pending Queue Cleared ({cleared_count} tasks)")
+            logger.info(f'{self.name} Pending Queue Cleared ({cleared_count} tasks)')
 
     def clear_protocol_pending(self):
         cleared_count = 0
@@ -969,7 +1004,7 @@ class SequentialIOExecutor:
 
         self.cleared_protocol_queue = True
         if cleared_count > 0:
-            logger.info(f"{self.name} Pending Protocol Queue Cleared ({cleared_count} tasks)")
+            logger.info(f'{self.name} Pending Protocol Queue Cleared ({cleared_count} tasks)')
 
     def is_busy(self):
         # Returns true if tasks queued or running

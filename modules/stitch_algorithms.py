@@ -286,10 +286,7 @@ def estimate_overlap_offset(
 def _grid_keys(tiles: list[dict]) -> tuple[list[int], list[int], dict[tuple[int, int], int]]:
     x_values = sorted({int(tile['x_px']) for tile in tiles})
     y_values = sorted({int(tile['y_px']) for tile in tiles})
-    by_position = {
-        (int(tile['x_px']), int(tile['y_px'])): idx
-        for idx, tile in enumerate(tiles)
-    }
+    by_position = {(int(tile['x_px']), int(tile['y_px'])): idx for idx, tile in enumerate(tiles)}
     return x_values, y_values, by_position
 
 
@@ -453,9 +450,9 @@ def stitch_registered_tiles(
         src_x1 = src_x0 + (dst_x1 - dst_x0)
         src_y1 = src_y0 + (dst_y1 - dst_y0)
 
-        accumulator[dst_y0:dst_y1, dst_x0:dst_x1] += image[
-            src_y0:src_y1, src_x0:src_x1
-        ].astype(np.float32)
+        accumulator[dst_y0:dst_y1, dst_x0:dst_x1] += image[src_y0:src_y1, src_x0:src_x1].astype(
+            np.float32
+        )
         weights[dst_y0:dst_y1, dst_x0:dst_x1] += 1.0
 
     # Divide in place -- accumulator becomes the averaged mosaic, dropping a

@@ -743,9 +743,17 @@ def log_environment_banner(install_path: str, version_str: str):
         logger.info(f'[LVP Main  ] Installed packages: unavailable ({e})')
     if _pkgs:
         _highlights = (
-            'av', 'numpy', 'tifffile', 'imagecodecs', 'scikit-image',
-            'scipy', 'opencv-python', 'opencv-python-headless', 'pandas',
-            'matplotlib', 'Pillow',
+            'av',
+            'numpy',
+            'tifffile',
+            'imagecodecs',
+            'scikit-image',
+            'scipy',
+            'opencv-python',
+            'opencv-python-headless',
+            'pandas',
+            'matplotlib',
+            'Pillow',
         )
         _hl = ' | '.join(f'{_n}=={_pkgs[_n]}' for _n in _highlights if _n in _pkgs)
         if _hl:
@@ -754,7 +762,7 @@ def log_environment_banner(install_path: str, version_str: str):
         logger.info(f'[LVP Main  ] Installed packages ({len(_freeze)}):')
         _PER_LINE = 6
         for _i in range(0, len(_freeze), _PER_LINE):
-            logger.info('[LVP Main  ]   ' + ', '.join(_freeze[_i:_i + _PER_LINE]))
+            logger.info('[LVP Main  ]   ' + ', '.join(_freeze[_i : _i + _PER_LINE]))
 
     logger.info('[LVP Main  ] -----------------------------------------')
 

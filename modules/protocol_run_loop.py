@@ -77,9 +77,7 @@ class ProtocolRunLoop:
             return
         try:
             first_step = p._protocol.step(idx=0)
-            p._step_executor.default_move(
-                px=first_step['X'], py=first_step['Y'], z=first_step['Z']
-            )
+            p._step_executor.default_move(px=first_step['X'], py=first_step['Y'], z=first_step['Z'])
         except Exception as ex:
             logger.warning(f'[PROTOCOL] Inter-scan return-to-first-step move failed: {ex}')
 

@@ -573,8 +573,9 @@ class ProtocolStepRunner:
         # Sleep for 5 ms to ensure that LED properly turns on before next action
         time.sleep(0.005)
 
-    def leds_exclusive(self, color: str, illumination: float, block: bool = True,
-                       force: bool = False):
+    def leds_exclusive(
+        self, color: str, illumination: float, block: bool = True, force: bool = False
+    ):
         """Make a single channel the only lit LED, via the IO executor.
 
         Idempotent: a channel already lit at this illumination is left

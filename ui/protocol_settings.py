@@ -218,9 +218,7 @@ class ProtocolSettings(FloatLayout):
         except Exception:
             logger.exception('[LVP Main  ] Update Period is not an acceptable value')
 
-        gui_logger.text_input_debounced(
-            'PROTOCOL_PERIOD', self.ids['capture_period'].text
-        )
+        gui_logger.text_input_debounced('PROTOCOL_PERIOD', self.ids['capture_period'].text)
 
         if not (hasattr(self, '_protocol') and self._protocol is not None):
             return
@@ -240,9 +238,7 @@ class ProtocolSettings(FloatLayout):
         except Exception:
             logger.warning('[LVP Main  ] Update Duration is not an acceptable value')
 
-        gui_logger.text_input_debounced(
-            'PROTOCOL_DURATION', self.ids['capture_dur'].text
-        )
+        gui_logger.text_input_debounced('PROTOCOL_DURATION', self.ids['capture_dur'].text)
 
         if not (hasattr(self, '_protocol') and self._protocol is not None):
             return
@@ -423,7 +419,6 @@ class ProtocolSettings(FloatLayout):
         text = self.ids['tiling_overlap_spinner'].text.strip().rstrip('%')
         return TilingConfig.validate_overlap_percent(text)
 
-
     def apply_zstacking(self):
         try:
             ctx = _app_ctx.ctx
@@ -551,13 +546,9 @@ class ProtocolSettings(FloatLayout):
             # with channels enabled creates an empty protocol the user builds
             # up with Add at the current stage position.
             layer_configs = get_layer_configs()
-            any_channel_enabled = any(
-                lc['acquire'] is not None for lc in layer_configs.values()
-            )
+            any_channel_enabled = any(lc['acquire'] is not None for lc in layer_configs.values())
             if not any_channel_enabled:
-                logger.warning(
-                    '[LVP Main  ] new_protocol: no channels enabled for acquisition'
-                )
+                logger.warning('[LVP Main  ] new_protocol: no channels enabled for acquisition')
                 from ui.notification_popup import show_notification_popup
 
                 show_notification_popup(
@@ -1140,7 +1131,9 @@ class ProtocolSettings(FloatLayout):
             if (ctx.lumaview.scope.motion.has_turret()) and (
                 not ctx.lumaview.scope.motion.is_current_turret_position_objective_set()
             ):
-                error_msg = 'Cannot modify protocol step. Please set objective for current turret position.'
+                error_msg = (
+                    'Cannot modify protocol step. Please set objective for current turret position.'
+                )
                 logger.error(error_msg)
                 # Runs on the io_executor worker; Kivy widgets must be
                 # built on the main thread, so marshal via Clock.
@@ -1230,7 +1223,9 @@ class ProtocolSettings(FloatLayout):
             if (ctx.lumaview.scope.motion.has_turret()) and (
                 not ctx.lumaview.scope.motion.is_current_turret_position_objective_set()
             ):
-                error_msg = 'Cannot add step to protocol. Please set objective for current turret position.'
+                error_msg = (
+                    'Cannot add step to protocol. Please set objective for current turret position.'
+                )
                 logger.error(error_msg)
                 Clock.schedule_once(
                     lambda dt: show_notification_popup(
@@ -1340,9 +1335,7 @@ class ProtocolSettings(FloatLayout):
             )
 
     def update_acquire_zstack(self):
-        gui_logger.toggle(
-            'ACQUIRE_ZSTACK', bool(self.ids['acquire_zstack_id'].active)
-        )
+        gui_logger.toggle('ACQUIRE_ZSTACK', bool(self.ids['acquire_zstack_id'].active))
 
     def update_show_step_locations(self):
         ctx = _app_ctx.ctx
@@ -2174,9 +2167,7 @@ class ProtocolSettings(FloatLayout):
             """
             ctx_inner = _app_ctx.ctx
             for layer_name in common_utils.get_layers():
-                accordion_item = ctx_inner.image_settings.accordion_item_lookup(
-                    layer=layer_name
-                )
+                accordion_item = ctx_inner.image_settings.accordion_item_lookup(layer=layer_name)
                 if not accordion_item.collapse:
                     layer_obj = ctx_inner.image_settings.layer_lookup(layer=layer_name)
                     layer_obj.update_shader(dt=0)

@@ -110,10 +110,9 @@ class TestExchangeCommandExpectUnsupportedSuppresses:
 
     def _firmware_error_records(self, caplog):
         return [
-            r for r in caplog.records
-            if r.name == 'LVP.serial'
-            and r.levelno == 30
-            and 'FIRMWARE ERROR' in r.getMessage()
+            r
+            for r in caplog.records
+            if r.name == 'LVP.serial' and r.levelno == 30 and 'FIRMWARE ERROR' in r.getMessage()
         ]
 
     def test_warning_fires_by_default_on_error_response(self, caplog):

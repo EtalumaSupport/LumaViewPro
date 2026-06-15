@@ -157,7 +157,9 @@ class TestLumascopeHome:
         scope.motion.thome()
         elapsed = time.monotonic() - t0
 
-        assert elapsed < 0.5, f'thome() on disconnected motor took {elapsed:.2f}s -- must be < 0.5s.'
+        assert elapsed < 0.5, (
+            f'thome() on disconnected motor took {elapsed:.2f}s -- must be < 0.5s.'
+        )
         assert any('Motor Not Connected' in n.title for n in received), (
             f"thome() must notify 'Motor Not Connected', got: {[n.title for n in received]}"
         )
@@ -906,9 +908,7 @@ class TestRunGrabLifecycleBenchmark:
         monkeypatch.setattr(
             type(scope.diagnostics),
             '_safe_pylon_versions',
-            staticmethod(
-                lambda: {'pypylon_version': '26.4.1', 'pylon_sdk_version': '11.5.0.1169'}
-            ),
+            staticmethod(lambda: {'pypylon_version': '26.4.1', 'pylon_sdk_version': '11.5.0.1169'}),
         )
 
         info = scope.diagnostics.get_camera_diagnostic_info()

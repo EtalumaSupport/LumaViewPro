@@ -261,14 +261,10 @@ def generate_image_metadata(scope: Lumascope, color, x, y, z) -> dict:
 
     _chunk_exp_us = chunks.get('ExposureTime')
     exposure_ms_value = (
-        _chunk_exp_us / 1000.0
-        if _chunk_exp_us is not None
-        else scope.imaging.get_exposure_time()
+        _chunk_exp_us / 1000.0 if _chunk_exp_us is not None else scope.imaging.get_exposure_time()
     )
     _chunk_gain_db = chunks.get('Gain')
-    gain_db_value = (
-        _chunk_gain_db if _chunk_gain_db is not None else scope.imaging.get_gain()
-    )
+    gain_db_value = _chunk_gain_db if _chunk_gain_db is not None else scope.imaging.get_gain()
 
     metadata = {
         'camera_make': 'Etaluma',

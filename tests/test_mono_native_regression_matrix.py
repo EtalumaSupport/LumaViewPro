@@ -263,8 +263,7 @@ def test_cv2_videowriter_fallback_bgr_boundary():
     # internally, then BGR-swapped at the cv2 boundary.
     assert written.shape[-1] == 3
     assert written[0, 0, 2] > 0, (
-        f'BGR[2] (== source RGB[0] == Red after swap) should be non-zero, '
-        f'got {written[0, 0]}'
+        f'BGR[2] (== source RGB[0] == Red after swap) should be non-zero, got {written[0, 0]}'
     )
     assert written[0, 0, 0] == 0, 'BGR[0] (== source RGB[2] == Blue) should be zero for Red layer'
 
@@ -424,8 +423,9 @@ def test_piw6_buffer_allocation_o1(tmp_path):
             frame_alloc_count['n'] += 1
         return orig_empty(shape, *args, **kwargs)
 
-    with patch('numpy.zeros', side_effect=counting_zeros), patch(
-        'numpy.empty', side_effect=counting_empty
+    with (
+        patch('numpy.zeros', side_effect=counting_zeros),
+        patch('numpy.empty', side_effect=counting_empty),
     ):
         for i in range(100):
             write_tiff(
@@ -444,8 +444,6 @@ def test_piw6_buffer_allocation_o1(tmp_path):
     # every call -> O(n) = 100.
     assert frame_alloc_count['n'] < 10, (
         f'Expected O(1) frame-sized allocations across 100 saves; got '
-        f"{frame_alloc_count['n']}. A mismatched scratch buffer forces a "
+        f'{frame_alloc_count["n"]}. A mismatched scratch buffer forces a '
         f'fresh 3-channel allocation per call.'
     )
-
-

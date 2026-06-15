@@ -87,7 +87,8 @@ def test_same_named_threads_collapse_into_one_label():
     gate = threading.Event()
     a = threading.Thread(target=gate.wait, name='dup')
     b = threading.Thread(target=gate.wait, name='dup')
-    a.start(); b.start()
+    a.start()
+    b.start()
     try:
         tid_a, tid_b = a.native_id, b.native_id
         proc1 = _FakeProc([_FakePthread(tid_a, 0.0, 0.0), _FakePthread(tid_b, 0.0, 0.0)])
@@ -97,7 +98,8 @@ def test_same_named_threads_collapse_into_one_label():
         result = common_utils.thread_cpu_percentages(proc=proc2, now=1.0)
     finally:
         gate.set()
-        a.join(); b.join()
+        a.join()
+        b.join()
     assert list(result.keys()) == ['dup']
     assert result['dup'] == pytest.approx(60.0)
 

@@ -75,9 +75,7 @@ class TestSetExposureTimeWarningThreshold:
         # behavior, not claim the image will be "nearly black" (Pylon
         # clamps to the sensor minimum; the image is at-minimum, not zero).
         records = _warnings_for(0.004, monkeypatch)
-        assert len(records) == 1, (
-            f'a below-physical-minimum exposure must warn once; got {records}'
-        )
+        assert len(records) == 1, f'a below-physical-minimum exposure must warn once; got {records}'
         assert 'clamp' in records[0].lower(), (
             f'warning must describe the clamping behavior; got {records[0]}'
         )

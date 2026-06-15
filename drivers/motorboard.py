@@ -236,8 +236,7 @@ class MotorBoard(SerialBoard):
         # FANSPEED diagnostic probes already suppress on unsupported firmware).
         if 'UNKNOWN_CMD' in info or 'unknown command' in info.lower():
             logger.info(
-                '[XYZ Class ] FULLINFO not supported on this firmware; '
-                'using model/serial fallback'
+                '[XYZ Class ] FULLINFO not supported on this firmware; using model/serial fallback'
             )
             return {'model': 'unknown', 'serial_number': 'unknown'}
         try:

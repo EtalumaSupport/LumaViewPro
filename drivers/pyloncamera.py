@@ -2144,25 +2144,33 @@ class PylonCamera(Camera):
             # Clamp each setpoint against the AutoFunctionROI* node's own
             # Max -- some cameras (the dart family) report tighter bounds
             # on these nodes than on Width / Height proper.
-            roi_width = _align_down(min(
-                self.active.Width.Max // 2,
-                int(self.active.AutoFunctionROIWidth.Max),
-            ))
-            roi_height = _align_down(min(
-                self.active.Height.Max // 2,
-                int(self.active.AutoFunctionROIHeight.Max),
-            ))
+            roi_width = _align_down(
+                min(
+                    self.active.Width.Max // 2,
+                    int(self.active.AutoFunctionROIWidth.Max),
+                )
+            )
+            roi_height = _align_down(
+                min(
+                    self.active.Height.Max // 2,
+                    int(self.active.AutoFunctionROIHeight.Max),
+                )
+            )
             self.active.AutoFunctionROIWidth.SetValue(roi_width)
             self.active.AutoFunctionROIHeight.SetValue(roi_height)
 
-            roi_offset_x = _align_down(min(
-                (self.active.Width.Max - roi_width) // 2,
-                int(self.active.AutoFunctionROIOffsetX.Max),
-            ))
-            roi_offset_y = _align_down(min(
-                (self.active.Height.Max - roi_height) // 2,
-                int(self.active.AutoFunctionROIOffsetY.Max),
-            ))
+            roi_offset_x = _align_down(
+                min(
+                    (self.active.Width.Max - roi_width) // 2,
+                    int(self.active.AutoFunctionROIOffsetX.Max),
+                )
+            )
+            roi_offset_y = _align_down(
+                min(
+                    (self.active.Height.Max - roi_height) // 2,
+                    int(self.active.AutoFunctionROIOffsetY.Max),
+                )
+            )
             self.active.AutoFunctionROIOffsetX.SetValue(roi_offset_x)
             self.active.AutoFunctionROIOffsetY.SetValue(roi_offset_y)
             self.active.AutoFunctionROIUseBrightness = True

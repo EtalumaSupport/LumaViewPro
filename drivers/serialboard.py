@@ -1034,8 +1034,7 @@ class SerialBoard:
                 # exchanges are infrequent, so the verbosity is acceptable.
                 shown = ' | '.join(lines) if lines else '(no response)'
                 _serial_log.info(
-                    f'{self._label} {command} -> {len(lines)} lines: {shown!r} '
-                    f'({elapsed_ms:.1f}ms)'
+                    f'{self._label} {command} -> {len(lines)} lines: {shown!r} ({elapsed_ms:.1f}ms)'
                 )
                 return result
 

@@ -75,16 +75,18 @@ class TestStitcherGroupAlgorithmCarriesColor:
             for iy, y in enumerate((0.0, 1.0)):
                 p = tmp_path / f'tile_{ix}_{iy}.tiff'
                 _write_mono_tiff(p, value=200, shape=(4, 4))
-                rows.append({
-                    'Filepath': p.name,
-                    'Color': 'Green',
-                    'X': x,
-                    'Y': y,
-                    'Well': 'A1',
-                    'Z-Slice': 0,
-                    'Objective': '20x',
-                    'Scan Count': 0,
-                })
+                rows.append(
+                    {
+                        'Filepath': p.name,
+                        'Color': 'Green',
+                        'X': x,
+                        'Y': y,
+                        'Well': 'A1',
+                        'Z-Slice': 0,
+                        'Objective': '20x',
+                        'Scan Count': 0,
+                    }
+                )
         df = pd.DataFrame(rows)
         stitcher = Stitcher.__new__(Stitcher)
         result = stitcher._group_algorithm(
@@ -93,9 +95,9 @@ class TestStitcherGroupAlgorithmCarriesColor:
             output_file_loc=pd.Series(['stitched.tiff'])[0],
         )
         assert result['status'], (
-            f"_group_algorithm returned status=False: {result.get('error')}. "
+            f'_group_algorithm returned status=False: {result.get("error")}. '
             f'Narrowing the df subset without Color drops the layer the '
-            f"write_tiff routing needs for the colormap gate."
+            f'write_tiff routing needs for the colormap gate.'
         )
         with tf.TiffFile(str(tmp_path / 'stitched.tiff')) as tif:
             page = tif.pages[0]
@@ -136,9 +138,7 @@ class TestPostProcessorSkipsFalseColorForTransmitted:
         )
         assert result['status']
         out = tf.imread(str(tmp_path / 'out.tiff'))
-        assert out.ndim == 2, (
-            f'BF z-projection must stay grayscale, got shape {out.shape}'
-        )
+        assert out.ndim == 2, f'BF z-projection must stay grayscale, got shape {out.shape}'
 
     def test_stitch_bf_stays_grayscale(self, tmp_path, false_color_setting_on):
         rows = []
@@ -155,6 +155,4 @@ class TestPostProcessorSkipsFalseColorForTransmitted:
         )
         assert result['status']
         out = tf.imread(str(tmp_path / 'stitched.tiff'))
-        assert out.ndim == 2, (
-            f'BF stitched output must stay grayscale, got shape {out.shape}'
-        )
+        assert out.ndim == 2, f'BF stitched output must stay grayscale, got shape {out.shape}'

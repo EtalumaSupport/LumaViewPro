@@ -27,9 +27,7 @@ def _method_src(rel_path: str, class_name: str | None, func_name: str) -> str:
             n for n in ast.walk(tree) if isinstance(n, ast.ClassDef) and n.name == class_name
         )
         nodes = ast.walk(cls)
-    fn = next(
-        n for n in nodes if isinstance(n, ast.FunctionDef) and n.name == func_name
-    )
+    fn = next(n for n in nodes if isinstance(n, ast.FunctionDef) and n.name == func_name)
     return ast.unparse(fn)
 
 
@@ -53,9 +51,7 @@ class TestCompositeNoDeadThresholdParam:
     def test_signature_has_no_brightness_thresholds(self):
         from modules.composite_generation import CompositeGeneration
 
-        params = inspect.signature(
-            CompositeGeneration.generate_composite_from_paths
-        ).parameters
+        params = inspect.signature(CompositeGeneration.generate_composite_from_paths).parameters
         assert 'brightness_thresholds' not in params
 
 
@@ -75,4 +71,3 @@ class TestSaveFocusRefresh:
         assert 'from kivy.clock import Clock' not in src, (
             'execute_save_focus must use the module-level Clock import.'
         )
-

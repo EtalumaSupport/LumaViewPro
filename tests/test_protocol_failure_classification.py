@@ -148,8 +148,7 @@ class TestRunLoopInnerClassifiesByConnection:
         )
         assert runner._scan_count == 0, 'failed scans must not count as completed'
         assert len(captured) == 1, (
-            'transients are silent until the consecutive-failure ceiling; '
-            f'got {captured}'
+            f'transients are silent until the consecutive-failure ceiling; got {captured}'
         )
         assert '3 times' in captured[0][2] and 'in a row' in captured[0][2], (
             f'the ceiling popup must name the repeated failure; got {captured[0]}'
@@ -191,9 +190,7 @@ class TestScanLoopBehaviorPreserved:
         assert runner._protocol.step.called, (
             'scan_loop must drive scan_iterate (which fetches the step row)'
         )
-        assert not runner._scan_in_progress.is_set(), (
-            'the single-step scan must run to completion'
-        )
+        assert not runner._scan_in_progress.is_set(), 'the single-step scan must run to completion'
 
     def test_scan_loop_still_does_periodic_gc(self, monkeypatch):
         """With >60s elapsing between maintenance checks (faked clock),
@@ -218,6 +215,4 @@ class TestScanLoopBehaviorPreserved:
         gc_recorder.collect.return_value = 0
         monkeypatch.setattr('modules.protocol_step_runner.gc', gc_recorder)
         runner._step_executor.scan_loop()
-        assert gc_recorder.collect.called, (
-            'scan_loop must run the periodic GC sweep on long scans'
-        )
+        assert gc_recorder.collect.called, 'scan_loop must run the periodic GC sweep on long scans'

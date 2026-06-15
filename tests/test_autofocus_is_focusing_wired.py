@@ -100,8 +100,7 @@ def test_false_flip_waits_for_af_in_progress_clear(monkeypatch):
     true_writes = [w for w in recorder.writes if w[0] is True]
     false_writes = [w for w in recorder.writes if w[0] is False]
     assert true_writes and true_writes[0][1] is True, (
-        'the True mirror must be written while _af_in_progress is set; '
-        f'writes: {recorder.writes}'
+        f'the True mirror must be written while _af_in_progress is set; writes: {recorder.writes}'
     )
     assert false_writes and false_writes[-1][1] is False, (
         'the False mirror must be written only after _af_in_progress '

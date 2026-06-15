@@ -670,9 +670,7 @@ class Protocol:
     def steps(self) -> pd.DataFrame:
         return self._config['steps']
 
-    def update_layer_focus(
-        self, layer: str, old_z: float | None, new_z: float
-    ) -> int:
+    def update_layer_focus(self, layer: str, old_z: float | None, new_z: float) -> int:
         """Propagate a new saved-focus Z to in-memory protocol steps that
         sit at the layer's previous-focus Z.
 
@@ -888,9 +886,7 @@ class Protocol:
         # Add Step gives every channel the current stage Z instead of its
         # own focus, collapsing distinct per-channel focus to one value.
         step_z = (
-            layer_config['focus']
-            if layer_config.get('focus') is not None
-            else plate_position['z']
+            layer_config['focus'] if layer_config.get('focus') is not None else plate_position['z']
         )
 
         step_dict = self._create_step_dict(
@@ -1690,9 +1686,7 @@ class Protocol:
             # of the encoding bug was fixed (issue #669).
             if hours < 0:
                 logger.error(f"Invalid 'Duration' value in protocol file {file_path}: must be >= 0")
-                raise ProtocolFormatError(
-                    "Invalid 'Duration' value in protocol file: must be >= 0"
-                )
+                raise ProtocolFormatError("Invalid 'Duration' value in protocol file: must be >= 0")
 
             config['duration'] = datetime.timedelta(hours=hours)
 

@@ -45,9 +45,7 @@ def _real_available_memory(monkeypatch):
     the check passes for small test arrays."""
     mem = MagicMock()
     mem.available = 16 * 1024 * 1024 * 1024
-    monkeypatch.setattr(
-        stack_builder_module.psutil, 'virtual_memory', lambda: mem
-    )
+    monkeypatch.setattr(stack_builder_module.psutil, 'virtual_memory', lambda: mem)
 
 
 def _write_structured_input(
@@ -121,15 +119,17 @@ class TestStackBuilderPropagatesPlanePositions:
                 z_pos_um=z_val,
                 value=50 + z_idx * 10,
             )
-            rows.append({
-                'Filepath': fname,
-                'Color': 'Green',
-                'Scan Count': 0,
-                'Z-Slice': z_idx,
-                'X': plate_pos['x'],
-                'Y': plate_pos['y'],
-                'Z': z_val,
-            })
+            rows.append(
+                {
+                    'Filepath': fname,
+                    'Color': 'Green',
+                    'Scan Count': 0,
+                    'Z-Slice': z_idx,
+                    'X': plate_pos['x'],
+                    'Y': plate_pos['y'],
+                    'Z': z_val,
+                }
+            )
         df = pd.DataFrame(rows)
 
         output_file_loc = pathlib.Path('out.ome.tiff')
@@ -178,15 +178,17 @@ class TestStackBuilderPropagatesPlanePositions:
                 plate_pos_mm={'x': x, 'y': y},
                 z_pos_um=z,
             )
-            rows.append({
-                'Filepath': fname,
-                'Color': 'Green',
-                'Scan Count': 0,
-                'Z-Slice': z_idx,
-                'X': x,
-                'Y': y,
-                'Z': z,
-            })
+            rows.append(
+                {
+                    'Filepath': fname,
+                    'Color': 'Green',
+                    'Scan Count': 0,
+                    'Z-Slice': z_idx,
+                    'X': x,
+                    'Y': y,
+                    'Z': z,
+                }
+            )
         df = pd.DataFrame(rows)
 
         StackBuilder._create_stack(
@@ -228,15 +230,17 @@ class TestStackBuilderPropagatesPixelSizeAndChannels:
                 plate_pos_mm={'x': 0.0, 'y': 0.0},
                 z_pos_um=float(z_idx) * 10,
             )
-            rows.append({
-                'Filepath': fname,
-                'Color': 'Red',
-                'Scan Count': 0,
-                'Z-Slice': z_idx,
-                'X': 0.0,
-                'Y': 0.0,
-                'Z': float(z_idx) * 10,
-            })
+            rows.append(
+                {
+                    'Filepath': fname,
+                    'Color': 'Red',
+                    'Scan Count': 0,
+                    'Z-Slice': z_idx,
+                    'X': 0.0,
+                    'Y': 0.0,
+                    'Z': float(z_idx) * 10,
+                }
+            )
         df = pd.DataFrame(rows)
 
         StackBuilder._create_stack(
@@ -253,9 +257,7 @@ class TestStackBuilderPropagatesPixelSizeAndChannels:
             'Hyperstack OME-XML must declare PhysicalSizeX so consumers '
             'can compute on-screen scale bars.'
         )
-        assert 'PhysicalSizeXUnit="um"' in ome_xml, (
-            'PhysicalSizeX must declare its unit (microns).'
-        )
+        assert 'PhysicalSizeXUnit="um"' in ome_xml, 'PhysicalSizeX must declare its unit (microns).'
 
     def test_channel_names_in_ome_xml(self, tmp_path):
         rows = []
@@ -268,15 +270,17 @@ class TestStackBuilderPropagatesPixelSizeAndChannels:
                     plate_pos_mm={'x': 0.0, 'y': 0.0},
                     z_pos_um=float(z_idx) * 10,
                 )
-                rows.append({
-                    'Filepath': fname,
-                    'Color': channel,
-                    'Scan Count': 0,
-                    'Z-Slice': z_idx,
-                    'X': 0.0,
-                    'Y': 0.0,
-                    'Z': float(z_idx) * 10,
-                })
+                rows.append(
+                    {
+                        'Filepath': fname,
+                        'Color': channel,
+                        'Scan Count': 0,
+                        'Z-Slice': z_idx,
+                        'X': 0.0,
+                        'Y': 0.0,
+                        'Z': float(z_idx) * 10,
+                    }
+                )
         df = pd.DataFrame(rows)
 
         StackBuilder._create_stack(
@@ -289,12 +293,8 @@ class TestStackBuilderPropagatesPixelSizeAndChannels:
         with tf.TiffFile(str(tmp_path / 'out.ome.tiff')) as tif:
             ome_xml = tif.ome_metadata or ''
 
-        assert 'Name="Green"' in ome_xml, (
-            'Green channel name must reach OME-XML <Channel> element.'
-        )
-        assert 'Name="Red"' in ome_xml, (
-            'Red channel name must reach OME-XML <Channel> element.'
-        )
+        assert 'Name="Green"' in ome_xml, 'Green channel name must reach OME-XML <Channel> element.'
+        assert 'Name="Red"' in ome_xml, 'Red channel name must reach OME-XML <Channel> element.'
 
 
 class TestStackBuilderHandlesInputsWithoutStructuredMetadata:
@@ -313,15 +313,17 @@ class TestStackBuilderHandlesInputsWithoutStructuredMetadata:
                 np.full((4, 4), 100, dtype=np.uint8),
                 compression='lzw',
             )
-            rows.append({
-                'Filepath': fname,
-                'Color': 'Green',
-                'Scan Count': 0,
-                'Z-Slice': z_idx,
-                'X': 0.0,
-                'Y': 0.0,
-                'Z': float(z_idx),
-            })
+            rows.append(
+                {
+                    'Filepath': fname,
+                    'Color': 'Green',
+                    'Scan Count': 0,
+                    'Z-Slice': z_idx,
+                    'X': 0.0,
+                    'Y': 0.0,
+                    'Z': float(z_idx),
+                }
+            )
         df = pd.DataFrame(rows)
 
         result = StackBuilder._create_stack(
@@ -331,9 +333,7 @@ class TestStackBuilderHandlesInputsWithoutStructuredMetadata:
             focal_length=47.8,
             binning_size=1,
         )
-        assert result['status'], (
-            f'Bare-input fallback path must not crash: {result.get("error")}'
-        )
+        assert result['status'], f'Bare-input fallback path must not crash: {result.get("error")}'
         # Output should still be a valid OME-TIFF.
         with tf.TiffFile(str(tmp_path / 'out.ome.tiff')) as tif:
             assert tif.is_ome, 'Hyperstack output must remain OME-tagged'
@@ -359,15 +359,17 @@ class TestStackBuilderPrivateTagRecoversDroppedMetadata:
                 plate_pos_mm={'x': 0.0, 'y': 0.0},
                 z_pos_um=float(z_idx) * 10,
             )
-            rows.append({
-                'Filepath': fname,
-                'Color': 'Green',
-                'Scan Count': 0,
-                'Z-Slice': z_idx,
-                'X': 0.0,
-                'Y': 0.0,
-                'Z': float(z_idx) * 10,
-            })
+            rows.append(
+                {
+                    'Filepath': fname,
+                    'Color': 'Green',
+                    'Scan Count': 0,
+                    'Z-Slice': z_idx,
+                    'X': 0.0,
+                    'Y': 0.0,
+                    'Z': float(z_idx) * 10,
+                }
+            )
         df = pd.DataFrame(rows)
 
         StackBuilder._create_stack(
@@ -378,9 +380,7 @@ class TestStackBuilderPrivateTagRecoversDroppedMetadata:
             binning_size=1,
         )
 
-        recovered = image_utils.read_hyperstack_private_metadata(
-            tmp_path / 'out.ome.tiff'
-        )
+        recovered = image_utils.read_hyperstack_private_metadata(tmp_path / 'out.ome.tiff')
         assert recovered is not None, (
             'Private-tag sidecar missing from hyperstack output; the '
             'JSON-encoded metadata dict must be written alongside the '
@@ -408,15 +408,17 @@ class TestStackBuilderPrivateTagRecoversDroppedMetadata:
                 plate_pos_mm={'x': 0.0, 'y': 0.0},
                 z_pos_um=float(z_idx) * 10,
             )
-            rows.append({
-                'Filepath': fname,
-                'Color': 'Green',
-                'Scan Count': 0,
-                'Z-Slice': z_idx,
-                'X': 0.0,
-                'Y': 0.0,
-                'Z': float(z_idx) * 10,
-            })
+            rows.append(
+                {
+                    'Filepath': fname,
+                    'Color': 'Green',
+                    'Scan Count': 0,
+                    'Z-Slice': z_idx,
+                    'X': 0.0,
+                    'Y': 0.0,
+                    'Z': float(z_idx) * 10,
+                }
+            )
         df = pd.DataFrame(rows)
 
         StackBuilder._create_stack(
@@ -427,9 +429,7 @@ class TestStackBuilderPrivateTagRecoversDroppedMetadata:
             binning_size=1,
         )
 
-        recovered = image_utils.read_hyperstack_private_metadata(
-            tmp_path / 'out.ome.tiff'
-        )
+        recovered = image_utils.read_hyperstack_private_metadata(tmp_path / 'out.ome.tiff')
         objective = (recovered.get('Instrument') or {}).get('Objective') or {}
         assert objective.get('Model') == 'PlanFluor20x'
         assert objective.get('Magnification') == 20
@@ -445,15 +445,17 @@ class TestStackBuilderPrivateTagRecoversDroppedMetadata:
                 plate_pos_mm={'x': 12.5, 'y': 8.25},
                 z_pos_um=float(z_idx) * 10,
             )
-            rows.append({
-                'Filepath': fname,
-                'Color': 'Green',
-                'Scan Count': 0,
-                'Z-Slice': z_idx,
-                'X': 12.5,
-                'Y': 8.25,
-                'Z': float(z_idx) * 10,
-            })
+            rows.append(
+                {
+                    'Filepath': fname,
+                    'Color': 'Green',
+                    'Scan Count': 0,
+                    'Z-Slice': z_idx,
+                    'X': 12.5,
+                    'Y': 8.25,
+                    'Z': float(z_idx) * 10,
+                }
+            )
         df = pd.DataFrame(rows)
 
         StackBuilder._create_stack(
@@ -464,9 +466,7 @@ class TestStackBuilderPrivateTagRecoversDroppedMetadata:
             binning_size=1,
         )
 
-        recovered = image_utils.read_hyperstack_private_metadata(
-            tmp_path / 'out.ome.tiff'
-        )
+        recovered = image_utils.read_hyperstack_private_metadata(tmp_path / 'out.ome.tiff')
         plate = recovered.get('Plate') or {}
         assert plate.get('Name') == '96-well'
         assert plate.get('Rows') == 8
@@ -487,15 +487,17 @@ class TestStackBuilderPrivateTagRecoversDroppedMetadata:
                 np.full((4, 4), 100, dtype=np.uint8),
                 compression='lzw',
             )
-            rows.append({
-                'Filepath': fname,
-                'Color': 'Green',
-                'Scan Count': 0,
-                'Z-Slice': z_idx,
-                'X': 0.0,
-                'Y': 0.0,
-                'Z': float(z_idx),
-            })
+            rows.append(
+                {
+                    'Filepath': fname,
+                    'Color': 'Green',
+                    'Scan Count': 0,
+                    'Z-Slice': z_idx,
+                    'X': 0.0,
+                    'Y': 0.0,
+                    'Z': float(z_idx),
+                }
+            )
         df = pd.DataFrame(rows)
 
         StackBuilder._create_stack(
@@ -506,9 +508,7 @@ class TestStackBuilderPrivateTagRecoversDroppedMetadata:
             binning_size=1,
         )
 
-        recovered = image_utils.read_hyperstack_private_metadata(
-            tmp_path / 'out.ome.tiff'
-        )
+        recovered = image_utils.read_hyperstack_private_metadata(tmp_path / 'out.ome.tiff')
         # Sidecar is always written for hyperstacks; carries at least
         # the schema fields (Channel, Plane). Instrument / Plate absent
         # because the bare inputs carry no acquisition context.
@@ -591,15 +591,17 @@ class TestHyperstackChannelColor:
                     plate_pos_mm={'x': 0.0, 'y': 0.0},
                     z_pos_um=float(z_idx) * 10,
                 )
-                rows.append({
-                    'Filepath': fname,
-                    'Color': channel,
-                    'Scan Count': 0,
-                    'Z-Slice': z_idx,
-                    'X': 0.0,
-                    'Y': 0.0,
-                    'Z': float(z_idx) * 10,
-                })
+                rows.append(
+                    {
+                        'Filepath': fname,
+                        'Color': channel,
+                        'Scan Count': 0,
+                        'Z-Slice': z_idx,
+                        'X': 0.0,
+                        'Y': 0.0,
+                        'Z': float(z_idx) * 10,
+                    }
+                )
         df = pd.DataFrame(rows)
 
         StackBuilder._create_stack(
@@ -619,8 +621,7 @@ class TestHyperstackChannelColor:
         )
         # Two channels -- two Color attrs.
         assert ome_xml.count('Color=') == 2, (
-            f'Expected 2 Color attrs (one per channel), got '
-            f'{ome_xml.count("Color=")}'
+            f'Expected 2 Color attrs (one per channel), got {ome_xml.count("Color=")}'
         )
 
     def test_color_omitted_from_private_tag_sidecar(self, tmp_path):
@@ -638,15 +639,17 @@ class TestHyperstackChannelColor:
                 plate_pos_mm={'x': 0.0, 'y': 0.0},
                 z_pos_um=float(z_idx) * 10,
             )
-            rows.append({
-                'Filepath': fname,
-                'Color': 'Green',
-                'Scan Count': 0,
-                'Z-Slice': z_idx,
-                'X': 0.0,
-                'Y': 0.0,
-                'Z': float(z_idx) * 10,
-            })
+            rows.append(
+                {
+                    'Filepath': fname,
+                    'Color': 'Green',
+                    'Scan Count': 0,
+                    'Z-Slice': z_idx,
+                    'X': 0.0,
+                    'Y': 0.0,
+                    'Z': float(z_idx) * 10,
+                }
+            )
         df = pd.DataFrame(rows)
 
         StackBuilder._create_stack(
@@ -657,9 +660,7 @@ class TestHyperstackChannelColor:
             binning_size=1,
         )
 
-        recovered = image_utils.read_hyperstack_private_metadata(
-            tmp_path / 'out.ome.tiff'
-        )
+        recovered = image_utils.read_hyperstack_private_metadata(tmp_path / 'out.ome.tiff')
         assert recovered is not None
         # Color IS in the sidecar copy too (build_hyperstack_output_metadata
         # writes it; the sidecar strips only LUTs). That's fine -- it does

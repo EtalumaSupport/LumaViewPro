@@ -336,7 +336,6 @@ class CompositeGeneration(ProtocolPostProcessor):
             },
         }
 
-
     _SUPPORTED_FORMATS = ('tiff', 'ome-tiff')
 
     def generate_composite_from_paths(
@@ -401,14 +400,10 @@ class CompositeGeneration(ProtocolPostProcessor):
         if blue_path is not None:
             rows.append({'Color': 'Blue', 'Filepath': pathlib.Path(blue_path)})
         if transmitted_path is not None:
-            rows.append(
-                {'Color': transmitted_layer, 'Filepath': pathlib.Path(transmitted_path)}
-            )
+            rows.append({'Color': transmitted_layer, 'Filepath': pathlib.Path(transmitted_path)})
 
         if not rows:
-            raise ValueError(
-                'generate_composite_from_paths: at least one channel path required.'
-            )
+            raise ValueError('generate_composite_from_paths: at least one channel path required.')
 
         df = pd.DataFrame(rows)
 
@@ -433,9 +428,7 @@ class CompositeGeneration(ProtocolPostProcessor):
         img = result['image']
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        reference_input_path = (
-            red_path or green_path or blue_path or transmitted_path
-        )
+        reference_input_path = red_path or green_path or blue_path or transmitted_path
         metadata = image_utils.build_composite_output_metadata(
             reference_input_path=pathlib.Path(reference_input_path),
         )

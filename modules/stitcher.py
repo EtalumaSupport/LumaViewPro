@@ -96,9 +96,10 @@ class Stitcher(ProtocolPostProcessor):
 
         logger_msg = position_result['error']
         import logging
+
         logging.getLogger('LVP.ui.protocol_settings').warning(
-            f"[Stitch] Position-aware stitch failed ({logger_msg}); "
-            "falling back to simple grid stitch"
+            f'[Stitch] Position-aware stitch failed ({logger_msg}); '
+            'falling back to simple grid stitch'
         )
         return Stitcher._simple_position_stitcher(
             path=path,
@@ -270,7 +271,6 @@ class Stitcher(ProtocolPostProcessor):
             },
         }
 
-
     def _position_stitcher(
         self,
         path: pathlib.Path,
@@ -288,7 +288,7 @@ class Stitcher(ProtocolPostProcessor):
             missing = sorted(required_cols.difference(df.columns))
             return {
                 'status': False,
-                'error': f"missing required columns: {missing}",
+                'error': f'missing required columns: {missing}',
             }
 
         df = df.copy()
@@ -323,7 +323,7 @@ class Stitcher(ProtocolPostProcessor):
         except Exception as e:
             return {
                 'status': False,
-                'error': f"unable to determine objective field of view: {e}",
+                'error': f'unable to determine objective field of view: {e}',
             }
 
         um_per_pixel_x = fov['width'] / image_w

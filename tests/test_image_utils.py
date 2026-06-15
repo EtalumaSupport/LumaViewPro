@@ -87,6 +87,5 @@ class TestConvert12to8OutBuffer:
                 convert_12bit_to_8bit(src, out=out)
 
         assert alloc_count['n'] < 10, (
-            f'Expected O(1) frame-sized allocations with reused out buffer; '
-            f"got {alloc_count['n']}."
+            f'Expected O(1) frame-sized allocations with reused out buffer; got {alloc_count["n"]}.'
         )

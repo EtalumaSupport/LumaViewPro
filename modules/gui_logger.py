@@ -75,9 +75,7 @@ _debounce_timers: dict = {}
 _debounce_default_delay_s: float = 1.5
 
 
-def text_input_debounced(
-    name: str, value, delay_s: float = _debounce_default_delay_s
-) -> None:
+def text_input_debounced(name: str, value, delay_s: float = _debounce_default_delay_s) -> None:
     """Debounced text-input final-value log.
 
     Each call cancels the previous pending log for ``name`` and

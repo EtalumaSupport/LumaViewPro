@@ -28,8 +28,7 @@ def test_already_running_popup_is_forced_topmost_and_focused():
         'opens behind the running LVP window and gets buried.'
     )
     assert '_root.focus_force()' in SRC, (
-        'the already-running popup must force focus so it surfaces above the '
-        'existing window.'
+        'the already-running popup must force focus so it surfaces above the existing window.'
     )
 
 

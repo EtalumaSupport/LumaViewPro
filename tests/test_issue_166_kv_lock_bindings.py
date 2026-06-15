@@ -53,7 +53,7 @@ def _indent(line: str) -> int:
     within a block, so we must expand tabs the same way to get the depths
     Kivy actually sees -- a raw character count misreads tab/space mixes.
     """
-    prefix = line[:len(line) - len(line.lstrip(' \t'))]
+    prefix = line[: len(line) - len(line.lstrip(' \t'))]
     return len(prefix.replace('\t', '    '))
 
 
@@ -93,7 +93,7 @@ def _block_for_id(control_id: str) -> list[str]:
     header_indent = _indent(lines[header])
 
     block = [lines[header]]
-    for line in lines[header + 1:]:
+    for line in lines[header + 1 :]:
         if line.strip() == '':
             block.append(line)
             continue
@@ -129,7 +129,7 @@ def _class_rule_root_has_bind(class_name: str) -> bool:
     assert start is not None, f'rule {header} not found'
 
     header_indent = _indent(lines[start])
-    for line in lines[start + 1:]:
+    for line in lines[start + 1 :]:
         if line.strip() == '' or line.lstrip().startswith('#'):
             continue
         if _indent(line) <= header_indent:
@@ -150,7 +150,7 @@ def _class_rule_root_has_bind(class_name: str) -> bool:
 LOCK_REPRESENTATIVES = {
     # Focus / Z jog + turret/objective + z-stack are under <VerticalControl>.
     'fast_up': 'VerticalControl',
-    'obj_position': None,      # OR-combined on its own block
+    'obj_position': None,  # OR-combined on its own block
     'objective_spinner2': 'VerticalControl',
     'zstack_aqr_btn': 'VerticalControl',
     # Protocol edit / step-nav (mixed region -> per-widget).
@@ -186,13 +186,13 @@ def test_representative_lock_controls_disabled_during_protocol():
 def test_container_bound_regions_carry_root_bind():
     """The all-LOCK regions are locked once at their rule root."""
     for class_name in (
-        'VerticalControl',        # focus / turret / objective / z-stack
-        'XYStageControl',         # XY stage jog
+        'VerticalControl',  # focus / turret / objective / z-stack
+        'XYStageControl',  # XY stage jog
         'VideoCreationControls',  # post-processing: video
-        'ZProjectionControls',    # post-processing: z-projection
-        'CompositeGenControls',   # post-processing: composite
-        'GraphingControls',       # graphing popup
-        'CellCountControls',      # object-analysis popup
+        'ZProjectionControls',  # post-processing: z-projection
+        'CompositeGenControls',  # post-processing: composite
+        'GraphingControls',  # graphing popup
+        'CellCountControls',  # object-analysis popup
     ):
         assert _class_rule_root_has_bind(class_name), (
             f'all-LOCK region <{class_name}>: must carry {BIND!r} at its rule '
@@ -209,6 +209,7 @@ def test_xy_stage_control_locked_via_container():
 # OR-combine: controls that shipped with a `disabled:` line keep
 # app.protocol_running in that line (never overwritten away).
 # --------------------------------------------------------------------------
+
 
 def test_or_combined_controls_keep_protocol_running():
     # obj_position and stitch_apply_btn shipped `disabled: False`; the
@@ -239,10 +240,9 @@ def test_save_protocol_button_disabled():
     base = _indent(lines[save_idx])
     # The block's other properties share save_idx's indentation; scan a small
     # window around the handler for the bind at the same depth.
-    window = lines[max(0, save_idx - 10):save_idx + 2]
+    window = lines[max(0, save_idx - 10) : save_idx + 2]
     assert any(
-        ln.strip().startswith('disabled:') and 'app.protocol_running' in ln
-        and _indent(ln) == base
+        ln.strip().startswith('disabled:') and 'app.protocol_running' in ln and _indent(ln) == base
         for ln in window
     ), 'Save protocol button must carry disabled: app.protocol_running (#166)'
 
@@ -297,6 +297,7 @@ def test_run_abort_toggles_live_for_abort():
 # --------------------------------------------------------------------------
 # Count invariant: a representative-or-greater number of binds exists.
 # --------------------------------------------------------------------------
+
 
 def test_minimum_bind_count():
     """At least the 7 container binds + the named per-widget binds exist.

@@ -175,8 +175,7 @@ class TestMotionValiditySources:
         try:
             scope.motion.move_absolute_position(axis, pos, wait_until_complete=True)
             assert source in recorded, (
-                f'move_absolute_position({axis!r}) must invalidate {source!r}; '
-                f'recorded {recorded}'
+                f'move_absolute_position({axis!r}) must invalidate {source!r}; recorded {recorded}'
             )
             wrong = {'xy_move', 'z_move', 'turret'} - {source}
             assert not wrong.intersection(recorded), (
@@ -195,8 +194,7 @@ class TestMotionValiditySources:
         try:
             scope.motion.move_relative_position(axis, 100.0, wait_until_complete=True)
             assert source in recorded, (
-                f'move_relative_position({axis!r}) must invalidate {source!r}; '
-                f'recorded {recorded}'
+                f'move_relative_position({axis!r}) must invalidate {source!r}; recorded {recorded}'
             )
         finally:
             scope.disconnect()
@@ -207,9 +205,7 @@ class TestMotionValiditySources:
         scope, recorded = self._scope_with_invalidate_recorder()
         try:
             scope.motion.xycenter()
-            assert 'xy_move' in recorded, (
-                f'xycenter must invalidate xy_move; recorded {recorded}'
-            )
+            assert 'xy_move' in recorded, f'xycenter must invalidate xy_move; recorded {recorded}'
         finally:
             scope.disconnect()
 
@@ -311,9 +307,7 @@ class TestRejectedSettingNotifiesAndKeepsCache:
         imaging.set_gain(7.0)
 
         assert captured, 'A confirmed gain rejection must notify the user'
-        assert imaging.camera_gain == 2.0, (
-            'A rejected gain write must not be recorded in the cache'
-        )
+        assert imaging.camera_gain == 2.0, 'A rejected gain write must not be recorded in the cache'
 
     def test_rejected_exposure_notifies_and_keeps_cache(self, sim_imaging, monkeypatch):
         imaging, cam = sim_imaging

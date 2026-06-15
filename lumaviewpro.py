@@ -1009,7 +1009,9 @@ class LumaViewProApp(TooltipMixin, App):
             global profiling_helper
             profiling_helper = profiling_utils.ProfilingHelper()
             profiling_helper.enable()
-            logger.info('[LVP Main  ] cProfile enabled (cprofile_enabled=true) -- will dump on exit')
+            logger.info(
+                '[LVP Main  ] cProfile enabled (cprofile_enabled=true) -- will dump on exit'
+            )
 
         return lumaview
 
@@ -1022,9 +1024,7 @@ class LumaViewProApp(TooltipMixin, App):
         """Kivy on_close hook -- the window is closing for real."""
         gui_logger.window_event('close')
 
-    def _on_window_keyboard(
-        self, window, key: int, scancode: int, codepoint, modifier
-    ) -> bool:
+    def _on_window_keyboard(self, window, key: int, scancode: int, codepoint, modifier) -> bool:
         """Kivy on_keyboard hook -- log non-widget-consumed key events.
 
         Only logs keys of forensic interest: Escape (Kivy
@@ -1073,13 +1073,8 @@ class LumaViewProApp(TooltipMixin, App):
         # and the GUI interactions log (so the gui-log timeline names
         # the trigger). Without this line, an X-button / Alt-F4 close
         # produces a silent shutdown -- the gap that prompted this hook.
-        logger.info(
-            f'[LVP Main  ] on_request_close fired; '
-            f'protocol_running={protocol_running}'
-        )
-        gui_logger.window_event(
-            'close-requested', f'protocol_running={protocol_running}'
-        )
+        logger.info(f'[LVP Main  ] on_request_close fired; protocol_running={protocol_running}')
+        gui_logger.window_event('close-requested', f'protocol_running={protocol_running}')
         if protocol_running:
             Clock.schedule_once(
                 lambda dt: show_confirmation_popup(
@@ -1105,9 +1100,7 @@ class LumaViewProApp(TooltipMixin, App):
         slider defaults when no hardware was connected this session.
         """
         try:
-            ctx.motion_settings.ids['microscope_settings_id'].save_settings(
-                './data/current.json'
-            )
+            ctx.motion_settings.ids['microscope_settings_id'].save_settings('./data/current.json')
         except Exception:
             logger.exception('[LVP Main  ] periodic current.json flush failed')
 
@@ -1211,8 +1204,7 @@ class LumaViewProApp(TooltipMixin, App):
                     states = lumaview.scope.illumination.get_led_states()
                     lit = sorted(c for c, s in states.items() if s.get('enabled'))
                     state_text = (
-                        'channels still ON: ' + ', '.join(lit) if lit
-                        else 'all channels OFF'
+                        'channels still ON: ' + ', '.join(lit) if lit else 'all channels OFF'
                     )
                     logger.warning(
                         f'[LVP Main  ] shutdown leds_off still queued on '

@@ -104,14 +104,8 @@ def test_empty_step_guard_runs_before_worker_pool_put():
     guard_idx = _stmt_index_for(method.body, has_num_steps_zero_compare)
     put_idx = _stmt_index_for(method.body, has_worker_pool_put)
 
-    assert guard_idx >= 0, (
-        'num_steps()==0 guard not found in ProtocolSettings.new_protocol. '
-        '(#680)'
-    )
-    assert put_idx >= 0, (
-        'worker_pool.put for new_protocol_ex not found in new_protocol. '
-        '(#680)'
-    )
+    assert guard_idx >= 0, 'num_steps()==0 guard not found in ProtocolSettings.new_protocol. (#680)'
+    assert put_idx >= 0, 'worker_pool.put for new_protocol_ex not found in new_protocol. (#680)'
     assert guard_idx < put_idx, (
         f'Empty-steps guard at statement {guard_idx} must run BEFORE '
         f'worker_pool.put at statement {put_idx}; otherwise an empty '
@@ -220,9 +214,7 @@ def test_new_protocol_gates_no_channel_popup_behind_channel_check():
     # The popup must NOT sit directly in the zero-step block; it must be
     # nested inside the no-channels branch.
     directly_in_outer = any(
-        'No Channels Selected' in ast.unparse(s)
-        for s in outer.body
-        if not isinstance(s, ast.If)
+        'No Channels Selected' in ast.unparse(s) for s in outer.body if not isinstance(s, ast.If)
     )
     assert not directly_in_outer, (
         'The "No Channels Selected" popup must be gated behind a channel '
@@ -231,8 +223,7 @@ def test_new_protocol_gates_no_channel_popup_behind_channel_check():
     )
 
     nested_if_has_popup = any(
-        isinstance(s, ast.If) and 'No Channels Selected' in ast.unparse(s)
-        for s in outer.body
+        isinstance(s, ast.If) and 'No Channels Selected' in ast.unparse(s) for s in outer.body
     )
     assert nested_if_has_popup, (
         'Expected the "No Channels Selected" popup nested inside the '

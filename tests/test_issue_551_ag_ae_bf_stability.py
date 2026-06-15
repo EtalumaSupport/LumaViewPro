@@ -54,12 +54,8 @@ def test_init_auto_gain_focus_uses_minimize_gain_profile():
     'MinimizeExposureTime' profile caused BF gain bouncing."""
     cam = auto_roi_pylon_camera()
     cam.init_auto_gain_focus()
-    profile_writes = [
-        value for node, value in cam.active.calls if node == 'AutoFunctionProfile'
-    ]
-    assert profile_writes, (
-        'init_auto_gain_focus must set AutoFunctionProfile. (#551)'
-    )
+    profile_writes = [value for node, value in cam.active.calls if node == 'AutoFunctionProfile']
+    assert profile_writes, 'init_auto_gain_focus must set AutoFunctionProfile. (#551)'
     assert profile_writes == ['MinimizeGain'], (
         f'AutoFunctionProfile must be set to "MinimizeGain" for BF '
         f'stability; got {profile_writes}. (#551)'
@@ -96,9 +92,7 @@ def test_init_auto_gain_focus_zeroes_offsets_before_sizing():
         f'full centered crop {_EXPECTED_DEFAULT_ROI} (zero offsets '
         f'first, then size, then re-center); got {roi}.'
     )
-    profile_writes = [
-        value for node, value in cam.active.calls if node == 'AutoFunctionProfile'
-    ]
+    profile_writes = [value for node, value in cam.active.calls if node == 'AutoFunctionProfile']
     assert profile_writes == ['MinimizeGain'], (
         'The configuration pass must complete (a mid-sequence '
         'OutOfRange raise would skip the profile write).'
@@ -119,10 +113,7 @@ def test_init_auto_gain_focus_clamps_to_autofunction_roi_node_max():
         f'after 16-px alignment of caps 1000x800); got {roi_w}x{roi_h}.'
     )
     assert (off_x, off_y) == (1264, 912), (
-        f'Offsets must re-center the clamped ROI (and 16-px align); '
-        f'got ({off_x}, {off_y}).'
+        f'Offsets must re-center the clamped ROI (and 16-px align); got ({off_x}, {off_y}).'
     )
-    profile_writes = [
-        value for node, value in cam.active.calls if node == 'AutoFunctionProfile'
-    ]
+    profile_writes = [value for node, value in cam.active.calls if node == 'AutoFunctionProfile']
     assert profile_writes == ['MinimizeGain']

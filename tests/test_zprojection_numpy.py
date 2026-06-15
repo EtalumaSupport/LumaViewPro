@@ -19,18 +19,14 @@ def _stack(frames, dtype):
 
 
 def test_min_exact():
-    frames = _stack([[[10, 20], [30, 40]],
-                     [[5, 25], [35, 15]],
-                     [[50, 1], [2, 45]]], np.uint8)
+    frames = _stack([[[10, 20], [30, 40]], [[5, 25], [35, 15]], [[50, 1], [2, 45]]], np.uint8)
     result = zproject(frames, ZProjectMethod.Min)
     np.testing.assert_array_equal(result, np.array([[5, 1], [2, 15]], dtype=np.uint8))
     assert result.dtype == np.uint8
 
 
 def test_max_exact():
-    frames = _stack([[[10, 20], [30, 40]],
-                     [[5, 25], [35, 15]],
-                     [[50, 1], [2, 45]]], np.uint8)
+    frames = _stack([[[10, 20], [30, 40]], [[5, 25], [35, 15]], [[50, 1], [2, 45]]], np.uint8)
     result = zproject(frames, ZProjectMethod.Max)
     np.testing.assert_array_equal(result, np.array([[50, 25], [35, 45]], dtype=np.uint8))
     assert result.dtype == np.uint8
@@ -39,8 +35,7 @@ def test_max_exact():
 def test_average_banker_rounding():
     # Two-frame stack with half-way means to pin round-half-to-even behavior:
     # 10.5 -> 10 (even), 11.5 -> 12 (even), 13.5 -> 14 (even), 12.5 -> 12 (even).
-    frames = _stack([[[10, 11], [13, 12]],
-                     [[11, 12], [14, 13]]], np.uint8)
+    frames = _stack([[[10, 11], [13, 12]], [[11, 12], [14, 13]]], np.uint8)
     result = zproject(frames, ZProjectMethod.Average)
     np.testing.assert_array_equal(result, np.array([[10, 12], [14, 12]], dtype=np.uint8))
     assert result.dtype == np.uint8
@@ -55,9 +50,7 @@ def test_average_integer_mean():
 
 
 def test_median_odd_n():
-    frames = _stack([[[1, 9], [4, 4]],
-                     [[5, 9], [6, 4]],
-                     [[3, 9], [2, 4]]], np.uint8)
+    frames = _stack([[[1, 9], [4, 4]], [[5, 9], [6, 4]], [[3, 9], [2, 4]]], np.uint8)
     result = zproject(frames, ZProjectMethod.Median)
     np.testing.assert_array_equal(result, np.array([[3, 9], [4, 4]], dtype=np.uint8))
 
@@ -71,8 +64,7 @@ def test_median_even_n_rounds():
 
 
 def test_sum_in_range():
-    frames = _stack([[[10, 20], [30, 40]],
-                     [[10, 20], [30, 40]]], np.uint8)
+    frames = _stack([[[10, 20], [30, 40]], [[10, 20], [30, 40]]], np.uint8)
     result = zproject(frames, ZProjectMethod.Sum)
     np.testing.assert_array_equal(result, np.array([[20, 40], [60, 80]], dtype=np.uint8))
     assert result.dtype == np.uint8
@@ -97,8 +89,7 @@ def test_stddev_known_value():
 @pytest.mark.parametrize('dtype', [np.uint8, np.uint16])
 @pytest.mark.parametrize('method', list(ZProjectMethod))
 def test_output_dtype_matches_input(dtype, method):
-    frames = _stack([[[10, 20], [30, 40]],
-                     [[15, 25], [35, 45]]], dtype)
+    frames = _stack([[[10, 20], [30, 40]], [[15, 25], [35, 45]]], dtype)
     result = zproject(frames, method)
     assert result.dtype == dtype
 

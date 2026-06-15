@@ -213,10 +213,11 @@ class TestZprojectionFolderPickerDefaultDepth_629:
         from tests.ast_seams import assert_def
 
         assert_def(
-            'ui/file_dialogs.py', '_zprojection_picker_default_path',
+            'ui/file_dialogs.py',
+            '_zprojection_picker_default_path',
             has_params=['live_folder'],
             msg='Helper _zprojection_picker_default_path() must exist; '
-                'FolderChooseBTN.choose() delegates to it (#629).',
+            'FolderChooseBTN.choose() delegates to it (#629).',
         )
 
     def test_helper_descends_manual_z_stacks_first(self):

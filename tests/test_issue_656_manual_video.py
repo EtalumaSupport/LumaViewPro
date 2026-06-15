@@ -214,9 +214,7 @@ def test_manual_video_renders_channel_color_from_manifest(tmp_path):
         tmp_path, n_frames=2, include_hyperstack=False, channel_color='Red'
     )
     builder = VideoBuilder(has_turret=False)
-    result = builder.build_from_folder(
-        folder, tmp_path / 'tiling.json', None, frames_per_sec=5
-    )
+    result = builder.build_from_folder(folder, tmp_path / 'tiling.json', None, frames_per_sec=5)
     assert result['status'] is True
     b, g, r = _channel_means_bgr(_first_frame(_find_video(folder, folder.name)))
     # 'Red' false-color -> red channel dominates; NOT grayscale (the bug).
@@ -225,13 +223,9 @@ def test_manual_video_renders_channel_color_from_manifest(tmp_path):
 
 def test_manual_video_grayscale_without_channel_color(tmp_path):
     # No channel_color in the manifest (old recording / brightfield) -> gray.
-    folder = _make_manual_folder(
-        tmp_path, n_frames=2, include_hyperstack=False, channel_color=None
-    )
+    folder = _make_manual_folder(tmp_path, n_frames=2, include_hyperstack=False, channel_color=None)
     builder = VideoBuilder(has_turret=False)
-    result = builder.build_from_folder(
-        folder, tmp_path / 'tiling.json', None, frames_per_sec=5
-    )
+    result = builder.build_from_folder(folder, tmp_path / 'tiling.json', None, frames_per_sec=5)
     assert result['status'] is True
     b, g, r = _channel_means_bgr(_first_frame(_find_video(folder, folder.name)))
     assert abs(r - g) < 8 and abs(g - b) < 8, f'expected gray frame, got B={b} G={g} R={r}'

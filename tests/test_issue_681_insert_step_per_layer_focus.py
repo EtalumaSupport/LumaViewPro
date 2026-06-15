@@ -103,6 +103,5 @@ def test_falls_back_to_stage_z_when_focus_unset():
 
     assert protocol.num_steps() == 1
     assert protocol.step(idx=0)['Z'] == pytest.approx(LIVE_STAGE_Z), (
-        'when a layer has no saved focus, the step Z falls back to the '
-        'live stage Z'
+        'when a layer has no saved focus, the step Z falls back to the live stage Z'
     )

@@ -123,18 +123,11 @@ def test_guards_are_early_returns():
             return False
         return any(isinstance(inner, ast.Return) and inner.value is None for inner in stmt.body)
 
-    play_ok = any(
-        is_if_with_bare_return(s, ('scope_display', '.play')) for s in method.body
-    )
-    proto_ok = any(
-        is_if_with_bare_return(s, ('protocol_running', 'is_set')) for s in method.body
-    )
+    play_ok = any(is_if_with_bare_return(s, ('scope_display', '.play')) for s in method.body)
+    proto_ok = any(is_if_with_bare_return(s, ('protocol_running', 'is_set')) for s in method.body)
 
     assert play_ok, (
         'scope_display.play guard must be `if ...: return` (early-return '
         'shape), not a conditional that falls through. (#534)'
     )
-    assert proto_ok, (
-        'protocol_running guard must be `if ...: return` (early-return '
-        'shape). (#534)'
-    )
+    assert proto_ok, 'protocol_running guard must be `if ...: return` (early-return shape). (#534)'

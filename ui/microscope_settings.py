@@ -858,8 +858,7 @@ class MicroscopeSettings(BoxLayout):
             notifications.warning(
                 'Settings',
                 'Invalid time limit',
-                'Video Time Limit must be between 1 and 3600 '
-                'seconds. Reverting to previous value.',
+                'Video Time Limit must be between 1 and 3600 seconds. Reverting to previous value.',
             )
             settings.setdefault('manual_video', {})
             widget.text = str(get_manual_video_max_duration(settings))
@@ -1271,7 +1270,9 @@ class MicroscopeSettings(BoxLayout):
             vc_objective_spinner.text = objective_id
 
             if lumaview.scope.motion.has_turret():
-                lumaview.scope.runtime_state.set_turret_config(turret_config=settings['turret_objectives'])
+                lumaview.scope.runtime_state.set_turret_config(
+                    turret_config=settings['turret_objectives']
+                )
 
             lumaview.scope.runtime_state.set_objective(objective_id=objective_id)
 
@@ -1318,9 +1319,7 @@ class MicroscopeSettings(BoxLayout):
         native = binning.displayed_to_native(typed, cur_binning, native_max)
         self._store_native_roi(native)
 
-        displayed = binning.native_to_displayed(
-            native, cur_binning, imaging.get_pixel_alignment()
-        )
+        displayed = binning.native_to_displayed(native, cur_binning, imaging.get_pixel_alignment())
         self._apply_displayed_frame(displayed)
 
     def _apply_displayed_frame(self, frame: dict) -> None:
