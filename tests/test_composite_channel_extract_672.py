@@ -141,6 +141,8 @@ class TestRgbImageToGrayPathDocumentedInCompositeGeneration:
         )
 
     def test_rgb_image_to_gray_called_in_composite_generation(self):
+        # pin-justified: proving the call site needs a full composite run;
+        # rgb_image_to_gray itself has direct behavioral coverage in this file.
         from pathlib import Path
 
         src = (

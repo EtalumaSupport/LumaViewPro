@@ -12596,9 +12596,12 @@ class TestWindowsMachinePredicateAgrees:
         return (root / rel).read_text()
 
     def test_lvp_logger_uses_os_name_predicate(self):
+        # pin-justified: import-time module-global predicate; lvp_logger is
+        # conftest-mocked wholesale, so a behavioral reload is fragile.
         assert "os.name == 'nt'" in self._src('lvp_logger.py')
 
     def test_app_environment_uses_os_name_predicate(self):
+        # pin-justified: same import-time predicate invariant (see class docstring).
         assert "os.name == 'nt'" in self._src('modules/app_environment.py')
 
     def test_lvp_logger_does_not_import_app_environment(self):
