@@ -12188,25 +12188,42 @@ class TestProtocolPostProcessorNoBareCvImwrite_F35_2:
             'swaps red/blue relative to tifffile readers).'
         )
 
-    def test_stitcher_writes_via_tifffile(self):
-        """Stitcher self-writes its output through the tifffile pathway.
-        Accepts either bare ``tifffile.imwrite`` (legacy direct call) or
-        ``image_utils.write_tiff`` (canonical mono-native wrapper that
-        routes through tifffile internally) -- both satisfy the F35.2
-        intent that the write does NOT go through cv2 (BGR-native)."""
-        import re
+    def test_stitcher_writes_via_tifffile(self, tmp_path):
+        """Stitcher self-writes its stitched output through the tifffile
+        pathway: drive _simple_position_stitcher over two tmp tiles with an
+        output_file_loc and assert the written file reads back through
+        tifffile at the stitched dimensions. The BGR-native cv2 write path
+        is permanently retired."""
+        import pathlib
 
-        src = self._stitcher_src()
-        matched = re.search(
-            r'(?:tf|tifffile)\.imwrite\s*\(|image_utils\.write_tiff\s*\(',
-            src,
+        import numpy as np
+        import pandas as pd
+        import tifffile as tf
+
+        from modules.stitcher import Stitcher
+
+        # Two 4x4 mono tiles side-by-side in X (no overlap).
+        tf.imwrite(str(tmp_path / 'a.tiff'), np.full((4, 4), 100, dtype=np.uint16))
+        tf.imwrite(str(tmp_path / 'b.tiff'), np.full((4, 4), 200, dtype=np.uint16))
+        df = pd.DataFrame(
+            [
+                {'X': 0.0, 'Y': 0.0, 'Filepath': 'a.tiff', 'Color': 'BF'},
+                {'X': 1.0, 'Y': 0.0, 'Filepath': 'b.tiff', 'Color': 'BF'},
+            ]
         )
-        assert matched is not None, (
-            'F35.2 regression: stitcher must write its stitched output '
-            'through tifffile (either bare tifffile.imwrite or via '
-            'image_utils.write_tiff). The BGR-native cv2 write path is '
-            'permanently retired.'
+
+        result = Stitcher._simple_position_stitcher(
+            path=tmp_path, df=df, output_file_loc=pathlib.Path('stitched.tiff')
         )
+
+        # Subclass-write contract: image=None signals the base class to skip
+        # its own write because the stitcher wrote the file itself.
+        assert result['image'] is None
+        out = tmp_path / 'stitched.tiff'
+        assert out.is_file()
+        readback = tf.imread(str(out))
+        # Two 4-wide tiles concatenated in X -> 4 rows x 8 cols.
+        assert readback.shape == (4, 8)
 
     def test_stitcher_has_no_cv2_imports(self):
         """No `import cv2` or `from cv2 ...` in stitcher.py -- the
