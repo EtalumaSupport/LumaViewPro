@@ -95,12 +95,26 @@ class TestPostProcessingEmptyResultMessages:
         assert 'tile' in _MULTI_FRAME_REQUIREMENT[PostFunction.STITCHED]
 
     def test_load_folder_empty_message_actionable(self):
-        # When the folder truly contains no images: tell the user that's
-        # what we checked for, and what to verify.
-        # pin-justified: the user-facing message wording is the contract.
-        src = (REPO_ROOT / 'modules' / 'protocol_post_processor.py').read_text()
-        assert 'No image files were found in the selected folder' in src
-        assert 'captured scan images' in src
+        # When the helper reports success but the loaded image set is empty,
+        # the post-processor's own branch must fire with the actionable
+        # message naming what was checked for and what to verify.
+        import pathlib
+
+        import pandas as pd
+
+        from modules.composite_generation import CompositeGeneration
+
+        comp = CompositeGeneration(has_turret=False)
+        comp._post_processing_helper.load_folder = lambda path, tiling_configs_file_loc: {
+            'status': True,
+            'images_df': pd.DataFrame(),
+            'root_path': pathlib.Path('.'),
+            'protocol_post_record': None,
+        }
+        result = comp.load_folder(path='run', tiling_configs_file_loc=pathlib.Path('tiling.json'))
+        assert result['status'] is False
+        assert 'No image files were found in the selected folder' in result['message']
+        assert 'captured scan images' in result['message']
 
     def test_helper_empty_message_actionable(self):
         # pin-justified: the user-facing message wording is the contract.
