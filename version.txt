@@ -1,4 +1,3 @@
 4.0.0-beta17
-2026-06-15 13:46
-chore/ruff-endgame
-8f11ceac
+2026-06-15 14:58
+4.0.0-beta
