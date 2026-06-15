@@ -30,15 +30,12 @@ logger = logging.getLogger('LVP.modules.config_ui_getters')
 
 
 def is_image_saving_enabled() -> bool:
-    if _app_ctx.ctx.engineering_mode:
-        if (
-            _app_ctx.ctx.motion_settings.ids['protocol_settings_id']
-            .ids['protocol_disable_image_saving_id']
-            .active
-        ):
-            return False
-
-    return True
+    return not (
+        _app_ctx.ctx.engineering_mode
+        and _app_ctx.ctx.motion_settings.ids['protocol_settings_id']
+        .ids['protocol_disable_image_saving_id']
+        .active
+    )
 
 
 # ---------------------------------------------------------------------------

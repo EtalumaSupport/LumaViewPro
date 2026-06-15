@@ -448,10 +448,9 @@ class FileSaveBTN(HoverBehavior, Button):
                 ctx.graphing_controls.save_graph(filepath=self.selection[0])
                 logger.info('[LVP Main  ] Saving Graph PNG to File:' + self.selection[0])
 
-        elif self.context == 'saveas_cell_count_method':
-            if self.selection:
-                logger.info('[LVP Main  ] Saving Cell Count Method to File:' + self.selection[0])
-                filename = self.selection[0]
-                if os.path.splitext(filename)[1] == '':
-                    filename += '.json'
-                ctx.cell_count_content.save_method_as(file=filename)
+        elif self.context == 'saveas_cell_count_method' and self.selection:
+            logger.info('[LVP Main  ] Saving Cell Count Method to File:' + self.selection[0])
+            filename = self.selection[0]
+            if os.path.splitext(filename)[1] == '':
+                filename += '.json'
+            ctx.cell_count_content.save_method_as(file=filename)

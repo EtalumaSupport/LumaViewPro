@@ -288,16 +288,18 @@ def reset_stim_ui():
     ctx = _app_ctx.ctx
     for layer in common_utils.get_layers():
         layer_obj = ctx.image_settings.layer_lookup(layer=layer)
-        if 'stim_config' in ctx.settings[layer]:
-            if ctx.settings[layer]['stim_config'] is not None:
-                with ctx.settings_lock:
-                    ctx.settings[layer]['stim_config']['enabled'] = False
-                layer_obj._initializing = True
-                try:
-                    layer_obj.ids['stim_disable_btn'].active = True
-                finally:
-                    layer_obj._initializing = False
-                layer_obj.update_stim_controls_visibility()
+        if (
+            'stim_config' in ctx.settings[layer]
+            and ctx.settings[layer]['stim_config'] is not None
+        ):
+            with ctx.settings_lock:
+                ctx.settings[layer]['stim_config']['enabled'] = False
+            layer_obj._initializing = True
+            try:
+                layer_obj.ids['stim_disable_btn'].active = True
+            finally:
+                layer_obj._initializing = False
+            layer_obj.update_stim_controls_visibility()
 
 
 # ============================================================================
@@ -315,9 +317,12 @@ def cleanup_scrollview_viewport(scrollview):
             return
 
         # Clear viewport canvas
-        if hasattr(scrollview, '_viewport') and scrollview._viewport:
-            if hasattr(scrollview._viewport, 'canvas'):
-                scrollview._viewport.canvas.ask_update()
+        if (
+            hasattr(scrollview, '_viewport')
+            and scrollview._viewport
+            and hasattr(scrollview._viewport, 'canvas')
+        ):
+            scrollview._viewport.canvas.ask_update()
 
         # Clear effect textures (primary source of memory accumulation)
         for effect in [scrollview.effect_x, scrollview.effect_y]:

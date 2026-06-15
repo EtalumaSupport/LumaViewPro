@@ -770,9 +770,10 @@ class SequentialIOExecutor:
                             self._ui_dispatch(lambda dt: _cb(*_cb_args, **_cb_kwargs), 0)
                     continue
 
-                if not (self.protocol_running.is_set() or self.protocol_finish.is_set()):
-                    if not self.protocol_queue.empty():
-                        self.protocol_queue.queue.clear()
+                if not (
+                    self.protocol_running.is_set() or self.protocol_finish.is_set()
+                ) and not self.protocol_queue.empty():
+                    self.protocol_queue.queue.clear()
                 if self.pending_shutdown:
                     return
 
@@ -929,12 +930,11 @@ class SequentialIOExecutor:
         self.protocol_end()
         self.clear_pending()
         self.clear_protocol_pending()
-        if self._worker_thread is not None and self._worker_thread.is_alive():
-            if wait:
-                # Worker polls pending_shutdown on every queue.get timeout
-                # (0.2s); bound the join so a hung task does not block
-                # process exit indefinitely.
-                self._worker_thread.join(timeout=5.0)
+        if self._worker_thread is not None and self._worker_thread.is_alive() and wait:
+            # Worker polls pending_shutdown on every queue.get timeout
+            # (0.2s); bound the join so a hung task does not block
+            # process exit indefinitely.
+            self._worker_thread.join(timeout=5.0)
 
         self.global_callback = None
         self.global_cb_args = None

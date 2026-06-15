@@ -160,9 +160,12 @@ class IlluminationAPI:
                     is_enabled,
                     cached_entry,
                 )
-            if current_ma is not None and abs(float(mA) - float(current_ma)) < 0.01:
-                if self.led_enabled(color_name):
-                    return
+            if (
+                current_ma is not None
+                and abs(float(mA) - float(current_ma)) < 0.01
+                and self.led_enabled(color_name)
+            ):
+                return
 
         with self._led_lock:
             self._driver.led_on(channel, mA, block=block)

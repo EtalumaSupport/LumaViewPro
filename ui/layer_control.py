@@ -706,16 +706,19 @@ class LayerControl(BoxLayout):
         enabled = self.ids['stim_enable_btn'].active
         gui_logger.toggle(f'STIM_{self.layer}', enabled)
         if self.ids['stim_enable_btn'].active:
-            if 'stim_config' in settings[self.layer]:
-                if settings[self.layer]['stim_config'] is not None:
-                    settings[self.layer]['stim_config']['enabled'] = True
+            if (
+                'stim_config' in settings[self.layer]
+                and settings[self.layer]['stim_config'] is not None
+            ):
+                settings[self.layer]['stim_config']['enabled'] = True
             settings[self.layer]['acquire'] = None
             self.ids['acquire_none'].active = True
             self.ids['acquire_none'].state = 'down'
-        else:
-            if 'stim_config' in settings[self.layer]:
-                if settings[self.layer]['stim_config'] is not None:
-                    settings[self.layer]['stim_config']['enabled'] = False
+        elif (
+            'stim_config' in settings[self.layer]
+            and settings[self.layer]['stim_config'] is not None
+        ):
+            settings[self.layer]['stim_config']['enabled'] = False
 
         self.update_stim_controls_visibility()
 
@@ -1071,9 +1074,12 @@ class LayerControl(BoxLayout):
 
         def update_shader(dt=None):
             thread = getattr(ctx, 'scope_display_thread', None)
-            if thread is not None and not thread.is_paused:
-                if ctx.scope_display.use_bullseye is False:
-                    self.update_shader(dt=0)
+            if (
+                thread is not None
+                and not thread.is_paused
+                and ctx.scope_display.use_bullseye is False
+            ):
+                self.update_shader(dt=0)
 
         def disable_leds_for_other_layers(dt=None):
             if self.ids['enable_led_btn'].state == 'down':
@@ -1150,9 +1156,8 @@ class LayerControl(BoxLayout):
             set_histogram_layer(active_layer=self.layer)
 
         # Queue IO task and update UI after completing IO
-        if update_led:
-            if not protocol_running_global.is_set():
-                self.update_led_state(apply_settings=False)
+        if update_led and not protocol_running_global.is_set():
+            self.update_led_state(apply_settings=False)
 
         disable_leds_for_other_layers()
 

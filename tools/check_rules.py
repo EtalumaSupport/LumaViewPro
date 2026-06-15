@@ -98,10 +98,12 @@ def _is_notification_call(node: ast.AST) -> bool:
     if not isinstance(node, ast.Call):
         return False
     fn = node.func
-    if isinstance(fn, ast.Attribute) and isinstance(fn.value, ast.Name):
-        if fn.value.id in _NOTIFICATIONS_BASES and fn.attr in _NOTIFICATIONS_METHODS:
-            return True
-    return False
+    return (
+        isinstance(fn, ast.Attribute)
+        and isinstance(fn.value, ast.Name)
+        and fn.value.id in _NOTIFICATIONS_BASES
+        and fn.attr in _NOTIFICATIONS_METHODS
+    )
 
 
 def _walk_excluding_calls(node: ast.AST):

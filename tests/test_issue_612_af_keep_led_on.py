@@ -125,10 +125,13 @@ def test_protocol_step_runner_passes_keep_led_on_true():
     # Find any Call to run_autofocus(...) and check its kwargs.
     matches = []
     for node in ast.walk(psr_tree):
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-            if node.func.attr == 'run_autofocus':
-                kw_map = {k.arg: k.value for k in node.keywords}
-                matches.append(kw_map)
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == 'run_autofocus'
+        ):
+            kw_map = {k.arg: k.value for k in node.keywords}
+            matches.append(kw_map)
     assert matches, 'protocol_step_runner must invoke run_autofocus somewhere. (#612)'
     for kw in matches:
         assert 'keep_led_on' in kw, (

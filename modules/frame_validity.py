@@ -335,7 +335,7 @@ class FrameValidity:
                 frame_remaining = target - self._frame_counter
                 if frame_remaining > 0:
                     max_remaining = max(max_remaining, frame_remaining)
-                elif source in self.MOTION_SOURCES and self._settle_check_fn is not None:
+                elif source in self.MOTION_SOURCES and self._settle_check_fn is not None:  # noqa: SIM102
                     # Frame count met but axis still moving -- keep draining
                     if not self._settle_check_fn(source):
                         max_remaining = max(max_remaining, 1)

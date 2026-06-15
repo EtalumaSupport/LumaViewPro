@@ -96,9 +96,8 @@ def _direct_calls_to(node: ast.AST, names: set[str]) -> list[str]:
     """
     out: list[str] = []
     for n in ast.walk(node):
-        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute):
-            if n.func.attr in names:
-                out.append(n.func.attr)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr in names:
+            out.append(n.func.attr)
     return out
 
 

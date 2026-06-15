@@ -7747,9 +7747,12 @@ class TestPylonCameraNoSilentExcept:
         tree = ast.parse(source)
         offenders = []
         for node in ast.walk(tree):
-            if isinstance(node, ast.ExceptHandler):
-                if len(node.body) == 1 and isinstance(node.body[0], ast.Pass):
-                    offenders.append(node.lineno)
+            if (
+                isinstance(node, ast.ExceptHandler)
+                and len(node.body) == 1
+                and isinstance(node.body[0], ast.Pass)
+            ):
+                offenders.append(node.lineno)
         assert offenders == [], (
             f'{len(offenders)} silent `except: pass` block(s) at line(s) '
             f'{offenders}; replace each with logger.debug or logger.warning '

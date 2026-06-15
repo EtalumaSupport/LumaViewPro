@@ -95,9 +95,8 @@ def generate_default_step_name(
     if color not in (None, '') and color not in name:
         name = f'{name}_{color}'
 
-    if tile_label not in (None, '', -1):
-        if f'_T{tile_label}' not in name:
-            name = f'{name}_T{tile_label}'
+    if tile_label not in (None, '', -1) and f'_T{tile_label}' not in name:
+        name = f'{name}_T{tile_label}'
 
     if objective_short_name not in (None, '', -1):
         name = f'{name}_{objective_short_name}'
@@ -105,9 +104,8 @@ def generate_default_step_name(
     if turret_position is not None:
         name = f'{name}_Turret{turret_position}'
 
-    if z_height_idx not in (None, '', -1):
-        if f'_Z{z_height_idx}' not in name:
-            name = f'{name}_Z{z_height_idx}'
+    if z_height_idx not in (None, '', -1) and f'_Z{z_height_idx}' not in name:
+        name = f'{name}_Z{z_height_idx}'
 
     DESIRED_SCAN_COUNT_DIGITS = 4
     if scan_count not in (None, ''):

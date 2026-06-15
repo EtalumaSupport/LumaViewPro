@@ -314,9 +314,11 @@ class MotionAPI:
         Returns:
             int | None: Turret position (1-4), or None if not found.
         """
-        if persisted_position is not None:
-            if self._scope.runtime_state._turret_config.get(persisted_position) == objective_id:
-                return persisted_position
+        if (
+            persisted_position is not None
+            and self._scope.runtime_state._turret_config.get(persisted_position) == objective_id
+        ):
+            return persisted_position
 
         if prefer_current:
             try:

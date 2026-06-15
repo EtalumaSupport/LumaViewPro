@@ -916,7 +916,7 @@ class SerialBoard:
                 _serial_log.info(f'{self._label} {command} -> {resp_repr} ({elapsed_ms:.1f}ms)')
 
                 resp_str = str(response)
-                if 'ERROR' in resp_str or 'FAIL' in resp_str or 'exceeds safe' in resp_str:
+                if 'ERROR' in resp_str or 'FAIL' in resp_str or 'exceeds safe' in resp_str:  # noqa: SIM102
                     # Capability probes (e.g. motor_stop sending STOP to
                     # firmware that may or may not support it) pass
                     # expect_unsupported=True so the warning doesn't

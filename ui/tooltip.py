@@ -72,10 +72,9 @@ class TooltipMixin:
         widgets = []
 
         children = widget.children
-        if hasattr(widget, 'tooltip_text'):
-            if widget.tooltip_text != '':
-                widgets.append(widget)
-                return widgets
+        if hasattr(widget, 'tooltip_text') and widget.tooltip_text != '':
+            widgets.append(widget)
+            return widgets
         for child in children:
             widgets += self.find_widgets_with_tooltips(child)
         return widgets
@@ -273,98 +272,97 @@ class TooltipMixin:
     def show_tooltip(self, *args) -> None:
         ctx = _app_ctx.ctx
 
-        if ctx.show_tooltips:
-            if self.widget_being_described is not None:
-                self.tt_widget._update_rect()
-                # Default offsets
-                vert_offset = 15
-                horiz_offset = 15
+        if ctx.show_tooltips and self.widget_being_described is not None:
+            self.tt_widget._update_rect()
+            # Default offsets
+            vert_offset = 15
+            horiz_offset = 15
 
-                # If mouse is low on the screen
-                low_screen_vert_offset = 7
+            # If mouse is low on the screen
+            low_screen_vert_offset = 7
 
-                # If mouse is far right on the screen
-                right_screen_horiz_offset = 7
+            # If mouse is far right on the screen
+            right_screen_horiz_offset = 7
 
-                # If mouse is in lower quarter of screen, show tooltip above mouse instead of below
-                if self.mouse_pos[1] < Window.height / 4:
-                    lower_half = True
+            # If mouse is in lower quarter of screen, show tooltip above mouse instead of below
+            if self.mouse_pos[1] < Window.height / 4:
+                lower_half = True
+            else:
+                lower_half = False
+
+            if self.mouse_pos[0] > Window.width - Window.width / 4:
+                far_right = True
+            else:
+                far_right = False
+
+            if not self.tt_shown:
+                # Remove and add the widget to ensure it shows up at the front of the screen
+                ctx.lumaview.remove_widget(self.tt_widget)
+                ctx.lumaview.add_widget(self.tt_widget)
+                self.tt_widget.size = Window.size
+
+                if lower_half:
+                    tt_widget_y = (
+                        self.mouse_pos[1]
+                        - self.tt_widget.height
+                        + low_screen_vert_offset
+                        + (Window.height / 2)
+                    )
+                    tt_widget_rect_y = (
+                        self.mouse_pos[1]
+                        + low_screen_vert_offset / 2
+                        + (self.tt_widget.vert_padding / 2)
+                        - self.tt_widget.texture_size[1] / 2
+                        - self.tt_widget.vert_padding / 2
+                        + 1
+                    )
                 else:
-                    lower_half = False
+                    # Upper Half
+                    tt_widget_y = (
+                        self.mouse_pos[1]
+                        - self.tt_widget.height
+                        - vert_offset
+                        + (Window.height / 2)
+                    )
+                    tt_widget_rect_y = (
+                        self.mouse_pos[1]
+                        - vert_offset / 2
+                        + (self.tt_widget.vert_padding / 2)
+                        - self.tt_widget.rect.size[1]
+                        - 2 * self.tt_widget.vert_padding
+                        + self.tt_widget.texture_size[1] / 2
+                    )
 
-                if self.mouse_pos[0] > Window.width - Window.width / 4:
-                    far_right = True
+                if far_right:
+                    tt_widget_x = (
+                        self.mouse_pos[0]
+                        - right_screen_horiz_offset
+                        - (Window.width / 2)
+                        - (self.tt_widget.texture_size[0] / 2)
+                    )
+                    tt_widget_rect_x = (
+                        self.mouse_pos[0]
+                        - right_screen_horiz_offset
+                        - (self.tt_widget.horiz_padding / 2)
+                        - (self.tt_widget.texture_size[0])
+                    )
                 else:
-                    far_right = False
+                    # Left Side
+                    tt_widget_x = (
+                        self.mouse_pos[0]
+                        + horiz_offset
+                        - (Window.width / 2)
+                        + (self.tt_widget.texture_size[0] / 2)
+                    )
+                    tt_widget_rect_x = (
+                        self.mouse_pos[0] + horiz_offset - (self.tt_widget.horiz_padding / 2)
+                    )
 
-                if not self.tt_shown:
-                    # Remove and add the widget to ensure it shows up at the front of the screen
-                    ctx.lumaview.remove_widget(self.tt_widget)
-                    ctx.lumaview.add_widget(self.tt_widget)
-                    self.tt_widget.size = Window.size
+                self.tt_widget.pos = (tt_widget_x, tt_widget_y)
+                self.tt_widget.rect.pos = (tt_widget_rect_x, tt_widget_rect_y)
 
-                    if lower_half:
-                        tt_widget_y = (
-                            self.mouse_pos[1]
-                            - self.tt_widget.height
-                            + low_screen_vert_offset
-                            + (Window.height / 2)
-                        )
-                        tt_widget_rect_y = (
-                            self.mouse_pos[1]
-                            + low_screen_vert_offset / 2
-                            + (self.tt_widget.vert_padding / 2)
-                            - self.tt_widget.texture_size[1] / 2
-                            - self.tt_widget.vert_padding / 2
-                            + 1
-                        )
-                    else:
-                        # Upper Half
-                        tt_widget_y = (
-                            self.mouse_pos[1]
-                            - self.tt_widget.height
-                            - vert_offset
-                            + (Window.height / 2)
-                        )
-                        tt_widget_rect_y = (
-                            self.mouse_pos[1]
-                            - vert_offset / 2
-                            + (self.tt_widget.vert_padding / 2)
-                            - self.tt_widget.rect.size[1]
-                            - 2 * self.tt_widget.vert_padding
-                            + self.tt_widget.texture_size[1] / 2
-                        )
-
-                    if far_right:
-                        tt_widget_x = (
-                            self.mouse_pos[0]
-                            - right_screen_horiz_offset
-                            - (Window.width / 2)
-                            - (self.tt_widget.texture_size[0] / 2)
-                        )
-                        tt_widget_rect_x = (
-                            self.mouse_pos[0]
-                            - right_screen_horiz_offset
-                            - (self.tt_widget.horiz_padding / 2)
-                            - (self.tt_widget.texture_size[0])
-                        )
-                    else:
-                        # Left Side
-                        tt_widget_x = (
-                            self.mouse_pos[0]
-                            + horiz_offset
-                            - (Window.width / 2)
-                            + (self.tt_widget.texture_size[0] / 2)
-                        )
-                        tt_widget_rect_x = (
-                            self.mouse_pos[0] + horiz_offset - (self.tt_widget.horiz_padding / 2)
-                        )
-
-                    self.tt_widget.pos = (tt_widget_x, tt_widget_y)
-                    self.tt_widget.rect.pos = (tt_widget_rect_x, tt_widget_rect_y)
-
-                    self.tt_widget.opacity = 1
-                    self.tt_shown = True
+                self.tt_widget.opacity = 1
+                self.tt_shown = True
 
     def hide_tooltip(self, *args) -> None:
         self.widget_being_described = None

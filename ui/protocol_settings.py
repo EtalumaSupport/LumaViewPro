@@ -765,9 +765,11 @@ class ProtocolSettings(FloatLayout):
         layer_settings_from_protocol = self._protocol.layer_settings()
         for layer in common_utils.get_layers():
             settings[layer]['acquire'] = None
-            if 'stim_config' in settings[layer]:
-                if settings[layer]['stim_config'] is not None:
-                    settings[layer]['stim_config']['enabled'] = False
+            if (
+                'stim_config' in settings[layer]
+                and settings[layer]['stim_config'] is not None
+            ):
+                settings[layer]['stim_config']['enabled'] = False
         for layer_name, vals in (layer_settings_from_protocol or {}).items():
             if layer_name not in common_utils.get_layers():
                 continue
@@ -1113,14 +1115,16 @@ class ProtocolSettings(FloatLayout):
             active_layer, active_layer_config = get_active_layer_config()
             stim_was_active = False
 
-            if 'stim_config' in active_layer_config:
-                if active_layer_config['stim_config'] is not None:
-                    if active_layer_config['stim_config']['enabled']:
-                        # We want to keep the same acquire channel when we are only modifying the stim config.
-                        true_step_layer = self._protocol.step(idx=self.curr_step)['Color']
-                        active_layer = true_step_layer
-                        active_layer_config = get_layer_configs()[active_layer]
-                        stim_was_active = True
+            if (
+                'stim_config' in active_layer_config
+                and active_layer_config['stim_config'] is not None
+                and active_layer_config['stim_config']['enabled']
+            ):
+                # We want to keep the same acquire channel when we are only modifying the stim config.
+                true_step_layer = self._protocol.step(idx=self.curr_step)['Color']
+                active_layer = true_step_layer
+                active_layer_config = get_layer_configs()[active_layer]
+                stim_was_active = True
 
             plate_position = get_current_plate_position()
             objective_id, _ = get_current_objective_info()
@@ -1447,8 +1451,9 @@ class ProtocolSettings(FloatLayout):
 
         # If turret is present, validate all protocol objectives are assigned (#606)
         ctx = _app_ctx.ctx
-        if ctx.lumaview.scope.motion.has_turret():
-            if not self._validate_objectives_in_protocol(protocol_df=self._protocol.steps()):
+        if ctx.lumaview.scope.motion.has_turret() and not self._validate_objectives_in_protocol(
+            protocol_df=self._protocol.steps()
+        ):
                 turret_objectives = settings.get('turret_objectives', {})
                 assigned = [v for v in turret_objectives.values() if v is not None]
                 show_notification_popup(
