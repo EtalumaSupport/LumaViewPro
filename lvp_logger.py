@@ -374,7 +374,7 @@ camera_logger.addHandler(error_file_handler)
 # path. The pure implementation lives in lib/ because conftest mocks
 # lvp_logger wholesale during pytest, and tests need to exercise the
 # real log_to.
-from lib.log_helpers import log_to  # noqa: E402,F401  -- intentional re-export so callers can import log_to from lvp_logger
+from lib.log_helpers import log_to  # noqa: F401  intentional re-export so callers can import log_to from lvp_logger
 
 # Metrics log -- dedicated file for periodic runtime-health snapshots
 # (system metrics, handle/GC counts, buffer churn, frame-interval

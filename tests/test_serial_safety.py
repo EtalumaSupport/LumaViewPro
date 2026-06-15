@@ -1303,11 +1303,11 @@ class TestLEDBoardStateLock:
         original_lock = board._state_lock
 
         class TrackingLock:
-            def __enter__(self_lock):
+            def __enter__(self):
                 acquired.append('enter')
                 return original_lock.__enter__()
 
-            def __exit__(self_lock, *args):
+            def __exit__(self, *args):
                 acquired.append('exit')
                 return original_lock.__exit__(*args)
 
@@ -1331,11 +1331,11 @@ class TestLEDBoardStateLock:
         original_lock = board._state_lock
 
         class TrackingLock:
-            def __enter__(self_lock):
+            def __enter__(self):
                 acquired.append('enter')
                 return original_lock.__enter__()
 
-            def __exit__(self_lock, *args):
+            def __exit__(self, *args):
                 return original_lock.__exit__(*args)
 
         board._state_lock = TrackingLock()

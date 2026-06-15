@@ -25,8 +25,8 @@ class ZProjector(ProtocolPostProcessor):
         **kwargs,
     ):
         super().__init__(
-            post_function=PostFunction.ZPROJECT,
             *args,
+            post_function=PostFunction.ZPROJECT,
             **kwargs,
         )
         self._name = self.__class__.__name__

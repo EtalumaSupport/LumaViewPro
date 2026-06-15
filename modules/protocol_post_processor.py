@@ -53,7 +53,7 @@ class ProtocolPostProcessor(abc.ABC):
         raise NotImplementedError('Implement in child class')
 
     @abc.abstractmethod
-    def _group_algorithm(path: pathlib.Path, df: pd.DataFrame):
+    def _group_algorithm(self, path: pathlib.Path, df: pd.DataFrame):
         raise NotImplementedError('Implement in child class')
 
     @staticmethod

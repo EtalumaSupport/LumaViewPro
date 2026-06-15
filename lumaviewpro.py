@@ -266,7 +266,7 @@ if __name__ == '__main__':
 
     # Imported for its side effect: registers the global <Popup> on_open rule
     # that adds a close (X) button to every popup app-wide.
-    import ui.popup_close  # noqa: F401
+    import ui.popup_close  # registers the Etaluma popup-close button on every Popup
 
     # User Interface Custom Widgets
     from ui.range_slider import RangeSlider

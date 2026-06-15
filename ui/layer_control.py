@@ -179,7 +179,7 @@ class LayerControl(BoxLayout):
             # above value_max's allowance pins the slider at max while the
             # setting + text keep the larger value.
             slider_value = min(clipped, slider.max)
-            slider.value = float(slider_value) if cast == float else int(slider_value)
+            slider.value = float(slider_value) if cast is float else int(slider_value)
             self.ids[text_id].text = str(clipped)
         finally:
             self._initializing = False

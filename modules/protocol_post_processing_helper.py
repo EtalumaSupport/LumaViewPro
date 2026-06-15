@@ -21,9 +21,14 @@ class ProtocolPostProcessingHelper:
     @staticmethod
     def _get_image_filenames_from_folder(
         path: pathlib.Path,
-        exclude_subpaths: list = [],
-        include_subpaths: list = [],
+        exclude_subpaths: list | None = None,
+        include_subpaths: list | None = None,
     ) -> dict[str, list[pathlib.Path]]:
+
+        if exclude_subpaths is None:
+            exclude_subpaths = []
+        if include_subpaths is None:
+            include_subpaths = []
 
         raw_image_names = []
         post_image_names = []

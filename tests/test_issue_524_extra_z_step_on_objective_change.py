@@ -72,7 +72,7 @@ def _default_for(method: ast.FunctionDef, arg_name: str):
             if i >= n_pos - n_defaults:
                 return args.defaults[i - (n_pos - n_defaults)]
             return None
-    for arg, default in zip(args.kwonlyargs, args.kw_defaults):
+    for arg, default in zip(args.kwonlyargs, args.kw_defaults, strict=False):
         if arg.arg == arg_name:
             return default
     return None

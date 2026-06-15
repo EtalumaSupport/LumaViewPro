@@ -62,7 +62,7 @@ for _name in (
 _real_base_module('kivy.uix.image', Image=_StubWidget)
 _real_base_module('kivy.uix.widget', Widget=_StubWidget)
 
-from ui.scope_display import ScopeDisplay  # noqa: E402
+from ui.scope_display import ScopeDisplay
 
 
 class _Stand:

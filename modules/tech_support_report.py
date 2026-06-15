@@ -2437,7 +2437,7 @@ class TechSupportReport:
         return zip_path
 
 
-class _Cancelled(Exception):
+class _Cancelled(Exception):  # noqa: N818 -- module-private cancellation sentinel; non-Error suffix intentional
     pass
 
 

@@ -76,7 +76,7 @@ def test_runner_run_accepts_keep_led_on_with_false_default():
         if i >= n_pos - n_defaults:
             defaults_map[arg.arg] = args.defaults[i - (n_pos - n_defaults)]
     # Kwonly args + kw_defaults are 1:1.
-    for arg, default in zip(args.kwonlyargs, args.kw_defaults):
+    for arg, default in zip(args.kwonlyargs, args.kw_defaults, strict=False):
         if default is not None:
             defaults_map[arg.arg] = default
 

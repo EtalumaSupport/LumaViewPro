@@ -40,8 +40,8 @@ def _strip_channel_token(name: str, channel: str) -> str:
 class CompositeGeneration(ProtocolPostProcessor):
     def __init__(self, *args, **kwargs):
         super().__init__(
-            post_function=PostFunction.COMPOSITE,
             *args,
+            post_function=PostFunction.COMPOSITE,
             **kwargs,
         )
         self._name = self.__class__.__name__

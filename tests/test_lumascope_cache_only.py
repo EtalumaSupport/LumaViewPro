@@ -105,7 +105,7 @@ class TestCameraPropertiesCacheOnly:
         """Repeated reads must remain cache-only -- no lazy refresh that
         flips to SDK after first call."""
         for _ in range(5):
-            scope_with_io_traps.imaging.camera_frame_size
+            scope_with_io_traps.imaging.camera_frame_size  # noqa: B018 -- bare attribute access is the test, exercising the getter to assert no driver IO fires
 
 
 class TestPositionAccessorsCacheOnly:

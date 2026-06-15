@@ -519,7 +519,7 @@ class Camera(ABC):
             f'(sensor={self.profile.sensor}, driver={self.profile.driver})'
         )
 
-    def _query_dynamic_capabilities(self):
+    def _query_dynamic_capabilities(self):  # noqa: B027 -- optional no-op hook; subclasses override only if needed, abstractmethod would force needless overrides
         """Query SDK for dynamic values and merge into profile.
 
         Subclasses should override to query gain min/max, exposure min/max,

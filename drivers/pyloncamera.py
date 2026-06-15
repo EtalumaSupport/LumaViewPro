@@ -47,7 +47,7 @@ def _log_safely(message: str) -> None:
     except BaseException:
         # If the logger itself fails there is no safer fallback from
         # a native callback context. The swallow stands.
-        _ = None  # noqa -- intentional no-op marker for the AST scan
+        _ = None  # intentional no-op marker for the AST scan
 
 
 def _log_cam(level: str, message: str) -> None:

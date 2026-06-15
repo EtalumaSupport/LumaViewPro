@@ -19,8 +19,8 @@ from modules.protocol_post_record import ProtocolPostRecord
 class Stitcher(ProtocolPostProcessor):
     def __init__(self, *args, **kwargs):
         super().__init__(
-            post_function=PostFunction.STITCHED,
             *args,
+            post_function=PostFunction.STITCHED,
             **kwargs,
         )
         self._name = self.__class__.__name__

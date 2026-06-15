@@ -689,7 +689,7 @@ def focus_log(positions, values, focus_round: int, source_path: str) -> int:
     if False:  # disabled -- kept for future use
         log_file = os.path.join(source_path, 'logs', 'focus_log.txt')
         try:
-            file = open(log_file, 'a')
+            file = open(log_file, 'a')  # noqa: SIM115 -- inside an unreachable block and closed explicitly; context manager not applicable
         except Exception as e:
             if not os.path.isdir(os.path.join(source_path, 'logs')):
                 raise FileNotFoundError("Couldn't find 'logs' directory.") from e

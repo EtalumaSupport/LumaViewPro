@@ -66,7 +66,7 @@ class MotionAPI:
     # before the turret physically finished.
     _AXIS_VALIDITY_SOURCE: ClassVar[dict] = {'Z': 'z_move', 'T': 'turret'}
 
-    def __init__(self, scope: Lumascope, driver: MotorBoardProtocol) -> None:  # noqa: ARG002
+    def __init__(self, scope: Lumascope, driver: MotorBoardProtocol) -> None:
         # `driver` is in the signature for backcompat (Phase 1 Lumascope
         # passes it explicitly). It is intentionally unused here: `_driver`
         # is a dynamic property that re-resolves through `_scope` on every
@@ -1518,7 +1518,7 @@ class MotionAPI:
                 with profile_trace.timer(
                     'motion_trace.csv',
                     'ts_ms,duration_ms,event,axis,detail',
-                    lambda: ['poll', ','.join(moving_axes), ''],
+                    lambda ma=moving_axes: ['poll', ','.join(ma), ''],
                 ):
                     for ax in moving_axes:
                         if self._motion_monitor_stop.is_set():

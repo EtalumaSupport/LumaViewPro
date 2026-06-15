@@ -93,7 +93,7 @@ class CellCount:
             'intensity_max': 0,
         }
 
-        for (region_idx, region), contour in zip(region_info['regions'].items(), contours):
+        for (region_idx, region), contour in zip(region_info['regions'].items(), contours, strict=False):
             if not _within_bounds(region, 'area', settings, 'area'):
                 filter_stats['area'] += 1
                 continue
@@ -136,7 +136,9 @@ class CellCount:
 
         return filtered_region_info, filtered_contours
 
-    def process_image(self, image, settings, include_images=['filtered_contours']):
+    def process_image(self, image, settings, include_images=None):
+        if include_images is None:
+            include_images = ['filtered_contours']
 
         if image.dtype != np.uint8:
             if image.dtype == np.uint16:

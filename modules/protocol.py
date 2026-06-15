@@ -1780,7 +1780,7 @@ class Protocol:
                                     config['layer_settings'] = {}
                                     ls_header = None
                                 continue
-                            row_dict = dict(zip(ls_header, sub_row))
+                            row_dict = dict(zip(ls_header, sub_row, strict=False))
                             layer_name = row_dict.get('Layer', '').strip()
                             if layer_name:
                                 config['layer_settings'][layer_name] = row_dict

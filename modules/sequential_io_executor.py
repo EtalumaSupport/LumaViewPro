@@ -767,7 +767,10 @@ class SequentialIOExecutor:
                         self.protocol_end()
                         self.protocol_finish.clear()
                         if _cb is not None:
-                            self._ui_dispatch(lambda dt: _cb(*_cb_args, **_cb_kwargs), 0)
+                            self._ui_dispatch(
+                                lambda dt, cb=_cb, a=_cb_args, k=_cb_kwargs: cb(*a, **k),
+                                0,
+                            )
                     continue
 
                 if not (

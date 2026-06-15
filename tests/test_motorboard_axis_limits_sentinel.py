@@ -111,7 +111,7 @@ class TestSimulatedMotorBoardReturnsSentinelForNoLimits:
         from drivers.simulated_motorboard import SimulatedMotorBoard
 
         board = SimulatedMotorBoard()
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017 -- deliberately asserts some exception is raised for an invalid axis
             board.get_axis_limits('Q')
 
 

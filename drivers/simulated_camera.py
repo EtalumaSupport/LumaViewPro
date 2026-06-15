@@ -656,7 +656,7 @@ class SimulatedCamera(Camera):
         n_spots = max(20, (h * w) // 5000)
         ys = rng.randint(0, h, n_spots)
         xs = rng.randint(0, w, n_spots)
-        for y, x in zip(ys, xs):
+        for y, x in zip(ys, xs, strict=False):
             y0 = max(0, y - 2)
             y1 = min(h, y + 3)
             x0 = max(0, x - 2)

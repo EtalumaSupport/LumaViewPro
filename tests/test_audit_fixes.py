@@ -11703,12 +11703,15 @@ class TestFx2DebugWireGateIsNotEnvVar:
             hits = []
 
             class Visitor(ast.NodeVisitor):
+                def __init__(self, sink):
+                    self._sink = sink
+
                 def visit_Constant(self, node):
                     if isinstance(node.value, str) and node.value == 'LVP_FX2_DEBUG_WIRE':
-                        hits.append((node.lineno, node.value))
+                        self._sink.append((node.lineno, node.value))
                     self.generic_visit(node)
 
-            Visitor().visit(tree)
+            Visitor(hits).visit(tree)
             if hits:
                 hits_by_site['/'.join(parts)] = hits
 

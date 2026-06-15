@@ -202,7 +202,7 @@ def show_notification_popup(*args, **kwargs):
     pass
 
 
-class image_utils_kivy:
+class image_utils_kivy:  # noqa: N801 -- stub class name deliberately mirrors the real module for subprocess substitution
     @staticmethod
     def any_method(*args, **kwargs):
         pass

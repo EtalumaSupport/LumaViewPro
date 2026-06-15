@@ -103,7 +103,7 @@ class TestUsb3CellMatrix:
     def test_dltl_on_with_values_expands(self):
         cells = _build_usb3_cells(_make_args(dltl_modes=['On'], dltl_values_mb=[160, 250, 360]))
         assert len(cells) == 3
-        for cell, expected_mb in zip(cells, [160, 250, 360]):
+        for cell, expected_mb in zip(cells, [160, 250, 360], strict=False):
             assert cell['dltl_mode'] == 'On'
             assert cell['dltl_value'] == expected_mb * 1_000_000
 

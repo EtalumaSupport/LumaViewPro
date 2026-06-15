@@ -130,7 +130,7 @@ class ImagingAPI:
         # disconnect / reconnect / test hot-swap propagate without
         # rebinding ImagingAPI. Same pattern as MotionAPI._driver /
         # IlluminationAPI._driver.
-        del driver  # noqa -- intentionally unused, kept for backward call sites
+        del driver  # intentionally unused, kept for backward call sites
 
         # State / camera locks. _state_lock guards _capture_return /
         # _autofocus_return / _scale_bar; _cam_lock serializes
