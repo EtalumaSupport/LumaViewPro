@@ -31,7 +31,7 @@ import contextlib
 import logging as _logging
 import threading
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 from collections.abc import Iterator
 
 from drivers.exceptions import HardwareError
@@ -64,7 +64,7 @@ class MotionAPI:
     # settle-check gates on the correct axis reaching IDLE. A turret
     # move that recorded 'xy_move' would clear the moment X/Y read idle,
     # before the turret physically finished.
-    _AXIS_VALIDITY_SOURCE = {'Z': 'z_move', 'T': 'turret'}
+    _AXIS_VALIDITY_SOURCE: ClassVar[dict] = {'Z': 'z_move', 'T': 'turret'}
 
     def __init__(self, scope: Lumascope, driver: MotorBoardProtocol) -> None:  # noqa: ARG002
         # `driver` is in the signature for backcompat (Phase 1 Lumascope

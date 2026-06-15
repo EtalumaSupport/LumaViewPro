@@ -11,6 +11,7 @@ import os
 import pathlib
 import re
 import copy
+from typing import ClassVar
 
 from lvp_logger import logger
 from modules.exceptions import ProtocolError
@@ -40,7 +41,7 @@ class Protocol:
     # scalar at-baseline test (step_at_layer_focus) so the cue and the
     # propagation can never disagree on what counts as "at the focus baseline."
     FOCUS_BASELINE_TOLERANCE_UM = 1e-3
-    COLUMNS = {
+    COLUMNS: ClassVar[dict] = {
         1: [
             'Name',
             'X',
@@ -183,7 +184,7 @@ class Protocol:
     # written-out order; rows that omit trailing columns (e.g. Stim_Enabled
     # blank for transmitted layers) are still valid as long as the leading
     # required columns are present.
-    LAYER_SETTINGS_COLUMNS = [
+    LAYER_SETTINGS_COLUMNS: ClassVar[list] = [
         'Layer',
         'Acquire',
         'Illumination',
@@ -491,8 +492,8 @@ class Protocol:
         return df
 
     # Valid values for field validation
-    VALID_COLORS = {c.name for c in color_channels.ColorChannel}
-    VALID_ACQUIRE_MODES = {'image', 'video'}
+    VALID_COLORS: ClassVar[set] = {c.name for c in color_channels.ColorChannel}
+    VALID_ACQUIRE_MODES: ClassVar[set] = {'image', 'video'}
 
     def validate_steps(self, objectives_file: str = None) -> list:
         """Validate all step fields and return a list of error strings.

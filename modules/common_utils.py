@@ -10,6 +10,7 @@ import platform
 import re
 import threading
 import time as _time
+from typing import ClassVar
 
 import numpy as np
 import psutil
@@ -433,7 +434,7 @@ class _PdhCountersOnce:
     # Counter paths -- match `Get-Counter` PowerShell paths exactly.
     # `\Memory\Available Bytes` is what Windows considers "available" -- equals
     # standby + free + zero pages. Useful as a sanity check against the breakdown.
-    _COUNTERS = {
+    _COUNTERS: ClassVar[dict] = {
         'standby_normal_bytes': r'\Memory\Standby Cache Normal Priority Bytes',
         'standby_reserve_bytes': r'\Memory\Standby Cache Reserve Bytes',
         'standby_core_bytes': r'\Memory\Standby Cache Core Bytes',

@@ -13,6 +13,7 @@ import pathlib
 import threading
 import time
 from collections.abc import Callable
+from typing import ClassVar
 
 import numpy as np
 from scipy.ndimage import uniform_filter
@@ -38,8 +39,8 @@ class SimulatedCamera(Camera):
     # Supported pixel formats
     PIXEL_FORMATS = ('Mono8', 'Mono10', 'Mono12')
 
-    TIMING_FAST = {'grab_delay': 0.0}
-    TIMING_REALISTIC = {'grab_delay': 0.005}  # ~5ms USB transfer overhead
+    TIMING_FAST: ClassVar[dict] = {'grab_delay': 0.0}
+    TIMING_REALISTIC: ClassVar[dict] = {'grab_delay': 0.005}  # ~5ms USB transfer overhead
 
     def __init__(
         self,

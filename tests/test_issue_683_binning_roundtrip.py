@@ -19,6 +19,7 @@ binning level is reproducible and the cycle round-trips exactly.
 
 import ast
 import pathlib
+from typing import ClassVar
 
 import modules.binning as binning
 from drivers.simulated_camera import SimulatedCamera
@@ -80,8 +81,8 @@ def _legacy_step(displayed, orig_binning, new_binning):
 class TestBinningRoundTrip:
     # A sensor whose dimensions are not cleanly divisible by 4 at every
     # binning level -- exactly the case the floor truncation corrupts.
-    NATIVE = {'width': 2456, 'height': 2054}
-    ALIGN = {'width': 4, 'height': 4}
+    NATIVE: ClassVar[dict] = {'width': 2456, 'height': 2054}
+    ALIGN: ClassVar[dict] = {'width': 4, 'height': 4}
 
     def test_native_anchored_cycle_round_trips(self):
         """1x1 -> 2x2 -> 4x4 -> 2x2 -> 1x1 returns to the start."""

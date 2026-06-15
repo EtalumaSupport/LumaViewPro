@@ -9,6 +9,7 @@ for any missing keys.
 
 import json
 import pathlib
+from typing import ClassVar
 
 from lvp_logger import logger
 
@@ -140,7 +141,7 @@ class MotorConfig:
     # Default ramp parameters from INI files (usteps/sec and usteps/sec^2).
     # Keyed by axis. These are hardware constants set at firmware load time.
     # Future: query dynamically from board via SPI or v3.1 firmware command.
-    _DEFAULT_RAMP = {
+    _DEFAULT_RAMP: ClassVar[dict] = {
         'X': {
             'vstart': 0,
             'a1': 0,

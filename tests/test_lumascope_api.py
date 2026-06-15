@@ -26,6 +26,7 @@ Issue #616 / #618 follow-up -- the rename of `xyhome` to `home`:
 """
 
 import threading
+from typing import ClassVar
 from unittest.mock import MagicMock
 
 # Heavy deps are mocked by tests/conftest.py at module-import time.
@@ -607,8 +608,8 @@ class TestLEDChannelDiscovery:
         scope = Lumascope(simulate=True)
 
         class FourChannelLED(SimulatedLEDBoard):
-            _COLOR_TO_CH = {'Blue': 0, 'Green': 1, 'Red': 2, 'BF': 3}
-            _CH_TO_COLOR = {v: k for k, v in _COLOR_TO_CH.items()}
+            _COLOR_TO_CH: ClassVar[dict] = {'Blue': 0, 'Green': 1, 'Red': 2, 'BF': 3}
+            _CH_TO_COLOR: ClassVar[dict] = {v: k for k, v in _COLOR_TO_CH.items()}
 
         scope._led_driver = FourChannelLED()
 
@@ -625,8 +626,8 @@ class TestLEDChannelDiscovery:
         scope = Lumascope(simulate=True)
 
         class TwoChannelLED(SimulatedLEDBoard):
-            _COLOR_TO_CH = {'BF': 0, 'Blue': 1}
-            _CH_TO_COLOR = {v: k for k, v in _COLOR_TO_CH.items()}
+            _COLOR_TO_CH: ClassVar[dict] = {'BF': 0, 'Blue': 1}
+            _CH_TO_COLOR: ClassVar[dict] = {v: k for k, v in _COLOR_TO_CH.items()}
 
         scope._led_driver = TwoChannelLED()
 
@@ -1062,8 +1063,8 @@ class TestScopeCapabilities:
         from modules.scope_capabilities import ScopeCapabilities
 
         class FourChannelLED(SimulatedLEDBoard):
-            _COLOR_TO_CH = {'Blue': 0, 'Green': 1, 'Red': 2, 'BF': 3}
-            _CH_TO_COLOR = {v: k for k, v in _COLOR_TO_CH.items()}
+            _COLOR_TO_CH: ClassVar[dict] = {'Blue': 0, 'Green': 1, 'Red': 2, 'BF': 3}
+            _CH_TO_COLOR: ClassVar[dict] = {v: k for k, v in _COLOR_TO_CH.items()}
 
         caps = ScopeCapabilities.from_drivers(
             motion=NullMotionBoard(),

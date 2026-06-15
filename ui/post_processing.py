@@ -5,6 +5,7 @@ import os
 import pathlib
 import subprocess
 import sys
+from typing import ClassVar
 
 import matplotlib
 
@@ -321,7 +322,7 @@ class GraphingControls(BoxLayout):
     x_axis_label = 'X-Axis'
     y_axis_label = 'Y-Axis'
     graph_title = ''
-    available_axes = ['No Data Loaded']
+    available_axes: ClassVar[list] = ['No Data Loaded']
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

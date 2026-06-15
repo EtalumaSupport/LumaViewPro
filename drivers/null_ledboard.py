@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from typing import ClassVar
 
 from drivers.registry import led_registry
 
@@ -31,7 +32,7 @@ class NullLEDBoard:
     directly (``driver``, ``found``, ``port``, etc.).
     """
 
-    _COLOR_TO_CH = {
+    _COLOR_TO_CH: ClassVar[dict] = {
         'Blue': 0,
         'Green': 1,
         'Red': 2,
@@ -39,7 +40,7 @@ class NullLEDBoard:
         'PC': 4,
         'DF': 5,
     }
-    _CH_TO_COLOR = {v: k for k, v in _COLOR_TO_CH.items()}
+    _CH_TO_COLOR: ClassVar[dict] = {v: k for k, v in _COLOR_TO_CH.items()}
 
     def __init__(self):
         self.driver = True  # truthy sentinel -- satisfies `not self.led.driver`

@@ -6,6 +6,8 @@ Contains the Tooltip widget class and TooltipMixin which provides
 tooltip management methods for LumaViewProApp.
 """
 
+from typing import ClassVar
+
 import kivy.uix.accordion
 from kivy.clock import Clock
 from kivy.core.window import Window
@@ -240,7 +242,7 @@ class TooltipMixin:
                 text_y + text_height
             )
 
-    _text_size_cache = {}  # {(text, font_size, max_width): (w, h)}
+    _text_size_cache: ClassVar[dict] = {}  # {(text, font_size, max_width): (w, h)}
 
     # Used to calculate a label's text dimensions when the label size is preset (keeps collision only on the text)
     def calculate_label_text_size(self, widget) -> tuple:
