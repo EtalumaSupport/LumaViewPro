@@ -46,6 +46,62 @@ def _read_fx2_wire_setting() -> bool:
 _FX2_WIRE_SETTING = _read_fx2_wire_setting()
 
 
+class LedLease:
+    """Opaque LED-ownership token handed out by IlluminationAPI.
+
+    Holding the lease grants exclusive LED control: while it is held the
+    illumination API refuses writes from anyone else (the run-boundary
+    callers consult ``led_write_allowed`` before driving the LEDs).
+    Release it at the end of the run -- which turns the owner's channels
+    off by default so the end-state is decided by the release, not
+    reconstructed at each call site -- or use it as a context manager.
+
+    The token cannot be forged: only the API constructs one. That is what
+    makes ownership enforceable rather than the older advisory tags, where
+    any caller could claim to be 'protocol'.
+    """
+
+    def __init__(
+        self,
+        api: IlluminationAPI,
+        owner_name: str,
+        parent: LedLease | None = None,
+    ) -> None:
+        self._api = api
+        self.owner_name = owner_name
+        self._parent = parent
+        self._released = False
+
+    def release(self, *, leave_on: bool = False) -> None:
+        """Release the lease (idempotent).
+
+        Args:
+            leave_on: Keep the owner's LEDs lit instead of turning them off.
+                Used when a run's declared end-state keeps illumination on.
+        """
+        self._api._release_led_lease(self, leave_on=leave_on)
+
+    def acquire_child(self, owner_name: str) -> LedLease | None:
+        """Take a nested lease under this one.
+
+        The one nesting case is autofocus running inside a protocol step:
+        the step holds the lease and lets autofocus drive the LED through a
+        child it must outlive. Returns None if this lease is no longer held.
+        """
+        return self._api.acquire_led_lease(owner_name, parent=self)
+
+    @property
+    def held(self) -> bool:
+        """True until this lease (or an ancestor) has been released."""
+        return not self._released
+
+    def __enter__(self) -> LedLease:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.release()
+
+
 class IlluminationAPI:
     """Illumination sub-API. Owns LED state, ownership tracking, and
     listener registry. Stateful bodies live here post-Phase 3d.
@@ -92,6 +148,17 @@ class IlluminationAPI:
         # per-device locks. Wrapped with TimedLock for contention
         # tracing.
         self._led_lock = profile_trace.TimedLock(threading.RLock(), name='illumination._led_lock')
+
+        # LED ownership lease -- the enforced layer above the advisory
+        # owner tags. One lease is held at a time (one logical owner:
+        # protocol or autofocus); a second owner's acquire is refused.
+        # The exception is a child lease spawned by the current holder
+        # (autofocus running inside a protocol step). The stack top is the
+        # active owner, and only the active owner may drive the LEDs.
+        # This lock guards the stack only -- it is taken briefly and never
+        # held across LED I/O, so it cannot tangle with the I/O locks.
+        self._led_lease_lock = threading.Lock()
+        self._led_lease_stack: list[LedLease] = []
 
     @property
     def _driver(self) -> LEDBoardProtocol:
@@ -786,6 +853,129 @@ class IlluminationAPI:
                 self._scope.imaging.frame_validity.invalidate('led')
                 _api_log.info(f'led_off ch={ch} (owned release by {owner})')
                 self._fire_led_listeners(color, False, 0.0, owner=owner)
+
+    # --- Ownership lease ---
+    def acquire_led_lease(
+        self, owner_name: str, *, parent: LedLease | None = None
+    ) -> LedLease | None:
+        """Acquire the exclusive LED-ownership lease.
+
+        While a lease is held, only its owner may drive the LEDs. A second
+        owner's request is refused and returns None -- the caller must cope.
+        It never raises, so a contended acquire cannot crash a protocol or
+        autofocus run.
+
+        Args:
+            owner_name: Human-readable owner for logs ('protocol',
+                'autofocus').
+            parent: The caller's own lease when requesting a nested child;
+                only the current holder may spawn a child.
+
+        Returns:
+            A LedLease token, or None if another owner already holds the
+            lease (or a stale parent was supplied).
+        """
+        with self._led_lease_lock:
+            active = self._led_lease_stack[-1] if self._led_lease_stack else None
+            if active is not None:
+                if parent is not active:
+                    _api_log.warning(
+                        'LED lease acquire refused: %r requested but %r holds it',
+                        owner_name,
+                        active.owner_name,
+                    )
+                    return None
+            elif parent is not None:
+                # A parent was supplied but nothing is held -- the parent
+                # already released. Refuse rather than silently promote the
+                # child to a top-level lease.
+                _api_log.warning(
+                    'LED lease child acquire refused for %r: parent lease not held',
+                    owner_name,
+                )
+                return None
+            lease = LedLease(self, owner_name, parent=parent)
+            self._led_lease_stack.append(lease)
+            _api_log.info(
+                'LED lease acquired by %r (depth=%d)', owner_name, len(self._led_lease_stack)
+            )
+            return lease
+
+    def _release_led_lease(self, lease: LedLease, *, leave_on: bool = False) -> None:
+        """Release a lease (called via LedLease.release). Idempotent.
+
+        By default the owner's channels are turned off, so the LED
+        end-state is a property of the release. An owner whose declared
+        end-state keeps illumination on passes leave_on=True.
+        """
+        with self._led_lease_lock:
+            if lease._released:
+                return
+            if lease not in self._led_lease_stack:
+                lease._released = True
+                return
+            # Normal use is last-in-first-out (a child releases before its
+            # parent). An out-of-order release means a child outlived its
+            # parent; drop the whole tail above this lease so the stack
+            # cannot wedge and lock out the next run.
+            idx = self._led_lease_stack.index(lease)
+            for stranded in self._led_lease_stack[idx:]:
+                stranded._released = True
+            del self._led_lease_stack[idx:]
+            owner_name = lease.owner_name
+        if not leave_on:
+            self.leds_off_owned(owner_name)
+        _api_log.info('LED lease released by %r%s', owner_name, ' (leave_on)' if leave_on else '')
+
+    def led_write_allowed(self, owner_name: str) -> bool:
+        """Whether *owner_name* may drive the LEDs right now.
+
+        True when no lease is held (live UI control is open season) or when
+        owner_name matches the active (innermost) holder. An empty owner --
+        a bare UI click -- is therefore allowed only while the LEDs are
+        unleased.
+        """
+        with self._led_lease_lock:
+            if not self._led_lease_stack:
+                return True
+            return owner_name == self._led_lease_stack[-1].owner_name
+
+    @property
+    def led_lease_owner(self) -> str | None:
+        """The active LED-lease owner name, or None if the LEDs are unleased."""
+        with self._led_lease_lock:
+            return self._led_lease_stack[-1].owner_name if self._led_lease_stack else None
+
+    def force_off(self) -> None:
+        """Turn off all LEDs unconditionally, bypassing any held lease.
+
+        The unblockable safety path for emergency / error / shutdown
+        callers: an idempotent off must never be refused because another
+        subsystem holds the lease. When a lease is held this logs loudly so
+        the bypass is visible in post-mortem; the lease itself is left
+        intact, so its holder still releases normally.
+        """
+        held = self.led_lease_owner
+        if held is not None:
+            _api_log.warning('force_off bypassing held LED lease owned by %r', held)
+        self.leds_off()
+
+    def reset_led_leases(self) -> None:
+        """Drop all held leases without touching the LEDs.
+
+        The teardown path for an aborted run: free the lease so the next
+        run can acquire, regardless of which (possibly dead) thread held
+        it. Turning the LEDs off is the caller's separate decision via
+        force_off; this only clears the ownership bookkeeping.
+        """
+        with self._led_lease_lock:
+            if not self._led_lease_stack:
+                return
+            owners = [held.owner_name for held in self._led_lease_stack]
+            for held in self._led_lease_stack:
+                held._released = True
+            self._led_lease_stack.clear()
+        _api_log.warning('LED leases reset (teardown), dropped: %s', owners)
 
     # --- Enable / disable ---
     def leds_enable(self) -> None:
