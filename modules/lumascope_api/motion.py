@@ -58,6 +58,10 @@ class MotionAPI:
     """Motion sub-API. Hosts stateless (Phase 2b) and stateful (Phase 2c) bodies."""
 
     _MOTION_POLL_INTERVAL = 0.02  # 50 Hz
+    # How long an axis may sit MOVING with the motor board disconnected
+    # before the monitor faults it to a terminal state. Well above a
+    # transient USB blip, well below the 120s motion timeout.
+    _DISCONNECT_FAULT_S = 3.0
 
     # Maps a motion axis to its frame-validity source. X and Y share
     # 'xy_move'; Z and the turret each have their own source so the
@@ -125,6 +129,10 @@ class MotionAPI:
         # after init_axes().
         self._motion_monitor_stop = threading.Event()
         self._motion_monitor_thread: threading.Thread | None = None
+        # Per-axis monotonic timestamp first seen disconnected-while-moving;
+        # used by the monitor to bound how long an axis stays MOVING after
+        # the board vanishes. Only the monitor thread touches it.
+        self._disconnect_since: dict[str, float] = {}
 
         # Per-axis state dicts -- empty until init_axes() fills them.
         self._pos_cache: dict = {}
@@ -1528,7 +1536,27 @@ class MotionAPI:
                         if self._motion_monitor_stop.is_set():
                             break
                         if not self._driver.is_connected():
+                            # A board that vanishes mid-move would otherwise
+                            # leave the axis MOVING forever -- is_moving() never
+                            # clears, so autofocus and the protocol runner wedge
+                            # silently. Bound the disconnect: after a short
+                            # deadline, fault the axis to a terminal state
+                            # (UNKNOWN fires the arrival event so waiters and
+                            # is_moving() unblock) and notify the user once.
+                            first = self._disconnect_since.setdefault(ax, time.monotonic())
+                            if time.monotonic() - first > self._DISCONNECT_FAULT_S:
+                                self._set_axis_state(ax, AxisState.UNKNOWN)
+                                self._disconnect_since.pop(ax, None)
+                                notifications.error(
+                                    'Motion',
+                                    'Motor board disconnected',
+                                    f'Lost the motor board while axis {ax} was '
+                                    f'moving; the move was aborted. Reconnect '
+                                    f'the board and retry.',
+                                )
                             continue
+                        # Reconnected (or never lost) before the deadline.
+                        self._disconnect_since.pop(ax, None)
                         # Read motor actual position from hardware and update
                         # the cache so get_current_position (and the crosshair
                         # via the position listener) tracks the motor instead
