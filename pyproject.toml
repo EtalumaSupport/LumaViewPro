@@ -1,6 +1,6 @@
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--tb=short -q"
+addopts = "--tb=short -q --durations=15"
 markers = [
     "requires_led_v2: requires LED firmware v2.0+",
     "requires_motor_v2: requires motor firmware v2.0+",
