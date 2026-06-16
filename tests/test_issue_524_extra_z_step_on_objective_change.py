@@ -177,3 +177,74 @@ def test_go_to_step_passes_restore_z_false_on_T_move():
         'restore that would be wasted by the immediately-following Z '
         'move to step["Z"]. (#524)'
     )
+
+
+# --------------------------------------------------------------------------
+# Residual #524: a generated Add-Step name dropped the objective + channel
+# suffix (stored a bare 'custom0000') even though the saved image kept the
+# full name. The objective-aware name must survive.
+# --------------------------------------------------------------------------
+
+
+def _empty_protocol_for_add():
+    import datetime
+
+    import pandas as pd
+
+    from modules.protocol import Protocol
+
+    config = {
+        'version': Protocol.CURRENT_VERSION,
+        'steps': pd.DataFrame(columns=list(Protocol.CURRENT_COLUMNS)),
+        'period': datetime.timedelta(minutes=20.0),
+        'duration': datetime.timedelta(hours=48.0),
+        'labware_id': 'Blank',
+        'capture_root': '',
+        'tiling': '1x1',
+        'custom_step_count': 0,
+    }
+    return Protocol(tiling_configs_file_loc=REPO / 'data' / 'tiling.json', config=config)
+
+
+def _add_layer_config():
+    return {
+        'autofocus': False,
+        'false_color': False,
+        'illumination_ma': 100.0,
+        'gain_db': 10.0,
+        'auto_gain': False,
+        'exposure_ms': 5.0,
+        'sum': 1,
+        'acquire': 'image',
+        'video_config': {'duration': 5, 'fps': 30},
+        'focus': 7000.0,
+    }
+
+
+def _insert_generated_step(protocol, *, include_objective):
+    protocol.insert_step(
+        step_name=None,
+        layer='BF',
+        layer_config=_add_layer_config(),
+        plate_position={'x': 0.0, 'y': 0.0, 'z': 5000.0},
+        objective_id='4x Oly',
+        stim_configs={},
+        before_step=0,
+        after_step=None,
+        include_objective_in_step_name=include_objective,
+    )
+    return protocol.step(idx=0)['Name']
+
+
+def test_added_step_name_keeps_objective_and_channel():
+    name = _insert_generated_step(_empty_protocol_for_add(), include_objective=True)
+    assert name != 'custom0000', 'generated step name must not be the bare index'
+    assert 'BF' in name and '4xOly' in name, (
+        f'added step name {name!r} must keep its channel and objective tokens'
+    )
+
+
+def test_added_step_name_keeps_channel_without_objective():
+    name = _insert_generated_step(_empty_protocol_for_add(), include_objective=False)
+    assert name != 'custom0000'
+    assert 'BF' in name, f'added step name {name!r} must keep its channel token'
