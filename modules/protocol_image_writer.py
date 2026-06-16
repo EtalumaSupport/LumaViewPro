@@ -364,8 +364,18 @@ class ProtocolImageWriter:
                     video_result = session.capture()
 
                     if video_result is None:
-                        # Cancelled or zero frames -- skip write
+                        # Cancelled or zero frames -- no file to write, but
+                        # still leave a row so the run record isn't silently
+                        # missing the step (image captures record one too).
                         self._leds_off()
+                        self._record_dropped_capture(
+                            step=step,
+                            step_index=curr_step,
+                            scan_count=scan_count,
+                            capture_time=datetime.datetime.now(),
+                            name=name,
+                            reason='video_cancelled',
+                        )
                         _proto_outcome = 'video_cancelled'
                         return
 

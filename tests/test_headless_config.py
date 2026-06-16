@@ -116,6 +116,31 @@ class TestGetSelectedLabware:
         assert labware_id == '96 well microplate'
         assert obj is default_plate
 
+    def test_unavailable_labware_notifies_user(self, monkeypatch):
+        # The substitution changes plate geometry, so the user must be told
+        # rather than have the protocol silently run on the wrong plate (EXC-M-9).
+        loader = MagicMock()
+        default_plate = MagicMock()
+
+        def fake_get_plate(plate_key=None):
+            if plate_key == 'nonexistent':
+                raise KeyError('not found')
+            return default_plate
+
+        loader.get_plate.side_effect = fake_get_plate
+
+        warnings = []
+        import modules.notification_center as nc
+
+        monkeypatch.setattr(
+            nc.notifications,
+            'warning',
+            lambda category, title, message, **k: warnings.append((category, title, message)),
+        )
+
+        get_selected_labware_from_settings({'protocol': {'labware': 'nonexistent'}}, loader)
+        assert any('Labware' in category for category, _, _ in warnings)
+
     def test_loader_keyerror_on_default_falls_back_to_first_available(self):
         # Both requested AND default missing -> fall back to first plate
         # in the loader's list.

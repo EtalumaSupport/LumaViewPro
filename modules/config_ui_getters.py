@@ -54,6 +54,14 @@ def get_binning_from_ui() -> int:
         return int(text)
     except Exception:
         logger.warning('Failed to read binning from UI, defaulting to 1', exc_info=True)
+        from modules.notification_center import notifications
+
+        notifications.warning(
+            'Camera',
+            'Binning',
+            'Could not read the binning setting; using 1x1. Check the binning '
+            'selector in microscope settings.',
+        )
         return 1
 
 
@@ -258,6 +266,14 @@ def get_protocol_time_params() -> dict:
     except Exception:
         logger.warning('Failed to read capture period from UI, defaulting to 1', exc_info=True)
         period = 1
+        from modules.notification_center import notifications
+
+        notifications.warning(
+            'Protocol',
+            'Capture Timing',
+            'Could not read the capture period; using 1 minute. Check the period '
+            'field and restart the protocol if the timing is wrong.',
+        )
 
     period = datetime.timedelta(minutes=period)
     try:
@@ -265,6 +281,14 @@ def get_protocol_time_params() -> dict:
     except Exception:
         logger.warning('Failed to read capture duration from UI, defaulting to 1', exc_info=True)
         duration = 1
+        from modules.notification_center import notifications
+
+        notifications.warning(
+            'Protocol',
+            'Capture Timing',
+            'Could not read the capture duration; using 1 hour. Check the duration '
+            'field and restart the protocol if the timing is wrong.',
+        )
 
     duration = datetime.timedelta(hours=duration)
 

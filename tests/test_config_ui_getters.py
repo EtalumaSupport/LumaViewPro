@@ -160,3 +160,62 @@ class TestGetSelectedLabware:
         labware_id, _ = get_selected_labware()
         assert isinstance(labware_id, str)
         assert labware_id  # non-empty
+
+
+class TestTimingAndBinningParseNotifies:
+    """A failed parse of period / duration / binning notifies the user instead
+    of silently running the protocol with a default value (EXC-M-8)."""
+
+    @staticmethod
+    def _patch(monkeypatch, *, period='1', duration='1', binning='1x1'):
+        ctx = MagicMock()
+        period_field = MagicMock()
+        period_field.text = period
+        dur_field = MagicMock()
+        dur_field.text = duration
+        protocol_settings = MagicMock()
+        protocol_settings.ids = {'capture_period': period_field, 'capture_dur': dur_field}
+        binning_spinner = MagicMock()
+        binning_spinner.text = binning
+        microscope_settings = MagicMock()
+        microscope_settings.ids = {'binning_spinner': binning_spinner}
+        ctx.motion_settings.ids = {
+            'protocol_settings_id': protocol_settings,
+            'microscope_settings_id': microscope_settings,
+        }
+
+        import modules.app_context as app_context
+
+        monkeypatch.setattr(app_context, 'ctx', ctx)
+
+        warnings = []
+        import modules.notification_center as nc
+
+        monkeypatch.setattr(
+            nc.notifications,
+            'warning',
+            lambda category, title, message, **k: warnings.append((category, title, message)),
+        )
+        return warnings
+
+    def test_unparseable_period_notifies(self, monkeypatch):
+        warnings = self._patch(monkeypatch, period='not-a-number')
+        from modules.config_ui_getters import get_protocol_time_params
+
+        get_protocol_time_params()
+        assert any('Timing' in title for _, title, _ in warnings)
+
+    def test_unparseable_binning_notifies(self, monkeypatch):
+        warnings = self._patch(monkeypatch, binning='garbage')
+        from modules.config_ui_getters import get_binning_from_ui
+
+        assert get_binning_from_ui() == 1
+        assert any('Binning' in title for _, title, _ in warnings)
+
+    def test_valid_values_do_not_notify(self, monkeypatch):
+        warnings = self._patch(monkeypatch, period='5', duration='2', binning='2x2')
+        from modules.config_ui_getters import get_binning_from_ui, get_protocol_time_params
+
+        get_protocol_time_params()
+        assert get_binning_from_ui() == 2
+        assert warnings == []

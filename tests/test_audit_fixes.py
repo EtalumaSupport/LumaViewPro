@@ -12680,3 +12680,33 @@ class TestSequentialIOExecutorDocstringSingleWorker:
 
     def test_documents_single_worker(self):
         assert 'exactly ONE worker thread' in self._src()
+
+
+class TestPS11VideoCancelledRecordsRow:
+    """A cancelled / zero-frame video step must leave an execution-record row,
+    matching the image path which records a 'capture_failed' row (PS-11)."""
+
+    def test_video_none_result_records_dropped_capture(self, monkeypatch, tmp_path):
+        from unittest.mock import MagicMock
+
+        import modules.protocol_image_writer as piw
+
+        record = MagicMock()
+        writer = _bare_protocol_writer(execution_record=record)
+
+        fake_session = MagicMock()
+        fake_session.capture.return_value = None  # cancelled / zero frames
+        monkeypatch.setattr(piw, 'VideoCaptureSession', lambda **kw: fake_session)
+
+        writer.capture(
+            save_folder=str(tmp_path),
+            step=_protocol_step(Acquire='video'),
+            output_format='TIFF',
+            protocol=MagicMock(),
+            scan_count=0,
+            curr_step=0,
+            image_capture_config={'use_full_pixel_depth': False},
+        )
+
+        assert record.add_step.called, 'cancelled video must leave a record row'
+        assert record.add_step.call_args.kwargs['capture_result_file_name'] == 'video_cancelled'
