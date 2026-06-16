@@ -660,7 +660,7 @@ class ProtocolImageWriter:
             else:
                 if captured_image is None:
                     logger.warning(
-                        f'[PROTOCOL] _write_capture: captured_image is None for step {step_index} ({step.get("Name", "?") if step else "?"}), scan {scan_count}, recording as capture_failed'
+                        f'[PROTOCOL] _write_capture: captured_image is None for step {step_index} ({step.get("Name", "?") if step is not None else "?"}), scan {scan_count}, recording as capture_failed'
                     )
                     if self._execution_record is not None:
                         self._execution_record.add_step(
