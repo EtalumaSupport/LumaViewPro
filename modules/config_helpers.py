@@ -834,6 +834,17 @@ def get_selected_labware_from_settings(
         logger.warning(
             f"Could not load labware '{labware_id}', falling back to default '{DEFAULT_LABWARE_ID}'"
         )
+        # The substituted plate has different geometry, so every well
+        # position the protocol computes will be wrong. Tell the user --
+        # a silent substitution looks like the protocol ran normally.
+        from modules.notification_center import notifications
+
+        notifications.warning(
+            'Labware',
+            'Labware Unavailable',
+            f"The selected labware '{labware_id}' is unavailable; using the default "
+            'plate instead. Well positions will be wrong -- pick an installed plate.',
+        )
     # First fallback: the shipped default.
     if labware_id != DEFAULT_LABWARE_ID:
         try:
