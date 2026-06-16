@@ -56,6 +56,10 @@ class VideoWriter:
         self._include_timestamp_overlay = include_timestamp_overlay
         self._shape = (height, width) if (width is not None and height is not None) else None
         self._frame_count = 0
+        # Frames the encoder accepted but failed to write -- counted so the
+        # caller can warn the user that the output is short rather than
+        # delivering a silently-truncated video.
+        self._dropped_frames = 0
         # Protects _frame_count + encoder state for REST queries
         self._frame_lock = threading.Lock()
 
@@ -225,6 +229,7 @@ class VideoWriter:
                     self._frame_count += 1
                 except Exception as e:
                     logger.error(f'VideoWriter: PyAV encode error: {e}')
+                    self._dropped_frames += 1
             elif self._cv2_video is not None:
                 # cv2.VideoWriter is the only BGR consumer in the save path;
                 # swap at this boundary for 3-channel input. Mono passes
@@ -235,10 +240,14 @@ class VideoWriter:
                     image_for_cv2 = image
                 success = self._cv2_video.write(image_for_cv2)
                 if success is False:
+                    # cv2 returns None on success; only an explicit False is a
+                    # reported failure. Count it as dropped, not written.
                     logger.error(
-                        'VideoWriter: cv2.VideoWriter.write() returned failure -- frame may be lost'
+                        'VideoWriter: cv2.VideoWriter.write() returned failure -- frame lost'
                     )
-                self._frame_count += 1
+                    self._dropped_frames += 1
+                else:
+                    self._frame_count += 1
 
     def close(self) -> None:
         """Flush encoder and close the container. Idempotent."""
@@ -268,9 +277,16 @@ class VideoWriter:
         with self._frame_lock:
             return {
                 'frame_count': self._frame_count,
+                'dropped_frames': self._dropped_frames,
                 'finished': self._finished,
                 'output_file': str(self._output_path),
             }
+
+    @property
+    def dropped_frames(self) -> int:
+        """Frames the encoder failed to write during this recording."""
+        with self._frame_lock:
+            return self._dropped_frames
 
     def test_video(self, filename):
         logger.info(f'VideoWriter: Testing video {filename}')

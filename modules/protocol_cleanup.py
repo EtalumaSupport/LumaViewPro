@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import threading
 from concurrent.futures import CancelledError
+from functools import partial
 from typing import TYPE_CHECKING
 
 from lvp_logger import logger
@@ -244,7 +245,12 @@ def run_cleanup(
     # --- Complete protocol execution record ---
     try:
         if not disable_saving_artifacts and protocol_execution_record is not None:
-            file_io_executor.protocol_put(IOTask(action=protocol_execution_record.complete))
+            # On a clean finish, reconcile attempted captures against rows
+            # written and warn on any shortfall. On abort, pending writes are
+            # dropped on purpose below, so a shortfall is expected -- skip it.
+            file_io_executor.protocol_put(
+                IOTask(action=partial(protocol_execution_record.complete, reconcile=not is_aborted))
+            )
     except Exception as ex:
         logger.error(f'[PROTOCOL] Error completing protocol record during cleanup: {ex}')
         cleanup_errors.append(f'Complete protocol record: {type(ex).__name__}: {ex}')

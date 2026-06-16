@@ -592,6 +592,11 @@ class ProtocolImageWriter:
 
         Runs on the file-IO thread.
         """
+        # Count the attempt up front so end-of-run reconciliation can detect a
+        # capture that returns without leaving a row in the execution record.
+        if self._execution_record is not None:
+            self._execution_record.note_capture_attempt()
+
         captured_frames = 0
         duration_sec = 0.0
 

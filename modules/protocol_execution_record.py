@@ -37,6 +37,14 @@ class ProtocolExecutionRecord:
 
         self._protocol_file_loc = pathlib.Path(protocol_file_loc)
 
+        # Every capture the protocol attempts should leave exactly one row
+        # (success or failure). Counting attempts against rows actually
+        # written lets complete() catch a capture that vanished without a row
+        # -- or a row whose own disk write raised -- which is otherwise an
+        # invisible hole in the record that post-processing silently skips.
+        self._capture_attempts = 0
+        self._rows_written = 0
+
         if outfile is not None:
             self._mode = 'to_file'
             self._outfile = outfile
@@ -57,7 +65,40 @@ class ProtocolExecutionRecord:
     def protocol_file_loc(self) -> pathlib.Path:
         return self._protocol_file_loc
 
-    def complete(self):
+    def note_capture_attempt(self) -> None:
+        """Record that the protocol is about to attempt one capture.
+
+        Called once per capture the protocol dispatches, before the row is
+        written. Paired with the per-row count so complete() can reconcile.
+        """
+        self._capture_attempts += 1
+
+    def complete(self, reconcile: bool = True):
+        """Finalize the record. When *reconcile* is True, warn the user if
+        fewer rows were written than captures attempted.
+
+        *reconcile* is False on an aborted run: abort deliberately drops
+        pending writes, so a shortfall there is expected, not a fault.
+        """
+        if reconcile and self._mode == 'to_file':
+            missing = self._capture_attempts - self._rows_written
+            if missing > 0:
+                logger.error(
+                    f'ProtocolExecutionRecord: {missing} of '
+                    f'{self._capture_attempts} attempted captures left no row '
+                    f'in {self._outfile.name} -- those images are absent from '
+                    'the record and will be skipped by post-processing.'
+                )
+                from modules.notification_center import notifications
+
+                notifications.warning(
+                    'Protocol',
+                    'Protocol Record Incomplete',
+                    f'{missing} of {self._capture_attempts} captures were not '
+                    'written to the protocol record. Those images, if saved, '
+                    'will be missing from stitching and video builds. Check '
+                    'the log for the cause.',
+                )
         self._close_outfile()
 
     def _close_outfile(self):
@@ -93,6 +134,9 @@ class ProtocolExecutionRecord:
                         duration_sec,
                     ]
                 )
+            # Counted only after a successful write: a row whose write raises
+            # stays uncounted, so reconciliation in complete() flags the loss.
+            self._rows_written += 1
         except Exception as e:
             logger.error(f'ProtocolExecutionRecord: Failed to write step {step_name}: {e}')
 

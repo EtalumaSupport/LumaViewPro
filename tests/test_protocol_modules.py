@@ -9,6 +9,7 @@ Tests the 5 modules extracted from sequenced_capture_runner.py:
   - protocol_image_writer
 """
 
+import datetime
 import threading
 from unittest.mock import MagicMock
 
@@ -705,3 +706,90 @@ class TestFinalStepKeepsLedWhenCleanupRestoresIt:
             )
             is False
         ), 'inter-scan waits must run dark (sample safety) on non-final scans'
+
+
+# ===========================================================================
+# protocol_execution_record.py -- end-of-run reconciliation
+# ===========================================================================
+
+
+class TestProtocolRecordReconciliation:
+    """Every capture the protocol attempts must leave exactly one row in the
+    execution record. At protocol end the record reconciles the count of
+    attempts against the count of rows actually written; a shortfall means a
+    capture vanished without a row (a silent data gap) OR a row write itself
+    failed, and the user is warned once."""
+
+    def _make_record(self, tmp_path):
+        from modules.protocol_execution_record import ProtocolExecutionRecord
+
+        return ProtocolExecutionRecord(
+            protocol_file_loc=tmp_path / 'protocol.tsv',
+            outfile=tmp_path / 'record.tsv',
+        )
+
+    def _add_row(self, rec, name):
+        rec.add_step(
+            capture_result_file_name=name,
+            step_name='step',
+            step_index=0,
+            scan_count=0,
+            timestamp=datetime.datetime(2026, 6, 15, 12, 0, 0),
+        )
+
+    def _capture_warnings(self, monkeypatch):
+        from modules.notification_center import notifications
+
+        fired = []
+        monkeypatch.setattr(notifications, 'warning', lambda *a, **k: fired.append((a, k)))
+        return fired
+
+    def test_shortfall_fires_one_warning(self, tmp_path, monkeypatch):
+        fired = self._capture_warnings(monkeypatch)
+        rec = self._make_record(tmp_path)
+        # Three captures attempted; only two leave a row -- one silent gap.
+        rec.note_capture_attempt()
+        rec.note_capture_attempt()
+        rec.note_capture_attempt()
+        self._add_row(rec, 'a')
+        self._add_row(rec, 'b')
+        rec.complete()
+        assert len(fired) == 1, 'a record shortfall must fire exactly one warning'
+        # The body names the gap count so the L1 reader knows the magnitude.
+        body = ' '.join(str(x) for x in fired[0][0])
+        assert '1' in body and '3' in body
+
+    def test_clean_run_fires_nothing(self, tmp_path, monkeypatch):
+        fired = self._capture_warnings(monkeypatch)
+        rec = self._make_record(tmp_path)
+        rec.note_capture_attempt()
+        rec.note_capture_attempt()
+        self._add_row(rec, 'a')
+        self._add_row(rec, 'b')
+        rec.complete()
+        assert fired == [], 'attempts == rows recorded -> no warning'
+
+    def test_failed_row_write_is_a_shortfall(self, tmp_path, monkeypatch):
+        # EXC-M-5: if add_step's own disk write raises, the row is lost but the
+        # attempt counted -- reconciliation must still catch it.
+        fired = self._capture_warnings(monkeypatch)
+        rec = self._make_record(tmp_path)
+        rec.note_capture_attempt()
+        rec.note_capture_attempt()
+        self._add_row(rec, 'a')
+        monkeypatch.setattr(rec, '_outfile', tmp_path / 'nonexistent_dir' / 'record.tsv')
+        self._add_row(rec, 'b')  # write raises inside add_step, swallowed + logged
+        rec.complete()
+        assert len(fired) == 1, 'a failed row write must register as a shortfall'
+
+    def test_abort_skips_reconciliation(self, tmp_path, monkeypatch):
+        # On abort the run deliberately drops pending writes, so a gap is
+        # expected, not a fault -- reconcile=False suppresses the warning.
+        fired = self._capture_warnings(monkeypatch)
+        rec = self._make_record(tmp_path)
+        rec.note_capture_attempt()
+        rec.note_capture_attempt()
+        rec.note_capture_attempt()
+        self._add_row(rec, 'a')
+        rec.complete(reconcile=False)
+        assert fired == [], 'aborted runs must not warn about an expected gap'
