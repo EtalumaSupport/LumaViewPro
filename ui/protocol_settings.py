@@ -19,6 +19,7 @@ from kivy.uix.floatlayout import FloatLayout
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
+import modules.config_helpers as config_helpers
 from modules.config_ui_getters import (
     create_hyperstacks_if_needed,
     get_active_layer_config,
@@ -213,7 +214,22 @@ class ProtocolSettings(FloatLayout):
 
         logger.info('[LVP Main  ] ProtocolSettings.update_period()')
         try:
-            settings['protocol']['period'] = float(self.ids['capture_period'].text)
+            raw_period = float(self.ids['capture_period'].text)
+            settings['protocol']['period'] = raw_period
+            # Warn once, at the edit, when a sub-1s period is raised to the 1s
+            # minimum -- so the user is told why the field shows 0.016667 min
+            # instead of their typed value. The getter stays silent so save /
+            # run-start do not re-warn.
+            if config_helpers.protocol_time_clamped(raw_period, 'minutes'):
+                from modules.notification_center import notifications
+
+                notifications.warning(
+                    'Protocol',
+                    'Capture Timing',
+                    'The capture period was below the 1-second minimum and was '
+                    'raised to 1 second (shown as 0.016667 min). Enter a period '
+                    'of at least 1 second.',
+                )
         except Exception:
             logger.exception('[LVP Main  ] Update Period is not an acceptable value')
 
@@ -233,7 +249,20 @@ class ProtocolSettings(FloatLayout):
 
         logger.info('[LVP Main  ] ProtocolSettings.update_duration()')
         try:
-            settings['protocol']['duration'] = float(self.ids['capture_dur'].text)
+            raw_duration = float(self.ids['capture_dur'].text)
+            settings['protocol']['duration'] = raw_duration
+            # Duration is in HOURS, so a sub-1s value shows as 0.000278 hr (not
+            # 0.016667 min). Warn once, at the edit, with the hour value.
+            if config_helpers.protocol_time_clamped(raw_duration, 'hours'):
+                from modules.notification_center import notifications
+
+                notifications.warning(
+                    'Protocol',
+                    'Capture Timing',
+                    'The capture duration was below the 1-second minimum and was '
+                    'raised to 1 second (shown as 0.000278 hr). Enter a duration '
+                    'of at least 1 second.',
+                )
         except Exception:
             logger.warning('[LVP Main  ] Update Duration is not an acceptable value')
 
