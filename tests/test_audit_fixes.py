@@ -2003,6 +2003,16 @@ class TestHomeReturnsBool:
             f'turret-homing raise must notify naming the turret; got {errors}'
         )
 
+    def test_thome_failure_sets_turret_arrival_event(self, sim_scope, monkeypatch):
+        """A failed turret home must leave T's arrival event set so the
+        safe-turret-move Z restore returns immediately instead of hanging
+        on a cleared T event until the 120s motion timeout."""
+        sim_scope._motion_driver.set_timing_mode('instant')
+        self._record_errors(monkeypatch)
+        monkeypatch.setattr(sim_scope._motion_driver, 'thome', lambda: False)
+        assert sim_scope.motion.thome() is False
+        assert sim_scope.motion._arrival_events['T'].is_set()
+
     def test_homing_docstrings_document_returns(self):
         """Each homing method's docstring documents the bool contract
         (Rule 38) -- runtime introspection, not a source pin."""
