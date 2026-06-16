@@ -128,6 +128,10 @@ class SequencedCaptureRunner:
 
         self._scope = scope
         self._run_trigger_source = None
+        # LED lease held for the duration of a scan -- acquired at run
+        # start, passed to AF steps as the parent lease, released in
+        # cleanup. None outside a run.
+        self._led_lease = None
         self._protocol_state_lock = threading.Lock()
         self._state = ProtocolState.IDLE
         # Defensive default so attribute access before the first run()
@@ -537,6 +541,12 @@ class SequencedCaptureRunner:
         # transforms partway through a multi-day soak.
         self._snapshot_run_state()
 
+        # Acquire the LED lease for the whole scan so live UI illumination
+        # changes cannot disturb a running protocol's channels. AF steps
+        # nest a child under it. A refused acquire (None) does not stop the
+        # run.
+        self._led_lease = self._scope.illumination.acquire_led_lease('protocol')
+
         # Snapshot hardware state for restoration after protocol
         self._original_led_states = self._scope.illumination.get_led_states()
         self._saved_camera_state = self._scope.imaging.save_camera_state('protocol')
@@ -698,6 +708,15 @@ class SequencedCaptureRunner:
             self._cleanup_lock.release()
 
     def _cleanup_inner(self):
+        # Release the scan's LED lease first, on every cleanup path
+        # (normal end and abort). leave_on: the existing run_cleanup LED
+        # block below owns the end-state, so the lease release must not
+        # turn anything off. Idempotent + drops any stranded AF child
+        # lease if an abort unwound out of order.
+        if self._led_lease is not None:
+            self._led_lease.release(leave_on=True)
+            self._led_lease = None
+
         if not self._run_in_progress_event.is_set():
             # run-in-progress was already cleared, so run_cleanup (which
             # ends the executors' protocol-mode) will not run here. Guarantee

@@ -218,6 +218,10 @@ class ProtocolStepRunner:
                 # Tell AF to skip its off + state-restore cycle so the
                 # capture inherits the LED state already established.
                 keep_led_on=True,
+                # AF runs inside this protocol step, which holds the LED
+                # lease; hand it over so AF nests as a child rather than
+                # contending for a fresh top-level lease.
+                led_lease=p._led_lease,
             )
             return
 

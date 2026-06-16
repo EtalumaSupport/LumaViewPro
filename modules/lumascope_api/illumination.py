@@ -171,7 +171,9 @@ class IlluminationAPI:
         return self._scope._led_driver
 
     # --- Sync control ---
-    def led_on(self, channel, mA, block: bool = False, owner: str = '') -> None:
+    def led_on(
+        self, channel, mA, block: bool = False, owner: str = '', _lease_owner: str | None = None
+    ) -> None:
         """Turn on an LED channel at the specified current.
 
         Args:
@@ -182,6 +184,10 @@ class IlluminationAPI:
                 If set, only ``led_off`` / ``leds_off_owned`` with the same
                 owner can turn this channel off.  Empty string (default) means
                 no ownership tracking.
+            _lease_owner: Owner to use for the LED-lease check when this
+                write is an internal recomposition done on behalf of a lease
+                holder (e.g. ``leds_exclusive`` clearing other channels).
+                Defaults to ``owner``; external callers leave it unset.
 
         Raises:
             ValueError: If channel or mA is out of range.
@@ -234,6 +240,18 @@ class IlluminationAPI:
             ):
                 return
 
+        # Out-of-turn write observation: while a run owns the LEDs, a write
+        # from anyone else is logged but still applied. The reject is left
+        # off until the run-boundary owners are proven to acquire the lease
+        # correctly under real timing; the log is how that gets confirmed.
+        violator = self._lease_violation(owner if _lease_owner is None else _lease_owner)
+        if violator is not None:
+            _api_log.warning(
+                'LED on by %r while %r holds the lease (applied -- observation only)',
+                owner if _lease_owner is None else _lease_owner,
+                violator,
+            )
+
         with self._led_lock:
             self._driver.led_on(channel, mA, block=block)
         self._notify_if_led_command_failed()
@@ -254,7 +272,7 @@ class IlluminationAPI:
                 self._led_owners[color_name] = owner
             self._fire_led_listeners(color_name, True, float(mA), owner)
 
-    def led_off(self, channel, owner: str = '') -> None:
+    def led_off(self, channel, owner: str = '', _lease_owner: str | None = None) -> None:
         """Turn off an LED channel.
 
         Args:
@@ -262,6 +280,9 @@ class IlluminationAPI:
             owner: If set, only turn off if this owner currently owns
                 the channel.  A non-matching owner is a no-op (logged).
                 Empty string (default) turns off unconditionally.
+            _lease_owner: Owner to use for the LED-lease check when this off
+                is an internal recomposition on behalf of a lease holder.
+                Defaults to ``owner``; external callers leave it unset.
 
         Raises:
             ValueError: If channel is out of range.
@@ -296,6 +317,17 @@ class IlluminationAPI:
                         f'but owned by {current_owner!r}'
                     )
                     return
+
+        # Out-of-turn write observation (see led_on): an empty-owner off
+        # from the live UI while a run owns the channel is the shape behind
+        # the autofocus-LED-killed reports. Logged but still applied for now.
+        violator = self._lease_violation(owner if _lease_owner is None else _lease_owner)
+        if violator is not None:
+            _api_log.warning(
+                'LED off by %r while %r holds the lease (applied -- observation only)',
+                owner if _lease_owner is None else _lease_owner,
+                violator,
+            )
 
         with self._led_lock:
             self._driver.led_off(channel)
@@ -356,7 +388,7 @@ class IlluminationAPI:
         # (unconditional off) is correct here.
         for color in list(self.get_led_states()):
             if color != keep_color and self.led_enabled(color):
-                self.led_off(channel=color)
+                self.led_off(channel=color, _lease_owner=owner)
         # led_on already self-skips when the channel is on at mA, so an
         # already-correct channel is not re-commanded (no blink).
         self.led_on(channel=channel, mA=mA, block=block, owner=owner)
@@ -820,7 +852,7 @@ class IlluminationAPI:
         else:
             for color in list(self.get_led_states()):
                 if color not in target_on and self.led_enabled(color):
-                    self.led_off(channel=color)
+                    self.led_off(channel=color, _lease_owner=owner)
 
         # Re-assert the target channels; led_on self-skips channels already at
         # their target mA, so this does not blink an already-correct channel.
@@ -828,7 +860,10 @@ class IlluminationAPI:
             ch = self.color2ch(color)
             if ch is not None:
                 saved_owner = snapshot.get('owners', {}).get(color, '')
-                self.led_on(channel=ch, mA=mA, owner=saved_owner)
+                # The restored owner tag is the channel's original owner, but
+                # the lease check is on behalf of the restorer (e.g. AF
+                # re-asserting a pre-run UI channel).
+                self.led_on(channel=ch, mA=mA, owner=saved_owner, _lease_owner=owner)
 
     def leds_off_owned(self, owner: str) -> None:
         """Turn off only the LED channels owned by *owner*.
@@ -939,6 +974,19 @@ class IlluminationAPI:
             if not self._led_lease_stack:
                 return True
             return owner_name == self._led_lease_stack[-1].owner_name
+
+    def _lease_violation(self, owner: str) -> str | None:
+        """The active lease owner if *owner* may NOT write right now, else None.
+
+        One lock acquisition for the LED-write paths to surface out-of-turn
+        writes. Returns None when the write is permitted (no lease held, or
+        owner matches the active holder).
+        """
+        with self._led_lease_lock:
+            if not self._led_lease_stack:
+                return None
+            active = self._led_lease_stack[-1].owner_name
+            return None if owner == active else active
 
     @property
     def led_lease_owner(self) -> str | None:

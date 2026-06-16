@@ -150,3 +150,30 @@ def test_context_manager_acquires_and_releases(scope):
         assert lease.held
         assert scope.illumination.led_lease_owner == 'protocol'
     assert scope.illumination.led_lease_owner is None
+
+
+def test_lease_violation_detects_external_writer(scope):
+    assert scope.illumination._lease_violation('autofocus') is None  # unleased
+    scope.illumination.acquire_led_lease('protocol')
+    assert scope.illumination._lease_violation('protocol') is None  # the holder
+    assert scope.illumination._lease_violation('autofocus') == 'protocol'
+    assert scope.illumination._lease_violation('') == 'protocol'  # bare UI click
+
+
+def test_owner_leds_exclusive_does_not_self_violate(scope, caplog):
+    # The lease holder's own exclusive call clears other channels via an
+    # internal owner-less off; that must NOT be flagged as a violation.
+    scope.illumination.acquire_led_lease('protocol')
+    scope.illumination.led_on(channel=0, mA=100, owner='protocol')
+    with caplog.at_level(logging.WARNING, logger='LVP.api'):
+        scope.illumination.leds_exclusive(channel=3, mA=200, owner='protocol')
+    assert not any('holds the lease' in r.message for r in caplog.records)
+
+
+def test_external_write_during_lease_is_observed_and_applied(scope, caplog):
+    # Shadow phase: an out-of-turn write is logged but still applied.
+    scope.illumination.acquire_led_lease('protocol')
+    with caplog.at_level(logging.WARNING, logger='LVP.api'):
+        scope.illumination.led_on(channel=0, mA=100, owner='')
+    assert _lit(scope, 0)
+    assert any('holds the lease' in r.message for r in caplog.records)
