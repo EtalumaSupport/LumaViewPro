@@ -167,7 +167,8 @@
 
 		Button:
 			id: open_last_save_folder
-			disabled: app.protocol_running
+			# Read-only folder open: intentionally stays live during a protocol
+			# so the operator can reach saved files mid-run.
 			tooltip_text: 'Open Last Save Folder'
             border: 0, 0, 0, 0
             background_normal: './data/icons/photos.png'

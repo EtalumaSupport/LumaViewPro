@@ -92,21 +92,6 @@ class MotionSettings(BoxLayout):
         ctx = _app_ctx.ctx
         stage = ctx.stage
 
-        # Issue #643: on XYStage=False scopes (Lumi, LS820) the stage widget
-        # must not re-attach when accordions open. set_ui_features_for_scope
-        # removes it once at config load via remove_parent(); without this
-        # guard, opening the protocol or XY-stage accordion brings the plate
-        # view + crosshair back. Mirrors the same selected_scope_config check
-        # that microscope_settings.set_ui_features_for_scope uses -- query
-        # capabilities, don't assume.
-        settings = ctx.settings
-        microscope_settings = self.ids['microscope_settings_id']
-        scope_configs = microscope_settings.scopes
-        selected_scope_config = scope_configs.get(settings.get('microscope', ''), {})
-        if not selected_scope_config.get('XYStage', True):
-            stage.remove_parent()
-            return
-
         # Handles removing/adding the stage display depending on whether or not the accordion item is visible
         protocol_accordion_item = self.ids['motionsettings_protocol_accordion_id']
         protocol_stage_widget_parent = self.ids['protocol_settings_id'].ids[

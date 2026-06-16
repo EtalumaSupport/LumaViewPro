@@ -1,0 +1,62 @@
+"""#712 regression: changing a step's channel updates its (auto) name.
+
+A step's stored Name kept the old channel token after a channel change, so
+both the displayed Step Name and the saved filename were stale -- and the
+filename appended the new channel beside the old one (A2_BF_Blue_...).
+
+Fix (per the reporter's choice): for a well step still carrying its
+auto-generated default name, regenerate the name for the new channel so
+the channel token tracks the change. A user-customized name is preserved.
+
+The regeneration mechanic is proven behaviorally (it must replace the
+channel, not append). The UI wiring in ProtocolSettings.modify_step_ex
+needs a full Kivy app to exec, so it is pinned structurally -- the same
+approach as the #612 / #524 / #710 step-UI guards.
+"""
+
+from __future__ import annotations
+
+import ast
+import pathlib
+
+REPO = pathlib.Path(__file__).resolve().parent.parent
+PS_SRC = REPO / 'ui' / 'protocol_settings.py'
+
+
+def test_regenerated_name_replaces_channel_not_appends():
+    from modules.common_utils import generate_default_step_name
+
+    old = generate_default_step_name(well_label='A2', color='BF', objective_short_name='2xOly')
+    new = generate_default_step_name(well_label='A2', color='Blue', objective_short_name='2xOly')
+    assert old == 'A2_BF_2xOly'
+    assert new == 'A2_Blue_2xOly'
+    # The regenerated name must carry ONLY the new channel -- the bug
+    # produced A2_BF_Blue_... (old channel left in place, new one appended).
+    assert 'BF' not in new
+
+
+def _func(name: str) -> ast.FunctionDef:
+    tree = ast.parse(PS_SRC.read_text())
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == name:
+            return node
+    raise AssertionError(f'{name} not found in {PS_SRC}')
+
+
+def test_get_default_name_accepts_color_override():
+    names = [a.arg for a in _func('get_default_name_for_curr_step').args.args]
+    assert 'color' in names, (
+        'get_default_name_for_curr_step must accept a color override so a '
+        'step can be renamed for a different channel'
+    )
+
+
+def test_modify_step_regenerates_auto_name_for_well_step():
+    src = ast.unparse(_func('modify_step_ex'))
+    assert 'get_default_name_for_curr_step(color=active_layer)' in src, (
+        'modify_step_ex must regenerate the auto name for the new channel'
+    )
+    assert "curr_step['Well'] != ''" in src, (
+        'regeneration must be gated on a well step so custom-added steps '
+        'and user-customized names are left untouched'
+    )

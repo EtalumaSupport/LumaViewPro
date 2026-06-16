@@ -863,14 +863,13 @@ class Protocol:
             objective_short_name = None
 
         if step_name is None:
+            CUSTOM_INDEX_WIDTH = 4
             step_name = common_utils.generate_default_step_name(
                 well_label='',
-                custom_name_prefix=f'custom{self._config["custom_step_count"]}',
+                custom_name_prefix=f'custom{self._config["custom_step_count"]:0{CUSTOM_INDEX_WIDTH}d}',
                 color=layer,
                 objective_short_name=objective_short_name,
             )
-            CUSTOM_INDEX_WIDTH = 4
-            step_name = f'custom{self._config["custom_step_count"]:0{CUSTOM_INDEX_WIDTH}d}'
             self._config['custom_step_count'] += 1
 
         well = ''

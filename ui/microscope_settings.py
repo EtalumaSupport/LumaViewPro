@@ -1169,39 +1169,31 @@ class MicroscopeSettings(BoxLayout):
         ].set_button_enabled_state(state=selected_scope_config['XYStage'])
 
         if selected_scope_config['XYStage'] is False:
-            ctx.stage.remove_parent()
+            # XYStage=False scopes (Lumi, LS820) keep a single-plate
+            # ("Center Plate") graphic in the protocol tab so the crosshair
+            # position is visible; only the XY motion capability is disabled
+            # (set below). Stitch is hidden -- it needs tiling.
             protocol_settings.select_labware(labware='Center Plate')
             ctx.motion_settings.ids['post_processing_id'].hide_stitch()
 
         ctx.stage.set_motion_capability(enabled=selected_scope_config['XYStage'])
 
-        # UI-1 follow-up (2026-05-03): collapse the protocol-tab stage
-        # holder when XYStage=False so we don't render an empty hole
-        # where the plate-layout used to be. The kv-defined
-        # ``protocol_stage_holder_id`` FloatLayout has
-        # ``height: self.width * 2 / 3`` -- that allocation is
-        # unconditional, so removing the stage widget left the space
-        # but no content. Setting height=0 collapses it; re-binding to
-        # width on switch back restores it. The xy_stage_holder lives
-        # inside the xy-stage AccordionItem which is itself hidden via
-        # set_xystage_control_visibility(False) -- no separate fix
-        # needed there.
+        # Size the protocol-tab stage holder to its width-based aspect for
+        # every scope. The plate graphic now renders on XYStage=False scopes
+        # too (single Center Plate), so the holder is no longer collapsed.
+        # The kv-defined ``protocol_stage_holder_id`` FloatLayout has
+        # ``height: self.width * 2 / 3``; set it explicitly and bind to width
+        # so the holder follows resize (bind once, tracked on the widget so
+        # repeated scope toggles don't stack handlers).
         protocol_stage_holder = protocol_settings.ids.get('protocol_stage_holder_id')
         if protocol_stage_holder is not None:
-            if selected_scope_config['XYStage']:
-                protocol_stage_holder.size_hint_y = None
-                protocol_stage_holder.height = max(1, int(protocol_stage_holder.width * 2 / 3))
-                # Re-bind to width on first restore so the holder
-                # follows resize. Track the bind state on the widget so
-                # repeated scope toggles don't stack handlers.
-                if not getattr(protocol_stage_holder, '_lvp_height_bound', False):
-                    protocol_stage_holder.bind(
-                        width=lambda inst, w: setattr(inst, 'height', max(1, int(w * 2 / 3)))
-                    )
-                    protocol_stage_holder._lvp_height_bound = True
-            else:
-                protocol_stage_holder.size_hint_y = None
-                protocol_stage_holder.height = 0
+            protocol_stage_holder.size_hint_y = None
+            protocol_stage_holder.height = max(1, int(protocol_stage_holder.width * 2 / 3))
+            if not getattr(protocol_stage_holder, '_lvp_height_bound', False):
+                protocol_stage_holder.bind(
+                    width=lambda inst, w: setattr(inst, 'height', max(1, int(w * 2 / 3)))
+                )
+                protocol_stage_holder._lvp_height_bound = True
 
         # UI-1 follow-up (2026-05-03): cheap "reset on switch" -- explicit
         # resort of both accordions after any scope-config change so

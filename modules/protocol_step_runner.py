@@ -296,17 +296,19 @@ class ProtocolStepRunner:
 
                 # Video encoding runs on FILE_WORKER after capture -- no gate needed
 
-                # Keep LED on between consecutive steps of the same channel
-                # (e.g., Z-stack slices). Avoids unnecessary LED cycling.
-                # On non-final scans the last step always evaluates
-                # _keep_led=False so the inter-scan period runs with LEDs
-                # off (sample safety during long waits).
+                # Optionally keep the LED on between consecutive steps of the
+                # same channel (e.g. Z-stack slices) to avoid LED cycling --
+                # a speed optimization that is opt-in (default off), so the
+                # LED normally extinguishes between steps. On non-final scans
+                # the last step always evaluates _keep_led=False so the
+                # inter-scan period runs with LEDs off (sample safety).
                 _keep_led = False
                 num_steps = p._protocol.num_steps()
                 if p._curr_step < num_steps - 1:
-                    next_step = p._protocol.step(idx=p._curr_step + 1)
-                    if next_step['Color'] == step['Color']:
-                        _keep_led = True
+                    if p._keep_led_between_steps:
+                        next_step = p._protocol.step(idx=p._curr_step + 1)
+                        if next_step['Color'] == step['Color']:
+                            _keep_led = True
                 elif p.remaining_scans() <= 1 and p._leds_state_at_end == 'return_to_original':
                     # Final step of the final scan: if cleanup is about to
                     # re-light this same channel (it was lit before the run),

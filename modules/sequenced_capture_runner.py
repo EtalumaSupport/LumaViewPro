@@ -420,6 +420,7 @@ class SequencedCaptureRunner:
         leds_state_at_end: str = 'off',
         video_as_frames: bool = False,
         initial_autofocus_states: dict | None = None,
+        keep_led_between_steps: bool = False,
     ):
         with self._run_lock:
             if self._run_in_progress_event.is_set():
@@ -572,6 +573,7 @@ class SequencedCaptureRunner:
         self._save_autofocus_data = save_autofocus_data
         self._update_z_pos_from_autofocus = update_z_pos_from_autofocus
         self._leds_state_at_end = leds_state_at_end
+        self._keep_led_between_steps = keep_led_between_steps
         self._video_as_frames = video_as_frames
         # No AFE.reset() here -- AFE.run()'s own _reset_state() on
         # entry handles stale state, and self._af_future is reset at

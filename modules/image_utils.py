@@ -28,6 +28,31 @@ def is_color_image(image) -> bool:
     return len(image.shape) == 3 and image.shape[2] == 3
 
 
+def fit_frame_to_shape(image: np.ndarray, target_shape: tuple[int, ...]) -> np.ndarray | None:
+    """Pad or crop a frame to target_shape, preserving the overlapping pixels.
+
+    Some camera modes (and the simulator) can report one configured frame
+    size while delivering a nearby sensor-valid one. A spatial size
+    difference is black-padded (when the frame is smaller) or cropped (when
+    larger). Returns None -- the frame should be skipped -- when the frame is
+    fundamentally incompatible: a different number of dimensions, or a
+    different channel count for a color frame.
+    """
+    if len(image.shape) != len(target_shape):
+        return None
+    if image.ndim == 3 and image.shape[2] != target_shape[2]:
+        return None
+
+    fitted = np.zeros(target_shape, dtype=image.dtype)
+    height = min(image.shape[0], target_shape[0])
+    width = min(image.shape[1], target_shape[1])
+    if image.ndim == 2:
+        fitted[:height, :width] = image[:height, :width]
+    else:
+        fitted[:height, :width, :] = image[:height, :width, :]
+    return fitted
+
+
 def mono_to_rgb_falsecolor(mono: np.ndarray, layer: str) -> np.ndarray:
     """Map a 2D mono array to a 3-channel RGB array via the layer's false color.
 

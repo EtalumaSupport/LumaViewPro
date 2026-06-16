@@ -898,7 +898,10 @@ class ProtocolSettings(FloatLayout):
             out[layer_name] = row
         return out
 
-    def get_default_name_for_curr_step(self):
+    def get_default_name_for_curr_step(self, color=None):
+        # color=None uses the step's stored channel; pass an override to
+        # compute the default name as it would read for a different channel
+        # (used to rename an auto-named step when its channel changes).
         ctx = _app_ctx.ctx
 
         step = self.get_curr_step()
@@ -920,7 +923,7 @@ class ProtocolSettings(FloatLayout):
 
         return common_utils.generate_default_step_name(
             well_label=step['Well'],
-            color=step['Color'],
+            color=step['Color'] if color is None else color,
             z_height_idx=step['Z-Slice'],
             objective_short_name=objective_short_name,
             tile_label=step['Tile'],
@@ -1152,6 +1155,15 @@ class ProtocolSettings(FloatLayout):
             # existing name so modify_step does not clobber the auto-name.
             if step_name is None:
                 step_name = self._protocol.step(idx=self.curr_step)['Name']
+
+            # If a well step still carries its auto-generated default name for
+            # the prior channel, regenerate it for the new channel so the
+            # channel token in the step name (and the saved filename derived
+            # from it) tracks the change. A user-customized name -- anything
+            # that does not equal the auto default -- is left untouched.
+            curr_step = self._protocol.step(idx=self.curr_step)
+            if curr_step['Well'] != '' and step_name == self.get_default_name_for_curr_step():
+                step_name = self.get_default_name_for_curr_step(color=active_layer)
 
             # If the stim layer was active and the original acquire channel remains enabled,
             # preserve the existing step name to avoid unintended renaming.

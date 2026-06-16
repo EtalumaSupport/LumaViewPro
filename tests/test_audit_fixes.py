@@ -2691,38 +2691,67 @@ class TestIssue637_DrawerCloseSaturation:
         )
 
 
-class TestIssue643_LumiLS820PlateViewInProtocol:
-    """#643: On XYStage=False scopes (Lumi, LS820) the plate view + crosshair
-    re-appeared in the protocol accordion when opened, despite
-    set_ui_features_for_scope having called stage.remove_parent() at config
-    load. Cause: accordion_collapse() in motion_settings.py unconditionally
-    re-added the stage widget to whichever accordion was open, with no
-    capability check.
-
-    Fix: gate accordion_collapse on selected_scope_config['XYStage'] (the
-    same source set_ui_features_for_scope uses). When False, call
-    stage.remove_parent() and return early.
+class TestIssue710_LumiLS820PlateViewRestored:
+    """#710 reverses #643: on XYStage=False scopes (Lumi, LS820) the protocol
+    tab again shows the single Center Plate graphic + crosshair so the
+    objective position is visible. The earlier suppression -- the
+    accordion_collapse XYStage early-return, the set_ui_features_for_scope
+    stage.remove_parent(), and the holder height=0 collapse -- is removed.
+    Only XY motion capability stays disabled (set_motion_capability(False)).
     """
 
-    def test_accordion_collapse_checks_xystage_capability(self):
-        """accordion_collapse must consult selected_scope_config['XYStage']
-        before re-attaching the stage widget."""
+    @staticmethod
+    def _func_src(path, func_name):
+        import ast
         import pathlib
 
-        source = pathlib.Path('ui/motion_settings.py').read_text()
-        # Find the accordion_collapse method body
-        idx = source.find('def accordion_collapse')
-        assert idx >= 0, 'accordion_collapse method not found in ui/motion_settings.py'
-        # Take a slice large enough to cover the method body
-        body = source[idx : idx + 3000]
-        assert 'XYStage' in body, (
-            'accordion_collapse must check XYStage capability (issue #643) -- '
-            'without this guard, Lumi/LS820 protocol accordion re-shows the '
-            'plate view + crosshair.'
+        tree = ast.parse(pathlib.Path(path).read_text())
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == func_name:
+                return ast.unparse(node)
+        raise AssertionError(f'{func_name} not found in {path}')
+
+    def test_accordion_collapse_no_longer_suppresses_stage_for_no_xy(self):
+        src = self._func_src('ui/motion_settings.py', 'accordion_collapse')
+        assert 'XYStage' not in src, (
+            'accordion_collapse must not early-return on XYStage=False; the '
+            'stage re-attaches so the Center Plate graphic shows (#710)'
         )
-        assert 'remove_parent' in body, (
-            'accordion_collapse must call stage.remove_parent() on the '
-            'XYStage=False path (issue #643).'
+
+    def test_set_ui_features_keeps_center_plate_without_removing_stage(self):
+        src = self._func_src('ui/microscope_settings.py', 'set_ui_features_for_scope')
+        assert "select_labware(labware='Center Plate')" in src, (
+            'XYStage=False scopes still select the Center Plate labware (#710)'
+        )
+        assert 'remove_parent()' not in src, (
+            'set_ui_features_for_scope must not detach the stage for '
+            'XYStage=False scopes (#710 restores the plate graphic)'
+        )
+        assert 'height = 0' not in src, (
+            'the protocol stage holder must not be collapsed to height 0 (#710)'
+        )
+
+    def test_crosshair_suppressed_when_motion_disabled(self):
+        # The restored plate graphic must NOT show a crosshair on XYStage=false
+        # scopes -- there is no live XY position to indicate. The per-frame
+        # crosshair update is gated on self._motion_enabled.
+        import ast
+        import pathlib
+
+        tree = ast.parse(pathlib.Path('ui/stage.py').read_text())
+        found = False
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.If)
+                and 'self._motion_enabled' in ast.unparse(node.test)
+                and '_crosshair_h_line' in '\n'.join(ast.unparse(s) for s in node.body)
+                and 'h_line_points' in '\n'.join(ast.unparse(s) for s in node.body)
+            ):
+                found = True
+                break
+        assert found, (
+            'the per-frame crosshair update must be gated on self._motion_enabled '
+            'so XYStage=false scopes show no crosshair (#710)'
         )
 
     def test_lumi_and_ls820_have_xystage_false(self):
