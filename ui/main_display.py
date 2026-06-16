@@ -43,6 +43,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         self.recording.clear()
         self.video_writing = threading.Event()  # Track if video is being written
         self.video_writing.clear()
+        self._record_shape_warning_emitted = False
         self.recording_check = None
         self.recording_complete_event = None
         self.recording_title_update = None
@@ -216,6 +217,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
 
         # Atomically claim the recording operation
         self.recording.set()
+        self._record_shape_warning_emitted = False
 
         self.video_as_frames = settings['video_as_frames']
 
@@ -1021,10 +1023,45 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
 
         image = np.flip(image, 0)
 
+        target_shape = self.current_video_frames.shape[1:]
+        if image.shape != target_shape:
+            image = self._fit_recording_frame_to_buffer(image, target_shape)
+            if image is None:
+                return
+
         self.current_video_frames[slot_index] = image
         self.timestamps[slot_index] = frame_ts if frame_ts is not None else datetime.datetime.now()
         self.chunks_per_frame[slot_index] = chunks
         self.current_captured_frames = max(self.current_captured_frames, slot_index + 1)
+
+    def _fit_recording_frame_to_buffer(
+        self,
+        image: np.ndarray,
+        target_shape: tuple[int, ...],
+    ) -> np.ndarray | None:
+        """Pad/crop a frame whose live size differs from the recording buffer.
+
+        Manual recording should not crash the camera worker when a delivered
+        frame size differs from the pre-allocated buffer; black-pad/crop the
+        spatial overhang (via image_utils.fit_frame_to_shape) and warn once.
+        Fundamentally incompatible frames (different ndim / channel count) are
+        skipped.
+        """
+        fitted = image_utils.fit_frame_to_shape(image, target_shape)
+        if fitted is None:
+            logger.warning(
+                f'[Manual-Video] Skipping frame with incompatible shape '
+                f'{image.shape}; expected {target_shape}'
+            )
+            return None
+
+        if not self._record_shape_warning_emitted:
+            logger.warning(
+                f'[Manual-Video] Recording frame shape {image.shape} does not '
+                f'match buffer {target_shape}; padding/cropping frame'
+            )
+            self._record_shape_warning_emitted = True
+        return fitted
 
     def fit_image(self):
         gui_logger.button('FIT_IMAGE')
