@@ -261,6 +261,8 @@ KEEP_CONTROLS = (
     'logHistogram_id',
     'toggle_motionsettings',
     'toggle_imagesettings',
+    # Read-only OS folder open -- must stay reachable mid-run.
+    'open_last_save_folder',
     # The three run/abort toggles -- Python-managed; must stay live to abort.
     'run_autofocus_btn',
     'run_scan_btn',
