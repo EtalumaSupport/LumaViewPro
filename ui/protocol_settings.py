@@ -1192,7 +1192,21 @@ class ProtocolSettings(FloatLayout):
             # that does not equal the auto default -- is left untouched.
             curr_step = self._protocol.step(idx=self.curr_step)
             if curr_step['Well'] != '' and step_name == self.get_default_name_for_curr_step():
-                step_name = self.get_default_name_for_curr_step(color=active_layer)
+                regenerated = self.get_default_name_for_curr_step(color=active_layer)
+                logger.info(
+                    "[LVP Main  ] modify_step_ex: channel -> %s; auto step name '%s' -> '%s'",
+                    active_layer,
+                    step_name,
+                    regenerated,
+                )
+                step_name = regenerated
+            else:
+                logger.info(
+                    "[LVP Main  ] modify_step_ex: channel -> %s; step name '%s' kept "
+                    '(custom or non-well step)',
+                    active_layer,
+                    step_name,
+                )
 
             # If the stim layer was active and the original acquire channel remains enabled,
             # preserve the existing step name to avoid unintended renaming.
