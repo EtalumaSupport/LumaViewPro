@@ -527,21 +527,21 @@ class MotionAPI:
             with self.reference_position_logger(), self.safe_turret_move():
                 self._set_axis_state('T', AxisState.HOMING)
                 self._scope.imaging.frame_validity.invalidate('turret')
-                result = self._driver.thome()
-                # Transition T out of HOMING BEFORE exiting
-                # safe_turret_move. The context manager's finally
-                # restores Z via wait_until_complete=True, which calls
-                # wait_until_finished_moving and iterates EVERY axis
-                # arrival event. A still-HOMING T has a cleared event
-                # and the motion monitor only polls MOVING (not
-                # HOMING) axes, so the Z-restore's wait would hang on
-                # T until the 120s default timeout fires. Setting T
-                # to its post-homing state here keeps the Z restore
-                # blocked only on the axis that's actually moving.
-                if result is False:
-                    self._set_axis_state('T', AxisState.UNKNOWN)
-                else:
-                    self._set_axis_state('T', AxisState.IDLE)
+                result = False
+                try:
+                    result = self._driver.thome()
+                finally:
+                    # Transition T out of HOMING on EVERY exit, including a
+                    # raised driver call, BEFORE safe_turret_move's finally
+                    # restores Z via wait_until_complete=True. That restore
+                    # calls wait_until_finished_moving, which iterates EVERY
+                    # axis arrival event; a still-HOMING T has a cleared event
+                    # the motion monitor never sets (it polls MOVING, not
+                    # HOMING), so the restore would hang on T until the 120s
+                    # default timeout. Failure -> UNKNOWN, success -> IDLE;
+                    # both set the arrival event so the restore waits only on
+                    # the axis actually moving.
+                    self._set_axis_state('T', AxisState.IDLE if result else AxisState.UNKNOWN)
             if result is False:
                 logger.error('[SCOPE API ] Turret homing failed')
                 notifications.error(
@@ -1472,8 +1472,12 @@ class MotionAPI:
             self._arrival_events[axis].clear()
             # Wake the motion monitor to start polling
             self._motion_wake.set()
-        elif state == AxisState.IDLE:
-            # Signal arrival -- unblocks any wait_for_axis() callers
+        elif state in (AxisState.IDLE, AxisState.UNKNOWN):
+            # Signal arrival -- unblocks any wait_for_axis() callers. IDLE
+            # (arrived) and UNKNOWN (no longer moving, position indeterminate
+            # -- e.g. a failed home or a disconnect mid-move) are both terminal
+            # not-in-motion states; a waiter must unblock rather than hang on a
+            # cleared event until the 120s motion timeout.
             self._arrival_events[axis].set()
             # Clear motion profile -- predictor falls back to cache
             with self._move_profile_lock:
