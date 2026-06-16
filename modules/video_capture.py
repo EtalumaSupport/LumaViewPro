@@ -454,6 +454,12 @@ class StimulationController:
         run_dir: pathlib.Path | None = None,
     ):
         self._scope = scope
+        # Stim pulses fire while a protocol (or autofocus) owns the LED
+        # lease. Capture that owner once -- not per pulse, which would add
+        # lock latency to the timing-critical edge loop -- so each pulse is
+        # attributed to the run and not refused as an out-of-turn write.
+        # None when no run owns the LEDs (standalone video capture).
+        self._lease_owner = scope.illumination.led_lease_owner
         self._stim_configs = stim_configs
         self._profiling_enabled = profiling_enabled and run_dir is not None
         self._run_dir = run_dir
@@ -571,12 +577,16 @@ class StimulationController:
             if hasattr(self._scope, 'led_on_fast'):
                 self._scope.illumination.led_on_fast(channel=edge.channel, mA=edge.mA)
             else:
-                self._scope.illumination.led_on(channel=edge.channel, mA=edge.mA)
+                self._scope.illumination.led_on(
+                    channel=edge.channel, mA=edge.mA, _lease_owner=self._lease_owner
+                )
         else:
             if hasattr(self._scope, 'led_off_fast'):
                 self._scope.illumination.led_off_fast(channel=edge.channel)
             else:
-                self._scope.illumination.led_off(channel=edge.channel)
+                self._scope.illumination.led_off(
+                    channel=edge.channel, _lease_owner=self._lease_owner
+                )
         return time.perf_counter()
 
     def run(self, start_event: threading.Event, stop_event: threading.Event):
@@ -684,7 +694,9 @@ class StimulationController:
                     if hasattr(self._scope, 'led_off_fast'):
                         self._scope.illumination.led_off_fast(channel=channel)
                     else:
-                        self._scope.illumination.led_off(channel=channel)
+                        self._scope.illumination.led_off(
+                            channel=channel, _lease_owner=self._lease_owner
+                        )
                 except Exception as ex:
                     logger.error(f'[STIMULATOR] {color}: failed to turn off LED in cleanup: {ex}')
 
