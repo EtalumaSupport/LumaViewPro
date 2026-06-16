@@ -170,10 +170,32 @@ def test_owner_leds_exclusive_does_not_self_violate(scope, caplog):
     assert not any('holds the lease' in r.message for r in caplog.records)
 
 
-def test_external_write_during_lease_is_observed_and_applied(scope, caplog):
-    # Shadow phase: an out-of-turn write is logged but still applied.
+def test_external_led_on_during_lease_is_refused(scope, caplog):
+    # A live UI write (empty owner) while a run owns the LEDs is rejected.
     scope.illumination.acquire_led_lease('protocol')
     with caplog.at_level(logging.WARNING, logger='LVP.api'):
         scope.illumination.led_on(channel=0, mA=100, owner='')
+    assert not _lit(scope, 0)
+    assert any('refused' in r.message for r in caplog.records)
+
+
+def test_external_led_off_during_lease_is_refused(scope):
+    # The autofocus-LED-killed shape: a UI off must not turn off a channel a
+    # run owns. The protocol lit the channel; a bare UI off is refused.
+    scope.illumination.acquire_led_lease('protocol')
+    scope.illumination.led_on(channel=0, mA=100, owner='protocol')
+    scope.illumination.led_off(channel=0, owner='')  # live UI off
     assert _lit(scope, 0)
-    assert any('holds the lease' in r.message for r in caplog.records)
+
+
+def test_owner_write_during_own_lease_is_allowed(scope):
+    scope.illumination.acquire_led_lease('protocol')
+    scope.illumination.led_on(channel=0, mA=100, owner='protocol')
+    assert _lit(scope, 0)
+
+
+def test_force_off_still_works_under_enforcement(scope):
+    scope.illumination.acquire_led_lease('protocol')
+    scope.illumination.led_on(channel=0, mA=100, owner='protocol')
+    scope.illumination.force_off()
+    assert not _lit(scope, 0)

@@ -240,17 +240,18 @@ class IlluminationAPI:
             ):
                 return
 
-        # Out-of-turn write observation: while a run owns the LEDs, a write
-        # from anyone else is logged but still applied. The reject is left
-        # off until the run-boundary owners are proven to acquire the lease
-        # correctly under real timing; the log is how that gets confirmed.
+        # While a run owns the LEDs, a write from any other owner is refused
+        # so a live UI change cannot disturb a protocol's or autofocus's
+        # channels. Emergency / shutdown paths use force_off / leds_off,
+        # which bypass this on purpose.
         violator = self._lease_violation(owner if _lease_owner is None else _lease_owner)
         if violator is not None:
             _api_log.warning(
-                'LED on by %r while %r holds the lease (applied -- observation only)',
+                'LED on by %r refused: %r owns the LED lease',
                 owner if _lease_owner is None else _lease_owner,
                 violator,
             )
+            return
 
         with self._led_lock:
             self._driver.led_on(channel, mA, block=block)
@@ -318,16 +319,17 @@ class IlluminationAPI:
                     )
                     return
 
-        # Out-of-turn write observation (see led_on): an empty-owner off
-        # from the live UI while a run owns the channel is the shape behind
-        # the autofocus-LED-killed reports. Logged but still applied for now.
+        # Refused for the same reason as led_on (see above): an empty-owner
+        # off from the live UI while a run owns the channel is the shape
+        # behind the autofocus-LED-killed reports, so it is rejected here.
         violator = self._lease_violation(owner if _lease_owner is None else _lease_owner)
         if violator is not None:
             _api_log.warning(
-                'LED off by %r while %r holds the lease (applied -- observation only)',
+                'LED off by %r refused: %r owns the LED lease',
                 owner if _lease_owner is None else _lease_owner,
                 violator,
             )
+            return
 
         with self._led_lock:
             self._driver.led_off(channel)
