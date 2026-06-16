@@ -1,4 +1,3 @@
 4.0.0-beta17
-2026-06-15 23:41
-fix/fableaudit-notify-tail
-012ad9e7
+2026-06-16 08:06
+4.0.0-beta
