@@ -712,9 +712,11 @@ class SequencedCaptureRunner:
         # (normal end and abort). leave_on: the existing run_cleanup LED
         # block below owns the end-state, so the lease release must not
         # turn anything off. Idempotent + drops any stranded AF child
-        # lease if an abort unwound out of order.
-        if self._led_lease is not None:
-            self._led_lease.release(leave_on=True)
+        # lease if an abort unwound out of order. getattr so a stub that
+        # drives _cleanup_inner directly need not set the slot.
+        led_lease = getattr(self, '_led_lease', None)
+        if led_lease is not None:
+            led_lease.release(leave_on=True)
             self._led_lease = None
 
         if not self._run_in_progress_event.is_set():
