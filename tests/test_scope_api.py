@@ -366,6 +366,24 @@ class TestGetCurrentPlatePosition:
         # Should return rounded stage positions
         assert result['z'] != 0  # Z=500 from mock
 
+    def test_zonly_scope_missing_xy_does_not_raise(self):
+        # A scope with no XY stage reports position without X/Y keys; the
+        # plate-coordinate (labware-loaded) branch must tolerate that instead
+        # of raising KeyError when authoring/modifying a step or a z-stack.
+        scope = _make_mock_scope()
+        scope.motion.get_current_position = MagicMock(return_value={'Z': 500})
+        transformer = MagicMock()
+        transformer.stage_to_plate.return_value = (0, 0)
+        loader = MagicMock()  # valid labware -> success branch, not fallback
+        result = config_helpers.get_current_plate_position(
+            scope,
+            _make_settings(),
+            transformer,
+            loader,
+        )
+        assert set(result) == {'x', 'y', 'z'}
+        assert result['z'] != 0  # Z=500 preserved on a Z-only scope
+
 
 class TestLogSystemMetrics:
     def test_calls_system_metrics(self):

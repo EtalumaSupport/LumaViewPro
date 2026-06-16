@@ -204,17 +204,20 @@ def get_current_plate_position(
             'z': round(pos.get('Z', 0), common_utils.max_decimal_precision('z')),
         }
 
+    # Z-only scopes (no XY stage) report position without X/Y keys; tolerate
+    # missing axes the same way the labware-fallback branch above does, so
+    # adding/modifying a step (and z-stack capture) does not raise on them.
     px, py = coordinate_transformer.stage_to_plate(
         labware=labware,
         stage_offset=settings['stage_offset'],
-        sx=pos['X'],
-        sy=pos['Y'],
+        sx=pos.get('X', 0),
+        sy=pos.get('Y', 0),
     )
 
     return {
         'x': round(px, common_utils.max_decimal_precision('x')),
         'y': round(py, common_utils.max_decimal_precision('y')),
-        'z': round(pos['Z'], common_utils.max_decimal_precision('z')),
+        'z': round(pos.get('Z', 0), common_utils.max_decimal_precision('z')),
     }
 
 
