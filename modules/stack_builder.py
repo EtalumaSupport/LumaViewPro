@@ -64,11 +64,18 @@ class StackBuilder(ProtocolPostProcessor):
             objective_id=row0['Objective']
         )
 
+        # A hyperstack collapses every channel into one file (color=None
+        # below), so the channel token baked into the step name no longer
+        # identifies it -- drop whichever channel token is present. The
+        # per-tile token is kept: a stack is still one tile. Any custom name
+        # text is otherwise preserved.
+        base_name = common_utils.strip_any_channel_token(row0['Name'])
+
         # Prepend the protocol's capture_root (passed in via kwargs by
         # ProtocolPostProcessor.load_folder) so the stack output carries
         # the same filename root as the per-image saves.
         capture_root = kwargs.get('capture_root', '')
-        prefix = f'{capture_root}_{row0["Name"]}' if capture_root else row0['Name']
+        prefix = f'{capture_root}_{base_name}' if capture_root else base_name
 
         name = common_utils.generate_default_step_name(
             custom_name_prefix=prefix,

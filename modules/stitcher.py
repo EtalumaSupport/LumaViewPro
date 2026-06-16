@@ -48,11 +48,22 @@ class Stitcher(ProtocolPostProcessor):
             objective_id=row0['Objective']
         )
 
+        # A stitch spans every tile of a (well, channel), so the per-tile
+        # token baked into the step name no longer identifies the output --
+        # always drop it. A composite-stitch additionally spans all channels;
+        # its stored Color is 'Composite', so the leaked channel token cannot
+        # be matched by Color -- drop whichever channel token is present. A
+        # single-channel stitch keeps its channel (a BF stitch is still BF).
+        # Any custom name text is otherwise preserved.
+        base_name = common_utils.strip_tile_token(row0['Name'], row0.get('Tile', ''))
+        if row0.get('Color', '') == 'Composite':
+            base_name = common_utils.strip_any_channel_token(base_name)
+
         # Prepend the protocol's capture_root (passed in via kwargs by
         # ProtocolPostProcessor.load_folder) so the stitched output
         # carries the same filename root as the per-image saves.
         capture_root = kwargs.get('capture_root', '')
-        prefix = f'{capture_root}_{row0["Name"]}' if capture_root else row0['Name']
+        prefix = f'{capture_root}_{base_name}' if capture_root else base_name
         name = common_utils.generate_default_step_name(
             custom_name_prefix=prefix,
             well_label=row0['Well'],

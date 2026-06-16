@@ -129,6 +129,42 @@ def generate_default_step_name(
     return name
 
 
+def strip_tile_token(name: str, tile) -> str:
+    """Remove the per-tile token (e.g. '_TA1') from a step name.
+
+    A stitched output spans every tile of a (well, channel), so the per-tile
+    token no longer identifies it. Removes the '_T<tile>' segment; returns the
+    name unchanged when tile is empty/absent or the token is not present.
+    Segment-based so a channel/well substring is never clipped.
+    """
+    if tile in (None, '', -1):
+        return name
+    token = f'T{tile}'
+    parts = name.split('_')
+    if token in parts:
+        parts.remove(token)
+        return '_'.join(parts)
+    return name
+
+
+def strip_any_channel_token(name: str) -> str:
+    """Remove a single channel/layer token (e.g. '_BF') from a step name.
+
+    A composite-stitch and a hyperstack span all channels, so no single
+    channel token should tag the output. The caller cannot match by Color
+    (a composite's stored Color is 'Composite' and a stack collapses Color to
+    None), so the first segment matching the known layer vocabulary is
+    removed. Returns the name unchanged when no layer token is present.
+    """
+    layers = set(get_layers())
+    parts = name.split('_')
+    for i, part in enumerate(parts):
+        if part in layers:
+            del parts[i]
+            return '_'.join(parts)
+    return name
+
+
 def resolve_step_rename(raw_text: str, sanitize) -> str | None:
     """Resolve a step-name field value to the name to persist, or None.
 
