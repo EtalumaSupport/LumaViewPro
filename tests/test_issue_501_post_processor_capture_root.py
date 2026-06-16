@@ -39,6 +39,7 @@ from __future__ import annotations
 import ast
 import pathlib
 
+import modules.common_utils as common_utils
 from modules.composite_generation import _strip_channel_token
 
 
@@ -182,4 +183,99 @@ def test_composite_generation_strips_channel_token():
     assert '_strip_channel_token' in src, (
         'CompositeGeneration._generate_filename must strip the channel token '
         'from the step name so the composite is not named after one channel.'
+    )
+
+
+# ---------------------------------------------------------------------------
+# #501 follow-up 2: a stitched output must not leak the per-tile token (a
+# stitch spans all tiles), and a composite-stitch must not leak the channel
+# token either (it spans all channels; its stored Color is 'Composite', so
+# the leaked channel cannot be matched by Color). A hyperstack collapses all
+# channels, so it must not leak the channel token. Custom name text is kept.
+# ---------------------------------------------------------------------------
+
+
+def test_strip_tile_token_removes_tile():
+    assert common_utils.strip_tile_token('A1_BF_TA1', 'A1') == 'A1_BF'
+    assert common_utils.strip_tile_token('A1_Green_TB2_4xOly_0000', 'B2') == 'A1_Green_4xOly_0000'
+
+
+def test_strip_tile_token_segment_safe_and_noop():
+    # The tile value coincides with the well label; only the 'T<tile>' segment
+    # is removed, never the bare well token.
+    assert common_utils.strip_tile_token('A1_BF', 'A1') == 'A1_BF'
+    assert common_utils.strip_tile_token('myExperiment', 'A1') == 'myExperiment'
+    assert common_utils.strip_tile_token('A1_BF_TA1', '') == 'A1_BF_TA1'
+
+
+def test_strip_any_channel_token_removes_first_layer():
+    assert common_utils.strip_any_channel_token('A1_BF_TA1') == 'A1_TA1'
+    assert common_utils.strip_any_channel_token('A1_Green') == 'A1'
+    # No layer token present -> unchanged (custom name preserved).
+    assert common_utils.strip_any_channel_token('A1_4xOly') == 'A1_4xOly'
+    assert common_utils.strip_any_channel_token('myExperiment') == 'myExperiment'
+
+
+def test_stitch_filename_outcomes_match_agreed_rule():
+    # Single-channel stitch: drop the tile token, KEEP the channel.
+    base = common_utils.strip_tile_token('A1_BF_TA1', 'A1')
+    plain = common_utils.generate_default_step_name(
+        custom_name_prefix=base,
+        well_label='A1',
+        color='BF',
+        objective_short_name='4xOly',
+        scan_count=0,
+        tile_label=None,
+        stitched=True,
+    )
+    assert plain == 'A1_BF_4xOly_0000_stitched'
+
+    # Composite-stitch: drop the tile token AND the channel token.
+    base = common_utils.strip_tile_token('A1_BF_TA1', 'A1')
+    base = common_utils.strip_any_channel_token(base)
+    composite = common_utils.generate_default_step_name(
+        custom_name_prefix=base,
+        well_label='A1',
+        color='Composite',
+        objective_short_name='4xOly',
+        scan_count=0,
+        tile_label=None,
+        stitched=True,
+    )
+    assert composite == 'A1_Composite_4xOly_0000_stitched'
+    assert '_TA1' not in composite and '_BF' not in composite
+
+
+def test_stack_filename_drops_channel_keeps_tile():
+    base = common_utils.strip_any_channel_token('A1_BF_TA1')
+    name = common_utils.generate_default_step_name(
+        custom_name_prefix=base,
+        well_label='A1',
+        color=None,
+        objective_short_name='4xOly',
+        hyperstack=True,
+    )
+    assert name == 'A1_TA1_4xOly_hyperstack'
+    assert '_BF' not in name
+
+
+def test_stitcher_drops_tile_and_composite_channel():
+    method = _method_node(POST_PROCESSORS['Stitcher'], 'Stitcher', '_generate_filename')
+    src = ast.unparse(method)
+    assert 'strip_tile_token' in src, (
+        'Stitcher._generate_filename must drop the per-tile token -- a stitch '
+        'spans all tiles. (#501)'
+    )
+    assert 'strip_any_channel_token' in src, (
+        'Stitcher._generate_filename must drop the channel token for a '
+        'composite-stitch (Color == "Composite"). (#501)'
+    )
+
+
+def test_stack_builder_drops_channel_token():
+    method = _method_node(POST_PROCESSORS['StackBuilder'], 'StackBuilder', '_generate_filename')
+    src = ast.unparse(method)
+    assert 'strip_any_channel_token' in src, (
+        'StackBuilder._generate_filename must drop the channel token -- a '
+        'hyperstack collapses all channels. (#501)'
     )
