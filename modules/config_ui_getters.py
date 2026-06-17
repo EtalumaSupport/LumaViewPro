@@ -25,6 +25,24 @@ logger = logging.getLogger('LVP.modules.config_ui_getters')
 
 
 # ---------------------------------------------------------------------------
+# Capability gates
+# ---------------------------------------------------------------------------
+
+
+def firmware_stim_supported() -> bool:
+    """True only when the connected LED firmware supports stimulation.
+
+    The single gate for all stimulation UI: when this is False, stim controls
+    stay hidden no matter what the user's stimulation_enabled setting says.
+    Fails safe to False (hide) when the scope or its capability surface is not
+    yet available, so stim never appears on firmware that cannot drive it.
+    """
+    scope = getattr(_app_ctx.ctx, 'scope', None)
+    caps = getattr(scope, 'capabilities', None)
+    return bool(caps.supports('firmware_stim')) if caps is not None else False
+
+
+# ---------------------------------------------------------------------------
 # Image saving
 # ---------------------------------------------------------------------------
 

@@ -11,6 +11,7 @@ import time
 import numpy as np
 
 from kivy.clock import Clock
+from kivy.properties import BooleanProperty
 from kivy.uix.boxlayout import BoxLayout
 
 import modules.app_context as _app_ctx
@@ -23,6 +24,7 @@ from modules.config_helpers import (
     get_manual_video_max_duration,
 )
 from modules.config_ui_getters import (
+    firmware_stim_supported,
     get_binning_from_ui,
     get_current_frame_dimensions,
     get_selected_labware,
@@ -87,6 +89,12 @@ class _CoalescingApplier:
 
 
 class MicroscopeSettings(BoxLayout):
+    # Mirrors the LED firmware's stim capability so the kv can hide the global
+    # Stimulation Settings section when the firmware cannot drive stim. Set
+    # from firmware_stim_supported() at settings load; defaults hidden so stim
+    # never flashes before the capability probe result lands.
+    stim_supported = BooleanProperty(False)
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         logger.debug('[LVP Main  ] MicroscopeSettings.__init__()')
@@ -582,6 +590,13 @@ class MicroscopeSettings(BoxLayout):
                 self.ids['protocol_led_on_btn'].state = 'normal'
                 settings['protocol_led_on'] = False
 
+            # Stimulation is firmware-gated: never expose it unless the LED
+            # firmware reports support. On unsupported firmware force it off so
+            # the per-layer controls and the global toggle stay hidden.
+            self.stim_supported = firmware_stim_supported()
+            if not self.stim_supported:
+                settings['stimulation_enabled'] = False
+
             if 'stimulation_enabled' in settings:
                 if settings['stimulation_enabled']:
                     self.ids['stimulation_settings_btn'].state = 'down'
@@ -915,7 +930,12 @@ class MicroscopeSettings(BoxLayout):
     def update_stimulation_settings(self):
         """Toggle stimulation features globally across all channels."""
         settings = _app_ctx.ctx.settings
-        stimulation_enabled = self.ids['stimulation_settings_btn'].state == 'down'
+        # Firmware without stim support can never enable it, even if a stale
+        # setting or a hidden toggle says otherwise.
+        self.stim_supported = firmware_stim_supported()
+        stimulation_enabled = self.stim_supported and (
+            self.ids['stimulation_settings_btn'].state == 'down'
+        )
         gui_logger.toggle('STIMULATION_ENABLED', stimulation_enabled)
         settings['stimulation_enabled'] = stimulation_enabled
 

@@ -202,7 +202,13 @@ class LayerControl(BoxLayout):
             return
         settings = ctx.settings
 
-        if self.layer in common_utils.get_fluorescence_layers() and settings['stimulation_enabled']:
+        from modules.config_ui_getters import firmware_stim_supported
+
+        if (
+            self.layer in common_utils.get_fluorescence_layers()
+            and settings['stimulation_enabled']
+            and firmware_stim_supported()
+        ):
             self.stimulation_support = True
             self.show_stim_controls = True
         else:
