@@ -152,6 +152,7 @@ class TestCropToContent:
 # Current stitcher.py -- _simple_position_stitcher
 # ---------------------------------------------------------------------------
 
+from modules.stitching_core import channel_aware_stitcher
 from modules.stitcher import Stitcher
 import modules.common_utils as common_utils
 import modules.image_utils as image_utils
@@ -256,6 +257,145 @@ class TestSimplePositionStitcher:
         assert result['status'] is True
         assert result['image'].dtype == np.uint16
         assert result['image'].shape == (64, 32)
+
+    def test_bf_route_uses_feature_then_overlap_then_stage_then_simple(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        df = pd.DataFrame(
+            [
+                {
+                    'Filepath': 'a.tiff',
+                    'X': 0.0,
+                    'Y': 0.0,
+                    'Objective': '10x Oly',
+                    'Color': 'BF',
+                },
+                {
+                    'Filepath': 'b.tiff',
+                    'X': 1.0,
+                    'Y': 0.0,
+                    'Objective': '10x Oly',
+                    'Color': 'BF',
+                },
+            ]
+        )
+        calls = []
+
+        def fail(name):
+            def runner(*args, **kwargs):
+                calls.append(name)
+                return {
+                    'status': False,
+                    'error': f'{name} failed',
+                    'image': None,
+                    'metadata': {'center': {'x': 0.5, 'y': 0.0}},
+                }
+
+            return runner
+
+        def simple_success(*args, **kwargs):
+            calls.append('simple_position_stitcher')
+            return {
+                'status': True,
+                'error': None,
+                'image': np.zeros((4, 8), dtype=np.uint8),
+                'metadata': {
+                    'center': {'x': 0.5, 'y': 0.0},
+                    'algorithm': 'simple_position_stitcher',
+                },
+            }
+
+        monkeypatch.setattr(
+            'modules.stitching_core.bf_feature_stitcher',
+            fail('bf_feature_stitcher'),
+        )
+        monkeypatch.setattr('modules.stitching_core.overlap_stitcher', fail('overlap_stitcher'))
+        monkeypatch.setattr(
+            'modules.stitching_core.stage_position_stitcher',
+            fail('stage_position_stitcher'),
+        )
+        monkeypatch.setattr('modules.stitching_core.simple_position_stitcher', simple_success)
+
+        result = channel_aware_stitcher(tmp_path, df, pixel_size_um=1.0)
+
+        assert result['status'] is True
+        assert calls == [
+            'bf_feature_stitcher',
+            'overlap_stitcher',
+            'stage_position_stitcher',
+            'simple_position_stitcher',
+        ]
+        assert result['metadata']['algorithm'] == 'simple_position_stitcher'
+        assert result['metadata']['fallback_from'] == 'bf_feature_stitcher'
+
+    def test_fluorescence_route_uses_overlap_then_stage_then_simple(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        df = pd.DataFrame(
+            [
+                {
+                    'Filepath': 'a.tiff',
+                    'X': 0.0,
+                    'Y': 0.0,
+                    'Objective': '10x Oly',
+                    'Color': 'Green',
+                },
+                {
+                    'Filepath': 'b.tiff',
+                    'X': 1.0,
+                    'Y': 0.0,
+                    'Objective': '10x Oly',
+                    'Color': 'Green',
+                },
+            ]
+        )
+        calls = []
+
+        def fail(name):
+            def runner(*args, **kwargs):
+                calls.append(name)
+                return {
+                    'status': False,
+                    'error': f'{name} failed',
+                    'image': None,
+                    'metadata': {'center': {'x': 0.5, 'y': 0.0}},
+                }
+
+            return runner
+
+        def simple_success(*args, **kwargs):
+            calls.append('simple_position_stitcher')
+            return {
+                'status': True,
+                'error': None,
+                'image': np.zeros((4, 8), dtype=np.uint8),
+                'metadata': {
+                    'center': {'x': 0.5, 'y': 0.0},
+                    'algorithm': 'simple_position_stitcher',
+                },
+            }
+
+        def bf_should_not_run(*args, **kwargs):
+            raise AssertionError('fluorescence should not use BF feature stitching')
+
+        monkeypatch.setattr('modules.stitching_core.bf_feature_stitcher', bf_should_not_run)
+        monkeypatch.setattr('modules.stitching_core.overlap_stitcher', fail('overlap_stitcher'))
+        monkeypatch.setattr(
+            'modules.stitching_core.stage_position_stitcher',
+            fail('stage_position_stitcher'),
+        )
+        monkeypatch.setattr('modules.stitching_core.simple_position_stitcher', simple_success)
+
+        result = channel_aware_stitcher(tmp_path, df, pixel_size_um=1.0)
+
+        assert result['status'] is True
+        assert calls == ['overlap_stitcher', 'stage_position_stitcher', 'simple_position_stitcher']
+        assert result['metadata']['algorithm'] == 'simple_position_stitcher'
+        assert result['metadata']['fallback_from'] == 'overlap_stitcher'
 
 
 class TestPositionAwareStitcher:
