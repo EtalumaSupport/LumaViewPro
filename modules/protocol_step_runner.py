@@ -131,6 +131,12 @@ class ProtocolStepRunner:
                 logger.error(f'[PROTOCOL] {timeout_msg} -- transitioning to ERROR state')
                 from modules.notification_center import notifications
 
+                # The timed-out move is still in flight. Halt the motor before
+                # erroring out so it stops driving toward the unreachable target
+                # rather than latching against a limit. Idempotent + no-ops on
+                # field firmware without a STOP command.
+                p._scope.motion.stop_motion()
+
                 notifications.error(
                     'Protocol', 'Protocol Error -- Motion Timeout', timeout_msg, fatal=True
                 )
