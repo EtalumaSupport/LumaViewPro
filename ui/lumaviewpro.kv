@@ -194,8 +194,8 @@
                     rgba: (1, 1, 1, 0.3) if self.disabled else (1, 1, 1, 1)
                 Rectangle:
                     source: './data/icons/folder.png'
-                    pos: self.center_x - dp(12), self.center_y - dp(12)
-                    size: dp(24), dp(24)
+                    pos: self.pos
+                    size: self.size
 
         ToggleButton:
             id: live_btn
