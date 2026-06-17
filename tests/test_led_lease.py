@@ -199,3 +199,14 @@ def test_force_off_still_works_under_enforcement(scope):
     scope.illumination.led_on(channel=0, mA=100, owner='protocol')
     scope.illumination.force_off()
     assert not _lit(scope, 0)
+
+
+def test_leds_off_turns_off_during_a_held_lease(scope):
+    # The app-shutdown / emergency path: leds_off is nuclear and must turn the
+    # owner's lit channel off even while a run holds the lease, so closing the
+    # app mid-run cannot leave an LED stuck on.
+    scope.illumination.acquire_led_lease('protocol')
+    scope.illumination.led_on(channel=0, mA=100, owner='protocol')
+    assert _lit(scope, 0)
+    scope.illumination.leds_off()
+    assert not _lit(scope, 0)
