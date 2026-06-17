@@ -192,7 +192,7 @@ class ProtocolRunLoop:
                             logger.error(f'[PROTOCOL] {msg} -- aborting protocol')
                             from modules.notification_center import notifications
 
-                            notifications.error('Protocol', 'Protocol Aborted', msg)
+                            notifications.error('Protocol', 'Protocol Aborted', msg, fatal=True)
                             # p._aborted IS protocol_thread.aborted; setting
                             # it from inside the run loop signals the next
                             # iteration to exit and triggers cleanup-on-exit.

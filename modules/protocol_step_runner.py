@@ -131,7 +131,9 @@ class ProtocolStepRunner:
                 logger.error(f'[PROTOCOL] {timeout_msg} -- transitioning to ERROR state')
                 from modules.notification_center import notifications
 
-                notifications.error('Protocol', 'Protocol Error -- Motion Timeout', timeout_msg)
+                notifications.error(
+                    'Protocol', 'Protocol Error -- Motion Timeout', timeout_msg, fatal=True
+                )
                 p._scan_in_progress.clear()
                 try:
                     p._set_state(ProtocolState.ERROR)
@@ -218,6 +220,10 @@ class ProtocolStepRunner:
                 # Tell AF to skip its off + state-restore cycle so the
                 # capture inherits the LED state already established.
                 keep_led_on=True,
+                # AF runs inside this protocol step, which holds the LED
+                # lease; hand it over so AF nests as a child rather than
+                # contending for a fresh top-level lease.
+                led_lease=p._led_lease,
             )
             return
 

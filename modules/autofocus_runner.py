@@ -5,6 +5,7 @@ import logging
 import pathlib
 import threading
 import time
+from typing import TYPE_CHECKING
 
 from matplotlib.figure import Figure
 import numpy as np
@@ -20,6 +21,9 @@ from modules.kivy_utils import schedule_ui as _schedule_ui
 from modules.notification_center import notifications
 from modules.objectives_loader import ObjectiveLoader
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor
+
+if TYPE_CHECKING:
+    from modules.lumascope_api.illumination import LedLease
 
 _af_log = logging.getLogger('LVP.autofocus')
 
@@ -138,6 +142,7 @@ class AutofocusRunner:
         camera_exposure: float | None = None,
         abort_event: threading.Event | None = None,
         keep_led_on: bool = False,
+        led_lease: 'LedLease | None' = None,
     ) -> float | None:
         """Run autofocus to completion synchronously on the caller's thread.
 
@@ -157,6 +162,9 @@ class AutofocusRunner:
             led_color, led_illumination, camera_gain, camera_exposure:
                 AF-scan settings applied at start, restored at end.
             abort_event: signalled by caller to abort the run. Required.
+            led_lease: the caller's LED lease when AF runs inside a
+                protocol step -- AF takes a child lease under it. None for
+                an interactive run, where AF takes a top-level lease itself.
 
         Returns:
             best_focus_position (float) on success, or None when the AF
@@ -247,6 +255,18 @@ class AutofocusRunner:
             self._scope.imaging.set_gain(self._camera_gain)
         if self._camera_exposure is not None:
             self._scope.imaging.set_exposure_time(self._camera_exposure)
+        # Acquire the LED lease BEFORE driving illumination below. The
+        # leds_exclusive write carries owner 'autofocus'; issued before AF
+        # holds a lease, a protocol's already-held lease refuses the
+        # out-of-turn write and the AF channel never lights -- AF would then
+        # scan an unlit field. Inside a protocol step the protocol passes its
+        # lease and AF nests as a child it must outlive; an interactive run
+        # takes a top-level lease. A refused acquire (None) does not stop the
+        # run.
+        if led_lease is not None:
+            self._led_lease = led_lease.acquire_child('autofocus')
+        else:
+            self._led_lease = self._scope.illumination.acquire_led_lease('autofocus')
         # Make the AF channel the only lit one before scanning. A Live-mode
         # LED on a different channel would otherwise stay lit alongside the AF
         # channel and corrupt the focus metric with mixed illumination. Using
@@ -413,6 +433,12 @@ class AutofocusRunner:
             # Clear the public ImagingAPI mirror AFTER camera/LED/Z restore
             # finishes, matching _af_in_progress lifecycle.
             self._scope.imaging.is_focusing = False
+            # Release the LED lease last. leave_on: the lease does not drive
+            # the LEDs yet -- the restore chain above already set the
+            # end-state -- so releasing must not turn anything off here.
+            if self._led_lease is not None:
+                self._led_lease.release(leave_on=True)
+                self._led_lease = None
             self._abort_event = None
 
     def _camera_state_to_restore(self) -> dict:
@@ -795,6 +821,7 @@ class AutofocusRunner:
         self._is_focusing_event = threading.Event()
         self._is_complete_event = threading.Event()
         self._saved_led_state = None
+        self._led_lease = None
         self._saved_camera_state = None
         self._saved_z_position = None
         self._camera_gain = None
