@@ -967,6 +967,8 @@ class Protocol:
 
         if tiling == '1x1':
             return status
+        
+        fill_factor = TilingConfig.fill_factor_from_overlap_percent(overlap_percent)
 
         fill_factor = TilingConfig.fill_factor_from_overlap_percent(overlap_percent)
 
