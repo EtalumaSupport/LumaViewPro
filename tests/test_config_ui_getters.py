@@ -220,14 +220,16 @@ class TestTimingAndBinningParseNotifies:
         assert get_binning_from_ui() == 2
         assert warnings == []
 
-    def test_subsecond_period_notifies_on_clamp(self, monkeypatch):
-        # 0.001 min = 0.06 s, below the 1 s floor -> clamped to 1 s. The user
-        # must be told instead of silently seeing 0.016667 reappear.
+    def test_subsecond_clamp_is_silent_in_getter(self, monkeypatch):
+        # The clamp warning moved OUT of this getter (which save + run-start
+        # also call, causing repeated warnings) into update_period /
+        # update_duration, which fire once at the field edit. So the getter
+        # itself must stay silent on a sub-second value.
         warnings = self._patch(monkeypatch, period='0.001', duration='2')
         from modules.config_ui_getters import get_protocol_time_params
 
         get_protocol_time_params()
-        assert any('Timing' in title for _, title, _ in warnings)
+        assert warnings == []
 
     def test_zero_single_scan_does_not_notify(self, monkeypatch):
         # 0 is the single-scan marker, preserved by the floor -- not a clamp.
@@ -236,3 +238,18 @@ class TestTimingAndBinningParseNotifies:
 
         get_protocol_time_params()
         assert warnings == []
+
+
+def test_protocol_time_clamped_detects_subsecond_per_unit():
+    # The edit handlers use this to decide whether to warn, with the correct
+    # unit: period is minutes, duration is hours.
+    from modules import config_helpers
+
+    assert config_helpers.protocol_time_clamped(0.001, 'minutes') is True
+    assert config_helpers.protocol_time_clamped(0.0001, 'hours') is True
+    # Normal values are not clamped.
+    assert config_helpers.protocol_time_clamped(5, 'minutes') is False
+    assert config_helpers.protocol_time_clamped(1, 'hours') is False
+    # 0 is the single-scan marker, not a clamp.
+    assert config_helpers.protocol_time_clamped(0, 'minutes') is False
+    assert config_helpers.protocol_time_clamped(0, 'hours') is False

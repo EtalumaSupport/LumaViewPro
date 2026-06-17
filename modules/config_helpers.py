@@ -779,6 +779,22 @@ def floor_protocol_time(td: datetime.timedelta) -> datetime.timedelta:
     return td
 
 
+def protocol_time_clamped(raw_value: float, unit: str) -> bool:
+    """True if a raw period/duration would be raised to the 1-second minimum.
+
+    The 0 single-scan marker is preserved by the floor and is not a clamp, so
+    it returns False. unit is 'minutes' (period) or 'hours' (duration).
+    """
+    td = (
+        datetime.timedelta(minutes=raw_value)
+        if unit == 'minutes'
+        else datetime.timedelta(hours=raw_value)
+    )
+    if td.total_seconds() == 0:
+        return False
+    return floor_protocol_time(td) != td
+
+
 def get_protocol_time_params_from_settings(settings: dict) -> dict:
     """Read protocol time params from settings dict (no UI needed).
 

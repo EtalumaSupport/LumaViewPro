@@ -302,18 +302,25 @@ class ProtocolStepRunner:
 
                 # Video encoding runs on FILE_WORKER after capture -- no gate needed
 
-                # Optionally keep the LED on between consecutive steps of the
-                # same channel (e.g. Z-stack slices) to avoid LED cycling --
-                # a speed optimization that is opt-in (default off), so the
-                # LED normally extinguishes between steps. On non-final scans
-                # the last step always evaluates _keep_led=False so the
-                # inter-scan period runs with LEDs off (sample safety).
+                # Keep the LED on between consecutive same-channel steps in
+                # two cases. (1) Always within one z-stack: slices of the same
+                # Z-Stack Group are a single acquisition, so cycling the LED
+                # between Z moves would blink the sample on every slice.
+                # (2) Between distinct same-channel steps only when the opt-in
+                # speed optimization is enabled (default off) -- otherwise the
+                # LED extinguishes between steps. On non-final scans the last
+                # step always evaluates _keep_led=False so the inter-scan
+                # period runs with LEDs off (sample safety).
                 _keep_led = False
                 num_steps = p._protocol.num_steps()
                 if p._curr_step < num_steps - 1:
-                    if p._keep_led_between_steps:
-                        next_step = p._protocol.step(idx=p._curr_step + 1)
-                        if next_step['Color'] == step['Color']:
+                    next_step = p._protocol.step(idx=p._curr_step + 1)
+                    if next_step['Color'] == step['Color']:
+                        same_zstack = (
+                            step['Z-Stack Group ID'] != -1
+                            and next_step['Z-Stack Group ID'] == step['Z-Stack Group ID']
+                        )
+                        if same_zstack or p._keep_led_between_steps:
                             _keep_led = True
                 elif p.remaining_scans() <= 1 and p._leds_state_at_end == 'return_to_original':
                     # Final step of the final scan: if cleanup is about to
