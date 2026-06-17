@@ -648,6 +648,12 @@ class SequencedCaptureRunner:
         with self._run_lock:
             self._set_state(ProtocolState.RUNNING)
             self._run_in_progress_event.set()
+        # The unattended scan starts here: suppress non-fatal popups (no one is
+        # watching a running protocol); fatal faults still surface. Cleared on
+        # every cleanup path in _cleanup_inner.
+        from modules.notification_center import notifications
+
+        notifications.set_protocol_running(True)
         self.camera_executor.disable()
         self._io_executor.protocol_start()
         self.file_io_executor.protocol_start()
@@ -718,6 +724,12 @@ class SequencedCaptureRunner:
         if led_lease is not None:
             led_lease.release(leave_on=True)
             self._led_lease = None
+
+        # Restore popups: the unattended-protocol suppression ends here, on
+        # every cleanup path (normal end and abort).
+        from modules.notification_center import notifications
+
+        notifications.set_protocol_running(False)
 
         if not self._run_in_progress_event.is_set():
             # run-in-progress was already cleared, so run_cleanup (which

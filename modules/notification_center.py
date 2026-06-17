@@ -49,6 +49,7 @@ class Notification:
     message: str  # detail shown in popup body
     timestamp: float = field(default_factory=time.monotonic)
     source: str = ''  # optional originating module/function
+    fatal: bool = False  # reaches listeners even while a protocol suppresses popups
 
 
 class NotificationCenter:
@@ -76,6 +77,13 @@ class NotificationCenter:
         # flood during close that fires when queued IO tasks fail en
         # masse after the motor/camera disconnects. Issue #622.
         self._shutting_down = False
+        # Protocol-running suppression. While a protocol runs unattended,
+        # non-fatal notifications still LOG but raise no popup -- no one is
+        # watching, a modal could stall the run, and transient faults would
+        # pile up. Fatal notifications (lost connection, a run-aborting fault)
+        # still reach listeners. Set by the protocol runner; cleared on every
+        # cleanup path.
+        self._protocol_running = False
 
     def set_shutting_down(self, value: bool = True) -> None:
         """Toggle suppression of listener dispatch. Call from on_stop
@@ -84,6 +92,14 @@ class NotificationCenter:
         everything."""
         with self._lock:
             self._shutting_down = bool(value)
+
+    def set_protocol_running(self, value: bool = True) -> None:
+        """Toggle suppression of NON-FATAL listener dispatch while a protocol
+        runs unattended. Fatal notifications still reach listeners; logs always
+        capture everything. Pair with the run's start + every cleanup path so
+        the flag cannot stick on and mute popups after the run ends."""
+        with self._lock:
+            self._protocol_running = bool(value)
 
     # ------------------------------------------------------------------
     # Producer API (any thread)
@@ -96,8 +112,13 @@ class NotificationCenter:
         title: str,
         message: str,
         source: str = '',
+        fatal: bool = False,
     ) -> None:
-        """Post a notification.  Thread-safe.  Always logs."""
+        """Post a notification.  Thread-safe.  Always logs.
+
+        ``fatal`` notifications reach listeners even while a protocol
+        suppresses non-fatal popups (set via ``set_protocol_running``).
+        """
         # Always log at the matching level
         logger.log(int(severity), f'[{category}] {title}: {message}')
 
@@ -128,6 +149,8 @@ class NotificationCenter:
         with self._lock:
             if self._shutting_down:
                 return  # logged above; listeners suppressed during close
+            if self._protocol_running and not fatal:
+                return  # logged above; non-fatal popups suppressed mid-protocol
             last = self._dedup.get(key, 0.0)
             if (now - last) < self._dedup_window_s:
                 return  # suppressed -- already shown recently
@@ -141,6 +164,7 @@ class NotificationCenter:
             message=message,
             timestamp=now,
             source=source,
+            fatal=fatal,
         )
         for min_sev, cb in listeners:
             if severity >= min_sev:
@@ -163,6 +187,9 @@ class NotificationCenter:
         self.notify(Severity.ERROR, category, title, message, **kw)
 
     def critical(self, category: str, title: str, message: str, **kw) -> None:
+        # App-level failures are fatal: they reach listeners even while a
+        # protocol suppresses non-fatal popups, unless a caller overrides.
+        kw.setdefault('fatal', True)
         self.notify(Severity.CRITICAL, category, title, message, **kw)
 
     # ------------------------------------------------------------------

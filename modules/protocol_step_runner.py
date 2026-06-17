@@ -131,7 +131,9 @@ class ProtocolStepRunner:
                 logger.error(f'[PROTOCOL] {timeout_msg} -- transitioning to ERROR state')
                 from modules.notification_center import notifications
 
-                notifications.error('Protocol', 'Protocol Error -- Motion Timeout', timeout_msg)
+                notifications.error(
+                    'Protocol', 'Protocol Error -- Motion Timeout', timeout_msg, fatal=True
+                )
                 p._scan_in_progress.clear()
                 try:
                     p._set_state(ProtocolState.ERROR)
