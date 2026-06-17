@@ -25,6 +25,9 @@ class FakeScope:
         # both call shapes.
         self.illumination = self
         self.imaging = self
+        # Production reads this when a stim run starts, to attribute pulses
+        # to whichever run owns the LED lease. None == no run owns the LEDs.
+        self.led_lease_owner = None
 
     # LAYER-F: production code now reads frame validity through the
     # Lumascope API rather than reaching into self.frame_validity
@@ -209,6 +212,7 @@ class TimestampingScope:
         # Wave 7 Phase 3f: production code now reaches LED methods via
         # `self._scope.illumination.<method>`.
         self.illumination = self
+        self.led_lease_owner = None
 
     # LAYER-F: production code now reads frame validity through the
     # Lumascope API rather than reaching into self.frame_validity
@@ -413,3 +417,37 @@ def test_video_capture_session_creates_one_stim_thread(monkeypatch):
         'hang on an in-flight scheduler iteration (Rule 41 + LVP '
         'f4920c8 daemon-flag fix)'
     )
+
+
+def test_stim_edge_not_refused_while_protocol_owns_lease():
+    """A stim pulse fired during a protocol must reach the hardware.
+
+    The protocol owns the LED lease while a video step captures, so a stim
+    edge written with the default empty owner would be refused. The
+    controller captures the lease owner at construction and attributes its
+    pulses to it, so the edge is allowed.
+    """
+    from modules.lumascope_api import Lumascope
+    from modules.video_capture import StimEdge, StimulationController
+
+    scope = Lumascope(simulate=True)
+    scope._led_driver.set_timing_mode('fast')
+    scope.illumination.acquire_led_lease('protocol')
+
+    stim_configs = {
+        'Blue': {
+            'enabled': True,
+            'illumination': 50,
+            'frequency': 1,
+            'pulse_width': 100,
+            'pulse_count': 1,
+        }
+    }
+    controller = StimulationController(scope, stim_configs)
+    assert controller._lease_owner == 'protocol'
+
+    ch = scope.illumination.color2ch('Blue')
+    controller._dispatch_edge(
+        StimEdge(target_offset_s=0.0, action='on', channel=ch, mA=50.0, color='Blue')
+    )
+    assert scope.illumination.led_enabled('Blue'), 'stim pulse was refused under the protocol lease'

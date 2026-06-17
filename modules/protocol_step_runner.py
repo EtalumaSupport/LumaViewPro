@@ -131,7 +131,9 @@ class ProtocolStepRunner:
                 logger.error(f'[PROTOCOL] {timeout_msg} -- transitioning to ERROR state')
                 from modules.notification_center import notifications
 
-                notifications.error('Protocol', 'Protocol Error -- Motion Timeout', timeout_msg)
+                notifications.error(
+                    'Protocol', 'Protocol Error -- Motion Timeout', timeout_msg, fatal=True
+                )
                 p._scan_in_progress.clear()
                 try:
                     p._set_state(ProtocolState.ERROR)
@@ -218,6 +220,10 @@ class ProtocolStepRunner:
                 # Tell AF to skip its off + state-restore cycle so the
                 # capture inherits the LED state already established.
                 keep_led_on=True,
+                # AF runs inside this protocol step, which holds the LED
+                # lease; hand it over so AF nests as a child rather than
+                # contending for a fresh top-level lease.
+                led_lease=p._led_lease,
             )
             return
 
@@ -296,18 +302,25 @@ class ProtocolStepRunner:
 
                 # Video encoding runs on FILE_WORKER after capture -- no gate needed
 
-                # Optionally keep the LED on between consecutive steps of the
-                # same channel (e.g. Z-stack slices) to avoid LED cycling --
-                # a speed optimization that is opt-in (default off), so the
-                # LED normally extinguishes between steps. On non-final scans
-                # the last step always evaluates _keep_led=False so the
-                # inter-scan period runs with LEDs off (sample safety).
+                # Keep the LED on between consecutive same-channel steps in
+                # two cases. (1) Always within one z-stack: slices of the same
+                # Z-Stack Group are a single acquisition, so cycling the LED
+                # between Z moves would blink the sample on every slice.
+                # (2) Between distinct same-channel steps only when the opt-in
+                # speed optimization is enabled (default off) -- otherwise the
+                # LED extinguishes between steps. On non-final scans the last
+                # step always evaluates _keep_led=False so the inter-scan
+                # period runs with LEDs off (sample safety).
                 _keep_led = False
                 num_steps = p._protocol.num_steps()
                 if p._curr_step < num_steps - 1:
-                    if p._keep_led_between_steps:
-                        next_step = p._protocol.step(idx=p._curr_step + 1)
-                        if next_step['Color'] == step['Color']:
+                    next_step = p._protocol.step(idx=p._curr_step + 1)
+                    if next_step['Color'] == step['Color']:
+                        same_zstack = (
+                            step['Z-Stack Group ID'] != -1
+                            and next_step['Z-Stack Group ID'] == step['Z-Stack Group ID']
+                        )
+                        if same_zstack or p._keep_led_between_steps:
                             _keep_led = True
                 elif p.remaining_scans() <= 1 and p._leds_state_at_end == 'return_to_original':
                     # Final step of the final scan: if cleanup is about to

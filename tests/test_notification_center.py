@@ -201,6 +201,59 @@ class TestShutdownSuppression:
         assert len(received) == 1
 
 
+class TestProtocolSuppression:
+    """During an unattended protocol run, NON-FATAL notifications LOG but
+    raise no popup -- no one is watching, and a modal could stall the run or
+    pile up. FATAL notifications (lost connection, a run-aborting fault) still
+    reach listeners. The runner sets the flag at scan start and clears it on
+    every cleanup path."""
+
+    def test_nonfatal_suppressed_during_protocol(self):
+        nc = NotificationCenter()
+        received = []
+        nc.add_listener(lambda n: received.append(n), min_severity=Severity.WARNING)
+        nc.set_protocol_running(True)
+        nc.warning('Autofocus', 'AF failed', 'curve degenerate')
+        nc.error('Camera', 'Frame dropped', 'transient')
+        assert received == []
+
+    def test_nonfatal_still_logs_during_protocol(self, caplog):
+        nc = NotificationCenter()
+        nc.set_protocol_running(True)
+        with caplog.at_level('ERROR'):
+            nc.error('Camera', 'Frame dropped', 'transient')
+        # Message landed in the log even though the popup was suppressed.
+        assert any('Frame dropped' in rec.message for rec in caplog.records)
+
+    def test_fatal_reaches_listeners_during_protocol(self):
+        nc = NotificationCenter()
+        received = []
+        nc.add_listener(lambda n: received.append(n), min_severity=Severity.WARNING)
+        nc.set_protocol_running(True)
+        nc.error('Motor', 'Connection Lost', 'serial timeout', fatal=True)
+        assert len(received) == 1
+        assert received[0].title == 'Connection Lost'
+
+    def test_critical_is_fatal_by_default_during_protocol(self):
+        nc = NotificationCenter()
+        received = []
+        nc.add_listener(lambda n: received.append(n), min_severity=Severity.WARNING)
+        nc.set_protocol_running(True)
+        nc.critical('FileIO', 'Disk Full', 'cannot write capture')
+        assert len(received) == 1
+
+    def test_clearing_flag_restores_popups(self):
+        nc = NotificationCenter()
+        received = []
+        nc.add_listener(lambda n: received.append(n), min_severity=Severity.WARNING)
+        nc.set_protocol_running(True)
+        nc.warning('X', 'Y', 'z')
+        assert received == []
+        nc.set_protocol_running(False)
+        nc.warning('X', 'Y', 'z')
+        assert len(received) == 1
+
+
 class TestConfirmationPopupIsModal:
     """`show_confirmation_popup` callers (notably engineering_tab._prompt_confirm)
     block their worker thread on a threading.Event waiting for one of

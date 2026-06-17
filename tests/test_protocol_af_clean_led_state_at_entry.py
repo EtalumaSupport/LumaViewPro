@@ -131,3 +131,53 @@ class TestAutofocusRunnerExclusiveIlluminationAtRunStart:
         assert names.index('save_led_state') < names.index('leds_off'), (
             f'the snapshot must precede the clear; LED calls: {names}'
         )
+
+
+class TestAutofocusAcquiresLeaseBeforeIllumination:
+    """AF must hold its LED lease BEFORE it drives illumination.
+
+    The illumination write carries owner 'autofocus'. If it is issued
+    before AF holds a lease, a protocol's already-held lease refuses the
+    out-of-turn write and the AF channel never lights -- AF then scans an
+    unlit field, the focus metric reads noise, and gain/exposure climb
+    chasing nothing. The lease acquire must therefore precede the
+    leds_exclusive call on both AF paths (interactive top-level lease and
+    in-protocol child lease)."""
+
+    def test_top_level_lease_precedes_illumination(self, monkeypatch):
+        monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 7.0)
+        runner, scope = af_runner_and_scope()
+        scope.led_connected = True
+        drive_af(runner, led_color='Red', led_illumination=42.0)
+        names = [name for name, args, kwargs in scope.illumination.method_calls]
+        assert 'acquire_led_lease' in names and 'leds_exclusive' in names, (
+            f'expected a lease acquire and an illumination write; LED calls: {names}'
+        )
+        assert names.index('acquire_led_lease') < names.index('leds_exclusive'), (
+            'the LED lease must be acquired before illumination is driven, or '
+            "a protocol's held lease refuses the write and AF scans dark; "
+            f'LED calls: {names}'
+        )
+
+    def test_child_lease_precedes_illumination(self, monkeypatch):
+        """In-protocol path: AF takes a child lease under the protocol's
+        lease. The child acquire must precede the illumination write."""
+        monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 7.0)
+        runner, scope = af_runner_and_scope()
+        scope.led_connected = True
+        # Attach the parent lease to the scope mock so its acquire_child
+        # call is recorded in scope.mock_calls alongside the illumination
+        # write -- one ordered record spanning both objects.
+        parent_lease = scope.protocol_lease
+        drive_af(runner, led_color='Red', led_illumination=42.0, led_lease=parent_lease)
+        ordered = [call[0] for call in scope.mock_calls]
+        acquire = next(
+            i for i, name in enumerate(ordered) if name.endswith('protocol_lease.acquire_child')
+        )
+        illuminate = next(
+            i for i, name in enumerate(ordered) if name.endswith('illumination.leds_exclusive')
+        )
+        assert acquire < illuminate, (
+            'the child LED lease must be acquired before illumination is '
+            f'driven; call order: {ordered}'
+        )

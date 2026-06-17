@@ -88,6 +88,38 @@ def test_step_runner_gates_same_color_hold_on_flag():
     )
 
 
+def test_step_runner_holds_led_within_zstack_regardless_of_flag():
+    # Slices of one z-stack (same Z-Stack Group ID) are a single acquisition,
+    # so the LED must stay lit across the Z moves even when the between-steps
+    # optimization is off -- otherwise the sample blinks on every slice. Pin:
+    # the step method consults Z-Stack Group ID, and the _keep_led=True hold
+    # is reached via an OR (z-stack OR flag), so it can fire with the flag off.
+    method = None
+    for node in ast.walk(_tree(PSR_SRC)):
+        if isinstance(node, ast.FunctionDef) and '_keep_led = True' in ast.unparse(node):
+            method = node
+            break
+    assert method is not None, 'could not find the step method holding _keep_led'
+    src = ast.unparse(method)
+    assert 'Z-Stack Group ID' in src, (
+        'step runner must consult Z-Stack Group ID to hold the LED across z-stack slices'
+    )
+    or_hold = False
+    for n in ast.walk(method):
+        if (
+            isinstance(n, ast.If)
+            and isinstance(n.test, ast.BoolOp)
+            and isinstance(n.test.op, ast.Or)
+            and '_keep_led = True' in '\n'.join(ast.unparse(s) for s in n.body)
+        ):
+            or_hold = True
+            break
+    assert or_hold, (
+        'the _keep_led=True hold must fire on (z-stack OR opt-in flag) so '
+        'z-stack slices keep the LED lit even with the optimization off'
+    )
+
+
 def test_protocol_runner_passes_flag_from_settings_default_false():
     for node in ast.walk(_tree(PROTO_RUNNER_SRC)):
         if (

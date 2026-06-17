@@ -25,6 +25,24 @@ logger = logging.getLogger('LVP.modules.config_ui_getters')
 
 
 # ---------------------------------------------------------------------------
+# Capability gates
+# ---------------------------------------------------------------------------
+
+
+def firmware_stim_supported() -> bool:
+    """True only when the connected LED firmware supports stimulation.
+
+    The single gate for all stimulation UI: when this is False, stim controls
+    stay hidden no matter what the user's stimulation_enabled setting says.
+    Fails safe to False (hide) when the scope or its capability surface is not
+    yet available, so stim never appears on firmware that cannot drive it.
+    """
+    scope = getattr(_app_ctx.ctx, 'scope', None)
+    caps = getattr(scope, 'capabilities', None)
+    return bool(caps.supports('firmware_stim')) if caps is not None else False
+
+
+# ---------------------------------------------------------------------------
 # Image saving
 # ---------------------------------------------------------------------------
 
@@ -293,31 +311,13 @@ def get_protocol_time_params() -> dict:
     duration = datetime.timedelta(hours=duration)
 
     # 1-second floor (preserves the 0 single-scan marker) so a short
-    # interval/duration stays representable and doesn't round to 0 on
-    # display. Clamping changes the user's value, so notify rather than
-    # silently mutating it.
-    floored_period = config_helpers.floor_protocol_time(period)
-    floored_duration = config_helpers.floor_protocol_time(duration)
-
-    clamped = []
-    if floored_period != period:
-        clamped.append('period')
-    if floored_duration != duration:
-        clamped.append('duration')
-    if clamped:
-        from modules.notification_center import notifications
-
-        logger.info('Protocol capture %s clamped to the 1-second minimum', ' and '.join(clamped))
-        notifications.warning(
-            'Protocol',
-            'Capture Timing',
-            'A capture period or duration below the 1-second minimum was raised '
-            'to 1 second (shown as 0.016667 min). Enter a value of at least 1 second.',
-        )
-
+    # interval/duration stays representable and doesn't round to 0 on display.
+    # The clamp is silent here -- this getter runs on every save and run-start,
+    # so notifying here re-warns repeatedly. The clamp warning fires once, at
+    # the field edit, in ProtocolSettings.update_period / update_duration.
     return {
-        'period': floored_period,
-        'duration': floored_duration,
+        'period': config_helpers.floor_protocol_time(period),
+        'duration': config_helpers.floor_protocol_time(duration),
     }
 
 
