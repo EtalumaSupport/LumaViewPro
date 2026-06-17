@@ -55,18 +55,25 @@ def _prep_stitch_df(sample_dir: pathlib.Path, protocol_df: pd.DataFrame) -> pd.D
     return df[["Filepath", "X", "Y", "Objective", "Color", "Well", "Tile Group ID"]]
 
 
-def _normalize_preview(image: np.ndarray) -> np.ndarray:
-    arr = image
-    if arr.ndim == 3:
-        arr = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
-    arr = arr.astype(np.float32)
-    p_low, p_high = np.percentile(arr, [1, 99.5])
+def _normalize_channel(channel: np.ndarray) -> np.ndarray:
+    arr = channel.astype(np.float32)
+    nonzero = arr[arr > 0]
+    sample = nonzero if nonzero.size else arr.reshape(-1)
+    p_low, p_high = np.percentile(sample, [1, 99.5])
     if p_high <= p_low:
         p_low, p_high = float(arr.min()), float(arr.max())
     if p_high <= p_low:
         return np.zeros(arr.shape, dtype=np.uint8)
     arr = np.clip((arr - p_low) / (p_high - p_low), 0, 1)
     return (arr * 255).astype(np.uint8)
+
+
+def _normalize_preview(image: np.ndarray) -> np.ndarray:
+    arr = image
+    if arr.ndim == 3:
+        channels = [_normalize_channel(arr[:, :, idx]) for idx in range(arr.shape[2])]
+        return np.stack(channels, axis=2)
+    return _normalize_channel(arr)
 
 
 def _thumbnail(image: np.ndarray, max_width: int = 1800) -> np.ndarray:
@@ -81,16 +88,20 @@ def _thumbnail(image: np.ndarray, max_width: int = 1800) -> np.ndarray:
 def _comparison_canvas(simple: np.ndarray, position: np.ndarray) -> np.ndarray:
     simple_thumb = _thumbnail(simple)
     position_thumb = _thumbnail(position)
+    if simple_thumb.ndim == 2:
+        simple_thumb = cv2.cvtColor(simple_thumb, cv2.COLOR_GRAY2RGB)
+    if position_thumb.ndim == 2:
+        position_thumb = cv2.cvtColor(position_thumb, cv2.COLOR_GRAY2RGB)
     height = max(simple_thumb.shape[0], position_thumb.shape[0])
 
     def pad_to_height(image: np.ndarray) -> np.ndarray:
         if image.shape[0] == height:
             return image
-        padded = np.zeros((height, image.shape[1]), dtype=image.dtype)
-        padded[: image.shape[0], :] = image
+        padded = np.zeros((height, image.shape[1], image.shape[2]), dtype=image.dtype)
+        padded[: image.shape[0], :, :] = image
         return padded
 
-    divider = np.full((height, 12), 255, dtype=np.uint8)
+    divider = np.full((height, 12, 3), 255, dtype=np.uint8)
     return np.concatenate([pad_to_height(simple_thumb), divider, pad_to_height(position_thumb)], axis=1)
 
 
@@ -152,7 +163,11 @@ def run(sample_dir: pathlib.Path, output_dir: pathlib.Path) -> pathlib.Path:
 
         tf.imwrite(simple_path, simple_image, compression="lzw")
         tf.imwrite(position_path, position_image, compression="lzw")
-        cv2.imwrite(str(compare_path), _comparison_canvas(simple_image, position_image))
+        compare_image = cv2.cvtColor(
+            _comparison_canvas(simple_image, position_image),
+            cv2.COLOR_RGB2BGR,
+        )
+        cv2.imwrite(str(compare_path), compare_image)
         _write_registration_csv(reg_path, position_result["metadata"]["registered_tiles"])
 
         summary_rows.append(
@@ -180,7 +195,7 @@ def main() -> None:
     parser.add_argument(
         "--sample-dir",
         type=pathlib.Path,
-        default=pathlib.Path("/Users/mariamhusain/Downloads/20260611_074617"),
+        default=pathlib.Path("/Users/mariamhusain/Downloads/20260611_075609"),
     )
     parser.add_argument("--output-dir", type=pathlib.Path, default=None)
     args = parser.parse_args()
