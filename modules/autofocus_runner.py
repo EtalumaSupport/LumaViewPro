@@ -255,6 +255,18 @@ class AutofocusRunner:
             self._scope.imaging.set_gain(self._camera_gain)
         if self._camera_exposure is not None:
             self._scope.imaging.set_exposure_time(self._camera_exposure)
+        # Acquire the LED lease BEFORE driving illumination below. The
+        # leds_exclusive write carries owner 'autofocus'; issued before AF
+        # holds a lease, a protocol's already-held lease refuses the
+        # out-of-turn write and the AF channel never lights -- AF would then
+        # scan an unlit field. Inside a protocol step the protocol passes its
+        # lease and AF nests as a child it must outlive; an interactive run
+        # takes a top-level lease. A refused acquire (None) does not stop the
+        # run.
+        if led_lease is not None:
+            self._led_lease = led_lease.acquire_child('autofocus')
+        else:
+            self._led_lease = self._scope.illumination.acquire_led_lease('autofocus')
         # Make the AF channel the only lit one before scanning. A Live-mode
         # LED on a different channel would otherwise stay lit alongside the AF
         # channel and corrupt the focus metric with mixed illumination. Using
@@ -281,16 +293,6 @@ class AutofocusRunner:
         except Exception as e:
             logger.debug(f'[AF] Could not drop precision mode for coarse passes: {e}')
         self._move_absolute_position(pos=self._params['z_min'])
-
-        # Hold the LED lease for the scan so live UI illumination changes
-        # cannot corrupt the focus metric. Inside a protocol step the
-        # protocol passes its lease and AF nests as a child it must
-        # outlive; an interactive run takes a top-level lease. A refused
-        # acquire (None) does not stop the run.
-        if led_lease is not None:
-            self._led_lease = led_lease.acquire_child('autofocus')
-        else:
-            self._led_lease = self._scope.illumination.acquire_led_lease('autofocus')
 
         last_gc_time = time.monotonic()
         completed_successfully = False
