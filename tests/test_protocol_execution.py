@@ -2232,6 +2232,36 @@ class TestMotionTimeoutEndsRunInsteadOfWedging:
             f'Expected IDLE after cleanup, got {executor._state}'
         )
 
+    def test_motion_timeout_stops_the_motor(self, executor, scope, tmp_path, monkeypatch):
+        """A motion timeout must halt the in-flight move, not just error out.
+        Without stop_motion the motor keeps driving toward the unreachable
+        target while the protocol transitions to ERROR."""
+        executor.MOTION_TIMEOUT_SECONDS = 0.3
+        monkeypatch.setattr(scope.motion, 'is_moving', lambda *a, **kw: True)
+
+        stop_calls = []
+        orig_stop = scope.motion.stop_motion
+
+        def _spy_stop(*a, **kw):
+            stop_calls.append(True)
+            return orig_stop(*a, **kw)
+
+        monkeypatch.setattr(scope.motion, 'stop_motion', _spy_stop)
+
+        protocol = _make_single_step_protocol(color='BF')
+        _run_and_wait(
+            executor,
+            protocol,
+            tmp_path,
+            run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
+            max_scans=3,
+        )
+
+        assert stop_calls, (
+            'Motion timeout did not call stop_motion; the timed-out move is '
+            'left in flight while the protocol errors out.'
+        )
+
 
 class TestSaveFailureRecordsRow:
     """A disk-write failure must still leave a row in the execution

@@ -34,6 +34,8 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+from modules.notification_center import notifications
+
 logger = logging.getLogger('LVP.modules.scope_display_thread')
 
 
@@ -352,6 +354,17 @@ class ScopeDisplayThread:
                 f'camera_connected={connected} camera_active={camera_active} '
                 f'last_status={status} generation={self._generation} '
                 f'fps={self._fps} paused={self._paused.is_set()}'
+            )
+            # Surface the stall once per episode (re-armed when frames resume,
+            # same as the log). The full diagnostic stays in the log line above;
+            # the user just needs the actionable summary. Non-fatal: the stream
+            # may recover on its own, and during an unattended protocol the
+            # notification center suppresses this so a run isn't popup-flooded.
+            notifications.warning(
+                'Live View',
+                'Live View Stalled',
+                f'The live image stopped updating (no new camera frame for '
+                f'{elapsed:.0f}s). Check the camera connection.',
             )
 
     def _dispatch_listeners(self, widget) -> None:
