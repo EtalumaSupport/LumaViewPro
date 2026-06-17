@@ -7,6 +7,7 @@ in modules.stitch_algorithms so the newest sparse-grid registration and
 float32 average-blend behavior is shared by all callers.
 """
 
+import logging
 import pathlib
 from collections.abc import Callable
 
@@ -22,6 +23,8 @@ from modules.stitch_algorithms import (
     feature_stitch,
     stitch_registered_tiles,
 )
+
+logger = logging.getLogger('LVP.modules.stitching_core')
 
 
 def _center_metadata(df: pd.DataFrame) -> dict:
@@ -109,9 +112,13 @@ def _failure_reason(failures: list[dict[str, str]]) -> str:
     return '; '.join(f"{item['algorithm']}: {item['error']}" for item in failures)
 
 
-def _run_fallback_chain(chain: list[tuple[str, Callable[[], dict]]]) -> dict:
+def _run_fallback_chain(
+    chain: list[tuple[str, Callable[[], dict]]],
+    context: dict | None = None,
+) -> dict:
     failures: list[dict[str, str]] = []
     last_result: dict | None = None
+    context = context or {}
 
     for algorithm, runner in chain:
         result = runner()
@@ -123,6 +130,15 @@ def _run_fallback_chain(chain: list[tuple[str, Callable[[], dict]]]) -> dict:
                 metadata['fallback_from'] = failures[0]['algorithm']
                 metadata['fallback_failures'] = failures
                 metadata['fallback_reason'] = _failure_reason(failures)
+                logger.warning(
+                    '[Stitch] %s failed; using %s for well=%s color=%s tile_group=%s. Reason: %s',
+                    failures[0]['algorithm'],
+                    metadata.get('algorithm', algorithm),
+                    context.get('well', ''),
+                    context.get('color', ''),
+                    context.get('tile_group_id', ''),
+                    metadata['fallback_reason'],
+                )
             return result
 
         failures.append(
@@ -467,4 +483,12 @@ def channel_aware_stitcher(
             ),
         ]
     )
-    return _run_fallback_chain(chain)
+    row0 = df.iloc[0]
+    return _run_fallback_chain(
+        chain,
+        context={
+            'well': row0.get('Well', ''),
+            'color': row0.get('Color', ''),
+            'tile_group_id': row0.get('Tile Group ID', ''),
+        },
+    )

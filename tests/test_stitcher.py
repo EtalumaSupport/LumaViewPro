@@ -1,6 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Tests for stitcher modules -- stitch_algorithms.py (feature-based) and stitcher.py (grid-based)."""
 
+import logging
 import pathlib
 
 import cv2
@@ -329,6 +330,64 @@ class TestSimplePositionStitcher:
         ]
         assert result['metadata']['algorithm'] == 'simple_position_stitcher'
         assert result['metadata']['fallback_from'] == 'bf_feature_stitcher'
+
+    def test_fallback_logs_operator_visible_warning(
+        self,
+        tmp_path,
+        monkeypatch,
+        caplog,
+    ):
+        df = pd.DataFrame(
+            [
+                {
+                    'Filepath': 'a.tiff',
+                    'X': 0.0,
+                    'Y': 0.0,
+                    'Objective': '10x Oly',
+                    'Color': 'Green',
+                    'Well': 'A1',
+                    'Tile Group ID': 3,
+                },
+                {
+                    'Filepath': 'b.tiff',
+                    'X': 1.0,
+                    'Y': 0.0,
+                    'Objective': '10x Oly',
+                    'Color': 'Green',
+                    'Well': 'A1',
+                    'Tile Group ID': 3,
+                },
+            ]
+        )
+
+        def overlap_fail(*args, **kwargs):
+            return {
+                'status': False,
+                'error': 'registration failed',
+                'image': None,
+                'metadata': {'center': {'x': 0.5, 'y': 0.0}},
+            }
+
+        def stage_success(*args, **kwargs):
+            return {
+                'status': True,
+                'error': None,
+                'image': np.zeros((4, 8), dtype=np.uint8),
+                'metadata': {
+                    'center': {'x': 0.5, 'y': 0.0},
+                    'algorithm': 'stage_position_stitcher',
+                },
+            }
+
+        monkeypatch.setattr('modules.stitching_core.overlap_stitcher', overlap_fail)
+        monkeypatch.setattr('modules.stitching_core.stage_position_stitcher', stage_success)
+
+        with caplog.at_level(logging.WARNING, logger='LVP.modules.stitching_core'):
+            result = channel_aware_stitcher(tmp_path, df, pixel_size_um=1.0)
+
+        assert result['status'] is True
+        assert result['metadata']['fallback_from'] == 'overlap_stitcher'
+        assert 'using stage_position_stitcher for well=A1 color=Green tile_group=3' in caplog.text
 
     def test_fluorescence_route_uses_overlap_then_stage_then_simple(
         self,

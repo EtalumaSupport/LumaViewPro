@@ -17,7 +17,9 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from modules.stitcher import Stitcher
+import modules.common_utils as common_utils
+from modules.objectives_loader import ObjectiveLoader
+from modules.stitching_core import overlap_stitcher, simple_position_stitcher
 
 
 def _read_lvp_protocol(path: pathlib.Path) -> pd.DataFrame:
@@ -125,6 +127,16 @@ def _write_registration_csv(path: pathlib.Path, registered_tiles: list[dict]) ->
             writer.writerow(row)
 
 
+def _pixel_size_um(objective_loader: ObjectiveLoader, objective_id: str) -> float:
+    objective = objective_loader.get_objective_info(objective_id=objective_id)
+    if not objective:
+        raise RuntimeError(f"unable to resolve objective {objective_id!r}")
+    return common_utils.get_pixel_size(
+        focal_length=objective["focal_length"],
+        binning_size=1,
+    )
+
+
 def run(sample_dir: pathlib.Path, output_dir: pathlib.Path) -> pathlib.Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     print(f"Reading protocol from: {sample_dir / 'unsaved_protocol.tsv'}", flush=True)
@@ -132,18 +144,20 @@ def run(sample_dir: pathlib.Path, output_dir: pathlib.Path) -> pathlib.Path:
     stitch_df = _prep_stitch_df(sample_dir, protocol_df)
     print(f"Prepared {len(stitch_df)} image rows", flush=True)
 
-    stitcher = Stitcher(has_turret=False)
+    objective_loader = ObjectiveLoader()
     summary_rows = []
 
     for (well, tile_group_id), group in stitch_df.groupby(["Well", "Tile Group ID"], sort=True):
         group = group.sort_values(["Y", "X"]).reset_index(drop=True)
         print(f"Stitching well {well}, group {tile_group_id}, {len(group)} tiles", flush=True)
 
-        position_result = stitcher._position_stitcher(
+        pixel_size_um = _pixel_size_um(objective_loader, group["Objective"].iloc[0])
+        position_result = overlap_stitcher(
             path=sample_dir,
             df=group[["Filepath", "X", "Y", "Objective", "Color"]],
+            pixel_size_um=pixel_size_um,
         )
-        simple_result = Stitcher._simple_position_stitcher(
+        simple_result = simple_position_stitcher(
             path=sample_dir,
             df=group[["Filepath", "X", "Y", "Color"]],
         )
@@ -195,7 +209,8 @@ def main() -> None:
     parser.add_argument(
         "--sample-dir",
         type=pathlib.Path,
-        default=pathlib.Path("/Users/mariamhusain/Downloads/20260611_075609"),
+        required=True,
+        help="Captured LVP sample folder containing unsaved_protocol.tsv and TIFF tiles.",
     )
     parser.add_argument("--output-dir", type=pathlib.Path, default=None)
     args = parser.parse_args()
