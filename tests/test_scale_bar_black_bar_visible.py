@@ -49,3 +49,31 @@ def test_white_bar_still_drawn():
     image = np.zeros((400, 400), dtype=np.uint8)
     result = _add(image, color='Red')
     assert (result == 255).any(), 'white scale bar regressed'
+
+
+def _add_depth(image, color, significant_bits):
+    image_utils._scale_bar_cache = {}  # module-global cache; isolate each call
+    return image_utils.add_scale_bar(
+        image=image,
+        objective=_OBJECTIVE,
+        binning_size=1,
+        color=color,
+        significant_bits=significant_bits,
+    )
+
+
+def test_white_bar_value_tracks_significant_bits():
+    # The white bar's pixel value is the payload max for the frame's depth, so
+    # it maps to full white after the depth-keyed 8-bit downconvert. A summed
+    # 16-bit-container frame must get 65535, not the 12-bit 4095 (which would
+    # downconvert to a dim ~16/255 gray bar).
+    r12 = _add_depth(np.zeros((400, 400), dtype=np.uint16), color='Red', significant_bits=12)
+    assert int(r12.max()) == 4095
+
+    r16 = _add_depth(np.zeros((400, 400), dtype=np.uint16), color='Red', significant_bits=16)
+    assert int(r16.max()) == 65535
+
+
+def test_uint8_bar_value_unchanged():
+    r = _add_depth(np.zeros((400, 400), dtype=np.uint8), color='Red', significant_bits=8)
+    assert int(r.max()) == 255

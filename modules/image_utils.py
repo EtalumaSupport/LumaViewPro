@@ -1501,7 +1501,9 @@ def subject_dist_to_rational(distance):
 _scale_bar_cache = {}
 
 
-def _compute_scale_bar_overlay(height, width, dtype, is_color, objective, binning_size, color):
+def _compute_scale_bar_overlay(
+    height, width, dtype, is_color, objective, binning_size, color, significant_bits
+):
     """Pre-render scale bar overlay and mask. Returns (overlay, mask, cache_key)."""
     pixel_size_um = common_utils.get_pixel_size(
         focal_length=objective['focal_length'], binning_size=binning_size
@@ -1570,7 +1572,11 @@ def _compute_scale_bar_overlay(height, width, dtype, is_color, objective, binnin
     elif dtype == np.uint8:
         scale_bar_value = 255
     else:
-        scale_bar_value = 4095
+        # White bar = the payload max for this frame's depth, so it downconverts
+        # to full 8-bit white. A summed frame rides in a 16-bit container (depth
+        # 16 -> 65535); a single 12-bit frame is 4095. A fixed 4095 would render
+        # a summed-frame bar as a dim ~16/255 gray.
+        scale_bar_value = (1 << significant_bits) - 1
 
     x_end = width - scale_bar_right_offset
     x_start = x_end - scale_bar_length_pixels
@@ -1583,7 +1589,7 @@ def _compute_scale_bar_overlay(height, width, dtype, is_color, objective, binnin
     # nothing would be written and the BF/PC bar would never appear. The real
     # value (scale_bar_value, 0 for black) is applied at the masked pixels in
     # add_scale_bar.
-    sentinel = 255 if dtype == np.uint8 else 4095
+    sentinel = 255 if dtype == np.uint8 else (1 << significant_bits) - 1
 
     if is_color:
         canvas = np.zeros((height, width, 3), dtype=dtype)
@@ -1635,6 +1641,7 @@ def add_scale_bar(
     objective: dict,
     binning_size: int,
     color: str | None = None,
+    significant_bits: int = 12,
 ):
     global _scale_bar_cache
 
@@ -1656,11 +1663,15 @@ def add_scale_bar(
         objective['magnification'],
         binning_size,
         color,
+        # The white bar's value is the payload max for this depth, so two frames
+        # of the same dtype but different significant bits (12-bit single vs
+        # 16-bit summed) must not share a cached overlay.
+        significant_bits,
     )
 
     if _scale_bar_cache.get('key') != cache_key:
         overlay, mask, value = _compute_scale_bar_overlay(
-            height, width, dtype, is_color, objective, binning_size, color
+            height, width, dtype, is_color, objective, binning_size, color, significant_bits
         )
         _scale_bar_cache = {'key': cache_key, 'overlay': overlay, 'mask': mask, 'value': value}
 
@@ -1668,8 +1679,8 @@ def add_scale_bar(
     mask = cached['mask']
 
     # Write the bar's pixel value at the masked geometry. Works for black
-    # (value 0, BF/PC) and white (255 / 4095) alike -- the mask carries the
-    # location, so the value can be 0 without erasing the bar.
+    # (value 0, BF/PC) and white (the payload max) alike -- the mask carries
+    # the location, so the value can be 0 without erasing the bar.
     image[mask] = cached['value']
 
     return image
