@@ -129,3 +129,76 @@ class TestDisplayDownconvertGenericDepth:
         assert img is not None
         assert img.dtype == np.uint8
         assert int(img.max()) == 255
+
+
+def _save_meta(significant_bits=None):
+    """Minimal metadata dict that write_tiff / generate_tiff_data accept."""
+    meta = {
+        'pixel_size_um': 0.5,
+        'channel': 'Green',
+        'objective': '10x',
+        'exposure_time_ms': 50.0,
+        'gain_db': 0.0,
+        'illumination_ma': 100.0,
+        'z_pos_um': 1000.0,
+        'plate_pos_mm': {'x': 10.0, 'y': 20.0},
+        'datetime': '2026:06:18 12:00:00',
+        'camera_make': 'Test',
+        'microscope': 'TestScope',
+        'well_label': 'A1',
+        'well_site': '1',
+    }
+    if significant_bits is not None:
+        meta['significant_bits'] = significant_bits
+    return meta
+
+
+class TestSavePathNativeDepth:
+    """Saved TIFFs store raw right-aligned values + an honest SignificantBits
+    tag, and read-back scales to 8-bit by that tag -- not a hardcoded /256."""
+
+    def _write(self, tmp_path, value, significant_bits):
+        from modules import image_utils
+
+        arr = np.full((8, 8), value, dtype=np.uint16)
+        path = tmp_path / 'frame.tif'
+        image_utils.write_tiff(
+            data=arr, file_loc=path, metadata=_save_meta(significant_bits), ome=True, color='Green'
+        )
+        return path
+
+    def test_tag_records_payload_depth_not_container(self, tmp_path):
+        """A 12-bit frame is tagged SignificantBits=12 and stored right-aligned."""
+        import tifffile as tf
+
+        path = self._write(tmp_path, 4095, significant_bits=12)
+        with tf.TiffFile(str(path)) as f:
+            assert 'SignificantBits="12"' in (f.ome_metadata or '')
+            assert int(f.pages[0].asarray().max()) == 4095  # raw, not left-justified to 65520
+
+    def test_read_tiff_significant_bits_roundtrips(self, tmp_path):
+        """The SignificantBits tag is recoverable from the written file."""
+        from modules import image_utils
+
+        path = self._write(tmp_path, 4095, significant_bits=12)
+        assert image_utils.read_tiff_significant_bits(path) == 12
+
+    def test_12bit_file_reads_back_to_full_white(self, tmp_path):
+        """A right-aligned 12-bit file scales to 8-bit 255, not crushed to ~15."""
+        from modules import image_utils
+
+        path = self._write(tmp_path, 4095, significant_bits=12)
+        sig = image_utils.read_tiff_significant_bits(path)
+        eight = image_utils.convert_to_8bit(image_utils.read_tiff_with_legacy_collapse(path), sig)
+        assert int(eight.max()) == 255
+
+    def test_legacy_16bit_file_still_reads_back_correctly(self, tmp_path):
+        """A legacy left-justified file (SignificantBits=16) is not crushed."""
+        from modules import image_utils
+
+        path = self._write(tmp_path, 4095 * 16, significant_bits=16)  # 65520, the old *16 form
+        sig = image_utils.read_tiff_significant_bits(path)
+        assert sig == 16
+        eight = image_utils.convert_to_8bit(image_utils.read_tiff_with_legacy_collapse(path), sig)
+        # 65520 / 65535 * 255 -> 254: near-white, not crushed to ~15.
+        assert int(eight.max()) >= 254

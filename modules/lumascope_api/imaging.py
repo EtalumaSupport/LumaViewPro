@@ -1899,6 +1899,18 @@ class ImagingAPI:
 
         return tmp, grab_image_ts
 
+    @property
+    def significant_bits(self) -> int:
+        """Meaningful payload bits of frames the current camera delivers.
+
+        The depth a single captured frame should be scaled / tagged by (12 for a
+        Mono12 sensor, 8 for an 8-bit one). A summed frame is promoted to a
+        16-bit container by get_image and is not described by this -- summed
+        callers declare 16 themselves. Falls back to the container width when no
+        camera is attached.
+        """
+        return self._driver.significant_bits if self._driver is not None else 16
+
     # --- State / lifecycle properties ---
     @property
     def camera_active(self) -> bool:

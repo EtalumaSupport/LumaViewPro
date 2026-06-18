@@ -685,6 +685,14 @@ class ProtocolImageWriter:
                     and getattr(captured_image, 'ndim', 0) == 2
                 )
                 out_12to16 = self._get_convert_buf_12to16(captured_image) if is_uint16_2d else None
+                # A summed full-depth frame lives in a 16-bit container; declare
+                # that depth so SignificantBits matches the stored values. The
+                # step's Sum column carries the count on this save thread.
+                # Single uint16 frames fall through to the camera-native default.
+                # step may be a pandas Series; test `is None` rather than
+                # truthiness (bool() on a Series raises).
+                step_sum = step.get('Sum', 1) if step is not None else 1
+                summed_significant_bits = 16 if (is_uint16_2d and step_sum > 1) else None
                 # Same failure-row contract as the video leg above: a
                 # raise from save_image must not leave the record without
                 # a row for this step.
@@ -709,6 +717,7 @@ class ProtocolImageWriter:
                         z=step['Z'],
                         use_false_color_16bit=self._false_color_16bit,
                         out_12to16=out_12to16,
+                        significant_bits=summed_significant_bits,
                     )
                 except Exception:
                     self._record_dropped_capture(

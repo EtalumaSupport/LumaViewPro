@@ -174,13 +174,18 @@ class VideoWriter:
         else:
             self._init_cv2(w, h, is_color_encode)
 
-    def add_frame(self, image: np.ndarray, timestamp=None) -> None:
+    def add_frame(self, image: np.ndarray, timestamp=None, significant_bits=None) -> None:
         """Add a frame to the video.
 
         Accepts mono 2D (H, W) input when `color` was set at __init__; the
         writer applies the layer false-color and cv2 BGR-swap (cv2 path
         only) before the encoder boundary. Also accepts pre-colored RGB
         input for back-compat callers that produce their own RGB.
+
+        significant_bits scales a uint16 frame to 8-bit by its true payload
+        depth (e.g. 12 for a right-aligned 12-bit frame). None falls back to
+        treating uint16 as full 16-bit, which is correct for left-justified
+        legacy frames.
         """
         with self._frame_lock:
             if self._finished:
@@ -199,11 +204,12 @@ class VideoWriter:
 
             # Ensure 8-bit
             if image.dtype != np.uint8:
-                image = (
-                    image_utils.convert_16bit_to_8bit(image)
-                    if image.dtype == np.uint16
-                    else image.astype(np.uint8)
-                )
+                if significant_bits is not None:
+                    image = image_utils.convert_to_8bit(image, significant_bits)
+                elif image.dtype == np.uint16:
+                    image = image_utils.convert_16bit_to_8bit(image)
+                else:
+                    image = image.astype(np.uint8)
 
             # Mono + color set -> apply false-color inside the writer.
             # Mono + color None -> pass through; gray encode.

@@ -201,6 +201,7 @@ class VideoBuilder(ProtocolPostProcessor):
             image_path = path / row['Filepath']
             try:
                 image = image_utils.read_tiff_with_legacy_collapse(image_path)
+                significant_bits = image_utils.read_tiff_significant_bits(image_path)
             except Exception as e:
                 logger.error(f'[{self._name}] Failed to read image: {image_path}: {e}')
                 skipped += 1
@@ -222,7 +223,7 @@ class VideoBuilder(ProtocolPostProcessor):
                 frame_ts = image_utils.read_frame_timestamp(image_path)
                 if frame_ts is None and hasattr(row['Timestamp'], 'to_pydatetime'):
                     frame_ts = row['Timestamp'].to_pydatetime()
-            video.add_frame(image=image, timestamp=frame_ts)
+            video.add_frame(image=image, timestamp=frame_ts, significant_bits=significant_bits)
 
             if popup is not None:
                 popup.progress = start_percentage + (i / total_frames) * percent_diff

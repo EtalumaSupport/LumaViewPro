@@ -152,7 +152,9 @@ class StackBuilder(ProtocolPostProcessor):
         channel_names = df['Color'].unique().tolist()
         row0 = df.iloc[0]
         sample_image_file_loc = path / row0['Filepath']
-        sample_image = tf.imread(sample_image_file_loc)
+        # The input frames record their payload depth in SignificantBits; carry
+        # it onto the hyperstack rather than re-deriving the container width.
+        sample_significant_bits = image_utils.read_tiff_significant_bits(sample_image_file_loc)
 
         pixel_size_um = round(
             common_utils.get_pixel_size(
@@ -170,7 +172,7 @@ class StackBuilder(ProtocolPostProcessor):
                 'PositionY': plane_metadata['PositionY'],
                 'PositionZ': plane_metadata['PositionZ'],
             },
-            significant_bits=sample_image.itemsize * 8,
+            significant_bits=sample_significant_bits,
             pixel_size_um=pixel_size_um,
         )
 

@@ -4,6 +4,7 @@ import enum
 import functools
 import json
 import pathlib
+import re
 import xml.etree.ElementTree as ET
 
 import cv2
@@ -165,6 +166,25 @@ def read_tiff_with_legacy_collapse(path: pathlib.Path) -> np.ndarray:
                 _legacy_collapse_warned = True
             return img[..., nonzero_channels[0]].copy()
     return img
+
+
+def read_tiff_significant_bits(path: pathlib.Path) -> int:
+    """Meaningful payload bits recorded in a TIFF's OME SignificantBits tag.
+
+    A reader needs this to scale a uint16 file to 8-bit correctly: a 12-bit
+    payload stored right-aligned (0..4095) reads full-white only when scaled by
+    4095, not by 65535. Falls back to the container width (itemsize * 8) for
+    files that carry no tag -- including older files whose stored values were
+    left-justified to fill the container, for which container-width scaling is
+    the correct interpretation.
+    """
+    with tf.TiffFile(str(path)) as tif:
+        ome = tif.ome_metadata
+        if ome:
+            match = re.search(r'SignificantBits="(\d+)"', ome)
+            if match:
+                return int(match.group(1))
+        return tif.pages[0].dtype.itemsize * 8
 
 
 def _read_ome_input_metadata(ome_xml: str, datetime_value) -> dict | None:
@@ -1361,7 +1381,9 @@ def generate_tiff_data(
     # Base metadata shared by all structured types
     tiff_metadata = {
         'axes': axes,
-        'SignificantBits': data.itemsize * 8,
+        # Payload depth supplied by the save path; the container width
+        # (itemsize * 8) is only a fallback when the caller didn't declare it.
+        'SignificantBits': metadata.get('significant_bits') or data.itemsize * 8,
         'PhysicalSizeX': metadata['pixel_size_um'],
         'PhysicalSizeXUnit': 'um',
         'PhysicalSizeY': metadata['pixel_size_um'],

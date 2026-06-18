@@ -350,11 +350,14 @@ def prepare_image_for_saving(
     y,
     z,
     out_12to16: np.ndarray | None = None,
+    significant_bits: int | None = None,
 ) -> dict:
     """Prepare an image array and metadata for saving to disk.
 
-    Flips the image vertically, converts bit depth if needed, generates
-    the save path and metadata.
+    Flips the image vertically, records the payload bit depth, and generates
+    the save path and metadata. Pixel values are stored raw (right-aligned) --
+    a 12-bit frame is saved as 0..4095, not left-justified to 0..65520 -- with
+    the true depth carried in the SignificantBits tag instead.
 
     Args:
         scope: Passed to generate_image_metadata + generate_image_save_path.
@@ -369,16 +372,20 @@ def prepare_image_for_saving(
         x: Stage X position in um.
         y: Stage Y position in um.
         z: Stage Z position in um.
-        out_12to16: Optional preallocated buffer for 12-to-16-bit
-            conversion (avoids per-frame allocation in the hot path).
+        out_12to16: Retained for caller compatibility; no longer used now that
+            native values are stored without left-justifying.
+        significant_bits: Payload depth of ``array`` to record in the
+            SignificantBits tag. None derives it: 8 for a uint8 frame, else the
+            camera's native depth. Summed callers pass 16 (16-bit container).
 
     Returns:
         dict: Contains 'image' (ndarray) and 'metadata' (dict with 'file_loc').
     """
     metadata = generate_image_metadata(scope, color=true_color, x=x, y=y, z=z)
 
-    if array.dtype == np.uint16:
-        array = image_utils.convert_12bit_to_16bit(array, out=out_12to16)
+    if significant_bits is None:
+        significant_bits = 8 if array.dtype == np.uint8 else scope.imaging.significant_bits
+    metadata['significant_bits'] = significant_bits
 
     array = _apply_save_orientation(array)
 
@@ -417,6 +424,7 @@ def save_image(
     false_color_buf: np.ndarray | None = None,
     rgb_buf: np.ndarray | None = None,
     jpeg_quality: int = 90,
+    significant_bits: int | None = None,
 ) -> str:
     """Save an image array to a TIFF file with metadata.
 
@@ -492,6 +500,7 @@ def save_image(
             y=y,
             z=z,
             out_12to16=out_12to16,
+            significant_bits=significant_bits,
         )
         image = image_data['image']
         metadata = image_data['metadata']
@@ -608,6 +617,11 @@ def save_live_image(
     if array is False:
         return None
 
+    # A summed full-depth capture lives in a 16-bit container; declare that so
+    # the SignificantBits tag matches. Single frames fall through to the
+    # camera-native default; 8-bit captures derive 8 from the dtype.
+    significant_bits = 16 if (sum_count > 1 and not force_to_8bit) else None
+
     return save_image(
         scope,
         array,
@@ -619,4 +633,5 @@ def save_live_image(
         output_format=output_format,
         true_color=true_color,
         jpeg_quality=jpeg_quality,
+        significant_bits=significant_bits,
     )

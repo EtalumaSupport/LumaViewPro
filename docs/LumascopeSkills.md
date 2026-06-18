@@ -858,6 +858,15 @@ to consumers that previously assumed a 3-channel shape. FIJI, MATLAB
 ``imread``, and tifffile all handle mono 2D natively; the false-
 color is purely a display-time concern.
 
+Full-pixel-depth frames store raw, right-aligned sensor values (a 12-bit
+frame is ``0..4095``) and declare the true depth in the OME-TIFF
+``SignificantBits`` tag (e.g. ``SignificantBits=12`` inside a 16-bit
+container). To render or scale such a file to 8-bit, divide by
+``(1 << SignificantBits) - 1`` -- treating the values as full 16-bit will
+render a 12-bit frame ~16x too dark. ``image_utils.read_tiff_significant_bits``
+returns the tag (falling back to the container width for older files that were
+left-justified into the 16-bit range and carry no payload-depth tag).
+
 ### Coordinate transformations (`modules.coord_transformations`)
 
 ```python

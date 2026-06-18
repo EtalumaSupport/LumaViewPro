@@ -3219,35 +3219,6 @@ class TestPIW5_Convert12to16OutBuffer:
         write(np.zeros((6, 5), dtype=np.uint8))
         assert buffers[3] is None, '8-bit saves need no 12->16 conversion buffer'
 
-    def test_save_image_reuses_out_12to16_buffer(self, monkeypatch, tmp_path):
-        """The caller-supplied buffer must be the 12->16 conversion
-        destination on every save -- the whole point of the plumbing."""
-        from types import SimpleNamespace
-
-        import numpy as np
-
-        from modules import image_save
-
-        monkeypatch.setattr('modules.image_utils.write_tiff', lambda **kwargs: None)
-        monkeypatch.setattr(image_save, 'generate_image_metadata', lambda scope, color, x, y, z: {})
-        buf = np.zeros((4, 4), dtype=np.uint16)
-        for fill in (1, 3):
-            arr = np.full((4, 4), fill, dtype=np.uint16)
-            image_save.save_image(
-                SimpleNamespace(),
-                arr,
-                save_folder=str(tmp_path),
-                file_root='buf_',
-                append='BF',
-                color='BF',
-                tail_id_mode=None,
-                out_12to16=buf,
-            )
-            assert np.array_equal(buf, arr * 16), (
-                'save_image must use the caller-supplied out_12to16 buffer '
-                'as the 12->16 conversion destination on every save'
-            )
-
 
 class TestPIW6_PF3_FalseColorRgbPreallocated:
     """PIW-6 + PF-3 (combined): retire allocations on the false-color save path.
