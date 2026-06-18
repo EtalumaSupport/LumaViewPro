@@ -76,6 +76,34 @@ class TestVideoWriterCv2Fallback:
         assert fake.frames[0].sum() > 0
 
 
+class TestVideoWriter16BitFallback:
+    """A uint16 frame with no significant_bits routes through the one canonical
+    converter at full 16-bit container depth, not a separate 16->8 entry point."""
+
+    def test_uint16_no_sigbits_uses_canonical_converter(self, cv2_writer):
+        writer, _fake = cv2_writer
+        frame = np.zeros((100, 100), dtype=np.uint16)
+        eight = np.zeros((100, 100), dtype=np.uint8)
+
+        with (
+            mock.patch.object(
+                video_writer_module.image_utils, 'convert_16bit_to_8bit', return_value=eight
+            ) as legacy,
+            mock.patch.object(
+                video_writer_module.image_utils, 'convert_to_8bit', return_value=eight
+            ) as canonical,
+        ):
+            writer.add_frame(image=frame, timestamp=None, significant_bits=None)
+
+        legacy.assert_not_called()
+        canonical.assert_called_once()
+        args, kwargs = canonical.call_args
+        passed_sig = kwargs.get('significant_bits')
+        if passed_sig is None and len(args) >= 2:
+            passed_sig = args[1]
+        assert passed_sig == 16
+
+
 class TestEagerInitColorDeferral:
     """A writer built with explicit width/height but color=None must defer
     the is_color decision to the first frame: the eager path cannot know the

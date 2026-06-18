@@ -207,7 +207,7 @@ class VideoWriter:
                 if significant_bits is not None:
                     image = image_utils.convert_to_8bit(image, significant_bits)
                 elif image.dtype == np.uint16:
-                    image = image_utils.convert_16bit_to_8bit(image)
+                    image = image_utils.convert_to_8bit(image, significant_bits=16)
                 else:
                     image = image.astype(np.uint8)
 
