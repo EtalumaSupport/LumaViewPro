@@ -19,12 +19,6 @@ from fractions import Fraction
 
 from lvp_logger import logger, version
 
-# Pre-built lookup tables for bit-depth conversion (built once at import, ~4 KB each)
-# Using the same float math as the original per-pixel conversion ensures identical results.
-_LUT_12_TO_8 = np.clip(np.arange(4096, dtype=np.float32) / 4095 * 255, 0, 255).astype(np.uint8)
-
-_LUT_16_TO_8 = (np.arange(65536, dtype=np.float64) / 256).astype(np.uint8)
-
 
 def is_color_image(image) -> bool:
     return len(image.shape) == 3 and image.shape[2] == 3
@@ -904,18 +898,8 @@ def encode_display_jpg(array, color, jpeg_quality: int = 90) -> bytes:
 
 
 def convert_12bit_to_8bit(image, out=None):
-    if image.dtype == 'uint8':
-        return image
-
-    # Mirror PIW-5's convert_12bit_to_16bit(out=) pattern. The
-    # caller-supplied out buffer eliminates the per-call fresh allocation
-    # for the LUT indexing result -- saves ~120 MB/s allocator churn on
-    # the 30fps Pylon 12-bit preview path. Mismatched shape/dtype falls
-    # back to fresh allocation rather than failing.
-    if out is not None and out.shape == image.shape and out.dtype == np.uint8:
-        np.take(_LUT_12_TO_8, image, out=out)
-        return out
-    return _LUT_12_TO_8[image]
+    """Downconvert a 12-bit-payload frame to 8-bit via the canonical converter."""
+    return convert_to_8bit(image, 12, out=out)
 
 
 @functools.cache
@@ -968,10 +952,8 @@ def convert_12bit_to_16bit(image, out=None):
 
 
 def convert_16bit_to_8bit(image):
-    if image.dtype == 'uint8':
-        return image
-
-    return _LUT_16_TO_8[image]
+    """Downconvert a 16-bit-container frame to 8-bit via the canonical converter."""
+    return convert_to_8bit(image, 16)
 
 
 @enum.unique

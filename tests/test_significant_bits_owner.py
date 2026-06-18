@@ -202,3 +202,33 @@ class TestSavePathNativeDepth:
         eight = image_utils.convert_to_8bit(image_utils.read_tiff_with_legacy_collapse(path), sig)
         # 65520 / 65535 * 255 -> 254: near-white, not crushed to ~15.
         assert int(eight.max()) >= 254
+
+
+class TestConverterCollapse:
+    """The depth-named converters delegate to the one significant-bits LUT, so
+    there is a single canonical 8-bit mapping with no divergent per-depth tables."""
+
+    def test_12bit_converter_matches_canonical(self):
+        from modules import image_utils
+
+        src = np.arange(4096, dtype=np.uint16).reshape(64, 64)
+        assert np.array_equal(
+            image_utils.convert_12bit_to_8bit(src),
+            image_utils.convert_to_8bit(src, 12),
+        )
+
+    def test_16bit_converter_matches_canonical(self):
+        from modules import image_utils
+
+        src = np.arange(65536, dtype=np.uint16).reshape(256, 256)
+        assert np.array_equal(
+            image_utils.convert_16bit_to_8bit(src),
+            image_utils.convert_to_8bit(src, 16),
+        )
+
+    def test_no_standalone_depth_luts(self):
+        """The divergent module-level tables are gone; the cache is the source."""
+        from modules import image_utils
+
+        assert not hasattr(image_utils, '_LUT_12_TO_8')
+        assert not hasattr(image_utils, '_LUT_16_TO_8')
