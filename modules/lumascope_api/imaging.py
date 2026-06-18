@@ -1810,16 +1810,21 @@ class ImagingAPI:
 
             image = np.clip(combined, None, max_value).astype(orig_dtype)
 
+        use_scale_bar = self._scale_bar['enabled']
+        if self._scope.runtime_state._objective is None:
+            use_scale_bar = False
+
+        need_8bit = force_to_8bit and image.dtype != np.uint8
+
         # A summed capture lives in a 16-bit container; a single frame carries
         # the camera's native payload depth. The scale bar's white value and the
         # 8-bit downconvert divisor both follow this depth so a summed 12-bit
         # value never indexes the 12-bit display table, a 10-bit frame is not
         # crushed as if 12-bit, and the bar maps to full white not a dim gray.
-        significant_bits = 16 if sum_count > 1 else self._driver.significant_bits
-
-        use_scale_bar = self._scale_bar['enabled']
-        if self._scope.runtime_state._objective is None:
-            use_scale_bar = False
+        # Query the driver only when a consumer needs it -- a raw passthrough
+        # frame returns without touching the driver's depth.
+        if use_scale_bar or need_8bit:
+            significant_bits = 16 if sum_count > 1 else self._driver.significant_bits
 
         if use_scale_bar:
             image = image_utils.add_scale_bar(
@@ -1830,7 +1835,7 @@ class ImagingAPI:
                 significant_bits=significant_bits,
             )
 
-        if force_to_8bit and image.dtype != np.uint8:
+        if need_8bit:
             image = image_utils.convert_to_8bit(image, significant_bits)
 
         return image
