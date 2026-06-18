@@ -200,10 +200,6 @@ class VideoCaptureSession:
                 break
 
             if isinstance(image, np.ndarray):
-                # Should never be used since forcing images to 8-bit
-                if image.dtype == np.uint16:
-                    image = image_utils.convert_12bit_to_16bit(image)
-
                 if (image.dtype != np.uint16) and (step['False_Color']):
                     image = image_utils.add_false_color(array=image, color=use_color)
 
