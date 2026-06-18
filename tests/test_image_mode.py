@@ -93,6 +93,32 @@ def test_migrate_legacy_settings(use_full_pixel_depth, false_color_16bit, expect
 
 
 # ---------------------------------------------------------------------------
+# Config-layer derivation: legacy settings -> resolved capture_depth/save_encoding
+# ---------------------------------------------------------------------------
+
+
+def test_config_helper_derives_image_mode_from_settings():
+    """The settings config getter exposes the resolved image_mode + its derived
+    capture_depth / save_encoding alongside the (still-stored) legacy keys."""
+    from modules.config_helpers import get_image_capture_config_from_settings
+
+    cfg = get_image_capture_config_from_settings({})  # defaults: both off
+    assert cfg['image_mode'] == '8bit'
+    assert cfg['capture_depth'] == 8
+    assert cfg['save_encoding'] == '8bit'
+
+    cfg = get_image_capture_config_from_settings(
+        {'use_full_pixel_depth': True, 'false_color_16bit': True}
+    )
+    assert cfg['image_mode'] == '12bit_false_color_rgb'
+    assert cfg['capture_depth'] == 12
+    assert cfg['save_encoding'] == 'rgb'
+    # Legacy keys stay exposed during the transitional window.
+    assert cfg['use_full_pixel_depth'] is True
+    assert cfg['false_color_16bit'] is True
+
+
+# ---------------------------------------------------------------------------
 # Save encoding: 12-bit scaled (MSB-aligned, lossless, recoverable)
 # ---------------------------------------------------------------------------
 

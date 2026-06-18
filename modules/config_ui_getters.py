@@ -16,10 +16,11 @@ import pathlib
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 import modules.config_helpers as config_helpers
+import modules.image_mode as image_mode
+import modules.labware as labware
 from modules.stack_builder import StackBuilder
 from modules.tiling_config import TilingConfig
 from modules.zstack_config import ZStackConfig
-import modules.labware as labware
 
 logger = logging.getLogger('LVP.modules.config_ui_getters')
 
@@ -218,9 +219,16 @@ def get_image_capture_config_from_ui() -> dict:
         'sequenced': microscope_settings.ids['sequenced_image_output_format_spinner'].text,
     }
     use_full_pixel_depth = _app_ctx.ctx.scope_display.use_full_pixel_depth
+    false_color_16bit = _app_ctx.ctx.settings.get('false_color_16bit', False)
+    mode = image_mode.migrate_legacy_settings(use_full_pixel_depth, false_color_16bit)
+    derived = image_mode.resolve_image_mode(mode)
     return {
         'output_format': output_format,
         'use_full_pixel_depth': use_full_pixel_depth,
+        'false_color_16bit': false_color_16bit,
+        'image_mode': mode,
+        'capture_depth': derived['capture_depth'],
+        'save_encoding': derived['save_encoding'],
         'jpg_quality': int(_app_ctx.ctx.settings.get('jpg_quality', 90)),
     }
 
@@ -331,6 +339,7 @@ def create_hyperstacks_if_needed():
     image_capture_config = get_image_capture_config_from_ui()
     if image_capture_config['output_format']['sequenced'] == 'OME-TIFF Hyperstack':
         import threading
+
         from modules.notification_center import notifications
 
         notifications.info(
