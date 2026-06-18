@@ -144,7 +144,7 @@ class CellCount:
 
         if image.dtype != np.uint8:
             if image.dtype == np.uint16:
-                image = image_utils.convert_16bit_to_8bit(image=image)
+                image = image_utils.convert_to_8bit(image, significant_bits=16)
             else:
                 raise NotImplementedError(f'Unable to process image of type {image.dtype}')
 

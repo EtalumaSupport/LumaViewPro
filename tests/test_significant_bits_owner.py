@@ -232,3 +232,34 @@ class TestConverterCollapse:
 
         assert not hasattr(image_utils, '_LUT_12_TO_8')
         assert not hasattr(image_utils, '_LUT_16_TO_8')
+
+
+class TestCellCountConverterRouting:
+    """Cell counting downconverts a 16-bit frame through the one canonical
+    converter (significant_bits=16), not a separate 16->8 entry point."""
+
+    def test_routes_16bit_through_convert_to_8bit(self):
+        from unittest import mock
+
+        from modules.cell_count import CellCount
+
+        class _StopError(Exception):
+            pass
+
+        cc = CellCount()
+        img = np.zeros((16, 16), dtype=np.uint16)
+
+        with (
+            mock.patch('modules.image_utils.convert_16bit_to_8bit') as legacy,
+            mock.patch('modules.image_utils.convert_to_8bit', side_effect=_StopError) as canonical,
+            pytest.raises(_StopError),
+        ):
+            cc.process_image(img, settings={})
+
+        canonical.assert_called_once()
+        args, kwargs = canonical.call_args
+        passed_sig = kwargs.get('significant_bits')
+        if passed_sig is None and len(args) >= 2:
+            passed_sig = args[1]
+        assert passed_sig == 16
+        legacy.assert_not_called()
