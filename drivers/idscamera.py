@@ -45,6 +45,10 @@ class IDSCamera(Camera):
     # consumers (buffer sizing, save-format selection) treat IDS frames as
     # 8-bit from the start.
     native_bit_depth = 8
+    # The sensor's pixel-format node still reads Mono10 / Mono12, so the
+    # format-derived base property would over-report; the delivered payload is
+    # 8-bit after the converter, so pin it.
+    significant_bits = 8
 
     def __init__(self):
 

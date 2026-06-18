@@ -1823,7 +1823,12 @@ class ImagingAPI:
             )
 
         if force_to_8bit and image.dtype != np.uint8:
-            image = image_utils.convert_12bit_to_8bit(image)
+            # A summed capture lives in a 16-bit container; a single frame
+            # carries the camera's native payload depth. Scale to 8-bit against
+            # that depth so a summed 12-bit value never indexes the 12-bit
+            # display table, and a 10-bit frame is not crushed as if 12-bit.
+            significant_bits = 16 if sum_count > 1 else self._driver.significant_bits
+            image = image_utils.convert_to_8bit(image, significant_bits)
 
         return image
 

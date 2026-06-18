@@ -62,15 +62,12 @@ WHITE = {'Mono8': 255, 'Mono10': 1023, 'Mono12': 4095}
 class TestSummedCaptureDepthCeiling:
     """The summed reducer + display downconvert must respect significant bits."""
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason='12-bit summed frame crashes the 12-bit display LUT; flips when the downconvert keys off significant bits',
-    )
     @pytest.mark.parametrize('sum_count', [2, 3, 30])
     def test_summed_12bit_display_no_crash(self, make_scope, sum_count):
         """A summed 12-bit capture forced to 8-bit returns a uint8 array.
 
-        Today combined > 4095 indexes the 4096-entry 12-bit LUT -> IndexError.
+        The summed result exceeds 4095 and rides in a 16-bit container, so the
+        downconvert scales it as 16-bit instead of indexing the 12-bit table.
         """
         scope = make_scope('Mono12')
         img = scope.imaging.get_image(force_to_8bit=True, sum_count=sum_count)
@@ -113,10 +110,6 @@ class TestSummedCaptureDepthCeiling:
 class TestDisplayDownconvertGenericDepth:
     """The 8-bit display mapping must scale by the frame's real significant bits."""
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason='10-bit frame is downconverted as 12-bit (crushed ~4x dark); flips when the downconvert keys off significant bits',
-    )
     def test_10bit_white_maps_to_full_8bit_white(self, make_scope):
         """A full-white 10-bit frame must map to 8-bit 255, not ~63.
 

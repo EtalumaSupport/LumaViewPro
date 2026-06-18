@@ -1,6 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 from abc import ABC, abstractmethod
 import contextlib
+import re
 import threading
 
 import numpy as np
@@ -455,6 +456,24 @@ class Camera(ABC):
             tuple: Format identifier strings supported by the SDK.
         """
         pass
+
+    @property
+    def significant_bits(self) -> int:
+        """Meaningful low bits of a delivered frame (payload, not container).
+
+        Derived from the active pixel format: ``Mono12`` -> 12, ``Mono10`` ->
+        10, ``Mono8`` -> 8 (the leading bit-count in the GenICam format name).
+        Right-aligned, so a value of ``(1 << significant_bits) - 1`` is full
+        scale. Distinct from ``native_bit_depth`` (the container width): a
+        Mono12 frame is significant_bits 12 in a 16-wide container. A summed
+        capture is promoted to a 16-bit container by the imaging layer and is
+        not described by this field. Drivers that deliver a fixed converted
+        depth regardless of the sensor's format -- IDS converts to Mono8 at the
+        SDK boundary, FX2 is Mono8-only -- override with a constant. Falls back
+        to the container width when the format name carries no bit count.
+        """
+        match = re.search(r'(\d+)', self.get_pixel_format() or '')
+        return int(match.group(1)) if match else self.native_bit_depth
 
     @abstractmethod
     def exposure_t(self, exposure_ms: float) -> None:

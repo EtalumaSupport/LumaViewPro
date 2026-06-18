@@ -3810,11 +3810,11 @@ class TestPF5_ImageBufferRetired:
         assert imaging.set_pixel_format('Mono12') is True
         sentinel = np.full((4, 4), 7, dtype=np.uint8)
         monkeypatch.setattr(
-            'modules.image_utils.convert_12bit_to_8bit',
-            lambda image, **kwargs: sentinel,
+            'modules.image_utils.convert_to_8bit',
+            lambda image, *args, **kwargs: sentinel,
         )
         out = imaging.get_image(force_to_8bit=True, timeout_s=2.0)
-        assert out is sentinel, 'get_image must return the convert_12bit_to_8bit result'
+        assert out is sentinel, 'get_image must return the convert_to_8bit result'
 
     def test_get_image_returns_scale_bar_result(self, monkeypatch):
         """The scale-bar step's return value must flow into the returned

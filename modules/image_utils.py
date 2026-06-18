@@ -1,6 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 import datetime
 import enum
+import functools
 import json
 import pathlib
 import xml.etree.ElementTree as ET
@@ -895,6 +896,40 @@ def convert_12bit_to_8bit(image, out=None):
         np.take(_LUT_12_TO_8, image, out=out)
         return out
     return _LUT_12_TO_8[image]
+
+
+@functools.cache
+def _lut_to_8bit(significant_bits: int) -> np.ndarray:
+    """Build (once per depth) a payload-to-8-bit LUT sized to the value range.
+
+    The table spans ``0 .. (1 << significant_bits) - 1`` so every legal payload
+    value indexes in bounds, and full scale maps to 255. Cached: the handful of
+    depths in use (8/10/12/16) each build a single shared table.
+    """
+    max_value = (1 << significant_bits) - 1
+    return np.clip(np.arange(max_value + 1, dtype=np.float64) / max_value * 255, 0, 255).astype(
+        np.uint8
+    )
+
+
+def convert_to_8bit(image, significant_bits: int, out=None):
+    """Downconvert a frame to 8-bit, scaling against its significant bits.
+
+    ``significant_bits`` names the meaningful payload range -- 12 for a Mono12
+    frame, 16 for a frame summed into a 16-bit container -- so the divisor and
+    the LUT span both follow the real depth. This is what keeps a summed 12-bit
+    value (which exceeds 4095) from indexing the 12-bit table out of range, and
+    what maps a 10-bit full-white frame to 255 instead of treating it as 12-bit.
+    Already-8-bit frames pass through. ``out`` reuses a caller buffer to avoid a
+    per-call allocation on the preview path.
+    """
+    if image.dtype == np.uint8:
+        return image
+    lut = _lut_to_8bit(int(significant_bits))
+    if out is not None and out.shape == image.shape and out.dtype == np.uint8:
+        np.take(lut, image, out=out)
+        return out
+    return lut[image]
 
 
 def convert_12bit_to_16bit(image, out=None):

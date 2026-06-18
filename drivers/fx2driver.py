@@ -1164,6 +1164,7 @@ class FX2Camera(Camera):
     # default so capability consumers (buffer sizing, save-format selection)
     # treat FX2 frames as 8-bit from the start, matching IDSCamera.
     native_bit_depth = 8
+    significant_bits = 8
 
     # How often to log streaming stats (seconds). Set to 0 to disable.
     STATS_LOG_INTERVAL = 10.0
