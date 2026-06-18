@@ -28,12 +28,6 @@ import pytest
 import tifffile as tf
 
 
-SAVE_ENCODING_PENDING = (
-    'write_tiff save_encoding parameter not yet implemented; flips green when '
-    'the save path is rewired off use_false_color_16bit.'
-)
-
-
 def _metadata(path, channel='Blue', significant_bits=None):
     """Minimal metadata dict matching write_tiff's generate_tiff_data."""
     meta = {
@@ -103,11 +97,13 @@ def test_migrate_legacy_settings(use_full_pixel_depth, false_color_16bit, expect
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason=SAVE_ENCODING_PENDING)
 def test_save_encoding_scaled_is_msb_aligned_and_recoverable(tmp_path):
     """12bit_scaled left-justifies 0..4095 to 0..65520 (x16) so dumb viewers
-    render it bright, while SignificantBits=12 lets a smart reader recover the
-    true value. The multiply is lossless: 4095*16 = 65520 < 65536, no clip."""
+    render it bright, and the shift is exactly recoverable by >>4. The data now
+    fills the 16-bit container and makes no narrower significant-bits claim, so
+    our own read-back reports container width (16) and scales it bright -- not
+    12, which would mis-scale left-justified data."""
+    import modules.image_utils as image_utils
     from modules.image_utils import write_tiff
 
     out_path = tmp_path / 'scaled.tiff'
@@ -122,18 +118,15 @@ def test_save_encoding_scaled_is_msb_aligned_and_recoverable(tmp_path):
         save_encoding='msb_aligned',
     )
 
-    with tf.TiffFile(str(out_path)) as t:
-        page = t.pages[0]
-        arr = page.asarray()
-        sig = page.tags.get('SignificantBits') or page.tags.get('SampleFormat')
-
+    arr = tf.imread(str(out_path))
     assert arr.dtype == np.uint16
     assert arr[0, 0] == 65520, 'full-scale 12-bit must left-justify to 65520 (4095 x 16)'
     assert (arr >> 4 == 4095).all(), 'x16 must be exactly recoverable by >>4'
-    assert sig is not None and sig.value == 12, 'SignificantBits tag must carry 12'
+    assert image_utils.read_tiff_significant_bits(out_path) == 16, (
+        'left-justified data fills the container; read-back must report 16, not 12'
+    )
 
 
-@pytest.mark.xfail(strict=True, reason=SAVE_ENCODING_PENDING)
 def test_save_encoding_right_aligned_is_raw(tmp_path):
     """12bit_scientific stores the raw right-aligned value with SignificantBits=12
     -- correct quantitative data, the current default behavior under the new
@@ -162,7 +155,6 @@ def test_save_encoding_right_aligned_is_raw(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason=SAVE_ENCODING_PENDING)
 def test_save_encoding_rgb_widens_fluorescence(tmp_path):
     """rgb encoding bakes the layer color into 3-channel RGB for a
     fluorescence layer. Blue lands at index 2, value preserved, others zero."""
@@ -185,7 +177,6 @@ def test_save_encoding_rgb_widens_fluorescence(tmp_path):
     assert result[0, 0, 2] == 42000 and result[0, 0, 0] == 0 and result[0, 0, 1] == 0
 
 
-@pytest.mark.xfail(strict=True, reason=SAVE_ENCODING_PENDING)
 def test_save_encoding_rgb_keeps_transmitted_mono(tmp_path):
     """The per-layer color gate survives the rewire: rgb encoding does NOT
     force color onto a transmitted (BF) layer -- it stays 2D mono. This is the

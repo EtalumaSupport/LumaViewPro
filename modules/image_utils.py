@@ -13,6 +13,7 @@ import tifffile as tf
 
 from modules.common_utils import ColorChannel
 import modules.common_utils as common_utils
+import modules.image_mode as image_mode
 import modules.image_utils as image_utils
 
 from fractions import Fraction
@@ -1106,6 +1107,7 @@ def write_tiff(
     video_frame: bool = False,
     extratags: list | None = None,
     use_false_color_16bit: bool | None = None,
+    save_encoding: str | None = None,
     false_color_buf: np.ndarray | None = None,
     rgb_buf: np.ndarray | None = None,
     hyperstack_metadata: dict | None = None,
@@ -1167,12 +1169,36 @@ def write_tiff(
     if extratags is None:
         extratags = []
 
+    # save_encoding (the consolidated image_mode output) supersedes the legacy
+    # use_false_color_16bit flag: 'rgb' widens to false color, 'msb_aligned'
+    # left-justifies a narrow payload, right_aligned/8bit store as-is. The flag
+    # stays the fallback until every caller passes save_encoding.
+    if save_encoding is not None:
+        use_false_color_16bit = save_encoding == image_mode.SAVE_ENCODING_RGB
+
     data = maybe_apply_false_color(
         data=data,
         color=color,
         use_false_color_16bit=use_false_color_16bit,
         output_buf=false_color_buf,
     )
+
+    if (
+        save_encoding == image_mode.SAVE_ENCODING_MSB_ALIGNED
+        and data.dtype == np.uint16
+        and not is_color_image(data)
+    ):
+        # Left-justify a right-aligned N-bit payload into the 16-bit container so
+        # viewers that ignore the significant-bits metadata render it bright. The
+        # shift is lossless (a right-aligned payload has zero top bits) and
+        # reversible. The stored values then fill the container, so the file
+        # makes no narrower significant-bits claim -- container-width read-back
+        # is the correct scale, keeping our own read path self-consistent.
+        sig = metadata.get('significant_bits') or data.itemsize * 8
+        shift = data.itemsize * 8 - sig
+        if shift > 0:
+            data = data << shift
+            metadata = {**metadata, 'significant_bits': data.itemsize * 8}
 
     kwargs = {}
     # Enable BigTIFF for datasets >3.8 GB to prevent silent corruption at 4 GB boundary
