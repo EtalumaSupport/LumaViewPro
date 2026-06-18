@@ -28,16 +28,9 @@ import pytest
 import tifffile as tf
 
 
-RESOLVER_PENDING = (
-    'modules.image_mode resolver not yet implemented; flips green when the derivation layer lands.'
-)
 SAVE_ENCODING_PENDING = (
     'write_tiff save_encoding parameter not yet implemented; flips green when '
     'the save path is rewired off use_false_color_16bit.'
-)
-VIDEO_FIX_PENDING = (
-    '12-bit video frames do not yet honor false color in the manual-record '
-    'caller; flips green when the dtype gate is removed.'
 )
 
 
@@ -65,7 +58,6 @@ def _metadata(path, channel='Blue', significant_bits=None):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason=RESOLVER_PENDING)
 @pytest.mark.parametrize(
     ('mode', 'capture_depth', 'save_encoding'),
     [
@@ -89,7 +81,6 @@ def test_resolve_image_mode(mode, capture_depth, save_encoding):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason=RESOLVER_PENDING)
 @pytest.mark.parametrize(
     ('use_full_pixel_depth', 'false_color_16bit', 'expected_mode'),
     [
