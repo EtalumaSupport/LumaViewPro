@@ -587,8 +587,19 @@ def save_image(
             # color baking, and metadata are format-specific: JPG is an
             # 8-bit rendered display image, TIFF / OME-TIFF carry the
             # 16-bit data + metadata.
+            # The JPG branch skips prepare_image_for_saving, so resolve the
+            # payload depth here the same way it does: caller-stated, else 8 for
+            # an already-8-bit array, else the camera's current payload depth.
+            jpg_significant_bits = significant_bits
+            if jpg_significant_bits is None:
+                jpg_significant_bits = (
+                    8 if array.dtype == np.uint8 else scope.imaging.significant_bits
+                )
             jpg_bytes = image_utils.encode_display_jpg(
-                _apply_save_orientation(array), color, jpeg_quality=jpeg_quality
+                _apply_save_orientation(array),
+                color,
+                significant_bits=jpg_significant_bits,
+                jpeg_quality=jpeg_quality,
             )
             pathlib.Path(file_loc).write_bytes(jpg_bytes)
         else:

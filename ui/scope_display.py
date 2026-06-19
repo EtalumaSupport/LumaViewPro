@@ -887,8 +887,8 @@ class ScopeDisplay(Image):
         self._count_display_fps()
         # _schedule_next retired; ScopeDisplayThread loop owns pacing.
 
-    def hold_protocol_saved_image(self, image):
-        """DISPLAY-1: show the most-recent protocol-saved image and hold it.
+    def hold_protocol_saved_image(self, image, significant_bits):
+        """Show the most-recent protocol-saved image and hold it.
 
         Called from the protocol-image-writer thread immediately after a
         step finishes capturing. Pushes the captured frame to the
@@ -901,10 +901,13 @@ class ScopeDisplay(Image):
         frame.
 
         Args:
-            image: numpy.ndarray, the captured frame in either 8-bit or
-                12-bit grayscale (matching what was saved). The display
-                is luminance-only; if the array is wider than 8 bits,
-                we convert with the same LUT the live path uses.
+            image: numpy.ndarray, the captured frame in 8-bit or wider
+                grayscale (matching what was saved). The display is
+                luminance-only; if the array is wider than 8 bits, we
+                convert with the same LUT the live path uses.
+            significant_bits: Payload depth of ``image`` so the downconvert
+                scales against the real range (a summed 16-bit frame is not
+                indexed as 12-bit out of range).
         """
         if image is None or getattr(image, 'size', 0) == 0:
             return
@@ -914,7 +917,7 @@ class ScopeDisplay(Image):
 
             arr = image
             if arr.dtype != np.uint8:
-                arr = _image_utils.convert_12bit_to_8bit(arr)
+                arr = _image_utils.convert_to_8bit(arr, significant_bits)
             shape = arr.shape
             data = arr.tobytes()
             gen = self._current_generation()

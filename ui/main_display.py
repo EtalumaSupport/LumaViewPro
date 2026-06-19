@@ -1009,7 +1009,9 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         if force_to_8bit and image.dtype != np.uint8:
             if self._record_convert_buf is None or self._record_convert_buf.shape != image.shape:
                 self._record_convert_buf = np.empty(image.shape, dtype=np.uint8)
-            image = image_utils.convert_12bit_to_8bit(image, out=self._record_convert_buf)
+            image = image_utils.convert_to_8bit(
+                image, self._record_capture_depth, out=self._record_convert_buf
+            )
         elif image.dtype == np.uint16:
             if (
                 self._record_convert_buf is None
@@ -1017,7 +1019,9 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
                 or self._record_convert_buf.dtype != np.uint16
             ):
                 self._record_convert_buf = np.empty(image.shape, dtype=np.uint16)
-            image = image_utils.convert_12bit_to_16bit(image, out=self._record_convert_buf)
+            image = image_utils.convert_to_16bit(
+                image, self._record_capture_depth, out=self._record_convert_buf
+            )
 
         # 8-bit frames bake false color into the memmap here -- the MP4 encoder
         # consumes the memmap directly and the video_frame TIFF write has no

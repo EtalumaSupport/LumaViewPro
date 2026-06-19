@@ -403,6 +403,64 @@ class TestConverterCollapse:
         assert not hasattr(image_utils, '_LUT_16_TO_8')
 
 
+class TestConvertTo16BitDepthAware:
+    """The MSB-align-to-16 converter follows the payload depth: a 12-bit frame
+    left-justifies, a summed 16-bit frame is left untouched (a fixed *16 would
+    overflow it)."""
+
+    def test_12bit_left_justifies(self):
+        from modules import image_utils
+
+        src = np.arange(4096, dtype=np.uint16).reshape(64, 64)
+        out = image_utils.convert_to_16bit(src, 12)
+        assert np.array_equal(out, src << 4)
+
+    def test_wrapper_matches_canonical_at_12(self):
+        from modules import image_utils
+
+        src = np.arange(4096, dtype=np.uint16).reshape(64, 64)
+        assert np.array_equal(
+            image_utils.convert_12bit_to_16bit(src),
+            image_utils.convert_to_16bit(src, 12),
+        )
+
+    def test_summed_16bit_not_overflowed(self):
+        from modules import image_utils
+
+        # Values that already use most of the 16-bit range. A fixed *16 (<<4)
+        # would wrap these; the depth-aware converter must leave a full-depth
+        # frame untouched.
+        src = np.full((16, 16), 60000, dtype=np.uint16)
+        out = image_utils.convert_to_16bit(src, 16)
+        assert np.array_equal(out, src)
+
+
+class TestEncodeDisplayJpgDepth:
+    """The JPEG export scales by the stated payload depth, so a summed 16-bit
+    frame is not indexed against the 12-bit table."""
+
+    def test_summed_16bit_frame_encodes_bright(self):
+        import cv2
+
+        from modules import image_utils
+
+        frame = np.zeros((32, 32), dtype=np.uint16)
+        frame[8:24, 8:24] = 60000  # near full 16-bit white
+        jpg = image_utils.encode_display_jpg(frame, 'BF', significant_bits=16)
+        bgr = cv2.imdecode(np.frombuffer(jpg, np.uint8), cv2.IMREAD_COLOR)
+        assert bgr[8:24, 8:24].mean() > 180  # bright, correctly scaled
+
+    def test_wrong_depth_on_summed_frame_is_loud(self):
+        from modules import image_utils
+
+        # The pre-fix hardcoded-12 path indexed a 4096-entry table with a
+        # summed value > 4095 -- an out-of-range crash, not a silent wrong
+        # image. Pinning it documents why the depth must be stated correctly.
+        frame = np.full((8, 8), 60000, dtype=np.uint16)
+        with pytest.raises(IndexError):
+            image_utils.encode_display_jpg(frame, 'BF', significant_bits=12)
+
+
 class TestCellCountConverterRouting:
     """Cell counting downconverts a 16-bit frame through the one canonical
     converter (significant_bits=16), not a separate 16->8 entry point."""

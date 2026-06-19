@@ -926,7 +926,7 @@ def encode_image(image: np.ndarray, fmt: str = 'png', jpeg_quality: int = 80) ->
     return buf.tobytes()
 
 
-def encode_display_jpg(array, color, jpeg_quality: int = 90) -> bytes:
+def encode_display_jpg(array, color, significant_bits: int, jpeg_quality: int = 90) -> bytes:
     """Encode an image to JPEG bytes the way it appears on screen.
 
     JPEG is 8-bit and cannot carry the mono-pixels-plus-color-metadata
@@ -940,12 +940,15 @@ def encode_display_jpg(array, color, jpeg_quality: int = 90) -> bytes:
     Args:
         array: Source image (2D mono, 8/12/16-bit) for one channel.
         color: Channel color label (BF, Blue, Green, Red, Lumi, ...).
+        significant_bits: Payload depth of ``array`` so the 8-bit downconvert
+            scales against the real range -- a summed 16-bit frame is not
+            indexed as 12-bit (out of range) and a 10-bit frame is not crushed.
         jpeg_quality: JPEG quality, 1-100.
 
     Returns:
         bytes: JPEG-encoded image.
     """
-    img8 = convert_12bit_to_8bit(array)
+    img8 = convert_to_8bit(array, significant_bits)
     if img8.ndim == 3:
         # Already a display RGB image (e.g. a crosshairs / bullseye
         # overlay). These share the false-color RGB convention, so take
@@ -1002,19 +1005,34 @@ def convert_to_8bit(image, significant_bits: int, out=None):
     return lut[image]
 
 
-def convert_12bit_to_16bit(image, out=None):
-    if image.dtype == 'uint8':
-        return image
+def convert_to_16bit(image, significant_bits: int, out=None):
+    """MSB-align a narrow uint16 payload to fill the 16-bit container.
 
-    # PIW-5: caller-supplied out buffer eliminates the per-save image.copy() (~24 MB).
-    # Mismatched shape/dtype falls back to fresh allocation rather than failing.
+    Left-justifies an N-bit right-aligned payload by ``16 - significant_bits``
+    bits so the stored values span the full container and a viewer that ignores
+    significant-bits metadata renders it at the right scale. The shift is
+    lossless (a right-aligned payload has zero top bits) and skips entirely for
+    an already-full 16-bit payload, so a summed frame is never overflowed (a
+    fixed ``* 16`` would wrap a 16-bit value). 8-bit input passes through.
+    ``out`` reuses a caller buffer to avoid a per-save allocation (~24 MB);
+    a mismatched-shape/dtype buffer falls back to a fresh allocation.
+    """
+    if image.dtype == np.uint8:
+        return image
+    shift = 16 - int(significant_bits)
     if out is not None and out.shape == image.shape and out.dtype == image.dtype:
         np.copyto(out, image)
         new_image = out
     else:
         new_image = image.copy()
-    new_image *= 16
+    if shift > 0:
+        new_image <<= shift
     return new_image
+
+
+def convert_12bit_to_16bit(image, out=None):
+    """MSB-align a 12-bit payload into the 16-bit container via the canonical converter."""
+    return convert_to_16bit(image, 12, out=out)
 
 
 def convert_16bit_to_8bit(image):

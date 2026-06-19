@@ -62,9 +62,12 @@ def test_add_false_color_falls_back_on_dtype_mismatch():
 
 def test_record_helper_threads_scratch_buffers():
     # Structural lock: record_helper must pass MainDisplay-owned scratch
-    # buffers through to the depth convert and the false-color widening.
-    # MainDisplay needs a full scope to instantiate, so assert on source.
+    # buffers AND the snapshotted capture depth through to the canonical depth
+    # converters and the false-color widening. MainDisplay needs a full scope
+    # to instantiate, so assert on source.
     src = (REPO / 'ui' / 'main_display.py').read_text()
-    assert 'convert_12bit_to_8bit(image, out=self._record_convert_buf)' in src
-    assert 'convert_12bit_to_16bit(image, out=self._record_convert_buf)' in src
+    assert 'convert_to_8bit(' in src
+    assert 'convert_to_16bit(' in src
+    assert src.count('out=self._record_convert_buf') == 2
+    assert 'self._record_capture_depth' in src
     assert 'output=self._record_color_buf' in src

@@ -1848,7 +1848,7 @@ class ImagingAPI:
         Copy budget (per frame):
           - grab_latest(): 0 copies (returns reference from ImageHandler)
           - add_scale_bar(): 0 copies (modifies array in-place)
-          - convert_12bit_to_8bit(): 1 copy (LUT indexing creates new array),
+          - convert_to_8bit(): 1 copy (LUT indexing creates new array),
             or 0 fresh allocations when the caller supplies out_8bit.
           - Total: 0 copies (8-bit) or 1 copy (12-bit with force_to_8bit)
           The caller adds 1 more copy via tobytes() for GPU blit.
@@ -1904,7 +1904,7 @@ class ImagingAPI:
             )
 
         if force_to_8bit and tmp.dtype != np.uint8:
-            tmp = image_utils.convert_12bit_to_8bit(tmp, out=out_8bit)
+            tmp = image_utils.convert_to_8bit(tmp, self._driver.significant_bits, out=out_8bit)
 
         return tmp, grab_image_ts
 

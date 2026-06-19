@@ -483,19 +483,28 @@ class ProtocolImageWriter:
                         f'Protocol Image Captured: {name} {self._capture_evidence(captured_image)}'
                     )
 
-                    # DISPLAY-1: hold the captured image on screen for at
-                    # least 500 ms so the user can see the saved frame
-                    # before the live preview overwrites it. NOT a delay --
-                    # the next protocol save bumps the hold deadline
-                    # forward, so display tracks the most-recent saved
-                    # frame in real time. Best-effort; missing scope_display
-                    # (early init / standalone tools) is fine.
+                    # Hold the captured image on screen for at least 500 ms so
+                    # the user can see the saved frame before the live preview
+                    # overwrites it. NOT a delay -- the next protocol save bumps
+                    # the hold deadline forward, so display tracks the
+                    # most-recent saved frame in real time. Best-effort; missing
+                    # scope_display (early init / standalone tools) is fine.
+                    # Depth travels with the frame so the hold-display downconvert
+                    # scales against the real range (summed -> 16-bit).
+                    if captured_image.dtype == np.uint8:
+                        hold_significant_bits = 8
+                    elif sum_count > 1:
+                        hold_significant_bits = 16
+                    else:
+                        hold_significant_bits = self._scope.imaging.significant_bits
                     try:
                         import modules.app_context as _app_ctx
 
                         ctx = _app_ctx.ctx
                         if ctx is not None and getattr(ctx, 'scope_display', None) is not None:
-                            ctx.scope_display.hold_protocol_saved_image(captured_image)
+                            ctx.scope_display.hold_protocol_saved_image(
+                                captured_image, hold_significant_bits
+                            )
                     except Exception as _e:
                         logger.debug(f'[PROTOCOL] hold_protocol_saved_image failed: {_e}')
 
