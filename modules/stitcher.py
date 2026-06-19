@@ -110,9 +110,23 @@ class Stitcher(ProtocolPostProcessor):
         except Exception:
             pixel_size_um = None
 
+        stitch_columns = [
+            col
+            for col in [
+                'Filepath',
+                'X',
+                'Y',
+                'Objective',
+                'Color',
+                'Well',
+                'Tile Group ID',
+            ]
+            if col in df.columns
+        ]
+
         return channel_aware_stitcher(
             path=path,
-            df=df[['Filepath', 'X', 'Y', 'Objective', 'Color']],
+            df=df[stitch_columns],
             pixel_size_um=pixel_size_um,
             output_file_loc=kwargs.get('output_file_loc'),
         )

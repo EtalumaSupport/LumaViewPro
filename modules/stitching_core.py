@@ -9,6 +9,7 @@ float32 average-blend behavior is shared by all callers.
 
 import logging
 import pathlib
+import time
 from collections.abc import Callable
 
 import cv2
@@ -52,6 +53,7 @@ def _write_output(
     if output_file_loc is None:
         return image
 
+    t0 = time.perf_counter()
     output_file_loc_abs = path / output_file_loc
     output_file_loc_abs.parent.mkdir(parents=True, exist_ok=True)
     metadata = image_utils.build_postproc_output_metadata(
@@ -65,6 +67,13 @@ def _write_output(
         metadata=metadata,
         ome=False,
         color=color,
+    )
+    logger.info(
+        '[StitchPerf] write output %.1fms file=%s shape=%s dtype=%s',
+        (time.perf_counter() - t0) * 1000.0,
+        output_file_loc,
+        getattr(image, 'shape', ''),
+        getattr(image, 'dtype', ''),
     )
     return None
 
@@ -121,8 +130,20 @@ def _run_fallback_chain(
     context = context or {}
 
     for algorithm, runner in chain:
+        t0 = time.perf_counter()
         result = runner()
+        elapsed_ms = (time.perf_counter() - t0) * 1000.0
         last_result = result
+        logger.info(
+            '[StitchPerf] algorithm %s finished in %.1fms status=%s '
+            'well=%s color=%s tile_group=%s',
+            algorithm,
+            elapsed_ms,
+            bool(result.get('status')),
+            context.get('well', ''),
+            context.get('color', ''),
+            context.get('tile_group_id', ''),
+        )
         if bool(result.get('status')):
             metadata = result.setdefault('metadata', {})
             metadata.setdefault('algorithm', algorithm)
@@ -187,15 +208,28 @@ def bf_feature_stitcher(
     """Use OpenCV feature stitching for brightfield groups."""
     center = _center_metadata(df)
     try:
+        read_t0 = time.perf_counter()
         feature_images = [
             _to_uint8_bgr_for_feature_stitch(_read_tile(path, row['Filepath']))
             for _, row in df.iterrows()
         ]
+        logger.info(
+            '[StitchPerf] bf_feature read+convert %.1fms tiles=%d',
+            (time.perf_counter() - read_t0) * 1000.0,
+            len(feature_images),
+        )
         stitched_img = feature_stitch(feature_images)
         if stitched_img is None:
             return _failure('bf_feature_stitcher', 'BF feature stitching failed', center)
+        crop_t0 = time.perf_counter()
         stitched_img = crop_to_content(stitched_img)
         stitched_img = cv2.cvtColor(stitched_img, cv2.COLOR_BGR2RGB)
+        logger.info(
+            '[StitchPerf] bf_feature crop+convert %.1fms output_shape=%s dtype=%s',
+            (time.perf_counter() - crop_t0) * 1000.0,
+            stitched_img.shape,
+            stitched_img.dtype,
+        )
     except Exception as exc:
         return _failure(
             'bf_feature_stitcher',
@@ -228,10 +262,18 @@ def overlap_stitcher(
         frame['X'] = frame['X'].astype(float)
         frame['Y'] = frame['Y'].astype(float)
 
+        read_t0 = time.perf_counter()
         images = {
             row['Filepath']: _read_tile(path, row['Filepath'])
             for _, row in frame.iterrows()
         }
+        tile_bytes = sum(int(image.nbytes) for image in images.values())
+        logger.info(
+            '[StitchPerf] overlap read %.1fms tiles=%d bytes=%d',
+            (time.perf_counter() - read_t0) * 1000.0,
+            len(images),
+            tile_bytes,
+        )
         sample_row = frame.iloc[0]
         sample = images[sample_row['Filepath']]
         image_h = sample.shape[0]
@@ -255,7 +297,14 @@ def overlap_stitcher(
             }
             for _, row in frame.iterrows()
         ]
+        stitch_t0 = time.perf_counter()
         stitched_img, registered_tiles = stitch_registered_tiles(tiles)
+        logger.info(
+            '[StitchPerf] overlap register+blend %.1fms output_shape=%s dtype=%s',
+            (time.perf_counter() - stitch_t0) * 1000.0,
+            stitched_img.shape,
+            stitched_img.dtype,
+        )
     except Exception as exc:
         return _failure(
             'overlap_stitcher',
@@ -292,10 +341,18 @@ def stage_position_stitcher(
         frame = df.copy()
         frame['X'] = frame['X'].astype(float)
         frame['Y'] = frame['Y'].astype(float)
+        read_t0 = time.perf_counter()
         images = {
             row['Filepath']: _read_tile(path, row['Filepath'])
             for _, row in frame.iterrows()
         }
+        tile_bytes = sum(int(image.nbytes) for image in images.values())
+        logger.info(
+            '[StitchPerf] stage-position read %.1fms tiles=%d bytes=%d',
+            (time.perf_counter() - read_t0) * 1000.0,
+            len(images),
+            tile_bytes,
+        )
         sample = images[frame.iloc[0]['Filepath']]
         image_h = sample.shape[0]
         image_w = sample.shape[1]
@@ -317,6 +374,7 @@ def stage_position_stitcher(
         else:
             stitched_img = np.zeros((max_y - min_y, max_x - min_x), dtype=sample.dtype)
 
+        place_t0 = time.perf_counter()
         placements = []
         for _, row in frame.iterrows():
             image = images[row['Filepath']]
@@ -337,6 +395,12 @@ def stage_position_stitcher(
                     'height_px': image.shape[0],
                 }
             )
+        logger.info(
+            '[StitchPerf] stage-position place %.1fms output_shape=%s dtype=%s',
+            (time.perf_counter() - place_t0) * 1000.0,
+            stitched_img.shape,
+            stitched_img.dtype,
+        )
     except Exception as exc:
         return _failure(
             'stage_position_stitcher',
@@ -397,8 +461,13 @@ def simple_position_stitcher(
         else:
             stitched_img = np.zeros((stitched_im_y, stitched_im_x), dtype=sample.dtype)
 
+        place_t0 = time.perf_counter()
+        tile_count = 0
+        tile_bytes = 0
         for _, row in frame.iterrows():
             image = _read_tile(path, row['Filepath'])
+            tile_count += 1
+            tile_bytes += int(image.nbytes)
             im_x = image.shape[1]
             im_y = image.shape[0]
             x_val = row['x_pix_range']
@@ -426,6 +495,15 @@ def simple_position_stitcher(
                         stitched_img[y_val : y_val + im_y, x_val : x_val + im_x, :] = image
                     else:
                         stitched_img[y_val : y_val + im_y, x_val : x_val + im_x] = image
+        logger.info(
+            '[StitchPerf] simple-grid read+place %.1fms tiles=%d bytes=%d '
+            'output_shape=%s dtype=%s',
+            (time.perf_counter() - place_t0) * 1000.0,
+            tile_count,
+            tile_bytes,
+            stitched_img.shape,
+            stitched_img.dtype,
+        )
     except Exception as exc:
         return _failure(
             'simple_position_stitcher',

@@ -14,6 +14,7 @@ lens distortion and illumination variation.
 """
 
 from collections import deque
+import time
 
 import cv2
 import numpy as np
@@ -116,20 +117,30 @@ def feature_stitch(images, n_results=N_RESULTS):
 
     stitcher = cv2.Stitcher_create(mode=cv2.STITCHER_SCANS)
     results = []
+    total_attempts = 0
+    t0 = time.perf_counter()
 
     for _ in range(n_results):
         tries = 0
         while tries < MAX_TRIES:
             tries += 1
+            total_attempts += 1
             error, stitched_img = stitcher.stitch(images)
             if error == cv2.Stitcher_OK:
                 results.append(stitched_img)
                 break
+    elapsed_ms = (time.perf_counter() - t0) * 1000.0
 
     if not results:
         logger.warning(
             '[Stitch] Feature stitching failed -- insufficient '
             'matching keypoints or no overlap detected'
+        )
+        logger.info(
+            '[StitchPerf] feature_stitch %.1fms attempts=%d successes=0 tiles=%d',
+            elapsed_ms,
+            total_attempts,
+            len(images),
         )
         return None
 
@@ -138,6 +149,16 @@ def feature_stitch(images, n_results=N_RESULTS):
     best = results[np.argmax(im_total_luminance)]
     logger.info(
         f'[Stitch] Feature stitch succeeded -- {len(results)}/{n_results} attempts produced results'
+    )
+    logger.info(
+        '[StitchPerf] feature_stitch %.1fms attempts=%d successes=%d '
+        'tiles=%d best_shape=%s dtype=%s',
+        elapsed_ms,
+        total_attempts,
+        len(results),
+        len(images),
+        best.shape,
+        best.dtype,
     )
     return best
 
@@ -328,6 +349,8 @@ def align_tile_positions(
     # estimate_overlap_offset / _overlap_views handle the negative nominal
     # displacement of left/up edges symmetrically.
     queue: deque[int] = deque([anchor])
+    registration_times_ms = []
+    registration_scores = []
     while queue:
         idx = queue.popleft()
         base_dx, base_dy = offsets[idx]
@@ -350,6 +373,7 @@ def align_tile_positions(
             nidx = by_position.get((nx, ny))
             if nidx is None or nidx in offsets:
                 continue
+            edge_t0 = time.perf_counter()
             corr_x, corr_y, score = estimate_overlap_offset(
                 reference=tiles[idx]['tile'],
                 moving=tiles[nidx]['tile'],
@@ -358,6 +382,21 @@ def align_tile_positions(
                 max_correction_px=max_correction_px,
                 min_overlap_px=min_overlap_px,
             )
+            edge_ms = (time.perf_counter() - edge_t0) * 1000.0
+            registration_times_ms.append(edge_ms)
+            registration_scores.append(score)
+            if edge_ms >= 1000.0:
+                logger.warning(
+                    '[StitchPerf] slow registration edge %.1fms from=(%s,%s) '
+                    'to=(%s,%s) score=%.4f max_correction_px=%d',
+                    edge_ms,
+                    x,
+                    y,
+                    nx,
+                    ny,
+                    score,
+                    max_correction_px,
+                )
             offsets[nidx] = (base_dx + corr_x, base_dy + corr_y)
             corrected[nidx]['registration_score'] = score
             queue.append(nidx)
@@ -378,6 +417,20 @@ def align_tile_positions(
         tile['registered_x_px'] = int(tile['x_px']) + corr_x
         tile['registered_y_px'] = int(tile['y_px']) + corr_y
 
+    if registration_times_ms:
+        logger.info(
+            '[StitchPerf] align_tile_positions edges=%d total=%.1fms '
+            'avg=%.1fms max=%.1fms score_min=%.4f score_avg=%.4f '
+            'max_correction_px=%d',
+            len(registration_times_ms),
+            sum(registration_times_ms),
+            sum(registration_times_ms) / len(registration_times_ms),
+            max(registration_times_ms),
+            min(registration_scores),
+            sum(registration_scores) / len(registration_scores),
+            max_correction_px,
+        )
+
     return corrected
 
 
@@ -391,11 +444,13 @@ def stitch_registered_tiles(
     if not tiles:
         raise ValueError('Need at least one tile to stitch')
 
+    register_t0 = time.perf_counter()
     registered = align_tile_positions(
         tiles=tiles,
         max_correction_px=max_correction_px,
         min_overlap_px=min_overlap_px,
     )
+    register_ms = (time.perf_counter() - register_t0) * 1000.0
 
     sample = registered[0]['tile']
     tile_h, tile_w = sample.shape[:2]
@@ -428,9 +483,21 @@ def stitch_registered_tiles(
     # pixels over the handful of tiles overlapping any pixel stay well inside
     # float32's exact-integer range (2**24), so the averaged result is
     # byte-identical to float64 at half the memory.
+    alloc_t0 = time.perf_counter()
     accumulator = np.zeros(acc_shape, dtype=np.float32)
     weights = np.zeros(weight_shape, dtype=np.float32)
+    alloc_ms = (time.perf_counter() - alloc_t0) * 1000.0
+    logger.info(
+        '[StitchPerf] blend allocation %.1fms acc_shape=%s weight_shape=%s '
+        'working_bytes=%d sample_dtype=%s',
+        alloc_ms,
+        acc_shape,
+        weight_shape,
+        int(accumulator.nbytes + weights.nbytes),
+        sample.dtype,
+    )
 
+    blend_t0 = time.perf_counter()
     for tile in registered:
         image = tile['tile']
         x0 = int(tile['registered_x_px']) - min_x
@@ -464,4 +531,16 @@ def stitch_registered_tiles(
         info = np.iinfo(sample.dtype)
         np.clip(accumulator, info.min, info.max, out=accumulator)
 
-    return accumulator.astype(sample.dtype), registered
+    output = accumulator.astype(sample.dtype)
+    blend_ms = (time.perf_counter() - blend_t0) * 1000.0
+    logger.info(
+        '[StitchPerf] stitch_registered_tiles register=%.1fms alloc=%.1fms '
+        'blend=%.1fms tiles=%d output_shape=%s output_dtype=%s',
+        register_ms,
+        alloc_ms,
+        blend_ms,
+        len(tiles),
+        output.shape,
+        output.dtype,
+    )
+    return output, registered
