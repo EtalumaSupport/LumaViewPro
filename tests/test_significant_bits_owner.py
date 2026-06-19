@@ -341,11 +341,13 @@ class TestWriteTiffDepthRequired:
     silently labeling a narrow payload as full container width."""
 
     def test_depth_less_write_raises(self, tmp_path):
-        """write_tiff without significant_bits raises, not defaults to 16."""
+        """write_tiff without significant_bits is a missing-argument error, not
+        a default to 16. significant_bits is a required positional argument so
+        a depth-less write cannot be expressed."""
         from modules import image_utils
 
         arr = np.full((8, 8), 4095, dtype=np.uint16)
-        with pytest.raises(ValueError, match='significant_bits'):
+        with pytest.raises(TypeError, match='significant_bits'):
             image_utils.write_tiff(
                 data=arr,
                 file_loc=tmp_path / 'frame.tif',

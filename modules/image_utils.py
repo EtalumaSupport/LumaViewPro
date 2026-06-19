@@ -704,8 +704,9 @@ def read_hyperstack_private_metadata(path: pathlib.Path) -> dict | None:
         path: Hyperstack TIFF file path.
 
     Returns:
-        Parsed metadata dict matching what was passed to write_tiff's
-        ``hyperstack_metadata`` parameter at write time. Returns None
+        Parsed metadata dict matching what was passed to
+        write_hyperstack_tiff's ``hyperstack_metadata`` parameter at
+        write time. Returns None
         if the file has no private tag (third-party hyperstack TIFFs,
         or LVP files written before this tag was introduced), if the
         tag exists but is not valid JSON, or if the file cannot be
@@ -1165,89 +1166,86 @@ def maybe_apply_false_color(
     return data
 
 
+def write_hyperstack_tiff(
+    data,
+    file_loc: pathlib.Path,
+    hyperstack_metadata: dict,
+    hyperstack_options: dict | None = None,
+    hyperstack_resolution: tuple | None = None,
+):
+    """Write a 5D TZCYX hyperstack with caller-prepared OME metadata.
+
+    Separate from write_tiff because this path shares none of the
+    per-image logic: maybe_apply_false_color expects 2D mono input,
+    generate_tiff_data builds per-image metadata, and _validate_type
+    rejects the ome=True + imagej=True combo that hyperstack readers
+    (FIJI, ImageJ) consume together. The caller (stack_builder) supplies
+    the full OME dict + write options + resolution and they pass through
+    verbatim. Keeping these apart lets write_tiff demand significant_bits
+    as a required argument, which this path carries inside its OME dict
+    rather than as a scalar.
+
+    JSON sidecar: tifffile's auto-OME serializer silently drops
+    Instrument / Plate / Objective from the metadata dict. The full dict
+    is serialized into a private TIFF tag so LVP-aware consumers can
+    recover those fields; FIJI / ImageJ ignore the unknown tag.
+    """
+    use_bigtiff = data.nbytes > 3.8 * 1024 * 1024 * 1024
+    write_options = hyperstack_options or {}
+    # Strip rendering-hint keys from the JSON sidecar copy. LUTs +
+    # Channel.Color are encoded into the file's TIFF / OME-XML
+    # sections directly; the sidecar is for LVP-aware consumers
+    # recovering the dropped-by-tifffile OME subtrees (Instrument /
+    # Plate / Objective), not for re-deriving the file's render
+    # hints. Bloats the sidecar by ~3 KB per channel of LUT data
+    # for zero downstream value if left in.
+    sidecar_metadata = {k: v for k, v in hyperstack_metadata.items() if k != 'LUTs'}
+    sidecar_json = json.dumps(sidecar_metadata, default=_json_default_numpy)
+    sidecar_extratag = (
+        LVP_HYPERSTACK_METADATA_TIFF_TAG,
+        's',
+        0,
+        sidecar_json,
+        True,
+    )
+    caller_extratags = list(write_options.pop('extratags', []) or [])
+    caller_extratags.append(sidecar_extratag)
+    with tf.TiffWriter(
+        str(file_loc),
+        ome=True,
+        imagej=True,
+        bigtiff=use_bigtiff,
+    ) as tif:
+        tif.write(
+            data,
+            resolution=hyperstack_resolution,
+            metadata=hyperstack_metadata,
+            software=f'LumaViewPro {version}',
+            extratags=caller_extratags,
+            **write_options,
+        )
+
+
 def write_tiff(
     data,
     file_loc: pathlib.Path,
     metadata: dict,
     ome: bool,
     color: str,
-    significant_bits: int | None = None,
+    significant_bits: int,
     video_frame: bool = False,
     extratags: list | None = None,
     use_false_color_16bit: bool | None = None,
     save_encoding: str | None = None,
     false_color_buf: np.ndarray | None = None,
     rgb_buf: np.ndarray | None = None,
-    hyperstack_metadata: dict | None = None,
-    hyperstack_options: dict | None = None,
-    hyperstack_resolution: tuple | None = None,
 ):
-    if hyperstack_metadata is not None:
-        # Hyperstack TZCYX path: 5D data with caller-prepared OME
-        # metadata (from build_hyperstack_output_metadata) and explicit
-        # per-tiff options. Bypasses the per-image branches below --
-        # maybe_apply_false_color expects 2D mono input, generate_tiff_data
-        # generates per-image metadata, and _validate_type rejects the
-        # ome=True + imagej=True combo that hyperstack readers (FIJI,
-        # ImageJ) consume together. The caller (stack_builder) supplies
-        # the full OME dict + write options + resolution; this branch
-        # passes them through verbatim.
-        #
-        # JSON sidecar: tifffile's auto-OME serializer silently drops
-        # Instrument / Plate / Objective from the metadata dict. The
-        # full dict gets serialized into a private TIFF tag so
-        # LVP-aware consumers can recover those fields; FIJI / ImageJ
-        # ignore the unknown tag.
-        use_bigtiff = data.nbytes > 3.8 * 1024 * 1024 * 1024
-        write_options = hyperstack_options or {}
-        # Strip rendering-hint keys from the JSON sidecar copy. LUTs +
-        # Channel.Color are encoded into the file's TIFF / OME-XML
-        # sections directly; the sidecar is for LVP-aware consumers
-        # recovering the dropped-by-tifffile OME subtrees (Instrument /
-        # Plate / Objective), not for re-deriving the file's render
-        # hints. Bloats the sidecar by ~3 KB per channel of LUT data
-        # for zero downstream value if left in.
-        sidecar_metadata = {k: v for k, v in hyperstack_metadata.items() if k != 'LUTs'}
-        sidecar_json = json.dumps(sidecar_metadata, default=_json_default_numpy)
-        sidecar_extratag = (
-            LVP_HYPERSTACK_METADATA_TIFF_TAG,
-            's',
-            0,
-            sidecar_json,
-            True,
-        )
-        caller_extratags = list(write_options.pop('extratags', []) or [])
-        caller_extratags.append(sidecar_extratag)
-        with tf.TiffWriter(
-            str(file_loc),
-            ome=True,
-            imagej=True,
-            bigtiff=use_bigtiff,
-        ) as tif:
-            tif.write(
-                data,
-                resolution=hyperstack_resolution,
-                metadata=hyperstack_metadata,
-                software=f'LumaViewPro {version}',
-                extratags=caller_extratags,
-                **write_options,
-            )
-        return
-
     # Depth travels with the pixels. A uint16 frame stored right-aligned
     # (0..4095 for a 12-bit sensor) is bit-identical to a dark 16-bit image, so
     # a write that does not state its significant-bit depth cannot label the
     # file correctly -- it silently claims full container width and every
-    # narrow payload reads back ~16x dark. Require the depth here instead of
-    # defaulting to itemsize, which is what made the mislabel silent. The
-    # hyperstack path above carries depth in its caller-built OME and returns
-    # before this point, so it is exempt.
-    if significant_bits is None:
-        raise ValueError(
-            'write_tiff requires significant_bits: the payload depth must be '
-            'stated so a narrow payload is not silently mislabeled as full '
-            'container width.'
-        )
+    # narrow payload reads back ~16x dark. significant_bits is a required
+    # argument so a depth-less write cannot be expressed.
     metadata = {**metadata, 'significant_bits': significant_bits}
 
     if extratags is None:

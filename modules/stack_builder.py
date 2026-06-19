@@ -261,17 +261,13 @@ class StackBuilder(ProtocolPostProcessor):
 
         output_file_loc_abs = path / output_file_loc
         output_file_loc_abs.parent.mkdir(exist_ok=True, parents=True)
-        # Route through write_tiff's hyperstack override hook so the
-        # canonical LVP write path owns the file-creation side of the
-        # save pipeline. metadata / ome / color are unused on this path
-        # (the hyperstack_* kwargs carry the OME-XML + write options);
-        # the placeholder kwargs satisfy the existing signature.
-        image_utils.write_tiff(
+        # Route through the canonical hyperstack write path so LVP owns
+        # the file-creation side of the save pipeline. The caller-built
+        # OME dict carries the per-plane depth, so this path needs no
+        # scalar significant_bits.
+        image_utils.write_hyperstack_tiff(
             data=stacked_image,
             file_loc=output_file_loc_abs,
-            metadata={},
-            ome=True,
-            color='',
             hyperstack_metadata=ome_info['metadata'],
             hyperstack_options=ome_info['options'],
             hyperstack_resolution=ome_info['resolution'],

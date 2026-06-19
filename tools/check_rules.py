@@ -388,6 +388,7 @@ _FALSE_COLOR_HELPER_NAMES = frozenset(
     {
         'maybe_apply_false_color',
         'write_tiff',
+        'write_hyperstack_tiff',
     }
 )
 
