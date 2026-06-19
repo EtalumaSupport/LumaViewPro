@@ -377,3 +377,172 @@ def test_videowriter_colorizes_uint16_frame():
     assert written.shape[-1] == 3, 'uint16 frame must be colorized to 3-channel, not skipped'
     # Green source -> RGB index 1 -> BGR index 1 after the cv2 swap.
     assert written[0, 0, 1] > 0, 'Green channel must carry the colorized value'
+
+
+# ---------------------------------------------------------------------------
+# Video frame TIFF primitive: the write_tiff video_frame branch honors
+# save_encoding (regression guards -- already correct, no marker)
+# ---------------------------------------------------------------------------
+
+
+def test_write_tiff_video_frame_rgb_widens_uint16(tmp_path):
+    """A 12-bit video frame saved with rgb encoding widens to 3-channel RGB --
+    the underlying capability the manual + protocol Frames paths route through."""
+    from modules.image_utils import write_tiff
+
+    out_path = tmp_path / 'frame_rgb.tiff'
+    data = np.full((8, 8), 42000, dtype=np.uint16)
+
+    write_tiff(
+        data=data,
+        file_loc=out_path,
+        metadata=_metadata(out_path, channel='Green'),
+        ome=False,
+        color='Green',
+        video_frame=True,
+        save_encoding='rgb',
+    )
+
+    arr = tf.imread(str(out_path))
+    assert arr.shape == (8, 8, 3)
+    assert arr[0, 0, 1] == 42000 and arr[0, 0, 0] == 0 and arr[0, 0, 2] == 0
+
+
+def test_write_tiff_video_frame_8bit_has_no_palette(tmp_path):
+    """The video_frame TIFF branch emits NO palette colormap, so an 8-bit
+    fluorescence frame saved through it stays mono. This is the constraint that
+    forces write_video_frame to bake 8-bit RGB rather than rely on a colormap."""
+    from modules.image_utils import write_tiff
+
+    out_path = tmp_path / 'frame_8bit.tiff'
+    data = np.full((8, 8), 200, dtype=np.uint8)
+
+    write_tiff(
+        data=data,
+        file_loc=out_path,
+        metadata=_metadata(out_path, channel='Green'),
+        ome=False,
+        color='Green',
+        video_frame=True,
+        save_encoding='8bit',
+    )
+
+    arr = tf.imread(str(out_path))
+    assert arr.ndim == 2, 'video_frame 8-bit write has no palette -- stays mono'
+
+
+# ---------------------------------------------------------------------------
+# write_video_frame helper -- the single canonical frame-save path (V2 target).
+# xfail(strict=True) until the helper lands; the markers flip green at V2.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.xfail(strict=True, reason='write_video_frame helper lands in V2')
+@pytest.mark.parametrize(
+    ('save_encoding', 'capture_depth', 'in_dtype', 'fill', 'layer', 'fc_on', 'ndim', 'out_dtype'),
+    [
+        # 8-bit: fluorescence + false color bakes RGB (no palette on video frames)
+        ('8bit', 8, np.uint8, 200, 'Green', True, 3, np.uint8),
+        ('8bit', 8, np.uint8, 200, 'Green', False, 2, np.uint8),
+        ('8bit', 8, np.uint8, 200, 'BF', False, 2, np.uint8),
+        # 12-bit scientific + scaled are mono modes regardless of the layer toggle
+        ('right_aligned', 12, np.uint16, 4095, 'Green', True, 2, np.uint16),
+        ('right_aligned', 12, np.uint16, 4095, 'Green', False, 2, np.uint16),
+        ('msb_aligned', 12, np.uint16, 4095, 'Green', True, 2, np.uint16),
+        # 12-bit RGB: colorize fluorescence when the layer toggle is on;
+        # mono when off (per-layer gate) or transmitted
+        ('rgb', 12, np.uint16, 42000, 'Green', True, 3, np.uint16),
+        ('rgb', 12, np.uint16, 42000, 'Green', False, 2, np.uint16),
+        ('rgb', 12, np.uint16, 42000, 'BF', True, 2, np.uint16),
+    ],
+)
+def test_write_video_frame_matrix(
+    tmp_path, save_encoding, capture_depth, in_dtype, fill, layer, fc_on, ndim, out_dtype
+):
+    """One canonical helper produces the right shape + dtype for every
+    (image_mode, per-layer false color, depth) combination."""
+    from modules.image_save import write_video_frame
+
+    out_path = tmp_path / 'frame.tiff'
+    data = np.full((8, 8), fill, dtype=in_dtype)
+    write_video_frame(
+        frame=data,
+        file_loc=out_path,
+        metadata=_metadata(out_path, channel=layer),
+        layer_color=layer,
+        false_color_on=fc_on,
+        save_encoding=save_encoding,
+        capture_depth=capture_depth,
+    )
+    arr = tf.imread(str(out_path))
+    assert arr.ndim == ndim
+    assert arr.dtype == out_dtype
+
+
+@pytest.mark.xfail(strict=True, reason='write_video_frame helper lands in V2')
+def test_write_video_frame_12bit_falsecolor_off_stays_mono(tmp_path):
+    """The headline manual-record fix: in the RGB image mode, a layer whose
+    false-color toggle is OFF saves mono uint16 -- the mode never force-colorizes
+    a colorless choice."""
+    from modules.image_save import write_video_frame
+
+    out_path = tmp_path / 'off.tiff'
+    data = np.full((8, 8), 42000, dtype=np.uint16)
+    write_video_frame(
+        frame=data,
+        file_loc=out_path,
+        metadata=_metadata(out_path, channel='Green'),
+        layer_color='Green',
+        false_color_on=False,
+        save_encoding='rgb',
+        capture_depth=12,
+    )
+    arr = tf.imread(str(out_path))
+    assert arr.ndim == 2, 'false-color-off layer must stay mono even in RGB mode'
+
+
+@pytest.mark.xfail(strict=True, reason='write_video_frame helper lands in V2')
+def test_write_video_frame_8bit_falsecolor_bakes_rgb(tmp_path):
+    """8-bit fluorescence with false color on bakes 3-channel RGB (the
+    video_frame TIFF write has no palette to lean on)."""
+    from modules.image_save import write_video_frame
+
+    out_path = tmp_path / 'baked.tiff'
+    data = np.full((8, 8), 200, dtype=np.uint8)
+    write_video_frame(
+        frame=data,
+        file_loc=out_path,
+        metadata=_metadata(out_path, channel='Green'),
+        layer_color='Green',
+        false_color_on=True,
+        save_encoding='8bit',
+        capture_depth=8,
+    )
+    arr = tf.imread(str(out_path))
+    assert arr.shape == (8, 8, 3)
+    assert arr[0, 0, 1] == 200 and arr[0, 0, 0] == 0 and arr[0, 0, 2] == 0
+
+
+@pytest.mark.xfail(strict=True, reason='write_video_frame helper lands in V2')
+def test_write_video_frame_stamps_significant_bits_for_scaled(tmp_path):
+    """The helper stamps significant_bits from capture_depth, so msb_aligned
+    actually left-justifies even when the caller's metadata omits it -- without
+    the stamp, write_tiff would treat the payload as 16-bit and not scale."""
+    import modules.image_utils as image_utils
+    from modules.image_save import write_video_frame
+
+    out_path = tmp_path / 'scaled_frame.tiff'
+    data = np.full((8, 8), 4095, dtype=np.uint16)  # no significant_bits in metadata
+    write_video_frame(
+        frame=data,
+        file_loc=out_path,
+        metadata=_metadata(out_path, channel='BF'),
+        layer_color='BF',
+        false_color_on=False,
+        save_encoding='msb_aligned',
+        capture_depth=12,
+    )
+    arr = tf.imread(str(out_path))
+    assert arr[0, 0] == 65520, 'capture_depth=12 must drive the x16 left-justify'
+    assert (arr >> 4 == 4095).all(), 'x16 must be exactly recoverable'
+    assert image_utils.read_tiff_significant_bits(out_path) == 16
