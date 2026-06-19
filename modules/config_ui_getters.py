@@ -225,10 +225,6 @@ def get_image_capture_config_from_ui() -> dict:
         'image_mode': mode,
         'capture_depth': derived['capture_depth'],
         'save_encoding': derived['save_encoding'],
-        # Legacy keys derived from the resolved mode for any straggler reader
-        # during the transition; dropped once every caller consumes image_mode.
-        'use_full_pixel_depth': derived['capture_depth'] == 12,
-        'false_color_16bit': derived['save_encoding'] == image_mode.SAVE_ENCODING_RGB,
         'jpg_quality': int(_app_ctx.ctx.settings.get('jpg_quality', 90)),
     }
 

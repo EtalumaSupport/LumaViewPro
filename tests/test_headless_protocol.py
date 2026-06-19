@@ -260,7 +260,7 @@ class TestHeadlessProtocolExecution:
 
             image_capture_config = {
                 'output_format': {'live': 'TIFF', 'sequenced': 'TIFF'},
-                'use_full_pixel_depth': False,
+                'capture_depth': 8,
             }
 
             executor.run(

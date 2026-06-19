@@ -151,7 +151,7 @@ def read_tiff_with_legacy_collapse(path: pathlib.Path) -> np.ndarray:
         # marker so a genuine single-color composite is never collapsed;
         # rejected because every 3-channel input that reaches this reader is
         # a false-color replica (a legacy mono->RGB save, or a
-        # false_color_16bit-on save) -- real composites carry signal in
+        # false-color-mode save) -- real composites carry signal in
         # multiple channels -- and the one-shot log line flags any collapse.
         # Revisit if a true single-channel RGB output ever feeds VideoBuilder
         # or CompositeGeneration.
@@ -1086,7 +1086,10 @@ def maybe_apply_false_color(
             from modules import app_context as _app_ctx
 
             with _app_ctx.ctx.settings_lock:
-                use_false_color_16bit = _app_ctx.ctx.settings.get('false_color_16bit', False)
+                mode = image_mode.resolve_settings_image_mode(_app_ctx.ctx.settings)
+            use_false_color_16bit = (
+                image_mode.resolve_image_mode(mode)['save_encoding'] == image_mode.SAVE_ENCODING_RGB
+            )
         if use_false_color_16bit:
             return add_false_color(data, color, output=output_buf)
     except Exception:

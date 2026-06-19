@@ -62,16 +62,16 @@ class TestGetImageCaptureConfig:
     def test_reads_config(self):
         settings = {
             'image_output_format': {'live': 'PNG', 'sequenced': 'TIFF'},
-            'use_full_pixel_depth': True,
+            'image_mode': '12bit_scientific',
         }
         result = get_image_capture_config_from_settings(settings)
         assert result['output_format']['live'] == 'PNG'
-        assert result['use_full_pixel_depth'] is True
+        assert result['capture_depth'] == 12
 
     def test_defaults(self):
         result = get_image_capture_config_from_settings({})
         assert result['output_format']['live'] == 'TIFF'
-        assert result['use_full_pixel_depth'] is False
+        assert result['capture_depth'] == 8
 
 
 class TestGetSelectedLabware:

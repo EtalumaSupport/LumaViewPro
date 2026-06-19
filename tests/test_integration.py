@@ -100,7 +100,7 @@ def _make_image_capture_config():
             'live': 'TIFF',
             'sequenced': 'TIFF',
         },
-        'use_full_pixel_depth': False,
+        'capture_depth': 8,
     }
 
 

@@ -4,9 +4,9 @@ Bug shape: ``zprojector._zproject`` (#669 recurrence) and
 ``stitcher._simple_position_stitcher`` (#678) saved their outputs via
 bare ``tifffile.imwrite``, skipping the false-color RGB widening that
 ``image_utils.write_tiff`` does for fluorescence captures. A user with
-the ``false_color_16bit`` setting on would see colored per-slice TIFFs
+a false-color image mode selected would see colored per-slice TIFFs
 but grayscale projections + stitches -- the most-reported symptom in
-Chris's 2026-05-25 bench bundle.
+the 2026-05-25 bench bundle.
 
 Root cause: same shape at both sites. The false-color gate lived inline
 inside ``write_tiff``; post-processors that didn't route through that
@@ -38,12 +38,11 @@ from modules.zprojector import ZProjector
 
 @pytest.fixture
 def false_color_setting_on():
-    """Replace app_context.ctx with a stub whose settings have the
-    false-color toggle on. Matches the helper's one-shot settings read
-    path."""
+    """Replace app_context.ctx with a stub whose image_mode resolves to
+    false-color RGB. Matches the helper's one-shot settings read path."""
     fake_ctx = MagicMock()
     fake_ctx.settings_lock = threading.Lock()
-    fake_ctx.settings = {'false_color_16bit': True}
+    fake_ctx.settings = {'image_mode': '12bit_false_color_rgb'}
     orig = _app_ctx.ctx
     _app_ctx.ctx = fake_ctx
     try:

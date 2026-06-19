@@ -211,7 +211,7 @@ def _run_protocol(executor, protocol, tmp_path):
         sequence_name='issue_673_repro',
         image_capture_config={
             'output_format': {'live': 'TIFF', 'sequenced': 'TIFF'},
-            'use_full_pixel_depth': False,
+            'capture_depth': 8,
         },
         autogain_settings={
             'target_brightness': 0.3,

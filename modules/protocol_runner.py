@@ -92,7 +92,7 @@ class ProtocolRunner:
         self,
         live_format: str = 'TIFF',
         sequenced_format: str = 'TIFF',
-        use_full_pixel_depth: bool = True,
+        capture_depth: int = 12,
         jpg_quality: int = 90,
     ) -> dict:
         """Build an image capture config dict without reading from GUI."""
@@ -101,8 +101,7 @@ class ProtocolRunner:
                 'live': live_format,
                 'sequenced': sequenced_format,
             },
-            'use_full_pixel_depth': use_full_pixel_depth,
-            'capture_depth': 12 if use_full_pixel_depth else 8,
+            'capture_depth': capture_depth,
             'jpg_quality': jpg_quality,
         }
 

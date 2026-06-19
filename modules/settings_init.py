@@ -2,6 +2,8 @@
 import os
 import json
 
+from modules import image_mode
+
 
 settings = None
 
@@ -121,6 +123,20 @@ def _deep_merge_defaults(current: dict, defaults: dict, path: str = '', logger=N
     return added
 
 
+def _migrate_image_mode_setting(logger) -> None:
+    """Fold the retiring capture/save toggles into image_mode on load.
+
+    Runs on the loaded dict before the settings.json default-merge so an
+    install carrying the old keys keeps its choice rather than picking up
+    the merged-in image_mode default.
+    """
+    global settings
+    if settings is None:
+        return
+    if image_mode.migrate_settings_dict(settings):
+        logger.info('[Settings ] Consolidated capture/save toggles into image_mode')
+
+
 def load_lvp_settings(logger, lvp_appdata):
     global settings
 
@@ -142,6 +158,8 @@ def load_lvp_settings(logger, lvp_appdata):
                     f'current.json corrupt and no settings.json fallback in {data_dir}'
                 ) from e
 
+        _migrate_image_mode_setting(logger)
+
         # Merge missing keys from settings.json defaults into current.json.
         # current.json drifts from settings.json as new features add keys.
         # This ensures new keys are available without losing user values.
@@ -159,6 +177,7 @@ def load_lvp_settings(logger, lvp_appdata):
 
     elif os.path.exists(settings_path):
         load_settings(logger, settings_path, lvp_appdata)
+        _migrate_image_mode_setting(logger)
     else:
         if not os.path.isdir(data_dir):
             raise FileNotFoundError(f"Couldn't find 'data' directory at {data_dir}")

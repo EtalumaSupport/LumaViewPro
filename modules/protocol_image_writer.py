@@ -348,11 +348,7 @@ class ProtocolImageWriter:
             use_color = step['Color'] if step['False_Color'] else 'BF'
 
             if enable_image_saving:
-                # Prefer the derived capture_depth; fall back to the legacy
-                # capture flag for configs still built by hand without it.
-                capture_depth = image_capture_config.get('capture_depth') or (
-                    12 if image_capture_config.get('use_full_pixel_depth', True) else 8
-                )
+                capture_depth = image_capture_config.get('capture_depth', 12)
                 jpeg_quality = image_capture_config.get('jpg_quality', 90)
 
                 if is_video:

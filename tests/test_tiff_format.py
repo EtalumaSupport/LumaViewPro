@@ -305,18 +305,18 @@ class TestTiff16BitFluorescenceDefault:
 
 
 class TestTiff16BitFalseColorOn:
-    """16-bit fluorescence with false_color_16bit=True: 3-channel RGB."""
+    """16-bit fluorescence with a false-color image mode: 3-channel RGB."""
 
     def _mock_settings(self):
-        """Mock app_context so write_tiff reads false_color_16bit=True."""
+        """Mock app_context so write_tiff resolves the false-color RGB mode."""
         mock_ctx = mock.MagicMock()
-        mock_ctx.settings = {'false_color_16bit': True}
+        mock_ctx.settings = {'image_mode': '12bit_false_color_rgb'}
         return mock.patch('modules.app_context.ctx', mock_ctx)
 
     @pytest.mark.parametrize('color', ['Red', 'Green', 'Blue', 'Lumi'])
     def test_widens_to_three_channel_rgb(self, img_16bit, metadata, tmp_tiff, color):
-        # write_tiff reads false_color_16bit from settings (the None-default
-        # path that derived outputs also use), so the toggle widens 16-bit
+        # write_tiff resolves image_mode from settings (the None-default path
+        # that derived outputs also use), so the false-color mode widens 16-bit
         # fluorescence to 3-channel RGB for Windows-Preview color.
         path = tmp_tiff()
         with self._mock_settings():
@@ -325,13 +325,13 @@ class TestTiff16BitFalseColorOn:
             )
         info = _read_tiff(path)
         assert info['shape'] == (100, 100, 3), (
-            f'{color}: false_color_16bit=True must widen to RGB, got {info["shape"]}'
+            f'{color}: false-color mode must widen to RGB, got {info["shape"]}'
         )
         # RGB carries color in the pixels, not a PALETTE colormap tag.
         assert not info['has_colormap_tag']
 
     def test_bf_not_affected(self, img_16bit, metadata, tmp_tiff):
-        """BF should remain single-channel even when false_color_16bit is on."""
+        """BF should remain single-channel even in a false-color mode."""
         path = tmp_tiff()
         with self._mock_settings():
             image_utils.write_tiff(

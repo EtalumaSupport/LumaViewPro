@@ -51,7 +51,7 @@ def _make_autogain_settings():
 def _make_image_capture_config():
     return {
         'output_format': {'live': 'TIFF', 'sequenced': 'TIFF'},
-        'use_full_pixel_depth': False,
+        'capture_depth': 8,
     }
 
 
@@ -1289,7 +1289,7 @@ class TestExecutePixelDepth:
         steps = [_make_step(color='BF')]
         proto = _build_protocol(steps)
         icc = _make_image_capture_config()
-        icc['use_full_pixel_depth'] = True
+        icc['capture_depth'] = 12
         completed, _ = _run_and_wait(executor, proto, tmp_path, image_capture_config=icc)
         assert completed, '12-bit capture protocol did not complete'
 

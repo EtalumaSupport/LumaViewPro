@@ -1,6 +1,6 @@
 {
     "microscope": "LS850",
-    "use_full_pixel_depth": false,
+    "image_mode": "8bit",
     "image_output_format": {
         "live": "TIFF",
         "sequenced": "TIFF"
@@ -197,7 +197,6 @@
     "debug_mode": false,
     "cprofile_enabled": false,
     "focus_score_enabled": false,
-    "false_color_16bit": false,
     "profile_trace_enabled": false,
     "profile_trace_output_dir": null,
     "tracemalloc_enabled": false,

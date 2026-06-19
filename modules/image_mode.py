@@ -135,3 +135,28 @@ def resolve_settings_image_mode(settings) -> str:
         settings.get('use_full_pixel_depth', False),
         settings.get('false_color_16bit', False),
     )
+
+
+def migrate_settings_dict(settings: dict) -> bool:
+    """Fold the two retiring keys into image_mode in-place, then drop them.
+
+    Run once on load, before the settings.json default-merge: an install
+    saved with the legacy keys (and no image_mode) keeps its capture/save
+    choice instead of being reset to the merged-in default. Returns whether
+    the dict changed, so the caller can log the one-time migration.
+
+    Args:
+        settings: the loaded settings dict, mutated in place.
+
+    Returns:
+        True if image_mode was set or a legacy key was removed.
+    """
+    had_legacy = 'use_full_pixel_depth' in settings or 'false_color_16bit' in settings
+    needs_mode = settings.get('image_mode') not in _MODE_TABLE
+    if not had_legacy and not needs_mode:
+        return False
+    if needs_mode:
+        settings['image_mode'] = resolve_settings_image_mode(settings)
+    settings.pop('use_full_pixel_depth', None)
+    settings.pop('false_color_16bit', None)
+    return True

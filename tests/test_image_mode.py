@@ -99,10 +99,10 @@ def test_migrate_legacy_settings(use_full_pixel_depth, false_color_16bit, expect
 
 def test_config_helper_derives_image_mode_from_settings():
     """The settings config getter exposes the resolved image_mode + its derived
-    capture_depth / save_encoding alongside the (still-stored) legacy keys."""
+    capture_depth / save_encoding, including for an unmigrated legacy dict."""
     from modules.config_helpers import get_image_capture_config_from_settings
 
-    cfg = get_image_capture_config_from_settings({})  # defaults: both off
+    cfg = get_image_capture_config_from_settings({})  # defaults: 8-bit
     assert cfg['image_mode'] == '8bit'
     assert cfg['capture_depth'] == 8
     assert cfg['save_encoding'] == '8bit'
@@ -113,9 +113,9 @@ def test_config_helper_derives_image_mode_from_settings():
     assert cfg['image_mode'] == '12bit_false_color_rgb'
     assert cfg['capture_depth'] == 12
     assert cfg['save_encoding'] == 'rgb'
-    # Legacy keys stay exposed during the transitional window.
-    assert cfg['use_full_pixel_depth'] is True
-    assert cfg['false_color_16bit'] is True
+    # The retired keys are not re-emitted by the getter.
+    assert 'use_full_pixel_depth' not in cfg
+    assert 'false_color_16bit' not in cfg
 
 
 # ---------------------------------------------------------------------------
@@ -194,6 +194,44 @@ def test_config_helper_prefers_image_mode_key():
     assert cfg['image_mode'] == '12bit_scaled'
     assert cfg['capture_depth'] == 12
     assert cfg['save_encoding'] == 'msb_aligned'
+
+
+# ---------------------------------------------------------------------------
+# On-load migration: fold legacy keys into image_mode, then drop them
+# ---------------------------------------------------------------------------
+
+
+def test_migrate_settings_dict_folds_legacy_and_drops():
+    """An old install's two keys collapse to the right image_mode and the
+    legacy keys are removed in place."""
+    from modules.image_mode import migrate_settings_dict
+
+    settings = {'use_full_pixel_depth': True, 'false_color_16bit': True, 'other': 1}
+    assert migrate_settings_dict(settings) is True
+    assert settings['image_mode'] == '12bit_false_color_rgb'
+    assert 'use_full_pixel_depth' not in settings
+    assert 'false_color_16bit' not in settings
+    assert settings['other'] == 1
+
+
+def test_migrate_settings_dict_keeps_explicit_image_mode():
+    """An explicit image_mode wins over stray legacy keys, which still drop --
+    the only way 12bit_scaled survives a migration."""
+    from modules.image_mode import migrate_settings_dict
+
+    settings = {'image_mode': '12bit_scaled', 'use_full_pixel_depth': True}
+    assert migrate_settings_dict(settings) is True
+    assert settings['image_mode'] == '12bit_scaled'
+    assert 'use_full_pixel_depth' not in settings
+
+
+def test_migrate_settings_dict_noop_when_already_migrated():
+    """A dict with only image_mode and no legacy keys is left untouched."""
+    from modules.image_mode import migrate_settings_dict
+
+    settings = {'image_mode': '8bit'}
+    assert migrate_settings_dict(settings) is False
+    assert settings == {'image_mode': '8bit'}
 
 
 # ---------------------------------------------------------------------------

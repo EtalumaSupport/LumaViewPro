@@ -107,7 +107,7 @@ def _make_image_capture_config():
             'live': 'TIFF',
             'sequenced': 'TIFF',
         },
-        'use_full_pixel_depth': False,
+        'capture_depth': 8,
     }
 
 
@@ -686,14 +686,14 @@ class TestPixelDepth:
     def test_full_pixel_depth(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(color='BF')
         config = _make_image_capture_config()
-        config['use_full_pixel_depth'] = True
+        config['capture_depth'] = 12
         completed, _ = _run_and_wait(executor, protocol, tmp_path, image_capture_config=config)
         assert completed
 
     def test_8bit_pixel_depth(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(color='BF')
         config = _make_image_capture_config()
-        config['use_full_pixel_depth'] = False
+        config['capture_depth'] = 8
         completed, _ = _run_and_wait(executor, protocol, tmp_path, image_capture_config=config)
         assert completed
 

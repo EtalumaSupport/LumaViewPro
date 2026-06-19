@@ -10571,7 +10571,7 @@ class TestAutoGainArmedInScanIterate:
             step=_protocol_step(Auto_Gain=auto_gain),
             output_format='TIFF',
             protocol=protocol,
-            image_capture_config={'use_full_pixel_depth': False},
+            image_capture_config={'capture_depth': 8},
             enable_image_saving=True,
         )
         return scope.imaging
@@ -12720,7 +12720,7 @@ class TestPS11VideoCancelledRecordsRow:
             protocol=MagicMock(),
             scan_count=0,
             curr_step=0,
-            image_capture_config={'use_full_pixel_depth': False},
+            image_capture_config={'capture_depth': 8},
         )
 
         assert record.add_step.called, 'cancelled video must leave a record row'
