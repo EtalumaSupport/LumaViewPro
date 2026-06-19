@@ -5,7 +5,6 @@ import pathlib
 import numpy as np
 import pandas as pd
 import psutil
-import tifffile as tf
 
 import modules.image_utils as image_utils
 import modules.common_utils as common_utils
@@ -148,13 +147,15 @@ class StackBuilder(ProtocolPostProcessor):
         plane_metadata: dict,
         binning_size: int,
         focal_length: float,
+        significant_bits: int,
     ):
         channel_names = df['Color'].unique().tolist()
         row0 = df.iloc[0]
         sample_image_file_loc = path / row0['Filepath']
-        # The input frames record their payload depth in SignificantBits; carry
-        # it onto the hyperstack rather than re-deriving the container width.
-        sample_significant_bits = image_utils.read_tiff_significant_bits(sample_image_file_loc)
+        # The hyperstack inherits the depth the caller carried from the
+        # load_pixels read of the input frames -- no second open to re-derive
+        # what those pixels already came tagged with.
+        sample_significant_bits = significant_bits
 
         pixel_size_um = round(
             common_utils.get_pixel_size(
@@ -213,7 +214,9 @@ class StackBuilder(ProtocolPostProcessor):
 
         row0 = df.iloc[0]
         sample_image_file_loc = path / row0['Filepath']
-        sample_image = tf.imread(sample_image_file_loc)
+        sample_image, _ = image_utils.load_pixels(
+            sample_image_file_loc, collapse_legacy_false_color=False
+        )
         sample_image_shape = sample_image.shape
         h, w = sample_image_shape[0], sample_image_shape[1]
 
@@ -231,11 +234,15 @@ class StackBuilder(ProtocolPostProcessor):
             'PositionZ': [],
         }
 
+        input_depths = []
         for _, row in df.iterrows():
             t = row['Scan Count']
             z = row['Z-Slice']
             c = row['Color Index']
-            image = tf.imread(path / row['Filepath'])
+            image, significant_bits = image_utils.load_pixels(
+                path / row['Filepath'], collapse_legacy_false_color=False
+            )
+            input_depths.append(significant_bits)
 
             if image_utils.is_color_image(image):
                 image = image_utils.rgb_image_to_gray(image=image)
@@ -257,6 +264,7 @@ class StackBuilder(ProtocolPostProcessor):
             plane_metadata=plane_metadata,
             focal_length=focal_length,
             binning_size=binning_size,
+            significant_bits=image_utils.resolve_output_depth(input_depths),
         )
 
         output_file_loc_abs = path / output_file_loc

@@ -5,7 +5,6 @@ import pathlib
 
 import numpy as np
 import pandas as pd
-import tifffile as tf
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
@@ -193,9 +192,17 @@ class CompositeGeneration(ProtocolPostProcessor):
         # in-memory mono inputs so build_composite consumes the same
         # shape from both orchestrators.
         images = {}
+        input_depths = []
         for _, row in df.iterrows():
             image_filepath = path / row['Filepath']
-            images[row['Filepath']] = tf.imread(str(image_filepath))
+            image, significant_bits = image_utils.load_pixels(
+                image_filepath, collapse_legacy_false_color=False
+            )
+            images[row['Filepath']] = image
+            input_depths.append(significant_bits)
+        # Empty after layer filtering is a handled no-op below (status=False,
+        # no write), so only resolve a depth when inputs were actually loaded.
+        output_depth = image_utils.resolve_output_depth(input_depths) if input_depths else None
 
         error = None
         status = True
@@ -292,6 +299,7 @@ class CompositeGeneration(ProtocolPostProcessor):
                     reference_input_path = path / df.iloc[0]['Filepath']
                     metadata = image_utils.build_composite_output_metadata(
                         reference_input_path=reference_input_path,
+                        significant_bits=output_depth,
                     )
                     # Honor the run's output format. The composite is a
                     # single 2D RGB image, so only plain OME-TIFF applies --
@@ -332,6 +340,7 @@ class CompositeGeneration(ProtocolPostProcessor):
             'status': status,
             'error': error,
             'image': return_image,
+            'significant_bits': output_depth,
             'metadata': {
                 'color': 'Composite',
             },
@@ -430,8 +439,11 @@ class CompositeGeneration(ProtocolPostProcessor):
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         reference_input_path = red_path or green_path or blue_path or transmitted_path
+        # Depth travels back from _create_composite_image, which read the
+        # inputs via load_pixels -- no second open of the source files.
         metadata = image_utils.build_composite_output_metadata(
             reference_input_path=pathlib.Path(reference_input_path),
+            significant_bits=result['significant_bits'],
         )
         image_utils.write_tiff(
             data=img,

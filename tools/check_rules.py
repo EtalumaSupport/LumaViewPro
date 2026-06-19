@@ -409,6 +409,17 @@ _RULE_31A_FILE_EXEMPT = frozenset(
 )
 _RULE_31A_BANNED_CV2_ATTRS = frozenset({'imread', 'imwrite', 'VideoWriter'})
 
+_RULE_31D_PATH_SCOPE = ('modules/', 'ui/')
+_RULE_31D_FILE_EXEMPT = frozenset(
+    {
+        # image_utils.py owns load_pixels -- the one reader that returns the
+        # pixels AND their significant-bit depth together -- plus the
+        # read_tiff_with_legacy_collapse helper it calls. tifffile.imread here
+        # is the boundary implementation, so the depth cannot be dropped.
+        'modules/image_utils.py',
+    }
+)
+
 _RULE_31B_BOUNDARY_PATHS = frozenset(
     {
         # The display / encode boundary where mono -> RGB false-color
@@ -548,6 +559,57 @@ def _check_rule_31a(tree: ast.AST, path: str) -> list[Violation]:
                     f'canonical modules.video_writer.VideoWriter class. '
                     f'cv2 is BGR-native and bare calls swap channels at '
                     f'the file boundary.',
+                )
+            )
+    return violations
+
+
+def _check_rule_31d(tree: ast.AST, path: str) -> list[Violation]:
+    """Block bare ``tf.imread`` / ``tifffile.imread`` in production
+    ``modules/`` and ``ui/`` outside the canonical depth-carrying reader.
+
+    Bug shape this prevents: a caller reads saved pixels via
+    ``tifffile.imread`` and gets the array with no significant-bit depth.
+    The depth then has to be read separately (a second open) and threaded
+    by hand -- and a caller who forgets scales a right-aligned 12-bit frame
+    as a full 16-bit value, reading it back ~16x dark. The canonical route
+    is ``image_utils.load_pixels``, which returns ``(image,
+    significant_bits)`` in one call so the pixels and their depth cannot be
+    obtained apart.
+
+    Path scope: only fires on ``modules/`` and ``ui/`` sources. File-level
+    exempt for the reader owner in ``_RULE_31D_FILE_EXEMPT``. Test files
+    exempt via ``_is_test_path``. The write side (depth-less ``write_tiff``)
+    is already impossible by signature -- ``significant_bits`` is a required
+    positional -- so this guard covers the read side; rule_31a covers the
+    cv2 read side; rule_31c covers the false-color-aware write side.
+    """
+    if _is_test_path(path):
+        return []
+    norm = path.replace('\\', '/')
+    if not any(norm.startswith(scope) for scope in _RULE_31D_PATH_SCOPE):
+        return []
+    if norm in _RULE_31D_FILE_EXEMPT:
+        return []
+    violations: list[Violation] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        f = node.func
+        if not isinstance(f, ast.Attribute):
+            continue
+        if isinstance(f.value, ast.Name) and f.value.id in _TIFFFILE_NAMES and f.attr == 'imread':
+            violations.append(
+                Violation(
+                    path,
+                    node.lineno,
+                    node.col_offset,
+                    'rule_31d',
+                    f'bare {f.value.id}.imread in modules/ or ui/; route '
+                    f'through image_utils.load_pixels, which returns '
+                    f'(image, significant_bits) together. A bare read hands '
+                    f'back pixels with no depth; a right-aligned 12-bit frame '
+                    f'read without its depth scales ~16x dark.',
                 )
             )
     return violations
@@ -750,6 +812,7 @@ def check_source(content: str, path: str) -> list[Violation]:
         violations.extend(_check_rule_31a(tree, path))
         violations.extend(_check_rule_31b(tree, path))
         violations.extend(_check_rule_31c(tree, path))
+        violations.extend(_check_rule_31d(tree, path))
         violations.extend(_check_rule_35d(tree, path))
     violations.extend(_check_rule_27a(content, path))
     violations.extend(_check_rule_27b(content, path))

@@ -4,7 +4,6 @@ import pathlib
 
 import numpy as np
 import pandas as pd
-import tifffile as tf
 
 import modules.common_utils as common_utils
 import modules.image_utils as image_utils
@@ -198,9 +197,15 @@ class ZProjector(ProtocolPostProcessor):
         first_slice_path = path / first_slice_row['Filepath']
 
         orig_images = []
+        input_depths = []
         for _, row in df.iterrows():
             image_filepath = path / row['Filepath']
-            orig_images.append(tf.imread(str(image_filepath)))
+            image, significant_bits = image_utils.load_pixels(
+                image_filepath, collapse_legacy_false_color=False
+            )
+            orig_images.append(image)
+            input_depths.append(significant_bits)
+        output_depth = image_utils.resolve_output_depth(input_depths)
 
         try:
             # If working with color images, split the list of color images
@@ -229,6 +234,7 @@ class ZProjector(ProtocolPostProcessor):
         metadata = image_utils.build_postproc_output_metadata(
             input_path=first_slice_path,
             channel=first_slice_row['Color'],
+            significant_bits=output_depth,
         )
         image_utils.write_tiff(
             data=result['image'],

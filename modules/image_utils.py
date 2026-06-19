@@ -193,7 +193,11 @@ def read_tiff_significant_bits(path: pathlib.Path) -> int:
         return tif.pages[0].dtype.itemsize * 8
 
 
-def load_pixels(path: pathlib.Path) -> tuple[np.ndarray, int]:
+def load_pixels(
+    path: pathlib.Path,
+    *,
+    collapse_legacy_false_color: bool = True,
+) -> tuple[np.ndarray, int]:
     """Load a saved frame's pixels together with their significant-bit depth.
 
     The one sanctioned read for saved pixel data: it returns the array AND the
@@ -212,6 +216,13 @@ def load_pixels(path: pathlib.Path) -> tuple[np.ndarray, int]:
 
     Args:
         path: Path to a saved pixel file (TIFF, PNG, or JPEG).
+        collapse_legacy_false_color: When True (the mono-uniform consumers --
+            folder walk, cell-count preview), a 3-channel TIFF with a single
+            populated channel is collapsed to its mono plane so those consumers
+            see one shape regardless of file age. Color-capable consumers
+            (stitch / zproject / composite / stack) pass False to keep the raw
+            channel layout their own color handling expects; the depth is
+            returned either way.
 
     Returns:
         (image, significant_bits). image is the stored array with values
@@ -227,7 +238,10 @@ def load_pixels(path: pathlib.Path) -> tuple[np.ndarray, int]:
         raise FileNotFoundError(f'No such pixel file: {path}')
 
     if path.suffix.lower() in ('.tif', '.tiff'):
-        image = read_tiff_with_legacy_collapse(path)
+        if collapse_legacy_false_color:
+            image = read_tiff_with_legacy_collapse(path)
+        else:
+            image = tf.imread(str(path))
         return image, read_tiff_significant_bits(path)
 
     # Non-TIFF (PNG / JPEG): no depth carrier, so the container width is the
@@ -237,6 +251,39 @@ def load_pixels(path: pathlib.Path) -> tuple[np.ndarray, int]:
     if image is None:
         raise ValueError(f'Could not decode image: {path}')
     return image, image.dtype.itemsize * 8
+
+
+def resolve_output_depth(input_depths) -> int:
+    """Pick the significant-bit depth a derived output should carry.
+
+    A projection / stitch / composite copies its inputs' pixel values
+    verbatim, so the output's honest depth is the inputs' depth. The inputs
+    of one derived output are the same channel captured at the same camera
+    bit-depth, so the depths are uniform in normal operation. When they are
+    not (genuinely mixed-source data), the deepest input is the safe label:
+    a shallower payload sits right-aligned in the same container and stays
+    correct under the deeper output's scaling, whereas labeling the output
+    shallower than its deepest input would clip that input on display.
+
+    Args:
+        input_depths: The significant_bits values load_pixels returned for
+            the inputs being combined.
+
+    Returns:
+        The depth to hand to the output write.
+
+    Raises:
+        ValueError: No input depths were supplied (no inputs were loaded).
+    """
+    depths = set(input_depths)
+    if not depths:
+        raise ValueError('resolve_output_depth needs at least one input depth')
+    if len(depths) > 1:
+        logger.warning(
+            f'[ImageUtils] Combining inputs of mixed significant-bit depth '
+            f'{sorted(depths)}; tagging the output as {max(depths)}-bit.'
+        )
+    return max(depths)
 
 
 def _read_ome_input_metadata(ome_xml: str, datetime_value) -> dict | None:
@@ -465,6 +512,7 @@ def build_postproc_output_metadata(
     input_path: pathlib.Path,
     channel: str,
     *,
+    significant_bits: int,
     plate_pos_mm_override: dict | None = None,
     z_pos_um_override: float | None = None,
 ) -> dict:
@@ -475,6 +523,13 @@ def build_postproc_output_metadata(
     plate, well label) and forwards it into the derived output. Per-frame
     timestamps and frame IDs are stripped because they describe the
     original capture, not the derived image.
+
+    The depth is supplied by the caller, not re-read here: the caller
+    loads its input pixels through load_pixels, so it already holds the
+    significant-bit depth that travels with those pixels. Passing it in
+    keeps a single depth read per output instead of opening the input a
+    second time, and keeps the output's depth coupled to the pixels that
+    were actually projected / stitched / merged.
 
     ``datetime`` is set to the post-processing wall-clock time so derived
     outputs are distinguishable from the captures that fed them.
@@ -527,15 +582,19 @@ def build_postproc_output_metadata(
 
     # A derived output inherits its inputs' depth: a stitch or projection copies
     # the input pixels verbatim, so the output's true significant-bit depth is
-    # the input's. Read it from the representative input (the canonical resolver
-    # handles OME / private tag / container fallback) so the output is tagged
-    # honestly instead of defaulting to container width and reading back dark.
-    metadata['significant_bits'] = read_tiff_significant_bits(input_path)
+    # the input's. The caller carries it from the load_pixels read of those
+    # inputs, so the output is tagged honestly instead of defaulting to
+    # container width and reading back dark.
+    metadata['significant_bits'] = significant_bits
 
     return metadata
 
 
-def build_composite_output_metadata(reference_input_path: pathlib.Path) -> dict:
+def build_composite_output_metadata(
+    reference_input_path: pathlib.Path,
+    *,
+    significant_bits: int,
+) -> dict:
     """Build a write_tiff metadata dict for a composite output.
 
     Composite outputs merge multiple input channels with different
@@ -553,6 +612,8 @@ def build_composite_output_metadata(reference_input_path: pathlib.Path) -> dict:
         reference_input_path: Any composite-input TIFF; shared metadata
             is read from here. Callers pass the first available channel
             (red -> green -> blue -> transmitted order).
+        significant_bits: Payload depth the caller carried from its
+            load_pixels read of the composite inputs.
 
     Returns:
         Dict ready to pass as write_tiff's ``metadata`` parameter.
@@ -560,6 +621,7 @@ def build_composite_output_metadata(reference_input_path: pathlib.Path) -> dict:
     metadata = build_postproc_output_metadata(
         input_path=reference_input_path,
         channel='Composite',
+        significant_bits=significant_bits,
     )
     metadata['exposure_time_ms'] = 0.0
     metadata['gain_db'] = 0.0

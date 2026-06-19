@@ -5,7 +5,6 @@ import pathlib
 
 import numpy as np
 import pandas as pd
-import tifffile as tf
 
 import modules.common_utils as common_utils
 import modules.image_utils as image_utils
@@ -184,7 +183,11 @@ class Stitcher(ProtocolPostProcessor):
 
         source_image_sample_row = df.iloc[0]
         source_image_sample_filename = source_image_sample_row['Filepath']
-        source_image_sample = tf.imread(str(path / source_image_sample_filename))
+        # Depth is collected per tile in the placement loop below (which reads
+        # every tile including this one); this read is only for geometry/dtype.
+        source_image_sample, _ = image_utils.load_pixels(
+            path / source_image_sample_filename, collapse_legacy_false_color=False
+        )
         source_image_h = source_image_sample.shape[0]
         source_image_w = source_image_sample.shape[1]
 
@@ -213,9 +216,13 @@ class Stitcher(ProtocolPostProcessor):
         else:
             stitched_img = np.zeros((stitched_im_y, stitched_im_x), dtype=source_image_sample.dtype)
 
+        input_depths = []
         for _, row in df.iterrows():
             filename = row['Filepath']
-            image = tf.imread(str(path / filename))
+            image, significant_bits = image_utils.load_pixels(
+                path / filename, collapse_legacy_false_color=False
+            )
+            input_depths.append(significant_bits)
             im_x = image.shape[1]
             im_y = image.shape[0]
 
@@ -260,6 +267,7 @@ class Stitcher(ProtocolPostProcessor):
             metadata = image_utils.build_postproc_output_metadata(
                 input_path=first_tile_path,
                 channel=source_image_sample_row['Color'],
+                significant_bits=image_utils.resolve_output_depth(input_depths),
                 plate_pos_mm_override=center,
             )
             image_utils.write_tiff(
@@ -308,15 +316,19 @@ class Stitcher(ProtocolPostProcessor):
         df['Y'] = df['Y'].astype(float)
 
         images = {}
+        input_depths = []
         for _, row in df.iterrows():
             image_filepath = path / row['Filepath']
-            image = tf.imread(str(image_filepath))
+            image, significant_bits = image_utils.load_pixels(
+                image_filepath, collapse_legacy_false_color=False
+            )
             if image is None:
                 return {
                     'status': False,
                     'error': f'unable to read image: {image_filepath}',
                 }
             images[row['Filepath']] = image
+            input_depths.append(significant_bits)
 
         sample_row = df.iloc[0]
         sample = images[sample_row['Filepath']]
@@ -391,6 +403,7 @@ class Stitcher(ProtocolPostProcessor):
             metadata = image_utils.build_postproc_output_metadata(
                 input_path=first_tile_path,
                 channel=color,
+                significant_bits=image_utils.resolve_output_depth(input_depths),
                 plate_pos_mm_override=center,
             )
             image_utils.write_tiff(

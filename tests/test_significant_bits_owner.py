@@ -335,6 +335,36 @@ class TestLoadPixelsBoundary:
         with pytest.raises(FileNotFoundError):
             image_utils.load_pixels(tmp_path / 'does_not_exist.tif')
 
+    def _write_single_channel_rgb(self, tmp_path):
+        import tifffile as tf
+
+        # A 3-channel frame with only one channel populated -- the shape a
+        # false-color save produces and the shape the collapse rule targets.
+        arr = np.zeros((8, 8, 3), dtype=np.uint8)
+        arr[..., 1] = 200  # green plane only
+        path = tmp_path / 'single_channel_rgb.tiff'
+        tf.imwrite(str(path), arr)
+        return path
+
+    def test_collapse_default_reduces_single_channel_rgb_to_mono(self, tmp_path):
+        """The default collapses a single-populated-channel RGB to its mono
+        plane so the mono-uniform consumers see one shape."""
+        from modules import image_utils
+
+        path = self._write_single_channel_rgb(tmp_path)
+        image, _ = image_utils.load_pixels(path)
+        assert image.ndim == 2
+
+    def test_collapse_off_preserves_three_channel_shape(self, tmp_path):
+        """Color-capable consumers (stitch / zproject / composite / stack) pass
+        collapse_legacy_false_color=False to keep the raw RGB layout their own
+        color handling expects -- collapsing it would turn a color stitch mono."""
+        from modules import image_utils
+
+        path = self._write_single_channel_rgb(tmp_path)
+        image, _ = image_utils.load_pixels(path, collapse_legacy_false_color=False)
+        assert image.shape == (8, 8, 3)
+
 
 class TestWriteTiffDepthRequired:
     """A write that does not state its payload depth fails loudly instead of
