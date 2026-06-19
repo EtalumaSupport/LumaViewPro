@@ -193,6 +193,52 @@ def read_tiff_significant_bits(path: pathlib.Path) -> int:
         return tif.pages[0].dtype.itemsize * 8
 
 
+def load_pixels(path: pathlib.Path) -> tuple[np.ndarray, int]:
+    """Load a saved frame's pixels together with their significant-bit depth.
+
+    The one sanctioned read for saved pixel data: it returns the array AND the
+    meaningful payload depth in a single call, so a caller cannot obtain the
+    pixels without the depth needed to scale them. A uint16 frame stored
+    right-aligned (0..4095 for a 12-bit sensor) reads ~16x dark if scaled as a
+    full 16-bit value, so the depth is not optional context -- it is part of
+    what the pixels mean. Loading the two apart is the gap that lets a consumer
+    silently mis-scale every frame it touches.
+
+    Depth comes from read_tiff_significant_bits (OME SignificantBits -> private
+    tag -> container width), the single canonical resolver, so every encoding
+    ever written reads correctly: OME right-aligned, plain / ImageJ private-tag,
+    legacy left-justified (SignificantBits=16), and 8-bit. Non-TIFF files
+    (PNG / JPEG) carry no depth tag, so their container width is the depth.
+
+    Args:
+        path: Path to a saved pixel file (TIFF, PNG, or JPEG).
+
+    Returns:
+        (image, significant_bits). image is the stored array with values
+        verbatim (right-aligned, dtype preserved); significant_bits is the
+        payload depth to hand to convert_to_8bit and the display path.
+
+    Raises:
+        FileNotFoundError: the path does not exist.
+        ValueError: the file cannot be decoded as an image.
+    """
+    path = pathlib.Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f'No such pixel file: {path}')
+
+    if path.suffix.lower() in ('.tif', '.tiff'):
+        image = read_tiff_with_legacy_collapse(path)
+        return image, read_tiff_significant_bits(path)
+
+    # Non-TIFF (PNG / JPEG): no depth carrier, so the container width is the
+    # depth. cv2 returns color files in BGR channel order; the depth-sensitive
+    # payloads are mono, where channel order is moot.
+    image = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+    if image is None:
+        raise ValueError(f'Could not decode image: {path}')
+    return image, image.dtype.itemsize * 8
+
+
 def _read_ome_input_metadata(ome_xml: str, datetime_value) -> dict | None:
     """Recover the flat metadata dict from a tifffile-auto-OME description.
 

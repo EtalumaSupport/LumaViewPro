@@ -237,6 +237,90 @@ class TestNonOmeNativeDepth:
         assert int(eight.max()) == 255
 
 
+class TestLoadPixelsBoundary:
+    """load_pixels is the one read that returns pixels AND their depth in a
+    single call, so a caller cannot obtain a frame without the significant bits
+    needed to scale it. These pin the back-compat matrix: every on-disk
+    encoding the reader must round-trip to the correct depth."""
+
+    def _write_tiff(
+        self, tmp_path, value, significant_bits, ome, dtype=np.uint16, name='frame.tif'
+    ):
+        from modules import image_utils
+
+        arr = np.full((8, 8), value, dtype=dtype)
+        path = tmp_path / name
+        image_utils.write_tiff(
+            data=arr, file_loc=path, metadata=_save_meta(significant_bits), ome=ome, color='Green'
+        )
+        return path
+
+    def test_ome_right_aligned_12bit(self, tmp_path):
+        """OME right-aligned 12-bit returns sig=12 with values stored raw."""
+        from modules import image_utils
+
+        path = self._write_tiff(tmp_path, 4095, significant_bits=12, ome=True)
+        image, sig = image_utils.load_pixels(path)
+        assert sig == 12
+        assert int(image.max()) == 4095  # raw right-aligned, not left-justified
+
+    def test_plain_private_tag_12bit(self, tmp_path):
+        """Plain (non-OME) 12-bit recovers sig=12 from the private tag."""
+        from modules import image_utils
+
+        path = self._write_tiff(tmp_path, 4095, significant_bits=12, ome=False)
+        image, sig = image_utils.load_pixels(path)
+        assert sig == 12
+        assert int(image.max()) == 4095
+
+    def test_legacy_left_justified_reads_16(self, tmp_path):
+        """A legacy left-justified file (SignificantBits=16) reads sig=16."""
+        from modules import image_utils
+
+        path = self._write_tiff(tmp_path, 4095 * 16, significant_bits=16, ome=True)
+        image, sig = image_utils.load_pixels(path)
+        assert sig == 16
+        assert int(image.max()) == 65520
+
+    def test_8bit_file_reads_8(self, tmp_path):
+        """An 8-bit file reports sig=8 and preserves the uint8 container."""
+        from modules import image_utils
+
+        path = self._write_tiff(tmp_path, 255, significant_bits=8, ome=True, dtype=np.uint8)
+        image, sig = image_utils.load_pixels(path)
+        assert sig == 8
+        assert image.dtype == np.uint8
+
+    def test_non_tiff_png_uses_container_width(self, tmp_path):
+        """A PNG carries no depth tag, so container width (8) is the depth."""
+        import cv2
+
+        from modules import image_utils
+
+        arr = np.full((8, 8), 200, dtype=np.uint8)
+        path = tmp_path / 'frame.png'
+        cv2.imwrite(str(path), arr)
+        image, sig = image_utils.load_pixels(path)
+        assert sig == 8
+        assert int(image.max()) == 200
+
+    def test_returned_depth_scales_pixels_to_full_white(self, tmp_path):
+        """The (pixels, depth) pair is self-consistent: feeding the returned
+        depth back to convert_to_8bit maps full-payload to full 8-bit white."""
+        from modules import image_utils
+
+        path = self._write_tiff(tmp_path, 4095, significant_bits=12, ome=False)
+        image, sig = image_utils.load_pixels(path)
+        assert int(image_utils.convert_to_8bit(image, sig).max()) == 255
+
+    def test_missing_file_raises(self, tmp_path):
+        """A path that does not exist raises rather than returning a bare array."""
+        from modules import image_utils
+
+        with pytest.raises(FileNotFoundError):
+            image_utils.load_pixels(tmp_path / 'does_not_exist.tif')
+
+
 class TestConverterCollapse:
     """The depth-named converters delegate to the one significant-bits LUT, so
     there is a single canonical 8-bit mapping with no divergent per-depth tables."""
