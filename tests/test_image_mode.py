@@ -437,7 +437,6 @@ def test_write_tiff_video_frame_8bit_has_no_palette(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason='write_video_frame helper lands in V2')
 @pytest.mark.parametrize(
     ('save_encoding', 'capture_depth', 'in_dtype', 'fill', 'layer', 'fc_on', 'ndim', 'out_dtype'),
     [
@@ -479,7 +478,6 @@ def test_write_video_frame_matrix(
     assert arr.dtype == out_dtype
 
 
-@pytest.mark.xfail(strict=True, reason='write_video_frame helper lands in V2')
 def test_write_video_frame_12bit_falsecolor_off_stays_mono(tmp_path):
     """The headline manual-record fix: in the RGB image mode, a layer whose
     false-color toggle is OFF saves mono uint16 -- the mode never force-colorizes
@@ -501,7 +499,6 @@ def test_write_video_frame_12bit_falsecolor_off_stays_mono(tmp_path):
     assert arr.ndim == 2, 'false-color-off layer must stay mono even in RGB mode'
 
 
-@pytest.mark.xfail(strict=True, reason='write_video_frame helper lands in V2')
 def test_write_video_frame_8bit_falsecolor_bakes_rgb(tmp_path):
     """8-bit fluorescence with false color on bakes 3-channel RGB (the
     video_frame TIFF write has no palette to lean on)."""
@@ -523,7 +520,6 @@ def test_write_video_frame_8bit_falsecolor_bakes_rgb(tmp_path):
     assert arr[0, 0, 1] == 200 and arr[0, 0, 0] == 0 and arr[0, 0, 2] == 0
 
 
-@pytest.mark.xfail(strict=True, reason='write_video_frame helper lands in V2')
 def test_write_video_frame_stamps_significant_bits_for_scaled(tmp_path):
     """The helper stamps significant_bits from capture_depth, so msb_aligned
     actually left-justifies even when the caller's metadata omits it -- without

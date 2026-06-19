@@ -19,6 +19,7 @@ from typing import NamedTuple
 import numpy as np
 
 from lvp_logger import logger
+import modules.image_save as image_save
 import modules.image_utils as image_utils
 from modules.kivy_utils import schedule_ui as _schedule_ui
 from modules.video_writer import VideoWriter
@@ -267,6 +268,8 @@ def write_video(
     video_as_frames: bool,
     step: dict,
     callbacks: dict,
+    save_encoding: str = '8bit',
+    capture_depth: int = 8,
 ):
     """Write captured video frames to disk.
 
@@ -325,13 +328,14 @@ def write_video(
             }
 
             try:
-                image_utils.write_tiff(
-                    data=image,
-                    metadata=metadata,
+                image_save.write_video_frame(
+                    frame=image,
                     file_loc=output_file_loc,
-                    video_frame=True,
-                    ome=False,
-                    color=step['Color'],
+                    metadata=metadata,
+                    layer_color=step['Color'],
+                    false_color_on=step['False_Color'],
+                    save_encoding=save_encoding,
+                    capture_depth=capture_depth,
                 )
             except Exception as e:
                 logger.error(f'[PROTOCOL-VIDEO] Failed to write frame {frame_num}: {e}')

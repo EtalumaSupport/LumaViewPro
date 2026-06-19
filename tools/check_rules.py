@@ -424,6 +424,11 @@ _RULE_31B_BOUNDARY_PATHS = frozenset(
         # is the single canonical gate for that opt-in; it no-ops when the
         # setting is off, preserving the mono-native default everywhere else.
         'modules/image_utils.py',
+        # Sanctioned save-layer exception: write_video_frame is the one
+        # canonical video-frame save path. The video_frame TIFF write emits no
+        # palette colormap, so 8-bit fluorescence false color must bake to RGB
+        # here; it no-ops on mono / already-colored / false-color-off frames.
+        'modules/image_save.py',
     }
 )
 

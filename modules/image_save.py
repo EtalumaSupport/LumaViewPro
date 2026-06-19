@@ -41,6 +41,60 @@ if TYPE_CHECKING:
 _NUM_SEQ_DIGITS = 6
 
 
+def write_video_frame(
+    frame: np.ndarray,
+    file_loc: pathlib.Path,
+    metadata: dict,
+    layer_color: str,
+    false_color_on: bool,
+    save_encoding: str,
+    capture_depth: int,
+) -> None:
+    """Save one captured video frame to TIFF through the single canonical path.
+
+    Shared by the manual-record and protocol-video Frames branches so both
+    honor the image mode identically:
+
+      - a false-color-off layer (and any transmitted BF/PC/DF) saves mono, even
+        under the RGB encoding -- the mode never colorizes a colorless choice;
+      - a 12-bit frame carries significant_bits so msb_aligned left-justifies
+        and right_aligned marks the file at its true depth;
+      - 8-bit fluorescence false color is baked to RGB here, because the
+        video_frame TIFF write emits no palette colormap (unlike the still
+        8-bit path).
+
+    Args:
+        frame: One captured frame -- mono uint8/uint16, or already-colored RGB.
+        file_loc: Output .tiff path.
+        metadata: Per-frame metadata dict (must include 'datetime').
+        layer_color: Acquiring layer ('Red'/'Green'/'Blue'/'Lumi'/'BF'/...).
+        false_color_on: Whether the layer's false-color toggle was on.
+        save_encoding: Resolved image-mode save encoding ('8bit'/'right_aligned'/
+            'msb_aligned'/'rgb').
+        capture_depth: Acquired bit depth (8 or 12); stamps significant_bits for
+            uint16 frames.
+    """
+    save_color = layer_color if false_color_on else 'BF'
+    if frame.dtype == np.uint16 and capture_depth and capture_depth < 16:
+        metadata = {**metadata, 'significant_bits': capture_depth}
+    if (
+        frame.dtype == np.uint8
+        and false_color_on
+        and not image_utils.is_color_image(frame)
+        and save_color in common_utils.get_image_layers()
+    ):
+        frame = image_utils.add_false_color(array=frame, color=save_color)
+    image_utils.write_tiff(
+        data=frame,
+        file_loc=file_loc,
+        metadata=metadata,
+        ome=False,
+        color=save_color,
+        video_frame=True,
+        save_encoding=save_encoding,
+    )
+
+
 def get_next_save_path(scope: Lumascope, path) -> str:
     """Get the next save path given an existing save path.
 

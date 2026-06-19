@@ -394,6 +394,8 @@ class ProtocolImageWriter:
                                 'use_color': use_color,
                                 'name': name,
                                 'output_format': output_format,
+                                'save_encoding': image_capture_config.get('save_encoding', '8bit'),
+                                'capture_depth': capture_depth,
                                 'step': step,
                                 'captured_image': None,
                                 'step_index': curr_step,
@@ -591,6 +593,8 @@ class ProtocolImageWriter:
         name=None,
         output_format=None,
         jpeg_quality=90,
+        save_encoding='8bit',
+        capture_depth=8,
         step=None,
         captured_image=None,
         step_index=None,
@@ -643,6 +647,8 @@ class ProtocolImageWriter:
                         video_as_frames=video_as_frames,
                         step=step,
                         callbacks=self._callbacks.to_dict(),
+                        save_encoding=save_encoding,
+                        capture_depth=capture_depth,
                     )
                 except Exception:
                     self._record_dropped_capture(

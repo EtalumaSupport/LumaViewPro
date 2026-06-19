@@ -24,6 +24,7 @@ from modules.config_helpers import (
     get_image_capture_config_from_settings,
     get_manual_video_max_duration,
 )
+import modules.image_save as image_save
 import modules.image_utils as image_utils
 from modules.recording_manifest import build_session_manifest
 from modules.sequential_io_executor import IOTask
@@ -685,6 +686,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         video_save_folder = kwargs.get('video_save_folder')
         start_time_str = kwargs.get('start_time_str', '')
         video_as_frames = kwargs.get('video_as_frames', False)
+        video_false_color = kwargs.get('video_false_color')
         memmap_path = kwargs.get('memmap_path')
 
         # H-4 fix: use UI values snapshotted on main thread by _enqueue_recording_complete()
@@ -812,16 +814,17 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
                         )
 
                     try:
-                        image_utils.write_tiff(
-                            data=image,
-                            metadata=metadata,
+                        image_save.write_video_frame(
+                            frame=image,
                             file_loc=output_file_loc,
-                            video_frame=True,
-                            ome=False,
-                            color=color,
+                            metadata=metadata,
+                            layer_color=color,
+                            false_color_on=video_false_color is not None,
+                            save_encoding=image_capture_config['save_encoding'],
+                            capture_depth=image_capture_config['capture_depth'],
                         )
                     except Exception as e:
-                        logger.exception(f'Protocol-Video] Failed to write frame {frame_num}: {e}')
+                        logger.exception(f'Manual-Video] Failed to write frame {frame_num}: {e}')
 
                     # Update progress on main thread
                     progress = frame_num + 1
@@ -1016,7 +1019,10 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
                 self._record_convert_buf = np.empty(image.shape, dtype=np.uint16)
             image = image_utils.convert_12bit_to_16bit(image, out=self._record_convert_buf)
 
-        # Note: Currently, if image is 12/16-bit, then we ignore false coloring for video captures.
+        # 8-bit frames bake false color into the memmap here -- the MP4 encoder
+        # consumes the memmap directly and the video_frame TIFF write has no
+        # palette. 12-bit frames stay mono uint16 (no 3x memmap bloat) and are
+        # colorized at the save edge by image_save.write_video_frame.
         if (image.dtype != np.uint16) and (self.video_false_color is not None):
             color_shape = (image.shape[0], image.shape[1], 3)
             if (

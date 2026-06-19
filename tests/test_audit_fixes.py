@@ -3059,6 +3059,37 @@ def _protocol_step(**overrides):
     return step
 
 
+def test_write_capture_threads_save_encoding_to_write_video(monkeypatch, tmp_path):
+    """write_capture resolves nothing itself -- save_encoding + capture_depth are
+    resolved in capture() (where the image_capture_config lives) and threaded
+    through to write_video so protocol video frames honor the image mode."""
+    from types import SimpleNamespace
+
+    import modules.protocol_image_writer as piw
+
+    recorded = {}
+    monkeypatch.setattr(
+        piw, 'write_video', lambda **kwargs: recorded.update(kwargs) or (tmp_path / 'vid')
+    )
+
+    writer = _bare_protocol_writer()
+    writer.write_capture(
+        is_video=True,
+        video_as_frames=True,
+        video_result=SimpleNamespace(captured_frames=1, duration_sec=1.0),
+        save_folder=tmp_path,
+        name='vid',
+        step=_protocol_step(),
+        save_encoding='rgb',
+        capture_depth=12,
+        enable_image_saving=True,
+    )
+    assert recorded.get('save_encoding') == 'rgb', (
+        f'write_capture must thread save_encoding to write_video; saw {sorted(recorded)}'
+    )
+    assert recorded.get('capture_depth') == 12
+
+
 class TestPIW3_FalseColor16bitCachedAtRunStart:
     """PIW-3: image_utils.write_tiff used to acquire `_app_ctx.ctx.settings_lock`
     on every TIFF save to read the `false_color_16bit` flag. Same Rule 14 / Rule 2
