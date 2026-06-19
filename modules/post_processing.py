@@ -44,17 +44,14 @@ class PostProcessing:
         for filename in os.listdir(path):
             if filename.endswith(self.SUPPORTED_IMAGE_TYPES):
                 file_path = os.path.join(path, filename)
-                image = image_utils.image_file_to_image(image_file=file_path)
-                if image is None:
+                # One read returns pixels AND their payload depth together, so a
+                # right-aligned 12-bit TIFF scales to 8-bit by its true depth and
+                # the two can never be read out of sync.
+                try:
+                    image, significant_bits = image_utils.load_pixels(file_path)
+                except (FileNotFoundError, ValueError) as e:
+                    logger.warning(f'[LVP Main  ] Skipping unreadable image {filename}: {e}')
                     continue
-
-                # A right-aligned 12-bit TIFF must be scaled to 8-bit by its true
-                # depth, not the 16-bit container; TIFFs carry it in a tag, other
-                # formats fall back to the loaded container width.
-                if filename.lower().endswith(('.tif', '.tiff')):
-                    significant_bits = image_utils.read_tiff_significant_bits(file_path)
-                else:
-                    significant_bits = image.itemsize * 8
 
                 _, region_info = self.preview_cell_count(
                     image=image, settings=settings, significant_bits=significant_bits

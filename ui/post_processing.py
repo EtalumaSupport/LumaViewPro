@@ -831,17 +831,14 @@ class CellCountControls(BoxLayout):
         self._regenerate_image_preview()
 
     def set_preview_source_file(self, file) -> None:
-        image = image_utils.image_file_to_image(image_file=file)
-        if image is None:
+        # One read returns pixels AND their payload depth, so the preview always
+        # scales by the source's true depth and cannot read the two out of sync.
+        try:
+            image, significant_bits = image_utils.load_pixels(file)
+        except (FileNotFoundError, ValueError) as e:
+            logger.warning(f'[LVP Main  ] Cell-count preview could not load {file}: {e}')
             return
-
-        # A right-aligned 12-bit TIFF scales to 8-bit by its true depth, not the
-        # container width; TIFFs carry it in a tag, other formats are container-width.
-        if str(file).lower().endswith(('.tif', '.tiff')):
-            self._preview_source_significant_bits = image_utils.read_tiff_significant_bits(file)
-        else:
-            self._preview_source_significant_bits = image.itemsize * 8
-
+        self._preview_source_significant_bits = significant_bits
         self.set_preview_source(image=image)
 
     def calculate_area_filter_max(self, image):
@@ -880,8 +877,13 @@ class CellCountControls(BoxLayout):
         self._preview_source_image = image
         self._preview_image = image
         img_widget = self.ids['cell_count_image_id']
+        # The stored source stays full-depth for the cell-count math; the display
+        # blit gets an 8-bit copy scaled by the source's payload depth, so a
+        # right-aligned 12-bit frame renders correctly instead of being blitted
+        # as raw 16-bit bytes.
+        display_image = image_utils.convert_to_8bit(image, self._preview_source_significant_bits)
         img_widget.texture = image_utils_kivy.image_to_texture(
-            image=image, existing=img_widget.texture
+            image=display_image, existing=img_widget.texture
         )
         self.update_filter_max(image=image)
         self._regenerate_image_preview()
