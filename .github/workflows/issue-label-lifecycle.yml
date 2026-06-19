@@ -1,0 +1,116 @@
+name: Issue label lifecycle automation
+
+# Keeps the issue labels honest automatically, with no manual bookkeeping:
+#
+#   (issue opened)                         -> add "New issue - needs triage"
+#   (we triage/fix: marker comment)        -> clear "New issue - needs triage"
+#   (handled state) + (reporter replies, no marker)
+#       handled = "Analyzed" | "Triaged - in progress" |
+#                 "Fixed Needs verification" | "More Bench testing needed"
+#                                          -> strip handled state(s), add "New data - needs retriage"
+#   "New data - needs retriage" + (we re-act: marker comment)
+#                                          -> clear "New data - needs retriage"
+#
+# A marker (<!-- claude:annotation -->) comment is our fix/triage handoff: it
+# means WE acted, so it clears the "needs us" flags (the handoff step itself
+# re-applies "Fixed Needs verification" when a fix ships). A non-marker comment
+# on a verified issue means the reporter came back, so it reopens the work.
+#
+# NOTE: GitHub runs issue/issue_comment workflows from the DEFAULT branch, so
+# this file only takes effect once it is on main.
+
+on:
+  issues:
+    types: [opened]
+  issue_comment:
+    types: [created]
+
+permissions:
+  issues: write
+
+jobs:
+  # A brand-new issue always needs triage first.
+  triage-new-issue:
+    if: github.event_name == 'issues'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Add the needs-triage label
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              labels: ['New issue - needs triage'],
+            });
+
+  # Reporter (or anyone) commented WITHOUT the handoff marker on an issue we had
+  # already handled (analyzed / fix-in-progress / fixed-pending-verification /
+  # awaiting-bench-data). There is new input to weigh, so the handled-state claim
+  # is no longer trustworthy: strip whichever handled-state labels are present and
+  # raise the retriage flag.
+  #
+  # Only OPEN issues qualify. A "Close with comment" on a handled issue fires this
+  # same issue_comment event, and without the open guard the closing comment
+  # (e.g. "fixed") re-applied "New data - needs retriage" on an issue that was
+  # closed in the same breath -- polluting the retriage queue with closed issues.
+  # A genuine reopen-with-new-data path reopens the issue first, so OPEN is right.
+  handled-to-retriage:
+    if: >-
+      github.event_name == 'issue_comment' &&
+      github.event.issue.state == 'open' &&
+      !contains(github.event.comment.body, '<!-- claude:annotation -->') &&
+      (contains(github.event.issue.labels.*.name, 'Fixed Needs verification') ||
+       contains(github.event.issue.labels.*.name, 'Analyzed') ||
+       contains(github.event.issue.labels.*.name, 'Triaged - in progress') ||
+       contains(github.event.issue.labels.*.name, 'More Bench testing needed'))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Strip handled-state labels, add retriage label
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const common = {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            };
+            for (const name of ['Fixed Needs verification', 'Analyzed',
+                                'Triaged - in progress', 'More Bench testing needed']) {
+              await github.rest.issues.removeLabel({ ...common, name }).catch(err => {
+                // 404 = label already absent (lost a race); anything else is real.
+                if (err.status !== 404) throw err;
+              });
+            }
+            await github.rest.issues.addLabels({
+              ...common,
+              labels: ['New data - needs retriage'],
+            });
+
+  # Our marker comment means WE acted (triaged or shipped a fix) -- clear the
+  # "needs us" flags. The handoff step re-applies "Fixed Needs verification"
+  # itself when a fix ships, so this job only clears the pending-work flags.
+  clear-pending-flags-on-marker:
+    if: >-
+      github.event_name == 'issue_comment' &&
+      contains(github.event.comment.body, '<!-- claude:annotation -->') &&
+      (contains(github.event.issue.labels.*.name, 'New data - needs retriage') ||
+       contains(github.event.issue.labels.*.name, 'New issue - needs triage'))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Remove the needs-triage and retriage labels
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const common = {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            };
+            for (const name of ['New data - needs retriage', 'New issue - needs triage']) {
+              await github.rest.issues.removeLabel({ ...common, name }).catch(err => {
+                // 404 = label already absent; anything else is real.
+                if (err.status !== 404) throw err;
+              });
+            }
