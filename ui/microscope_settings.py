@@ -34,6 +34,7 @@ from modules.path_utils import resolve_data_file
 from modules.scope_init_config import ScopeInitConfig
 from modules.memory_profiler import MemoryLeakProfiler
 from modules.sequential_io_executor import IOTask
+import modules.image_mode as image_mode
 from ui.ui_helpers import scope_leds_off
 from modules.zstack_config import ZStackConfig
 
@@ -384,16 +385,29 @@ class MicroscopeSettings(BoxLayout):
                 logger.info(f'[LVP Main  ] Using scope selection from {filename}')
                 self.ids['scope_spinner'].text = settings['microscope']
 
-            if settings['use_full_pixel_depth']:
-                self.ids['enable_full_pixel_depth_btn'].state = 'down'
-            else:
-                self.ids['enable_full_pixel_depth_btn'].state = 'normal'
-            self.update_full_pixel_depth_state()
+            # Image mode selector: populate the options from the camera's
+            # capability, then select the stored mode. A stored 12-bit mode on
+            # an 8-bit-only camera falls back to 8-bit and tells the user.
+            # Setting the spinner text fires select_image_mode (on_text), which
+            # caches the mode and applies the pixel format.
+            formats = self.load_image_modes()
+            mode = image_mode.resolve_settings_image_mode(settings)
+            # Only downgrade when the camera DEFINITIVELY lacks 12-bit (formats
+            # known and without Mono12). An empty list here means the camera
+            # is not up yet -- keep the stored mode; the options refresh when
+            # the spinner is next opened.
+            if formats and mode not in image_mode.available_modes(formats):
+                from modules.notification_center import notifications
 
-            if settings.get('false_color_16bit', False):
-                self.ids['false_color_16bit_btn'].state = 'down'
-            else:
-                self.ids['false_color_16bit_btn'].state = 'normal'
+                notifications.warning(
+                    'Camera',
+                    'Image mode not supported',
+                    'This camera supports 8-bit capture only; the saved 12-bit '
+                    'image mode was changed to 8-bit.',
+                )
+                mode = image_mode.IMAGE_MODE_8BIT
+                settings['image_mode'] = mode
+            self.ids['image_mode_spinner'].text = image_mode.IMAGE_MODE_LABELS[mode]
 
             if 'separate_folder_per_channel' in settings:
                 if settings['separate_folder_per_channel']:
@@ -767,40 +781,53 @@ class MicroscopeSettings(BoxLayout):
 
             _app_ctx.ctx.scope_display.use_bullseye = False
 
-    def update_full_pixel_depth_state(self):
+    def _supported_pixel_formats(self):
+        """The active camera's supported pixel formats, or [] if unavailable."""
+        try:
+            return _app_ctx.ctx.lumaview.scope.imaging.get_supported_pixel_formats() or []
+        except Exception:
+            logger.warning('[LVP Main  ] Could not read camera pixel formats; assuming 8-bit only.')
+            return []
+
+    def load_image_modes(self):
+        """Populate the image-mode spinner with the modes this camera supports.
+
+        A camera without Mono12/Mono12p offers 8-bit only, so the 12-bit
+        options never appear where they cannot work. Returns the queried
+        formats so the load-time sync can reuse them.
+        """
+        formats = self._supported_pixel_formats()
+        self.ids['image_mode_spinner'].values = image_mode.available_mode_labels(formats)
+        return formats
+
+    def select_image_mode(self):
         ctx = _app_ctx.ctx
         settings = ctx.settings
 
-        if self.ids['enable_full_pixel_depth_btn'].state == 'down':
-            use_full_pixel_depth = True
-        else:
-            use_full_pixel_depth = False
-        gui_logger.toggle('FULL_PIXEL_DEPTH', use_full_pixel_depth)
+        label = self.ids['image_mode_spinner'].text
+        mode = image_mode.LABEL_TO_IMAGE_MODE.get(label)
+        if mode is None:
+            return  # 'Select' placeholder or an unknown label -- ignore
+        gui_logger.select('IMAGE_MODE', mode)
 
-        ctx.scope_display.use_full_pixel_depth = use_full_pixel_depth
+        ctx.scope_display.image_mode = mode
+        settings['image_mode'] = mode
 
-        # Route through camera executor to prevent race with live view grab loop
+        # Apply the capture depth to the camera: Mono12 for any 12-bit mode,
+        # Mono8 for 8-bit. Route through the camera executor to avoid racing
+        # the live-view grab loop; fall back to a supported format if the
+        # requested one is rejected.
+        capture_depth = image_mode.resolve_image_mode(mode)['capture_depth']
+        pixel_format = 'Mono12' if capture_depth == 12 else 'Mono8'
+
         def _set_pixel_format():
-            if use_full_pixel_depth:
-                if not ctx.lumaview.scope.imaging.set_pixel_format('Mono12'):
-                    formats = ctx.lumaview.scope.imaging.get_supported_pixel_formats()
-                    if formats:
-                        ctx.lumaview.scope.imaging.set_pixel_format(formats[0])
-            else:
-                if not ctx.lumaview.scope.imaging.set_pixel_format('Mono8'):
-                    formats = ctx.lumaview.scope.imaging.get_supported_pixel_formats()
-                    if formats:
-                        ctx.lumaview.scope.imaging.set_pixel_format(formats[0])
+            imaging = ctx.lumaview.scope.imaging
+            if not imaging.set_pixel_format(pixel_format):
+                formats = imaging.get_supported_pixel_formats()
+                if formats:
+                    imaging.set_pixel_format(formats[0])
 
         ctx.camera_executor.put(IOTask(action=_set_pixel_format))
-
-        settings['use_full_pixel_depth'] = use_full_pixel_depth
-
-    def update_false_color_16bit_state(self):
-        settings = _app_ctx.ctx.settings
-        enabled = self.ids['false_color_16bit_btn'].state == 'down'
-        gui_logger.toggle('FALSE_COLOR_16BIT', enabled)
-        settings['false_color_16bit'] = enabled
 
     def select_live_image_output_format(self):
         settings = _app_ctx.ctx.settings

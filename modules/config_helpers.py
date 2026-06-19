@@ -812,25 +812,26 @@ def get_protocol_time_params_from_settings(settings: dict) -> dict:
 def get_image_capture_config_from_settings(settings: dict) -> dict:
     """Read image capture config from settings dict (no UI needed).
 
-    Derives the consolidated image_mode (and its capture_depth / save_encoding)
-    from the legacy keys, so capture and save callers can read one resolved
-    value while the old keys remain the stored source.
+    Resolves the consolidated image_mode (and its capture_depth /
+    save_encoding). The explicit ``image_mode`` key is authoritative; absent
+    it, the mode is derived from the legacy keys for installs saved before the
+    consolidated key existed.
     """
     output_format = settings.get('image_output_format', {})
-    use_full_pixel_depth = settings.get('use_full_pixel_depth', False)
-    false_color_16bit = settings.get('false_color_16bit', False)
-    mode = image_mode.migrate_legacy_settings(use_full_pixel_depth, false_color_16bit)
+    mode = image_mode.resolve_settings_image_mode(settings)
     derived = image_mode.resolve_image_mode(mode)
     return {
         'output_format': {
             'live': output_format.get('live', 'TIFF'),
             'sequenced': output_format.get('sequenced', 'TIFF'),
         },
-        'use_full_pixel_depth': use_full_pixel_depth,
-        'false_color_16bit': false_color_16bit,
         'image_mode': mode,
         'capture_depth': derived['capture_depth'],
         'save_encoding': derived['save_encoding'],
+        # Legacy keys derived from the resolved mode for any straggler reader
+        # during the transition; dropped once every caller consumes image_mode.
+        'use_full_pixel_depth': derived['capture_depth'] == 12,
+        'false_color_16bit': derived['save_encoding'] == image_mode.SAVE_ENCODING_RGB,
         'jpg_quality': int(settings.get('jpg_quality', 90)),
     }
 

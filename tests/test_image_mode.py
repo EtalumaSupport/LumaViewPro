@@ -119,6 +119,84 @@ def test_config_helper_derives_image_mode_from_settings():
 
 
 # ---------------------------------------------------------------------------
+# Capability gate: which modes a camera can offer
+# ---------------------------------------------------------------------------
+
+
+def test_available_modes_8bit_only_camera():
+    """A camera without Mono12/Mono12p (LS560/620/720 class) offers 8-bit only."""
+    from modules.image_mode import available_mode_labels, available_modes, camera_supports_12bit
+
+    assert camera_supports_12bit(['Mono8']) is False
+    assert available_modes(['Mono8']) == ['8bit']
+    assert available_mode_labels(['Mono8']) == ['8-bit']
+    # Empty / None capability set is treated as 8-bit-only, never as "all".
+    assert available_modes([]) == ['8bit']
+    assert available_modes(None) == ['8bit']
+
+
+def test_available_modes_12bit_camera():
+    """A Mono12-capable camera offers all four modes in selector order."""
+    from modules.image_mode import available_modes, camera_supports_12bit
+
+    assert camera_supports_12bit(['Mono8', 'Mono10', 'Mono12', 'Mono12p']) is True
+    assert available_modes(['Mono8', 'Mono12']) == [
+        '8bit',
+        '12bit_scientific',
+        '12bit_scaled',
+        '12bit_false_color_rgb',
+    ]
+
+
+def test_image_mode_label_round_trip():
+    """Every mode has a label and the label maps back to the mode."""
+    from modules.image_mode import IMAGE_MODE_LABELS, LABEL_TO_IMAGE_MODE, resolve_image_mode
+
+    for mode, label in IMAGE_MODE_LABELS.items():
+        resolve_image_mode(mode)  # every labeled value is a real mode
+        assert LABEL_TO_IMAGE_MODE[label] == mode
+
+
+def test_resolve_settings_image_mode_prefers_explicit_key():
+    """An explicit image_mode key wins over the legacy keys -- the only way to
+    reach 12bit_scaled, which no legacy combination maps to."""
+    from modules.image_mode import resolve_settings_image_mode
+
+    settings = {
+        'image_mode': '12bit_scaled',
+        'use_full_pixel_depth': True,
+        'false_color_16bit': True,
+    }
+    assert resolve_settings_image_mode(settings) == '12bit_scaled'
+
+
+def test_resolve_settings_image_mode_falls_back_to_legacy():
+    """No image_mode key -> derive from the legacy keys (old installs)."""
+    from modules.image_mode import resolve_settings_image_mode
+
+    assert resolve_settings_image_mode({}) == '8bit'
+    assert (
+        resolve_settings_image_mode({'use_full_pixel_depth': True, 'false_color_16bit': True})
+        == '12bit_false_color_rgb'
+    )
+    # An unrecognized image_mode value is ignored in favor of the legacy derivation.
+    assert resolve_settings_image_mode({'image_mode': 'bogus', 'use_full_pixel_depth': True}) == (
+        '12bit_scientific'
+    )
+
+
+def test_config_helper_prefers_image_mode_key():
+    """The settings getter honors an explicit image_mode, making 12bit_scaled
+    reachable in production."""
+    from modules.config_helpers import get_image_capture_config_from_settings
+
+    cfg = get_image_capture_config_from_settings({'image_mode': '12bit_scaled'})
+    assert cfg['image_mode'] == '12bit_scaled'
+    assert cfg['capture_depth'] == 12
+    assert cfg['save_encoding'] == 'msb_aligned'
+
+
+# ---------------------------------------------------------------------------
 # Save encoding: 12-bit scaled (MSB-aligned, lossless, recoverable)
 # ---------------------------------------------------------------------------
 

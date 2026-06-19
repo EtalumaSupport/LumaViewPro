@@ -218,17 +218,17 @@ def get_image_capture_config_from_ui() -> dict:
         'live': microscope_settings.ids['live_image_output_format_spinner'].text,
         'sequenced': microscope_settings.ids['sequenced_image_output_format_spinner'].text,
     }
-    use_full_pixel_depth = _app_ctx.ctx.scope_display.use_full_pixel_depth
-    false_color_16bit = _app_ctx.ctx.settings.get('false_color_16bit', False)
-    mode = image_mode.migrate_legacy_settings(use_full_pixel_depth, false_color_16bit)
+    mode = _app_ctx.ctx.scope_display.image_mode
     derived = image_mode.resolve_image_mode(mode)
     return {
         'output_format': output_format,
-        'use_full_pixel_depth': use_full_pixel_depth,
-        'false_color_16bit': false_color_16bit,
         'image_mode': mode,
         'capture_depth': derived['capture_depth'],
         'save_encoding': derived['save_encoding'],
+        # Legacy keys derived from the resolved mode for any straggler reader
+        # during the transition; dropped once every caller consumes image_mode.
+        'use_full_pixel_depth': derived['capture_depth'] == 12,
+        'false_color_16bit': derived['save_encoding'] == image_mode.SAVE_ENCODING_RGB,
         'jpg_quality': int(_app_ctx.ctx.settings.get('jpg_quality', 90)),
     }
 

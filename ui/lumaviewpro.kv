@@ -2370,45 +2370,37 @@
 				height: '30dp'
 				Label:
 					font_size: '12sp'
-					text: '12 Bit Mode'
-					tooltip_text: 'Capture and save images at 12-bit depth\n(4096 levels) instead of 8-bit (256 levels)'
+					text: 'Image Mode'
+					tooltip_text: 'Pixel depth and how images are saved:\n8-bit; 12-bit scientific (right-aligned, dark in\nWindows); 12-bit scaled (bright everywhere); or\n12-bit false color RGB. 12-bit options appear only\non cameras that support 12-bit capture.'
 					halign: 'left'
 					valign: 'middle'
 					text_size: self.size
-				ToggleButton:
-					id: enable_full_pixel_depth_btn
+				Spinner:
+					id: image_mode_spinner
 					disabled: app.protocol_running
-					tooltip_text: 'Save all images as 12-bit TIFF'
-					size_hint: None, None
-					size: '45dp', '30dp'
-					border: 0, 0, 0, 0
-					valign: 'middle'
-					background_normal: './data/icons/ToggleL.png'
-					background_down: './data/icons/ToggleRW.png'
-					on_release: root.update_full_pixel_depth_state()
+					sync_height: True
+					text: 'Select'
+					font_size: '12sp'
+					option_cls: "SpinnerOption0"
+					on_release: root.load_image_modes()
+					on_text: root.select_image_mode()
 
 			BoxLayout:
+				id: image_mode_jpg_hint_row
 				orientation: 'horizontal'
 				size_hint_y: None
-				height: '30dp'
+				# Shown only when a 12-bit mode is paired with a JPG output
+				# format: JPG is 8-bit, so it cannot carry the 12-bit capture
+				# at full depth. Collapse height + hide rather than grey out.
+				height: '30dp' if '12-bit' in image_mode_spinner.text and (live_image_output_format_spinner.text == 'JPG' or sequenced_image_output_format_spinner.text == 'JPG') else 0
+				opacity: 1 if '12-bit' in image_mode_spinner.text and (live_image_output_format_spinner.text == 'JPG' or sequenced_image_output_format_spinner.text == 'JPG') else 0
 				Label:
-					font_size: '12sp'
-					text: 'False Color in Saved 12-bit'
-					tooltip_text: 'Save 12-bit fluorescence images as 3-channel\nRGB for false color in all viewers.\nIncreases file size ~3x.'
+					text: 'JPG saves 8-bit; the 12-bit capture is not preserved at full depth.'
+					color: 1, 0.6, 0, 1
+					font_size: '11sp'
 					halign: 'left'
 					valign: 'middle'
 					text_size: self.size
-				ToggleButton:
-					id: false_color_16bit_btn
-					disabled: app.protocol_running
-					tooltip_text: 'Save 12-bit fluorescence as 3-channel RGB\nfor false color in all viewers (3x file size)'
-					size_hint: None, None
-					size: '45dp', '30dp'
-					border: 0, 0, 0, 0
-					valign: 'middle'
-					background_normal: './data/icons/ToggleL.png'
-					background_down: './data/icons/ToggleRW.png'
-					on_release: root.update_false_color_16bit_state()
 
 			BoxLayout:
 				orientation: 'horizontal'

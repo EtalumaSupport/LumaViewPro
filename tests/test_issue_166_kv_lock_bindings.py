@@ -165,7 +165,7 @@ LOCK_REPRESENTATIVES = {
     # Post-processing (stitch is per-widget OR-combine; others container-bound).
     'stitch_apply_btn': None,
     # Microscope settings (mixed region -> per-widget).
-    'enable_full_pixel_depth_btn': None,
+    'image_mode_spinner': None,
     'binning_spinner': None,
     'enable_crosshairs_btn': None,
 }

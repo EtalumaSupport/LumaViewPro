@@ -73,3 +73,65 @@ def migrate_legacy_settings(use_full_pixel_depth: bool, false_color_16bit: bool)
     if false_color_16bit:
         return IMAGE_MODE_12BIT_FALSE_COLOR_RGB
     return IMAGE_MODE_12BIT_SCIENTIFIC
+
+
+# User-facing labels for the Image mode selector. The selector is the only
+# place these strings appear; storage and the resolver use the enum values.
+IMAGE_MODE_LABELS = {
+    IMAGE_MODE_8BIT: '8-bit',
+    IMAGE_MODE_12BIT_SCIENTIFIC: '12-bit (scientific)',
+    IMAGE_MODE_12BIT_SCALED: '12-bit (scaled)',
+    IMAGE_MODE_12BIT_FALSE_COLOR_RGB: '12-bit false color (RGB)',
+}
+
+LABEL_TO_IMAGE_MODE = {label: mode for mode, label in IMAGE_MODE_LABELS.items()}
+
+# Pixel formats that mean the camera can deliver a 12-bit payload. A camera
+# offering neither (the FX2/MT9P031 in the LS560/620/720 streams only the top
+# 8 bits) can capture 8-bit only, so it must not be offered the 12-bit modes.
+_TWELVE_BIT_PIXEL_FORMATS = ('Mono12', 'Mono12p')
+
+
+def camera_supports_12bit(supported_pixel_formats) -> bool:
+    """Whether a camera advertising these pixel formats can capture 12-bit."""
+    formats = supported_pixel_formats or ()
+    return any(fmt in formats for fmt in _TWELVE_BIT_PIXEL_FORMATS)
+
+
+def available_modes(supported_pixel_formats) -> list:
+    """The image_mode values selectable on a camera with these pixel formats.
+
+    8-bit is always available; the three 12-bit modes require Mono12/Mono12p,
+    so an 8-bit-only camera never offers an impossible 12-bit choice.
+    """
+    modes = [IMAGE_MODE_8BIT]
+    if camera_supports_12bit(supported_pixel_formats):
+        modes.extend(
+            [
+                IMAGE_MODE_12BIT_SCIENTIFIC,
+                IMAGE_MODE_12BIT_SCALED,
+                IMAGE_MODE_12BIT_FALSE_COLOR_RGB,
+            ]
+        )
+    return modes
+
+
+def available_mode_labels(supported_pixel_formats) -> list:
+    """The user-facing labels for available_modes, in selector order."""
+    return [IMAGE_MODE_LABELS[mode] for mode in available_modes(supported_pixel_formats)]
+
+
+def resolve_settings_image_mode(settings) -> str:
+    """The authoritative image_mode for a settings dict.
+
+    Prefers an explicit ``image_mode`` key; falls back to deriving it from the
+    legacy ``use_full_pixel_depth`` / ``false_color_16bit`` keys for installs
+    saved before the consolidated key existed.
+    """
+    mode = settings.get('image_mode')
+    if mode in _MODE_TABLE:
+        return mode
+    return migrate_legacy_settings(
+        settings.get('use_full_pixel_depth', False),
+        settings.get('false_color_16bit', False),
+    )

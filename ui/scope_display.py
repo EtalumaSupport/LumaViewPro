@@ -43,6 +43,7 @@ from kivy.input import MotionEvent
 
 from modules.contrast_stretcher import ContrastStretcher
 from modules import gui_logger
+import modules.image_mode as image_mode
 import modules.autofocus_functions as autofocus_functions
 import modules.common_utils as common_utils
 import modules.app_context as _app_ctx
@@ -135,7 +136,7 @@ class ScopeDisplay(Image):
             top_pct=0.3,
         )
 
-        self.use_full_pixel_depth = False
+        self.image_mode = image_mode.DEFAULT_IMAGE_MODE
 
         # Counters (were module-level globals in lumaviewpro.py)
         self._debug_counter = 0
