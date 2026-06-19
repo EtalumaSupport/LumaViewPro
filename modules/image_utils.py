@@ -525,6 +525,13 @@ def build_postproc_output_metadata(
     if z_pos_um_override is not None:
         metadata['z_pos_um'] = z_pos_um_override
 
+    # A derived output inherits its inputs' depth: a stitch or projection copies
+    # the input pixels verbatim, so the output's true significant-bit depth is
+    # the input's. Read it from the representative input (the canonical resolver
+    # handles OME / private tag / container fallback) so the output is tagged
+    # honestly instead of defaulting to container width and reading back dark.
+    metadata['significant_bits'] = read_tiff_significant_bits(input_path)
+
     return metadata
 
 

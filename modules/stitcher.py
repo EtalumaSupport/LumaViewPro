@@ -268,6 +268,7 @@ class Stitcher(ProtocolPostProcessor):
                 metadata=metadata,
                 ome=False,
                 color=source_image_sample_row['Color'],
+                significant_bits=metadata['significant_bits'],
             )
             return_image = None
         else:
@@ -398,6 +399,7 @@ class Stitcher(ProtocolPostProcessor):
                 metadata=metadata,
                 ome=False,
                 color=color,
+                significant_bits=metadata['significant_bits'],
             )
             return_image = None
         else:

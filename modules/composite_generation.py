@@ -307,6 +307,7 @@ class CompositeGeneration(ProtocolPostProcessor):
                         metadata=metadata,
                         ome=ome,
                         color='Composite',
+                        significant_bits=metadata['significant_bits'],
                     )
 
         except Exception as e:
@@ -438,6 +439,7 @@ class CompositeGeneration(ProtocolPostProcessor):
             metadata=metadata,
             ome=(format == 'ome-tiff'),
             color='Composite',
+            significant_bits=metadata['significant_bits'],
         )
 
         return {

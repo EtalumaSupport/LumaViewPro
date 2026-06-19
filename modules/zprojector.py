@@ -236,6 +236,7 @@ class ZProjector(ProtocolPostProcessor):
             metadata=metadata,
             ome=False,
             color=first_slice_row['Color'],
+            significant_bits=metadata['significant_bits'],
         )
 
         del result['image']
