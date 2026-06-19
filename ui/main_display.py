@@ -20,7 +20,10 @@ from kivy.clock import Clock
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 from modules import gui_logger
-from modules.config_helpers import get_manual_video_max_duration
+from modules.config_helpers import (
+    get_image_capture_config_from_settings,
+    get_manual_video_max_duration,
+)
 import modules.image_utils as image_utils
 from modules.recording_manifest import build_session_manifest
 from modules.sequential_io_executor import IOTask
@@ -220,6 +223,11 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         self._record_shape_warning_emitted = False
 
         self.video_as_frames = settings['video_as_frames']
+        # Snapshot capture depth at record start so the per-frame record_helper
+        # reuses it without re-deriving the image mode on every frame.
+        self._record_capture_depth = get_image_capture_config_from_settings(settings)[
+            'capture_depth'
+        ]
 
         # false_color was snapshotted on main thread by record_button()
         color = false_color
@@ -280,7 +288,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
 
         self.memmap_location = pathlib.Path(settings['live_folder']) / 'recording_temp.dat'
 
-        if not settings['use_full_pixel_depth'] or not settings['video_as_frames']:
+        if self._record_capture_depth == 8 or not settings['video_as_frames']:
             dtype = 'uint8'
         else:
             dtype = 'uint16'
@@ -993,7 +1001,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
             return
 
         settings = _app_ctx.ctx.settings
-        force_to_8bit = not settings['use_full_pixel_depth'] or not settings['video_as_frames']
+        force_to_8bit = self._record_capture_depth == 8 or not settings['video_as_frames']
 
         if force_to_8bit and image.dtype != np.uint8:
             if self._record_convert_buf is None or self._record_convert_buf.shape != image.shape:

@@ -3105,7 +3105,9 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
         with -- the run-start read, not a per-save settings read."""
         import numpy as np
 
-        writer = _bare_protocol_writer(false_color_16bit=True)
+        from modules import image_mode
+
+        writer = _bare_protocol_writer(save_encoding=image_mode.SAVE_ENCODING_RGB)
         recorded = []
         monkeypatch.setattr(
             'modules.protocol_image_writer.save_image',
@@ -3122,8 +3124,8 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
             output_format='TIFF',
         )
         assert recorded, 'write_capture must reach save_image'
-        assert recorded[0]['use_false_color_16bit'] is True, (
-            'the constructor-cached false_color_16bit must arrive at save_image'
+        assert recorded[0]['save_encoding'] == image_mode.SAVE_ENCODING_RGB, (
+            'the constructor-cached save_encoding must arrive at save_image'
         )
 
     def test_sequenced_capture_runner_reads_once_at_run_start(self, monkeypatch):
@@ -3132,9 +3134,12 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
         from types import SimpleNamespace
 
         import modules.app_context as app_context
+        from modules import image_mode
 
         lock = threading.Lock()
-        settings = _LockWatchingSettings({'false_color_16bit': True}, lock, 'false_color_16bit')
+        settings = _LockWatchingSettings(
+            {'use_full_pixel_depth': True, 'false_color_16bit': True}, lock, 'false_color_16bit'
+        )
         monkeypatch.setattr(
             app_context, 'ctx', SimpleNamespace(settings=settings, settings_lock=lock)
         )
@@ -3144,7 +3149,7 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
             'PIW-3: false_color_16bit must be read exactly once per run, under '
             f'settings_lock; reads (lock-held flags): {settings.watched_reads}'
         )
-        assert runner._image_writer._false_color_16bit is True, (
+        assert runner._image_writer._save_encoding == image_mode.SAVE_ENCODING_RGB, (
             'PIW-3: the run-start value must be threaded to ProtocolImageWriter'
         )
 

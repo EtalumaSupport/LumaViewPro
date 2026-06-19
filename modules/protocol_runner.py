@@ -102,6 +102,7 @@ class ProtocolRunner:
                 'sequenced': sequenced_format,
             },
             'use_full_pixel_depth': use_full_pixel_depth,
+            'capture_depth': 12 if use_full_pixel_depth else 8,
             'jpg_quality': jpg_quality,
         }
 

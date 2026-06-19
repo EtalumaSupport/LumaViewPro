@@ -21,6 +21,7 @@ import numpy as np
 from lvp_logger import protocol_logger as logger
 
 import modules.common_utils as common_utils
+import modules.image_mode as image_mode
 from modules.image_save import save_image
 from modules.protocol import Protocol
 from modules.video_capture import VideoCaptureSession, write_video
@@ -64,7 +65,7 @@ class ProtocolImageWriter:
         stim_profiling: bool = False,
         run_dir: pathlib.Path | None = None,
         # PIW-3: cached settings, read once at run start to avoid per-save lock acquires
-        false_color_16bit: bool = False,
+        save_encoding: str = image_mode.SAVE_ENCODING_8BIT,
     ):
         self._scope = scope
         self._callbacks = callbacks
@@ -77,7 +78,7 @@ class ProtocolImageWriter:
         self._is_run_in_progress = is_run_in_progress_fn
         self._stim_profiling = stim_profiling
         self._run_dir = run_dir
-        self._false_color_16bit = false_color_16bit
+        self._save_encoding = save_encoding
         # PIW-5 / PF-3 / PIW-6: per-run reusable buffers for the save path.
         # Allocated lazily on first matching save; re-allocated on shape/dtype change.
         # file_io_executor runs single-threaded, so reuse across saves is safe.
@@ -347,7 +348,11 @@ class ProtocolImageWriter:
             use_color = step['Color'] if step['False_Color'] else 'BF'
 
             if enable_image_saving:
-                use_full_pixel_depth = image_capture_config['use_full_pixel_depth']
+                # Prefer the derived capture_depth; fall back to the legacy
+                # capture flag for configs still built by hand without it.
+                capture_depth = image_capture_config.get('capture_depth') or (
+                    12 if image_capture_config.get('use_full_pixel_depth', True) else 8
+                )
                 jpeg_quality = image_capture_config.get('jpg_quality', 90)
 
                 if is_video:
@@ -420,7 +425,7 @@ class ProtocolImageWriter:
                 else:
                     # Frame validity drains stale frames, then grabs a valid one
                     captured_image = self._scope.imaging.capture_and_wait(
-                        force_to_8bit=not use_full_pixel_depth,
+                        force_to_8bit=capture_depth == 8,
                         all_ones_check=True,
                         timeout_s=1.0,
                         sum_count=sum_count,
@@ -715,7 +720,7 @@ class ProtocolImageWriter:
                         x=step['X'],
                         y=step['Y'],
                         z=step['Z'],
-                        use_false_color_16bit=self._false_color_16bit,
+                        save_encoding=self._save_encoding,
                         out_12to16=out_12to16,
                         significant_bits=summed_significant_bits,
                     )

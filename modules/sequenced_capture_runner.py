@@ -20,7 +20,9 @@ from modules.protocol_run_loop import ProtocolRunLoop
 from modules.lumascope_api import Lumascope
 
 import modules.common_utils as common_utils
+import modules.config_helpers as config_helpers
 import modules.coord_transformations as coord_transformations
+import modules.image_mode as image_mode
 
 import modules.labware_loader as labware_loader
 from modules.autofocus_runner import AutofocusRunner
@@ -568,7 +570,7 @@ class SequencedCaptureRunner:
         self._separate_folder_per_channel = separate_folder_per_channel
         # Snapshot at run() entry so mid-run UI mutations of the autogain
         # settings dict (target_brightness, max_duration, min/max_gain_db)
-        # do not leak into the in-flight scan. Mirrors the false_color_16bit
+        # do not leak into the in-flight scan. Mirrors the save-encoding
         # snapshot pattern below.
         self._autogain_settings = (
             copy.deepcopy(autogain_settings) if autogain_settings is not None else {}
@@ -617,12 +619,14 @@ class SequencedCaptureRunner:
         # within one scan; protocol_step_runner reads p._bf_af_for_fluorescence.
         if ctx is not None:
             with ctx.settings_lock:
-                false_color_16bit = ctx.settings.get('false_color_16bit', False)
+                save_encoding = config_helpers.get_image_capture_config_from_settings(ctx.settings)[
+                    'save_encoding'
+                ]
                 self._bf_af_for_fluorescence = ctx.settings.get('protocol', {}).get(
                     'bf_af_for_fluorescence', False
                 )
         else:
-            false_color_16bit = False
+            save_encoding = image_mode.SAVE_ENCODING_8BIT
             self._bf_af_for_fluorescence = False
 
         # Borrow protocol_thread's abort Event as SCE's _aborted reference.
@@ -643,7 +647,7 @@ class SequencedCaptureRunner:
             is_run_in_progress_fn=lambda: self._run_in_progress_event.is_set(),
             stim_profiling=stim_profiling,
             run_dir=self._run_dir,
-            false_color_16bit=false_color_16bit,
+            save_encoding=save_encoding,
         )
 
         self._run_trigger_source = run_trigger_source
