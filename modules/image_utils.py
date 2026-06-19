@@ -1351,6 +1351,7 @@ def write_tiff(
                 metadata=support_data['metadata'],
                 datetime=metadata['datetime'],
                 software=f'LumaViewPro {version}',
+                extratags=support_data['extratags'],
                 **support_data['options'],
             )
 
@@ -1362,6 +1363,7 @@ def write_tiff(
                 metadata=support_data['metadata'],
                 datetime=metadata['datetime'],
                 software=f'LumaViewPro {version}',
+                extratags=support_data['extratags'],
                 **support_data['options'],
             )
 
@@ -1372,6 +1374,7 @@ def write_tiff(
                 metadata=support_data['metadata'],
                 datetime=metadata['datetime'],
                 software=f'LumaViewPro {version}',
+                extratags=support_data['extratags'],
                 **support_data['options'],
             )
 
@@ -1447,7 +1450,13 @@ def generate_tiff_data(
             options['tile'] = (128, 128)
         return {
             'metadata': metadata,
-            'extratags': [],
+            # Carry the payload depth in the private tag here too. Video-frame
+            # metadata is otherwise passed through untouched, so this tag is the
+            # only depth carrier these files get; without it a right-aligned
+            # narrow frame reads back as full container width (~16x dark).
+            'extratags': [
+                (_TIFF_TAG_SIGNIFICANT_BITS, 3, 1, int(metadata['significant_bits']), True)
+            ],
             'options': options,
         }
 

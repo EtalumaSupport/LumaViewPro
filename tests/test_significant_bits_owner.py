@@ -403,6 +403,41 @@ class TestConverterCollapse:
         assert not hasattr(image_utils, '_LUT_16_TO_8')
 
 
+class TestVideoFrameCarriesDepth:
+    """A video-frame TIFF carries its payload depth in the private tag. Video
+    metadata is otherwise passed through untouched, so without this tag a
+    right-aligned narrow frame reads back as full container width (~16x dark)."""
+
+    def _write_video_frame(self, tmp_path, value, significant_bits):
+        from modules import image_utils
+
+        arr = np.full((8, 8), value, dtype=np.uint16)
+        path = tmp_path / 'frame.tif'
+        image_utils.write_tiff(
+            data=arr,
+            file_loc=path,
+            metadata={'datetime': '2026:06:19 12:00:00'},
+            ome=False,
+            color='BF',
+            significant_bits=significant_bits,
+            video_frame=True,
+        )
+        return path
+
+    def test_12bit_video_frame_records_true_depth(self, tmp_path):
+        from modules import image_utils
+
+        path = self._write_video_frame(tmp_path, 4095, significant_bits=12)
+        assert image_utils.read_tiff_significant_bits(path) == 12
+
+    def test_video_frame_roundtrips_through_load_pixels(self, tmp_path):
+        from modules import image_utils
+
+        path = self._write_video_frame(tmp_path, 4095, significant_bits=12)
+        _, sig = image_utils.load_pixels(path)
+        assert sig == 12
+
+
 class TestConvertTo16BitDepthAware:
     """The MSB-align-to-16 converter follows the payload depth: a 12-bit frame
     left-justifies, a summed 16-bit frame is left untouched (a fixed *16 would
