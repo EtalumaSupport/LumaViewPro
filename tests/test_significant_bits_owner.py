@@ -204,6 +204,39 @@ class TestSavePathNativeDepth:
         assert int(eight.max()) >= 254
 
 
+class TestNonOmeNativeDepth:
+    """Right-aligned native-depth must survive on the NON-OME path too -- plain
+    TIFFs, ImageJ TIFFs, and the per-frame TIFFs the hyperstack workflow forces.
+    These are the most common protocol outputs, and a reader that cannot recover
+    the depth scales a 12-bit payload by 65535 instead of 4095 -- ~16x too dark."""
+
+    def _write_plain(self, tmp_path, value, significant_bits):
+        from modules import image_utils
+
+        arr = np.full((8, 8), value, dtype=np.uint16)
+        path = tmp_path / 'frame_plain.tif'
+        image_utils.write_tiff(
+            data=arr, file_loc=path, metadata=_save_meta(significant_bits), ome=False, color='Green'
+        )
+        return path
+
+    def test_non_ome_significant_bits_roundtrips(self, tmp_path):
+        """A plain (non-OME) 12-bit file recovers SignificantBits=12, not 16."""
+        from modules import image_utils
+
+        path = self._write_plain(tmp_path, 4095, significant_bits=12)
+        assert image_utils.read_tiff_significant_bits(path) == 12
+
+    def test_non_ome_12bit_reads_back_to_full_white(self, tmp_path):
+        """A plain right-aligned 12-bit file scales to 8-bit 255, not crushed to ~15."""
+        from modules import image_utils
+
+        path = self._write_plain(tmp_path, 4095, significant_bits=12)
+        sig = image_utils.read_tiff_significant_bits(path)
+        eight = image_utils.convert_to_8bit(image_utils.read_tiff_with_legacy_collapse(path), sig)
+        assert int(eight.max()) == 255
+
+
 class TestConverterCollapse:
     """The depth-named converters delegate to the one significant-bits LUT, so
     there is a single canonical 8-bit mapping with no divergent per-depth tables."""

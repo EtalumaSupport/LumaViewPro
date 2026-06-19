@@ -163,15 +163,23 @@ def read_tiff_with_legacy_collapse(path: pathlib.Path) -> np.ndarray:
     return img
 
 
+# Private TIFF tag carrying the payload's significant-bit count on outputs that
+# have no OME-XML to hold it (plain + ImageJ TIFFs). In the TIFF private-tag
+# range (32768-65535); FIJI / ImageJ / Windows Preview ignore unknown tags.
+_TIFF_TAG_SIGNIFICANT_BITS = 65123
+
+
 def read_tiff_significant_bits(path: pathlib.Path) -> int:
-    """Meaningful payload bits recorded in a TIFF's OME SignificantBits tag.
+    """Meaningful payload bits recorded in a TIFF.
 
     A reader needs this to scale a uint16 file to 8-bit correctly: a 12-bit
     payload stored right-aligned (0..4095) reads full-white only when scaled by
-    4095, not by 65535. Falls back to the container width (itemsize * 8) for
-    files that carry no tag -- including older files whose stored values were
-    left-justified to fill the container, for which container-width scaling is
-    the correct interpretation.
+    4095, not by 65535. The depth is read from the OME-XML SignificantBits tag
+    on OME files, and from a durable private tag on plain / ImageJ files (which
+    have no OME-XML to carry it). Falls back to the container width
+    (itemsize * 8) for files that carry neither -- including older files whose
+    stored values were left-justified to fill the container, for which
+    container-width scaling is the correct interpretation.
     """
     with tf.TiffFile(str(path)) as tif:
         ome = tif.ome_metadata
@@ -179,6 +187,9 @@ def read_tiff_significant_bits(path: pathlib.Path) -> int:
             match = re.search(r'SignificantBits="(\d+)"', ome)
             if match:
                 return int(match.group(1))
+        tag = tif.pages[0].tags.get(_TIFF_TAG_SIGNIFICANT_BITS)
+        if tag is not None and tag.value:
+            return int(tag.value)
         return tif.pages[0].dtype.itemsize * 8
 
 
@@ -1506,9 +1517,14 @@ def generate_tiff_data(
     if data.dtype == np.uint8:
         options['tile'] = (128, 128)
 
+    # Carry the payload depth in a durable private TIFF tag so plain / ImageJ
+    # outputs (which have no OME-XML) recover it on read-back; OME files get it
+    # too, harmlessly, and the reader prefers their OME-XML value. SHORT (type
+    # 3), one value, written to the first page only.
+    significant_bits = metadata.get('significant_bits') or data.itemsize * 8
     return {
         'metadata': tiff_metadata,
-        'extratags': [],
+        'extratags': [(_TIFF_TAG_SIGNIFICANT_BITS, 3, 1, int(significant_bits), True)],
         'options': options,
         'resolution': resolution,
     }
