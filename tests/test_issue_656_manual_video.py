@@ -77,6 +77,7 @@ def _write_manual_frame(folder, frame_num, *, include_iso=True, value=20000):
         ome=False,
         color='BF',
         video_frame=True,
+        significant_bits=16,
     )
     return file_loc, ts
 

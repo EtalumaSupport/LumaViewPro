@@ -37,7 +37,12 @@ def _meta(significant_bits):
 def _write_plain_tiff(path, value, significant_bits):
     arr = np.full((8, 8), value, dtype=np.uint16)
     image_utils.write_tiff(
-        data=arr, file_loc=path, metadata=_meta(significant_bits), ome=False, color='Green'
+        data=arr,
+        file_loc=path,
+        metadata=_meta(significant_bits),
+        ome=False,
+        color='Green',
+        significant_bits=significant_bits,
     )
 
 

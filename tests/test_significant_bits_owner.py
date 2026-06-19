@@ -163,7 +163,12 @@ class TestSavePathNativeDepth:
         arr = np.full((8, 8), value, dtype=np.uint16)
         path = tmp_path / 'frame.tif'
         image_utils.write_tiff(
-            data=arr, file_loc=path, metadata=_save_meta(significant_bits), ome=True, color='Green'
+            data=arr,
+            file_loc=path,
+            metadata=_save_meta(significant_bits),
+            ome=True,
+            color='Green',
+            significant_bits=significant_bits,
         )
         return path
 
@@ -216,7 +221,12 @@ class TestNonOmeNativeDepth:
         arr = np.full((8, 8), value, dtype=np.uint16)
         path = tmp_path / 'frame_plain.tif'
         image_utils.write_tiff(
-            data=arr, file_loc=path, metadata=_save_meta(significant_bits), ome=False, color='Green'
+            data=arr,
+            file_loc=path,
+            metadata=_save_meta(significant_bits),
+            ome=False,
+            color='Green',
+            significant_bits=significant_bits,
         )
         return path
 
@@ -251,7 +261,12 @@ class TestLoadPixelsBoundary:
         arr = np.full((8, 8), value, dtype=dtype)
         path = tmp_path / name
         image_utils.write_tiff(
-            data=arr, file_loc=path, metadata=_save_meta(significant_bits), ome=ome, color='Green'
+            data=arr,
+            file_loc=path,
+            metadata=_save_meta(significant_bits),
+            ome=ome,
+            color='Green',
+            significant_bits=significant_bits,
         )
         return path
 
@@ -319,6 +334,41 @@ class TestLoadPixelsBoundary:
 
         with pytest.raises(FileNotFoundError):
             image_utils.load_pixels(tmp_path / 'does_not_exist.tif')
+
+
+class TestWriteTiffDepthRequired:
+    """A write that does not state its payload depth fails loudly instead of
+    silently labeling a narrow payload as full container width."""
+
+    def test_depth_less_write_raises(self, tmp_path):
+        """write_tiff without significant_bits raises, not defaults to 16."""
+        from modules import image_utils
+
+        arr = np.full((8, 8), 4095, dtype=np.uint16)
+        with pytest.raises(ValueError, match='significant_bits'):
+            image_utils.write_tiff(
+                data=arr,
+                file_loc=tmp_path / 'frame.tif',
+                metadata=_save_meta(),
+                ome=True,
+                color='Green',
+            )
+
+    def test_stated_depth_is_recorded(self, tmp_path):
+        """A stated depth round-trips through the file, not the container width."""
+        from modules import image_utils
+
+        arr = np.full((8, 8), 4095, dtype=np.uint16)
+        path = tmp_path / 'frame.tif'
+        image_utils.write_tiff(
+            data=arr,
+            file_loc=path,
+            metadata=_save_meta(),
+            ome=True,
+            color='Green',
+            significant_bits=12,
+        )
+        assert image_utils.read_tiff_significant_bits(path) == 12
 
 
 class TestConverterCollapse:

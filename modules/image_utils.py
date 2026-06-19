@@ -1164,6 +1164,7 @@ def write_tiff(
     metadata: dict,
     ome: bool,
     color: str,
+    significant_bits: int | None = None,
     video_frame: bool = False,
     extratags: list | None = None,
     use_false_color_16bit: bool | None = None,
@@ -1226,6 +1227,22 @@ def write_tiff(
             )
         return
 
+    # Depth travels with the pixels. A uint16 frame stored right-aligned
+    # (0..4095 for a 12-bit sensor) is bit-identical to a dark 16-bit image, so
+    # a write that does not state its significant-bit depth cannot label the
+    # file correctly -- it silently claims full container width and every
+    # narrow payload reads back ~16x dark. Require the depth here instead of
+    # defaulting to itemsize, which is what made the mislabel silent. The
+    # hyperstack path above carries depth in its caller-built OME and returns
+    # before this point, so it is exempt.
+    if significant_bits is None:
+        raise ValueError(
+            'write_tiff requires significant_bits: the payload depth must be '
+            'stated so a narrow payload is not silently mislabeled as full '
+            'container width.'
+        )
+    metadata = {**metadata, 'significant_bits': significant_bits}
+
     if extratags is None:
         extratags = []
 
@@ -1254,7 +1271,7 @@ def write_tiff(
         # reversible. The stored values then fill the container, so the file
         # makes no narrower significant-bits claim -- container-width read-back
         # is the correct scale, keeping our own read path self-consistent.
-        sig = metadata.get('significant_bits') or data.itemsize * 8
+        sig = metadata['significant_bits']
         shift = data.itemsize * 8 - sig
         if shift > 0:
             data = data << shift
@@ -1449,9 +1466,10 @@ def generate_tiff_data(
     # Base metadata shared by all structured types
     tiff_metadata = {
         'axes': axes,
-        # Payload depth supplied by the save path; the container width
-        # (itemsize * 8) is only a fallback when the caller didn't declare it.
-        'SignificantBits': metadata.get('significant_bits') or data.itemsize * 8,
+        # Payload depth, supplied by write_tiff (which requires it). Stored so
+        # a right-aligned narrow payload is not read back as full container
+        # width and rendered ~16x dark.
+        'SignificantBits': metadata['significant_bits'],
         'PhysicalSizeX': metadata['pixel_size_um'],
         'PhysicalSizeXUnit': 'um',
         'PhysicalSizeY': metadata['pixel_size_um'],
@@ -1567,7 +1585,7 @@ def generate_tiff_data(
     # outputs (which have no OME-XML) recover it on read-back; OME files get it
     # too, harmlessly, and the reader prefers their OME-XML value. SHORT (type
     # 3), one value, written to the first page only.
-    significant_bits = metadata.get('significant_bits') or data.itemsize * 8
+    significant_bits = metadata['significant_bits']
     return {
         'metadata': tiff_metadata,
         'extratags': [(_TIFF_TAG_SIGNIFICANT_BITS, 3, 1, int(significant_bits), True)],

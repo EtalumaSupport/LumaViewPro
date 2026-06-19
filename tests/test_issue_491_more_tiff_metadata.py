@@ -47,6 +47,7 @@ def _build_metadata():
         'microscope': 'LS850',
         'microscope_model': 'LS850',
         'channel': 'BF',
+        'significant_bits': 8,
         'datetime': '2026:05:26 23:00:00',
         'objective': {
             'model': '4x Plan Apochromat',

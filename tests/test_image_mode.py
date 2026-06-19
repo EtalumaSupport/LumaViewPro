@@ -257,6 +257,7 @@ def test_save_encoding_scaled_is_msb_aligned_and_recoverable(tmp_path):
         metadata=_metadata(out_path, channel='BF', significant_bits=12),
         ome=False,
         color='BF',
+        significant_bits=12,
         save_encoding='msb_aligned',
     )
 
@@ -284,6 +285,7 @@ def test_save_encoding_right_aligned_is_raw(tmp_path):
         metadata=_metadata(out_path, channel='BF', significant_bits=12),
         ome=False,
         color='BF',
+        significant_bits=12,
         save_encoding='right_aligned',
     )
 
@@ -311,6 +313,7 @@ def test_save_encoding_rgb_widens_fluorescence(tmp_path):
         metadata=_metadata(out_path, channel='Blue'),
         ome=False,
         color='Blue',
+        significant_bits=16,
         save_encoding='rgb',
     )
 
@@ -334,6 +337,7 @@ def test_save_encoding_rgb_keeps_transmitted_mono(tmp_path):
         metadata=_metadata(out_path, channel='BF'),
         ome=False,
         color='BF',
+        significant_bits=16,
         save_encoding='rgb',
     )
 
@@ -400,6 +404,7 @@ def test_write_tiff_video_frame_rgb_widens_uint16(tmp_path):
         ome=False,
         color='Green',
         video_frame=True,
+        significant_bits=16,
         save_encoding='rgb',
     )
 
@@ -424,6 +429,7 @@ def test_write_tiff_video_frame_8bit_has_no_palette(tmp_path):
         ome=False,
         color='Green',
         video_frame=True,
+        significant_bits=8,
         save_encoding='8bit',
     )
 

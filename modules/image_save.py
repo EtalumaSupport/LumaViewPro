@@ -75,8 +75,16 @@ def write_video_frame(
             uint16 frames.
     """
     save_color = layer_color if false_color_on else 'BF'
-    if frame.dtype == np.uint16 and capture_depth and capture_depth < 16:
-        metadata = {**metadata, 'significant_bits': capture_depth}
+    # State the payload depth so the file is labeled honestly: an 8-bit frame
+    # is 8-bit; a uint16 frame carries its acquired depth (12 for Mono12) so
+    # msb_aligned can left-justify and right_aligned marks the true depth; a
+    # summed / full-container 16-bit frame is 16.
+    if frame.dtype == np.uint8:
+        significant_bits = 8
+    elif capture_depth and capture_depth < 16:
+        significant_bits = capture_depth
+    else:
+        significant_bits = 16
     if (
         frame.dtype == np.uint8
         and false_color_on
@@ -91,6 +99,7 @@ def write_video_frame(
         ome=False,
         color=save_color,
         video_frame=True,
+        significant_bits=significant_bits,
         save_encoding=save_encoding,
     )
 
@@ -589,6 +598,7 @@ def save_image(
                 metadata=metadata,
                 ome=ome,
                 color=color,
+                significant_bits=metadata['significant_bits'],
                 use_false_color_16bit=use_false_color_16bit,
                 save_encoding=save_encoding,
                 false_color_buf=false_color_buf,
