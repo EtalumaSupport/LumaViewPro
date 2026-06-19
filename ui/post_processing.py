@@ -641,6 +641,7 @@ class CellCountControls(BoxLayout):
         super().__init__(**kwargs)
         logger.info('LVP Main: CellCountControls.__init__()')
         self._preview_source_image = None
+        self._preview_source_significant_bits = 16
         self._preview_image = None
         self._post = post_processing.PostProcessing()
         self._settings = self._get_init_settings()
@@ -834,6 +835,13 @@ class CellCountControls(BoxLayout):
         if image is None:
             return
 
+        # A right-aligned 12-bit TIFF scales to 8-bit by its true depth, not the
+        # container width; TIFFs carry it in a tag, other formats are container-width.
+        if str(file).lower().endswith(('.tif', '.tiff')):
+            self._preview_source_significant_bits = image_utils.read_tiff_significant_bits(file)
+        else:
+            self._preview_source_significant_bits = image.itemsize * 8
+
         self.set_preview_source(image=image)
 
     def calculate_area_filter_max(self, image):
@@ -900,7 +908,9 @@ class CellCountControls(BoxLayout):
             return
 
         image, _ = self._post.preview_cell_count(
-            image=self._preview_source_image, settings=self._settings
+            image=self._preview_source_image,
+            settings=self._settings,
+            significant_bits=self._preview_source_significant_bits,
         )
 
         self._preview_image = image

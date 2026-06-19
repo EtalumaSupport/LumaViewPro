@@ -22,8 +22,10 @@ class PostProcessing:
     def stitch(self, filepath):
         pass
 
-    def preview_cell_count(self, image, settings):
-        preview_images, cell_stats = self._cell_count.process_image(image=image, settings=settings)
+    def preview_cell_count(self, image, settings, significant_bits: int = 16):
+        preview_images, cell_stats = self._cell_count.process_image(
+            image=image, settings=settings, significant_bits=significant_bits
+        )
 
         return preview_images['filtered_contours'], cell_stats
 
@@ -46,7 +48,17 @@ class PostProcessing:
                 if image is None:
                     continue
 
-                _, region_info = self.preview_cell_count(image=image, settings=settings)
+                # A right-aligned 12-bit TIFF must be scaled to 8-bit by its true
+                # depth, not the 16-bit container; TIFFs carry it in a tag, other
+                # formats fall back to the loaded container width.
+                if filename.lower().endswith(('.tif', '.tiff')):
+                    significant_bits = image_utils.read_tiff_significant_bits(file_path)
+                else:
+                    significant_bits = image.itemsize * 8
+
+                _, region_info = self.preview_cell_count(
+                    image=image, settings=settings, significant_bits=significant_bits
+                )
 
                 time_created_raw = os.path.getctime(file_path)
                 time_created = time.ctime(time_created_raw)
