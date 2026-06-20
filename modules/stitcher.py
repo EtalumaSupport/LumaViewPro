@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 
 import modules.common_utils as common_utils
+import modules.image_mode as image_mode
 import modules.image_utils as image_utils
 from modules.stitch_algorithms import stitch_registered_tiles
 
@@ -277,6 +278,7 @@ class Stitcher(ProtocolPostProcessor):
                 ome=False,
                 color=source_image_sample_row['Color'],
                 significant_bits=metadata['significant_bits'],
+                save_encoding=image_mode.encoding_for_array(stitched_img),
             )
             return_image = None
         else:
@@ -413,6 +415,7 @@ class Stitcher(ProtocolPostProcessor):
                 ome=False,
                 color=color,
                 significant_bits=metadata['significant_bits'],
+                save_encoding=image_mode.encoding_for_array(stitched_img),
             )
             return_image = None
         else:

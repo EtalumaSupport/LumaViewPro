@@ -477,13 +477,13 @@ def save_image(
     append='ms',
     color='BF',
     tail_id_mode='increment',
+    *,
+    save_encoding: str,
     output_format: str = 'TIFF',
     true_color: str = 'BF',
     x=None,
     y=None,
     z=None,
-    use_false_color_16bit: bool | None = None,
-    save_encoding: str | None = None,
     out_12to16: np.ndarray | None = None,
     false_color_buf: np.ndarray | None = None,
     rgb_buf: np.ndarray | None = None,
@@ -505,13 +505,11 @@ def save_image(
         x: Stage X position in um.
         y: Stage Y position in um.
         z: Stage Z position in um.
-        use_false_color_16bit: Pre-resolved bool from sequenced_capture_runner;
-            None falls back to image_utils.write_tiff's settings-lock read
-            path (preserves behavior for ad-hoc callers). Superseded by
-            save_encoding when that is supplied.
         save_encoding: The derived on-disk encoding from the image_mode
-            config layer (rgb / msb_aligned / right_aligned / 8bit). When
-            given, it drives the save shape and overrides use_false_color_16bit.
+            config layer (rgb / msb_aligned / right_aligned / 8bit). Required
+            and keyword-only: it is the single value that drives the save
+            shape, so no call site can omit the image mode and silently store
+            a scaled payload right-aligned (dark).
         out_12to16: Preallocated 12-to-16-bit conversion buffer.
         false_color_buf: Preallocated false-color buffer.
         rgb_buf: Preallocated RGB buffer.
@@ -610,7 +608,6 @@ def save_image(
                 ome=ome,
                 color=color,
                 significant_bits=metadata['significant_bits'],
-                use_false_color_16bit=use_false_color_16bit,
                 save_encoding=save_encoding,
                 false_color_buf=false_color_buf,
                 rgb_buf=rgb_buf,
@@ -652,7 +649,8 @@ def save_live_image(
     turn_off_all_leds_after: bool = False,
     use_executor: bool = False,
     jpeg_quality: int = 90,
-    save_encoding: str | None = None,
+    *,
+    save_encoding: str,
 ) -> str | None:
     """Grab the current live image from the camera and save to a TIFF file.
 
@@ -680,7 +678,8 @@ def save_live_image(
         jpeg_quality: JPEG quality 1-100, used only when output_format
             is "JPG".
         save_encoding: The derived on-disk encoding from the image_mode
-            config layer; forwarded to save_image to drive the save shape.
+            config layer; required and keyword-only, forwarded to save_image
+            so the live-capture path cannot drop the image mode.
 
     Returns:
         str | None: Path to saved file, or None on failure.

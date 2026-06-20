@@ -43,6 +43,7 @@ def _write_plain_tiff(path, value, significant_bits):
         ome=False,
         color='Green',
         significant_bits=significant_bits,
+        save_encoding='right_aligned',
     )
 
 

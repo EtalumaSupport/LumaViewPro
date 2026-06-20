@@ -25,6 +25,7 @@ import threading
 import typing
 
 import modules.common_utils as common_utils
+import modules.image_mode as image_mode_module
 from modules.protocol import Protocol
 from modules.sequenced_capture_runner import SequencedCaptureRunner, SequencedCaptureRunMode
 from modules.sequential_io_executor import SequentialIOExecutor
@@ -92,16 +93,26 @@ class ProtocolRunner:
         self,
         live_format: str = 'TIFF',
         sequenced_format: str = 'TIFF',
-        capture_depth: int = 12,
+        image_mode: str = image_mode_module.DEFAULT_IMAGE_MODE,
         jpg_quality: int = 90,
     ) -> dict:
-        """Build an image capture config dict without reading from GUI."""
+        """Build an image capture config dict without reading from GUI.
+
+        capture_depth and save_encoding are derived together from the one
+        image_mode value rather than carried independently, so the config that
+        drives capture also drives the save: a 12-bit-scaled capture cannot be
+        paired with an 8-bit save that stores it right-aligned (dark). This is
+        the GUI-less mirror of get_image_capture_config_from_ui.
+        """
+        derived = image_mode_module.resolve_image_mode(image_mode)
         return {
             'output_format': {
                 'live': live_format,
                 'sequenced': sequenced_format,
             },
-            'capture_depth': capture_depth,
+            'image_mode': image_mode,
+            'capture_depth': derived['capture_depth'],
+            'save_encoding': derived['save_encoding'],
             'jpg_quality': jpg_quality,
         }
 

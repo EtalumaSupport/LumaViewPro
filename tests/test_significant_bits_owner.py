@@ -169,6 +169,7 @@ class TestSavePathNativeDepth:
             ome=True,
             color='Green',
             significant_bits=significant_bits,
+            save_encoding='right_aligned',
         )
         return path
 
@@ -227,6 +228,7 @@ class TestNonOmeNativeDepth:
             ome=False,
             color='Green',
             significant_bits=significant_bits,
+            save_encoding='right_aligned',
         )
         return path
 
@@ -267,6 +269,7 @@ class TestLoadPixelsBoundary:
             ome=ome,
             color='Green',
             significant_bits=significant_bits,
+            save_encoding='8bit' if arr.dtype == np.uint8 else 'right_aligned',
         )
         return path
 
@@ -399,6 +402,7 @@ class TestWriteTiffDepthRequired:
             ome=True,
             color='Green',
             significant_bits=12,
+            save_encoding='right_aligned',
         )
         assert image_utils.read_tiff_significant_bits(path) == 12
 
@@ -450,6 +454,7 @@ class TestVideoFrameCarriesDepth:
             ome=False,
             color='BF',
             significant_bits=significant_bits,
+            save_encoding='right_aligned',
             video_frame=True,
         )
         return path

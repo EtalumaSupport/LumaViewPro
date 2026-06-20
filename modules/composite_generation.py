@@ -9,6 +9,7 @@ import pandas as pd
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 from modules.composite_builder import build_composite
+import modules.image_mode as image_mode
 import modules.image_utils as image_utils
 from modules.common_utils import PostFunction
 from modules.protocol_post_processor import ProtocolPostProcessor
@@ -316,6 +317,7 @@ class CompositeGeneration(ProtocolPostProcessor):
                         ome=ome,
                         color='Composite',
                         significant_bits=metadata['significant_bits'],
+                        save_encoding=image_mode.encoding_for_array(img),
                     )
 
         except Exception as e:
@@ -452,6 +454,7 @@ class CompositeGeneration(ProtocolPostProcessor):
             ome=(format == 'ome-tiff'),
             color='Composite',
             significant_bits=metadata['significant_bits'],
+            save_encoding=image_mode.encoding_for_array(img),
         )
 
         return {

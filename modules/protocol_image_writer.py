@@ -348,7 +348,11 @@ class ProtocolImageWriter:
             use_color = step['Color'] if step['False_Color'] else 'BF'
 
             if enable_image_saving:
-                capture_depth = image_capture_config.get('capture_depth', 12)
+                # capture_depth and save_encoding are a coupled pair from the
+                # image_mode config; read them required (not .get-with-default)
+                # so a config that somehow lost one fails loudly here instead of
+                # saving a 12-bit-scaled frame right-aligned (dark).
+                capture_depth = image_capture_config['capture_depth']
                 jpeg_quality = image_capture_config.get('jpg_quality', 90)
 
                 if is_video:
@@ -394,7 +398,7 @@ class ProtocolImageWriter:
                                 'use_color': use_color,
                                 'name': name,
                                 'output_format': output_format,
-                                'save_encoding': image_capture_config.get('save_encoding', '8bit'),
+                                'save_encoding': image_capture_config['save_encoding'],
                                 'capture_depth': capture_depth,
                                 'step': step,
                                 'captured_image': None,

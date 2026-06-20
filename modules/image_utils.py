@@ -1215,8 +1215,9 @@ def maybe_apply_false_color(
     Already-RGB inputs, 8-bit inputs, transmitted layers (BF/PC/DF), and
     unknown layer names always pass through. Callers may pass the resolved
     bool to skip the per-save settings_lock acquire; ``None`` triggers a
-    one-shot read so derived-output paths (stitch / zproject) that call
-    write_tiff without the flag still honor the user setting.
+    one-shot read so a direct caller with no resolved encoding (the
+    post-processor false-color routing) still honors the user setting.
+    write_tiff always passes the bool derived from save_encoding.
     """
     if not (
         data.dtype == np.uint16
@@ -1313,10 +1314,9 @@ def write_tiff(
     ome: bool,
     color: str,
     significant_bits: int,
+    save_encoding: str,
     video_frame: bool = False,
     extratags: list | None = None,
-    use_false_color_16bit: bool | None = None,
-    save_encoding: str | None = None,
     false_color_buf: np.ndarray | None = None,
     rgb_buf: np.ndarray | None = None,
 ):
@@ -1331,12 +1331,12 @@ def write_tiff(
     if extratags is None:
         extratags = []
 
-    # save_encoding (the consolidated image_mode output) supersedes the legacy
-    # use_false_color_16bit flag: 'rgb' widens to false color, 'msb_aligned'
-    # left-justifies a narrow payload, right_aligned/8bit store as-is. The flag
-    # stays the fallback until every caller passes save_encoding.
-    if save_encoding is not None:
-        use_false_color_16bit = save_encoding == image_mode.SAVE_ENCODING_RGB
+    # save_encoding is the single consolidated image_mode output and the only
+    # thing that decides the on-disk shape: 'rgb' widens to false color,
+    # 'msb_aligned' left-justifies a narrow payload, right_aligned/8bit store
+    # as-is. RGB widening is derived from it alone, so the same fact is never
+    # carried by a second out-of-band flag that could disagree with it.
+    use_false_color_16bit = save_encoding == image_mode.SAVE_ENCODING_RGB
 
     data = maybe_apply_false_color(
         data=data,

@@ -126,6 +126,7 @@ class CompositeCapture(FloatLayout):
                 sum_iteration_callback=sum_iteration_callback,
                 turn_off_all_leds_after=False,
                 jpeg_quality=settings.get('jpg_quality', 90),
+                save_encoding=save_encoding,
             )
 
         else:

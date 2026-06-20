@@ -19,6 +19,8 @@ The 8-bit default preserves the shipped behavior: the retiring
 
 from __future__ import annotations
 
+import numpy as np
+
 IMAGE_MODE_8BIT = '8bit'
 IMAGE_MODE_12BIT_SCIENTIFIC = '12bit_scientific'
 IMAGE_MODE_12BIT_SCALED = '12bit_scaled'
@@ -59,6 +61,27 @@ def resolve_image_mode(mode: str) -> dict:
         return dict(_MODE_TABLE[mode])
     except KeyError:
         raise ValueError(f'unknown image_mode: {mode!r}') from None
+
+
+def encoding_for_array(array: np.ndarray) -> str:
+    """The save encoding for a derived data product that preserves its pixels.
+
+    A projection / stitch / composite copies its inputs' values verbatim, so it
+    saves them as-is rather than re-scaling: an 8-bit array stores 8bit, a
+    right-aligned uint16 payload stores right_aligned (the depth tag, not a
+    container-filling shift, carries the meaning). MSB-aligning here would alter
+    the stored values relative to the right-aligned inputs the producer loaded.
+
+    Args:
+        array: The pixels about to be written.
+
+    Returns:
+        SAVE_ENCODING_8BIT for a uint8 array, SAVE_ENCODING_RIGHT_ALIGNED
+        otherwise (a uint16 container holding a right-aligned payload).
+    """
+    if array.dtype == np.uint8:
+        return SAVE_ENCODING_8BIT
+    return SAVE_ENCODING_RIGHT_ALIGNED
 
 
 def migrate_legacy_settings(use_full_pixel_depth: bool, false_color_16bit: bool) -> str:

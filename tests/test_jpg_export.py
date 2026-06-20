@@ -106,6 +106,7 @@ def test_save_image_routes_jpg_to_encoder(tmp_path):
         tail_id_mode=None,
         output_format='JPG',
         jpeg_quality=95,
+        save_encoding='8bit',
     )
     saved = pathlib.Path(path)
     assert saved.suffix == '.jpg', 'JPG format must resolve a .jpg extension'

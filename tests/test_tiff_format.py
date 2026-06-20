@@ -125,6 +125,7 @@ class TestTiff8BitBrightfield:
             ome=False,
             color=color,
             significant_bits=8,
+            save_encoding='8bit',
         )
         info = _read_tiff(path)
         assert info['photometric'] == tf.PHOTOMETRIC.MINISBLACK
@@ -139,6 +140,7 @@ class TestTiff8BitBrightfield:
             ome=False,
             color=color,
             significant_bits=8,
+            save_encoding='8bit',
         )
         info = _read_tiff(path)
         assert not info['has_colormap_tag'], 'BF/PC/DF should not have colormap tag 320'
@@ -153,6 +155,7 @@ class TestTiff8BitBrightfield:
             ome=False,
             color=color,
             significant_bits=8,
+            save_encoding='8bit',
         )
         info = _read_tiff(path)
         assert info['shape'] == (100, 100), f'Expected (100,100), got {info["shape"]}'
@@ -171,6 +174,7 @@ class TestTiff8BitFluorescence:
             ome=False,
             color=color,
             significant_bits=8,
+            save_encoding='8bit',
         )
         info = _read_tiff(path)
         assert info['photometric'] == tf.PHOTOMETRIC.PALETTE
@@ -185,6 +189,7 @@ class TestTiff8BitFluorescence:
             ome=False,
             color=color,
             significant_bits=8,
+            save_encoding='8bit',
         )
         with tf.TiffFile(str(path)) as f:
             page = f.pages[0]
@@ -202,6 +207,7 @@ class TestTiff8BitFluorescence:
             ome=False,
             color=color,
             significant_bits=8,
+            save_encoding='8bit',
         )
         info = _read_tiff(path)
         assert info['shape'] == (100, 100)
@@ -215,6 +221,7 @@ class TestTiff8BitFluorescence:
             ome=False,
             color='Green',
             significant_bits=8,
+            save_encoding='8bit',
         )
         with tf.TiffFile(str(path)) as f:
             cmap = f.pages[0].colormap
@@ -232,6 +239,7 @@ class TestTiff8BitFluorescence:
             ome=False,
             color='Red',
             significant_bits=8,
+            save_encoding='8bit',
         )
         with tf.TiffFile(str(path)) as f:
             cmap = f.pages[0].colormap
@@ -258,6 +266,7 @@ class TestTiff16BitBrightfield:
             ome=False,
             color=color,
             significant_bits=16,
+            save_encoding='right_aligned',
         )
         info = _read_tiff(path)
         assert info['photometric'] == tf.PHOTOMETRIC.MINISBLACK
@@ -272,6 +281,7 @@ class TestTiff16BitBrightfield:
             ome=False,
             color=color,
             significant_bits=16,
+            save_encoding='right_aligned',
         )
         info = _read_tiff(path)
         assert not info['has_colormap_tag']
@@ -286,6 +296,7 @@ class TestTiff16BitBrightfield:
             ome=False,
             color=color,
             significant_bits=16,
+            save_encoding='right_aligned',
         )
         info = _read_tiff(path)
         assert info['is_imagej'], '16-bit non-OME should be ImageJ format'
@@ -300,6 +311,7 @@ class TestTiff16BitBrightfield:
             ome=False,
             color=color,
             significant_bits=16,
+            save_encoding='right_aligned',
         )
         info = _read_tiff(path)
         assert info['shape'] == (100, 100)
@@ -318,6 +330,7 @@ class TestTiff16BitFluorescenceDefault:
             ome=False,
             color=color,
             significant_bits=16,
+            save_encoding='right_aligned',
         )
         info = _read_tiff(path)
         assert info['photometric'] == tf.PHOTOMETRIC.MINISBLACK
@@ -333,6 +346,7 @@ class TestTiff16BitFluorescenceDefault:
             ome=False,
             color=color,
             significant_bits=16,
+            save_encoding='right_aligned',
         )
         info = _read_tiff(path)
         assert not info['has_colormap_tag'], (
@@ -349,6 +363,7 @@ class TestTiff16BitFluorescenceDefault:
             ome=False,
             color=color,
             significant_bits=16,
+            save_encoding='right_aligned',
         )
         info = _read_tiff(path)
         assert info['shape'] == (100, 100)
@@ -363,6 +378,7 @@ class TestTiff16BitFluorescenceDefault:
             ome=False,
             color=color,
             significant_bits=16,
+            save_encoding='right_aligned',
         )
         info = _read_tiff(path)
         assert info['is_imagej']
@@ -378,6 +394,7 @@ class TestTiff16BitFluorescenceDefault:
             ome=False,
             color=color,
             significant_bits=16,
+            save_encoding='right_aligned',
         )
         info = _read_tiff(path)
         ij = info['imagej_metadata']
@@ -413,6 +430,7 @@ class TestTiff16BitFalseColorOn:
                 ome=False,
                 color=color,
                 significant_bits=16,
+                save_encoding='rgb',
             )
         info = _read_tiff(path)
         assert info['shape'] == (100, 100, 3), (
@@ -432,6 +450,7 @@ class TestTiff16BitFalseColorOn:
                 ome=False,
                 color='BF',
                 significant_bits=16,
+                save_encoding='rgb',
             )
         info = _read_tiff(path)
         assert info['shape'] == (100, 100), 'BF should stay single-channel'
@@ -455,6 +474,7 @@ class TestOmeTiff:
             ome=True,
             color=color,
             significant_bits=8,
+            save_encoding='8bit',
         )
         info = _read_tiff(path)
         assert info['is_ome'], 'OME flag should produce OME-TIFF'
@@ -468,6 +488,7 @@ class TestOmeTiff:
             ome=True,
             color='BF',
             significant_bits=8,
+            save_encoding='8bit',
         )
         info = _read_tiff(path)
         assert info['photometric'] == tf.PHOTOMETRIC.MINISBLACK
@@ -481,6 +502,7 @@ class TestOmeTiff:
             ome=True,
             color='BF',
             significant_bits=16,
+            save_encoding='right_aligned',
         )
         info = _read_tiff(path)
         assert info['photometric'] == tf.PHOTOMETRIC.MINISBLACK
@@ -494,6 +516,7 @@ class TestOmeTiff:
             ome=True,
             color='Green',
             significant_bits=16,
+            save_encoding='right_aligned',
         )
         info = _read_tiff(path)
         assert info['photometric'] == tf.PHOTOMETRIC.MINISBLACK
@@ -507,6 +530,7 @@ class TestOmeTiff:
             ome=True,
             color='Green',
             significant_bits=16,
+            save_encoding='right_aligned',
         )
         info = _read_tiff(path)
         assert not info['is_imagej'], 'OME-TIFF should not be ImageJ format'
@@ -529,6 +553,7 @@ class TestRgbImages:
             ome=False,
             color='BF',
             significant_bits=8,
+            save_encoding='8bit',
         )
         info = _read_tiff(path)
         assert info['photometric'] == tf.PHOTOMETRIC.RGB
@@ -542,6 +567,7 @@ class TestRgbImages:
             ome=False,
             color='BF',
             significant_bits=8,
+            save_encoding='8bit',
         )
         info = _read_tiff(path)
         assert info['shape'] == (100, 100, 3)
@@ -555,6 +581,7 @@ class TestRgbImages:
             ome=False,
             color='BF',
             significant_bits=16,
+            save_encoding='right_aligned',
         )
         info = _read_tiff(path)
         assert info['photometric'] == tf.PHOTOMETRIC.RGB
@@ -577,6 +604,7 @@ class TestTiffMetadata:
             ome=False,
             color='BF',
             significant_bits=8,
+            save_encoding='8bit',
         )
         info = _read_tiff(path)
         assert info['software'] is not None
@@ -587,7 +615,13 @@ class TestTiffMetadata:
         data = np.arange(256, dtype=np.uint8).reshape(16, 16)
         path = tmp_tiff()
         image_utils.write_tiff(
-            data=data, file_loc=path, metadata=metadata, ome=False, color='BF', significant_bits=8
+            data=data,
+            file_loc=path,
+            metadata=metadata,
+            ome=False,
+            color='BF',
+            significant_bits=8,
+            save_encoding='8bit',
         )
         with tf.TiffFile(str(path)) as f:
             read_back = f.pages[0].asarray()
@@ -598,7 +632,13 @@ class TestTiffMetadata:
         data = np.arange(10000, dtype=np.uint16).reshape(100, 100)
         path = tmp_tiff()
         image_utils.write_tiff(
-            data=data, file_loc=path, metadata=metadata, ome=False, color='BF', significant_bits=16
+            data=data,
+            file_loc=path,
+            metadata=metadata,
+            ome=False,
+            color='BF',
+            significant_bits=16,
+            save_encoding='right_aligned',
         )
         with tf.TiffFile(str(path)) as f:
             read_back = f.pages[0].asarray()
@@ -613,6 +653,7 @@ class TestTiffMetadata:
             ome=False,
             color='BF',
             significant_bits=8,
+            save_encoding='8bit',
         )
         with tf.TiffFile(str(path)) as f:
             tag_codes = {t.code for t in f.pages[0].tags.values()}
@@ -709,6 +750,7 @@ class TestWindowsPreviewCompat:
             ome=False,
             color=color,
             significant_bits=16,
+            save_encoding='right_aligned',
         )
         info = _read_tiff(path)
         assert info['photometric'] != tf.PHOTOMETRIC.PALETTE, (
@@ -726,6 +768,7 @@ class TestWindowsPreviewCompat:
             ome=False,
             color=color,
             significant_bits=16,
+            save_encoding='right_aligned',
         )
         info = _read_tiff(path)
         assert not info['has_colormap_tag'], (
@@ -743,6 +786,7 @@ class TestWindowsPreviewCompat:
             ome=True,
             color=color,
             significant_bits=16,
+            save_encoding='right_aligned',
         )
         info = _read_tiff(path)
         assert not info['has_colormap_tag']
@@ -853,6 +897,7 @@ class TestOmeMetadataReadback:
             ome=True,
             color='Green',
             significant_bits=16,
+            save_encoding='right_aligned',
         )
         with tf.TiffFile(str(path)) as t:
             assert not t.shaped_metadata, 'OME write should carry no shaped_metadata'
@@ -875,6 +920,7 @@ class TestOmeMetadataReadback:
             ome=True,
             color='Green',
             significant_bits=16,
+            save_encoding='right_aligned',
         )
         recovered = image_utils.read_postproc_input_metadata(path)
         # Gain / Illumination / Objective are dropped by tifffile's auto-OME

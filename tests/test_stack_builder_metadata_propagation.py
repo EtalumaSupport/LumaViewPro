@@ -64,6 +64,7 @@ def _write_structured_input(
         data=arr,
         file_loc=path,
         significant_bits=8,
+        save_encoding='8bit',
         metadata={
             'datetime': '2026-05-27T12:00:00',
             'plate_pos_mm': plate_pos_mm,

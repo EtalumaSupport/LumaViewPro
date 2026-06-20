@@ -79,8 +79,8 @@ class TestWriteTiffFalseColorAppliesForUint8:
             metadata=_minimal_metadata(tmp_tiff),
             ome=False,
             color='Red',
-            use_false_color_16bit=False,
             significant_bits=8,
+            save_encoding='8bit',
         )
         result = _read_back(tmp_tiff)
         assert result.ndim == 2, (
@@ -98,8 +98,8 @@ class TestWriteTiffFalseColorAppliesForUint8:
             metadata=_minimal_metadata(tmp_tiff),
             ome=False,
             color='BF',
-            use_false_color_16bit=True,
             significant_bits=8,
+            save_encoding='rgb',
         )
         result = _read_back(tmp_tiff)
         assert result.ndim == 2, (

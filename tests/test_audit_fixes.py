@@ -3097,11 +3097,10 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
     a protocol run; per-save acquisition is wasteful and contends with GUI thread
     settings updates.
 
-    Fix: thread an `use_false_color_16bit` parameter through write_tiff /
-    save_image / save_image_static / ProtocolImageWriter, read once in
-    sequenced_capture_runner at run start, and pass through. write_tiff
-    falls back to the lock-read path when `use_false_color_16bit=None`,
-    preserving behavior for ad-hoc callers.
+    Fix: thread the resolved `save_encoding` through write_tiff /
+    save_image / ProtocolImageWriter, read once in sequenced_capture_runner
+    at run start, and pass through. write_tiff derives RGB widening solely
+    from `save_encoding == 'rgb'`, so the per-save settings read is gone.
     """
 
     def test_save_image_threads_param_to_write_tiff(self, monkeypatch, tmp_path):
@@ -3124,11 +3123,11 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
             append='BF',
             color='BF',
             tail_id_mode=None,
-            use_false_color_16bit=True,
+            save_encoding='rgb',
         )
-        assert recorded.get('use_false_color_16bit') is True, (
-            'save_image must thread the pre-resolved use_false_color_16bit '
-            f'through to write_tiff; write_tiff saw {sorted(recorded)}'
+        assert recorded.get('save_encoding') == 'rgb', (
+            'save_image must thread the resolved save_encoding through to '
+            f'write_tiff; write_tiff saw {sorted(recorded)}'
         )
 
     def test_protocol_image_writer_caches_at_init(self, monkeypatch, tmp_path):
@@ -3963,7 +3962,7 @@ class TestFrameValidity_SaveLiveImageDrainsBeforeGrab:
                 saved.update(array=array) or str(tmp_path / 'live.tiff')
             ),
         )
-        out = image_save.save_live_image(scope, save_folder=str(tmp_path))
+        out = image_save.save_live_image(scope, save_folder=str(tmp_path), save_encoding='8bit')
         assert out is not None
         assert calls == ['capture_and_wait'], (
             f'save_live_image must drain via capture_and_wait only; saw {calls}'

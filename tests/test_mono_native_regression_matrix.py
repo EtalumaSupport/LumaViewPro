@@ -83,8 +83,8 @@ def test_pure_blue_16bit_falsecolor_tiff_roundtrip(tmp_path):
         metadata=_metadata(out_path, channel='Blue'),
         ome=False,
         color='Blue',
-        use_false_color_16bit=True,
         significant_bits=16,
+        save_encoding='rgb',
     )
 
     result = tf.imread(str(out_path))
@@ -291,8 +291,8 @@ def test_pure_color_16bit_falsecolor_tiff_roundtrip(tmp_path, color):
         metadata=_metadata(out_path, channel=color),
         ome=False,
         color=color,
-        use_false_color_16bit=True,
         significant_bits=16,
+        save_encoding='rgb',
     )
 
     result = tf.imread(str(out_path))
@@ -435,9 +435,9 @@ def test_piw6_buffer_allocation_o1(tmp_path):
                 metadata=_metadata(tmp_path / f'frame_{i:04d}.tiff', channel='Blue'),
                 ome=False,
                 color='Blue',
-                use_false_color_16bit=True,
                 false_color_buf=scratch,
                 significant_bits=16,
+                save_encoding='rgb',
             )
 
     # O(1) frame-sized allocations: the (H, W, 3) scratch fits the widen

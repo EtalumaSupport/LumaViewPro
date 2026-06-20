@@ -23,6 +23,8 @@ The four modes and their derived facts:
 
 from __future__ import annotations
 
+import pathlib
+
 import numpy as np
 import pytest
 import tifffile as tf
@@ -548,3 +550,133 @@ def test_write_video_frame_stamps_significant_bits_for_scaled(tmp_path):
     assert arr[0, 0] == 65520, 'capture_depth=12 must drive the x16 left-justify'
     assert (arr >> 4 == 4095).all(), 'x16 must be exactly recoverable'
     assert image_utils.read_tiff_significant_bits(out_path) == 16
+
+
+# ---------------------------------------------------------------------------
+# save_encoding is a required, SSOT-derived value -- not an omittable kwarg.
+#
+# The runtime mirror of significant_bits: a save that does not state how its
+# pixels land on disk silently right-aligns (dark) a scaled mode. These pin
+# the coupling that makes an encoding-less save unrepresentable, the live-path
+# counterpart to load_pixels returning (pixels, depth) as one pair.
+# ---------------------------------------------------------------------------
+
+
+def test_build_image_capture_config_couples_save_encoding_to_image_mode():
+    """The GUI-less config builder emits save_encoding coupled to image_mode,
+    the same shape get_image_capture_config_from_ui produces -- so the protocol
+    path cannot capture 12-bit-scaled yet silently save right-aligned (dark)."""
+    from modules.protocol_runner import ProtocolRunner
+
+    runner = ProtocolRunner.__new__(ProtocolRunner)
+
+    cfg = runner.build_image_capture_config(image_mode='12bit_scaled')
+    assert cfg['image_mode'] == '12bit_scaled'
+    assert cfg['capture_depth'] == 12
+    assert cfg['save_encoding'] == 'msb_aligned'
+
+    # Default mode is 8-bit, and capture_depth stays coupled to it (no raw
+    # capture_depth int that can drift from the encoding).
+    default_cfg = runner.build_image_capture_config()
+    assert default_cfg['image_mode'] == '8bit'
+    assert default_cfg['capture_depth'] == 8
+    assert default_cfg['save_encoding'] == '8bit'
+
+
+def test_write_tiff_requires_save_encoding(tmp_path):
+    """write_tiff cannot be called without save_encoding -- the depth-less-write
+    guard, now extended to encoding. A defaulted None silently right-aligned a
+    scaled payload."""
+    from modules.image_utils import write_tiff
+
+    out_path = tmp_path / 'no_encoding.tiff'
+    data = np.full((4, 4), 4095, dtype=np.uint16)
+    with pytest.raises(TypeError, match='save_encoding'):
+        write_tiff(
+            data=data,
+            file_loc=out_path,
+            metadata=_metadata(out_path, channel='BF', significant_bits=12),
+            ome=False,
+            color='BF',
+            significant_bits=12,
+        )
+
+
+def test_save_image_requires_save_encoding():
+    """save_image cannot be called without save_encoding -- binding fails before
+    any work, so no live-capture call site can drop the image mode."""
+    from modules.image_save import save_image
+
+    with pytest.raises(TypeError, match='save_encoding'):
+        save_image(None, array=np.zeros((4, 4), dtype=np.uint8))
+
+
+def test_save_live_image_requires_save_encoding():
+    """save_live_image cannot be called without save_encoding -- the omission
+    that saved 12-bit-scaled dark from the non-engineering live path."""
+    from modules.image_save import save_live_image
+
+    with pytest.raises(TypeError, match='save_encoding'):
+        save_live_image(None)
+
+
+@pytest.mark.parametrize(
+    ('dtype', 'expected'),
+    [
+        (np.uint8, '8bit'),
+        (np.uint16, 'right_aligned'),
+    ],
+)
+def test_encoding_for_array_derives_from_dtype(dtype, expected):
+    """A derived data product (projection / stitch / composite) preserves its
+    inputs verbatim: 8-bit saves 8bit, a right-aligned uint16 payload saves
+    right_aligned. One canonical helper so no post-processor inlines the check."""
+    from modules.image_mode import encoding_for_array
+
+    assert encoding_for_array(np.zeros((2, 2), dtype=dtype)) == expected
+
+
+def test_post_processor_uint16_save_is_verbatim(tmp_path):
+    """A post-processor re-save through the derived encoding keeps the raw
+    right-aligned value (no MSB shift) -- the helper preserves bytes, matching
+    the verbatim pixels load_pixels hands back."""
+    from modules.image_mode import encoding_for_array
+    from modules.image_utils import write_tiff
+
+    out_path = tmp_path / 'proj.tiff'
+    data = np.full((8, 8), 4095, dtype=np.uint16)
+    write_tiff(
+        data=data,
+        file_loc=out_path,
+        metadata=_metadata(out_path, channel='BF', significant_bits=12),
+        ome=False,
+        color='BF',
+        significant_bits=12,
+        save_encoding=encoding_for_array(data),
+    )
+    arr = tf.imread(str(out_path))
+    assert arr[0, 0] == 4095, 'derived uint16 output must stay right-aligned (verbatim)'
+
+
+def test_composite_capture_live_path_passes_save_encoding():
+    """Structural lock on the Bug-B site: every save_live_image / save_image
+    call in the manual live-capture path forwards save_encoding. A refactor that
+    drops it from the non-engineering branch (the original defect) fails here."""
+    import ast
+
+    src = pathlib.Path(__file__).resolve().parents[1] / 'ui' / 'composite_capture.py'
+    tree = ast.parse(src.read_text())
+
+    save_calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id in ('save_live_image', 'save_image')
+    ]
+    assert save_calls, 'expected save_live_image / save_image calls in composite_capture'
+    for call in save_calls:
+        assert any(kw.arg == 'save_encoding' for kw in call.keywords), (
+            f'a {call.func.id} call at line {call.lineno} omits save_encoding -- '
+            'the manual live-capture path must forward the image mode'
+        )
