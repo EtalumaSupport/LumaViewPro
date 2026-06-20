@@ -21,7 +21,6 @@ import numpy as np
 from lvp_logger import protocol_logger as logger
 
 import modules.common_utils as common_utils
-import modules.image_mode as image_mode
 from modules.image_save import save_image
 from modules.protocol import Protocol
 from modules.video_capture import VideoCaptureSession, write_video
@@ -64,8 +63,11 @@ class ProtocolImageWriter:
         is_run_in_progress_fn,
         stim_profiling: bool = False,
         run_dir: pathlib.Path | None = None,
-        # PIW-3: cached settings, read once at run start to avoid per-save lock acquires
-        save_encoding: str = image_mode.SAVE_ENCODING_8BIT,
+        # Resolved once at run start; per-save writes reuse it instead of
+        # re-reading settings under lock. Required so a run cannot be built
+        # without its image mode and silently default to 8-bit (saving a
+        # 12-bit-scaled run right-aligned / dark).
+        save_encoding: str,
     ):
         self._scope = scope
         self._callbacks = callbacks

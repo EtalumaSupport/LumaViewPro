@@ -509,6 +509,7 @@ class TestProtocolImageWriterWriteCapture:
             leds_off_fn=lambda: None,
             led_on_fn=lambda **kw: None,
             is_run_in_progress_fn=lambda: True,
+            save_encoding='8bit',
         )
         return writer
 

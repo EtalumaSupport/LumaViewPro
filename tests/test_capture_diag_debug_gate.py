@@ -32,6 +32,7 @@ def _drive_capture(monkeypatch, debug_enabled):
         leds_off_fn=lambda: None,
         led_on_fn=lambda **kw: None,
         is_run_in_progress_fn=lambda: True,
+        save_encoding='8bit',
     )
     scope = writer._scope
     scope.motion.has_turret.return_value = False
