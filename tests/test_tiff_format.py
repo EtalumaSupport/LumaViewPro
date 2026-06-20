@@ -418,9 +418,8 @@ class TestTiff16BitFalseColorOn:
 
     @pytest.mark.parametrize('color', ['Red', 'Green', 'Blue', 'Lumi'])
     def test_widens_to_three_channel_rgb(self, img_16bit, metadata, tmp_tiff, color):
-        # write_tiff resolves image_mode from settings (the None-default path
-        # that derived outputs also use), so the false-color mode widens 16-bit
-        # fluorescence to 3-channel RGB for Windows-Preview color.
+        # save_encoding='rgb' drives the false-color widening: 16-bit
+        # fluorescence widens to 3-channel RGB for Windows-Preview color.
         path = tmp_tiff()
         with self._mock_settings():
             image_utils.write_tiff(

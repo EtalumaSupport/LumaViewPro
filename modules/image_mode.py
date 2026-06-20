@@ -84,6 +84,31 @@ def encoding_for_array(array: np.ndarray) -> str:
     return SAVE_ENCODING_RIGHT_ALIGNED
 
 
+def save_encoding_for_derived_output(array: np.ndarray, image_mode_value: str) -> str:
+    """The save encoding for a derived product, honoring the false-color mode.
+
+    A projection / stitch / composite preserves its inputs' pixel values verbatim
+    -- but the RGB false-color mode is a rendering choice that applies to derived
+    fluorescence products too: under that mode a derived fluorescence image widens
+    to 3-channel false color the same way a freshly captured frame does, so a
+    stitched / projected fluorescence image renders in color in plain viewers
+    instead of silently demoting to mono. The quantitative modes (scientific /
+    scaled / 8bit) keep the verbatim dtype-based encoding -- only the RGB mode
+    changes a derived product's on-disk shape.
+
+    Args:
+        array: The pixels about to be written.
+        image_mode_value: The user's active image_mode (the SSOT value).
+
+    Returns:
+        SAVE_ENCODING_RGB when image_mode_value is the RGB mode, else the
+        verbatim dtype-based encoding from encoding_for_array.
+    """
+    if resolve_image_mode(image_mode_value)['save_encoding'] == SAVE_ENCODING_RGB:
+        return SAVE_ENCODING_RGB
+    return encoding_for_array(array)
+
+
 def migrate_legacy_settings(use_full_pixel_depth: bool, false_color_16bit: bool) -> str:
     """Map the two retiring settings keys onto a single image_mode value.
 

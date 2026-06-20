@@ -6,7 +6,6 @@ import numpy as np
 import pandas as pd
 
 import modules.common_utils as common_utils
-import modules.image_mode as image_mode
 import modules.image_utils as image_utils
 
 from modules.common_utils import PostFunction
@@ -244,7 +243,7 @@ class ZProjector(ProtocolPostProcessor):
             ome=False,
             color=first_slice_row['Color'],
             significant_bits=metadata['significant_bits'],
-            save_encoding=image_mode.encoding_for_array(result['image']),
+            save_encoding=image_utils.resolve_output_save_encoding(result['image']),
         )
 
         del result['image']

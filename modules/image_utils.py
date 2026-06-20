@@ -1194,10 +1194,34 @@ def get_imagej_lut(colormap: LvpColormap):
         raise NotImplementedError(f'Unsupported colormap: {colormap}')
 
 
+def resolve_output_save_encoding(array: np.ndarray) -> str:
+    """The save encoding for a derived output, resolved from the live image_mode.
+
+    Derived-product writers (stitch / zproject / composite) consult the one
+    image_mode SSOT for their on-disk encoding, so a stitched fluorescence image
+    honors the user's false-color choice exactly as a freshly captured frame
+    does. This is the explicit replacement for the implicit settings read that
+    used to hide inside maybe_apply_false_color's None default.
+    """
+    # Function-local import breaks the image_utils <-> app_context cycle;
+    # app_context imports image_utils at module load.
+    from modules import app_context as _app_ctx
+
+    # No live app context means no user image_mode to consult (headless /
+    # pre-init), so the only meaningful encoding is the verbatim dtype-based
+    # one. Production post-processing always runs with a context set.
+    if _app_ctx.ctx is None:
+        return image_mode.encoding_for_array(array)
+
+    with _app_ctx.ctx.settings_lock:
+        mode = image_mode.resolve_settings_image_mode(_app_ctx.ctx.settings)
+    return image_mode.save_encoding_for_derived_output(array, mode)
+
+
 def maybe_apply_false_color(
     data: np.ndarray,
     color: str,
-    use_false_color_16bit: bool | None = None,
+    use_false_color_16bit: bool,
     output_buf: np.ndarray | None = None,
 ) -> np.ndarray:
     """Widen single-channel 16-bit fluorescence to 3-channel RGB when the
@@ -1212,12 +1236,10 @@ def maybe_apply_false_color(
     fluorescence also renders in color in Windows Preview / Explorer, at ~3x
     the file size.
 
-    Already-RGB inputs, 8-bit inputs, transmitted layers (BF/PC/DF), and
-    unknown layer names always pass through. Callers may pass the resolved
-    bool to skip the per-save settings_lock acquire; ``None`` triggers a
-    one-shot read so a direct caller with no resolved encoding (the
-    post-processor false-color routing) still honors the user setting.
-    write_tiff always passes the bool derived from save_encoding.
+    use_false_color_16bit is the resolved decision (the caller passed write_tiff
+    a save_encoding; widening is save_encoding == 'rgb'). Already-RGB inputs,
+    8-bit inputs, transmitted layers (BF/PC/DF), and unknown layer names always
+    pass through.
     """
     if not (
         data.dtype == np.uint16
@@ -1225,25 +1247,15 @@ def maybe_apply_false_color(
         and color in common_utils.get_image_layers()
     ):
         return data
-    try:
-        if use_false_color_16bit is None:
-            # Function-local import breaks the image_utils <-> app_context
-            # cycle; app_context imports image_utils at module load.
-            from modules import app_context as _app_ctx
-
-            with _app_ctx.ctx.settings_lock:
-                mode = image_mode.resolve_settings_image_mode(_app_ctx.ctx.settings)
-            use_false_color_16bit = (
-                image_mode.resolve_image_mode(mode)['save_encoding'] == image_mode.SAVE_ENCODING_RGB
-            )
-        if use_false_color_16bit:
+    if use_false_color_16bit:
+        try:
             return add_false_color(data, color, output=output_buf)
-    except Exception:
-        logger.exception(
-            '[image_utils] maybe_apply_false_color: false-color application '
-            'failed for color=%s; returning input',
-            color,
-        )
+        except Exception:
+            logger.exception(
+                '[image_utils] maybe_apply_false_color: false-color application '
+                'failed for color=%s; returning input',
+                color,
+            )
     return data
 
 

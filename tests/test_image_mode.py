@@ -658,6 +658,98 @@ def test_post_processor_uint16_save_is_verbatim(tmp_path):
     assert arr[0, 0] == 4095, 'derived uint16 output must stay right-aligned (verbatim)'
 
 
+@pytest.mark.parametrize(
+    ('mode', 'dtype', 'expected'),
+    [
+        # The RGB false-color mode widens a derived fluorescence product, the
+        # same as a freshly captured frame -- a stitch/zproject is not silently
+        # demoted to mono.
+        ('12bit_false_color_rgb', np.uint16, 'rgb'),
+        # The quantitative modes keep the derived product verbatim: scaled does
+        # NOT msb-align a derived output (matches the prior behavior), and
+        # scientific stays right-aligned.
+        ('12bit_scaled', np.uint16, 'right_aligned'),
+        ('12bit_scientific', np.uint16, 'right_aligned'),
+        ('8bit', np.uint8, '8bit'),
+    ],
+)
+def test_save_encoding_for_derived_output_honors_rgb_mode(mode, dtype, expected):
+    """A derived data product preserves its pixels verbatim EXCEPT under the RGB
+    mode, where a fluorescence product widens to false color like a capture."""
+    from modules.image_mode import save_encoding_for_derived_output
+
+    arr = np.zeros((2, 2), dtype=dtype)
+    assert save_encoding_for_derived_output(arr, mode) == expected
+
+
+def test_resolve_output_save_encoding_reads_image_mode_ssot():
+    """The derived-output encoding comes from the live image_mode SSOT, so a
+    stitch/zproject honors the user's false-color choice -- the behavior that
+    used to hide in maybe_apply_false_color's settings read."""
+    from unittest import mock
+
+    import modules.image_utils as image_utils
+
+    arr = np.zeros((4, 4), dtype=np.uint16)
+
+    rgb_ctx = mock.MagicMock()
+    rgb_ctx.settings = {'image_mode': '12bit_false_color_rgb'}
+    with mock.patch('modules.app_context.ctx', rgb_ctx):
+        assert image_utils.resolve_output_save_encoding(arr) == 'rgb'
+
+    sci_ctx = mock.MagicMock()
+    sci_ctx.settings = {'image_mode': '12bit_scientific'}
+    with mock.patch('modules.app_context.ctx', sci_ctx):
+        assert image_utils.resolve_output_save_encoding(arr) == 'right_aligned'
+
+
+def test_resolve_output_save_encoding_degrades_without_context():
+    """With no app context (headless / pre-init, the post-processor test path),
+    the encoding falls back to the verbatim dtype-based value instead of crashing
+    on a None settings lock -- there is no user image_mode to honor."""
+    from unittest import mock
+
+    import modules.image_utils as image_utils
+
+    with mock.patch('modules.app_context.ctx', None):
+        assert image_utils.resolve_output_save_encoding(np.zeros((4, 4), dtype=np.uint8)) == '8bit'
+        assert (
+            image_utils.resolve_output_save_encoding(np.zeros((4, 4), dtype=np.uint16))
+            == 'right_aligned'
+        )
+
+
+def test_derived_fluorescence_widens_to_rgb_under_false_color_mode(tmp_path):
+    """Regression: a uint16 fluorescence stitch/zproject output saved through the
+    derived-output encoding widens to 3-channel RGB when the user is in the RGB
+    mode -- it must not silently save mono (the grayscale-in-Windows-Preview
+    regression)."""
+    from unittest import mock
+
+    import modules.image_utils as image_utils
+
+    out_path = tmp_path / 'derived_blue.tiff'
+    data = np.full((8, 8), 3000, dtype=np.uint16)
+
+    rgb_ctx = mock.MagicMock()
+    rgb_ctx.settings = {'image_mode': '12bit_false_color_rgb'}
+    with mock.patch('modules.app_context.ctx', rgb_ctx):
+        encoding = image_utils.resolve_output_save_encoding(data)
+        image_utils.write_tiff(
+            data=data,
+            file_loc=out_path,
+            metadata=_metadata(out_path, channel='Blue'),
+            ome=False,
+            color='Blue',
+            significant_bits=16,
+            save_encoding=encoding,
+        )
+
+    arr = tf.imread(str(out_path))
+    assert arr.shape == (8, 8, 3), 'derived fluorescence under RGB mode must widen to 3-channel'
+    assert arr[0, 0, 2] == 3000 and arr[0, 0, 0] == 0 and arr[0, 0, 1] == 0
+
+
 def test_composite_capture_live_path_passes_save_encoding():
     """Structural lock on the Bug-B site: every save_live_image / save_image
     call in the manual live-capture path forwards save_encoding. A refactor that
