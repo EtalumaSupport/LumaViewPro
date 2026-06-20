@@ -1850,7 +1850,12 @@ class FX2Camera(Camera):
                         remaining, shape=(h, stride), strides=(stride, 1)
                     )
                     image = raw_2d[:, :w].copy()
-                    self.cam_image_handler._store_frame(image, datetime.now())
+                    # The FX2 sensor is 8-bit only, so the delivered array's
+                    # container width IS its payload depth; stamp it from the
+                    # frame so depth and pixels stay paired.
+                    self.cam_image_handler._store_frame(
+                        image, datetime.now(), significant_bits=image.dtype.itemsize * 8
+                    )
                     stats.record_good_frame()
 
                     if not first_frame_logged:
@@ -1901,7 +1906,7 @@ class FX2Camera(Camera):
         self.cam_image_handler.reset()
         deadline = time.monotonic() + timeout_s
         while time.monotonic() < deadline:
-            ok, img, ts = self.cam_image_handler.get_last_image()
+            ok, img, ts, _significant_bits = self.cam_image_handler.get_last_image()
             if ok:
                 with self._array_lock:
                     self.array = img

@@ -48,6 +48,11 @@ class _FakeGrabResult:
         arr.copy.return_value = arr
         return arr
 
+    def GetPixelType(self):
+        # Real pypylon PixelType_Mono8 value; the worker reads this to stamp
+        # the frame's depth (pylon.BitDepth maps it to 8).
+        return 0x01080001
+
     def GetErrorCode(self):
         return self._err_code
 

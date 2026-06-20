@@ -786,14 +786,15 @@ class SimulatedCamera(Camera):
         """Single-copy grab for display pipeline (overrides Camera.grab_latest).
 
         SimulatedCamera doesn't use ImageHandlerBase, so we override
-        to generate and return the image directly.
+        to generate and return the image directly. The depth travels with the
+        frame (the generated frame's format depth), matching the real drivers.
 
         Returns:
             tuple: ``(success: bool, image: np.ndarray | None,
-                timestamp: datetime | None)``.
+                timestamp: datetime | None, significant_bits: int | None)``.
         """
         if not self._grabbing:
-            return False, None, None
+            return False, None, None, None
 
         if self._grab_delay > 0:
             time.sleep(self._grab_delay)
@@ -805,7 +806,7 @@ class SimulatedCamera(Camera):
             if now - last < exposure_s:
                 with self._lock:
                     img = self.array.copy() if self.array.size > 0 else None
-                return True, img, self._last_grab_ts
+                return True, img, self._last_grab_ts, self.significant_bits
             self._last_frame_time = now
 
         with self._lock:
@@ -813,7 +814,7 @@ class SimulatedCamera(Camera):
             self._last_grab_ts = datetime.datetime.now()
             img = self.array.copy()
 
-        return True, img, self._last_grab_ts
+        return True, img, self._last_grab_ts, self.significant_bits
 
     def grab_new_capture(self, timeout_s: float) -> tuple:
         """Generate a fresh image (blocking with timeout).

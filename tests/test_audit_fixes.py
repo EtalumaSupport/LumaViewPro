@@ -4261,7 +4261,9 @@ class TestImageHandlerBaseChunkSlot:
         import numpy as np
 
         b = self._make_base()
-        b._store_frame(np.zeros((4, 4), dtype=np.uint8), datetime.datetime.now())
+        b._store_frame(
+            np.zeros((4, 4), dtype=np.uint8), datetime.datetime.now(), significant_bits=8
+        )
         assert b.last_chunks is None
         assert b.get_last_chunks() is None
 
@@ -4271,7 +4273,12 @@ class TestImageHandlerBaseChunkSlot:
 
         b = self._make_base()
         chunks = {'ExposureTime': 14530.0, 'Gain': 1.0, 'FrameID': 12345}
-        b._store_frame(np.zeros((4, 4), dtype=np.uint8), datetime.datetime.now(), chunks=chunks)
+        b._store_frame(
+            np.zeros((4, 4), dtype=np.uint8),
+            datetime.datetime.now(),
+            chunks=chunks,
+            significant_bits=8,
+        )
         assert b.last_chunks == chunks
         assert b.get_last_chunks() == chunks
 
@@ -4291,6 +4298,7 @@ class TestImageHandlerBaseChunkSlot:
             np.zeros((4, 4), dtype=np.uint8),
             datetime.datetime.now(),
             chunks={'ExposureTime': 14530.0},
+            significant_bits=8,
         )
         b._record_failure()  # last_result becomes False
         assert b.get_last_chunks() is None
@@ -4304,6 +4312,7 @@ class TestImageHandlerBaseChunkSlot:
             np.zeros((4, 4), dtype=np.uint8),
             datetime.datetime.now(),
             chunks={'ExposureTime': 14530.0},
+            significant_bits=8,
         )
         b.reset()
         assert b.last_chunks is None
@@ -4319,11 +4328,13 @@ class TestImageHandlerBaseChunkSlot:
             np.zeros((4, 4), dtype=np.uint8),
             datetime.datetime.now(),
             chunks={'ExposureTime': 14530.0, 'Gain': 1.0},
+            significant_bits=8,
         )
         b._store_frame(
             np.zeros((4, 4), dtype=np.uint8),
             datetime.datetime.now(),
             chunks={'ExposureTime': 30000.0},
+            significant_bits=8,
         )
         assert b.get_last_chunks() == {'ExposureTime': 30000.0}
         assert 'Gain' not in b.get_last_chunks()

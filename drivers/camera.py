@@ -31,6 +31,12 @@ class ImageHandlerBase:
         self.last_result = False
         self.last_img = None
         self.last_img_ts = None
+        # Payload depth of the buffered frame, captured WITH it at store time so a
+        # consumer reads the depth this frame was acquired under -- not whatever
+        # the camera's pixel format reports later. A format switch leaves a prior
+        # frame in this buffer; pairing it with a freshly-queried depth is what
+        # mis-scaled (and crashed) the downconvert.
+        self.last_img_significant_bits = None
         self.last_chunks = None  # per-frame chunk metadata dict (None when unsupported)
         self._failed_grabs = 0
         # Per-frame consumers (manual record today; per-frame plugins later).
@@ -39,12 +45,16 @@ class ImageHandlerBase:
         self._frame_callbacks: list = []
 
     def get_last_image(self):
-        """Return (success, image, timestamp). Thread-safe.
+        """Return (success, image, timestamp, significant_bits). Thread-safe.
 
         No copy needed here -- the stored frame is already a copy from the SDK
         callback (GetArray().copy() in Pylon, copy() in IDS). _store_frame()
         replaces the reference (not in-place), so the returned array remains
         valid even after the next frame arrives.
+
+        The depth is returned WITH the frame (the value stamped at store time) so
+        a caller scales the buffered frame by the depth it was captured under, not
+        a depth queried separately afterward.
 
         On a stalled stream this keeps returning the last stored frame, so a
         live preview can freeze without an error surfacing here. Capture and
@@ -54,8 +64,8 @@ class ImageHandlerBase:
         """
         with self._frame_lock:
             if not self.last_result:
-                return False, None, None
-            return True, self.last_img, self.last_img_ts
+                return False, None, None, None
+            return True, self.last_img, self.last_img_ts, self.last_img_significant_bits
 
     def get_last_chunks(self) -> dict | None:
         """Return per-frame chunk metadata for the most recent successful grab.
@@ -82,6 +92,7 @@ class ImageHandlerBase:
             self.last_result = False
             self.last_img = None
             self.last_img_ts = None
+            self.last_img_significant_bits = None
             self.last_chunks = None
         self._failed_grabs = 0
 
@@ -112,7 +123,7 @@ class ImageHandlerBase:
         with self._frame_lock, contextlib.suppress(ValueError):
             self._frame_callbacks.remove(cb)
 
-    def _store_frame(self, image, timestamp, chunks: dict | None = None):
+    def _store_frame(self, image, timestamp, chunks: dict | None = None, *, significant_bits: int):
         """Called by subclass when a new frame is successfully grabbed.
 
         Args:
@@ -121,11 +132,19 @@ class ImageHandlerBase:
             chunks: optional per-frame chunk metadata dict. None for cameras
                 without chunk support; backward-compatible with callers that
                 don't pass it.
+            significant_bits: payload depth of THIS frame -- REQUIRED, so a frame
+                can never be buffered without the depth needed to interpret it.
+                The subclass derives it from the frame itself (the grab result's
+                pixel type, or the delivered array's container width for cameras
+                that deliver true container-depth frames), so the depth and the
+                pixels stay together and a later format switch cannot make the
+                buffered frame's depth read wrong.
         """
         with self._frame_lock:
             self.last_result = True
             self.last_img = image
             self.last_img_ts = timestamp
+            self.last_img_significant_bits = significant_bits
             self.last_chunks = chunks
             cbs = list(self._frame_callbacks)
         self._failed_grabs = 0
@@ -475,6 +494,22 @@ class Camera(ABC):
         match = re.search(r'(\d+)', self.get_pixel_format() or '')
         return int(match.group(1)) if match else self.native_bit_depth
 
+    @property
+    def last_significant_bits(self):
+        """Payload depth of the most recently buffered frame (stamped at store).
+
+        The grab() + get_array() capture path (unlike grab_latest) hands back a
+        bare array, so this exposes the depth recorded WITH that frame. A caller
+        downconverting the just-grabbed frame uses this rather than the live
+        ``significant_bits``, which can already reflect a newer pixel format than
+        the buffered frame was captured under. Falls back to the live depth when
+        no frame has been stored yet.
+        """
+        handler = self.cam_image_handler
+        if handler is not None and handler.last_img_significant_bits is not None:
+            return handler.last_img_significant_bits
+        return self.significant_bits
+
     @abstractmethod
     def exposure_t(self, exposure_ms: float) -> None:
         """Set exposure time.
@@ -637,7 +672,7 @@ class Camera(ABC):
             return False, None
 
         try:
-            result, image, image_ts = self.cam_image_handler.get_last_image()
+            result, image, image_ts, _significant_bits = self.cam_image_handler.get_last_image()
             if not result:
                 return False, None
 
@@ -667,28 +702,32 @@ class Camera(ABC):
 
         Returns:
             tuple: ``(success: bool, image: np.ndarray | None,
-                timestamp: datetime | None)``.
+                timestamp: datetime | None, significant_bits: int | None)``.
+                The depth is carried with the frame so the caller scales it by
+                the depth it was captured under, not a separately-queried one.
         """
         with self._state_lock:
             if self._active is None or self._device_removed:
-                return False, None, None
+                return False, None, None, None
 
         if not self.cam_image_handler:
-            return False, None, None
+            return False, None, None, None
 
         try:
-            result, image, image_ts = self.cam_image_handler.get_last_image()
+            result, image, image_ts, image_significant_bits = (
+                self.cam_image_handler.get_last_image()
+            )
             if not result or image is None:
-                return False, None, None
+                return False, None, None, None
 
             # Store for other consumers (e.g. recording), but the returned
             # image IS the copy -- callers don't need get_array().
             with self._array_lock:
                 self.array = image
-            return True, image, image_ts
+            return True, image, image_ts, image_significant_bits
         except Exception as ex:
             _cam_log.exception(f'[CAM Class ] grab_latest() failed: {ex}')
-            return False, None, None
+            return False, None, None, None
 
     def register_frame_callback(self, cb) -> None:
         """Register a per-frame callback on the driver's image handler.

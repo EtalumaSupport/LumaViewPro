@@ -1824,7 +1824,12 @@ class ImagingAPI:
         # Query the driver only when a consumer needs it -- a raw passthrough
         # frame returns without touching the driver's depth.
         if use_scale_bar or need_8bit:
-            significant_bits = 16 if sum_count > 1 else self._driver.significant_bits
+            # A summed capture is promoted to a 16-bit container by the loop
+            # above (the sum transform declares the new depth). A single frame
+            # carries the depth it was captured under, read from the frame just
+            # grabbed -- not a fresh format query that a mid-capture switch could
+            # have moved ahead of this frame.
+            significant_bits = 16 if sum_count > 1 else self._driver.last_significant_bits
 
         if use_scale_bar:
             image = image_utils.add_scale_bar(
@@ -1875,7 +1880,7 @@ class ImagingAPI:
         # Single-copy grab: grab_latest() returns the image directly,
         # avoiding the extra copy that grab() + get_array() would make.
         # This saves ~2.3MB copy + 1 lock acquisition per frame.
-        grab_status, tmp, grab_image_ts = self._driver.grab_latest()
+        grab_status, tmp, grab_image_ts, frame_significant_bits = self._driver.grab_latest()
         if not grab_status or tmp is None:
             return None, None
         # grab_latest() returns the same buffered frame on every poll, and
@@ -1900,11 +1905,11 @@ class ImagingAPI:
                 objective=self._scope.runtime_state._objective,
                 binning_size=self._binning_size,
                 color=self._scale_bar.get('color'),
-                significant_bits=self._driver.significant_bits,
+                significant_bits=frame_significant_bits,
             )
 
         if force_to_8bit and tmp.dtype != np.uint8:
-            tmp = image_utils.convert_to_8bit(tmp, self._driver.significant_bits, out=out_8bit)
+            tmp = image_utils.convert_to_8bit(tmp, frame_significant_bits, out=out_8bit)
 
         return tmp, grab_image_ts
 

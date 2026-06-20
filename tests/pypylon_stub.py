@@ -91,6 +91,19 @@ def IsReadable(node) -> bool:
     return node is not None
 
 
+# Real pypylon PixelType enum values, so a grab result's pixel type maps to
+# the same significant-bit depth the SDK reports.
+_PIXEL_TYPE_BITS = {0x01080001: 8, 0x01100003: 10, 0x01100005: 12}
+
+
+def BitDepth(pixel_type) -> int:
+    """pylon.BitDepth stand-in: significant bits for a PixelType (Mono8 -> 8,
+    Mono12 -> 12). An unmodeled type raises (KeyError) rather than guessing, so
+    a test that supplies an unknown pixel type fails loudly and the type gets
+    added here -- never silently scaled at a wrong depth."""
+    return _PIXEL_TYPE_BITS[pixel_type]
+
+
 def _stub_module(name: str, members: dict) -> types.ModuleType:
     """Build a module whose unknown attributes fall back to MagicMock,
     mirroring the blanket-mock behavior for symbols the stub does not

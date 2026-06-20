@@ -3985,7 +3985,13 @@ class _PylonImageGrabWorker:
             self._base._record_failure()
             return
         chunks = _read_validity_chunks(grabResult)
-        self._base._store_frame(img, ts, chunks=chunks)
+        # Read the depth from the frame's OWN pixel type -- the format the SDK
+        # delivered this buffer in -- so the depth stays bound to the frame.
+        # pylon.BitDepth(PixelType_Mono12) is 12, Mono8 is 8. A later pixel-format
+        # switch cannot make this buffered frame downconvert at the wrong depth,
+        # because the depth came from the frame, not the camera's current state.
+        significant_bits = pylon.BitDepth(grabResult.GetPixelType())
+        self._base._store_frame(img, ts, chunks=chunks, significant_bits=significant_bits)
         try:
             if not self._frame_queue.empty():
                 with contextlib.suppress(queue.Empty):

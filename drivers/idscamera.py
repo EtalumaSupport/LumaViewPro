@@ -889,7 +889,10 @@ class ImageHandler(ImageHandlerBase):
                         img = img.ConvertTo(ids_peak_ipl.PixelFormatName_Mono8)
                 frame = img.get_numpy().copy()
                 ts = datetime.datetime.now()
-                self._store_frame(frame, ts)
+                # Every IDS frame is converted to Mono8 above, so the delivered
+                # array is genuinely 8-bit: its container width IS its payload
+                # depth. Stamp it from the frame so depth and pixels stay paired.
+                self._store_frame(frame, ts, significant_bits=frame.dtype.itemsize * 8)
             except Exception as e:
                 err_str = str(e).lower()
                 if 'abort' in err_str or 'removed' in err_str or 'device' in err_str:
