@@ -133,6 +133,12 @@ def finalize_manual_video(
 
         include_hyperstack_generation = False
 
+        # Frames the chosen writer accepted but could not save. Both manual
+        # write paths swallow a per-frame failure and continue (a short video
+        # still beats none), then report the total once at the end -- the same
+        # contract the protocol video path honors.
+        dropped_frames = 0
+
         if video_as_frames:
             image_capture_config = ui_snapshot['image_capture_config']
 
@@ -217,6 +223,7 @@ def finalize_manual_video(
                     )
                 except Exception as e:
                     logger.exception(f'Manual-Video] Failed to write frame {frame_num}: {e}')
+                    dropped_frames += 1
 
                 # Update progress on main thread
                 _report_progress(frame_num + 1)
@@ -299,12 +306,25 @@ def finalize_manual_video(
                     video_writer.add_frame(image=video_frames[frame_num], timestamp=ts)
                 except Exception:
                     logger.exception('Manual-Video] FAILED TO WRITE FRAME')
+                    dropped_frames += 1
 
                 # Update progress on main thread
                 _report_progress(frame_num + 1)
 
             video_writer.close()
+            # Encode failures inside add_frame that did not raise are counted
+            # by the writer; fold them in so the total reflects every loss.
+            dropped_frames += video_writer.dropped_frames
             logger.info(f'Manual-Video] Mp4 written to {output_file_loc}')
+
+        if dropped_frames > 0:
+            notifications.warning(
+                'Recording',
+                'Video Frames Dropped',
+                f'{dropped_frames} of {captured_frames} frame(s) could not be '
+                'written, so the saved video is shorter than the recording. '
+                'Check the log for the cause.',
+            )
 
         logger.info('Manual-Video] Video writing finished.')
 

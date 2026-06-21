@@ -158,3 +158,88 @@ def test_missing_objective_for_hyperstack_notifies_and_returns(tmp_path):
     assert result == 'sentinel-memmap.dat'
     assert any(n.severity >= Severity.ERROR for n in captured)
     notifications.clear()
+
+
+# --- E1c: drop-count parity with the protocol video path -------------------
+
+
+def _dropped_warnings(captured):
+    return [
+        n for n in captured if n.severity == Severity.WARNING and n.title == 'Video Frames Dropped'
+    ]
+
+
+def test_frames_path_drops_are_counted_and_notified(tmp_path, monkeypatch):
+    """Every per-frame TIFF write failure is tallied into one warning."""
+    captured = _capture_notifications()
+
+    def _raise(**kwargs):
+        raise OSError('disk full')
+
+    monkeypatch.setattr('modules.image_save.write_video_frame', _raise)
+
+    result = finalize_manual_video(**_kwargs(tmp_path, video_as_frames=True))
+
+    assert result == 'sentinel-memmap.dat'  # recording released, not aborted
+    warnings = _dropped_warnings(captured)
+    assert len(warnings) == 1
+    assert '3 of 3' in warnings[0].message  # all three frames failed
+    notifications.clear()
+
+
+def test_mp4_add_frame_failure_is_counted_and_notified(tmp_path, monkeypatch):
+    """An MP4 writer that raises on add_frame contributes to the drop total."""
+    captured = _capture_notifications()
+
+    class _RaisingWriter:
+        def __init__(self, **kwargs):
+            self.dropped_frames = 0
+
+        def add_frame(self, **kwargs):
+            raise RuntimeError('encoder gone')
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr('modules.manual_video_finalize.VideoWriter', _RaisingWriter)
+
+    result = finalize_manual_video(**_kwargs(tmp_path, video_as_frames=False))
+
+    assert result == 'sentinel-memmap.dat'
+    assert len(_dropped_warnings(captured)) == 1
+    notifications.clear()
+
+
+def test_mp4_encoder_dropped_frames_are_notified(tmp_path, monkeypatch):
+    """Encode failures the writer counts internally (no raise) still notify."""
+    captured = _capture_notifications()
+
+    class _DroppingWriter:
+        def __init__(self, **kwargs):
+            self.dropped_frames = 2  # accepted but lost inside the encoder
+
+        def add_frame(self, **kwargs):
+            pass
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr('modules.manual_video_finalize.VideoWriter', _DroppingWriter)
+
+    result = finalize_manual_video(**_kwargs(tmp_path, video_as_frames=False))
+
+    assert result == 'sentinel-memmap.dat'
+    warnings = _dropped_warnings(captured)
+    assert len(warnings) == 1
+    assert '2 of 3' in warnings[0].message
+    notifications.clear()
+
+
+def test_no_drops_emits_no_drop_warning(tmp_path):
+    """A clean recording must not fire the drop warning."""
+    captured = _capture_notifications()
+
+    finalize_manual_video(**_kwargs(tmp_path, video_as_frames=False))
+
+    assert _dropped_warnings(captured) == []
+    notifications.clear()
