@@ -436,6 +436,26 @@ class TestConverterCollapse:
         assert not hasattr(image_utils, '_LUT_12_TO_8')
         assert not hasattr(image_utils, '_LUT_16_TO_8')
 
+    def test_16to8_pins_deviation_from_legacy_truncation(self):
+        """Pin the deliberate 16->8 map choice against the legacy >>8 (/256).
+
+        The map is an exact linear rescale (value / 65535 * 255), not the old
+        >>8 truncation. Both send full scale to 255, but they differ by at most
+        1 LSB at exactly 32640 of the 65536 inputs (the rescale rounds where
+        >>8 truncates). Locking the bound and the count documents this as a
+        decision, so a future change to the map is caught rather than absorbed.
+        """
+        from modules import image_utils
+
+        vals = np.arange(65536, dtype=np.uint16)
+        new = image_utils.convert_to_8bit(vals.reshape(256, 256), 16).reshape(-1).astype(np.int32)
+        legacy = (vals // 256).astype(np.uint8).astype(np.int32)  # the old >>8 form
+
+        deviation = np.abs(new - legacy)
+        assert deviation.max() <= 1  # never more than 1 LSB off the legacy map
+        assert int((deviation != 0).sum()) == 32640  # the deliberate differing set
+        assert new[0] == 0 and new[65535] == 255  # endpoints anchored
+
 
 class TestVideoFrameCarriesDepth:
     """A video-frame TIFF carries its payload depth in the private tag. Video
