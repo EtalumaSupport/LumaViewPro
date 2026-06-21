@@ -62,13 +62,12 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         self.writing_progress_update = None
         self.video_writing_progress = 0
         self.video_writing_total_frames = 0
-        # Reused scratch buffers for the record-path depth conversion and
-        # false-color widening in record_helper. Sized lazily on the first
-        # frame of a record and freed at finalize. Reuse is safe: record_helper
-        # runs on the single-threaded camera_executor and copies its result
-        # into the memmap slot before the next call can overwrite the scratch.
+        # Reused scratch buffer for the record-path 8-bit depth conversion in
+        # record_helper. Sized lazily on the first frame of a record and freed at
+        # finalize. Reuse is safe: record_helper runs on the single-threaded
+        # camera_executor and copies its result into the memmap slot before the
+        # next call can overwrite the scratch.
         self._record_convert_buf = None
-        self._record_color_buf = None
         self._pause_led_snapshot = None  # save/restore via API
 
     def cam_toggle(self):
@@ -294,11 +293,10 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         else:
             dtype = 'uint16'
 
-        # Calculate expected file size and shape
-        if (color is None) or (dtype == 'uint16'):
-            required_shape = (max_frames, frame_size['height'], frame_size['width'])
-        else:
-            required_shape = (max_frames, frame_size['height'], frame_size['width'], 3)
+        # Calculate expected file size and shape. The memmap is always mono (one
+        # plane per frame); false color is applied at the save edges, never baked
+        # into the recording buffer.
+        required_shape = (max_frames, frame_size['height'], frame_size['width'])
 
         bytes_per_element = 1 if dtype == 'uint8' else 2
         expected_size = int(np.prod(required_shape, dtype=np.int64)) * bytes_per_element
@@ -359,20 +357,12 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
             # Use mode="w+" only when creating new file or size changed (requires truncation)
             memmap_mode = 'r+' if reuse_existing else 'w+'
 
-            if (color is None) or (dtype == 'uint16'):
-                self.current_video_frames = np.memmap(
-                    str(self.memmap_location),
-                    dtype=dtype,
-                    mode=memmap_mode,
-                    shape=(max_frames, frame_size['height'], frame_size['width']),
-                )
-            else:
-                self.current_video_frames = np.memmap(
-                    str(self.memmap_location),
-                    dtype=dtype,
-                    mode=memmap_mode,
-                    shape=(max_frames, frame_size['height'], frame_size['width'], 3),
-                )
+            self.current_video_frames = np.memmap(
+                str(self.memmap_location),
+                dtype=dtype,
+                mode=memmap_mode,
+                shape=(max_frames, frame_size['height'], frame_size['width']),
+            )
         except OSError as e:
             logger.error(f'[LVP Main  ] Failed to create memmap file: {e}')
             logger.error(f'[LVP Main  ] If this persists, manually delete: {self.memmap_location}')
@@ -612,10 +602,9 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
 
             # Release memmap reference from MainDisplay so file_io_executor has exclusive ownership
             self.current_video_frames = None
-            # Drop the per-record conversion scratch buffers; a record is a
-            # bounded event and these are multi-MB each.
+            # Drop the per-record conversion scratch buffer; a record is a
+            # bounded event and it is multi-MB.
             self._record_convert_buf = None
-            self._record_color_buf = None
 
             # Clear recording event immediately - camera is now free
             if not self.recording.is_set():
@@ -896,6 +885,9 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
                     output_path=output_file_loc,
                     fps=calculated_fps,
                     include_timestamp_overlay=True,
+                    # The memmap is mono; colorize false-color layers at the
+                    # encoder. None (transmitted / false-color off) gray-encodes.
+                    color=video_false_color,
                 )
 
                 for frame_num in range(captured_frames):
@@ -1021,22 +1013,12 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         # into the memmap, so the camera buffer is not aliased past this call and
         # no scratch copy is needed.
 
-        # 8-bit frames bake false color into the memmap here -- the MP4 encoder
-        # consumes the memmap directly and the video_frame TIFF write has no
-        # palette. 12-bit frames stay mono uint16 (no 3x memmap bloat) and are
-        # colorized at the save edge by image_save.write_video_frame.
-        if (image.dtype != np.uint16) and (self.video_false_color is not None):
-            color_shape = (image.shape[0], image.shape[1], 3)
-            if (
-                self._record_color_buf is None
-                or self._record_color_buf.shape != color_shape
-                or self._record_color_buf.dtype != image.dtype
-            ):
-                self._record_color_buf = np.empty(color_shape, dtype=image.dtype)
-            image = image_utils.add_false_color(
-                array=image, color=self.video_false_color, output=self._record_color_buf
-            )
-
+        # Every frame travels into the memmap MONO -- the memmap is never widened
+        # to RGB. False color is applied once at each output edge instead: the
+        # MP4 VideoWriter colorizes via its color= argument, and the per-frame
+        # TIFF write (image_save.write_video_frame) bakes it for the saved frames.
+        # Keeping the memmap mono drops the 3x RGB bloat and moves the per-frame
+        # false-color allocation off this capture-thread task to the save edge.
         image = np.flip(image, 0)
 
         target_shape = self.current_video_frames.shape[1:]

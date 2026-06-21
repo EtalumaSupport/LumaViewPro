@@ -2,21 +2,21 @@
 """Record-path conversions reuse caller-owned scratch buffers.
 
 record_helper (the camera_executor task that writes one recorded video
-frame) converts each frame's depth and, for mono fluorescence channels,
-widens it to a false-color RGB array. Without reusable destinations each
-frame allocated a fresh ~W*H (depth convert) plus a ~W*H*3 (false color)
-array -- 3.6-10.8 MB of allocator churn per recorded frame. record_helper
-now threads two scratch buffers (one per conversion) into the existing
-out=/output= parameters; the buffers are owned by MainDisplay, sized
-lazily, and freed at finalize.
+frame) downconverts an 8-bit capture into a reusable scratch buffer;
+without it each frame allocated a fresh ~W*H array of allocator churn.
+record_helper threads that one scratch buffer into the converter's out=
+parameter; the buffer is owned by MainDisplay, sized lazily, and freed at
+finalize. False color is no longer applied in the record path -- the
+memmap stays mono and colorization happens at the save edges -- so there
+is no longer a second (RGB) scratch buffer here.
 
 Reuse is safe: record_helper runs on the single-threaded camera_executor
 and copies its result into the memmap slot before the next call can
 overwrite the scratch.
 
 The depth-convert out= reuse is already covered (test_image_utils.py for
-8-bit, test_audit_fixes.py PIW-5 for 16-bit). These tests cover the
-add_false_color output= reuse semantics directly and lock the
+8-bit). The add_false_color tests below cover the output= reuse semantics
+directly (still used by the save-edge false-color path) and lock the
 record_helper wiring structurally (MainDisplay needs a full scope to
 instantiate).
 """
@@ -61,11 +61,10 @@ def test_add_false_color_falls_back_on_dtype_mismatch():
 
 
 def test_record_helper_threads_scratch_buffers():
-    # Structural lock: record_helper must (1) downconvert an 8-bit capture
-    # through the canonical converter into a MainDisplay-owned scratch buffer,
-    # and (2) widen mono fluorescence to false color through a reused output
-    # buffer -- both threaded with the snapshotted capture depth. MainDisplay
-    # needs a full scope to instantiate, so assert on source.
+    # Structural lock: record_helper downconverts an 8-bit capture through the
+    # canonical converter into a MainDisplay-owned scratch buffer, threaded with
+    # the snapshotted capture depth. MainDisplay needs a full scope to
+    # instantiate, so assert on source.
     src = (REPO / 'ui' / 'main_display.py').read_text()
     assert 'convert_to_8bit(' in src
     # A uint16 capture is stored in the memmap VERBATIM (right-aligned). The
@@ -75,4 +74,6 @@ def test_record_helper_threads_scratch_buffers():
     assert 'convert_to_16bit(' not in src
     assert src.count('out=self._record_convert_buf') == 1
     assert 'self._record_capture_depth' in src
-    assert 'output=self._record_color_buf' in src
+    # Record-path false color is gone: the memmap stays mono and colorization
+    # moved to the save edges, so the RGB color scratch buffer no longer exists.
+    assert '_record_color_buf' not in src

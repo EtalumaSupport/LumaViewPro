@@ -20,7 +20,6 @@ import numpy as np
 
 from lvp_logger import logger
 import modules.image_save as image_save
-import modules.image_utils as image_utils
 from modules.kivy_utils import schedule_ui as _schedule_ui
 from modules.video_writer import VideoWriter
 
@@ -121,8 +120,6 @@ class VideoCaptureSession:
         seconds_per_frame = 1.0 / fps
         video_images = queue.Queue(maxsize=500)
 
-        use_color = step['Color'] if step['False_Color'] else 'BF'
-
         # Start one stimulation scheduler thread for all enabled channels.
         stim_thread = None
         enabled_stim_configs = {
@@ -201,9 +198,9 @@ class VideoCaptureSession:
                 break
 
             if isinstance(image, np.ndarray):
-                if (image.dtype != np.uint16) and (step['False_Color']):
-                    image = image_utils.add_false_color(array=image, color=use_color)
-
+                # The frame enters the queue MONO; false color is applied at the
+                # save edges (the MP4 VideoWriter color= and the per-frame TIFF
+                # write), never on this capture thread.
                 image = np.flip(image, 0)
 
                 try:
@@ -352,6 +349,10 @@ def write_video(
             output_path=output_file_loc,
             fps=result.calculated_fps,
             include_timestamp_overlay=True,
+            # The queued frames are mono; colorize at the encoder. The layer
+            # color applies when False_Color is on; 'BF' gray-encodes otherwise
+            # -- the same gate the per-frame TIFF write uses above.
+            color=step['Color'] if step['False_Color'] else 'BF',
         )
         try:
             frame_num = 0
