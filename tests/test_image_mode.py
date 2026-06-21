@@ -272,6 +272,59 @@ def test_save_encoding_scaled_is_msb_aligned_and_recoverable(tmp_path):
     )
 
 
+def test_record_memmap_must_be_right_aligned_for_video_frame(tmp_path):
+    """Real-path lock for the manual-record Frames path: the memmap feeds
+    image_save.write_video_frame, which is the SOLE depth encoder. The memmap
+    must therefore hold the camera's right-aligned payload (0..4095 for 12-bit),
+    not a left-justified one. A right-aligned frame round-trips to its true
+    value; the left-justified frame the record path produced before the depth
+    fix does NOT -- the save edge stamps significant_bits=12 over already-shifted
+    pixels, so a reader recovers ~16x the value. The earlier matrix missed this
+    by feeding the helper right-aligned input the old production path never
+    delivered."""
+    import modules.image_utils as image_utils
+    from modules.image_save import write_video_frame
+
+    raw = np.zeros((8, 8), dtype=np.uint16)
+    raw[0, 0] = 4095  # full-scale, right-aligned 12-bit
+    raw[1, 1] = 2048
+
+    # Post-fix memmap content: the camera payload, verbatim.
+    correct = tmp_path / 'right_aligned.tiff'
+    write_video_frame(
+        frame=raw.copy(),
+        file_loc=correct,
+        metadata=_metadata(correct, channel='BF'),
+        layer_color='BF',
+        false_color_on=False,
+        save_encoding='right_aligned',
+        capture_depth=12,
+    )
+    arr = tf.imread(str(correct))
+    assert arr[0, 0] == 4095, 'right-aligned memmap must round-trip the raw 12-bit value'
+    assert arr[1, 1] == 2048
+    assert image_utils.read_tiff_significant_bits(correct) == 12
+
+    # Pre-fix memmap content: left-justified (x16), what convert_to_16bit stored.
+    # The save edge tags significant_bits=12 over already-shifted pixels, so the
+    # recovered value is corrupted (65520, not 4095). Locks WHY the memmap must
+    # stay right-aligned.
+    left_justified = image_utils.convert_to_16bit(raw, 12)
+    corrupt = tmp_path / 'left_justified.tiff'
+    write_video_frame(
+        frame=left_justified,
+        file_loc=corrupt,
+        metadata=_metadata(corrupt, channel='BF'),
+        layer_color='BF',
+        false_color_on=False,
+        save_encoding='right_aligned',
+        capture_depth=12,
+    )
+    arr_bug = tf.imread(str(corrupt))
+    assert arr_bug[0, 0] == 65520, 'left-justified memmap corrupts the saved value (4095 -> 65520)'
+    assert arr_bug[0, 0] != 4095
+
+
 def test_save_encoding_right_aligned_is_raw(tmp_path):
     """12bit_scientific stores the raw right-aligned value with SignificantBits=12
     -- correct quantitative data, the current default behavior under the new

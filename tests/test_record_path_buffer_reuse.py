@@ -61,13 +61,18 @@ def test_add_false_color_falls_back_on_dtype_mismatch():
 
 
 def test_record_helper_threads_scratch_buffers():
-    # Structural lock: record_helper must pass MainDisplay-owned scratch
-    # buffers AND the snapshotted capture depth through to the canonical depth
-    # converters and the false-color widening. MainDisplay needs a full scope
-    # to instantiate, so assert on source.
+    # Structural lock: record_helper must (1) downconvert an 8-bit capture
+    # through the canonical converter into a MainDisplay-owned scratch buffer,
+    # and (2) widen mono fluorescence to false color through a reused output
+    # buffer -- both threaded with the snapshotted capture depth. MainDisplay
+    # needs a full scope to instantiate, so assert on source.
     src = (REPO / 'ui' / 'main_display.py').read_text()
     assert 'convert_to_8bit(' in src
-    assert 'convert_to_16bit(' in src
-    assert src.count('out=self._record_convert_buf') == 2
+    # A uint16 capture is stored in the memmap VERBATIM (right-aligned). The
+    # record path must NOT left-justify it -- a prior convert_to_16bit here
+    # double-encoded against the save edge (image_save.write_video_frame), the
+    # single depth encoder. So only the 8-bit downconvert reuses a scratch.
+    assert 'convert_to_16bit(' not in src
+    assert src.count('out=self._record_convert_buf') == 1
     assert 'self._record_capture_depth' in src
     assert 'output=self._record_color_buf' in src

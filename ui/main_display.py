@@ -1012,16 +1012,14 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
             image = image_utils.convert_to_8bit(
                 image, self._record_capture_depth, out=self._record_convert_buf
             )
-        elif image.dtype == np.uint16:
-            if (
-                self._record_convert_buf is None
-                or self._record_convert_buf.shape != image.shape
-                or self._record_convert_buf.dtype != np.uint16
-            ):
-                self._record_convert_buf = np.empty(image.shape, dtype=np.uint16)
-            image = image_utils.convert_to_16bit(
-                image, self._record_capture_depth, out=self._record_convert_buf
-            )
+        # A uint16 capture travels into the memmap VERBATIM: the camera delivers
+        # a right-aligned payload (0..4095 for a 12-bit sensor) and the save edge
+        # (image_save.write_video_frame) is the single depth encoder. Left-
+        # justifying here too would double-encode -- the memmap shifts the
+        # payload up, then the save edge shifts (msb_aligned) or mislabels
+        # (right_aligned) it again. The slot assignment below copies the frame
+        # into the memmap, so the camera buffer is not aliased past this call and
+        # no scratch copy is needed.
 
         # 8-bit frames bake false color into the memmap here -- the MP4 encoder
         # consumes the memmap directly and the video_frame TIFF write has no
