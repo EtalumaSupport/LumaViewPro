@@ -1084,6 +1084,8 @@ def convert_to_16bit(image, significant_bits: int, out=None):
     ``out`` reuses a caller buffer to avoid a per-save allocation (~24 MB);
     a mismatched-shape/dtype buffer falls back to a fresh allocation.
     """
+    # On this branch reached only through convert_12bit_to_16bit, itself kept
+    # for the 4.1 branches; retained as the canonical MSB-align converter.
     if image.dtype == np.uint8:
         return image
     shift = 16 - int(significant_bits)
@@ -1099,6 +1101,11 @@ def convert_to_16bit(image, significant_bits: int, out=None):
 
 def convert_12bit_to_16bit(image, out=None):
     """MSB-align a 12-bit payload into the 16-bit container via the canonical converter."""
+    # No caller on this branch: the manual record path stopped MSB-aligning once
+    # the memmap moved to right-aligned storage and the save edge became the sole
+    # depth encoder. Retained because the 4.1.0-dev and firmware-stim-4.1 branches
+    # still call it in production, so deleting it here would diverge from them.
+    # Remove once those branches adopt right-aligned storage or drop the call.
     return convert_to_16bit(image, 12, out=out)
 
 
