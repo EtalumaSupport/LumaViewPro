@@ -99,3 +99,62 @@ def test_missing_active_layer_config_notifies_and_returns(tmp_path):
     assert result == 'sentinel-memmap.dat'
     assert any(n.severity >= Severity.ERROR for n in captured)
     notifications.clear()
+
+
+# --- E1b: snapshot precondition (the whole missing-field cluster) -----------
+
+
+def test_missing_image_capture_config_notifies_and_returns(tmp_path):
+    """A None image_capture_config in the save-as-frames path must fail loud.
+
+    The snapshot stores None when get_image_capture_config_from_ui() raises.
+    Before the guard, the frames path subscripted None
+    (image_capture_config['output_format']) and the resulting TypeError
+    propagated out, discarding the whole finished recording behind one log
+    line. The recording must instead be reported, not silently lost.
+    """
+    captured = _capture_notifications()
+
+    result = finalize_manual_video(
+        **_kwargs(
+            tmp_path,
+            video_as_frames=True,
+            ui_snapshot={
+                'active_layer_config': ('Green', {}),
+                'image_capture_config': None,  # snapshot failed
+                'objective_info': (None, {'focal_length': 1.0}),
+                'binning': 1,
+            },
+        )
+    )
+
+    assert result == 'sentinel-memmap.dat'
+    assert any(n.severity >= Severity.ERROR for n in captured)
+    notifications.clear()
+
+
+def test_missing_objective_for_hyperstack_notifies_and_returns(tmp_path):
+    """OME-TIFF Hyperstack reads the objective snapshot; a None objective_info
+    must fail loud through the same precondition, not crash unpacking None."""
+    captured = _capture_notifications()
+
+    result = finalize_manual_video(
+        **_kwargs(
+            tmp_path,
+            video_as_frames=True,
+            ui_snapshot={
+                'active_layer_config': ('Green', {}),
+                'image_capture_config': {
+                    'output_format': {'sequenced': 'OME-TIFF Hyperstack'},
+                    'save_encoding': 'png',
+                    'capture_depth': 8,
+                },
+                'objective_info': None,  # snapshot failed
+                'binning': 1,
+            },
+        )
+    )
+
+    assert result == 'sentinel-memmap.dat'
+    assert any(n.severity >= Severity.ERROR for n in captured)
+    notifications.clear()

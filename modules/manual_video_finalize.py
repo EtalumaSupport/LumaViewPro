@@ -96,18 +96,36 @@ def finalize_manual_video(
         logger.info(f'Manual-Video] Video FPS: {calculated_fps}')
         logger.info('Manual-Video] Writing video...')
 
-        if ui_snapshot.get('active_layer_config') is None:
-            # The main-thread snapshot failed (raises when no layer
-            # accordion is open). Without the layer's false-color
-            # config the frames cannot be finalized; tell the user
-            # instead of dying on an opaque unpack TypeError that
-            # silently discarded the finished recording.
-            logger.error('Manual-Video] No active layer config snapshot; cannot finalize recording')
+        # A finished recording is finalized entirely from its main-thread
+        # config snapshot. The snapshot stores None for any field whose widget
+        # read raised (e.g. active_layer_config raises when no layer accordion
+        # is open); consuming a None field used to discard the recording behind
+        # a single log line. Validate the fields THIS output path needs, once,
+        # up front, so a newly added snapshot field cannot reintroduce that
+        # silent discard by forgetting its own guard downstream.
+        required_fields = ['active_layer_config']
+        if video_as_frames:
+            required_fields.append('image_capture_config')
+            # OME-TIFF Hyperstack additionally reads the objective snapshot;
+            # that need is only knowable once image_capture_config is present.
+            capture_config = ui_snapshot.get('image_capture_config')
+            if (
+                capture_config is not None
+                and capture_config['output_format']['sequenced'] == 'OME-TIFF Hyperstack'
+            ):
+                required_fields.append('objective_info')
+        missing = [field for field in required_fields if ui_snapshot.get(field) is None]
+        if missing:
+            logger.error(
+                f'Manual-Video] Incomplete capture snapshot (missing {missing}); '
+                'cannot finalize recording'
+            )
             notifications.error(
                 'Recording',
                 'Recording Not Saved',
-                'The recording could not be saved because no imaging '
-                'layer was selected. Open a layer tab and record again.',
+                'The recording could not be saved because the capture settings '
+                'could not be read. Make sure an imaging layer is selected, then '
+                'record again.',
             )
             return memmap_path
 
