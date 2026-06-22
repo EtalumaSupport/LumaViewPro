@@ -1072,43 +1072,6 @@ def convert_to_8bit(image, significant_bits: int, out=None):
     return lut[image]
 
 
-def convert_to_16bit(image, significant_bits: int, out=None):
-    """MSB-align a narrow uint16 payload to fill the 16-bit container.
-
-    Left-justifies an N-bit right-aligned payload by ``16 - significant_bits``
-    bits so the stored values span the full container and a viewer that ignores
-    significant-bits metadata renders it at the right scale. The shift is
-    lossless (a right-aligned payload has zero top bits) and skips entirely for
-    an already-full 16-bit payload, so a summed frame is never overflowed (a
-    fixed ``* 16`` would wrap a 16-bit value). 8-bit input passes through.
-    ``out`` reuses a caller buffer to avoid a per-save allocation (~24 MB);
-    a mismatched-shape/dtype buffer falls back to a fresh allocation.
-    """
-    # On this branch reached only through convert_12bit_to_16bit, itself kept
-    # for the 4.1 branches; retained as the canonical MSB-align converter.
-    if image.dtype == np.uint8:
-        return image
-    shift = 16 - int(significant_bits)
-    if out is not None and out.shape == image.shape and out.dtype == image.dtype:
-        np.copyto(out, image)
-        new_image = out
-    else:
-        new_image = image.copy()
-    if shift > 0:
-        new_image <<= shift
-    return new_image
-
-
-def convert_12bit_to_16bit(image, out=None):
-    """MSB-align a 12-bit payload into the 16-bit container via the canonical converter."""
-    # No caller on this branch: the manual record path stopped MSB-aligning once
-    # the memmap moved to right-aligned storage and the save edge became the sole
-    # depth encoder. Retained because the 4.1.0-dev and firmware-stim-4.1 branches
-    # still call it in production, so deleting it here would diverge from them.
-    # Remove once those branches adopt right-aligned storage or drop the call.
-    return convert_to_16bit(image, 12, out=out)
-
-
 def convert_16bit_to_8bit(image):
     """Downconvert a 16-bit-container frame to 8-bit via the canonical converter."""
     return convert_to_8bit(image, 16)

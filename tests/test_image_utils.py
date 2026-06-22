@@ -1,11 +1,7 @@
 """Tests for ``modules.image_utils`` -- convert helpers + boundary wrappers.
 
-Phase 1c.4 adds ``convert_12bit_to_8bit(out=...)`` as a sibling to the
-existing PIW-5 ``convert_12bit_to_16bit(out=...)`` pattern. Saves
+Covers ``convert_12bit_to_8bit(out=...)``, whose reusable out buffer saves
 ~120 MB/s allocator churn on the 30fps Pylon 12-bit preview path.
-
-The ``test_audit_fixes.TestPIW5_Convert12to16OutBuffer`` test covers the
-16-bit sibling. This file covers the 8-bit variant.
 """
 
 from __future__ import annotations

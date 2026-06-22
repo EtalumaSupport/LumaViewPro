@@ -81,10 +81,6 @@ class ProtocolImageWriter:
         self._stim_profiling = stim_profiling
         self._run_dir = run_dir
         self._save_encoding = save_encoding
-        # PIW-5 / PF-3 / PIW-6: per-run reusable buffers for the save path.
-        # Allocated lazily on first matching save; re-allocated on shape/dtype change.
-        # file_io_executor runs single-threaded, so reuse across saves is safe.
-        self._convert_buf_12to16 = None  # PIW-5: 2D uint16, eliminates image.copy() in convert
         self._consecutive_capture_failures = 0
         self._MAX_CONSECUTIVE_CAPTURE_FAILURES = 3
 
@@ -152,16 +148,6 @@ class ProtocolImageWriter:
             # Evidence is best-effort; never let it break the capture path.
             logger.debug(f'[Protocol-Writer] capture evidence unavailable: {ex}')
             return ''
-
-    def _get_convert_buf_12to16(self, array):
-        """Get-or-allocate the 12->16 conversion buffer matching array's shape/dtype."""
-        if (
-            self._convert_buf_12to16 is None
-            or self._convert_buf_12to16.shape != array.shape
-            or self._convert_buf_12to16.dtype != array.dtype
-        ):
-            self._convert_buf_12to16 = np.empty(array.shape, dtype=array.dtype)
-        return self._convert_buf_12to16
 
     def capture(
         self,
@@ -709,17 +695,14 @@ class ProtocolImageWriter:
                         )
                     return
 
-                # Pass per-run convert buffer for uint16 saves only (12->16
-                # conversion doesn't apply to uint8). Pass per-run false-
-                # color + RGB buffers for any 2D single-channel capture
-                # (uint8 or uint16) when false-color is enabled -- the
-                # write_tiff gate accepts both bit depths now.
+                # A summed 2D uint16 frame fills the 16-bit container, so its
+                # stored depth is 16; a single uint16 frame keeps the camera's
+                # native depth. uint8 frames never sum to a wider container.
                 is_uint16_2d = (
                     hasattr(captured_image, 'dtype')
                     and captured_image.dtype == np.uint16
                     and getattr(captured_image, 'ndim', 0) == 2
                 )
-                out_12to16 = self._get_convert_buf_12to16(captured_image) if is_uint16_2d else None
                 # A summed full-depth frame lives in a 16-bit container; declare
                 # that depth so SignificantBits matches the stored values. The
                 # step's Sum column carries the count on this save thread.
@@ -751,7 +734,6 @@ class ProtocolImageWriter:
                         y=step['Y'],
                         z=step['Z'],
                         save_encoding=self._save_encoding,
-                        out_12to16=out_12to16,
                         significant_bits=summed_significant_bits,
                     )
                 except Exception:

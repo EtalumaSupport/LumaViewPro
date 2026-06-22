@@ -422,7 +422,6 @@ def prepare_image_for_saving(
     x,
     y,
     z,
-    out_12to16: np.ndarray | None = None,
     significant_bits: int | None = None,
 ) -> dict:
     """Prepare an image array and metadata for saving to disk.
@@ -445,8 +444,6 @@ def prepare_image_for_saving(
         x: Stage X position in um.
         y: Stage Y position in um.
         z: Stage Z position in um.
-        out_12to16: Retained for caller compatibility; no longer used now that
-            native values are stored without left-justifying.
         significant_bits: Payload depth of ``array`` to record in the
             SignificantBits tag. None derives it: 8 for a uint8 frame, else the
             camera's native depth. Summed callers pass 16 (16-bit container).
@@ -494,7 +491,6 @@ def save_image(
     x=None,
     y=None,
     z=None,
-    out_12to16: np.ndarray | None = None,
     false_color_buf: np.ndarray | None = None,
     rgb_buf: np.ndarray | None = None,
     jpeg_quality: int = 90,
@@ -520,7 +516,6 @@ def save_image(
             and keyword-only: it is the single value that drives the save
             shape, so no call site can omit the image mode and silently store
             a scaled payload right-aligned (dark).
-        out_12to16: Preallocated 12-to-16-bit conversion buffer.
         false_color_buf: Preallocated false-color buffer.
         rgb_buf: Preallocated RGB buffer.
         jpeg_quality: JPEG quality 1-100, used only when output_format
@@ -575,7 +570,6 @@ def save_image(
             x=x,
             y=y,
             z=z,
-            out_12to16=out_12to16,
             significant_bits=significant_bits,
         )
         image = image_data['image']

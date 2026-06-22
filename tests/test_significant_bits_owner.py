@@ -493,38 +493,6 @@ class TestVideoFrameCarriesDepth:
         assert sig == 12
 
 
-class TestConvertTo16BitDepthAware:
-    """The MSB-align-to-16 converter follows the payload depth: a 12-bit frame
-    left-justifies, a summed 16-bit frame is left untouched (a fixed *16 would
-    overflow it)."""
-
-    def test_12bit_left_justifies(self):
-        from modules import image_utils
-
-        src = np.arange(4096, dtype=np.uint16).reshape(64, 64)
-        out = image_utils.convert_to_16bit(src, 12)
-        assert np.array_equal(out, src << 4)
-
-    def test_wrapper_matches_canonical_at_12(self):
-        from modules import image_utils
-
-        src = np.arange(4096, dtype=np.uint16).reshape(64, 64)
-        assert np.array_equal(
-            image_utils.convert_12bit_to_16bit(src),
-            image_utils.convert_to_16bit(src, 12),
-        )
-
-    def test_summed_16bit_not_overflowed(self):
-        from modules import image_utils
-
-        # Values that already use most of the 16-bit range. A fixed *16 (<<4)
-        # would wrap these; the depth-aware converter must leave a full-depth
-        # frame untouched.
-        src = np.full((16, 16), 60000, dtype=np.uint16)
-        out = image_utils.convert_to_16bit(src, 16)
-        assert np.array_equal(out, src)
-
-
 class TestEncodeDisplayJpgDepth:
     """The JPEG export scales by the stated payload depth, so a summed 16-bit
     frame is not indexed against the 12-bit table."""

@@ -337,11 +337,11 @@ def test_record_memmap_must_be_right_aligned_for_video_frame(tmp_path):
     assert arr[1, 1] == 2048
     assert image_utils.read_tiff_significant_bits(correct) == 12
 
-    # Pre-fix memmap content: left-justified (x16), what convert_to_16bit stored.
-    # The save edge tags significant_bits=12 over already-shifted pixels, so the
-    # recovered value is corrupted (65520, not 4095). Locks WHY the memmap must
-    # stay right-aligned.
-    left_justified = image_utils.convert_to_16bit(raw, 12)
+    # Pre-fix memmap content: left-justified by 4 bits (12-bit payload shifted
+    # to fill the 16-bit container). The save edge tags significant_bits=12 over
+    # already-shifted pixels, so the recovered value is corrupted (65520, not
+    # 4095). Locks WHY the memmap must stay right-aligned.
+    left_justified = raw << 4
     corrupt = tmp_path / 'left_justified.tiff'
     write_video_frame(
         frame=left_justified,
