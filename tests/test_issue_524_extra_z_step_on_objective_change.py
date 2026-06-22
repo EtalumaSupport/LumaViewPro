@@ -221,7 +221,7 @@ def _add_layer_config():
     }
 
 
-def _insert_generated_step(protocol, *, include_objective):
+def _insert_generated_step(protocol):
     protocol.insert_step(
         step_name=None,
         layer='BF',
@@ -231,20 +231,15 @@ def _insert_generated_step(protocol, *, include_objective):
         stim_configs={},
         before_step=0,
         after_step=None,
-        include_objective_in_step_name=include_objective,
     )
     return protocol.step(idx=0)['Name']
 
 
-def test_added_step_name_keeps_objective_and_channel():
-    name = _insert_generated_step(_empty_protocol_for_add(), include_objective=True)
+def test_added_step_name_keeps_channel_not_objective():
+    # The objective is a capture-time detail stamped onto the saved filename,
+    # not part of a step's identity, so an added step's Name carries its
+    # channel but never the objective token.
+    name = _insert_generated_step(_empty_protocol_for_add())
     assert name != 'custom0000', 'generated step name must not be the bare index'
-    assert 'BF' in name and '4xOly' in name, (
-        f'added step name {name!r} must keep its channel and objective tokens'
-    )
-
-
-def test_added_step_name_keeps_channel_without_objective():
-    name = _insert_generated_step(_empty_protocol_for_add(), include_objective=False)
-    assert name != 'custom0000'
     assert 'BF' in name, f'added step name {name!r} must keep its channel token'
+    assert '4xOly' not in name, f'added step name {name!r} must not carry the objective'

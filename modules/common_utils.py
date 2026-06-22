@@ -276,6 +276,42 @@ def parse_step_name(name, known_layers=None, known_objectives=()) -> StepNameCom
     )
 
 
+def _blank_to_none(value):
+    """Normalize an absent step-column value (empty string or the -1 sentinel) to None."""
+    return None if value in (None, '', -1) else value
+
+
+def step_components(step, known_layers=None, **overrides) -> StepNameComponents:
+    """Map a protocol step / post-record row to its canonical name components.
+
+    The single place that reads a step's columns into StepNameComponents, so
+    every name-building site renders one identity from one source. Well, Color,
+    Tile and Z-Slice are the authoritative columns; a custom step's prefix is the
+    only field not stored as a column, so it is recovered from the stored Name
+    (parse drops any stale channel/tile tokens baked into it, which is what makes
+    a re-channelled step land exactly one token). The objective is deliberately
+    not part of a step's identity: it is a capture-time turret detail the writer
+    stamps onto the saved filename, never the Name. Pass overrides (channel=,
+    tile=, z_index=, scan_count=, objective=, turret_position=, post=) to set the
+    capture- or output-specific fields a given site adds.
+    """
+    well = step['Well']
+    if well in (None, ''):
+        well = ''
+        custom_prefix = parse_step_name(step['Name'], known_layers).custom_prefix
+    else:
+        well = str(well)
+        custom_prefix = ''
+    base = StepNameComponents(
+        well=well,
+        custom_prefix=custom_prefix,
+        channel=_blank_to_none(step['Color']),
+        tile=_blank_to_none(step['Tile']),
+        z_index=_blank_to_none(step['Z-Slice']),
+    )
+    return dataclasses.replace(base, **overrides) if overrides else base
+
+
 def strip_tile_token(name: str, tile) -> str:
     """Remove the per-tile token (e.g. '_TA1') from a step name.
 

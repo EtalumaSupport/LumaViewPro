@@ -913,7 +913,6 @@ class Protocol:
         stim_configs: dict,
         before_step: int | None = 0,
         after_step: int | None = None,
-        include_objective_in_step_name: bool = False,
     ) -> str:
 
         def _validate_inputs():
@@ -931,20 +930,13 @@ class Protocol:
 
         _validate_inputs()
 
-        if include_objective_in_step_name:
-            objective_short_name = self._objective_loader.get_objective_info(
-                objective_id=objective_id
-            )['short_name']
-        else:
-            objective_short_name = None
-
         if step_name is None:
             CUSTOM_INDEX_WIDTH = 4
-            step_name = common_utils.generate_default_step_name(
-                well_label='',
-                custom_name_prefix=f'custom{self._config["custom_step_count"]:0{CUSTOM_INDEX_WIDTH}d}',
-                color=layer,
-                objective_short_name=objective_short_name,
+            step_name = common_utils.build_step_name(
+                common_utils.StepNameComponents(
+                    custom_prefix=f'custom{self._config["custom_step_count"]:0{CUSTOM_INDEX_WIDTH}d}',
+                    channel=layer,
+                )
             )
             self._config['custom_step_count'] += 1
 
@@ -1124,26 +1116,9 @@ class Protocol:
                     status['tiles_skipped'] += 1
                     continue
 
-                name = common_utils.generate_default_step_name(
-                    well_label=orig_step_df['Well'],
-                    color=orig_step_df['Color'],
-                    z_height_idx=orig_step_df['Z-Slice'],
-                    tile_label=tile_label,
-                    objective_short_name=None,  # Can add this if needed
-                    custom_name_prefix=None
-                    if not orig_step_df['Custom Step']
-                    else orig_step_df['Name'],
+                name = common_utils.build_step_name(
+                    common_utils.step_components(orig_step_df, tile=tile_label)
                 )
-
-                # if not orig_step_df['Custom Step']:
-                #     name = common_utils.generate_default_step_name(
-                #         well_label=orig_step_df['Well'],
-                #         color=orig_step_df['Color'],
-                #         tile_label=tile_label,
-                #         objective_short_name=None,
-                #     )
-                # else:
-                #     name = orig_step_df['Name']
 
                 new_step_dict = self._create_step_dict(
                     name=name,
@@ -1241,15 +1216,8 @@ class Protocol:
                     status['zslices_skipped'] += 1
                     continue
 
-                name = common_utils.generate_default_step_name(
-                    well_label=orig_step_df['Well'],
-                    color=orig_step_df['Color'],
-                    z_height_idx=zstack_slice,
-                    tile_label=orig_step_df['Tile'],
-                    objective_short_name=None,  # Can add this if needed
-                    custom_name_prefix=None
-                    if not orig_step_df['Custom Step']
-                    else orig_step_df['Name'],
+                name = common_utils.build_step_name(
+                    common_utils.step_components(orig_step_df, z_index=zstack_slice)
                 )
 
                 new_step_dict = self._create_step_dict(
@@ -1455,13 +1423,14 @@ class Protocol:
                         else:
                             zstack_group_id_label = zstack_group_id
 
-                        step_name = common_utils.generate_default_step_name(
-                            well_label=well_label,
-                            color=layer_name,
-                            z_height_idx=zstack_slice_label,
-                            tile_label=tile_label,
-                            objective_short_name=None,  # Can add this if needed
-                            custom_name_prefix=None if not custom_step else well_label,
+                        step_name = common_utils.build_step_name(
+                            common_utils.StepNameComponents(
+                                well='' if custom_step else well_label,
+                                custom_prefix=well_label if custom_step else '',
+                                channel=layer_name,
+                                tile=tile_label,
+                                z_index=zstack_slice_label,
+                            )
                         )
 
                         step_dict = cls._create_step_dict(

@@ -1357,7 +1357,6 @@ class ProtocolSettings(FloatLayout):
                     objective_id=objective_id,
                     before_step=before_step,
                     after_step=after_step,
-                    include_objective_in_step_name=ctx.lumaview.scope.motion.has_turret(),
                 )
 
                 if after_current_step or (self.curr_step < 0):
