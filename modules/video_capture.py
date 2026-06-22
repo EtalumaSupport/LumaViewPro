@@ -265,8 +265,8 @@ def write_video(
     video_as_frames: bool,
     step: dict,
     callbacks: dict,
-    save_encoding: str = '8bit',
-    capture_depth: int = 8,
+    save_encoding: str,
+    capture_depth: int,
 ):
     """Write captured video frames to disk.
 

@@ -283,6 +283,7 @@ def _run_protocol(executor, protocol, tmp_path):
         image_capture_config={
             'output_format': {'live': 'TIFF', 'sequenced': 'TIFF'},
             'capture_depth': 8,
+            'save_encoding': '8bit',
         },
         autogain_settings={
             'target_brightness': 0.3,

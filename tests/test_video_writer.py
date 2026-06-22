@@ -327,6 +327,8 @@ class TestWriteVideoDropNotification:
             video_as_frames=True,
             step={'Color': 'Blue'},
             callbacks={},
+            save_encoding='8bit',
+            capture_depth=8,
         )
         assert len(fired) == 1, 'a recording that dropped frames must warn exactly once'
         body = ' '.join(str(x) for x in fired[0][0])
@@ -343,6 +345,8 @@ class TestWriteVideoDropNotification:
             video_as_frames=True,
             step={'Color': 'Blue'},
             callbacks={},
+            save_encoding='8bit',
+            capture_depth=8,
         )
         assert fired == [], 'a clean recording must not warn'
 

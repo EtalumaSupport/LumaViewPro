@@ -519,6 +519,8 @@ class TestProtocolImageWriterWriteCapture:
         writer.write_capture(
             enable_image_saving=False,
             step={'Name': 'test'},
+            save_encoding='8bit',
+            capture_depth=8,
         )
         record.add_step.assert_called_once()
         call_kwargs = record.add_step.call_args
@@ -537,6 +539,8 @@ class TestProtocolImageWriterWriteCapture:
             step={'Name': 'test'},
             step_index=0,
             scan_count=1,
+            save_encoding='8bit',
+            capture_depth=8,
         )
         record.add_step.assert_called_once()
         # Check the keyword arguments
@@ -549,6 +553,8 @@ class TestProtocolImageWriterWriteCapture:
         writer.write_capture(
             enable_image_saving=False,
             step={'Name': 'test'},
+            save_encoding='8bit',
+            capture_depth=8,
         )
 
     def test_write_capture_failed_image_records_failure(self):
@@ -565,6 +571,8 @@ class TestProtocolImageWriterWriteCapture:
             name='test_name',
             step_index=3,
             scan_count=2,
+            save_encoding='8bit',
+            capture_depth=8,
         )
         record.add_step.assert_called_once()
         _, kwargs = record.add_step.call_args
@@ -578,6 +586,8 @@ class TestProtocolImageWriterWriteCapture:
             is_video=False,
             captured_image=None,
             step={'Name': 'test'},
+            save_encoding='8bit',
+            capture_depth=8,
         )
         # Should not crash -- just returns
 

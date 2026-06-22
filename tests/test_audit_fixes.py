@@ -3153,6 +3153,8 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
             save_folder=str(tmp_path),
             use_color='BF',
             output_format='TIFF',
+            save_encoding='8bit',
+            capture_depth=8,
         )
         assert recorded, 'write_capture must reach save_image'
         assert recorded[0]['save_encoding'] == image_mode.SAVE_ENCODING_RGB, (
@@ -3242,6 +3244,8 @@ class TestPIW5_Convert12to16OutBuffer:
                 save_folder=str(tmp_path),
                 use_color='BF',
                 output_format='TIFF',
+                save_encoding='8bit',
+                capture_depth=8,
             )
 
         write(np.zeros((6, 5), dtype=np.uint16))
@@ -3440,6 +3444,8 @@ class TestPIW2_DisksUsageDeduped:
             save_folder=str(tmp_path),
             use_color='BF',
             output_format='TIFF',
+            save_encoding='8bit',
+            capture_depth=8,
         )
         assert aborts == [1], 'low disk must abort the protocol'
         assert not saves, 'no write may happen after a failed disk check'
@@ -10613,7 +10619,7 @@ class TestAutoGainArmedInScanIterate:
             step=_protocol_step(Auto_Gain=auto_gain),
             output_format='TIFF',
             protocol=protocol,
-            image_capture_config={'capture_depth': 8},
+            image_capture_config={'capture_depth': 8, 'save_encoding': '8bit'},
             enable_image_saving=True,
         )
         return scope.imaging

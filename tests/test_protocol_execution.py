@@ -108,6 +108,7 @@ def _make_image_capture_config():
             'sequenced': 'TIFF',
         },
         'capture_depth': 8,
+        'save_encoding': '8bit',
     }
 
 

@@ -456,6 +456,8 @@ class ProtocolImageWriter:
                                     'capture_time': _failed_capture_time,
                                     'enable_image_saving': enable_image_saving,
                                     'separate_folder_per_channel': separate_folder_per_channel,
+                                    'save_encoding': image_capture_config['save_encoding'],
+                                    'capture_depth': capture_depth,
                                 },
                                 silent_on_failure=True,
                             )
@@ -531,6 +533,8 @@ class ProtocolImageWriter:
                                 'capture_time': _success_capture_time,
                                 'enable_image_saving': enable_image_saving,
                                 'separate_folder_per_channel': separate_folder_per_channel,
+                                'save_encoding': image_capture_config['save_encoding'],
+                                'capture_depth': capture_depth,
                             },
                             silent_on_failure=True,
                         )
@@ -556,6 +560,8 @@ class ProtocolImageWriter:
                             'step': step,
                             'enable_image_saving': enable_image_saving,
                             'separate_folder_per_channel': separate_folder_per_channel,
+                            'save_encoding': image_capture_config['save_encoding'],
+                            'capture_depth': capture_depth,
                         },
                         silent_on_failure=True,
                     )
@@ -608,8 +614,12 @@ class ProtocolImageWriter:
         name=None,
         output_format=None,
         jpeg_quality=90,
-        save_encoding='8bit',
-        capture_depth=8,
+        # save_encoding / capture_depth feed only the video leg (write_video);
+        # the image leg saves via self._save_encoding. Required (no silent
+        # 8-bit fallback) and keyword-only so every caller states them.
+        *,
+        save_encoding,
+        capture_depth,
         step=None,
         captured_image=None,
         step_index=None,

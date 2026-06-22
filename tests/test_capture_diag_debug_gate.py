@@ -74,7 +74,7 @@ def _drive_capture(monkeypatch, debug_enabled):
         },
         output_format='TIFF',
         protocol=protocol,
-        image_capture_config={'capture_depth': 8},
+        image_capture_config={'capture_depth': 8, 'save_encoding': '8bit'},
         enable_image_saving=True,
     )
     return scope.imaging
