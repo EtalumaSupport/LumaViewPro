@@ -1,6 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
 import ctypes
+import dataclasses
 import enum
 import gc
 import json
@@ -127,6 +128,152 @@ def generate_default_step_name(
         name = f'{name}_hyperstack'
 
     return name
+
+
+@dataclasses.dataclass(frozen=True)
+class StepNameComponents:
+    """The semantic fields a step name encodes -- the single source of truth.
+
+    A step name is RENDERED from these fields by build_step_name and (only at
+    boundaries where the fields were not persisted) RECOVERED by
+    parse_step_name. Holding the fields, not the rendered string, is what makes
+    renaming idempotent: changing one field and rebuilding always yields exactly
+    one token for it. The legacy builder appended a token only if the rendered
+    string did not already contain it, so feeding a built name back in as the
+    seed left the stale token beside the new one (e.g. a channel change produced
+    'A2_BF_Green'); rebuilding from components cannot do that.
+    """
+
+    well: str = ''  # 'A2'; mutually exclusive with custom_prefix
+    custom_prefix: str = ''  # 'custom0001' for an added step (well == '')
+    channel: str | None = None  # 'BF' | 'Green' | 'Composite' | None
+    tile: str | None = None  # tile label, rendered '_T<tile>'
+    objective: str | None = None  # short objective name (turret builds)
+    turret_position: int | None = None  # rendered '_Turret<n>'
+    z_index: int | None = None  # rendered '_Z<n>'
+    scan_count: int | None = None  # rendered zero-padded to 4 digits
+    post: str | None = None  # 'stitched'|'video'|'stack'|'hyperstack'|'zproj_<method>'
+
+
+# Single-token post-output suffixes occupying StepNameComponents.post. A
+# z-projection is two segments ('zproj_<method>'); the rest are single tokens.
+_POST_SUFFIX_TOKENS = frozenset({'stitched', 'video', 'stack', 'hyperstack'})
+
+
+def build_step_name(c: StepNameComponents) -> str:
+    """Render a step name deterministically from its components.
+
+    Replace-not-append: the name is assembled fresh from the fields, with no
+    'skip this token if the string already has it' guard and no path that folds
+    an already-built name back in as the seed. Token formats match the legacy
+    generate_default_step_name exactly for a fresh build (a clean well or
+    custom_prefix base); they diverge only on the re-fed-stale-name case the old
+    guards were compensating for, which is the corruption this replaces.
+    """
+    base = c.custom_prefix if c.custom_prefix else c.well
+    parts = [base]
+    if c.channel not in (None, ''):
+        parts.append(c.channel)
+    if c.tile not in (None, '', -1):
+        parts.append(f'T{c.tile}')
+    if c.objective not in (None, '', -1):
+        parts.append(c.objective)
+    if c.turret_position is not None:
+        parts.append(f'Turret{c.turret_position}')
+    if c.z_index not in (None, '', -1):
+        parts.append(f'Z{c.z_index}')
+    if c.scan_count not in (None, ''):
+        parts.append(f'{c.scan_count:0>4}')
+    if c.post:
+        parts.append(c.post)
+    return '_'.join(p for p in parts if p != '')
+
+
+def parse_step_name(name, known_layers=None, known_objectives=()) -> StepNameComponents:
+    """Recover the components from a rendered step name, by SHAPE not position.
+
+    The single place a lossy name string is decoded. Each '_'-separated segment
+    is classified by its shape (plus the known-layer / known-objective
+    vocabularies), so a token never depends on a hard-coded segment index that
+    silently breaks when the token set shifts. Round-trips every name
+    build_step_name produces: build_step_name(parse_step_name(s)) == s.
+
+    A custom prefix may itself contain underscores, so leading segments that do
+    not classify as a known token accrete into custom_prefix; a custom prefix
+    that embeds a token-shaped segment is inherently ambiguous and is not
+    guaranteed to round-trip -- only auto-generated 'custom<N>' prefixes are.
+    """
+    if known_layers is None:
+        known_layers = get_layers()
+    layers = set(known_layers)
+    objectives = set(known_objectives)
+
+    stem = pathlib.Path(name).name
+    segs = stem.split('_')
+    if not segs or segs == ['']:
+        return StepNameComponents()
+
+    def classifies(seg):
+        return (
+            seg in layers
+            or seg == 'Composite'
+            or (len(seg) > 1 and seg.startswith('T'))
+            or seg in objectives
+            or re.fullmatch(r'\d+x.*', seg) is not None
+            or re.fullmatch(r'Turret\d+', seg) is not None
+            or re.fullmatch(r'Z\d+', seg) is not None
+            or re.fullmatch(r'\d{4,}', seg) is not None
+            or seg in _POST_SUFFIX_TOKENS
+            or seg == 'zproj'
+        )
+
+    well = ''
+    custom_prefix = ''
+    if re.fullmatch(r'[A-Z]{1,2}\d+', segs[0]):
+        well = segs[0]
+        i = 1
+    else:
+        custom_parts = [segs[0]]
+        i = 1
+        while i < len(segs) and not classifies(segs[i]):
+            custom_parts.append(segs[i])
+            i += 1
+        custom_prefix = '_'.join(custom_parts)
+
+    channel = tile = objective = post = None
+    turret_position = z_index = scan_count = None
+    while i < len(segs):
+        seg = segs[i]
+        if seg in layers or seg == 'Composite':
+            channel = seg
+        elif len(seg) > 1 and seg.startswith('T'):
+            tile = seg[1:]
+        elif seg in objectives or re.fullmatch(r'\d+x.*', seg):
+            objective = seg
+        elif re.fullmatch(r'Turret\d+', seg):
+            turret_position = int(seg[len('Turret') :])
+        elif re.fullmatch(r'Z\d+', seg):
+            z_index = int(seg[1:])
+        elif re.fullmatch(r'\d{4,}', seg):
+            scan_count = int(seg)
+        elif seg in _POST_SUFFIX_TOKENS:
+            post = seg
+        elif seg == 'zproj' and i + 1 < len(segs):
+            post = f'zproj_{segs[i + 1]}'
+            i += 1
+        i += 1
+
+    return StepNameComponents(
+        well=well,
+        custom_prefix=custom_prefix,
+        channel=channel,
+        tile=tile,
+        objective=objective,
+        turret_position=turret_position,
+        z_index=z_index,
+        scan_count=scan_count,
+        post=post,
+    )
 
 
 def strip_tile_token(name: str, tile) -> str:
