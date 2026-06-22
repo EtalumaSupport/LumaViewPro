@@ -21,6 +21,9 @@ from __future__ import annotations
 
 import numpy as np
 
+from lvp_logger import logger
+from modules.exceptions import ConfigError
+
 IMAGE_MODE_8BIT = '8bit'
 IMAGE_MODE_12BIT_SCIENTIFIC = '12bit_scientific'
 IMAGE_MODE_12BIT_SCALED = '12bit_scaled'
@@ -31,6 +34,19 @@ SAVE_ENCODING_8BIT = '8bit'
 SAVE_ENCODING_RIGHT_ALIGNED = 'right_aligned'
 SAVE_ENCODING_MSB_ALIGNED = 'msb_aligned'
 SAVE_ENCODING_RGB = 'rgb'
+
+# Every save encoding a caller may legitimately pass to the save path. A value
+# outside this set means a bad/typo'd encoding reached the writer, which would
+# otherwise fall through to a plain mono write -- the save path validates
+# against this set so that becomes a loud failure instead of a silent wrong file.
+VALID_SAVE_ENCODINGS = frozenset(
+    {
+        SAVE_ENCODING_8BIT,
+        SAVE_ENCODING_RIGHT_ALIGNED,
+        SAVE_ENCODING_MSB_ALIGNED,
+        SAVE_ENCODING_RGB,
+    }
+)
 
 DEFAULT_IMAGE_MODE = IMAGE_MODE_8BIT
 
@@ -55,12 +71,12 @@ def resolve_image_mode(mode: str) -> dict:
         A fresh dict with 'capture_depth' (int) and 'save_encoding' (str).
 
     Raises:
-        ValueError: if mode is not a recognized IMAGE_MODE_* value.
+        ConfigError: if mode is not a recognized IMAGE_MODE_* value.
     """
     try:
         return dict(_MODE_TABLE[mode])
     except KeyError:
-        raise ValueError(f'unknown image_mode: {mode!r}') from None
+        raise ConfigError(f'unknown image_mode: {mode!r}') from None
 
 
 def encoding_for_array(array: np.ndarray) -> str:
@@ -179,6 +195,14 @@ def resolve_settings_image_mode(settings) -> str:
     mode = settings.get('image_mode')
     if mode in _MODE_TABLE:
         return mode
+    # A missing image_mode is a pre-consolidation install -- migrate it silently
+    # from the legacy keys. A present-but-unrecognized value is a corrupt setting:
+    # surface it, because the coercion below otherwise hides the data loss.
+    if mode is not None:
+        logger.warning(
+            f'[ImageMode] Stored image_mode {mode!r} is not recognized; '
+            'coercing to the legacy-derived default.'
+        )
     return migrate_legacy_settings(
         settings.get('use_full_pixel_depth', False),
         settings.get('false_color_16bit', False),

@@ -30,6 +30,7 @@ from lib.handle_trace import tick as _h_tick
 from lvp_logger import logger, version
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
+import modules.image_mode as image_mode
 import modules.image_utils as image_utils
 from modules.exceptions import CaptureError, ConfigError
 from modules.notification_center import notifications
@@ -73,7 +74,16 @@ def write_video_frame(
             'msb_aligned'/'rgb').
         capture_depth: Acquired bit depth (8 or 12); stamps significant_bits for
             uint16 frames.
+
+    Raises:
+        CaptureError: if save_encoding is not a recognized image-mode encoding
+            (a typo would otherwise fall through to a plain mono write).
     """
+    if save_encoding not in image_mode.VALID_SAVE_ENCODINGS:
+        raise CaptureError(
+            f'unknown save_encoding {save_encoding!r}; a video frame cannot be saved '
+            'with an unrecognized image-mode encoding'
+        )
     save_color = layer_color if false_color_on else 'BF'
     # State the payload depth so the file is labeled honestly: an 8-bit frame
     # is 8-bit; a uint16 frame carries its acquired depth (12 for Mono12) so

@@ -187,6 +187,38 @@ def test_resolve_settings_image_mode_falls_back_to_legacy():
     )
 
 
+def test_resolve_image_mode_unknown_raises_config_error():
+    """An unrecognized image_mode raises the typed ConfigError (a settings/config
+    fault the GUI boundary catches and notifies), not a bare ValueError that no
+    layer is set up to distinguish."""
+    from modules.exceptions import ConfigError
+    from modules.image_mode import resolve_image_mode
+
+    with pytest.raises(ConfigError, match='unknown image_mode'):
+        resolve_image_mode('not_a_mode')
+
+
+def test_resolve_settings_image_mode_warns_on_corrupt_value():
+    """A present-but-unrecognized stored image_mode is a corrupt setting: it is
+    coerced to a safe default AND surfaced with a warning so the coercion does not
+    hide the data loss. A MISSING image_mode (a pre-consolidation install) is a
+    normal migration and coerces silently."""
+    from unittest import mock
+
+    import modules.image_mode as image_mode
+
+    with mock.patch.object(image_mode, 'logger') as mock_logger:
+        result = image_mode.resolve_settings_image_mode(
+            {'image_mode': 'bogus', 'use_full_pixel_depth': True}
+        )
+        assert result == '12bit_scientific'
+        assert mock_logger.warning.call_count == 1
+
+    with mock.patch.object(image_mode, 'logger') as mock_logger:
+        assert image_mode.resolve_settings_image_mode({}) == '8bit'
+        mock_logger.warning.assert_not_called()
+
+
 def test_config_helper_prefers_image_mode_key():
     """The settings getter honors an explicit image_mode, making 12bit_scaled
     reachable in production."""
@@ -657,6 +689,28 @@ def test_write_video_frame_stamps_significant_bits_for_scaled(tmp_path):
     assert arr[0, 0] == 65520, 'capture_depth=12 must drive the x16 left-justify'
     assert (arr >> 4 == 4095).all(), 'x16 must be exactly recoverable'
     assert image_utils.read_tiff_significant_bits(out_path) == 16
+
+
+def test_write_video_frame_rejects_unknown_save_encoding(tmp_path):
+    """A typo'd save_encoding fails loud at the write boundary instead of falling
+    through to a plain mono write -- the silent-wrong-file the unvalidated entry
+    point allowed."""
+    from modules.exceptions import CaptureError
+    from modules.image_save import write_video_frame
+
+    out_path = tmp_path / 'bad_encoding.tiff'
+    data = np.full((8, 8), 4095, dtype=np.uint16)
+    with pytest.raises(CaptureError, match='save_encoding'):
+        write_video_frame(
+            frame=data,
+            file_loc=out_path,
+            metadata=_metadata(out_path, channel='BF'),
+            layer_color='BF',
+            false_color_on=False,
+            save_encoding='not_a_real_encoding',
+            capture_depth=12,
+        )
+    assert not out_path.exists(), 'a rejected encoding must not produce a file'
 
 
 # ---------------------------------------------------------------------------
