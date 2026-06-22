@@ -1488,13 +1488,21 @@ class TestLargeProtocol:
     """Protocol with many steps -- verifies no accumulation bugs."""
 
     def test_50_step_single_scan(self, executor, scope, tmp_path):
-        steps = [{'color': 'BF', 'x': float(i), 'y': 0.0} for i in range(50)]
+        # Plate-mm coords inside the 6-well valid range (x in [7.76, 127.76],
+        # y in [5.48, 85.48] at zero stage_offset) so every step converts to an
+        # on-stage position and clears the pre-run travel-limit check; distinct
+        # X keeps them 50 separate steps.
+        steps = [{'color': 'BF', 'x': 10.0 + float(i), 'y': 20.0} for i in range(50)]
         protocol = _make_multi_step_protocol(steps)
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
     def test_all_50_steps_visited(self, executor, scope, tmp_path):
-        steps = [{'color': 'BF', 'x': float(i), 'y': 0.0} for i in range(50)]
+        # Plate-mm coords inside the 6-well valid range (x in [7.76, 127.76],
+        # y in [5.48, 85.48] at zero stage_offset) so every step converts to an
+        # on-stage position and clears the pre-run travel-limit check; distinct
+        # X keeps them 50 separate steps.
+        steps = [{'color': 'BF', 'x': 10.0 + float(i), 'y': 20.0} for i in range(50)]
         protocol = _make_multi_step_protocol(steps)
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed

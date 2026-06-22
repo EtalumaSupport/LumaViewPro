@@ -590,19 +590,37 @@ class Protocol:
 
         return errors
 
-    def validate_for_run(self, axis_limits: dict | None = None) -> list:
+    def validate_for_run(
+        self, axis_limits: dict | None = None, stage_offset: dict | None = None
+    ) -> list:
         """Validate protocol is safe to execute on hardware.
 
         Checks positions are within axis travel limits. Call this before
         starting a protocol run. validate_steps() checks field format;
         this method checks runtime safety.
 
+        Step X/Y are stored in plate millimetres -- the same values the
+        protocol runner feeds through plate_to_stage before moving -- while
+        the axis limits are stage micrometres. This converts X/Y to the stage
+        frame the same way the runner does, so a step that lands off the
+        physical stage is caught here instead of slipping through a
+        plate-mm-vs-stage-um mismatch. Z is stored in stage um and compared
+        directly.
+
         Args:
             axis_limits: dict mapping axis name to {'min': float, 'max': float}
-                in um. Example: {'X': {'min': 0, 'max': 120000}, ...}
+                in stage um. Example: {'X': {'min': 0, 'max': 120000}, ...}
+            stage_offset: {'x': float, 'y': float} in um, used to convert step
+                X/Y from plate-mm to stage-um. Required when axis_limits
+                includes X or Y; may be None only when X/Y are not checked.
 
         Returns:
             List of error strings. Empty list if all checks pass.
+
+        Raises:
+            ValueError: If axis_limits requests an X or Y check but
+                stage_offset is None, since the plate-mm to stage-um
+                conversion cannot run without it.
         """
         errors = []
         steps = self.steps()
@@ -612,43 +630,101 @@ class Protocol:
         # Validate step field values first
         errors.extend(self.validate_steps())
 
+        # Load labware once: it backs both the known-plate check and the
+        # plate-mm -> stage-um conversion the position check needs. Use
+        # is_known_plate() rather than plate_list membership so legacy/alias
+        # names (e.g. "384 well Corning Spheroid Microplate" -> "384 well
+        # microplate") are accepted here exactly as they are at runtime in
+        # get_plate(). Without this, validation hard-fails on names that
+        # would have run fine.
+        from modules import labware_loader
+
+        loader = labware_loader.WellPlateLoader()
+        labware_key = self.labware()
+        labware = None
+        if labware_key:
+            try:
+                if loader.is_known_plate(labware_key):
+                    labware = loader.get_plate(plate_key=labware_key)
+                else:
+                    plate_list = loader.get_plate_list()
+                    errors.append(
+                        f"Labware '{labware_key}' not found. Available: {', '.join(plate_list)}"
+                    )
+            except Exception as ex:
+                # A loader failure leaves labware unvalidated and disables the
+                # X/Y position check (no plate to convert against); surface it
+                # so the gap is visible rather than a silently-skipped net.
+                logger.warning(f'[Protocol] Labware validation skipped for {labware_key!r}: {ex}')
+
         if axis_limits:
+            checks_xy = ('X' in axis_limits) or ('Y' in axis_limits)
+            if checks_xy and labware is not None and stage_offset is None:
+                raise ValueError(
+                    'validate_for_run needs stage_offset to check X/Y travel limits: '
+                    'step X/Y are plate-mm and must convert to stage-um.'
+                )
+            from modules import coord_transformations
+
+            transformer = coord_transformations.CoordinateTransformer()
             for idx, step in steps.iterrows():
                 label = f'Step {idx + 1} ({step.get("Name", "?")})'
+
+                # Convert this step's plate-mm X/Y into the stage-um frame the
+                # limits are in. stage_x/stage_y stay None when X/Y cannot be
+                # converted (no labware, or a non-numeric coordinate reported
+                # per-axis below), so the limit check is skipped rather than
+                # comparing the wrong frame.
+                stage_x = stage_y = None
+                x_invalid = y_invalid = False
+                if checks_xy and labware is not None:
+                    try:
+                        px = float(step.get('X', 0))
+                    except (ValueError, TypeError):
+                        x_invalid = True
+                    try:
+                        py = float(step.get('Y', 0))
+                    except (ValueError, TypeError):
+                        y_invalid = True
+                    if not x_invalid and not y_invalid:
+                        stage_x, stage_y = transformer.plate_to_stage(
+                            labware=labware, stage_offset=stage_offset, px=px, py=py
+                        )
 
                 for axis in ('X', 'Y', 'Z'):
                     if axis not in axis_limits:
                         continue
-                    try:
-                        pos = float(step.get(axis, 0))
-                    except (ValueError, TypeError):
-                        errors.append(f'{label}: {axis} position is not a valid number')
+                    if axis == 'Z':
+                        # Z is stored in stage um; no conversion needed.
+                        try:
+                            pos = float(step.get('Z', 0))
+                        except (ValueError, TypeError):
+                            errors.append(f'{label}: Z position is not a valid number')
+                            continue
+                    elif labware is None:
+                        # Cannot convert without labware; the missing/unknown
+                        # plate is already reported above and blocks the run.
                         continue
+                    elif axis == 'X':
+                        if x_invalid:
+                            errors.append(f'{label}: X position is not a valid number')
+                            continue
+                        if stage_x is None:
+                            continue
+                        pos = stage_x
+                    else:
+                        if y_invalid:
+                            errors.append(f'{label}: Y position is not a valid number')
+                            continue
+                        if stage_y is None:
+                            continue
+                        pos = stage_y
                     limits = axis_limits[axis]
                     if pos < limits['min'] or pos > limits['max']:
                         errors.append(
                             f'{label}: {axis} position {pos} um is outside travel limits '
                             f'({limits["min"]}-{limits["max"]} um)'
                         )
-
-        # Validate labware exists. Use is_known_plate() rather than plate_list
-        # membership so legacy/alias names (e.g. "384 well Corning Spheroid
-        # Microplate" -> "384 well microplate") are accepted here exactly as
-        # they are at runtime in get_plate(). Without this, validation
-        # hard-fails on names that would have run fine.
-        labware_key = self.labware()
-        if labware_key:
-            try:
-                from modules import labware_loader
-
-                loader = labware_loader.WellPlateLoader()
-                if not loader.is_known_plate(labware_key):
-                    plate_list = loader.get_plate_list()
-                    errors.append(
-                        f"Labware '{labware_key}' not found. Available: {', '.join(plate_list)}"
-                    )
-            except Exception:
-                pass  # skip labware validation if loader fails
 
         return errors
 

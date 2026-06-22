@@ -10,6 +10,7 @@ import datetime
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from modules.protocol import Protocol
 
@@ -280,64 +281,112 @@ _DEFAULT_AXIS_LIMITS = {
     'Z': {'min': 0, 'max': 14000},
 }
 
+_STAGE_OFFSET = {'x': 0.0, 'y': 0.0}
+
+
+def _stage_xy(px, py, labware_id='96 well microplate'):
+    """Convert plate-mm (px, py) to stage-um exactly as validate_for_run does,
+    so position-bounds tests assert on the same converted values the runtime
+    net compares (step X/Y are plate-mm; axis limits are stage-um)."""
+    from modules import coord_transformations, labware_loader
+
+    lw = labware_loader.WellPlateLoader().get_plate(plate_key=labware_id)
+    return coord_transformations.CoordinateTransformer().plate_to_stage(
+        labware=lw, stage_offset=_STAGE_OFFSET, px=px, py=py
+    )
+
 
 # No WellPlateLoader fixture -- tests use the real loader with real labware.json.
 # Labware IDs in test steps must match real entries in data/labware.json.
+# Step X/Y in these tests are PLATE millimetres (a real protocol stores plate
+# coordinates); the validator converts them to stage micrometres before the
+# travel-limit comparison, so the asserted positions are the converted values.
 
 
 class TestValidateForRunPositionBounds:
     def test_valid_positions_no_errors(self):
-        p = _make_protocol([_valid_step(X=60000, Y=40000, Z=5000)])
-        errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS)
+        # Plate center converts to a stage position inside all limits.
+        p = _make_protocol([_valid_step(X=60.0, Y=40.0, Z=5000.0)])
+        errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS, stage_offset=_STAGE_OFFSET)
         assert errors == []
 
     def test_x_exceeds_max(self):
-        p = _make_protocol([_valid_step(X=130000)])
-        errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS)
-        assert any('X position 130000' in e and 'outside travel limits' in e for e in errors)
+        # Plate X near the plate origin converts to a stage X beyond travel,
+        # while Y stays in range -- only X should fault.
+        sx, _ = _stage_xy(0.0, 40.0)
+        p = _make_protocol([_valid_step(X=0.0, Y=40.0)])
+        errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS, stage_offset=_STAGE_OFFSET)
+        assert any(f'X position {sx}' in e and 'outside travel limits' in e for e in errors)
 
     def test_y_exceeds_max(self):
-        p = _make_protocol([_valid_step(Y=90000)])
-        errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS)
-        assert any('Y position 90000' in e and 'outside travel limits' in e for e in errors)
+        _, sy = _stage_xy(60.0, 0.0)
+        p = _make_protocol([_valid_step(X=60.0, Y=0.0)])
+        errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS, stage_offset=_STAGE_OFFSET)
+        assert any(f'Y position {sy}' in e and 'outside travel limits' in e for e in errors)
 
     def test_z_exceeds_max(self):
-        p = _make_protocol([_valid_step(Z=15000)])
-        errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS)
+        # Z is stage-um already -- compared directly, no conversion.
+        p = _make_protocol([_valid_step(X=60.0, Y=40.0, Z=15000.0)])
+        errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS, stage_offset=_STAGE_OFFSET)
         assert any('Z position 15000' in e and 'outside travel limits' in e for e in errors)
 
-    def test_negative_position(self):
-        p = _make_protocol([_valid_step(X=-100)])
-        errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS)
-        assert any('X position -100' in e and 'outside travel limits' in e for e in errors)
+    def test_plate_origin_converts_out_of_range(self):
+        # Regression for the mm-vs-um mismatch: a step stored at plate (0,0)
+        # reads as 0/0, which the old direct compare accepted, but converts to
+        # the far stage corner -- outside both X and Y travel. The runtime net
+        # must now catch what it used to wave through.
+        sx, sy = _stage_xy(0.0, 0.0)
+        p = _make_protocol([_valid_step(X=0.0, Y=0.0, Z=0.0)])
+        errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS, stage_offset=_STAGE_OFFSET)
+        assert any(f'X position {sx}' in e and 'outside travel limits' in e for e in errors)
+        assert any(f'Y position {sy}' in e and 'outside travel limits' in e for e in errors)
 
-    def test_position_at_max_boundary_valid(self):
-        p = _make_protocol([_valid_step(X=120000, Y=80000, Z=14000)])
-        errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS)
-        assert errors == []
+    def test_negative_plate_position(self):
+        # A negative plate coordinate converts even further past the stage edge.
+        sx, _ = _stage_xy(-1.0, 40.0)
+        p = _make_protocol([_valid_step(X=-1.0, Y=40.0)])
+        errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS, stage_offset=_STAGE_OFFSET)
+        assert any(f'X position {sx}' in e and 'outside travel limits' in e for e in errors)
 
-    def test_position_at_min_boundary_valid(self):
-        p = _make_protocol([_valid_step(X=0, Y=0, Z=0)])
-        errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS)
-        assert errors == []
+    def test_position_at_boundary_valid(self):
+        # Plate (7.76, 5.48) converts to the (120000, 80000) max corner and
+        # plate (127.76, 85.48) to (0, 0) min -- both inclusive-valid.
+        p_max = _make_protocol([_valid_step(X=7.76, Y=5.48, Z=14000.0)])
+        assert (
+            p_max.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS, stage_offset=_STAGE_OFFSET)
+            == []
+        )
+        p_min = _make_protocol([_valid_step(X=127.76, Y=85.48, Z=0.0)])
+        assert (
+            p_min.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS, stage_offset=_STAGE_OFFSET)
+            == []
+        )
 
     def test_multiple_axes_out_of_range(self):
-        p = _make_protocol([_valid_step(X=200000, Y=200000, Z=200000)])
-        errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS)
+        # Plate (0,0) faults X and Y; Z=200000 faults Z -- three position errors.
+        p = _make_protocol([_valid_step(X=0.0, Y=0.0, Z=200000.0)])
+        errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS, stage_offset=_STAGE_OFFSET)
         position_errors = [e for e in errors if 'outside travel limits' in e]
         assert len(position_errors) == 3
 
     def test_multiple_steps_one_out_of_range(self):
         p = _make_protocol(
             [
-                _valid_step(Name='A1_BF', X=60000, Y=40000, Z=5000),
-                _valid_step(Name='B1_BF', X=130000, Y=40000, Z=5000),
+                _valid_step(Name='A1_BF', X=60.0, Y=40.0, Z=5000.0),
+                _valid_step(Name='B1_BF', X=0.0, Y=0.0, Z=5000.0),
             ]
         )
-        errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS)
+        errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS, stage_offset=_STAGE_OFFSET)
         position_errors = [e for e in errors if 'outside travel limits' in e]
-        assert len(position_errors) == 1
-        assert 'Step 2' in position_errors[0]
+        assert position_errors  # step 2 (plate origin) is off-stage
+        assert all('Step 2' in e for e in position_errors)
+
+    def test_missing_stage_offset_for_xy_raises(self):
+        # X/Y cannot be checked without stage_offset (plate-mm -> stage-um);
+        # fail loud rather than silently skip the safety net.
+        p = _make_protocol([_valid_step(X=60.0, Y=40.0)])
+        with pytest.raises(ValueError, match='stage_offset'):
+            p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS)
 
 
 class TestValidateForRunNoLimits:
@@ -369,16 +418,16 @@ class TestValidateForRunLabware:
         assert any("Labware 'nonexistent plate' not found" in e for e in errors)
 
     def test_valid_labware(self):
-        p = _make_protocol([_valid_step()], labware_id='96 well microplate')
-        errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS)
+        p = _make_protocol([_valid_step(X=60.0, Y=40.0)], labware_id='96 well microplate')
+        errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS, stage_offset=_STAGE_OFFSET)
         assert not any('Labware' in e for e in errors)
 
 
 class TestValidateForRunIncludesFieldValidation:
     def test_field_errors_included(self):
         """validate_for_run should include validate_steps errors too."""
-        p = _make_protocol([_valid_step(Color='Bad', Z=15000)])
-        errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS)
+        p = _make_protocol([_valid_step(X=60.0, Y=40.0, Color='Bad', Z=15000)])
+        errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS, stage_offset=_STAGE_OFFSET)
         assert any("Color 'Bad'" in e for e in errors)
         assert any('Z position 15000' in e for e in errors)
 

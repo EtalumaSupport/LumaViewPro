@@ -480,7 +480,9 @@ class SequencedCaptureRunner:
                 limits = self._scope.motion.get_axis_limits(axis)
                 if limits is not None:
                     axis_limits[axis] = limits
-            validation_errors = protocol.validate_for_run(axis_limits=axis_limits)
+            validation_errors = protocol.validate_for_run(
+                axis_limits=axis_limits, stage_offset=self._stage_offset
+            )
             if validation_errors:
                 for err in validation_errors:
                     logger.error(f'[PROTOCOL] Validation: {err}')
