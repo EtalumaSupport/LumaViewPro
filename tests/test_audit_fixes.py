@@ -12712,16 +12712,19 @@ class TestPS11VideoCancelledRecordsRow:
 
         record = MagicMock()
         writer = _bare_protocol_writer(execution_record=record)
+        writer._scope.motion.has_turret.return_value = False
 
         fake_session = MagicMock()
         fake_session.capture.return_value = None  # cancelled / zero frames
         monkeypatch.setattr(piw, 'VideoCaptureSession', lambda **kw: fake_session)
 
+        protocol = MagicMock()
+        protocol.capture_root.return_value = ''
         writer.capture(
             save_folder=str(tmp_path),
             step=_protocol_step(Acquire='video'),
             output_format='TIFF',
-            protocol=MagicMock(),
+            protocol=protocol,
             scan_count=0,
             curr_step=0,
             image_capture_config={'capture_depth': 8},

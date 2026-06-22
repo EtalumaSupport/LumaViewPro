@@ -276,11 +276,6 @@ class ProtocolImageWriter:
             except Exception:
                 capture_root = ''
 
-            if capture_root not in (None, ''):
-                combined_prefix = f'{capture_root}_{step["Name"]}'
-            else:
-                combined_prefix = step['Name']
-
             # In engineering mode, include turret position in filename.
             # engineering_mode lives on the app context (ctx); fall back to
             # False when ctx is unset (bare-fixture test paths).
@@ -300,17 +295,23 @@ class ProtocolImageWriter:
                         e,
                     )
 
-            name = common_utils.generate_default_step_name(
-                well_label=step['Well'],
-                color=step['Color'],
-                z_height_idx=step['Z-Slice'],
-                scan_count=scan_count,
-                custom_name_prefix=combined_prefix,
-                objective_short_name=objective_short_name,
-                tile_label=step['Tile'],
-                video=is_video,
-                turret_position=turret_pos,
+            # The objective is stamped onto the saved filename here (the one
+            # writer), separate from the step's identity Name. capture_root is
+            # a path prefix kept out of the name seed, so a root that happens
+            # to contain a token cannot perturb the derived name.
+            step_name = common_utils.build_step_name(
+                common_utils.step_components(
+                    step,
+                    scan_count=scan_count,
+                    objective=objective_short_name,
+                    turret_position=turret_pos,
+                    post='video' if is_video else None,
+                )
             )
+            if capture_root not in (None, ''):
+                name = f'{capture_root}_{step_name}'
+            else:
+                name = step_name
             # Ensure the filename base has no invalid path characters
             try:
                 name = Protocol.sanitize_step_name(input=name)

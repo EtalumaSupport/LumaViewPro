@@ -931,33 +931,9 @@ class ProtocolSettings(FloatLayout):
         # color=None uses the step's stored channel; pass an override to
         # compute the default name as it would read for a different channel
         # (used to rename an auto-named step when its channel changes).
-        ctx = _app_ctx.ctx
-
         step = self.get_curr_step()
-
-        if ctx.lumaview.scope.motion.has_turret():
-            objective_id = step['Objective']
-            objective_info = ctx.objective_helper.get_objective_info(objective_id=objective_id)
-            if objective_info is None:
-                objective_short_name = objective_id
-            else:
-                objective_short_name = objective_info['short_name']
-        else:
-            objective_short_name = None
-
-        if step['Well'] == '':
-            custom_name_prefix = step['Name']
-        else:
-            custom_name_prefix = None
-
-        return common_utils.generate_default_step_name(
-            well_label=step['Well'],
-            color=step['Color'] if color is None else color,
-            z_height_idx=step['Z-Slice'],
-            objective_short_name=objective_short_name,
-            tile_label=step['Tile'],
-            custom_name_prefix=custom_name_prefix,
-        )
+        overrides = {} if color is None else {'channel': color}
+        return common_utils.build_step_name(common_utils.step_components(step, **overrides))
 
     # Save Protocol to File
     def save_protocol(self, filepath='', update_protocol_filepath: bool = True):
