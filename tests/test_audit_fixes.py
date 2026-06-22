@@ -3060,6 +3060,35 @@ def _protocol_step(**overrides):
     return step
 
 
+def test_not_saving_capture_builds_record_task_without_crash():
+    """capture(enable_image_saving=False) must queue its 'unsaved' record task
+    without crashing. The video-leg encoding pair (capture_depth/save_encoding)
+    is read before the save/not-save split, so the not-saving dispatch has them
+    in scope. Pre-fix the depth read lived inside the saving branch, so the
+    not-saving dispatch raised NameError: capture_depth before any row was
+    recorded -- a path no test exercised because the disabled-saving unit tests
+    call write_capture directly rather than through capture()."""
+    from unittest.mock import MagicMock
+
+    writer = _bare_protocol_writer()
+    scope = writer._scope
+    scope.motion.has_turret.return_value = False
+    scope.led_connected = False
+    protocol = MagicMock()
+    protocol.capture_root.return_value = ''
+
+    # Must not raise; the file IO executor is a stub so the queued task is not run.
+    writer.capture(
+        save_folder='/tmp',
+        step=_protocol_step(),
+        output_format='TIFF',
+        protocol=protocol,
+        image_capture_config={'capture_depth': 8, 'save_encoding': '8bit'},
+        enable_image_saving=False,
+    )
+    assert writer._file_io_executor.protocol_put.called
+
+
 def test_write_capture_threads_save_encoding_to_write_video(monkeypatch, tmp_path):
     """write_capture resolves nothing itself -- save_encoding + capture_depth are
     resolved in capture() (where the image_capture_config lives) and threaded

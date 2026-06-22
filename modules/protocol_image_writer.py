@@ -349,12 +349,15 @@ class ProtocolImageWriter:
             sum_iteration_callback = None
             use_color = step['Color'] if step['False_Color'] else 'BF'
 
+            # capture_depth and save_encoding are a coupled pair from the
+            # image_mode config; read required (not .get-with-default) so a
+            # config that somehow lost one fails loudly here instead of saving a
+            # 12-bit-scaled frame right-aligned (dark). Read before the
+            # save/not-save split so every write_capture dispatch -- including
+            # the not-saving record row -- carries the run's depth in scope.
+            capture_depth = image_capture_config['capture_depth']
+
             if enable_image_saving:
-                # capture_depth and save_encoding are a coupled pair from the
-                # image_mode config; read them required (not .get-with-default)
-                # so a config that somehow lost one fails loudly here instead of
-                # saving a 12-bit-scaled frame right-aligned (dark).
-                capture_depth = image_capture_config['capture_depth']
                 jpeg_quality = image_capture_config.get('jpg_quality', 90)
 
                 if is_video:
