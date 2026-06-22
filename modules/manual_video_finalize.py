@@ -328,6 +328,20 @@ def finalize_manual_video(
 
         logger.info('Manual-Video] Video writing finished.')
 
+    except Exception:
+        # Any failure to finalize must reach the user, not vanish behind a log
+        # line. The snapshot precondition above catches the known-None fields;
+        # this catch-all makes the silent discard impossible by construction for
+        # everything else (a malformed config key, a zero-fps encoder init) --
+        # the user is told the recording was lost instead of it disappearing.
+        logger.exception('Manual-Video] Finalize failed; recording not saved')
+        notifications.error(
+            'Recording',
+            'Recording Not Saved',
+            'The recording could not be saved due to an unexpected error. '
+            'Check the log for details.',
+        )
+        raise
     finally:
         # Cleanup memmap - must explicitly close the underlying mmap object
         # This MUST run even if we return early (e.g., no frames captured)

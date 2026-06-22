@@ -22,6 +22,7 @@ import pathlib
 import sys
 
 import numpy as np
+import pytest
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -242,4 +243,33 @@ def test_no_drops_emits_no_drop_warning(tmp_path):
     finalize_manual_video(**_kwargs(tmp_path, video_as_frames=False))
 
     assert _dropped_warnings(captured) == []
+    notifications.clear()
+
+
+# --- hardening: any unexpected failure is surfaced, never silently discarded --
+
+
+def test_unexpected_error_notifies_recording_not_saved(tmp_path):
+    """A failure PAST the snapshot precondition must surface 'Recording Not
+    Saved' and re-raise, not vanish behind a log line. Here the config dict is
+    present (precondition passes) but missing 'output_format', so the hyperstack
+    probe subscripts a missing key -- the class of error the top-level guard
+    converts from a silent discard into a loud notification."""
+    captured = _capture_notifications()
+
+    kwargs = _kwargs(
+        tmp_path,
+        video_as_frames=True,
+        ui_snapshot={
+            'active_layer_config': ('Green', {}),
+            'image_capture_config': {'save_encoding': '8bit', 'capture_depth': 8},
+            'objective_info': (None, {'focal_length': 1.0}),
+            'binning': 1,
+        },
+    )
+
+    with pytest.raises(KeyError):
+        finalize_manual_video(**kwargs)
+
+    assert any(n.severity >= Severity.ERROR and n.title == 'Recording Not Saved' for n in captured)
     notifications.clear()
