@@ -9,6 +9,7 @@ import psutil
 import modules.image_utils as image_utils
 import modules.common_utils as common_utils
 from modules.common_utils import PostFunction
+from modules.exceptions import CaptureError
 from modules.protocol_post_processor import ProtocolPostProcessor
 from modules.protocol_post_record import ProtocolPostRecord
 
@@ -194,6 +195,23 @@ class StackBuilder(ProtocolPostProcessor):
         }
 
     @staticmethod
+    def _load_plane(path: pathlib.Path) -> tuple[np.ndarray, int]:
+        """Read one input frame's pixels and depth, failing loud and naming the file.
+
+        A hyperstack plane cannot be skipped the way a video frame can -- a
+        missing plane would misalign the fixed TZCYX grid -- so a malformed
+        input fails the whole build with a clear, typed error that names the
+        offending file, rather than a raw tifffile/OS exception surfacing from
+        deep inside the read.
+        """
+        try:
+            return image_utils.load_pixels(path, collapse_legacy_false_color=False)
+        except Exception as ex:
+            raise CaptureError(
+                f'failed to read hyperstack input frame {path}: {type(ex).__name__}: {ex}'
+            ) from ex
+
+    @staticmethod
     def _create_stack(
         path: pathlib.Path,
         df: pd.DataFrame,
@@ -214,9 +232,7 @@ class StackBuilder(ProtocolPostProcessor):
 
         row0 = df.iloc[0]
         sample_image_file_loc = path / row0['Filepath']
-        sample_image, _ = image_utils.load_pixels(
-            sample_image_file_loc, collapse_legacy_false_color=False
-        )
+        sample_image, _ = StackBuilder._load_plane(sample_image_file_loc)
         sample_image_shape = sample_image.shape
         h, w = sample_image_shape[0], sample_image_shape[1]
 
@@ -239,9 +255,7 @@ class StackBuilder(ProtocolPostProcessor):
             t = row['Scan Count']
             z = row['Z-Slice']
             c = row['Color Index']
-            image, significant_bits = image_utils.load_pixels(
-                path / row['Filepath'], collapse_legacy_false_color=False
-            )
+            image, significant_bits = StackBuilder._load_plane(path / row['Filepath'])
             input_depths.append(significant_bits)
 
             if image_utils.is_color_image(image):
