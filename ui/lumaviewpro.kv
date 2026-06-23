@@ -2425,6 +2425,23 @@
 					on_text: root.select_binning_size()
 
 			BoxLayout:
+				id: binning_depth_hint_row
+				orientation: 'horizontal'
+				size_hint_y: None
+				# Shown (toggled from select_binning_size / select_image_mode) only
+				# when binning is active in an 8-bit mode: the binned range is
+				# downconverted to 8 bits on save, so the added range is not kept.
+				height: 0
+				opacity: 0
+				Label:
+					text: '8-bit mode saves at 8-bit -- the added range from summing/binning is not kept. Switch to a 12-bit mode to preserve it.'
+					color: 1, 0.6, 0, 1
+					font_size: '11sp'
+					halign: 'left'
+					valign: 'middle'
+					text_size: self.size
+
+			BoxLayout:
 				orientation: 'horizontal'
 				size_hint_y: None
 				height: '30dp'
@@ -3298,6 +3315,23 @@
 					text: "{:d}".format(int(sum_slider.value))
 					on_text_validate: root.sum_text()
 					on_focus: if not self.focus: root.sum_text()
+
+			BoxLayout:
+				id: sum_depth_hint_row
+				orientation: 'horizontal'
+				size_hint_y: None
+				# Shown (toggled from _refresh_sum_depth_hint) only when this
+				# layer sums in an 8-bit mode: the summed range is downconverted
+				# to 8 bits on save, so the added range is not kept.
+				height: 0
+				opacity: 0
+				Label:
+					text: '8-bit mode saves at 8-bit -- the added range from summing/binning is not kept. Switch to a 12-bit mode to preserve it.'
+					color: 1, 0.6, 0, 1
+					font_size: '11sp'
+					halign: 'left'
+					valign: 'middle'
+					text_size: self.size
 
 
 			# Focus

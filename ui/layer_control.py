@@ -5,12 +5,14 @@ import os
 import numpy as np
 
 from kivy.clock import Clock
+from kivy.metrics import dp
 from kivy.properties import StringProperty, ObjectProperty, BooleanProperty
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.scrollview import ScrollView
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
+import modules.image_mode as image_mode
 from modules import gui_logger
 from modules.sequential_io_executor import IOTask
 
@@ -105,6 +107,34 @@ class LayerControl(BoxLayout):
         )
         self._init_ui_retries = 0
         Clock.schedule_once(self._init_ui, 0)
+        # Defer the depth-hint binding: scope_display (the image_mode owner) is
+        # built later in the app startup, so bind on the next frame.
+        Clock.schedule_once(self._bind_depth_hint, 0)
+
+    def _bind_depth_hint(self, *args):
+        """Observe image_mode changes so the summing depth-loss hint stays
+        current when the user switches mode in the other settings panel.
+        """
+        scope_display = getattr(_app_ctx.ctx, 'scope_display', None)
+        if scope_display is None:
+            return
+        scope_display.bind(image_mode=lambda *a: self._refresh_sum_depth_hint())
+        self._refresh_sum_depth_hint()
+
+    def _refresh_sum_depth_hint(self):
+        """Show the depth-loss hint below the Sum control only when this layer
+        sums in an 8-bit mode (the summed range is truncated on save).
+        """
+        if 'sum_depth_hint_row' not in self.ids:
+            return
+        scope_display = getattr(_app_ctx.ctx, 'scope_display', None)
+        if scope_display is None:
+            return
+        sum_count = _app_ctx.ctx.settings.get(self.layer, {}).get('sum')
+        active = image_mode.depth_truncation_warning_active(sum_count, scope_display.image_mode)
+        row = self.ids['sum_depth_hint_row']
+        row.height = dp(30) if active else 0
+        row.opacity = 1 if active else 0
 
     def _validate_and_apply_text_input(
         self,
@@ -344,11 +374,13 @@ class LayerControl(BoxLayout):
         total = int(self.ids['sum_slider'].value)
         gui_logger.slider(f'SUM_{self.layer}', total)
         settings[self.layer]['sum'] = total
+        self._refresh_sum_depth_hint()
         self.apply_settings()
 
     def sum_text(self):
         logger.info('[LVP Main  ] LayerControl.sum_text()')
         if self._validate_and_apply_text_input('sum_text', 'sum_slider', 'sum', cast=int):
+            self._refresh_sum_depth_hint()
             self.apply_settings()
 
     def video_duration_slider(self):

@@ -11,6 +11,7 @@ import time
 import numpy as np
 
 from kivy.clock import Clock
+from kivy.metrics import dp
 from kivy.properties import BooleanProperty
 from kivy.uix.boxlayout import BoxLayout
 
@@ -800,6 +801,21 @@ class MicroscopeSettings(BoxLayout):
         self.ids['image_mode_spinner'].values = image_mode.available_mode_labels(formats)
         return formats
 
+    def _refresh_binning_depth_hint(self):
+        """Show the depth-loss hint below the binning control only when binning
+        is active in an 8-bit mode (the binned range is truncated on save).
+        """
+        if 'binning_depth_hint_row' not in self.ids:
+            return
+        scope_display = getattr(_app_ctx.ctx, 'scope_display', None)
+        if scope_display is None:
+            return
+        binning_size = binning.binning_size_str_to_int(self.ids['binning_spinner'].text)
+        active = image_mode.depth_truncation_warning_active(binning_size, scope_display.image_mode)
+        row = self.ids['binning_depth_hint_row']
+        row.height = dp(30) if active else 0
+        row.opacity = 1 if active else 0
+
     def select_image_mode(self):
         ctx = _app_ctx.ctx
         settings = ctx.settings
@@ -812,6 +828,8 @@ class MicroscopeSettings(BoxLayout):
 
         ctx.scope_display.image_mode = mode
         settings['image_mode'] = mode
+
+        self._refresh_binning_depth_hint()
 
         # Apply the capture depth to the camera: Mono12 for any 12-bit mode,
         # Mono8 for 8-bit. Route through the camera executor to avoid racing
@@ -1125,6 +1143,8 @@ class MicroscopeSettings(BoxLayout):
             return
 
         settings['binning']['size'] = new_binning_size_str
+
+        self._refresh_binning_depth_hint()
 
         # Native ROI is the source of truth; the displayed/captured size is
         # native / binning. Deriving from the fixed native ROI (not the prior

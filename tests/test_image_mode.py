@@ -198,6 +198,31 @@ def test_resolve_image_mode_unknown_raises_config_error():
         resolve_image_mode('not_a_mode')
 
 
+@pytest.mark.parametrize(
+    'feature_count, mode, expected',
+    [
+        # Active feature (count > 1) in an 8-bit mode -> warn.
+        (4, '8bit', True),
+        (2, '8bit', True),
+        # Inactive feature -> never warn, regardless of mode.
+        (1, '8bit', False),
+        (None, '8bit', False),
+        (0, '8bit', False),
+        # Active feature but a 12-bit mode keeps the range -> no warning.
+        (4, '12bit_scientific', False),
+        (4, '12bit_scaled', False),
+        (4, '12bit_false_color_rgb', False),
+    ],
+)
+def test_depth_truncation_warning_active(feature_count, mode, expected):
+    """The summing/binning depth-loss hint fires only when an accumulating
+    feature is active AND the mode saves 8-bit (the accumulated range is
+    downconverted on save)."""
+    from modules.image_mode import depth_truncation_warning_active
+
+    assert depth_truncation_warning_active(feature_count, mode) is expected
+
+
 def test_resolve_settings_image_mode_warns_on_corrupt_value():
     """A present-but-unrecognized stored image_mode is a corrupt setting: it is
     coerced to a safe default AND surfaced with a warning so the coercion does not

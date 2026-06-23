@@ -36,7 +36,7 @@ from kivy.clock import Clock
 from kivy.graphics import InstructionGroup, Color, Line, Ellipse
 from kivy.graphics.texture import Texture
 from kivy.metrics import dp
-from kivy.properties import BooleanProperty
+from kivy.properties import BooleanProperty, StringProperty
 from kivy.uix.image import Image
 from kivy.uix.widget import Widget
 from kivy.input import MotionEvent
@@ -58,6 +58,10 @@ VALIDITY_DOT_MARGIN = 20  # Margin from image edge to dot center (px)
 
 class ScopeDisplay(Image):
     play = BooleanProperty(True)
+    # The active capture/save image mode, owned here as the runtime SSOT so UI
+    # panels in other widget trees can observe mode changes (e.g. depth-loss
+    # hints near the summing/binning controls) by binding to this property.
+    image_mode = StringProperty(image_mode.DEFAULT_IMAGE_MODE)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -135,8 +139,6 @@ class ScopeDisplay(Image):
             bottom_pct=0.3,
             top_pct=0.3,
         )
-
-        self.image_mode = image_mode.DEFAULT_IMAGE_MODE
 
         # Counters (were module-level globals in lumaviewpro.py)
         self._debug_counter = 0

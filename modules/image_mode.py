@@ -79,6 +79,27 @@ def resolve_image_mode(mode: str) -> dict:
         raise ConfigError(f'unknown image_mode: {mode!r}') from None
 
 
+def depth_truncation_warning_active(feature_count: int, image_mode_value: str) -> bool:
+    """Whether to warn that summing/binning range is discarded at save time.
+
+    Summing frames or sum-binning accumulates signal beyond a single frame's
+    range, but an 8-bit save downconverts that accumulated range back to 8 bits,
+    so the extra range is lost on disk. True when such a feature is active
+    (count > 1) AND the active mode saves 8-bit -- the cue to pick a 12-bit mode
+    to keep the range.
+
+    Args:
+        feature_count: The sum or binning factor (1 or None means inactive).
+        image_mode_value: The active image_mode (the SSOT value).
+
+    Returns:
+        True if the depth-loss warning should be shown.
+    """
+    if feature_count is None or feature_count <= 1:
+        return False
+    return resolve_image_mode(image_mode_value)['capture_depth'] == 8
+
+
 def encoding_for_array(array: np.ndarray) -> str:
     """The save encoding for a derived data product that preserves its pixels.
 
