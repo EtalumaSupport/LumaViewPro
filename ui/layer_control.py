@@ -114,11 +114,21 @@ class LayerControl(BoxLayout):
     def _bind_depth_hint(self, *args):
         """Observe image_mode changes so the summing depth-loss hint stays
         current when the user switches mode in the other settings panel.
+
+        scope_display (the image_mode owner) is built later in app startup, so
+        the first frame can fire before it exists; retry rather than drop the
+        binding for the session, and guard against binding twice across retries.
         """
+        if getattr(self, '_depth_hint_bound', False):
+            return
         scope_display = getattr(_app_ctx.ctx, 'scope_display', None)
         if scope_display is None:
+            self._depth_hint_bind_retries = getattr(self, '_depth_hint_bind_retries', 0) + 1
+            if self._depth_hint_bind_retries <= INIT_MAX_RETRIES:
+                Clock.schedule_once(self._bind_depth_hint, 0.1)
             return
         scope_display.bind(image_mode=lambda *a: self._refresh_sum_depth_hint())
+        self._depth_hint_bound = True
         self._refresh_sum_depth_hint()
 
     def _refresh_sum_depth_hint(self):
