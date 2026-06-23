@@ -291,6 +291,7 @@ class ProtocolSettings(FloatLayout):
                 self.ids['step_name_input'].text = ''
                 return
             self._protocol.modify_name(step_idx=self.curr_step, step_name=new_name)
+            gui_logger.protocol_action('RENAME_STEP', f'step={self.curr_step} name={new_name!r}')
             self.ids['step_name_input'].text = new_name
         else:
             self.ids['step_name_input'].text = ''
@@ -1111,6 +1112,7 @@ class ProtocolSettings(FloatLayout):
         if self._protocol.num_steps() < 1:
             return
 
+        gui_logger.protocol_action('MODIFY_STEP', f'curr_step={self.curr_step}')
         io_executor = _app_ctx.ctx.io_executor
         io_executor.put(IOTask(action=self.modify_step_ex, callback=self.update_step_ui))
 
