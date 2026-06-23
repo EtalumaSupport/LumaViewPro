@@ -27,14 +27,23 @@ PS_SRC = REPO / 'ui' / 'protocol_settings.py'
 
 
 def test_regenerated_name_replaces_channel_not_appends():
-    from modules.common_utils import generate_default_step_name
+    import dataclasses
 
-    old = generate_default_step_name(well_label='A2', color='BF', objective_short_name='2xOly')
-    new = generate_default_step_name(well_label='A2', color='Blue', objective_short_name='2xOly')
+    from modules.common_utils import (
+        StepNameComponents,
+        build_step_name,
+        parse_step_name,
+    )
+
+    old = build_step_name(StepNameComponents(well='A2', channel='BF', objective='2xOly'))
     assert old == 'A2_BF_2xOly'
+    # Regenerate for a new channel the way the UI does: parse the stored name,
+    # replace the channel component, rebuild. The bug appended (A2_BF_Blue_...);
+    # rebuilding from components replaces, carrying ONLY the new channel.
+    new = build_step_name(
+        dataclasses.replace(parse_step_name(old, known_layers=['BF', 'Blue']), channel='Blue')
+    )
     assert new == 'A2_Blue_2xOly'
-    # The regenerated name must carry ONLY the new channel -- the bug
-    # produced A2_BF_Blue_... (old channel left in place, new one appended).
     assert 'BF' not in new
 
 

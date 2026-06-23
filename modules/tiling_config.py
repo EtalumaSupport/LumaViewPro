@@ -74,7 +74,7 @@ class TilingConfig:
         label_letters = set()
         label_numbers = set()
         for name in names:
-            label = common_utils.get_tile_label_from_name(name=name)
+            label = common_utils.parse_step_name(name).tile
             if label is None:
                 continue
 
