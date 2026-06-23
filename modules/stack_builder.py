@@ -177,7 +177,7 @@ class StackBuilder(ProtocolPostProcessor):
             'maxworkers': 2,
         }
 
-        resolution = (1e4 / pixel_size_um, 1e4 / pixel_size_um)
+        resolution = image_utils.resolution_for_pixel_size(pixel_size_um)
 
         return {
             'metadata': metadata,

@@ -1641,7 +1641,7 @@ def generate_tiff_data(
             'maxworkers': 0,
         }
         # Resolution for ImageJ types is in pixels/pixel
-        resolution = (1.0 / metadata['pixel_size_um'], 1.0 / metadata['pixel_size_um'])
+        resolution = resolution_for_pixel_size(metadata['pixel_size_um'], per_centimeter=False)
     else:
         # ome and default use same options. maxworkers=0 disables tifffile's
         # per-write ThreadPoolExecutor; the executor's internal queue holds
@@ -1656,7 +1656,7 @@ def generate_tiff_data(
             'resolutionunit': 'CENTIMETER',
             'maxworkers': 0,
         }
-        resolution = (1e4 / metadata['pixel_size_um'], 1e4 / metadata['pixel_size_um'])
+        resolution = resolution_for_pixel_size(metadata['pixel_size_um'])
 
     # Tile setting: 8-bit images use tiles for ImageJ colormap compatibility
     if data.dtype == np.uint8:
@@ -1686,6 +1686,43 @@ def subject_dist_to_rational(distance):
     distance_meters = distance / 1_000_000  # Convert um to m
     fraction = Fraction(distance_meters).limit_denominator(1_000_000)
     return fraction.numerator, fraction.denominator
+
+
+# A TIFF resolution tag is an unsigned RATIONAL (two uint32), but Bioformats
+# reads the numerator back as a signed int32 -- a numerator above 2^31 surfaces
+# as a negative PhysicalSize for a high-magnification (small) pixel size.
+# Choosing the denominator here, instead of handing tifffile a float to
+# rationalize, keeps the numerator within int32 by construction.
+_TIFF_RATIONAL_NUMERATOR_MAX = 2**31 - 1
+
+
+def _int32_safe_rational(value: float) -> tuple[int, int]:
+    """Approximate a positive value as a (numerator, denominator) pair whose
+    numerator stays within signed int32 range.
+    """
+    max_denominator = max(1, int(_TIFF_RATIONAL_NUMERATOR_MAX // value))
+    fraction = Fraction(value).limit_denominator(min(1_000_000, max_denominator))
+    return fraction.numerator, fraction.denominator
+
+
+def resolution_for_pixel_size(pixel_size_um: float, *, per_centimeter: bool = True) -> tuple:
+    """Build the (X, Y) TIFF resolution tag for a given pixel size.
+
+    Each axis is returned as an int32-safe RATIONAL so a Bioformats reader
+    cannot interpret a high-magnification pixel size as a negative PhysicalSize.
+
+    Args:
+        pixel_size_um: Image pixel size in microns (must be > 0).
+        per_centimeter: True for the CENTIMETER resolutionunit (pixels per cm,
+            1 cm = 1e4 um); False for the ImageJ pixels-per-pixel convention.
+
+    Returns:
+        ((x_num, x_den), (y_num, y_den)). X and Y match for square pixels but are
+        returned per-axis to satisfy tifffile's resolution= contract.
+    """
+    pixels_per_unit = (1e4 if per_centimeter else 1.0) / pixel_size_um
+    axis = _int32_safe_rational(pixels_per_unit)
+    return (axis, axis)
 
 
 _scale_bar_cache = {}

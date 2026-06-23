@@ -928,3 +928,51 @@ class TestOmeMetadataReadback:
         assert recovered['gain_db'] == 0.0
         assert recovered['illumination_ma'] == 0.0
         assert recovered['objective'] == {}
+
+
+# Largest value a signed-32-bit reader (Bioformats) treats as positive. A TIFF
+# RATIONAL stores unsigned uint32, but Bioformats reads the numerator as int32,
+# so a numerator above this would surface as a negative PhysicalSize.
+_INT32_MAX = 2**31 - 1
+
+
+class TestResolutionRationalOwner:
+    """resolution_for_pixel_size is the single int32-safe owner of the TIFF
+    resolution tag, so a high-magnification (small) pixel size cannot be read
+    back as a negative PhysicalSize and every write path derives from one helper.
+    """
+
+    @pytest.mark.parametrize('pixel_size_um', [0.5, 0.1, 0.0646, 0.0323, 0.01, 0.001])
+    def test_numerator_within_int32_and_value_preserved(self, pixel_size_um):
+        x, y = image_utils.resolution_for_pixel_size(pixel_size_um)
+        for num, den in (x, y):
+            assert 0 < num <= _INT32_MAX, (
+                f'numerator {num} exceeds int32 at pixel_size_um={pixel_size_um}'
+            )
+            assert num / den == pytest.approx(1e4 / pixel_size_um, rel=1e-4)
+
+    def test_imagej_convention_is_pixels_per_pixel(self):
+        x, _ = image_utils.resolution_for_pixel_size(0.5, per_centimeter=False)
+        num, den = x
+        assert num / den == pytest.approx(1.0 / 0.5, rel=1e-4)
+
+    def test_written_tiff_resolution_is_int32_safe(self, img_16bit, tmp_tiff):
+        # Exercise the production OME write path at a high-magnification pixel
+        # size and confirm the on-disk RATIONAL numerator stays int32-safe.
+        meta = _make_metadata()
+        meta['pixel_size_um'] = 0.0646
+        path = tmp_tiff()
+        image_utils.write_tiff(
+            data=img_16bit,
+            file_loc=path,
+            metadata=meta,
+            ome=True,
+            color='Green',
+            significant_bits=16,
+            save_encoding='right_aligned',
+        )
+        with tf.TiffFile(str(path)) as f:
+            xnum = f.pages[0].tags['XResolution'].value[0]
+            ynum = f.pages[0].tags['YResolution'].value[0]
+        assert 0 < xnum <= _INT32_MAX
+        assert 0 < ynum <= _INT32_MAX
