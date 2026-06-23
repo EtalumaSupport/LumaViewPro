@@ -247,7 +247,7 @@ def load_pixels(
         # is high-volume; it records how a saved file was interpreted on read-back
         # (depth + whether a false-color file collapsed to mono) when diagnosing.
         logger.debug(
-            f'[ImageLoad] {path.name} dtype={image.dtype} shape={image.shape} '
+            f'[ImageLoad tiff] {path.name} dtype={image.dtype} shape={image.shape} '
             f'color={is_color_image(image)} significant_bits={sig} '
             f'collapse={collapse_legacy_false_color}'
         )
@@ -261,7 +261,7 @@ def load_pixels(
         raise ValueError(f'Could not decode image: {path}')
     sig = image.dtype.itemsize * 8
     logger.debug(
-        f'[ImageLoad] {path.name} dtype={image.dtype} shape={image.shape} '
+        f'[ImageLoad cv2] {path.name} dtype={image.dtype} shape={image.shape} '
         f'color={is_color_image(image)} significant_bits={sig} '
         f'collapse={collapse_legacy_false_color}'
     )
