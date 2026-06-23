@@ -1294,6 +1294,25 @@ def write_hyperstack_tiff(
         )
 
 
+def _msb_align_to_container(data: np.ndarray, significant_bits: int) -> tuple[np.ndarray, int]:
+    """Left-justify a right-aligned payload to fill its container width.
+
+    A right-aligned N-bit payload (0..2^N-1 in a wider container) reads dark in
+    viewers that ignore the significant-bits tag. Shifting it up by
+    (container_bits - N) makes it fill the container so those viewers render it
+    bright; the shift is lossless (the top bits were zero) and the stored values
+    then make no narrower-than-container significant-bits claim, so container-
+    width read-back is the correct scale. Returns the shifted array and the new
+    significant_bits; a payload already at container width is returned unchanged.
+    """
+    container_bits = data.itemsize * 8
+    shift = container_bits - significant_bits
+    if shift > 0:
+        data = data << shift
+        significant_bits = container_bits
+    return data, significant_bits
+
+
 def write_tiff(
     data,
     file_loc: pathlib.Path,
@@ -1323,6 +1342,20 @@ def write_tiff(
     # 'msb_aligned' left-justifies a narrow payload, right_aligned/8bit store
     # as-is. RGB widening is derived from it alone, so the same fact is never
     # carried by a second out-of-band flag that could disagree with it.
+    # Brighten BEFORE colorizing so the scaled mono mode and the false-color RGB
+    # mode share one container-fill step and a false-color frame inherits it.
+    # Colorizing a still-narrow (right-aligned) payload would bake dark color
+    # that no plain viewer can show; filling the mono payload first makes the
+    # false color render bright. right_aligned/8bit keep their narrow payload --
+    # the depth tag, not a shift, carries their scale.
+    if (
+        image_mode.encoding_fills_container(save_encoding)
+        and data.dtype == np.uint16
+        and not is_color_image(data)
+    ):
+        data, sig = _msb_align_to_container(data, metadata['significant_bits'])
+        metadata = {**metadata, 'significant_bits': sig}
+
     use_false_color_16bit = save_encoding == image_mode.SAVE_ENCODING_RGB
 
     data = maybe_apply_false_color(
@@ -1331,23 +1364,6 @@ def write_tiff(
         use_false_color_16bit=use_false_color_16bit,
         output_buf=false_color_buf,
     )
-
-    if (
-        save_encoding == image_mode.SAVE_ENCODING_MSB_ALIGNED
-        and data.dtype == np.uint16
-        and not is_color_image(data)
-    ):
-        # Left-justify a right-aligned N-bit payload into the 16-bit container so
-        # viewers that ignore the significant-bits metadata render it bright. The
-        # shift is lossless (a right-aligned payload has zero top bits) and
-        # reversible. The stored values then fill the container, so the file
-        # makes no narrower significant-bits claim -- container-width read-back
-        # is the correct scale, keeping our own read path self-consistent.
-        sig = metadata['significant_bits']
-        shift = data.itemsize * 8 - sig
-        if shift > 0:
-            data = data << shift
-            metadata = {**metadata, 'significant_bits': data.itemsize * 8}
 
     kwargs = {}
     # Enable BigTIFF for datasets >3.8 GB to prevent silent corruption at 4 GB boundary

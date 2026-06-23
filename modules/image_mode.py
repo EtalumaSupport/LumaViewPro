@@ -121,6 +121,20 @@ def encoding_for_array(array: np.ndarray) -> str:
     return SAVE_ENCODING_RIGHT_ALIGNED
 
 
+def encoding_fills_container(save_encoding: str) -> bool:
+    """Whether a save encoding left-justifies the payload to fill its container.
+
+    The scaled (msb_aligned) and false-color (rgb) encodings both brighten a
+    narrow payload to fill the 16-bit container so plain viewers render it
+    bright; right_aligned and 8bit store the payload at its own width (the depth
+    tag carries the scale). The false-color mode shares the scaled mode's
+    brightening through this one predicate, so a false-color frame is brightened
+    before it is colorized -- colorizing a still-narrow payload would store dark
+    color that no plain viewer can show.
+    """
+    return save_encoding in (SAVE_ENCODING_MSB_ALIGNED, SAVE_ENCODING_RGB)
+
+
 def save_encoding_for_derived_output(array: np.ndarray, image_mode_value: str) -> str:
     """The save encoding for a derived product, honoring the false-color mode.
 

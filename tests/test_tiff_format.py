@@ -976,3 +976,57 @@ class TestResolutionRationalOwner:
             ynum = f.pages[0].tags['YResolution'].value[0]
         assert 0 < xnum <= _INT32_MAX
         assert 0 < ynum <= _INT32_MAX
+
+
+class TestFalseColorRgbDepth:
+    """12-bit false-color RGB must save bright color (the payload filled to the
+    container), not a dark right-aligned RGB. The mode exists to render in color
+    in plain viewers, so it shares the scaled mode's brightening -- colorizing a
+    still-narrow payload would store dark color that no plain viewer can show.
+    """
+
+    def test_false_color_rgb_fills_container(self, tmp_tiff):
+        # A bright 12-bit Green frame (right-aligned 0..4095) in false-color RGB
+        # mode must brighten to fill the 16-bit container (4095 << 4 = 65520),
+        # not stay dark at 4095.
+        raw = np.full((64, 64), 4095, dtype=np.uint16)
+        meta = _make_metadata()
+        meta['significant_bits'] = 12
+        path = tmp_tiff()
+        image_utils.write_tiff(
+            data=raw,
+            file_loc=path,
+            metadata=meta,
+            ome=False,
+            color='Green',
+            significant_bits=12,
+            save_encoding='rgb',
+        )
+        with tf.TiffFile(str(path)) as f:
+            arr = f.pages[0].asarray()
+        assert arr.ndim == 3, 'false-color RGB must be 3-channel'
+        green_max = int(arr[:, :, 1].max())
+        assert green_max >= 0xF000, (
+            f'false-color RGB saved dark (green max {green_max}); the 12-bit '
+            'payload was not brightened to fill the container'
+        )
+
+    def test_scientific_stays_right_aligned(self, tmp_tiff):
+        # Guard the other side: the scientific (right_aligned) mode must NOT be
+        # filled -- it stays native 0..4095 so it round-trips as true values.
+        raw = np.full((64, 64), 4095, dtype=np.uint16)
+        meta = _make_metadata()
+        meta['significant_bits'] = 12
+        path = tmp_tiff()
+        image_utils.write_tiff(
+            data=raw,
+            file_loc=path,
+            metadata=meta,
+            ome=False,
+            color='Green',
+            significant_bits=12,
+            save_encoding='right_aligned',
+        )
+        with tf.TiffFile(str(path)) as f:
+            arr = f.pages[0].asarray()
+        assert int(arr.max()) == 4095, 'scientific must stay native, not filled'
