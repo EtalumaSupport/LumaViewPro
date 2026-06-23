@@ -4,9 +4,12 @@ A step's stored Name kept the old channel token after a channel change, so
 both the displayed Step Name and the saved filename were stale -- and the
 filename appended the new channel beside the old one (A2_BF_Blue_...).
 
-Fix (per the reporter's choice): for a well step still carrying its
-auto-generated default name, regenerate the name for the new channel so
-the channel token tracks the change. A user-customized name is preserved.
+Fix: a step carries an explicit Auto_Named flag. While it is set (true for
+a freshly built well or custom step, cleared when the user types a name),
+a channel change regenerates the name so its channel token tracks the
+change. The earlier fix gated this on a well step, which excluded
+custom-added steps (#719); the flag covers both and never misreads a
+user-typed name that happens to match the auto pattern.
 
 The regeneration mechanic is proven behaviorally (it must replace the
 channel, not append). The UI wiring in ProtocolSettings.modify_step_ex
@@ -51,12 +54,15 @@ def test_get_default_name_accepts_color_override():
     )
 
 
-def test_modify_step_regenerates_auto_name_for_well_step():
+def test_modify_step_regenerates_auto_name_by_flag_not_well():
     src = ast.unparse(_func('modify_step_ex'))
     assert 'get_default_name_for_curr_step(color=active_layer)' in src, (
         'modify_step_ex must regenerate the auto name for the new channel'
     )
-    assert "curr_step['Well'] != ''" in src, (
-        'regeneration must be gated on a well step so custom-added steps '
-        'and user-customized names are left untouched'
+    assert "curr_step['Auto_Named']" in src, (
+        'regeneration must be gated on the explicit Auto_Named flag'
+    )
+    assert "curr_step['Well'] != ''" not in src, (
+        'regeneration must not exclude custom-added steps by gating on a '
+        'well step (#719); the Auto_Named flag covers both'
     )

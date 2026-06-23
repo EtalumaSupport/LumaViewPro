@@ -508,8 +508,10 @@ class ProtocolSettings(FloatLayout):
             if step['Name'] == '':
                 new_text = step['Name']
                 new_hint = self.get_default_name_for_curr_step()
-            elif step['Custom Step'] and step['Name'].startswith('custom'):
-                # For custom added steps where the user did not change the default name (i.e. custom####)
+            elif step['Custom Step'] and step['Auto_Named']:
+                # A custom step still on its auto-generated name shows the
+                # default as a placeholder hint and leaves the field blank, so
+                # the user can type over it.
                 new_text = ''
                 new_hint = self.get_default_name_for_curr_step()
             else:
@@ -1156,36 +1158,39 @@ class ProtocolSettings(FloatLayout):
             step_name = common_utils.resolve_step_rename(
                 self.ids['step_name_input'].text, ctx.scope.sanitize_step_name
             )
-            # None means a blank field (no rename intended); keep the
-            # existing name so modify_step does not clobber the auto-name.
-            if step_name is None:
-                step_name = self._protocol.step(idx=self.curr_step)['Name']
-
-            # If a well step still carries its auto-generated default name for
-            # the prior channel, regenerate it for the new channel so the
-            # channel token in the step name (and the saved filename derived
-            # from it) tracks the change. A user-customized name -- anything
-            # that does not equal the auto default -- is left untouched.
+            user_renamed = step_name is not None
             curr_step = self._protocol.step(idx=self.curr_step)
-            if curr_step['Well'] != '' and step_name == self.get_default_name_for_curr_step():
-                regenerated = self.get_default_name_for_curr_step(color=active_layer)
+            if step_name is None:
+                # Blank field: keep the existing name (an auto name is
+                # regenerated for the new channel just below).
+                step_name = curr_step['Name']
+
+            if user_renamed:
+                # The user typed a name in the field; it is theirs, not auto.
+                auto_named = False
+            elif curr_step['Auto_Named']:
+                # An auto-named step regenerates for the new channel so its
+                # channel token (and the saved filename derived from it) tracks
+                # the change. The flag covers well and custom steps alike; a
+                # user-typed name never carries it.
+                step_name = self.get_default_name_for_curr_step(color=active_layer)
+                auto_named = True
                 logger.info(
-                    "[LVP Main  ] modify_step_ex: channel -> %s; auto step name '%s' -> '%s'",
+                    "[LVP Main  ] modify_step_ex: channel -> %s; auto step name -> '%s'",
                     active_layer,
                     step_name,
-                    regenerated,
                 )
-                step_name = regenerated
             else:
+                # A user-named step keeps its name.
+                auto_named = False
                 logger.info(
-                    "[LVP Main  ] modify_step_ex: channel -> %s; step name '%s' kept "
-                    '(custom or non-well step)',
+                    "[LVP Main  ] modify_step_ex: channel -> %s; step name '%s' kept (user-named)",
                     active_layer,
                     step_name,
                 )
 
             # If the stim layer was active and the original acquire channel remains enabled,
-            # preserve the existing step name to avoid unintended renaming.
+            # preserve the existing step name (and its auto flag) to avoid unintended renaming.
             if stim_was_active:
                 original_step = self._protocol.step(idx=self.curr_step)
                 original_layer = original_step['Color']
@@ -1194,6 +1199,7 @@ class ProtocolSettings(FloatLayout):
                     layer_configs_all[original_layer]['acquire'] is not None
                 ):
                     step_name = original_step['Name']
+                    auto_named = original_step['Auto_Named']
 
             self._protocol.modify_step(
                 step_idx=self.curr_step,
@@ -1203,6 +1209,7 @@ class ProtocolSettings(FloatLayout):
                 stim_configs=get_stim_configs(),
                 plate_position=plate_position,
                 objective_id=objective_id,
+                auto_named=auto_named,
             )
 
             # Validate the modified step and warn the user if there are errors.

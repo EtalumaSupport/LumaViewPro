@@ -119,6 +119,7 @@ def _make_step(
     acquire='image',
     video_config=None,
     stim_config=None,
+    auto_named=True,
 ):
     return {
         'Name': name,
@@ -144,6 +145,7 @@ def _make_step(
         'Video Config': video_config or _default_video_config(),
         'Stim_Config': stim_config or _default_stim_config(),
         'Step Index': 0,
+        'Auto_Named': auto_named,
     }
 
 
@@ -2209,6 +2211,7 @@ class TestProtocolModifyStep:
             plate_position={'x': 10.0, 'y': 20.0, 'z': 5000.0},
             objective_id='10x Oly',
             stim_configs=_default_stim_config(),
+            auto_named=False,
         )
         step = proto.step(idx=0)
         assert step['Color'] == 'Green'
@@ -2227,6 +2230,7 @@ class TestProtocolModifyStep:
             plate_position={'x': 10.0, 'y': 20.0, 'z': 5000.0},
             objective_id='10x Oly',
             stim_configs=sc,
+            auto_named=False,
         )
         step = proto.step(idx=0)
         assert step['Acquire'] == 'video'
@@ -2244,6 +2248,7 @@ class TestProtocolModifyStep:
             plate_position={'x': 10.0, 'y': 20.0, 'z': 5000.0},
             objective_id='10x Oly',
             stim_configs=_default_stim_config(),
+            auto_named=False,
         )
 
         reloaded = _save_and_reload(proto, tmp_path / 'save')

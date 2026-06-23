@@ -177,7 +177,12 @@ class Protocol:
             'Stim_Config',
         ],
     }
-    CURRENT_VERSION = 6
+    # v7 adds Auto_Named: an explicit flag for whether a step still carries its
+    # auto-generated name (vs a user-typed one). It replaces inferring that from
+    # the name string, which could not tell a user name that happened to match
+    # the auto pattern from a real auto name.
+    COLUMNS[7] = COLUMNS[6] + ['Auto_Named']
+    CURRENT_VERSION = 7
     CURRENT_COLUMNS = COLUMNS[CURRENT_VERSION]
 
     # Header columns for the v6 'Layer Settings' block. Order is the
@@ -486,6 +491,7 @@ class Protocol:
                 ('Acquire', str),
                 ('Video Config', object),
                 ('Stim_Config', object),
+                ('Auto_Named', bool),
             ]
         )
         df = pd.DataFrame(np.empty(0, dtype=dtypes))
@@ -861,6 +867,9 @@ class Protocol:
 
         Protocol.sanitize_step_name(step_name)
         self._config['steps'].at[step_idx, 'Name'] = step_name
+        # A user typing a name makes it theirs: clear the auto flag so a later
+        # channel change does not regenerate over it.
+        self._config['steps'].at[step_idx, 'Auto_Named'] = False
 
     def modify_step(
         self,
@@ -871,6 +880,7 @@ class Protocol:
         plate_position: dict,
         objective_id: str,
         stim_configs: dict,
+        auto_named: bool,
     ):
         def _validate_inputs():
             if step_idx < 0:
@@ -884,6 +894,7 @@ class Protocol:
         _validate_inputs()
 
         self._config['steps'].at[step_idx, 'Name'] = step_name
+        self._config['steps'].at[step_idx, 'Auto_Named'] = auto_named
         self._config['steps'].at[step_idx, 'X'] = plate_position['x']
         self._config['steps'].at[step_idx, 'Y'] = plate_position['y']
         self._config['steps'].at[step_idx, 'Z'] = plate_position['z']
@@ -930,6 +941,7 @@ class Protocol:
 
         _validate_inputs()
 
+        auto_named = step_name is None
         if step_name is None:
             CUSTOM_INDEX_WIDTH = 4
             step_name = common_utils.build_step_name(
@@ -980,6 +992,7 @@ class Protocol:
             acquire=layer_config['acquire'],
             video_config=layer_config['video_config'],
             stim_config=copy.deepcopy(stim_configs),
+            auto_named=auto_named,
         )
 
         if before_step is not None:
@@ -1143,6 +1156,7 @@ class Protocol:
                     acquire=orig_step_df['Acquire'],
                     video_config=orig_step_df['Video Config'],
                     stim_config=orig_step_df['Stim_Config'],
+                    auto_named=orig_step_df['Auto_Named'],
                 )
 
                 new_steps.append(new_step_dict)
@@ -1243,6 +1257,7 @@ class Protocol:
                     acquire=orig_step_df['Acquire'],
                     video_config=orig_step_df['Video Config'],
                     stim_config=orig_step_df['Stim_Config'],
+                    auto_named=orig_step_df['Auto_Named'],
                 )
 
                 new_steps.append(new_step_dict)
@@ -1456,6 +1471,7 @@ class Protocol:
                             acquire=layer_config['acquire'],
                             video_config=video_config,
                             stim_config=stim_config,
+                            auto_named=True,
                         )
                         steps.append(step_dict)
 
@@ -1545,6 +1561,7 @@ class Protocol:
         acquire,
         video_config,
         stim_config,
+        auto_named,
     ):
         return {
             'Name': name,
@@ -1569,6 +1586,7 @@ class Protocol:
             'Acquire': acquire,
             'Video Config': copy.deepcopy(video_config),
             'Stim_Config': copy.deepcopy(stim_config),
+            'Auto_Named': auto_named,
         }
 
     """
@@ -1672,10 +1690,10 @@ class Protocol:
         if config['version'] == cls.CURRENT_VERSION:
             allowed = True
 
-        elif (config['version'] in (2, 3, 4, 5)) and (cls.CURRENT_VERSION == 6):
-            # v6 introduces the Layer Settings header block; older
-            # versions are accepted and per-layer state is inferred
-            # from the steps Color column on load.
+        elif (config['version'] in (2, 3, 4, 5, 6)) and (cls.CURRENT_VERSION == 7):
+            # v6 introduced the Layer Settings header block; v7 adds the
+            # Auto_Named column. Older versions load with both inferred or
+            # defaulted below.
             allowed = True
 
         if not allowed:
@@ -1975,6 +1993,12 @@ class Protocol:
                 )
             else:
                 config['tiling'] = tc.no_tiling_label()
+
+        if 'Auto_Named' not in protocol_df.columns:
+            # Pre-v7 protocols never recorded auto-vs-user naming. Treat their
+            # steps as user-named so a channel change never regenerates over a
+            # name the user may have set; new protocols carry the real flag.
+            protocol_df['Auto_Named'] = False
 
         config['steps'] = protocol_df
         config['custom_step_count'] = 0
