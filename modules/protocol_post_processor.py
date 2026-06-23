@@ -75,6 +75,20 @@ class ProtocolPostProcessor(abc.ABC):
 
         return short_name
 
+    @staticmethod
+    def _prepend_capture_root(name: str, kwargs: dict) -> str:
+        """Prefix a post-processed output name with the protocol's capture_root.
+
+        load_folder is the only caller of _generate_filename and always threads
+        capture_root into kwargs, so it is read as a required key: a missing key
+        is a caller bug and fails loud rather than silently dropping the root.
+        An empty root is a valid state (no custom root set). The root is kept
+        out of the name seed, so a root that happens to contain a token cannot
+        perturb the derived name.
+        """
+        capture_root = kwargs['capture_root']
+        return f'{capture_root}_{name}' if capture_root else name
+
     def load_folder(
         self,
         path: str | pathlib.Path,

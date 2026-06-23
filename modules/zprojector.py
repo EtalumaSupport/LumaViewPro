@@ -71,18 +71,7 @@ class ZProjector(ProtocolPostProcessor):
             )
         )
 
-        # Prepend the protocol's capture_root (always threaded into kwargs by
-        # ProtocolPostProcessor.load_folder, the only caller) so the z-projected
-        # output carries the same filename root as the per-image saves. Kept out
-        # of the name seed so a root containing a token cannot perturb the
-        # derived name. An empty root is a valid state (no custom root set); a
-        # missing key is a caller bug and fails loud rather than silently
-        # dropping the root.
-        capture_root = kwargs['capture_root']
-        if capture_root:
-            name = f'{capture_root}_{name}'
-
-        outfile = f'{name}.tiff'
+        outfile = f'{self._prepend_capture_root(name, kwargs)}.tiff'
         return outfile
 
     def _filter_ignored_types(self, df: pd.DataFrame) -> pd.DataFrame:

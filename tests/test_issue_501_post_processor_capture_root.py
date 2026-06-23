@@ -101,25 +101,15 @@ def test_base_load_folder_threads_capture_root_into_kwargs():
     )
 
 
-def _assert_subclass_reads_capture_root_kwarg(class_name: str, path: pathlib.Path):
+def _assert_subclass_prefixes_via_capture_root(class_name: str, path: pathlib.Path):
     method = _method_node(path, class_name, '_generate_filename')
     src = ast.unparse(method)
-    assert 'capture_root' in src, (
-        f'{class_name}._generate_filename must read capture_root from '
-        f'kwargs to prefix the output filename.'
-    )
-    # Required access kwargs['capture_root'] (load_folder always threads it) is
-    # the antifragile form; a defensive kwargs.get(...) default still satisfies
-    # the read contract.
-    reads_kwarg = (
-        "kwargs['capture_root']" in src
-        or 'kwargs["capture_root"]' in src
-        or "kwargs.get('capture_root'" in src
-        or 'kwargs.get("capture_root"' in src
-    )
-    assert reads_kwarg, (
-        f'{class_name}._generate_filename must read capture_root from '
-        f'kwargs (not from a DataFrame column).'
+    # Each subclass prefixes the output through the shared base helper, which is
+    # the single place capture_root is read from kwargs (required access). A
+    # subclass must not re-read the dormant, never-written "Custom Root" column.
+    assert '_prepend_capture_root' in src, (
+        f'{class_name}._generate_filename must prefix the output filename via '
+        f'the shared _prepend_capture_root helper.'
     )
     assert "'Custom Root'" not in src and '"Custom Root"' not in src, (
         f'{class_name}._generate_filename must NOT read the dormant '
@@ -127,9 +117,25 @@ def _assert_subclass_reads_capture_root_kwarg(class_name: str, path: pathlib.Pat
     )
 
 
-def test_all_post_processors_read_capture_root_from_kwargs():
+def test_all_post_processors_prefix_via_capture_root_helper():
     for class_name, path in POST_PROCESSORS.items():
-        _assert_subclass_reads_capture_root_kwarg(class_name, path)
+        _assert_subclass_prefixes_via_capture_root(class_name, path)
+
+
+def test_capture_root_helper_reads_required_kwarg():
+    # The single owner of the capture_root contract reads it as a required key
+    # (load_folder always threads it; a missing key is a caller bug that fails
+    # loud) and never from the dormant "Custom Root" column.
+    method = _method_node(BASE_PATH, 'ProtocolPostProcessor', '_prepend_capture_root')
+    src = ast.unparse(method)
+    reads_required = "kwargs['capture_root']" in src or 'kwargs["capture_root"]' in src
+    assert reads_required, (
+        '_prepend_capture_root must read capture_root as a required kwarg, '
+        'failing loud if a caller forgot to thread it.'
+    )
+    assert "'Custom Root'" not in src and '"Custom Root"' not in src, (
+        '_prepend_capture_root must not read the dormant "Custom Root" column.'
+    )
 
 
 # ---------------------------------------------------------------------------
