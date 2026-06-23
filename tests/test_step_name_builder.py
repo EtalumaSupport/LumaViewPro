@@ -45,16 +45,17 @@ def _to_legacy_kwargs(c: StepNameComponents) -> dict:
         'z_height_idx': c.z_index,
         'scan_count': c.scan_count,
     }
-    if c.post == 'stitched':
-        kwargs['stitched'] = True
-    elif c.post == 'video':
-        kwargs['video'] = True
-    elif c.post == 'stack':
-        kwargs['stack'] = True
-    elif c.post == 'hyperstack':
-        kwargs['hyperstack'] = True
-    elif c.post and c.post.startswith('zproj_'):
-        kwargs['zprojection'] = c.post[len('zproj_') :]
+    for p in c.post:
+        if p == 'stitched':
+            kwargs['stitched'] = True
+        elif p == 'video':
+            kwargs['video'] = True
+        elif p == 'stack':
+            kwargs['stack'] = True
+        elif p == 'hyperstack':
+            kwargs['hyperstack'] = True
+        elif p.startswith('zproj_'):
+            kwargs['zprojection'] = p[len('zproj_') :]
     return kwargs
 
 
@@ -75,12 +76,17 @@ _FRESH_CASES = [
     StepNameComponents(well='A1', channel='BF', tile='A1', z_index=2, scan_count=7),
     StepNameComponents(custom_prefix='custom0001', channel='BF'),
     StepNameComponents(custom_prefix='custom0042', channel='Red', tile='C3'),
-    StepNameComponents(well='A1', channel='BF', post='stitched'),
-    StepNameComponents(well='A1', channel='Composite', post='stitched'),
-    StepNameComponents(well='A1', channel='BF', post='video'),
-    StepNameComponents(well='A1', post='hyperstack'),
-    StepNameComponents(well='A1', channel='BF', post='stack'),
-    StepNameComponents(well='A1', channel='BF', post='zproj_median'),
+    StepNameComponents(well='A1', channel='BF', post=('stitched',)),
+    StepNameComponents(well='A1', channel='Composite', post=('stitched',)),
+    StepNameComponents(well='A1', channel='BF', post=('video',)),
+    StepNameComponents(well='A1', post=('hyperstack',)),
+    StepNameComponents(well='A1', channel='BF', post=('stack',)),
+    StepNameComponents(well='A1', channel='BF', post=('zproj_median',)),
+    # Chained post-outputs: a stitch then z-projected / video'd carries both
+    # suffixes in order. The legacy builder appends stitched then zproj/video,
+    # so equivalence holds only for the canonical (stitched-first) ordering.
+    StepNameComponents(well='A1', channel='BF', post=('stitched', 'zproj_median')),
+    StepNameComponents(well='A1', channel='BF', post=('stitched', 'video')),
     StepNameComponents(well='A1'),  # bare well, no channel yet
 ]
 
@@ -117,6 +123,13 @@ class TestRoundTrip:
         assert c.objective == '10x'
         assert c.z_index == 3
         assert c.scan_count == 5
+
+    def test_parse_recovers_chained_post_suffixes(self):
+        # A z-projection of a stitched output carries both suffixes; parse must
+        # recover the ordered tuple, not just the last token.
+        c = parse_step_name('A1_BF_0003_stitched_zproj_median', known_layers=_KNOWN_LAYERS)
+        assert c.post == ('stitched', 'zproj_median')
+        assert c.scan_count == 3
 
     def test_parse_recovers_custom_prefix(self):
         c = parse_step_name('custom0001_BF', known_layers=_KNOWN_LAYERS)
@@ -161,12 +174,12 @@ class TestTileOmittedNotStripped:
 
     def test_stitch_omits_tile_regardless_of_origin(self):
         c = parse_step_name('A1_BF_TA1', known_layers=_KNOWN_LAYERS)
-        c = dataclasses.replace(c, tile=None, post='stitched')
+        c = dataclasses.replace(c, tile=None, post=('stitched',))
         assert build_step_name(c) == 'A1_BF_stitched'
 
     def test_composite_collapses_channel_and_tile(self):
         c = parse_step_name('A1_Green_TA1', known_layers=_KNOWN_LAYERS)
-        c = dataclasses.replace(c, channel='Composite', tile=None, post='stitched')
+        c = dataclasses.replace(c, channel='Composite', tile=None, post=('stitched',))
         assert build_step_name(c) == 'A1_Composite_stitched'
 
 

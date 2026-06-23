@@ -305,7 +305,7 @@ class ProtocolImageWriter:
                     scan_count=scan_count,
                     objective=objective_short_name,
                     turret_position=turret_pos,
-                    post='video' if is_video else None,
+                    post=('video',) if is_video else (),
                 )
             )
             if capture_root not in (None, ''):

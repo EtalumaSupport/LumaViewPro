@@ -152,7 +152,11 @@ class StepNameComponents:
     turret_position: int | None = None  # rendered '_Turret<n>'
     z_index: int | None = None  # rendered '_Z<n>'
     scan_count: int | None = None  # rendered zero-padded to 4 digits
-    post: str | None = None  # 'stitched'|'video'|'stack'|'hyperstack'|'zproj_<method>'
+    # Ordered post-output suffixes. A chain, not a single value: a stitched
+    # output that is later z-projected carries both ('stitched', 'zproj_median')
+    # and renders '_stitched_zproj_median'. Each element is a single suffix
+    # token ('stitched'|'video'|'stack'|'hyperstack') or 'zproj_<method>'.
+    post: tuple[str, ...] = ()
 
 
 # Single-token post-output suffixes occupying StepNameComponents.post. A
@@ -184,8 +188,7 @@ def build_step_name(c: StepNameComponents) -> str:
         parts.append(f'Z{c.z_index}')
     if c.scan_count not in (None, ''):
         parts.append(f'{c.scan_count:0>4}')
-    if c.post:
-        parts.append(c.post)
+    parts.extend(c.post)
     return '_'.join(p for p in parts if p != '')
 
 
@@ -240,8 +243,9 @@ def parse_step_name(name, known_layers=None, known_objectives=()) -> StepNameCom
             i += 1
         custom_prefix = '_'.join(custom_parts)
 
-    channel = tile = objective = post = None
+    channel = tile = objective = None
     turret_position = z_index = scan_count = None
+    post = []
     while i < len(segs):
         seg = segs[i]
         if seg in layers or seg == 'Composite':
@@ -257,9 +261,9 @@ def parse_step_name(name, known_layers=None, known_objectives=()) -> StepNameCom
         elif re.fullmatch(r'\d{4,}', seg):
             scan_count = int(seg)
         elif seg in _POST_SUFFIX_TOKENS:
-            post = seg
+            post.append(seg)
         elif seg == 'zproj' and i + 1 < len(segs):
-            post = f'zproj_{segs[i + 1]}'
+            post.append(f'zproj_{segs[i + 1]}')
             i += 1
         i += 1
 
@@ -272,7 +276,7 @@ def parse_step_name(name, known_layers=None, known_objectives=()) -> StepNameCom
         turret_position=turret_position,
         z_index=z_index,
         scan_count=scan_count,
-        post=post,
+        post=tuple(post),
     )
 
 
