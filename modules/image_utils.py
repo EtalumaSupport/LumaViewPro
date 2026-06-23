@@ -242,7 +242,16 @@ def load_pixels(
             image = read_tiff_with_legacy_collapse(path)
         else:
             image = tf.imread(str(path))
-        return image, read_tiff_significant_bits(path)
+        sig = read_tiff_significant_bits(path)
+        # Debug (not info): load_pixels runs per-tile in stitch/zproject, so this
+        # is high-volume; it records how a saved file was interpreted on read-back
+        # (depth + whether a false-color file collapsed to mono) when diagnosing.
+        logger.debug(
+            f'[ImageLoad] {path.name} dtype={image.dtype} shape={image.shape} '
+            f'color={is_color_image(image)} significant_bits={sig} '
+            f'collapse={collapse_legacy_false_color}'
+        )
+        return image, sig
 
     # Non-TIFF (PNG / JPEG): no depth carrier, so the container width is the
     # depth. cv2 returns color files in BGR channel order; the depth-sensitive
@@ -250,7 +259,13 @@ def load_pixels(
     image = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
     if image is None:
         raise ValueError(f'Could not decode image: {path}')
-    return image, image.dtype.itemsize * 8
+    sig = image.dtype.itemsize * 8
+    logger.debug(
+        f'[ImageLoad] {path.name} dtype={image.dtype} shape={image.shape} '
+        f'color={is_color_image(image)} significant_bits={sig} '
+        f'collapse={collapse_legacy_false_color}'
+    )
+    return image, sig
 
 
 def resolve_output_depth(input_depths) -> int:

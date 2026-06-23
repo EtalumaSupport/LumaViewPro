@@ -709,7 +709,7 @@ def save_live_image(
     # camera-native default; 8-bit captures derive 8 from the dtype.
     significant_bits = 16 if (sum_count > 1 and not force_to_8bit) else None
 
-    return save_image(
+    path = save_image(
         scope,
         array,
         save_folder,
@@ -723,3 +723,19 @@ def save_live_image(
         significant_bits=significant_bits,
         save_encoding=save_encoding,
     )
+
+    # Record what the manual capture actually wrote, so a saved-file bundle is
+    # self-describing: the mode / encoding / depth that produced each file can be
+    # read from the log instead of inferred from the file's tags afterward.
+    if isinstance(array, np.ndarray):
+        logged_bits = (
+            significant_bits
+            if significant_bits is not None
+            else (8 if array.dtype == np.uint8 else scope.imaging.significant_bits)
+        )
+        logger.info(
+            f'[ImageSave] manual capture encoding={save_encoding} '
+            f'significant_bits={logged_bits} dtype={array.dtype} '
+            f'shape={array.shape} -> {pathlib.Path(path).name}'
+        )
+    return path
