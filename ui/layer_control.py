@@ -5,7 +5,6 @@ import os
 import numpy as np
 
 from kivy.clock import Clock
-from kivy.metrics import dp
 from kivy.properties import StringProperty, ObjectProperty, BooleanProperty
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.scrollview import ScrollView
@@ -84,6 +83,9 @@ class LayerControl(BoxLayout):
     autogain_support = BooleanProperty(True)
     exposure_summing_support = BooleanProperty(False)
     show_camera_controls = BooleanProperty(True)
+    # Drives the 8-bit summing depth-loss hint row; the row height follows the
+    # label's wrapped texture so the multi-line warning is not clipped.
+    sum_depth_hint_active = BooleanProperty(False)
     show_cbt = BooleanProperty(True)
 
     def __init__(self, **kwargs):
@@ -141,10 +143,9 @@ class LayerControl(BoxLayout):
         if scope_display is None:
             return
         sum_count = _app_ctx.ctx.settings.get(self.layer, {}).get('sum')
-        active = image_mode.depth_truncation_warning_active(sum_count, scope_display.image_mode)
-        row = self.ids['sum_depth_hint_row']
-        row.height = dp(30) if active else 0
-        row.opacity = 1 if active else 0
+        self.sum_depth_hint_active = image_mode.depth_truncation_warning_active(
+            sum_count, scope_display.image_mode
+        )
 
     def _validate_and_apply_text_input(
         self,

@@ -11,7 +11,6 @@ import time
 import numpy as np
 
 from kivy.clock import Clock
-from kivy.metrics import dp
 from kivy.properties import BooleanProperty
 from kivy.uix.boxlayout import BoxLayout
 
@@ -801,6 +800,10 @@ class MicroscopeSettings(BoxLayout):
         self.ids['image_mode_spinner'].values = image_mode.available_mode_labels(formats)
         return formats
 
+    # Drives the 8-bit binning depth-loss hint row; the row height follows the
+    # label's wrapped texture so the multi-line warning is not clipped.
+    binning_depth_hint_active = BooleanProperty(False)
+
     def _refresh_binning_depth_hint(self):
         """Show the depth-loss hint below the binning control only when binning
         is active in an 8-bit mode (the binned range is truncated on save).
@@ -811,10 +814,9 @@ class MicroscopeSettings(BoxLayout):
         if scope_display is None:
             return
         binning_size = binning.binning_size_str_to_int(self.ids['binning_spinner'].text)
-        active = image_mode.depth_truncation_warning_active(binning_size, scope_display.image_mode)
-        row = self.ids['binning_depth_hint_row']
-        row.height = dp(30) if active else 0
-        row.opacity = 1 if active else 0
+        self.binning_depth_hint_active = image_mode.depth_truncation_warning_active(
+            binning_size, scope_display.image_mode
+        )
 
     def select_image_mode(self):
         ctx = _app_ctx.ctx

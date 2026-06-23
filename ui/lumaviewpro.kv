@@ -2428,18 +2428,22 @@
 				id: binning_depth_hint_row
 				orientation: 'horizontal'
 				size_hint_y: None
-				# Shown (toggled from select_binning_size / select_image_mode) only
-				# when binning is active in an 8-bit mode: the binned range is
-				# downconverted to 8 bits on save, so the added range is not kept.
-				height: 0
-				opacity: 0
+				# Shown (toggled via binning_depth_hint_active from select_binning_size
+				# / select_image_mode) only when binning is active in an 8-bit mode: the
+				# binned range is downconverted to 8 bits on save. The row height follows
+				# the label's wrapped texture so the multi-line warning is not clipped.
+				height: binning_depth_hint_label.texture_size[1] + dp(6) if root.binning_depth_hint_active else 0
+				opacity: 1 if root.binning_depth_hint_active else 0
 				Label:
+					id: binning_depth_hint_label
 					text: '8-bit mode saves at 8-bit -- the added range from summing/binning is not kept. Switch to a 12-bit mode to preserve it.'
 					color: 1, 0.6, 0, 1
 					font_size: '11sp'
 					halign: 'left'
 					valign: 'middle'
-					text_size: self.size
+					size_hint_y: None
+					text_size: self.width, None
+					height: self.texture_size[1]
 
 			BoxLayout:
 				orientation: 'horizontal'
@@ -3320,18 +3324,22 @@
 				id: sum_depth_hint_row
 				orientation: 'horizontal'
 				size_hint_y: None
-				# Shown (toggled from _refresh_sum_depth_hint) only when this
-				# layer sums in an 8-bit mode: the summed range is downconverted
-				# to 8 bits on save, so the added range is not kept.
-				height: 0
-				opacity: 0
+				# Shown (toggled via sum_depth_hint_active from _refresh_sum_depth_hint)
+				# only when this layer sums in an 8-bit mode: the summed range is
+				# downconverted to 8 bits on save. The row height follows the label's
+				# wrapped texture so the multi-line warning is not clipped.
+				height: sum_depth_hint_label.texture_size[1] + dp(6) if root.sum_depth_hint_active else 0
+				opacity: 1 if root.sum_depth_hint_active else 0
 				Label:
+					id: sum_depth_hint_label
 					text: '8-bit mode saves at 8-bit -- the added range from summing/binning is not kept. Switch to a 12-bit mode to preserve it.'
 					color: 1, 0.6, 0, 1
 					font_size: '11sp'
 					halign: 'left'
 					valign: 'middle'
-					text_size: self.size
+					size_hint_y: None
+					text_size: self.width, None
+					height: self.texture_size[1]
 
 
 			# Focus
