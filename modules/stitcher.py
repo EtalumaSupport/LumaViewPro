@@ -47,32 +47,32 @@ class Stitcher(ProtocolPostProcessor):
             objective_id=row0['Objective']
         )
 
-        # A stitch spans every tile of a (well, channel), so the per-tile
-        # token baked into the step name no longer identifies the output --
-        # always drop it. A composite-stitch additionally spans all channels;
-        # its stored Color is 'Composite', so the leaked channel token cannot
-        # be matched by Color -- drop whichever channel token is present. A
-        # single-channel stitch keeps its channel (a BF stitch is still BF).
-        # Any custom name text is otherwise preserved.
-        base_name = common_utils.strip_tile_token(row0['Name'], row0.get('Tile', ''))
-        if row0.get('Color', '') == 'Composite':
-            base_name = common_utils.strip_any_channel_token(base_name)
-
-        # Prepend the protocol's capture_root (passed in via kwargs by
-        # ProtocolPostProcessor.load_folder) so the stitched output
-        # carries the same filename root as the per-image saves.
-        capture_root = kwargs.get('capture_root', '')
-        prefix = f'{capture_root}_{base_name}' if capture_root else base_name
-        name = common_utils.generate_default_step_name(
-            custom_name_prefix=prefix,
-            well_label=row0['Well'],
-            color=row0['Color'],
-            z_height_idx=row0['Z-Slice'],
-            scan_count=row0['Scan Count'],
-            objective_short_name=objective_short_name,
-            tile_label=None,
-            stitched=True,
+        # A stitch spans every tile of a (well, channel), so the per-tile token
+        # is omitted (tile=None) -- by construction, never by stripping it back
+        # out of a name. The channel comes from the authoritative Color column:
+        # a single-channel stitch keeps its channel, and a composite-stitch
+        # carries 'Composite' automatically (its Color is 'Composite'), so no
+        # leaked channel token needs removing.
+        name = common_utils.build_step_name(
+            common_utils.step_components(
+                row0,
+                tile=None,
+                scan_count=row0['Scan Count'],
+                objective=objective_short_name,
+                post=('stitched',),
+            )
         )
+
+        # Prepend the protocol's capture_root (always threaded into kwargs by
+        # ProtocolPostProcessor.load_folder, the only caller) so the stitched
+        # output carries the same filename root as the per-image saves. Kept out
+        # of the name seed so a root containing a token cannot perturb the
+        # derived name. An empty root is a valid state (no custom root set); a
+        # missing key is a caller bug and fails loud rather than silently
+        # dropping the root.
+        capture_root = kwargs['capture_root']
+        if capture_root:
+            name = f'{capture_root}_{name}'
 
         outfile = f'{name}.tiff'
         return outfile

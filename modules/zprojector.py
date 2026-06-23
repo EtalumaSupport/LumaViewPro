@@ -54,22 +54,33 @@ class ZProjector(ProtocolPostProcessor):
             objective_id=row0['Objective']
         )
 
-        # Prepend the protocol's capture_root (passed in via kwargs by
-        # ProtocolPostProcessor.load_folder) so the z-projected output
-        # carries the same filename root as the per-image saves.
-        capture_root = kwargs.get('capture_root', '')
-        prefix = f'{capture_root}_{row0["Name"]}' if capture_root else row0['Name']
-        name = common_utils.generate_default_step_name(
-            custom_name_prefix=prefix,
-            well_label=row0['Well'],
-            color=row0['Color'],
-            z_height_idx=None,
-            scan_count=row0['Scan Count'],
-            tile_label=row0['Tile'],
-            objective_short_name=objective_short_name,
-            stitched=row0['Stitched'],
-            zprojection=kwargs['method'].lower(),
+        # A z-projection collapses every z-slice into one image, so the z token
+        # is omitted (z_index=None) -- a single slice index would mislabel the
+        # projection. channel and tile are kept (per-channel, per-tile output).
+        # Post-output suffixes chain: a z-projection of an already-stitched
+        # output carries both ('stitched', 'zproj_<method>').
+        post = ('stitched',) if row0['Stitched'] else ()
+        post = (*post, f'zproj_{kwargs["method"].lower()}')
+        name = common_utils.build_step_name(
+            common_utils.step_components(
+                row0,
+                z_index=None,
+                scan_count=row0['Scan Count'],
+                objective=objective_short_name,
+                post=post,
+            )
         )
+
+        # Prepend the protocol's capture_root (always threaded into kwargs by
+        # ProtocolPostProcessor.load_folder, the only caller) so the z-projected
+        # output carries the same filename root as the per-image saves. Kept out
+        # of the name seed so a root containing a token cannot perturb the
+        # derived name. An empty root is a valid state (no custom root set); a
+        # missing key is a caller bug and fails loud rather than silently
+        # dropping the root.
+        capture_root = kwargs['capture_root']
+        if capture_root:
+            name = f'{capture_root}_{name}'
 
         outfile = f'{name}.tiff'
         return outfile

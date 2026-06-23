@@ -1,37 +1,28 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""#501 regression: composite / stitched / z-proj / video / stack outputs
-must preserve the protocol's capture_root in their filenames.
+"""#501 regression: post-processor output filenames.
 
-Bug
----
-Per-image protocol saves use protocol.capture_root() as a filename
-prefix (protocol_image_writer.py:266-273). The five post-processors
-(composite_generation, stitcher, zprojector, video_builder,
-stack_builder) all read a different field: a per-step DataFrame
-column called "Custom Root" that is never written anywhere in the
-codebase. Every read defaults to empty, so composite + stitched +
-z-proj + video output filenames collapse to step-name only, dropping
-the experiment's Root prefix. stack_builder didn't even reference
-Custom Root -- it just used row0['Name'] directly with no prefix.
+Two guarantees, both faces of the same bug:
 
-Fix
----
-ProtocolPostProcessor.load_folder now extracts protocol.capture_root()
-from the loaded Protocol and threads it into kwargs as 'capture_root'.
-Each subclass's _generate_filename reads kwargs['capture_root'] and
-uses it as the filename prefix instead of the dormant Custom Root
-column.
+1. CAPTURE_ROOT -- composite / stitch / z-proj / video / stack outputs must
+   carry the protocol's capture_root prefix (the per-image saves do). The
+   prefix is threaded into kwargs by ProtocolPostProcessor.load_folder (the
+   only caller of _generate_filename); each subclass reads it from kwargs,
+   never from the dormant, never-written "Custom Root" DataFrame column.
 
-Test approach
--------------
-1. Base load_folder must extract protocol + populate kwargs with
-   'capture_root' before _generate_filename is called.
-2. Each of the five subclasses must:
-   - Read 'capture_root' from kwargs in _generate_filename
-   - NOT read the dormant 'Custom Root' DataFrame column
-   - Use the read value as the prefix when non-empty
+2. IDENTITY BY CONSTRUCTION -- the five post-processors build their output name
+   from the canonical builder (build_step_name + step_components), reading the
+   authoritative columns. A stitch omits the per-tile token by setting
+   tile=None (not by stripping it back out of a name -- the old strip helper
+   keyed on an empty Tile column and no-op'd, so the token survived). A
+   composite/hyperstack collapses the channel by forcing channel='Composite' /
+   channel=None. The three string-stripping helpers (strip_tile_token,
+   strip_any_channel_token, composite_generation._strip_channel_token) are
+   DELETED; the migration guard below pins that they stay deleted so a future
+   merge cannot reintroduce the strip-based path.
 
-AST-based structural locks (UI dependencies prevent direct exec).
+The filename-outcome assertions exercise the same component path the
+post-processors use; the structural properties (idempotence under channel
+change, round-trip) live in test_step_name_builder.py.
 """
 
 from __future__ import annotations
@@ -39,11 +30,12 @@ from __future__ import annotations
 import ast
 import pathlib
 
-import modules.common_utils as common_utils
-from modules.composite_generation import _strip_channel_token
+from modules.common_utils import build_step_name, step_components
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
+
+_LAYERS = ['Blue', 'Green', 'Red', 'BF', 'PC', 'DF', 'Lumi']
 
 POST_PROCESSORS = {
     'CompositeGeneration': REPO / 'modules' / 'composite_generation.py',
@@ -54,6 +46,7 @@ POST_PROCESSORS = {
 }
 
 BASE_PATH = REPO / 'modules' / 'protocol_post_processor.py'
+COMMON_UTILS_PATH = REPO / 'modules' / 'common_utils.py'
 
 
 def _method_node(path: pathlib.Path, class_name: str, method_name: str) -> ast.FunctionDef:
@@ -67,23 +60,23 @@ def _method_node(path: pathlib.Path, class_name: str, method_name: str) -> ast.F
     raise AssertionError(f'{class_name}.{method_name} not found in {path}')
 
 
+# ---------------------------------------------------------------------------
+# 1. capture_root threading (behavioral, pinned via AST: UI deps block exec)
+# ---------------------------------------------------------------------------
+
+
 def test_base_load_folder_threads_capture_root_into_kwargs():
     """ProtocolPostProcessor.load_folder must read protocol.capture_root()
     and put it into kwargs before _generate_filename runs."""
-    # pin-justified: reaching the kwarg-threading behaviorally needs
-    # load_folder driven all the way to _generate_filename with a real
-    # protocol tree; the AST order-check pins the invariant directly.
     method = _method_node(BASE_PATH, 'ProtocolPostProcessor', 'load_folder')
     src = ast.unparse(method)
     assert 'capture_root' in src, (
-        'ProtocolPostProcessor.load_folder must thread capture_root into kwargs. (#501)'
+        'ProtocolPostProcessor.load_folder must thread capture_root into kwargs.'
     )
     assert '.capture_root()' in src, (
-        'ProtocolPostProcessor.load_folder must call '
-        'protocol.capture_root() to source the prefix. (#501)'
+        'ProtocolPostProcessor.load_folder must call protocol.capture_root() to source the prefix.'
     )
     # Sanity: kwargs is populated before _generate_filename is called.
-    # Find statement indices for the assignment and the call.
     assign_idx = -1
     call_idx = -1
     for i, stmt in enumerate(method.body):
@@ -97,185 +90,153 @@ def test_base_load_folder_threads_capture_root_into_kwargs():
         if 'self._generate_filename' in unparsed:
             call_idx = i
             break
-    assert assign_idx >= 0, 'capture_root must be assigned into kwargs in load_folder. (#501)'
+    assert assign_idx >= 0, 'capture_root must be assigned into kwargs in load_folder.'
     assert call_idx >= 0, (
         '_generate_filename call not found in load_folder; test needs updating for the new shape.'
     )
     assert assign_idx < call_idx, (
         f'capture_root must be threaded into kwargs at statement '
         f'{assign_idx} BEFORE the _generate_filename call site (which '
-        f'leads to the per-group loop at statement {call_idx}). (#501)'
+        f'leads to the per-group loop at statement {call_idx}).'
     )
 
 
-def _assert_subclass_uses_capture_root_kwarg(class_name: str, path: pathlib.Path):
+def _assert_subclass_reads_capture_root_kwarg(class_name: str, path: pathlib.Path):
     method = _method_node(path, class_name, '_generate_filename')
     src = ast.unparse(method)
     assert 'capture_root' in src, (
         f'{class_name}._generate_filename must read capture_root from '
-        f'kwargs to prefix the output filename. (#501)'
+        f'kwargs to prefix the output filename.'
     )
-    assert "kwargs.get('capture_root'" in src or 'kwargs["capture_root"' in src, (
+    # Required access kwargs['capture_root'] (load_folder always threads it) is
+    # the antifragile form; a defensive kwargs.get(...) default still satisfies
+    # the read contract.
+    reads_kwarg = (
+        "kwargs['capture_root']" in src
+        or 'kwargs["capture_root"]' in src
+        or "kwargs.get('capture_root'" in src
+        or 'kwargs.get("capture_root"' in src
+    )
+    assert reads_kwarg, (
         f'{class_name}._generate_filename must read capture_root from '
-        f'kwargs (not from a DataFrame column). (#501)'
+        f'kwargs (not from a DataFrame column).'
     )
     assert "'Custom Root'" not in src and '"Custom Root"' not in src, (
         f'{class_name}._generate_filename must NOT read the dormant '
-        f'"Custom Root" DataFrame column -- that field is never '
-        f'written; use kwargs["capture_root"] from load_folder. (#501)'
+        f'"Custom Root" DataFrame column -- that field is never written.'
     )
 
 
-def test_composite_generation_uses_capture_root():
-    _assert_subclass_uses_capture_root_kwarg(
-        'CompositeGeneration', POST_PROCESSORS['CompositeGeneration']
-    )
-
-
-def test_stitcher_uses_capture_root():
-    _assert_subclass_uses_capture_root_kwarg('Stitcher', POST_PROCESSORS['Stitcher'])
-
-
-def test_zprojector_uses_capture_root():
-    _assert_subclass_uses_capture_root_kwarg('ZProjector', POST_PROCESSORS['ZProjector'])
-
-
-def test_video_builder_uses_capture_root():
-    _assert_subclass_uses_capture_root_kwarg('VideoBuilder', POST_PROCESSORS['VideoBuilder'])
-
-
-def test_stack_builder_uses_capture_root():
-    _assert_subclass_uses_capture_root_kwarg('StackBuilder', POST_PROCESSORS['StackBuilder'])
+def test_all_post_processors_read_capture_root_from_kwargs():
+    for class_name, path in POST_PROCESSORS.items():
+        _assert_subclass_reads_capture_root_kwarg(class_name, path)
 
 
 # ---------------------------------------------------------------------------
-# #501 follow-up: a composite must not be named after one arbitrary channel.
-# The composite group spans every channel, but the filename took the first
-# row's step Name (e.g. 'A1_Green'), leaking that channel into the output.
+# 2. Filename outcomes via the canonical component path (fail-before/pass-after)
 # ---------------------------------------------------------------------------
 
 
-def test_strip_channel_token_removes_channel():
-    assert _strip_channel_token('A1_Green', 'Green') == 'A1'
-    assert _strip_channel_token('A1_Green_2xOly_Z0_0000', 'Green') == 'A1_2xOly_Z0_0000'
-    assert _strip_channel_token('A1_BF', 'BF') == 'A1'
+def _build(row: dict, **overrides) -> str:
+    return build_step_name(step_components(row, known_layers=_LAYERS, **overrides))
 
 
-def test_strip_channel_token_row_order_stable():
-    # Whichever channel happens to be the group's first row, the composite
-    # base name is identical -- so the output filename is row-order stable.
-    bases = {_strip_channel_token(f'A1_{c}_2xOly', c) for c in ('Green', 'Red', 'Blue', 'BF')}
-    assert bases == {'A1_2xOly'}
+def test_single_channel_stitch_drops_tile_keeps_channel():
+    # Stitch spans all tiles: drop the tile token, keep the channel.
+    row = {'Well': 'A1', 'Color': 'BF', 'Tile': 'A1', 'Z-Slice': '', 'Name': 'A1_BF_TA1'}
+    name = _build(row, tile=None, scan_count=0, objective='4xOly', post=('stitched',))
+    assert name == 'A1_BF_4xOly_0000_stitched'
+    assert '_TA1' not in name
 
 
-def test_strip_channel_token_noop_when_absent_or_empty():
-    assert _strip_channel_token('A1_2xOly', '') == 'A1_2xOly'
-    assert _strip_channel_token('A1_2xOly', 'Green') == 'A1_2xOly'
+def test_composite_stitch_drops_tile_and_channel():
+    # A composite-stitch spans all channels: its Color column is 'Composite',
+    # so the channel is 'Composite' by construction -- the stale per-channel
+    # token baked into the Name string is never consulted (Well is set).
+    row = {'Well': 'A1', 'Color': 'Composite', 'Tile': 'A1', 'Z-Slice': '', 'Name': 'A1_BF_TA1'}
+    name = _build(row, tile=None, scan_count=0, objective='4xOly', post=('stitched',))
+    assert name == 'A1_Composite_4xOly_0000_stitched'
+    assert '_TA1' not in name and '_BF' not in name
 
 
-def test_composite_generation_strips_channel_token():
-    """_generate_filename must drop the per-channel token from the step name
-    before building the composite filename."""
-    method = _method_node(
-        POST_PROCESSORS['CompositeGeneration'], 'CompositeGeneration', '_generate_filename'
-    )
-    src = ast.unparse(method)
-    assert '_strip_channel_token' in src, (
-        'CompositeGeneration._generate_filename must strip the channel token '
-        'from the step name so the composite is not named after one channel.'
-    )
+def test_stitch_drops_tile_even_when_tile_column_empty():
+    # The exact #501 face: the post-record Tile column is empty while the Name
+    # still carries 'TA1'. The old strip helper keyed on the empty column and
+    # no-op'd, leaking the token. Setting tile=None omits it by construction,
+    # and the stale Name token is never re-parsed (Well is set).
+    row = {'Well': 'A1', 'Color': 'BF', 'Tile': '', 'Z-Slice': '', 'Name': 'A1_BF_TA1'}
+    name = _build(row, tile=None, scan_count=0, post=('stitched',))
+    assert name == 'A1_BF_0000_stitched'
+    assert '_TA1' not in name
 
 
-# ---------------------------------------------------------------------------
-# #501 follow-up 2: a stitched output must not leak the per-tile token (a
-# stitch spans all tiles), and a composite-stitch must not leak the channel
-# token either (it spans all channels; its stored Color is 'Composite', so
-# the leaked channel cannot be matched by Color). A hyperstack collapses all
-# channels, so it must not leak the channel token. Custom name text is kept.
-# ---------------------------------------------------------------------------
-
-
-def test_strip_tile_token_removes_tile():
-    assert common_utils.strip_tile_token('A1_BF_TA1', 'A1') == 'A1_BF'
-    assert common_utils.strip_tile_token('A1_Green_TB2_4xOly_0000', 'B2') == 'A1_Green_4xOly_0000'
-
-
-def test_strip_tile_token_segment_safe_and_noop():
-    # The tile value coincides with the well label; only the 'T<tile>' segment
-    # is removed, never the bare well token.
-    assert common_utils.strip_tile_token('A1_BF', 'A1') == 'A1_BF'
-    assert common_utils.strip_tile_token('myExperiment', 'A1') == 'myExperiment'
-    assert common_utils.strip_tile_token('A1_BF_TA1', '') == 'A1_BF_TA1'
-
-
-def test_strip_any_channel_token_removes_first_layer():
-    assert common_utils.strip_any_channel_token('A1_BF_TA1') == 'A1_TA1'
-    assert common_utils.strip_any_channel_token('A1_Green') == 'A1'
-    # No layer token present -> unchanged (custom name preserved).
-    assert common_utils.strip_any_channel_token('A1_4xOly') == 'A1_4xOly'
-    assert common_utils.strip_any_channel_token('myExperiment') == 'myExperiment'
-
-
-def test_stitch_filename_outcomes_match_agreed_rule():
-    # Single-channel stitch: drop the tile token, KEEP the channel.
-    base = common_utils.strip_tile_token('A1_BF_TA1', 'A1')
-    plain = common_utils.generate_default_step_name(
-        custom_name_prefix=base,
-        well_label='A1',
-        color='BF',
-        objective_short_name='4xOly',
-        scan_count=0,
-        tile_label=None,
-        stitched=True,
-    )
-    assert plain == 'A1_BF_4xOly_0000_stitched'
-
-    # Composite-stitch: drop the tile token AND the channel token.
-    base = common_utils.strip_tile_token('A1_BF_TA1', 'A1')
-    base = common_utils.strip_any_channel_token(base)
-    composite = common_utils.generate_default_step_name(
-        custom_name_prefix=base,
-        well_label='A1',
-        color='Composite',
-        objective_short_name='4xOly',
-        scan_count=0,
-        tile_label=None,
-        stitched=True,
-    )
-    assert composite == 'A1_Composite_4xOly_0000_stitched'
-    assert '_TA1' not in composite and '_BF' not in composite
-
-
-def test_stack_filename_drops_channel_keeps_tile():
-    base = common_utils.strip_any_channel_token('A1_BF_TA1')
-    name = common_utils.generate_default_step_name(
-        custom_name_prefix=base,
-        well_label='A1',
-        color=None,
-        objective_short_name='4xOly',
-        hyperstack=True,
-    )
+def test_hyperstack_drops_channel_and_z_keeps_tile():
+    # A hyperstack collapses all channels (channel=None) AND all z-slices
+    # (z_index=None) but keeps the tile -- a single slice index would mislabel
+    # the whole stack.
+    row = {'Well': 'A1', 'Color': 'BF', 'Tile': 'A1', 'Z-Slice': 3, 'Name': 'A1_BF_TA1_Z3'}
+    name = _build(row, channel=None, z_index=None, objective='4xOly', post=('hyperstack',))
     assert name == 'A1_TA1_4xOly_hyperstack'
-    assert '_BF' not in name
+    assert '_BF' not in name and '_Z3' not in name
 
 
-def test_stitcher_drops_tile_and_composite_channel():
-    method = _method_node(POST_PROCESSORS['Stitcher'], 'Stitcher', '_generate_filename')
-    src = ast.unparse(method)
-    assert 'strip_tile_token' in src, (
-        'Stitcher._generate_filename must drop the per-tile token -- a stitch '
-        'spans all tiles. (#501)'
+def test_zprojection_drops_z_keeps_channel_and_tile():
+    # A z-projection collapses every z-slice (z_index=None) but keeps channel
+    # and tile (per-channel, per-tile output). The post chain records both the
+    # source's stitched state and the projection.
+    row = {'Well': 'A1', 'Color': 'BF', 'Tile': 'A1', 'Z-Slice': 3, 'Name': 'A1_BF_TA1_Z3'}
+    name = _build(row, z_index=None, scan_count=0, post=('stitched', 'zproj_median'))
+    assert name == 'A1_BF_TA1_0000_stitched_zproj_median'
+    assert '_Z3' not in name
+
+
+def test_chained_post_outputs_carry_both_suffixes():
+    # A video of an already-stitched output carries the ordered chain
+    # ('stitched', 'video') -- the single-str post field could only hold one,
+    # dropping the other. Video keeps z (one slice per video).
+    row = {'Well': 'A1', 'Color': 'BF', 'Tile': 'A1', 'Z-Slice': 3, 'Name': 'A1_BF_TA1_Z3'}
+    name = _build(row, post=('stitched', 'video'))
+    assert name == 'A1_BF_TA1_Z3_stitched_video'
+
+
+# ---------------------------------------------------------------------------
+# 3. Migration guard: the strip helpers are deleted and stay deleted; every
+#    post-processor builds through the canonical builder. Replaces the prior
+#    AST locks that asserted the strip helpers were CALLED.
+# ---------------------------------------------------------------------------
+
+
+def test_strip_helpers_are_deleted():
+    common_src = COMMON_UTILS_PATH.read_text()
+    assert 'def strip_tile_token' not in common_src, (
+        'strip_tile_token must stay deleted -- the canonical builder omits a '
+        'token by construction, no string-stripping helper needed.'
     )
-    assert 'strip_any_channel_token' in src, (
-        'Stitcher._generate_filename must drop the channel token for a '
-        'composite-stitch (Color == "Composite"). (#501)'
+    assert 'def strip_any_channel_token' not in common_src, (
+        'strip_any_channel_token must stay deleted.'
+    )
+    composite_src = POST_PROCESSORS['CompositeGeneration'].read_text()
+    assert 'def _strip_channel_token' not in composite_src, (
+        'composite_generation._strip_channel_token must stay deleted.'
     )
 
 
-def test_stack_builder_drops_channel_token():
-    method = _method_node(POST_PROCESSORS['StackBuilder'], 'StackBuilder', '_generate_filename')
-    src = ast.unparse(method)
-    assert 'strip_any_channel_token' in src, (
-        'StackBuilder._generate_filename must drop the channel token -- a '
-        'hyperstack collapses all channels. (#501)'
-    )
+def test_post_processors_build_through_canonical_builder():
+    for class_name, path in POST_PROCESSORS.items():
+        method = _method_node(path, class_name, '_generate_filename')
+        src = ast.unparse(method)
+        assert 'build_step_name' in src, (
+            f'{class_name}._generate_filename must build its name through '
+            f'build_step_name, not the legacy append-if-absent builder.'
+        )
+        assert 'strip_tile_token' not in src, (
+            f'{class_name}._generate_filename must not strip a tile token; '
+            f'omit it via tile=None instead.'
+        )
+        assert 'strip_any_channel_token' not in src, (
+            f'{class_name}._generate_filename must not strip a channel token; '
+            f'set channel via the component instead.'
+        )
+        assert '_strip_channel_token' not in src, (
+            f'{class_name}._generate_filename must not strip a channel token.'
+        )

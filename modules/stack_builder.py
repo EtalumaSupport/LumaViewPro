@@ -64,29 +64,31 @@ class StackBuilder(ProtocolPostProcessor):
             objective_id=row0['Objective']
         )
 
-        # A hyperstack collapses every channel into one file (color=None
-        # below), so the channel token baked into the step name no longer
-        # identifies it -- drop whichever channel token is present. The
-        # per-tile token is kept: a stack is still one tile. Any custom name
-        # text is otherwise preserved.
-        base_name = common_utils.strip_any_channel_token(row0['Name'])
-
-        # Prepend the protocol's capture_root (passed in via kwargs by
-        # ProtocolPostProcessor.load_folder) so the stack output carries
-        # the same filename root as the per-image saves.
-        capture_root = kwargs.get('capture_root', '')
-        prefix = f'{capture_root}_{base_name}' if capture_root else base_name
-
-        name = common_utils.generate_default_step_name(
-            custom_name_prefix=prefix,
-            well_label=row0['Well'],
-            color=None,
-            z_height_idx=None,
-            scan_count=None,
-            tile_label=None,
-            objective_short_name=objective_short_name,
-            hyperstack=True,
+        # A hyperstack spans every channel AND every z-slice, so both the
+        # channel and z tokens are omitted (channel=None, z_index=None) -- a
+        # single slice index would mislabel the whole stack. The per-tile token
+        # is kept: a stack is still one tile. Collapsed dimensions are dropped
+        # by construction, never by stripping tokens back out of a name.
+        name = common_utils.build_step_name(
+            common_utils.step_components(
+                row0,
+                channel=None,
+                z_index=None,
+                objective=objective_short_name,
+                post=('hyperstack',),
+            )
         )
+
+        # Prepend the protocol's capture_root (always threaded into kwargs by
+        # ProtocolPostProcessor.load_folder, the only caller) so the stack
+        # output carries the same filename root as the per-image saves. Kept out
+        # of the name seed so a root containing a token cannot perturb the
+        # derived name. An empty root is a valid state (no custom root set); a
+        # missing key is a caller bug and fails loud rather than silently
+        # dropping the root.
+        capture_root = kwargs['capture_root']
+        if capture_root:
+            name = f'{capture_root}_{name}'
 
         outfile = f'{name}.ome.tiff'
         return outfile
