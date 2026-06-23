@@ -108,3 +108,36 @@ class TestGetImageFromBufferUsesFrameDepth:
         # by the live 8-bit value would index a 256-entry LUT with 4095 and crash
         # (the original bug).
         assert int(img.max()) == 255
+
+
+class TestLastSignificantBitsViaMethodContract:
+    """Camera.last_significant_bits must read the buffered frame's depth through
+    the handler's get_last_image() method, not the raw last_img_significant_bits
+    attribute. The Pylon handler composes ImageHandlerBase (no raw attribute
+    exposed), so reaching the attribute directly AttributeErrors on the Pylon
+    camera; every other handler consumer already uses the method contract.
+    """
+
+    def test_reads_depth_from_composition_handler(self):
+        from types import SimpleNamespace
+
+        from drivers.camera import Camera
+
+        # A composition-style handler (the Pylon shape): exposes get_last_image
+        # but NOT the raw last_img_significant_bits attribute.
+        handler = SimpleNamespace(get_last_image=lambda: (True, None, None, 12))
+        assert not hasattr(handler, 'last_img_significant_bits')
+
+        cam = SimpleNamespace(cam_image_handler=handler, significant_bits=16)
+        # Reaching the raw attribute (the bug) would raise AttributeError here.
+        assert Camera.last_significant_bits.fget(cam) == 12
+
+    def test_falls_back_to_live_depth_when_no_buffered_frame(self):
+        from types import SimpleNamespace
+
+        from drivers.camera import Camera
+
+        # No frame stored yet -> get_last_image reports failure -> live depth.
+        handler = SimpleNamespace(get_last_image=lambda: (False, None, None, None))
+        cam = SimpleNamespace(cam_image_handler=handler, significant_bits=16)
+        assert Camera.last_significant_bits.fget(cam) == 16

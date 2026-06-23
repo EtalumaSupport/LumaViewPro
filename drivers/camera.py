@@ -504,10 +504,18 @@ class Camera(ABC):
         ``significant_bits``, which can already reflect a newer pixel format than
         the buffered frame was captured under. Falls back to the live depth when
         no frame has been stored yet.
+
+        Read through the handler's get_last_image() method, not the raw
+        last_img_significant_bits attribute: the Pylon handler composes
+        ImageHandlerBase (to avoid a metaclass conflict with the SDK event
+        handler) and exposes only the method surface, so reaching the attribute
+        directly raises AttributeError on a Pylon camera.
         """
         handler = self.cam_image_handler
-        if handler is not None and handler.last_img_significant_bits is not None:
-            return handler.last_img_significant_bits
+        if handler is not None:
+            success, _image, _ts, significant_bits = handler.get_last_image()
+            if success and significant_bits is not None:
+                return significant_bits
         return self.significant_bits
 
     @abstractmethod
