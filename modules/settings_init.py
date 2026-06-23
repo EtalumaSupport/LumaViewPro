@@ -2,8 +2,6 @@
 import os
 import json
 
-from modules import image_mode
-
 
 settings = None
 
@@ -133,6 +131,13 @@ def _migrate_image_mode_setting(logger) -> None:
     global settings
     if settings is None:
         return
+    # Deferred to break an import cycle: lvp_logger imports load_debug_setting
+    # from this module at its module top (before lvp_logger.logger is defined),
+    # and image_mode imports lvp_logger.logger at its own top. load_debug_setting
+    # never touches image_mode, so importing it here -- only when a settings load
+    # actually migrates -- keeps the logger import safe.
+    from modules import image_mode
+
     if image_mode.migrate_settings_dict(settings):
         logger.info('[Settings ] Consolidated capture/save toggles into image_mode')
 
