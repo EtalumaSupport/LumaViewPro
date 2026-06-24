@@ -2484,38 +2484,11 @@
 					state: 'normal'
 			
 			BoxLayout:
-				id: stim_settings_box
-				orientation: 'horizontal'
-				size_hint_y: None
-				height: '30dp' if root.stim_supported else 0
-				opacity: 1 if root.stim_supported else 0
-				disabled: not root.stim_supported
-				Label:
-					font_size: '12sp'
-					text: 'Stimulation Settings'
-					tooltip_text: 'Enable stimulation features globally'
-					halign: 'left'
-					valign: 'middle'
-					text_size: self.size
-				ToggleButton:
-					id: stimulation_settings_btn
-					disabled: app.protocol_running
-					size_hint: None, None
-					tooltip_text: 'Enable stimulation features globally'
-					size: '45dp', '30dp'
-					border: 0, 0, 0, 0
-					valign: 'middle'
-					background_normal: './data/icons/ToggleL.png'
-					background_down: './data/icons/ToggleRW.png'
-					on_release: root.update_stimulation_settings()
-					state: 'normal'
-
-			BoxLayout:
 				height: '30dp'
 				size_hint_y: None
 				orientation: 'horizontal'
 				opacity: 0
-				
+
 			BoxLayout:
 				id: enable_bullseye_box_id
 				opacity: 0

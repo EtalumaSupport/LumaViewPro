@@ -23,6 +23,7 @@ import modules.app_context as _app_ctx
 from lvp_logger import logger
 from modules import gui_logger
 from modules.config_helpers import get_manual_video_max_duration
+from modules.config_ui_getters import firmware_stim_supported
 from modules.sequential_io_executor import IOTask
 
 
@@ -48,6 +49,12 @@ class AdvancedSettings(Popup):
     # one is connected. Set on open; default hidden so the row never flashes
     # before the capability is read.
     xy_stage_supported = BooleanProperty(False)
+
+    # Mirrors the LED firmware's stim capability so the row hides when the
+    # firmware cannot drive stimulation. Set on open from
+    # firmware_stim_supported(); default hidden so the row never flashes
+    # before the capability is read.
+    stim_supported = BooleanProperty(False)
 
     def on_open(self):
         """Populate every row from the settings store when the modal opens."""
@@ -98,6 +105,11 @@ class AdvancedSettings(Popup):
         # select_scope, which no-ops because it matches the stored model.
         self.load_scopes()
         self.ids['scope_spinner'].text = settings['microscope']
+
+        self.stim_supported = firmware_stim_supported()
+        self.ids['stimulation_settings_btn'].state = (
+            'down' if settings['stimulation_enabled'] else 'normal'
+        )
 
     def update_high_conversion_gain(self):
         ctx = _app_ctx.ctx
@@ -204,6 +216,15 @@ class AdvancedSettings(Popup):
         enabled = self.ids['protocol_led_on_btn'].state == 'down'
         gui_logger.toggle('PROTOCOL_LED_ON', enabled)
         settings['protocol_led_on'] = enabled
+
+    def update_stimulation_settings(self):
+        ctx = _app_ctx.ctx
+        enabled = self.ids['stimulation_settings_btn'].state == 'down'
+        gui_logger.toggle('STIMULATION_ENABLED', enabled)
+        ctx.settings['stimulation_enabled'] = enabled
+        # The microscope panel owns the per-layer stim sync; the startup load
+        # re-uses the same owner, so the toggle and load stay in lockstep.
+        ctx.motion_settings.ids['microscope_settings_id'].apply_stimulation_support()
 
     def load_scopes(self):
         scopes = _app_ctx.ctx.motion_settings.ids['microscope_settings_id'].scopes
@@ -522,6 +543,33 @@ kv = Builder.load_string(
                         background_normal: './data/icons/ToggleL.png'
                         background_down: './data/icons/ToggleRW.png'
                         on_release: root.update_protocol_led_on()
+
+                BoxLayout:
+                    id: stim_settings_box
+                    orientation: 'horizontal'
+                    size_hint_y: None
+                    height: '30dp' if root.stim_supported else 0
+                    opacity: 1 if root.stim_supported else 0
+                    disabled: not root.stim_supported
+                    Label:
+                        font_size: '12sp'
+                        text: 'Stimulation Settings'
+                        tooltip_text: 'Enable stimulation features globally'
+                        halign: 'left'
+                        valign: 'middle'
+                        text_size: self.size
+                    ToggleButton:
+                        id: stimulation_settings_btn
+                        disabled: app.protocol_running
+                        size_hint: None, None
+                        tooltip_text: 'Enable stimulation features globally'
+                        size: '45dp', '30dp'
+                        border: 0, 0, 0, 0
+                        valign: 'middle'
+                        background_normal: './data/icons/ToggleL.png'
+                        background_down: './data/icons/ToggleRW.png'
+                        on_release: root.update_stimulation_settings()
+                        state: 'normal'
 
                 BoxLayout:
                     orientation: 'horizontal'
