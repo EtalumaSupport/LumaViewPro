@@ -1253,6 +1253,34 @@ class PylonCamera(Camera):
                 # camera body's sensor doesn't reach 1900 in either
                 # axis, the SetValue will clamp + warn from set_frame_size.
                 self.set_frame_size(w=1900, h=1900)
+                # Line noise reduction smooths horizontal stripe artifacts
+                # in the sensor readout. Model-specific: not every Basler
+                # body exposes the node, so probe for it and treat absence
+                # as a normal skip, not a fault. Strength runs 0.0 (none)
+                # to 1.0 (max), where higher trades fine detail for fewer
+                # stripes; 0.5 is the Basler-documented starting point and
+                # the bench tunes the final value. Set last so an SDK error
+                # here cannot skip the essential setup above (the method's
+                # outer handler logs it).
+                node_map = camera.GetNodeMap()
+                if (
+                    node_map.GetNode('BslLineNoiseReductionEnable') is None
+                    or node_map.GetNode('BslLineNoiseReduction') is None
+                ):
+                    _cam_log.info(
+                        '[CAM Class ] Line noise reduction not supported by this camera; skipping'
+                    )
+                else:
+                    line_noise_strength = 0.5
+                    camera.BslLineNoiseReductionEnable.SetValue(True)
+                    lo = camera.BslLineNoiseReduction.GetMin()
+                    hi = camera.BslLineNoiseReduction.GetMax()
+                    camera.BslLineNoiseReduction.SetValue(line_noise_strength)
+                    _cam_log.info(
+                        f'[CAM Class ] Line noise reduction enabled: '
+                        f'strength={line_noise_strength} '
+                        f'(camera range {lo:.3f}-{hi:.3f})'
+                    )
         except genicam.RuntimeException as e:
             _cam_log.error(
                 f'[CAM Class ] Camera communication error during init_camera_config: {e}'
