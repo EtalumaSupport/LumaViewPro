@@ -1492,6 +1492,13 @@ class MicroscopeSettings(BoxLayout):
                 )
             )
 
+    def open_advanced_settings(self):
+        """Open the Advanced Settings modal (power-user / rarely-touched rows)."""
+        from ui.advanced_settings import AdvancedSettings
+
+        self._advanced_settings_popup = AdvancedSettings()
+        self._advanced_settings_popup.open()
+
     def generate_support_report(self):
         """Show confirmation dialog, then generate a tech support report."""
         from ui.notification_popup import show_confirmation_popup

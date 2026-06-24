@@ -2768,25 +2768,35 @@
 					background_down: './data/icons/ToggleRW.png'
 					on_release: root.update_bullseye_state()
 
-			# Support Report
-			# Stacked vertically so 'Generate Support Report' fits at
-			# the panel's narrow horizontal width without clipping into
-			# the adjacent button. Both labels read fully at 12sp now.
+			# Panel action buttons, stacked vertically and held to a uniform
+			# narrower width so 'Generate Support Report' reads fully at 12sp
+			# without each button spanning the full panel.
 			BoxLayout:
 				orientation: 'vertical'
 				size_hint_y: None
-				height: dp(80)
+				height: dp(116)
 				padding: dp(8)
 				spacing: dp(4)
+				RoundedButton:
+					id: btn_advanced_settings
+					text: 'Advanced Settings'
+					font_size: '12sp'
+					size_hint_x: 0.85
+					pos_hint: {'center_x': 0.5}
+					on_release: root.open_advanced_settings()
 				RoundedButton:
 					id: btn_support_report
 					text: 'Generate Support Report'
 					font_size: '12sp'
+					size_hint_x: 0.85
+					pos_hint: {'center_x': 0.5}
 					on_release: root.generate_support_report()
 				RoundedButton:
 					id: btn_zip_logs
 					text: 'Zip Logs Only'
 					font_size: '12sp'
+					size_hint_x: 0.85
+					pos_hint: {'center_x': 0.5}
 					on_release: root.zip_logs_only()
 
 			Label:
