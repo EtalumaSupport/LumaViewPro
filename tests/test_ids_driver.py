@@ -16,31 +16,61 @@ from __future__ import annotations
 import ids_peak_ipl
 import pytest
 
+from drivers.camera_profiles import CameraProfile
 from drivers.idscamera import IDSCamera, _ids_ipl_target, ids_significant_bits
 from tests.camera_fakes import bare_ids_camera
 
 
 class _RecordingNode:
-    """Node that records the last value written, for asserting SetValue calls."""
+    """Node that records writes and serves configured min/max/value, for
+    asserting SetValue calls and exercising range-dependent logic."""
 
     _UNSET = object()
 
-    def __init__(self):
-        self.value = self._UNSET
+    def __init__(self, value=_UNSET, minimum=None, maximum=None):
+        self.value = value
+        self._min = minimum
+        self._max = maximum
+        self.entry = None
 
     def SetValue(self, v):
         self.value = v
 
+    def Value(self):
+        return self.value
+
+    def Minimum(self):
+        return self._min
+
+    def Maximum(self):
+        return self._max
+
+    def SetCurrentEntry(self, entry):
+        self.entry = entry
+
 
 class _RecordingNodemap:
     """Minimal nodemap: distinct recording node per name (MagicMock collapses
-    them all to one return_value, so a real fake is needed to tell them apart)."""
+    them all to one return_value, so a real fake is needed to tell them apart).
+    Pre-seed specific nodes via `preset`; unknown names auto-create."""
 
-    def __init__(self):
-        self.nodes: dict[str, _RecordingNode] = {}
+    def __init__(self, preset=None):
+        self.nodes: dict[str, _RecordingNode] = dict(preset or {})
 
     def FindNode(self, name):
         return self.nodes.setdefault(name, _RecordingNode())
+
+
+class _RecordingDataStream:
+    """Records the timeout passed to WaitForFinishedBuffer, then raises to
+    short-circuit the rest of the grab (we only assert the timeout arg)."""
+
+    def __init__(self):
+        self.timeout_arg = None
+
+    def WaitForFinishedBuffer(self, timeout):
+        self.timeout_arg = timeout
+        raise RuntimeError('short-circuit after recording the timeout')
 
 
 class TestSignificantBitsFromFormat:
@@ -123,3 +153,71 @@ class TestFrameRateCap:
         cam.remote_nodemap = _RecordingNodemap()
         cam.set_max_acquisition_frame_rate(True, 16.0)
         assert cam.remote_nodemap.nodes == {}
+
+
+class TestGainDbConversion:
+    """The IDS Gain node is a linear multiplier; LVP drives gain in dB. The
+    driver converts dB <-> factor so 0 dB maps to the node's 1.0x unity floor
+    (the previous unconverted 0.0 write was rejected as out-of-range)."""
+
+    def _cam_with_gain_node(self, value=1.0, minimum=1.0, maximum=31.62):
+        cam = bare_ids_camera()
+        cam.remote_nodemap = _RecordingNodemap(
+            {
+                'Gain': _RecordingNode(value=value, minimum=minimum, maximum=maximum),
+                'GainSelector': _RecordingNode(),
+            }
+        )
+        return cam
+
+    def test_zero_db_maps_to_unity_factor(self):
+        cam = self._cam_with_gain_node()
+        assert cam.gain(0.0) is True
+        assert cam.remote_nodemap.nodes['Gain'].value == pytest.approx(1.0)
+
+    def test_twenty_db_maps_to_ten_x(self):
+        cam = self._cam_with_gain_node()
+        assert cam.gain(20.0) is True
+        assert cam.remote_nodemap.nodes['Gain'].value == pytest.approx(10.0)
+
+    def test_thirty_db_maps_to_full_scale_factor(self):
+        cam = self._cam_with_gain_node()
+        assert cam.gain(30.0) is True
+        assert cam.remote_nodemap.nodes['Gain'].value == pytest.approx(31.62, abs=0.05)
+
+    def test_selects_analog_all(self):
+        cam = self._cam_with_gain_node()
+        cam.gain(6.0)
+        assert cam.remote_nodemap.nodes['GainSelector'].entry == 'AnalogAll'
+
+    def test_get_gain_returns_db(self):
+        cam = self._cam_with_gain_node(value=10.0)
+        assert cam.get_gain() == pytest.approx(20.0)  # 20*log10(10)
+
+    def test_capability_range_reported_in_db(self):
+        cam = bare_ids_camera()
+        cam.profile = CameraProfile()
+        cam.remote_nodemap = _RecordingNodemap(
+            {
+                'Gain': _RecordingNode(value=1.0, minimum=1.0, maximum=31.62),
+                'ExposureTime': _RecordingNode(value=1e4, minimum=20.0, maximum=2e6),
+            }
+        )
+        cam._query_dynamic_capabilities()
+        assert cam.profile.gain.total_min_db == pytest.approx(0.0, abs=0.01)
+        assert cam.profile.gain.total_max_db == pytest.approx(30.0, abs=0.1)
+
+
+class TestGrabNewCaptureTimeout:
+    """grab_new_capture takes float seconds but WaitForFinishedBuffer wants an
+    integer millisecond timeout -- passing the float made every capture-path
+    grab fail with a SWIG type error."""
+
+    def test_passes_integer_millisecond_timeout(self):
+        cam = bare_ids_camera()
+        cam.cam_image_handler = object()  # only needs to be non-None
+        cam.data_stream = _RecordingDataStream()
+        ok, _ts = cam.grab_new_capture(3.0)
+        assert ok is False  # the fake raises after recording
+        assert cam.data_stream.timeout_arg == 3000
+        assert isinstance(cam.data_stream.timeout_arg, int)

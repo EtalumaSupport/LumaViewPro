@@ -1,6 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 import atexit
 import datetime
+import math
 import re
 import threading
 
@@ -213,14 +214,23 @@ class IDSCamera(Camera):
             return
 
         try:
-            # Gain range
+            # Gain range. The IDS Gain node is a linear multiplier (min ~1.0x),
+            # but LVP's gain model is dB (shared with the Pylon driver), so the
+            # profile range is reported in dB: dB = 20 * log10(factor).
             try:
                 gain_node = self.remote_nodemap.FindNode('Gain')
-                self.profile.gain.total_min_db = gain_node.Minimum()
-                self.profile.gain.total_max_db = gain_node.Maximum()
+                min_factor = gain_node.Minimum()
+                max_factor = gain_node.Maximum()
+                self.profile.gain.total_min_db = (
+                    20.0 * math.log10(min_factor) if min_factor > 0 else 0.0
+                )
+                self.profile.gain.total_max_db = (
+                    20.0 * math.log10(max_factor) if max_factor > 0 else 0.0
+                )
                 logger.info(
                     f'[CAM Class ] Gain range: {self.profile.gain.total_min_db:.1f} - '
-                    f'{self.profile.gain.total_max_db:.1f} dB'
+                    f'{self.profile.gain.total_max_db:.1f} dB '
+                    f'({min_factor:.2f}-{max_factor:.2f}x)'
                 )
             except Exception as e:
                 logger.debug(f'[CAM Class ] Could not query gain range: {e}')
@@ -742,7 +752,11 @@ class IDSCamera(Camera):
             return False, None
 
         try:
-            buffer = self.data_stream.WaitForFinishedBuffer(timeout_s)
+            # WaitForFinishedBuffer wants an integer millisecond timeout
+            # (peak::core::Timeout); the caller passes float seconds. The live
+            # grab loop already uses ms -- convert here too, or the SWIG call
+            # rejects the float and every capture-path grab fails.
+            buffer = self.data_stream.WaitForFinishedBuffer(int(timeout_s * 1000))
             result = not buffer.IsIncomplete()
             if not result:
                 self.data_stream.QueueBuffer(buffer)
@@ -785,22 +799,34 @@ class IDSCamera(Camera):
             return False
 
     def get_gain(self):
+        """Return gain in dB. The IDS Gain node is a linear factor; convert via
+        dB = 20 * log10(factor) (factor >= 1.0 on this body, so dB >= 0) to
+        match LVP's dB gain model."""
         if not self.active:
             _cam_log.warning('[CAM Class ] Cannot read gain: camera inactive')
             return -1
 
         try:
-            value = self.remote_nodemap.FindNode('Gain').Value()
-            return float(value)
+            factor = self.remote_nodemap.FindNode('Gain').Value()
+            return 20.0 * math.log10(factor) if factor > 0 else 0.0
         except Exception as e:
             _cam_log.error(f'[CAM Class ] Read gain failed: {e}')
             return -1
 
     def gain(self, value) -> bool:
-        """Set gain. Returns True on success, False on a confirmed
-        hardware rejection -- per-frame chunk metadata is not yet wired, so a
-        swallowed write failure here would stream frames at the stale gain with
-        no downstream backstop; the caller needs the failure signal."""
+        """Set gain. `value` is in dB (LVP's gain unit, shared with the Pylon
+        driver). The IDS Gain node is a linear multiplier, so convert
+        factor = 10 ** (dB / 20) before writing -- the app's 0 dB floor maps to
+        the node's 1.0x unity minimum, which is why the previous unconverted
+        write of 0.0 was rejected as out-of-range. The valid dB range is
+        published through the profile (see _query_dynamic_capabilities), so a
+        caller that honors it stays in range; a genuinely out-of-range request
+        still surfaces as a False return, not a silent clamp.
+
+        Returns True on success, False on a confirmed hardware rejection --
+        per-frame chunk metadata is not yet wired, so a swallowed write failure
+        here would stream frames at the stale gain with no downstream backstop;
+        the caller needs the failure signal."""
         if not self.active:
             if _cam_log is not None:
                 _cam_log.warning(f'ids Gain.SetValue({value}) SKIPPED: active=None')
@@ -808,15 +834,18 @@ class IDSCamera(Camera):
             return False
 
         try:
+            factor = 10.0 ** (float(value) / 20.0)
             if _cam_log is not None:
-                _cam_log.info(f'ids GainSelector=AnalogAll Gain.SetValue({float(value):.3f})')
+                _cam_log.info(
+                    f'ids GainSelector=AnalogAll Gain.SetValue({factor:.3f}) (={value} dB)'
+                )
             self.remote_nodemap.FindNode('GainSelector').SetCurrentEntry('AnalogAll')
-            self.remote_nodemap.FindNode('Gain').SetValue(value)
-            logger.debug(f'[CAM Class ] Gain set to {value}')
+            self.remote_nodemap.FindNode('Gain').SetValue(factor)
+            logger.debug(f'[CAM Class ] Gain set to {value} dB ({factor:.3f}x)')
             return True
         except Exception as e:
             if _cam_log is not None:
-                _cam_log.error(f'ids Gain.SetValue({value}) FAILED: {e}')
+                _cam_log.error(f'ids Gain.SetValue({value} dB) FAILED: {e}')
             _cam_log.error(f'[CAM Class ] Gain set failed (likely out of bounds): {e}')
             return False
 
