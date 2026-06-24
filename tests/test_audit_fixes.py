@@ -8278,6 +8278,13 @@ class TestManualVideoSpinners:
 
         return pathlib.Path('ui/microscope_settings.py').read_text()
 
+    def _advanced_text(self):
+        import pathlib
+
+        # The manual-video rows + handlers + load now live in the
+        # Advanced Settings modal, not the microscope panel.
+        return pathlib.Path('ui/advanced_settings.py').read_text()
+
     def _record_init_body(self):
         import pathlib
 
@@ -8288,9 +8295,9 @@ class TestManualVideoSpinners:
         return source[idx:next_def] if next_def > 0 else source[idx:]
 
     def test_kv_has_max_fps_textinput(self):
-        kv = self._kv_text()
+        kv = self._advanced_text()
         assert 'id: manual_video_max_fps_input' in kv, (
-            'ui/lumaviewpro.kv must define a TextInput with id '
+            'ui/advanced_settings.py must define a TextInput with id '
             'manual_video_max_fps_input bound to '
             "settings['manual_video']['max_fps']."
         )
@@ -8299,9 +8306,9 @@ class TestManualVideoSpinners:
         )
 
     def test_kv_has_max_duration_textinput(self):
-        kv = self._kv_text()
+        kv = self._advanced_text()
         assert 'id: manual_video_max_duration_input' in kv, (
-            'ui/lumaviewpro.kv must define a TextInput with id '
+            'ui/advanced_settings.py must define a TextInput with id '
             'manual_video_max_duration_input bound to '
             "settings['manual_video']['max_duration']."
         )
@@ -8310,18 +8317,18 @@ class TestManualVideoSpinners:
             'root.update_manual_video_max_duration() on edit.'
         )
 
-    def test_microscope_settings_has_handlers(self):
-        body = self._ms_text()
+    def test_advanced_settings_has_handlers(self):
+        body = self._advanced_text()
         assert 'def update_manual_video_max_fps' in body, (
-            'MicroscopeSettings must define update_manual_video_max_fps '
-            'to write the spinner value back to settings dict.'
+            'AdvancedSettings must define update_manual_video_max_fps '
+            'to write the value back to the settings dict.'
         )
         assert 'def update_manual_video_max_duration' in body, (
-            'MicroscopeSettings must define update_manual_video_max_duration.'
+            'AdvancedSettings must define update_manual_video_max_duration.'
         )
 
     def test_handlers_validate_and_revert_on_invalid(self):
-        body = self._ms_text()
+        body = self._advanced_text()
         # Both handlers must surface a notifications.warning AND revert
         # the widget text on bad input -- the L1 researcher sees the
         # error and the field doesn't silently accept garbage.
@@ -8337,16 +8344,16 @@ class TestManualVideoSpinners:
                 f'{handler} must revert widget.text on invalid input.'
             )
 
-    def test_load_settings_pushes_manual_video_into_widgets(self):
-        body = self._ms_text()
+    def test_on_open_pushes_manual_video_into_widgets(self):
+        body = self._advanced_text()
         assert 'manual_video_max_fps_input' in body, (
-            "load_settings must push settings['manual_video']['max_fps'] "
-            'into the manual_video_max_fps_input widget on load.'
+            "AdvancedSettings.on_open must push settings['manual_video']['max_fps'] "
+            'into the manual_video_max_fps_input widget when the modal opens.'
         )
         assert 'manual_video_max_duration_input' in body, (
-            'load_settings must push '
+            'AdvancedSettings.on_open must push '
             "settings['manual_video']['max_duration'] into the "
-            'manual_video_max_duration_input widget on load.'
+            'manual_video_max_duration_input widget when the modal opens.'
         )
 
     def test_record_init_reads_via_get_with_defaults(self):

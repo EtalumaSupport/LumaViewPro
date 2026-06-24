@@ -21,7 +21,6 @@ from modules import gui_logger
 from modules.config_helpers import (
     DEFAULT_MAX_EXPOSURE_MS,
     DEFAULT_MAX_GAIN_DB,
-    get_manual_video_max_duration,
 )
 from modules.config_ui_getters import (
     firmware_stim_supported,
@@ -95,13 +94,6 @@ class MicroscopeSettings(BoxLayout):
     # from firmware_stim_supported() at settings load; defaults hidden so stim
     # never flashes before the capability probe result lands.
     stim_supported = BooleanProperty(False)
-
-    # Mirror the camera's low-noise capabilities so the kv hides each toggle
-    # when the camera doesn't expose the node (Pylon Bsl features; absent on
-    # other cameras). Set from scope.capabilities at settings load; default
-    # hidden so a toggle never flashes before the probe result lands.
-    conversion_gain_supported = BooleanProperty(False)
-    line_noise_reduction_supported = BooleanProperty(False)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -466,12 +458,6 @@ class MicroscopeSettings(BoxLayout):
 
             self.select_video_recording_format()
 
-            manual_video = settings.get('manual_video', {})
-            self.ids['manual_video_max_fps_input'].text = str(manual_video.get('max_fps', 0))
-            self.ids['manual_video_max_duration_input'].text = str(
-                get_manual_video_max_duration(settings)
-            )
-
             if 'live_view_fps' in settings:
                 ctx.live_view_fps = settings['live_view_fps']
             else:
@@ -617,23 +603,6 @@ class MicroscopeSettings(BoxLayout):
             self.stim_supported = firmware_stim_supported()
             if not self.stim_supported:
                 settings['stimulation_enabled'] = False
-
-            # Camera low-noise toggles are gated on the camera exposing the
-            # nodes; reflect the persisted state in the checkboxes (the values
-            # are applied to the camera by scope.initialize()). Force the
-            # checkbox off when the camera can't do it so it never shows on.
-            caps = lumaview.scope.capabilities
-            self.conversion_gain_supported = caps.camera_supports_conversion_gain_mode
-            self.line_noise_reduction_supported = caps.camera_supports_line_noise_reduction
-            camera_settings = settings.setdefault('camera', {})
-            self.ids['high_conversion_gain'].active = bool(
-                self.conversion_gain_supported
-                and camera_settings.get('high_conversion_gain', False)
-            )
-            self.ids['line_noise_reduction'].active = bool(
-                self.line_noise_reduction_supported
-                and camera_settings.get('line_noise_reduction', False)
-            )
 
             if 'stimulation_enabled' in settings:
                 if settings['stimulation_enabled']:
@@ -873,31 +842,6 @@ class MicroscopeSettings(BoxLayout):
 
         ctx.camera_executor.put(IOTask(action=_set_pixel_format))
 
-    def update_high_conversion_gain(self):
-        ctx = _app_ctx.ctx
-        settings = ctx.settings
-        state = self.ids['high_conversion_gain'].active
-        gui_logger.select('HIGH_CONVERSION_GAIN', state)
-        settings.setdefault('camera', {})['high_conversion_gain'] = state
-        mode = 'High' if state else 'Low'
-
-        def _set_conversion_gain():
-            ctx.lumaview.scope.imaging.set_conversion_gain_mode(mode)
-
-        ctx.camera_executor.put(IOTask(action=_set_conversion_gain))
-
-    def update_line_noise_reduction(self):
-        ctx = _app_ctx.ctx
-        settings = ctx.settings
-        state = self.ids['line_noise_reduction'].active
-        gui_logger.select('LINE_NOISE_REDUCTION', state)
-        settings.setdefault('camera', {})['line_noise_reduction'] = state
-
-        def _set_line_noise():
-            ctx.lumaview.scope.imaging.set_line_noise_reduction(state)
-
-        ctx.camera_executor.put(IOTask(action=_set_line_noise))
-
     def select_live_image_output_format(self):
         settings = _app_ctx.ctx.settings
         fmt = self.ids['live_image_output_format_spinner'].text
@@ -927,56 +871,6 @@ class MicroscopeSettings(BoxLayout):
             settings['video_as_frames'] = False
         else:
             settings['video_as_frames'] = True
-
-    def update_manual_video_max_fps(self):
-        # 0 = no limit (camera free-run rate). record_init keys
-        # _user_requested_fps_limit on this; non-zero requests the
-        # camera-side rate cap.
-        settings = _app_ctx.ctx.settings
-        widget = self.ids['manual_video_max_fps_input']
-        try:
-            value = int(widget.text)
-        except (ValueError, TypeError):
-            value = -1
-        if value < 0 or value > 200:
-            from modules.notification_center import notifications
-
-            notifications.warning(
-                'Settings',
-                'Invalid FPS limit',
-                'Manual Video Max FPS must be between 0 and 200 '
-                '(0 = no limit). Reverting to previous value.',
-            )
-            settings.setdefault('manual_video', {})
-            widget.text = str(settings['manual_video'].get('max_fps', 0))
-            return
-        settings.setdefault('manual_video', {})
-        settings['manual_video']['max_fps'] = value
-        gui_logger.text_input_debounced('MANUAL_VIDEO_MAX_FPS', value)
-
-    def update_manual_video_max_duration(self):
-        # Memmap allocates max_fps * duration frames; the disk-space
-        # pre-flight in record_init catches infeasible sizes.
-        settings = _app_ctx.ctx.settings
-        widget = self.ids['manual_video_max_duration_input']
-        try:
-            value = int(widget.text)
-        except (ValueError, TypeError):
-            value = 0
-        if value < 1 or value > 3600:
-            from modules.notification_center import notifications
-
-            notifications.warning(
-                'Settings',
-                'Invalid time limit',
-                'Video Time Limit must be between 1 and 3600 seconds. Reverting to previous value.',
-            )
-            settings.setdefault('manual_video', {})
-            widget.text = str(get_manual_video_max_duration(settings))
-            return
-        settings.setdefault('manual_video', {})
-        settings['manual_video']['max_duration_seconds'] = value
-        gui_logger.text_input_debounced('MANUAL_VIDEO_MAX_DURATION_S', value)
 
     def update_scale_bar_state(self):
         ctx = _app_ctx.ctx
