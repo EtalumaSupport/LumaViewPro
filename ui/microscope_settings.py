@@ -9,7 +9,7 @@ import threading
 import time
 
 from kivy.clock import Clock
-from kivy.properties import BooleanProperty
+from kivy.properties import BooleanProperty, StringProperty
 from kivy.uix.boxlayout import BoxLayout
 
 import modules.app_context as _app_ctx
@@ -92,6 +92,12 @@ class MicroscopeSettings(BoxLayout):
     # from firmware_stim_supported() at settings load; defaults hidden so stim
     # never flashes before the capability probe result lands.
     stim_supported = BooleanProperty(False)
+
+    # Current scope model name, shown read-only in the panel. The selector
+    # that changes it lives in Advanced Settings; this reflects the settings
+    # SSOT and is refreshed in set_ui_features_for_scope (the one place a
+    # scope change reconfigures the UI).
+    current_scope_model = StringProperty('')
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -263,14 +269,17 @@ class MicroscopeSettings(BoxLayout):
 
             # update GUI values from JSON data:
 
-            # Scope auto-detection
+            # Scope auto-detection. The model selector lives in Advanced
+            # Settings; write the detected (or saved) model to the settings
+            # SSOT here, then reconfigure the UI for it (control visibility +
+            # read-only model label + stage redraw, in that order).
             detected_model = lumaview.scope.diagnostics.get_microscope_model()
             if detected_model in self.scopes:
                 logger.info(f'[LVP Main  ] Auto-detected scope as {detected_model}')
-                self.ids['scope_spinner'].text = detected_model
+                settings['microscope'] = detected_model
             else:
                 logger.info(f'[LVP Main  ] Using scope selection from {filename}')
-                self.ids['scope_spinner'].text = settings['microscope']
+            self.reconfigure_for_scope()
 
             # Image mode selector: populate the options from the camera's
             # capability, then select the stored mode. A stored 12-bit mode on
@@ -971,22 +980,17 @@ class MicroscopeSettings(BoxLayout):
         )
         self._apply_displayed_frame(new_frame)
 
-    def load_scopes(self):
-        logger.info('[LVP Main  ] MicroscopeSettings.load_scopes()')
-        spinner = self.ids['scope_spinner']
-        spinner.values = list(self.scopes.keys())
+    def reconfigure_for_scope(self) -> None:
+        """Apply the current scope to the UI in the canonical order.
 
-    def select_scope(self):
-        gui_logger.select('SCOPE', self.ids['scope_spinner'].text)
-        logger.info('[LVP Main  ] MicroscopeSettings.select_scope()')
-        ctx = _app_ctx.ctx
-        settings = ctx.settings
-
-        spinner = self.ids['scope_spinner']
-        settings['microscope'] = spinner.text
-
+        set_ui_features_for_scope first (control visibility + the read-only
+        model label), then a stage redraw for the new model's geometry. The
+        single owner of the scope-change reconfigure sequence -- called at
+        startup and when the Advanced Settings selector changes the scope, so
+        the order is identical on both paths.
+        """
         self.set_ui_features_for_scope()
-        ctx.stage.full_redraw()
+        _app_ctx.ctx.stage.full_redraw()
 
     def set_ui_features_for_scope(self) -> None:
         ctx = _app_ctx.ctx
@@ -995,6 +999,8 @@ class MicroscopeSettings(BoxLayout):
         microscope_settings = ctx.motion_settings.ids['microscope_settings_id']
         scope_configs = microscope_settings.scopes
         selected_scope_config = scope_configs[settings['microscope']]
+
+        microscope_settings.current_scope_model = settings['microscope']
 
         motion_settings = ctx.motion_settings
         motion_settings.set_turret_control_visibility(visible=selected_scope_config['Turret'])

@@ -2043,23 +2043,12 @@
 				size_hint_y: None
 				height: '30dp'
 				Label:
-					text: 'Lumascope Model'
-					tooltip_text: 'Lumi, LS820, LS850, and LS850T'
-					size_hint_x: None
-					width: '120dp'
+					text: 'Lumascope Model: ' + root.current_scope_model
+					tooltip_text: 'Current scope model. Change it in Advanced Settings.'
+					halign: 'left'
+					valign: 'middle'
+					text_size: self.size
 					font_size: '12sp'
-				Spinner:
-					id: scope_spinner
-					disabled: app.protocol_running
-					sync_height: True
-					text: 'Select'
-					font_size:'12sp'
-					option_cls: "SpinnerOption0"
-					# #631 cluster: text_autoupdate causes .values reassignment to
-					# reset .text to alphabetically-first, firing on_text with the
-					# wrong scope_id. Text is driven by settings['scope']['model'].
-					on_release: root.load_scopes()
-					on_text: root.select_scope()
 
 			BoxLayout:
 				orientation: 'horizontal'
@@ -2370,7 +2359,10 @@
 					text: 'Select'
 					font_size:'12sp'
 					option_cls: "SpinnerOption0"
-					# #631 cluster: see scope_spinner / objective_spinner.
+					# Text is driven by the stored value, not text_autoupdate
+					# (kept False): reassigning .values would otherwise reset
+					# .text to the alphabetically-first entry and fire on_text
+					# with the wrong selection.
 					on_release: root.load_binning_sizes()
 					on_text: root.select_binning_size()
 

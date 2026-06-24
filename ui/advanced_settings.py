@@ -91,6 +91,14 @@ class AdvancedSettings(Popup):
         # (text: format(acceleration_pct_slider.value)).
         self.ids['acceleration_pct_slider'].value = settings['motion']['acceleration_max_pct']
 
+        # Populate the dropdown values BEFORE setting the text. The spinner
+        # keeps text_autoupdate at its default (False); were it True,
+        # reassigning .values would reset .text to the alphabetically-first
+        # entry and fire on_text with the wrong scope. Setting text here fires
+        # select_scope, which no-ops because it matches the stored model.
+        self.load_scopes()
+        self.ids['scope_spinner'].text = settings['microscope']
+
     def update_high_conversion_gain(self):
         ctx = _app_ctx.ctx
         settings = ctx.settings
@@ -197,6 +205,25 @@ class AdvancedSettings(Popup):
         gui_logger.toggle('PROTOCOL_LED_ON', enabled)
         settings['protocol_led_on'] = enabled
 
+    def load_scopes(self):
+        scopes = _app_ctx.ctx.motion_settings.ids['microscope_settings_id'].scopes
+        self.ids['scope_spinner'].values = list(scopes.keys())
+
+    def select_scope(self):
+        ctx = _app_ctx.ctx
+        settings = ctx.settings
+        new_model = self.ids['scope_spinner'].text
+        # on_open sets the spinner to the current model; selecting the value
+        # already in effect is not a scope change, so skip the reconfigure.
+        if new_model == settings['microscope']:
+            return
+        gui_logger.select('SCOPE', new_model)
+        settings['microscope'] = new_model
+        # Reconfigure the panel for the new scope through its single owner
+        # (control visibility + read-only model label + stage redraw); the
+        # startup path uses the same method so both reconfigure identically.
+        ctx.motion_settings.ids['microscope_settings_id'].reconfigure_for_scope()
+
     def acceleration_pct_slider(self):
         acc_val = self.ids['acceleration_pct_slider'].value
         gui_logger.slider('ACCELERATION', acc_val)
@@ -302,6 +329,26 @@ kv = Builder.load_string(
                 height: self.minimum_height
                 padding: 0, 0, dp(8), 0
                 spacing: dp(5)
+
+                BoxLayout:
+                    orientation: 'horizontal'
+                    size_hint_y: None
+                    height: '30dp'
+                    Label:
+                        text: 'Lumascope Model'
+                        tooltip_text: 'Lumi, LS820, LS850, and LS850T'
+                        size_hint_x: None
+                        width: '120dp'
+                        font_size: '12sp'
+                    Spinner:
+                        id: scope_spinner
+                        disabled: app.protocol_running
+                        sync_height: True
+                        text: 'Select'
+                        font_size: '12sp'
+                        option_cls: 'SpinnerOption0'
+                        on_release: root.load_scopes()
+                        on_text: root.select_scope()
 
                 BoxLayout:
                     orientation: 'horizontal'
