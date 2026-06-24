@@ -14,6 +14,7 @@ path: it populates every row from the settings store. There is no
 persistent startup-load for these rows.
 """
 
+from kivy.clock import Clock
 from kivy.lang import Builder
 from kivy.properties import BooleanProperty
 from kivy.uix.popup import Popup
@@ -40,6 +41,14 @@ class AdvancedSettings(Popup):
     conversion_gain_supported = BooleanProperty(False)
     line_noise_reduction_supported = BooleanProperty(False)
 
+    # The acceleration limit applies to the X-Y stage, so the row shows only
+    # when an X-Y stage is actually present. Gated on the capabilities probe
+    # (the single source of truth for present hardware), not the scope-model
+    # config -- the config only says the model can ship with a stage, not that
+    # one is connected. Set on open; default hidden so the row never flashes
+    # before the capability is read.
+    xy_stage_supported = BooleanProperty(False)
+
     def on_open(self):
         """Populate every row from the settings store when the modal opens."""
         ctx = _app_ctx.ctx
@@ -48,6 +57,7 @@ class AdvancedSettings(Popup):
         caps = ctx.lumaview.scope.capabilities
         self.conversion_gain_supported = caps.camera_supports_conversion_gain_mode
         self.line_noise_reduction_supported = caps.camera_supports_line_noise_reduction
+        self.xy_stage_supported = caps.has_xy_stage
         camera_settings = settings.setdefault('camera', {})
         self.ids['high_conversion_gain'].active = bool(
             self.conversion_gain_supported and camera_settings.get('high_conversion_gain', False)
@@ -76,6 +86,10 @@ class AdvancedSettings(Popup):
         self.ids['protocol_led_on_btn'].state = (
             'down' if settings.get('protocol_led_on') else 'normal'
         )
+
+        # Setting the slider value drives the text via the kv binding
+        # (text: format(acceleration_pct_slider.value)).
+        self.ids['acceleration_pct_slider'].value = settings['motion']['acceleration_max_pct']
 
     def update_high_conversion_gain(self):
         ctx = _app_ctx.ctx
@@ -182,6 +196,84 @@ class AdvancedSettings(Popup):
         enabled = self.ids['protocol_led_on_btn'].state == 'down'
         gui_logger.toggle('PROTOCOL_LED_ON', enabled)
         settings['protocol_led_on'] = enabled
+
+    def acceleration_pct_slider(self):
+        acc_val = self.ids['acceleration_pct_slider'].value
+        gui_logger.slider('ACCELERATION', acc_val)
+        self.set_acceleration_limit(val_pct=acc_val)
+
+    def acceleration_pct_text(self):
+        acc_min = self.ids['acceleration_pct_slider'].min
+        acc_max = self.ids['acceleration_pct_slider'].max
+        try:
+            acc_val = int(self.ids['acceleration_pct_text'].text)
+        except (ValueError, TypeError):
+            logger.debug(
+                f'[Advanced ] Invalid acceleration input: '
+                f'{self.ids["acceleration_pct_text"].text!r}'
+            )
+            return
+
+        # The slider's [min, max] is the valid domain for the typed value. A
+        # Kivy input_filter can't enforce a minimum on partial input (typing
+        # "10" must allow the intermediate "1"), so clamp the validated value.
+        acc_val = int(max(acc_min, min(acc_max, acc_val)))
+        self.ids['acceleration_pct_slider'].value = acc_val
+        self.ids['acceleration_pct_text'].text = str(acc_val)
+        self.set_acceleration_limit(val_pct=acc_val)
+
+    _ACCELERATION_DEBOUNCE_S = 0.10
+    _acceleration_dispatch_trigger = None
+    _pending_acceleration_pct = None
+
+    def set_acceleration_limit(self, val_pct):
+        """Apply acceleration limit (writes settings + dispatches motor command).
+
+        The motor serial write goes through ``io_executor`` instead of running
+        synchronously on MainThread. The slider's ``on_value`` event can fire at
+        up to 60 Hz on a smooth drag -- without the executor route, every tick
+        blocks the UI on a serial write. The settings dict is still updated
+        synchronously so other UI code reading the slider sees the committed
+        value immediately.
+
+        The 100 ms ``Clock.create_trigger`` debounce coalesces rapid slider
+        ticks into one motor write per debounce window. Final settle of the
+        slider always lands on the last value the user picked.
+        """
+        ctx = _app_ctx.ctx
+        with ctx.settings_lock:
+            ctx.settings['motion']['acceleration_max_pct'] = val_pct
+        # Stash the most recent value; the trigger reads it when it fires.
+        self._pending_acceleration_pct = int(val_pct)
+        if self._acceleration_dispatch_trigger is None:
+            self._acceleration_dispatch_trigger = Clock.create_trigger(
+                lambda dt: self._dispatch_acceleration_to_motor(),
+                self._ACCELERATION_DEBOUNCE_S,
+            )
+        self._acceleration_dispatch_trigger()
+
+    def _dispatch_acceleration_to_motor(self):
+        """Send the most-recent acceleration value to the motor on IO_WORKER.
+
+        Reads ``self._pending_acceleration_pct`` (latest stash from
+        ``set_acceleration_limit``) and submits an IOTask through
+        ``io_executor``. If the slider moved again while the trigger was
+        pending, only the latest value reaches the motor -- no queued command
+        burst.
+        """
+        ctx = _app_ctx.ctx
+        if ctx is None or self._pending_acceleration_pct is None:
+            return
+        val_pct = self._pending_acceleration_pct
+        scope = ctx.lumaview.scope if ctx.lumaview else None
+        if scope is None:
+            return
+        ctx.io_executor.put(
+            IOTask(
+                action=scope.motion.set_acceleration_limit,
+                kwargs={'val_pct': val_pct},
+            )
+        )
 
     def close(self):
         logger.debug('[Advanced ] AdvancedSettings closed')
@@ -383,6 +475,47 @@ kv = Builder.load_string(
                         background_normal: './data/icons/ToggleL.png'
                         background_down: './data/icons/ToggleRW.png'
                         on_release: root.update_protocol_led_on()
+
+                BoxLayout:
+                    orientation: 'horizontal'
+                    size_hint_y: None
+                    height: '30dp' if root.xy_stage_supported else 0
+                    opacity: 1 if root.xy_stage_supported else 0
+                    disabled: not root.xy_stage_supported
+                    Label:
+                        id: acceleration_pct_label
+                        text: 'Acceleration Max (%)'
+                        tooltip_text: 'Maximum acceleration percentage for X-Y stage'
+                        halign: 'left'
+                        valign: 'middle'
+                        text_size: self.size
+                        font_size: '12sp'
+                    ModSlider:
+                        id: acceleration_pct_slider
+                        disabled: app.protocol_running
+                        min: 1
+                        max: 100
+                        value: 100
+                        step: 1
+                        cursor_size: '20dp','20dp'
+                        cursor_image: './data/icons/slider_cursor.png'
+                        track_width: dp(5)
+                        value_track: True
+                        value_track_width: dp(5)
+                        on_release: root.acceleration_pct_slider()
+                    TextInput:
+                        id: acceleration_pct_text
+                        disabled: app.protocol_running
+                        size_hint_x: None
+                        width: '45dp'
+                        multiline: False
+                        font_size: '12sp'
+                        padding: ['4dp', (self.height-self.line_height)/2]
+                        halign: 'right'
+                        input_filter: 'int'
+                        text: format(acceleration_pct_slider.value)
+                        on_text_validate: root.acceleration_pct_text()
+                        on_focus: if not self.focus: root.acceleration_pct_text()
 
         Button:
             text: 'Close'

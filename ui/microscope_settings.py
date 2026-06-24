@@ -8,8 +8,6 @@ import pathlib
 import threading
 import time
 
-import numpy as np
-
 from kivy.clock import Clock
 from kivy.properties import BooleanProperty
 from kivy.uix.boxlayout import BoxLayout
@@ -199,96 +197,6 @@ class MicroscopeSettings(BoxLayout):
 
         logger.info('[LVP Main  ] Reconnection complete.')
 
-    def acceleration_pct_slider(self):
-        settings = _app_ctx.ctx.settings
-        scope_configs = self.scopes
-        selected_scope_config = scope_configs[settings['microscope']]
-
-        if not selected_scope_config['XYStage']:
-            return
-
-        logger.info('[LVP Main  ] MicroscopeSettings.acceleration_pct_slider()')
-        acc_val = self.ids['acceleration_pct_slider'].value
-        gui_logger.slider('ACCELERATION', acc_val)
-        self.set_acceleration_limit(val_pct=acc_val)
-
-    def acceleration_pct_text(self):
-        logger.info('[LVP Main  ] MicroscopeSettings.acceleration_pct_text()')
-        acc_min = self.ids['acceleration_pct_slider'].min
-        acc_max = self.ids['acceleration_pct_slider'].max
-        try:
-            acc_val = int(self.ids['acceleration_pct_text'].text)
-        except Exception:
-            logger.debug(
-                f'[LVP Main  ] Invalid acceleration input: {self.ids["acceleration_pct_text"].text!r}'
-            )
-            return
-
-        acc_val = int(np.clip(acc_val, acc_min, acc_max))
-
-        self.ids['acceleration_pct_slider'].value = acc_val
-        self.ids['acceleration_pct_text'].text = str(acc_val)
-        self.set_acceleration_limit(val_pct=acc_val)
-
-    def set_acceleration_limit(self, val_pct: int):
-        """Apply acceleration limit (writes settings + dispatches motor command).
-
-        MOT-1: motor serial write goes through ``io_executor`` instead of
-        running synchronously on MainThread. The slider's ``on_value`` event
-        can fire at up to 60 Hz on a smooth drag -- without the executor route,
-        every tick blocks the UI on a serial write. Settings dict is still
-        updated synchronously so other UI code reading the slider sees the
-        committed value immediately.
-
-        The 100 ms ``Clock.create_trigger`` debounce coalesces rapid slider
-        ticks into one motor write per debounce window, matching the
-        ``_CoalescingApplier`` pattern used for ``frame_size`` and
-        ``apply_settings``. Final settle of the slider always lands on the
-        last value the user picked.
-        """
-        ctx = _app_ctx.ctx
-        with ctx.settings_lock:
-            ctx.settings['motion']['acceleration_max_pct'] = val_pct
-        # Stash the most recent value; the trigger reads it when it fires.
-        self._pending_acceleration_pct = int(val_pct)
-        if self._acceleration_dispatch_trigger is None:
-            self._acceleration_dispatch_trigger = Clock.create_trigger(
-                lambda dt: self._dispatch_acceleration_to_motor(),
-                self._ACCELERATION_DEBOUNCE_S,
-            )
-        self._acceleration_dispatch_trigger()
-
-    _ACCELERATION_DEBOUNCE_S = 0.10
-    _acceleration_dispatch_trigger = None
-    _pending_acceleration_pct = None
-
-    def _dispatch_acceleration_to_motor(self):
-        """Send the most-recent acceleration value to the motor on IO_WORKER.
-
-        Reads ``self._pending_acceleration_pct`` (latest stash from
-        ``set_acceleration_limit``) and submits an IOTask through
-        ``io_executor``. If the slider moved again while the trigger was
-        pending, only the latest value reaches the motor -- no queued
-        command burst. See MOT-1 docstring on ``set_acceleration_limit``.
-        """
-        ctx = _app_ctx.ctx
-        if ctx is None or self._pending_acceleration_pct is None:
-            return
-        val_pct = self._pending_acceleration_pct
-        scope = ctx.lumaview.scope if ctx.lumaview else None
-        if scope is None:
-            return
-        ctx.io_executor.put(
-            IOTask(
-                action=scope.motion.set_acceleration_limit,
-                kwargs={'val_pct': val_pct},
-            )
-        )
-
-    def set_acceleration_control_visibility(self, visible):
-        for acceleration_id in ('acceleration_control_box',):
-            self.ids[acceleration_id].visible = visible
-
     # load settings from JSON file
     def load_settings(self, filename='./data/current.json'):
         logger.info('[LVP Main  ] MicroscopeSettings.load_settings()')
@@ -438,10 +346,6 @@ class MicroscopeSettings(BoxLayout):
 
             fps_label = 'Max (uncapped)' if ctx.live_view_fps == 0 else str(ctx.live_view_fps)
             logger.info(f'[LVP Main  ] Live view FPS set to {fps_label}')
-
-            acceleration_limit = settings['motion']['acceleration_max_pct']
-            self.ids['acceleration_pct_slider'].value = acceleration_limit
-            self.ids['acceleration_pct_text'].text = str(acceleration_limit)
 
             # Set Frame Size UI
             binning_size_str = settings['binning']['size']
@@ -1091,10 +995,6 @@ class MicroscopeSettings(BoxLayout):
         microscope_settings = ctx.motion_settings.ids['microscope_settings_id']
         scope_configs = microscope_settings.scopes
         selected_scope_config = scope_configs[settings['microscope']]
-
-        microscope_settings.set_acceleration_control_visibility(
-            visible=selected_scope_config['XYStage']
-        )
 
         motion_settings = ctx.motion_settings
         motion_settings.set_turret_control_visibility(visible=selected_scope_config['Turret'])
