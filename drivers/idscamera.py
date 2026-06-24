@@ -1,6 +1,9 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 import atexit
 import datetime
+import re
+import threading
+
 from ids_peak import ids_peak
 from ids_peak import ids_peak_ipl_extension
 import ids_peak_ipl
@@ -17,7 +20,6 @@ except ImportError:
 from drivers.camera import Camera, ImageHandlerBase
 from drivers.exceptions import HardwareError
 from drivers.registry import camera_registry
-import threading
 
 # IDS Library.Close() shuts down the entire SDK (not per-device).
 # Defer to atexit so it only runs once at process exit.
@@ -37,18 +39,55 @@ def _ids_library_cleanup():
 atexit.register(_ids_library_cleanup)
 
 
+def ids_significant_bits(wire_format_name: str) -> int:
+    """Payload depth of a frame delivered in the given wire PixelFormat.
+
+    Derived from the GenICam format name so the depth tracks the sensor's
+    real format rather than the (16-bit) container the unpacked frame rides
+    in: Mono12* -> 12, Mono10* -> 10, Mono8* -> 8. Falls back to the leading
+    bit count in the name, then to 8. Pure logic -- no SDK call -- so it is
+    unit-testable without a camera.
+    """
+    if wire_format_name.startswith('Mono12'):
+        return 12
+    if wire_format_name.startswith('Mono10'):
+        return 10
+    if wire_format_name.startswith('Mono8'):
+        return 8
+    match = re.search(r'Mono(\d+)', wire_format_name or '')
+    return int(match.group(1)) if match else 8
+
+
+def _ids_ipl_target(wire_format_name: str):
+    """IPL ConvertTo target that unpacks a wire format to its native depth.
+
+    Mono10/Mono12 unpack to a right-aligned uint16; Mono8 stays 8-bit. The
+    SDK does the unpack (faster than a hand-unpacker and the alignment is the
+    SDK's own); drivers/ids_unpack.py is the bench cross-check for the target.
+    """
+    if wire_format_name.startswith('Mono12'):
+        return ids_peak_ipl.PixelFormatName_Mono12
+    if wire_format_name.startswith('Mono10'):
+        return ids_peak_ipl.PixelFormatName_Mono10
+    return ids_peak_ipl.PixelFormatName_Mono8
+
+
 @camera_registry.register('ids', priority=80)
 class IDSCamera(Camera):
-    # IDS cameras drive the converter pipeline at 8-bit Mono (Mono8 forced
-    # at the SDK boundary so downstream code never has to handle Mono10 /
-    # Mono12 packed formats). Override the base default so capability
-    # consumers (buffer sizing, save-format selection) treat IDS frames as
-    # 8-bit from the start.
-    native_bit_depth = 8
-    # The sensor's pixel-format node still reads Mono10 / Mono12, so the
-    # format-derived base property would over-report; the delivered payload is
-    # 8-bit after the converter, so pin it.
-    significant_bits = 8
+    """IDS Peak driver for the U3-34L0XCP-M (Sony IMX676, packed Mono10/12).
+
+    Delivers each frame at the sensor's native depth in a right-aligned uint16
+    container (significant_bits derived from the active wire format), so the
+    container width is the base default 16 and the payload depth is per-frame.
+    """
+
+    # Soft crash-stop cap (fps). The host-side ConvertTo sustains ~18 fps; at
+    # an uncapped rate the camera outpaces the converter at short exposures and
+    # the SDK buffer pool exhausts (a perpetual WaitForFinishedBuffer timeout).
+    # Capping the AcquisitionFrameRateTarget just under the sustained rate lets
+    # the camera self-throttle. Static for now; a measured/dynamic cap can
+    # raise it once the converter is moved off the grab path.
+    _FPS_CAP = 16.0
 
     def __init__(self):
 
@@ -237,15 +276,8 @@ class IDSCamera(Camera):
                     self.remote_nodemap.FindNode('TriggerMode').SetCurrentEntry('Off')
                 except Exception:
                     pass
-                # Disable frame rate target limiter (UserSetDefault caps at 10 fps)
-                try:
-                    self.remote_nodemap.FindNode('AcquisitionFrameRateTargetEnable').SetValue(False)
-                    logger.info('[CAM Class ] Disabled AcquisitionFrameRateTargetEnable')
-                except Exception as e:
-                    logger.debug(
-                        f'[CAM Class ] AcquisitionFrameRateTargetEnable not available: {e}'
-                    )
-                # Maximize USB throughput limit
+                # Maximize USB throughput limit -- secondary safety net; the
+                # frame-rate target cap below is the primary throttle.
                 try:
                     node = self.remote_nodemap.FindNode('DeviceLinkThroughputLimit')
                     node.SetValue(node.Maximum())
@@ -254,20 +286,14 @@ class IDSCamera(Camera):
                     )
                 except Exception as e:
                     logger.debug(f'[CAM Class ] DeviceLinkThroughputLimit not available: {e}')
-                # Set resolution and exposure BEFORE maximizing frame rate --
-                # AcquisitionFrameRate.Maximum() depends on current resolution,
-                # pixel format, and exposure time.
+                # Set resolution and exposure, THEN cap the frame rate. The cap
+                # is a soft AcquisitionFrameRateTarget just under the converter's
+                # sustained rate so the camera never outpaces the host unpack and
+                # exhausts the buffer pool (the uncapped-rate crash). Replaces the
+                # old disable-target-then-maximize path, which saturated USB3.
                 self.exposure_t(10)
                 self.set_frame_size(1920, 1528)
-                # NOW maximize frame rate (after resolution is set)
-                try:
-                    fr = self.remote_nodemap.FindNode('AcquisitionFrameRate')
-                    fr.SetValue(fr.Maximum())
-                    logger.info(
-                        f'[CAM Class ] AcquisitionFrameRate set to max: {fr.Maximum():.1f} fps'
-                    )
-                except Exception as e:
-                    logger.debug(f'[CAM Class ] AcquisitionFrameRate not available: {e}')
+                self.set_max_acquisition_frame_rate(True, self._FPS_CAP)
         except Exception as e:
             _cam_log.error(f'[CAM Class ] init_camera_config failed: {e}')
 
@@ -288,6 +314,13 @@ class IDSCamera(Camera):
             self.remote_nodemap.FindNode('AcquisitionStop').WaitUntilDone()
             self.data_stream.StopAcquisition()
 
+            # Release the transport-layer parameter lock taken in start_grabbing
+            # (IDS brackets acquisition with TLParamsLocked 1/0).
+            try:
+                self.remote_nodemap.FindNode('TLParamsLocked').SetValue(0)
+            except Exception as e:
+                logger.debug(f'[CAM Class ] TLParamsLocked=0 not available: {e}')
+
             self.data_stream.Flush(ids_peak.DataStreamFlushMode_DiscardAll)
             for buffer in self.data_stream.AnnouncedBuffers():
                 self.data_stream.RevokeBuffer(buffer)
@@ -302,24 +335,23 @@ class IDSCamera(Camera):
         try:
             # Allocate buffers -- minimum + 3 extra to prevent starvation during
             # frame conversion. With only min (2-3), the camera runs out of
-            # buffers while ConvertTo holds one, capping throughput at ~10 fps.
+            # buffers while ConvertTo holds one, capping throughput.
             payload_size = self.remote_nodemap.FindNode('PayloadSize').Value()
             num_buffers = self.data_stream.NumBuffersAnnouncedMinRequired() + 3
             for _ in range(num_buffers):
                 buffer = self.data_stream.AllocAndAnnounceBuffer(payload_size)
                 self.data_stream.QueueBuffer(buffer)
 
-            # Re-maximize frame rate -- stop/start cycles reset it.
-            # Must be done AFTER resolution is set (max depends on frame size).
+            # Re-apply the frame-rate cap -- a stop/start cycle resets it. Must
+            # follow the resolution set (the target's valid range depends on it).
+            self.set_max_acquisition_frame_rate(True, self._FPS_CAP)
+
+            # Lock transport-layer params for the streaming session, then start
+            # the host stream before the device (IDS example ordering).
             try:
-                fr = self.remote_nodemap.FindNode('AcquisitionFrameRate')
-                old_val = fr.Value()
-                fr.SetValue(fr.Maximum())
-                logger.info(
-                    f'[CAM Class ] AcquisitionFrameRate {old_val:.1f} -> {fr.Value():.1f} (max={fr.Maximum():.1f})'
-                )
+                self.remote_nodemap.FindNode('TLParamsLocked').SetValue(1)
             except Exception as e:
-                _cam_log.warning(f'[CAM Class ] Failed to re-maximize AcquisitionFrameRate: {e}')
+                logger.debug(f'[CAM Class ] TLParamsLocked=1 not available: {e}')
 
             self.data_stream.StartAcquisition()
             self.remote_nodemap.FindNode('AcquisitionStart').Execute()
@@ -507,9 +539,9 @@ class IDSCamera(Camera):
 
     def exposure_t(self, exposure_ms) -> bool:
         """Set exposure. Returns True on success, False on a confirmed
-        hardware rejection -- IDS has no chunk data, so a swallowed write
-        failure here would stream frames at the stale exposure with no
-        downstream backstop; the caller needs the failure signal."""
+        hardware rejection -- per-frame chunk metadata is not yet wired, so a
+        swallowed write failure here would stream frames at the stale exposure
+        with no downstream backstop; the caller needs the failure signal."""
         if not self.active:
             _cam_log.warning(f'[CAM Class ] Cannot set exposure {exposure_ms}ms: camera inactive')
             return False
@@ -570,9 +602,9 @@ class IDSCamera(Camera):
         """IDS Peak SDK exposes only DeviceLinkThroughputLimit (no
         DeviceLinkThroughputLimitMode) per the per-IDS-camera nodemap.
         Setting the value to its Maximum() at init disables effective
-        throttling -- which is what init_camera_config already does
-        at line 199-203. Mode='Off' here maps to "set to Maximum()";
-        Mode='On' with value_bps maps to "set to value_bps".
+        throttling -- which is what init_camera_config already does.
+        Mode='Off' here maps to "set to Maximum()"; Mode='On' with
+        value_bps maps to "set to value_bps".
 
         Returns True on success, False if camera inactive or the node
         is not present on this IDS body. Does not raise.
@@ -634,9 +666,6 @@ class IDSCamera(Camera):
         # IDS allows changing AcquisitionFrameRateTargetEnable +
         # AcquisitionFrameRateTarget while acquisition is running (same
         # runtime-parameter class as ExposureTime, see exposure_t above).
-        # Previous wrap in update_camera_config() forced an unnecessary
-        # stop_grabbing/start_grabbing cycle on every call (same class as
-        # STALL-1's per-step wrapper).
         try:
             if _cam_log is not None:
                 _cam_log.info(
@@ -719,9 +748,17 @@ class IDSCamera(Camera):
                 self.data_stream.QueueBuffer(buffer)
                 return False, None
 
+            # Convert to the unpacked native depth (uint16 for Mono10/Mono12),
+            # NOT Mono8: the still-capture path reads this frame's depth from
+            # last_significant_bits, which now reflects native depth, so an
+            # 8-bit array here would be downconverted against a 10/12-bit depth.
+            wire = self.get_pixel_format()
+            target = _ids_ipl_target(wire)
             img = ids_peak_ipl_extension.BufferToImage(buffer)
-            if img.PixelFormat() != ids_peak_ipl.PixelFormatName_Mono8:
-                img = img.ConvertTo(ids_peak_ipl.PixelFormatName_Mono8)
+            if img.PixelFormat() != target:
+                img = img.ConvertTo(target)
+            # ConvertTo copied the data out; copy the numpy view, THEN re-queue
+            # so the SDK cannot refill the buffer while the array still aliases it.
             img = img.get_numpy().copy()
             img_ts = datetime.datetime.now()
             self.data_stream.QueueBuffer(buffer)
@@ -761,9 +798,9 @@ class IDSCamera(Camera):
 
     def gain(self, value) -> bool:
         """Set gain. Returns True on success, False on a confirmed
-        hardware rejection -- IDS has no chunk data, so a swallowed write
-        failure here would stream frames at the stale gain with no
-        downstream backstop; the caller needs the failure signal."""
+        hardware rejection -- per-frame chunk metadata is not yet wired, so a
+        swallowed write failure here would stream frames at the stale gain with
+        no downstream backstop; the caller needs the failure signal."""
         if not self.active:
             if _cam_log is not None:
                 _cam_log.warning(f'ids Gain.SetValue({value}) SKIPPED: active=None')
@@ -842,13 +879,6 @@ class ImageHandler(ImageHandlerBase):
             self._grab_thread = None
 
     def _grab_loop(self):
-        # Pre-create converter for Mono10->Mono8 (reuse avoids per-frame alloc)
-        try:
-            converter = ids_peak_ipl.ImageConverter()
-            converter.PreAllocateConversion(ids_peak_ipl.PixelFormatName_Mono8, 1920, 1528)
-        except Exception:
-            converter = None  # Fall back to per-frame ConvertTo
-
         while not self._stop_event.is_set():
             try:
                 buffer = self.data_stream.WaitForFinishedBuffer(self.timeout_ms)
@@ -876,23 +906,24 @@ class ImageHandler(ImageHandlerBase):
                         break
                     continue
 
-                # BufferToImage copies pixel data out of the SDK buffer.
-                # Return the buffer IMMEDIATELY so the camera can reuse it
-                # while we do the (slower) format conversion + numpy copy.
+                # Unpack to the sensor's native depth (uint16 for Mono10/Mono12),
+                # NOT Mono8 -- the old target discarded the native depth. The SDK
+                # does the unpack via ConvertTo; ids_unpack.py is the bench
+                # cross-check for the result.
+                wire = self._parent.get_pixel_format()
+                target = _ids_ipl_target(wire)
                 img = ids_peak_ipl_extension.BufferToImage(buffer)
-                self.data_stream.QueueBuffer(buffer)
-
-                if img.PixelFormat() != ids_peak_ipl.PixelFormatName_Mono8:
-                    if converter:
-                        img = converter.Convert(img, ids_peak_ipl.PixelFormatName_Mono8)
-                    else:
-                        img = img.ConvertTo(ids_peak_ipl.PixelFormatName_Mono8)
+                if img.PixelFormat() != target:
+                    img = img.ConvertTo(target)
+                # ConvertTo produced an independent copy; copy the numpy view and
+                # THEN re-queue, so the SDK cannot refill the buffer while the
+                # array still aliases it (the old code queued before the copy).
                 frame = img.get_numpy().copy()
                 ts = datetime.datetime.now()
-                # Every IDS frame is converted to Mono8 above, so the delivered
-                # array is genuinely 8-bit: its container width IS its payload
-                # depth. Stamp it from the frame so depth and pixels stay paired.
-                self._store_frame(frame, ts, significant_bits=frame.dtype.itemsize * 8)
+                self.data_stream.QueueBuffer(buffer)
+                # Stamp the frame with the depth it was captured under so depth
+                # and pixels stay paired across a later format switch.
+                self._store_frame(frame, ts, significant_bits=ids_significant_bits(wire))
             except Exception as e:
                 err_str = str(e).lower()
                 if 'abort' in err_str or 'removed' in err_str or 'device' in err_str:

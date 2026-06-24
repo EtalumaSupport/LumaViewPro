@@ -54,12 +54,14 @@ class TestPylonDefaults:
 
 class TestIDSOverride:
     """IDS U3-34L0XCP-M (IMX676) reports only Mono10 / Mono12 packed
-    formats natively. The driver forces Mono8 at the SDK boundary so
-    downstream code handles 8-bit consistently -- the capability flag
-    reflects the actual delivered container."""
+    formats natively. The driver now delivers each frame at the sensor's
+    native depth in a uint16 container (matching the Pylon family) rather
+    than forcing Mono8, so native_bit_depth is the inherited 16-bit
+    container width; the per-frame payload depth is the significant_bits
+    property derived from the active wire format."""
 
-    def test_ids_native_bit_depth_is_8(self):
-        assert IDSCamera.native_bit_depth == 8
+    def test_ids_native_bit_depth_is_16(self):
+        assert IDSCamera.native_bit_depth == 16
 
     def test_ids_is_not_color_native(self):
         assert IDSCamera.is_color_native is False
@@ -169,7 +171,7 @@ class TestScopeCapabilitiesIntegration:
     [
         (Camera, False, 16),
         (PylonCamera, False, 16),
-        (IDSCamera, False, 8),
+        (IDSCamera, False, 16),
         (SimulatedCamera, False, 16),
     ],
 )
