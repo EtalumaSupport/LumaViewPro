@@ -1254,7 +1254,7 @@ class TestIssue606_TurretObjectiveValidation:
         """select_objective source must check turret assignments."""
         import pathlib
 
-        source = pathlib.Path('ui/microscope_settings.py').read_text()
+        source = pathlib.Path('ui/vertical_control.py').read_text()
         assert 'Objective Not in Turret' in source, (
             'select_objective must warn when objective not in turret (#606)'
         )

@@ -386,15 +386,12 @@ class MicroscopeSettings(BoxLayout):
                         f'Startup objective {objective_id} not found in turret objectives ({turret_objectives}).'
                     )
 
-            self.ids['objective_spinner'].text = objective_id
-
             vertical_control_id = ctx.motion_settings.ids['verticalcontrol_id']
             v_control_objective_spinner = vertical_control_id.ids['objective_spinner2']
             v_control_objective_spinner.text = objective_id
 
             objective_helper = ctx.objective_helper
             objective = objective_helper.get_objective_info(objective_id=objective_id)
-            self.ids['magnification_id'].text = f'{objective["magnification"]}'
 
             # Populate FOV fields at startup; otherwise the fields stay blank
             # until the user clicks Frame Size or selects an objective (both
@@ -1056,77 +1053,6 @@ class MicroscopeSettings(BoxLayout):
             image_settings._resort_accordion()
         except Exception as e:
             logger.debug(f'[LVP Main  ] image_settings._resort_accordion failed: {e}')
-
-    def load_objectives(self):
-        logger.info('[LVP Main  ] MicroscopeSettings.load_objectives()')
-        spinner = self.ids['objective_spinner']
-        objective_helper = _app_ctx.ctx.objective_helper
-        spinner.values = objective_helper.get_objectives_list()
-
-    def select_objective(self):
-        try:
-            objective_id = self.ids['objective_spinner'].text
-            ctx = _app_ctx.ctx
-            settings = ctx.settings
-
-            # #631: idempotent -- if the spinner text matches current settings, no
-            # work to do. Defends against on_text firing for programmatic text
-            # writes (e.g. settings load, mirror-spinner sync) without redoing
-            # hardware calls or notifications.
-            if objective_id == settings.get('objective_id'):
-                return
-
-            gui_logger.select('OBJECTIVE', objective_id)
-            logger.info('[LVP Main  ] MicroscopeSettings.select_objective()')
-
-            lumaview = ctx.lumaview
-            objective_helper = ctx.objective_helper
-
-            # If turret is present, objective must be assigned to a turret position (#606)
-            if lumaview.scope.motion.has_turret():
-                turret_objectives = list(settings.get('turret_objectives', {}).values())
-                assigned = [obj for obj in turret_objectives if obj is not None]
-                if assigned and objective_id not in assigned:
-                    from modules.notification_center import notifications
-
-                    notifications.warning(
-                        'Objective',
-                        'Objective Not in Turret',
-                        f"[Objective] Cannot select '{objective_id}' -- not assigned "
-                        f'to any turret position. Assign it in Objective Control > '
-                        f'Turret before using.',
-                    )
-
-            objective = objective_helper.get_objective_info(objective_id=objective_id)
-            settings['objective_id'] = objective_id
-            microscope_settings_id = ctx.motion_settings.ids['microscope_settings_id']
-            microscope_settings_id.ids['magnification_id'].text = f'{objective["magnification"]}'
-
-            # Update selected to be consistent with other selector
-            vc_objective_spinner = ctx.motion_settings.ids['verticalcontrol_id'].ids[
-                'objective_spinner2'
-            ]
-            vc_objective_spinner.text = objective_id
-
-            if lumaview.scope.motion.has_turret():
-                lumaview.scope.runtime_state.set_turret_config(
-                    turret_config=settings['turret_objectives']
-                )
-
-            lumaview.scope.runtime_state.set_objective(objective_id=objective_id)
-
-            fov_size = common_utils.get_field_of_view(
-                focal_length=objective['focal_length'],
-                frame_size=settings['frame'],
-                binning_size=get_binning_from_ui(),
-            )
-            self.ids['field_of_view_width_id'].text = str(round(fov_size['width'], 0))
-            self.ids['field_of_view_height_id'].text = str(round(fov_size['height'], 0))
-        except Exception as e:
-            logger.error(f'[UI] select_objective failed: {e}', exc_info=True)
-            from ui.notification_popup import show_notification_popup
-
-            show_notification_popup(title='Error', message=str(e))
 
     def frame_size(self):
         """Apply a user edit of the frame width/height fields.

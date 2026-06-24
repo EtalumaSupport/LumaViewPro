@@ -2050,47 +2050,6 @@
 					text_size: self.size
 					font_size: '12sp'
 
-			BoxLayout:
-				orientation: 'horizontal'
-				size_hint_y: None
-				height: '30dp'
-				Label:
-					text: 'Objective'
-					tooltip_text: 'Current objective in the lightpath'
-					size_hint_x: None
-					width: '120dp'
-					font_size: '12sp'
-				Spinner:
-					id: objective_spinner
-					disabled: app.protocol_running
-					sync_height: True
-					text: 'Select'
-					font_size:'12sp'
-					option_cls: "SpinnerOption0"
-					# #631: see objective_spinner2 above for rationale.
-					on_release: root.load_objectives()
-					on_text: root.select_objective()
-
-			BoxLayout:
-				orientation: 'horizontal'
-				size_hint_y: None
-				height: '30dp'
-				Label:
-					text: 'Magnification'
-					tooltip_text: 'Current objective magnification'
-					size_hint_x: None
-					width: '120dp'
-					font_size: '12sp'
-				TextInput:
-					id: magnification_id
-					multiline: False
-					padding: ['5dp', (self.height-self.line_height)/2]
-					halign: 'center'
-					input_filter: 'int'
-					text: '40'
-					disabled: True
-					font_size: '12sp'
-
 			# Frame Size
 			BoxLayout:
 				orientation: 'horizontal'
