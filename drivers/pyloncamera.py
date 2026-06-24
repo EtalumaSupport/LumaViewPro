@@ -1253,54 +1253,6 @@ class PylonCamera(Camera):
                 # camera body's sensor doesn't reach 1900 in either
                 # axis, the SetValue will clamp + warn from set_frame_size.
                 self.set_frame_size(w=1900, h=1900)
-                # Line noise reduction smooths horizontal stripe artifacts
-                # in the sensor readout. Model-specific: not every Basler
-                # body exposes the node, so probe for it and treat absence
-                # as a normal skip, not a fault. Strength runs 0.0 (none)
-                # to 1.0 (max), where higher trades fine detail for fewer
-                # stripes; 0.5 is the Basler-documented starting point and
-                # the bench tunes the final value. Set last so an SDK error
-                # here cannot skip the essential setup above (the method's
-                # outer handler logs it).
-                node_map = camera.GetNodeMap()
-                if (
-                    node_map.GetNode('BslLineNoiseReductionEnable') is None
-                    or node_map.GetNode('BslLineNoiseReduction') is None
-                ):
-                    _cam_log.info(
-                        '[CAM Class ] Line noise reduction not supported by this camera; skipping'
-                    )
-                else:
-                    line_noise_strength = 0.5
-                    camera.BslLineNoiseReductionEnable.SetValue(True)
-                    lo = camera.BslLineNoiseReduction.GetMin()
-                    hi = camera.BslLineNoiseReduction.GetMax()
-                    camera.BslLineNoiseReduction.SetValue(line_noise_strength)
-                    _cam_log.info(
-                        f'[CAM Class ] Line noise reduction enabled: '
-                        f'strength={line_noise_strength} '
-                        f'(camera range {lo:.3f}-{hi:.3f})'
-                    )
-                # High conversion gain is a sensor-level low-noise mode: it
-                # raises the pixel charge-to-voltage gain so the sensor read
-                # noise floor drops (better signal-to-noise in low light) at
-                # the cost of a smaller full well and lower dynamic range.
-                # Unlike the line-noise filter above, this lowers the actual
-                # sensor noise rather than post-processing it away. The dim
-                # fluorescence channels benefit most; the bench confirms the
-                # dynamic-range cost is acceptable. Model-specific node; skip
-                # cleanly if absent.
-                if node_map.GetNode('BslConversionGainMode') is None:
-                    _cam_log.info(
-                        '[CAM Class ] Conversion gain mode not supported by this camera; skipping'
-                    )
-                else:
-                    prior_gain_mode = camera.BslConversionGainMode.GetValue()
-                    camera.BslConversionGainMode.SetValue('High')
-                    _cam_log.info(
-                        f'[CAM Class ] Conversion gain mode set to High (HCG) '
-                        f'for low sensor noise; was {prior_gain_mode}'
-                    )
         except genicam.RuntimeException as e:
             _cam_log.error(
                 f'[CAM Class ] Camera communication error during init_camera_config: {e}'
@@ -2138,6 +2090,146 @@ class PylonCamera(Camera):
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error reading binning size: {e}')
             return 1
+
+    def set_conversion_gain_mode(self, mode: str) -> bool:
+        """Set the sensor conversion gain mode.
+
+        High conversion gain raises the pixel charge-to-voltage gain so
+        the sensor read-noise floor drops (better signal-to-noise in low
+        light) at the cost of a smaller full well and lower dynamic
+        range. Low is the standard mode for normal-to-bright light. This
+        is a sensor-level setting, distinct from the line-noise filter.
+
+        Args:
+            mode: 'High' (low noise) or 'Low' (wide dynamic range).
+
+        Returns:
+            bool: True on success. False when the camera is inactive, the
+                mode is invalid, or the camera doesn't expose the node
+                (caller-correctable / capability guards). Hardware-level
+                failure raises HardwareError.
+
+        Raises:
+            HardwareError: SDK call failed. RuntimeException marks the
+                camera disconnected before raising.
+        """
+        if not self.active:
+            return False
+        if mode not in ('Low', 'High'):
+            _cam_log.error(f'[CAM Class ] Unsupported conversion gain mode: {mode}')
+            return False
+        if self.active.GetNodeMap().GetNode('BslConversionGainMode') is None:
+            return False
+        try:
+            if _cam_log is not None:
+                _cam_log.info(f'pylon BslConversionGainMode.SetValue({mode!r})')
+            with self.update_camera_config():
+                self.active.BslConversionGainMode.SetValue(mode)
+            return True
+        except genicam.RuntimeException as e:
+            _cam_log.error(
+                '[CAM Class ] Camera communication error during '
+                f'set_conversion_gain_mode({mode}): {e}'
+            )
+            self._mark_disconnected()
+            raise HardwareError(
+                f'set_conversion_gain_mode({mode}) failed: {type(e).__name__}: {e}'
+            ) from e
+        except Exception as e:
+            _cam_log.exception(f'[CAM Class ] Unexpected error in set_conversion_gain_mode: {e}')
+            raise HardwareError(
+                f'set_conversion_gain_mode({mode}) failed: {type(e).__name__}: {e}'
+            ) from e
+
+    def set_line_noise_reduction(self, enabled: bool, strength: float = 0.5) -> bool:
+        """Enable or disable the camera line-noise reduction filter.
+
+        A camera-side digital filter that smooths horizontal stripe
+        ("line noise") artifacts in the sensor readout. Strength runs
+        0.0 (none) to 1.0 (max); higher trades fine detail for fewer
+        stripes. 0.5 is the Basler-documented starting value.
+
+        Args:
+            enabled: True turns the filter on at `strength`; False off.
+            strength: Reduction amount 0.0-1.0, applied when enabled.
+
+        Returns:
+            bool: True on success. False when the camera is inactive or
+                doesn't expose the nodes (capability guards). Hardware-
+                level failure raises HardwareError.
+
+        Raises:
+            HardwareError: SDK call failed. RuntimeException marks the
+                camera disconnected before raising.
+        """
+        if not self.active:
+            return False
+        node_map = self.active.GetNodeMap()
+        if (
+            node_map.GetNode('BslLineNoiseReductionEnable') is None
+            or node_map.GetNode('BslLineNoiseReduction') is None
+        ):
+            return False
+        try:
+            if _cam_log is not None:
+                _cam_log.info(
+                    f'pylon BslLineNoiseReductionEnable.SetValue({enabled}) strength={strength}'
+                )
+            with self.update_camera_config():
+                self.active.BslLineNoiseReductionEnable.SetValue(enabled)
+                if enabled:
+                    self.active.BslLineNoiseReduction.SetValue(strength)
+            return True
+        except genicam.RuntimeException as e:
+            _cam_log.error(
+                '[CAM Class ] Camera communication error during '
+                f'set_line_noise_reduction({enabled}): {e}'
+            )
+            self._mark_disconnected()
+            raise HardwareError(
+                f'set_line_noise_reduction({enabled}) failed: {type(e).__name__}: {e}'
+            ) from e
+        except Exception as e:
+            _cam_log.exception(f'[CAM Class ] Unexpected error in set_line_noise_reduction: {e}')
+            raise HardwareError(
+                f'set_line_noise_reduction({enabled}) failed: {type(e).__name__}: {e}'
+            ) from e
+
+    def supports_conversion_gain_mode(self) -> bool:
+        """True if the camera exposes the conversion-gain-mode node."""
+        if not self.active:
+            return False
+        try:
+            return self.active.GetNodeMap().GetNode('BslConversionGainMode') is not None
+        except genicam.RuntimeException as e:
+            _cam_log.error(f'[CAM Class ] Failed to probe conversion gain mode support: {e}')
+            self._mark_disconnected()
+            return False
+        except Exception as e:
+            _cam_log.exception(
+                f'[CAM Class ] Unexpected error probing conversion gain mode support: {e}'
+            )
+            return False
+
+    def supports_line_noise_reduction(self) -> bool:
+        """True if the camera exposes the line-noise-reduction nodes."""
+        if not self.active:
+            return False
+        try:
+            node_map = self.active.GetNodeMap()
+            return (
+                node_map.GetNode('BslLineNoiseReductionEnable') is not None
+                and node_map.GetNode('BslLineNoiseReduction') is not None
+            )
+        except genicam.RuntimeException as e:
+            _cam_log.error(f'[CAM Class ] Failed to probe line noise reduction support: {e}')
+            self._mark_disconnected()
+            return False
+        except Exception as e:
+            _cam_log.exception(
+                f'[CAM Class ] Unexpected error probing line noise reduction support: {e}'
+            )
+            return False
 
     def init_auto_gain_focus(
         self,

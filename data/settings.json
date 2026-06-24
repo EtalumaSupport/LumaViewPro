@@ -186,6 +186,10 @@
     "binning": {
         "size": "1x1"
     },
+    "camera": {
+        "high_conversion_gain": false,
+        "line_noise_reduction": false
+    },
     "logging": {
         "default": {
             "level": "INFO"

@@ -678,6 +678,89 @@ class ImagingAPI:
                 self._camera_cache['pixel_format'] = pixel_format
         return result
 
+    def set_conversion_gain_mode(self, mode: str) -> bool:
+        """Set the camera sensor conversion gain mode.
+
+        High conversion gain lowers the sensor read-noise floor (better
+        low-light signal-to-noise) at the cost of dynamic range; Low is
+        the standard wide-range mode. Pylon-only -- returns False on
+        cameras/drivers that don't implement the setter.
+
+        Args:
+            mode: 'High' (low noise) or 'Low' (wide dynamic range).
+
+        Returns:
+            bool: True on success. False if the camera is absent, the
+                driver doesn't implement the setter, or the driver
+                returned False / raised. Never raises.
+        """
+        if not self._driver or not self._driver.active:
+            self._notify_camera_absent('conversion gain mode')
+            return False
+        if not hasattr(self._driver, 'set_conversion_gain_mode'):
+            logger.debug(
+                f'[SCOPE API ] set_conversion_gain_mode: '
+                f'{type(self._driver).__name__} does not implement this method'
+            )
+            return False
+        try:
+            result = self._driver.set_conversion_gain_mode(mode)
+        except Exception as ex:
+            logger.exception(f'[SCOPE API ] Error setting conversion gain mode: {ex}')
+            from modules.notification_center import notifications
+
+            notifications.error(
+                'Camera',
+                'Conversion gain mode change failed',
+                f'Could not set conversion gain mode to {mode!r}: '
+                f'{type(ex).__name__}: {ex}. Camera may still be at the previous mode.',
+            )
+            return False
+        if result:
+            self.frame_validity.invalidate('conversion_gain_mode')
+        return result
+
+    def set_line_noise_reduction(self, enabled: bool) -> bool:
+        """Enable or disable the camera line-noise reduction filter.
+
+        A camera-side filter that smooths horizontal stripe artifacts in
+        the sensor readout. Pylon-only -- returns False on cameras/drivers
+        that don't implement the setter.
+
+        Args:
+            enabled: True turns the filter on; False off.
+
+        Returns:
+            bool: True on success. False if the camera is absent, the
+                driver doesn't implement the setter, or the driver
+                returned False / raised. Never raises.
+        """
+        if not self._driver or not self._driver.active:
+            self._notify_camera_absent('line noise reduction')
+            return False
+        if not hasattr(self._driver, 'set_line_noise_reduction'):
+            logger.debug(
+                f'[SCOPE API ] set_line_noise_reduction: '
+                f'{type(self._driver).__name__} does not implement this method'
+            )
+            return False
+        try:
+            result = self._driver.set_line_noise_reduction(enabled=enabled)
+        except Exception as ex:
+            logger.exception(f'[SCOPE API ] Error setting line noise reduction: {ex}')
+            from modules.notification_center import notifications
+
+            notifications.error(
+                'Camera',
+                'Line noise reduction change failed',
+                f'Could not {"enable" if enabled else "disable"} line noise reduction: '
+                f'{type(ex).__name__}: {ex}.',
+            )
+            return False
+        if result:
+            self.frame_validity.invalidate('line_noise_reduction')
+        return result
+
     # --- SDK-perf knobs (write-only by design) ---
     #
     # Considered get_X companions for the cluster below

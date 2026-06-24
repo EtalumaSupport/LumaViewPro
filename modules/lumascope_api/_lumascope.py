@@ -602,6 +602,10 @@ class Lumascope:
         self.runtime_state.set_objective(config.objective_id)
         self.imaging.set_binning_size(config.binning_size)
         self.imaging.set_frame_size(config.frame_width, config.frame_height)
+        if self.capabilities.camera_supports_conversion_gain_mode:
+            self.imaging.set_conversion_gain_mode('High' if config.high_conversion_gain else 'Low')
+        if self.capabilities.camera_supports_line_noise_reduction:
+            self.imaging.set_line_noise_reduction(config.line_noise_reduction)
         self.runtime_state.set_stage_offset(config.stage_offset)
         self.imaging.set_scale_bar(enabled=config.scale_bar_enabled)
         self.motion.set_acceleration_limit(val_pct=config.acceleration_pct)

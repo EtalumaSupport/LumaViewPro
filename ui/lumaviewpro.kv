@@ -2448,6 +2448,48 @@
 			BoxLayout:
 				orientation: 'horizontal'
 				size_hint_y: None
+				height: '30dp' if root.conversion_gain_supported else 0
+				opacity: 1 if root.conversion_gain_supported else 0
+				disabled: not root.conversion_gain_supported
+				Label:
+					font_size: '12sp'
+					text: 'High Conversion Gain'
+					tooltip_text: 'Sensor low-noise mode: lower read noise for dim/fluorescence imaging,\nat the cost of dynamic range'
+					halign: 'left'
+					valign: 'middle'
+					text_size: self.size
+				CheckBox:
+					id: high_conversion_gain
+					disabled: app.protocol_running
+					size_hint_x: None
+					width: '25dp'
+					active: False
+					on_release: root.update_high_conversion_gain()
+
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
+				height: '30dp' if root.line_noise_reduction_supported else 0
+				opacity: 1 if root.line_noise_reduction_supported else 0
+				disabled: not root.line_noise_reduction_supported
+				Label:
+					font_size: '12sp'
+					text: 'Line Noise Reduction'
+					tooltip_text: 'Camera filter that smooths horizontal stripe artifacts in the sensor readout'
+					halign: 'left'
+					valign: 'middle'
+					text_size: self.size
+				CheckBox:
+					id: line_noise_reduction
+					disabled: app.protocol_running
+					size_hint_x: None
+					width: '25dp'
+					active: False
+					on_release: root.update_line_noise_reduction()
+
+			BoxLayout:
+				orientation: 'horizontal'
+				size_hint_y: None
 				height: '30dp'
 				Label:
 					font_size: '12sp'

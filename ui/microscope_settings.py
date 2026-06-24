@@ -96,6 +96,13 @@ class MicroscopeSettings(BoxLayout):
     # never flashes before the capability probe result lands.
     stim_supported = BooleanProperty(False)
 
+    # Mirror the camera's low-noise capabilities so the kv hides each toggle
+    # when the camera doesn't expose the node (Pylon Bsl features; absent on
+    # other cameras). Set from scope.capabilities at settings load; default
+    # hidden so a toggle never flashes before the probe result lands.
+    conversion_gain_supported = BooleanProperty(False)
+    line_noise_reduction_supported = BooleanProperty(False)
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         logger.debug('[LVP Main  ] MicroscopeSettings.__init__()')
@@ -611,6 +618,23 @@ class MicroscopeSettings(BoxLayout):
             if not self.stim_supported:
                 settings['stimulation_enabled'] = False
 
+            # Camera low-noise toggles are gated on the camera exposing the
+            # nodes; reflect the persisted state in the checkboxes (the values
+            # are applied to the camera by scope.initialize()). Force the
+            # checkbox off when the camera can't do it so it never shows on.
+            caps = lumaview.scope.capabilities
+            self.conversion_gain_supported = caps.camera_supports_conversion_gain_mode
+            self.line_noise_reduction_supported = caps.camera_supports_line_noise_reduction
+            camera_settings = settings.setdefault('camera', {})
+            self.ids['high_conversion_gain'].active = bool(
+                self.conversion_gain_supported
+                and camera_settings.get('high_conversion_gain', False)
+            )
+            self.ids['line_noise_reduction'].active = bool(
+                self.line_noise_reduction_supported
+                and camera_settings.get('line_noise_reduction', False)
+            )
+
             if 'stimulation_enabled' in settings:
                 if settings['stimulation_enabled']:
                     self.ids['stimulation_settings_btn'].state = 'down'
@@ -848,6 +872,31 @@ class MicroscopeSettings(BoxLayout):
                     imaging.set_pixel_format(formats[0])
 
         ctx.camera_executor.put(IOTask(action=_set_pixel_format))
+
+    def update_high_conversion_gain(self):
+        ctx = _app_ctx.ctx
+        settings = ctx.settings
+        state = self.ids['high_conversion_gain'].active
+        gui_logger.select('HIGH_CONVERSION_GAIN', state)
+        settings.setdefault('camera', {})['high_conversion_gain'] = state
+        mode = 'High' if state else 'Low'
+
+        def _set_conversion_gain():
+            ctx.lumaview.scope.imaging.set_conversion_gain_mode(mode)
+
+        ctx.camera_executor.put(IOTask(action=_set_conversion_gain))
+
+    def update_line_noise_reduction(self):
+        ctx = _app_ctx.ctx
+        settings = ctx.settings
+        state = self.ids['line_noise_reduction'].active
+        gui_logger.select('LINE_NOISE_REDUCTION', state)
+        settings.setdefault('camera', {})['line_noise_reduction'] = state
+
+        def _set_line_noise():
+            ctx.lumaview.scope.imaging.set_line_noise_reduction(state)
+
+        ctx.camera_executor.put(IOTask(action=_set_line_noise))
 
     def select_live_image_output_format(self):
         settings = _app_ctx.ctx.settings

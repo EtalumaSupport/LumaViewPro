@@ -165,6 +165,16 @@ class ScopeCapabilities:
     Mono8 directly (IDS IMX676 -- U3-34L0XCP-M) report 8. Drives
     buffer sizing decisions in pipeline stages."""
 
+    camera_supports_conversion_gain_mode: bool = False
+    """True if the camera exposes a switchable sensor conversion-gain
+    mode (High = low read noise / narrow range, Low = wide range). Gates
+    the UI toggle. Pylon Bsl feature; absent on cameras without it."""
+
+    camera_supports_line_noise_reduction: bool = False
+    """True if the camera exposes the line-noise-reduction filter (smooths
+    horizontal stripe artifacts). Gates the UI toggle. Pylon Bsl feature;
+    absent on cameras without it."""
+
     # ---- Cross-cutting feature flags ----
     has_firmware_stim: bool = False
     """True when the LED firmware advertises the STIM pulse-train command
@@ -322,6 +332,8 @@ class ScopeCapabilities:
         camera_max_frame_size: tuple[int, int] = (0, 0)
         is_color_native = False
         native_bit_depth = 16
+        camera_supports_conversion_gain_mode = False
+        camera_supports_line_noise_reduction = False
         if camera is not None:
             profile = getattr(camera, 'profile', None)
             if profile is not None:
@@ -337,6 +349,16 @@ class ScopeCapabilities:
                 camera_max_frame_size = (int(size.get('width', 0)), int(size.get('height', 0)))
             is_color_native = bool(getattr(camera, 'is_color_native', False))
             native_bit_depth = int(getattr(camera, 'native_bit_depth', 16))
+            camera_supports_conversion_gain_mode = _probe(
+                'camera.supports_conversion_gain_mode',
+                lambda: bool(camera.supports_conversion_gain_mode()),
+                False,
+            )
+            camera_supports_line_noise_reduction = _probe(
+                'camera.supports_line_noise_reduction',
+                lambda: bool(camera.supports_line_noise_reduction()),
+                False,
+            )
 
         return cls(
             axes=axes,
@@ -363,4 +385,6 @@ class ScopeCapabilities:
             camera_max_frame_size=camera_max_frame_size,
             is_color_native=is_color_native,
             native_bit_depth=native_bit_depth,
+            camera_supports_conversion_gain_mode=camera_supports_conversion_gain_mode,
+            camera_supports_line_noise_reduction=camera_supports_line_noise_reduction,
         )

@@ -32,6 +32,8 @@ class ScopeInitConfig:
     scale_bar_enabled: bool
     expects_motion: bool = True
     expects_led: bool = True
+    high_conversion_gain: bool = False
+    line_noise_reduction: bool = False
 
     @classmethod
     def from_settings(
@@ -70,4 +72,6 @@ class ScopeInitConfig:
             scale_bar_enabled=settings.get('scale_bar', {}).get('enabled', False),
             expects_motion=expects_motion,
             expects_led=expects_led,
+            high_conversion_gain=settings.get('camera', {}).get('high_conversion_gain', False),
+            line_noise_reduction=settings.get('camera', {}).get('line_noise_reduction', False),
         )
