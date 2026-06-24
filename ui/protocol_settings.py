@@ -445,8 +445,20 @@ class ProtocolSettings(FloatLayout):
             show_notification_popup(title='Error', message=str(e))
 
     def get_tiling_overlap_percent(self) -> float:
-        text = self.ids['tiling_overlap_spinner'].text.strip().rstrip('%')
-        return TilingConfig.validate_overlap_percent(text)
+        """Tile overlap percentage, read from the persisted system setting.
+
+        The single accessor for tile overlap at scan/apply time; the spinner
+        is just the editor that writes the setting via update_tiling_overlap.
+        """
+        return _app_ctx.ctx.settings['tiling_overlap_percent']
+
+    def update_tiling_overlap(self):
+        """Persist a user change to the tile overlap as a system setting."""
+        overlap = TilingConfig.validate_overlap_percent(
+            self.ids['tiling_overlap_spinner'].text.strip().rstrip('%')
+        )
+        gui_logger.select('TILING_OVERLAP', overlap)
+        _app_ctx.ctx.settings['tiling_overlap_percent'] = overlap
 
     def apply_zstacking(self):
         try:

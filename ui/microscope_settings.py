@@ -434,6 +434,9 @@ class MicroscopeSettings(BoxLayout):
             protocol_settings.ids['capture_dur'].text = str(settings['protocol']['duration'])
             protocol_settings.ids['labware_spinner'].text = settings['protocol']['labware']
             protocol_settings.select_labware()
+            protocol_settings.ids[
+                'tiling_overlap_spinner'
+            ].text = f'{int(settings["tiling_overlap_percent"])}%'
 
             zstack_settings = ctx.motion_settings.ids['verticalcontrol_id'].ids['zstack_id']
             zstack_settings.ids['zstack_spinner'].text = settings['zstack']['position']
