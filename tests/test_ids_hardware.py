@@ -15,6 +15,7 @@ test bodies do NOT need their own skip dance.
 import time
 import unittest
 
+import numpy as np
 import pytest
 
 # When --run-ids-hardware is set, conftest skips installing the ids_peak
@@ -98,6 +99,49 @@ class TestIDS(unittest.TestCase):
     def test_gain(self):
         self.camera.gain(10)
         self.assertAlmostEqual(self.camera.get_gain(), 10.0, delta=0.1)
+
+    def test_native_depth_frame_is_right_aligned_uint16(self):
+        """Keystone bench check: a grabbed frame arrives at the sensor's native
+        depth in a uint16 container, right-aligned.
+
+        Right-aligned means full scale is (1 << significant_bits) - 1 and every
+        pixel fits in the low significant_bits of the uint16. If the SDK
+        left-aligns instead, pixel values ride in the high bits and overflow
+        that range -- the assertion below catches it, settling the #1
+        undocumented unpack unknown. drivers/ids_unpack.py is the cross-check
+        for the expected layout.
+
+        Needs light on the sensor: a near-dark frame can't distinguish the two
+        alignments (small values stay small either way), so the test skips
+        rather than pass vacuously when the frame is too dark.
+        """
+        time.sleep(1)  # let the grab loop store a frame
+        result, timestamp = self.camera.grab()
+        self.assertTrue(result)
+        self.assertIsNotNone(timestamp)
+
+        frame = self.camera.array
+        self.assertEqual(frame.dtype, np.uint16, 'native-depth frame must be a uint16 container')
+
+        sig = self.camera.last_significant_bits
+        self.assertIn(
+            sig, (10, 12), f'IMX676 delivers packed 10/12-bit; got significant_bits={sig}'
+        )
+
+        peak = int(frame.max())
+        if peak < 256:
+            self.skipTest(
+                f'frame too dark (max={peak}) to judge alignment -- put light on the sensor'
+            )
+        full_scale = (1 << sig) - 1
+        self.assertLessEqual(
+            peak,
+            full_scale,
+            f'frame.max()={peak} exceeds {full_scale}: the SDK is NOT right-aligned at '
+            f'significant_bits={sig} (values ride in the high bits) -- the consuming code '
+            f'must shift. This is the alignment unknown the rebuild flagged.',
+        )
+        self.assertGreaterEqual(int(frame.min()), 0)
 
 
 class TestIDSPixelFormatResolver(unittest.TestCase):
