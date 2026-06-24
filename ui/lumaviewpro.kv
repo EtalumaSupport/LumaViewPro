@@ -2419,33 +2419,6 @@
 					on_release: root.update_scale_bar_state()
 					state: 'normal'
 					
-			# Separate Folders
-			BoxLayout:
-				orientation: 'horizontal'
-				size_hint_y: None
-				height: '30dp'
-							
-				Label:
-					text: 'Save channels in separate folders'
-					tooltip_text: "Save each channels' images in separate folders"
-					font_size: '12sp'
-					halign: 'left'
-					valign: 'middle'
-					text_size: self.size
-
-				ToggleButton:
-					id: separate_folder_per_channel_id
-					disabled: app.protocol_running
-					size_hint: None, None
-					tooltip_text: "Save each channels' images in separate folders"
-					size: '45dp', '30dp'
-					border: 0, 0, 0, 0
-					valign: 'middle'
-					background_normal: './data/icons/ToggleL.png'
-					background_down: './data/icons/ToggleRW.png'
-					on_release: root.update_separate_folders_per_channel()
-					state: 'normal'
-
 			BoxLayout:
 				orientation: 'horizontal'
 				size_hint_y: None
@@ -2562,65 +2535,6 @@
 					on_text_validate: root.acceleration_pct_text()
 					on_focus: if not self.focus: root.acceleration_pct_text()
 				
-			BoxLayout:
-				size_hint_y: None
-				height: '30dp'
-				orientation: 'horizontal'
-				Label:
-					text: 'Live View FPS'
-					tooltip_text: 'Maximum frames per second for live camera display'
-					halign: 'left'
-					valign: 'middle'
-					text_size: self.size
-					font_size: '12sp'
-				ModSlider:
-					id: live_view_fps_slider
-					disabled: app.protocol_running
-					min: 5
-					max: 65
-					value: 30
-					step: 5
-					cursor_size: '20dp','20dp'
-					cursor_image: './data/icons/slider_cursor.png'
-					track_width: dp(5)
-					value_track: True
-					value_track_width: dp(5)
-					on_release: root.live_view_fps_slider()
-				TextInput:
-					size_hint_x: None
-					width: '45dp'
-					multiline: False
-					font_size: '12sp'
-					padding: ['4dp', (self.height-self.line_height)/2]
-					halign: 'right'
-					text: 'Max' if int(live_view_fps_slider.value) > 60 else format(int(live_view_fps_slider.value))
-					readonly: True
-
-			BoxLayout:
-
-				orientation: 'horizontal'
-				size_hint_y: None
-				height: '30dp'
-				Label:
-					font_size: '12sp'
-					text: 'LED On When Stepping'
-					tooltip_text: "Keep the step's LED on while manually navigating through protocol steps so you can preview the illumination. Does not affect LED behavior during a protocol scan."
-					halign: 'left'
-					valign: 'middle'
-					text_size: self.size
-				ToggleButton:
-					id: protocol_led_on_btn
-					disabled: app.protocol_running
-					size_hint: None, None
-					tooltip_text: "Keep the step's LED on while manually navigating through protocol steps so you can preview the illumination. Does not affect LED behavior during a protocol scan."
-					size: '45dp', '30dp'
-					border: 0, 0, 0, 0
-					valign: 'middle'
-					background_normal: './data/icons/ToggleL.png'
-					background_down: './data/icons/ToggleRW.png'
-					on_release: root.update_protocol_led_on()
-					state: 'normal'
-
 			BoxLayout:
 				id: stim_settings_box
 				orientation: 'horizontal'

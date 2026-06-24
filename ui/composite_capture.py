@@ -93,9 +93,7 @@ class CompositeCapture(FloatLayout):
                 break
 
         save_folder = pathlib.Path(settings['live_folder']) / 'Manual'
-        separate_folder_per_channel = ctx.motion_settings.ids[
-            'microscope_settings_id'
-        ]._seperate_folder_per_channel
+        separate_folder_per_channel = settings['separate_folder_per_channel']
         if separate_folder_per_channel:
             save_folder = save_folder / layer
 

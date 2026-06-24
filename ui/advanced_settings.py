@@ -63,6 +63,20 @@ class AdvancedSettings(Popup):
             get_manual_video_max_duration(settings)
         )
 
+        self.ids['separate_folder_per_channel_id'].state = (
+            'down' if settings.get('separate_folder_per_channel') else 'normal'
+        )
+
+        # The runtime fps mirror (ctx.live_view_fps) and scope_display are
+        # initialized at app startup; the slider just reflects the stored value.
+        # fps=0 means uncapped, which maps to the slider's top position.
+        live_fps = settings.get('live_view_fps', 30)
+        self.ids['live_view_fps_slider'].value = 65 if live_fps == 0 else live_fps
+
+        self.ids['protocol_led_on_btn'].state = (
+            'down' if settings.get('protocol_led_on') else 'normal'
+        )
+
     def update_high_conversion_gain(self):
         ctx = _app_ctx.ctx
         settings = ctx.settings
@@ -137,6 +151,37 @@ class AdvancedSettings(Popup):
         settings.setdefault('manual_video', {})
         settings['manual_video']['max_duration_seconds'] = value
         gui_logger.text_input_debounced('MANUAL_VIDEO_MAX_DURATION_S', value)
+
+    def update_separate_folders_per_channel(self):
+        settings = _app_ctx.ctx.settings
+        state = self.ids['separate_folder_per_channel_id'].state == 'down'
+        gui_logger.toggle('SEPARATE_FOLDERS', state)
+        settings['separate_folder_per_channel'] = state
+
+    def live_view_fps_slider(self):
+        ctx = _app_ctx.ctx
+        fps_val = int(self.ids['live_view_fps_slider'].value)
+        gui_logger.slider('FPS', fps_val)
+        # Values above 60 mean "uncapped" -- store 0 as sentinel.
+        if fps_val > 60:
+            fps_val = 0
+        ctx.live_view_fps = fps_val
+        with ctx.settings_lock:
+            ctx.settings['live_view_fps'] = fps_val
+        logger.info(
+            f'[LVP Main  ] Live view FPS set to {"Max (uncapped)" if fps_val == 0 else fps_val}'
+        )
+
+        scope_display = ctx.scope_display
+        if scope_display is not None:
+            scope_display.stop()
+            scope_display.start(fps=fps_val)
+
+    def update_protocol_led_on(self):
+        settings = _app_ctx.ctx.settings
+        enabled = self.ids['protocol_led_on_btn'].state == 'down'
+        gui_logger.toggle('PROTOCOL_LED_ON', enabled)
+        settings['protocol_led_on'] = enabled
 
     def close(self):
         logger.debug('[Advanced ] AdvancedSettings closed')
@@ -257,6 +302,87 @@ kv = Builder.load_string(
                         text: '30'
                         on_text_validate: root.update_manual_video_max_duration()
                         on_focus: if not self.focus: root.update_manual_video_max_duration()
+
+                BoxLayout:
+                    orientation: 'horizontal'
+                    size_hint_y: None
+                    height: '30dp'
+                    Label:
+                        text: 'Save channels in separate folders'
+                        tooltip_text: "Save each channels' images in separate folders"
+                        font_size: '12sp'
+                        halign: 'left'
+                        valign: 'middle'
+                        text_size: self.size
+                    ToggleButton:
+                        id: separate_folder_per_channel_id
+                        disabled: app.protocol_running
+                        size_hint: None, None
+                        tooltip_text: "Save each channels' images in separate folders"
+                        size: '45dp', '30dp'
+                        border: 0, 0, 0, 0
+                        valign: 'middle'
+                        background_normal: './data/icons/ToggleL.png'
+                        background_down: './data/icons/ToggleRW.png'
+                        on_release: root.update_separate_folders_per_channel()
+                        state: 'normal'
+
+                BoxLayout:
+                    orientation: 'horizontal'
+                    size_hint_y: None
+                    height: '30dp'
+                    Label:
+                        text: 'Live View FPS'
+                        tooltip_text: 'Maximum frames per second for live camera display'
+                        halign: 'left'
+                        valign: 'middle'
+                        text_size: self.size
+                        font_size: '12sp'
+                    ModSlider:
+                        id: live_view_fps_slider
+                        disabled: app.protocol_running
+                        min: 5
+                        max: 65
+                        value: 30
+                        step: 5
+                        cursor_size: '20dp','20dp'
+                        cursor_image: './data/icons/slider_cursor.png'
+                        track_width: dp(5)
+                        value_track: True
+                        value_track_width: dp(5)
+                        on_release: root.live_view_fps_slider()
+                    TextInput:
+                        size_hint_x: None
+                        width: '45dp'
+                        multiline: False
+                        font_size: '12sp'
+                        padding: ['4dp', (self.height-self.line_height)/2]
+                        halign: 'right'
+                        text: 'Max' if int(live_view_fps_slider.value) > 60 else format(int(live_view_fps_slider.value))
+                        readonly: True
+
+                BoxLayout:
+                    orientation: 'horizontal'
+                    size_hint_y: None
+                    height: '30dp'
+                    Label:
+                        font_size: '12sp'
+                        text: 'LED On When Stepping'
+                        tooltip_text: "Keep the step's LED on while manually navigating through protocol steps so you can preview the illumination. Does not affect LED behavior during a protocol scan."
+                        halign: 'left'
+                        valign: 'middle'
+                        text_size: self.size
+                    ToggleButton:
+                        id: protocol_led_on_btn
+                        disabled: app.protocol_running
+                        size_hint: None, None
+                        tooltip_text: "Keep the step's LED on while manually navigating through protocol steps so you can preview the illumination. Does not affect LED behavior during a protocol scan."
+                        size: '45dp', '30dp'
+                        border: 0, 0, 0, 0
+                        valign: 'middle'
+                        background_normal: './data/icons/ToggleL.png'
+                        background_down: './data/icons/ToggleRW.png'
+                        on_release: root.update_protocol_led_on()
 
         Button:
             text: 'Close'

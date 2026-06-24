@@ -2255,9 +2255,7 @@ class ProtocolSettings(FloatLayout):
             parent_dir=parent_dir,
             image_capture_config=image_capture_config,
             enable_image_saving=is_image_saving_enabled(),
-            separate_folder_per_channel=ctx.motion_settings.ids[
-                'microscope_settings_id'
-            ]._seperate_folder_per_channel,
+            separate_folder_per_channel=ctx.settings['separate_folder_per_channel'],
             autogain_settings=autogain_settings,
             callbacks=callbacks,
             disable_saving_artifacts=disable_saving_artifacts,

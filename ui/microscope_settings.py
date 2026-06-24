@@ -289,26 +289,6 @@ class MicroscopeSettings(BoxLayout):
         for acceleration_id in ('acceleration_control_box',):
             self.ids[acceleration_id].visible = visible
 
-    def live_view_fps_slider(self):
-        ctx = _app_ctx.ctx
-        fps_val = int(self.ids['live_view_fps_slider'].value)
-        gui_logger.slider('FPS', fps_val)
-        # Values above 60 mean "uncapped" -- store 0 as sentinel
-        if fps_val > 60:
-            fps_val = 0
-        ctx.live_view_fps = fps_val
-        with ctx.settings_lock:
-            ctx.settings['live_view_fps'] = fps_val
-        logger.info(
-            f'[LVP Main  ] Live view FPS set to {"Max (uncapped)" if fps_val == 0 else fps_val}'
-        )
-
-        # Restart scope display with new FPS
-        scope_display = ctx.scope_display
-        if scope_display is not None:
-            scope_display.stop()
-            scope_display.start(fps=fps_val)
-
     # load settings from JSON file
     def load_settings(self, filename='./data/current.json'):
         logger.info('[LVP Main  ] MicroscopeSettings.load_settings()')
@@ -408,13 +388,6 @@ class MicroscopeSettings(BoxLayout):
                 settings['image_mode'] = mode
             self.ids['image_mode_spinner'].text = image_mode.IMAGE_MODE_LABELS[mode]
 
-            if 'separate_folder_per_channel' in settings:
-                if settings['separate_folder_per_channel']:
-                    self.ids['separate_folder_per_channel_id'].state = 'down'
-                else:
-                    self.ids['separate_folder_per_channel_id'].state = 'normal'
-            self.update_separate_folders_per_channel()
-
             self.ids['live_image_output_format_spinner'].text = settings['image_output_format'][
                 'live'
             ]
@@ -465,10 +438,6 @@ class MicroscopeSettings(BoxLayout):
 
             fps_label = 'Max (uncapped)' if ctx.live_view_fps == 0 else str(ctx.live_view_fps)
             logger.info(f'[LVP Main  ] Live view FPS set to {fps_label}')
-            # fps=0 (uncapped) maps to slider position 65 ("Max")
-            self.ids['live_view_fps_slider'].value = (
-                65 if ctx.live_view_fps == 0 else ctx.live_view_fps
-            )
 
             acceleration_limit = settings['motion']['acceleration_max_pct']
             self.ids['acceleration_pct_slider'].value = acceleration_limit
@@ -587,15 +556,6 @@ class MicroscopeSettings(BoxLayout):
                 else:
                     self.ids['show_tooltips_btn'].state = 'normal'
                     ctx.show_tooltips = False
-
-            if 'protocol_led_on' in settings:
-                if settings['protocol_led_on']:
-                    self.ids['protocol_led_on_btn'].state = 'down'
-                else:
-                    self.ids['protocol_led_on_btn'].state = 'normal'
-            else:
-                self.ids['protocol_led_on_btn'].state = 'normal'
-                settings['protocol_led_on'] = False
 
             # Stimulation is firmware-gated: never expose it unless the LED
             # firmware reports support. On unsupported firmware force it off so
@@ -745,17 +705,6 @@ class MicroscopeSettings(BoxLayout):
             raise
 
         self.set_ui_features_for_scope()
-
-    def update_separate_folders_per_channel(self):
-        settings = _app_ctx.ctx.settings
-
-        if self.ids['separate_folder_per_channel_id'].state == 'down':
-            self._seperate_folder_per_channel = True
-        else:
-            self._seperate_folder_per_channel = False
-        gui_logger.toggle('SEPARATE_FOLDERS', self._seperate_folder_per_channel)
-
-        settings['separate_folder_per_channel'] = self._seperate_folder_per_channel
 
     def update_bullseye_state(self):
         gui_logger.toggle('BULLSEYE', self.ids['enable_bullseye_btn_id'].state == 'down')
@@ -910,12 +859,6 @@ class MicroscopeSettings(BoxLayout):
         gui_logger.toggle('SHOW_TOOLTIPS', enabled)
         ctx.show_tooltips = enabled
         settings['show_tooltips'] = enabled
-
-    def update_protocol_led_on(self):
-        settings = _app_ctx.ctx.settings
-        enabled = self.ids['protocol_led_on_btn'].state == 'down'
-        gui_logger.toggle('PROTOCOL_LED_ON', enabled)
-        settings['protocol_led_on'] = enabled
 
     def update_stimulation_settings(self):
         """Toggle stimulation features globally across all channels."""
