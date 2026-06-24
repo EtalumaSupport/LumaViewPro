@@ -1392,6 +1392,7 @@ class ProtocolSettings(FloatLayout):
         ctx = _app_ctx.ctx
         enabled = bool(self.ids['show_step_locations_id'].active)
         gui_logger.toggle('SHOW_STEP_LOCATIONS', enabled)
+        ctx.settings['show_step_locations'] = enabled
         ctx.stage.show_protocol_steps(enable=enabled)
 
     def update_tiling_selection(self):

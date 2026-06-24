@@ -437,6 +437,9 @@ class MicroscopeSettings(BoxLayout):
             protocol_settings.ids[
                 'tiling_overlap_spinner'
             ].text = f'{int(settings["tiling_overlap_percent"])}%'
+            show_steps = settings['show_step_locations']
+            protocol_settings.ids['show_step_locations_id'].active = show_steps
+            ctx.stage.show_protocol_steps(enable=show_steps)
 
             zstack_settings = ctx.motion_settings.ids['verticalcontrol_id'].ids['zstack_id']
             zstack_settings.ids['zstack_spinner'].text = settings['zstack']['position']
