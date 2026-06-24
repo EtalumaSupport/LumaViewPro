@@ -3,15 +3,17 @@
 
 The "Show step locations" toggle used to be transient -- it wrote no
 setting and called ctx.stage.show_protocol_steps() directly, so it reset
-to off every launch. It is now promoted to settings['show_step_locations']:
-the toggle handler writes the setting and load_settings restores the
-checkbox and re-applies the saved view at startup.
+to off every launch. It is now promoted to settings['show_step_locations']
+and the toggle itself lives in the Advanced Settings modal: that handler
+writes the setting, and load_settings re-applies the saved view to the
+stage at startup (the modal repopulates its checkbox from the setting on
+open).
 
 Guards:
   - the key ships in the tracked settings.json schema default, so the
     settings_init default-merge backfills every user's current.json;
-  - the toggle handler writes the setting;
-  - load_settings restores the saved state (checkbox + stage view).
+  - the Advanced-modal toggle handler writes the setting;
+  - load_settings re-applies the saved view to the stage at startup.
 """
 
 from __future__ import annotations
@@ -22,7 +24,7 @@ import pathlib
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
-PROTOCOL_SETTINGS_SRC = REPO / 'ui' / 'protocol_settings.py'
+ADVANCED_SETTINGS_SRC = REPO / 'ui' / 'advanced_settings.py'
 MICROSCOPE_SETTINGS_SRC = REPO / 'ui' / 'microscope_settings.py'
 
 
@@ -47,8 +49,8 @@ def test_show_step_locations_in_settings_schema():
 
 
 def test_toggle_handler_persists_setting():
-    """The toggle handler writes the user's choice to the setting."""
-    source = _method_source(PROTOCOL_SETTINGS_SRC, 'ProtocolSettings', 'update_show_step_locations')
+    """The Advanced-modal toggle handler writes the user's choice to the setting."""
+    source = _method_source(ADVANCED_SETTINGS_SRC, 'AdvancedSettings', 'update_show_step_locations')
     assert "settings['show_step_locations']" in source, (
         'update_show_step_locations must persist the toggle to settings'
     )

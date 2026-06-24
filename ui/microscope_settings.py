@@ -434,12 +434,9 @@ class MicroscopeSettings(BoxLayout):
             protocol_settings.ids['capture_dur'].text = str(settings['protocol']['duration'])
             protocol_settings.ids['labware_spinner'].text = settings['protocol']['labware']
             protocol_settings.select_labware()
-            protocol_settings.ids[
-                'tiling_overlap_spinner'
-            ].text = f'{int(settings["tiling_overlap_percent"])}%'
-            show_steps = settings['show_step_locations']
-            protocol_settings.ids['show_step_locations_id'].active = show_steps
-            ctx.stage.show_protocol_steps(enable=show_steps)
+            # Apply the persisted step-location view at startup; the toggle
+            # that edits this now lives in Advanced Settings.
+            ctx.stage.show_protocol_steps(enable=settings['show_step_locations'])
 
             zstack_settings = ctx.motion_settings.ids['verticalcontrol_id'].ids['zstack_id']
             zstack_settings.ids['zstack_spinner'].text = settings['zstack']['position']
@@ -1010,9 +1007,6 @@ class MicroscopeSettings(BoxLayout):
 
         protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
         protocol_settings.set_labware_selection_visibility(visible=selected_scope_config['XYStage'])
-        protocol_settings.set_show_protocol_step_locations_visibility(
-            visible=selected_scope_config['XYStage']
-        )
 
         ctx.motion_settings.ids['post_processing_id'].ids[
             'stitch_controls_id'

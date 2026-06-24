@@ -29,6 +29,7 @@ import pathlib
 REPO = pathlib.Path(__file__).resolve().parent.parent
 PROTOCOL_SETTINGS_SRC = REPO / 'ui' / 'protocol_settings.py'
 CONFIG_UI_GETTERS_SRC = REPO / 'modules' / 'config_ui_getters.py'
+ADVANCED_SETTINGS_SRC = REPO / 'ui' / 'advanced_settings.py'
 
 
 def _method_source(path: pathlib.Path, class_name: str, method_name: str) -> str:
@@ -73,6 +74,27 @@ def test_get_tiling_overlap_percent_reads_setting_not_widget():
     assert 'tiling_overlap_spinner' not in source, (
         'get_tiling_overlap_percent must not read the spinner widget; the '
         'setting is the source of truth'
+    )
+
+
+def test_modal_overlap_handler_is_idempotent():
+    """The Advanced-modal overlap handler skips no-op programmatic populates.
+
+    on_open sets the spinner text from the persisted value, which fires
+    on_text; without an early-return when the value already matches the
+    setting, the load would log a phantom TILING_OVERLAP user selection --
+    exactly the action-log noise this branch is meant to avoid. The guard
+    must precede the gui_logger.select call.
+    """
+    source = _method_source(ADVANCED_SETTINGS_SRC, 'AdvancedSettings', 'update_tiling_overlap')
+    guard = "== ctx.settings['tiling_overlap_percent']"
+    assert guard in source, 'update_tiling_overlap must guard against no-op programmatic writes'
+    guard_pos = source.index(guard)
+    return_pos = source.index('return', guard_pos)
+    log_pos = source.index('gui_logger.select')
+    assert return_pos < log_pos, (
+        'the idempotent early-return must precede the action-log call so a '
+        'programmatic populate does not log a phantom user selection'
     )
 
 

@@ -365,16 +365,6 @@ class ProtocolSettings(FloatLayout):
             except Exception as e:
                 logger.warning(f'[LVP Main  ] Failed to restore labware list on scope switch: {e}')
 
-    def set_show_protocol_step_locations_visibility(self, visible: bool) -> None:
-        if visible:
-            self.ids['show_step_locations_id'].disabled = False
-            self.ids['show_step_locations_id'].opacity = 1
-            self.ids['show_step_locations_label_id'].opacity = 1
-        else:
-            self.ids['show_step_locations_id'].disabled = True
-            self.ids['show_step_locations_id'].opacity = 0
-            self.ids['show_step_locations_label_id'].opacity = 0
-
     def apply_tiling(self):
         try:
             settings = _app_ctx.ctx.settings
@@ -447,18 +437,10 @@ class ProtocolSettings(FloatLayout):
     def get_tiling_overlap_percent(self) -> float:
         """Tile overlap percentage, read from the persisted system setting.
 
-        The single accessor for tile overlap at scan/apply time; the spinner
-        is just the editor that writes the setting via update_tiling_overlap.
+        The single accessor for tile overlap at scan/apply time; the editor
+        (the spinner in Advanced Settings) only ever writes the setting.
         """
         return _app_ctx.ctx.settings['tiling_overlap_percent']
-
-    def update_tiling_overlap(self):
-        """Persist a user change to the tile overlap as a system setting."""
-        overlap = TilingConfig.validate_overlap_percent(
-            self.ids['tiling_overlap_spinner'].text.strip().rstrip('%')
-        )
-        gui_logger.select('TILING_OVERLAP', overlap)
-        _app_ctx.ctx.settings['tiling_overlap_percent'] = overlap
 
     def apply_zstacking(self):
         try:
@@ -1387,13 +1369,6 @@ class ProtocolSettings(FloatLayout):
 
     def update_acquire_zstack(self):
         gui_logger.toggle('ACQUIRE_ZSTACK', bool(self.ids['acquire_zstack_id'].active))
-
-    def update_show_step_locations(self):
-        ctx = _app_ctx.ctx
-        enabled = bool(self.ids['show_step_locations_id'].active)
-        gui_logger.toggle('SHOW_STEP_LOCATIONS', enabled)
-        ctx.settings['show_step_locations'] = enabled
-        ctx.stage.show_protocol_steps(enable=enabled)
 
     def update_tiling_selection(self):
         gui_logger.select('TILING', self.ids['tiling_size_spinner'].text)

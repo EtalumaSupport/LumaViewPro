@@ -1342,40 +1342,6 @@
 					font_size: '12sp'
 					on_release: root.apply_tiling()
 
-			BoxLayout:
-				orientation: 'horizontal'
-				id: tiling_overlap_box_layout_id
-				size_hint_y: None
-				height: '30dp'
-				opacity: 1
-				spacing: '5dp'
-
-				Label:
-					id: tiling_overlap_label_id
-					text: 'Overlap'
-					tooltip_text: 'Set tile overlap percentage for acquisition tiling'
-					size_hint_y: None
-					height: '30dp'
-					size_hint_x: None
-					width: '75dp'
-					font_size: '12sp'
-
-				Spinner:
-					id: tiling_overlap_spinner
-					disabled: app.protocol_running
-					sync_height: True
-					text: '0%'
-					tooltip_text: 'Set tile overlap percentage for acquisition tiling'
-					font_size: '12sp'
-					size_hint_y: None
-					size_hint_x: None
-					width: '65dp'
-					height: '30dp'
-					option_cls: "SpinnerOption0"
-					text_autoupdate: True
-					values: ('0%', '10%', '15%', '20%')
-					on_text: root.update_tiling_overlap()
-
 			# Post-protocol creation Z-Stacking
 			BoxLayout:
 				orientation: 'horizontal'
@@ -1433,30 +1399,6 @@
 					valign: 'middle'
 					text_size: self.size
 			
-			# Step Locations
-			BoxLayout:
-				orientation: 'horizontal'
-				size_hint_y: None
-				height: '30dp'
-				spacing: '5dp'
-							
-				CheckBox:
-					id: show_step_locations_id
-					size_hint_x: None
-					width: '30dp'
-					active: False
-					tooltip_text: 'Display yellow cross for each Step'
-					on_release: root.update_show_step_locations()
-
-				Label:
-					id: show_step_locations_label_id
-					text: 'Show step locations'
-					tooltip_text: 'Display yellow cross for each Step'
-					font_size: '12sp'
-					halign: 'left'
-					valign: 'middle'
-					text_size: self.size
-
 			# # Multiple exposure
 			# BoxLayout:
 			#     orientation: 'horizontal'

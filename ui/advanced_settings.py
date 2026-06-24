@@ -25,6 +25,7 @@ from modules import gui_logger
 from modules.config_helpers import get_manual_video_max_duration
 from modules.config_ui_getters import firmware_stim_supported
 from modules.sequential_io_executor import IOTask
+from modules.tiling_config import TilingConfig
 
 
 class AdvancedSettings(Popup):
@@ -110,6 +111,15 @@ class AdvancedSettings(Popup):
         self.ids['stimulation_settings_btn'].state = (
             'down' if settings['stimulation_enabled'] else 'normal'
         )
+
+        # Populating the spinner fires on_text -> update_tiling_overlap, which
+        # early-returns because the value already matches the setting (so the
+        # load does not log a phantom user selection).
+        self.ids['tiling_overlap_spinner'].text = f'{int(settings["tiling_overlap_percent"])}%'
+
+        # Setting .active does not fire on_release (a user-press event), so this
+        # populate does not re-run the handler -- no phantom toggle on open.
+        self.ids['show_step_locations_id'].active = settings['show_step_locations']
 
     def update_high_conversion_gain(self):
         ctx = _app_ctx.ctx
@@ -225,6 +235,25 @@ class AdvancedSettings(Popup):
         # The microscope panel owns the per-layer stim sync; the startup load
         # re-uses the same owner, so the toggle and load stay in lockstep.
         ctx.motion_settings.ids['microscope_settings_id'].apply_stimulation_support()
+
+    def update_tiling_overlap(self):
+        ctx = _app_ctx.ctx
+        overlap = TilingConfig.validate_overlap_percent(
+            self.ids['tiling_overlap_spinner'].text.strip().rstrip('%')
+        )
+        # on_open populates the spinner with the stored value; that programmatic
+        # write is not a user change, so skip the action log and redundant write.
+        if overlap == ctx.settings['tiling_overlap_percent']:
+            return
+        gui_logger.select('TILING_OVERLAP', overlap)
+        ctx.settings['tiling_overlap_percent'] = overlap
+
+    def update_show_step_locations(self):
+        ctx = _app_ctx.ctx
+        enabled = bool(self.ids['show_step_locations_id'].active)
+        gui_logger.toggle('SHOW_STEP_LOCATIONS', enabled)
+        ctx.settings['show_step_locations'] = enabled
+        ctx.stage.show_protocol_steps(enable=enabled)
 
     def load_scopes(self):
         scopes = _app_ctx.ctx.motion_settings.ids['microscope_settings_id'].scopes
@@ -611,6 +640,53 @@ kv = Builder.load_string(
                         text: format(acceleration_pct_slider.value)
                         on_text_validate: root.acceleration_pct_text()
                         on_focus: if not self.focus: root.acceleration_pct_text()
+
+                BoxLayout:
+                    orientation: 'horizontal'
+                    size_hint_y: None
+                    height: '30dp' if root.xy_stage_supported else 0
+                    opacity: 1 if root.xy_stage_supported else 0
+                    disabled: not root.xy_stage_supported
+                    Label:
+                        text: 'Tiling Overlap'
+                        tooltip_text: 'Tile overlap percentage for acquisition tiling'
+                        halign: 'left'
+                        valign: 'middle'
+                        text_size: self.size
+                        font_size: '12sp'
+                    Spinner:
+                        id: tiling_overlap_spinner
+                        disabled: app.protocol_running
+                        sync_height: True
+                        text: '0%'
+                        font_size: '12sp'
+                        size_hint_x: None
+                        width: '65dp'
+                        option_cls: 'SpinnerOption0'
+                        text_autoupdate: True
+                        values: ('0%', '10%', '15%', '20%')
+                        on_text: root.update_tiling_overlap()
+
+                BoxLayout:
+                    orientation: 'horizontal'
+                    size_hint_y: None
+                    height: '30dp' if root.xy_stage_supported else 0
+                    opacity: 1 if root.xy_stage_supported else 0
+                    disabled: not root.xy_stage_supported
+                    Label:
+                        text: 'Show step locations'
+                        tooltip_text: 'Display yellow cross for each Step'
+                        halign: 'left'
+                        valign: 'middle'
+                        text_size: self.size
+                        font_size: '12sp'
+                    CheckBox:
+                        id: show_step_locations_id
+                        size_hint_x: None
+                        width: '30dp'
+                        active: False
+                        tooltip_text: 'Display yellow cross for each Step'
+                        on_release: root.update_show_step_locations()
 
         Button:
             text: 'Close'
