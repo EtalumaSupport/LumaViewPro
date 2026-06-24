@@ -1281,6 +1281,26 @@ class PylonCamera(Camera):
                         f'strength={line_noise_strength} '
                         f'(camera range {lo:.3f}-{hi:.3f})'
                     )
+                # High conversion gain is a sensor-level low-noise mode: it
+                # raises the pixel charge-to-voltage gain so the sensor read
+                # noise floor drops (better signal-to-noise in low light) at
+                # the cost of a smaller full well and lower dynamic range.
+                # Unlike the line-noise filter above, this lowers the actual
+                # sensor noise rather than post-processing it away. The dim
+                # fluorescence channels benefit most; the bench confirms the
+                # dynamic-range cost is acceptable. Model-specific node; skip
+                # cleanly if absent.
+                if node_map.GetNode('BslConversionGainMode') is None:
+                    _cam_log.info(
+                        '[CAM Class ] Conversion gain mode not supported by this camera; skipping'
+                    )
+                else:
+                    prior_gain_mode = camera.BslConversionGainMode.GetValue()
+                    camera.BslConversionGainMode.SetValue('High')
+                    _cam_log.info(
+                        f'[CAM Class ] Conversion gain mode set to High (HCG) '
+                        f'for low sensor noise; was {prior_gain_mode}'
+                    )
         except genicam.RuntimeException as e:
             _cam_log.error(
                 f'[CAM Class ] Camera communication error during init_camera_config: {e}'
