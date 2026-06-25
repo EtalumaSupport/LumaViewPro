@@ -82,13 +82,11 @@ class IDSCamera(Camera):
     container width is the base default 16 and the payload depth is per-frame.
     """
 
-    # Soft crash-stop cap (fps). The host-side ConvertTo sustains ~18 fps; at
-    # an uncapped rate the camera outpaces the converter at short exposures and
-    # the SDK buffer pool exhausts (a perpetual WaitForFinishedBuffer timeout).
-    # Capping the AcquisitionFrameRateTarget just under the sustained rate lets
-    # the camera self-throttle. Static for now; a measured/dynamic cap can
-    # raise it once the converter is moved off the grab path.
-    _FPS_CAP = 16.0
+    # The camera free-runs at its full sensor/USB rate -- no software fps cap.
+    # The two-stage grab pipeline drains buffers as fast as they arrive and the
+    # converter only ever unpacks the newest frame, so a high acquisition rate
+    # cannot exhaust the buffer pool (the crash an earlier soft cap papered
+    # over). See _configure_free_run for the throttles that get removed.
 
     def __init__(self):
 
@@ -286,24 +284,13 @@ class IDSCamera(Camera):
                     self.remote_nodemap.FindNode('TriggerMode').SetCurrentEntry('Off')
                 except Exception:
                     pass
-                # Maximize USB throughput limit -- secondary safety net; the
-                # frame-rate target cap below is the primary throttle.
-                try:
-                    node = self.remote_nodemap.FindNode('DeviceLinkThroughputLimit')
-                    node.SetValue(node.Maximum())
-                    logger.info(
-                        f'[CAM Class ] DeviceLinkThroughputLimit set to {node.Maximum()} B/s'
-                    )
-                except Exception as e:
-                    logger.debug(f'[CAM Class ] DeviceLinkThroughputLimit not available: {e}')
-                # Set resolution and exposure, THEN cap the frame rate. The cap
-                # is a soft AcquisitionFrameRateTarget just under the converter's
-                # sustained rate so the camera never outpaces the host unpack and
-                # exhausts the buffer pool (the uncapped-rate crash). Replaces the
-                # old disable-target-then-maximize path, which saturated USB3.
+                # Set geometry and exposure BEFORE configuring the rate -- the
+                # throughput ceiling and the AcquisitionFrameRate max both
+                # depend on the active resolution, so the rate config has to
+                # follow the ROI set.
                 self.exposure_t(10)
                 self.set_frame_size(1920, 1528)
-                self.set_max_acquisition_frame_rate(True, self._FPS_CAP)
+                self._configure_free_run()
         except Exception as e:
             _cam_log.error(f'[CAM Class ] init_camera_config failed: {e}')
 
@@ -352,9 +339,9 @@ class IDSCamera(Camera):
                 buffer = self.data_stream.AllocAndAnnounceBuffer(payload_size)
                 self.data_stream.QueueBuffer(buffer)
 
-            # Re-apply the frame-rate cap -- a stop/start cycle resets it. Must
-            # follow the resolution set (the target's valid range depends on it).
-            self.set_max_acquisition_frame_rate(True, self._FPS_CAP)
+            # Re-assert free-run -- a stop/start cycle resets the rate config,
+            # and AcquisitionFrameRate's max depends on the current resolution.
+            self._configure_free_run()
 
             # Lock transport-layer params for the streaming session, then start
             # the host stream before the device (IDS example ordering).
@@ -373,6 +360,51 @@ class IDSCamera(Camera):
             logger.info('[CAM Class ] start_grabbing succeeded')
         except Exception as e:
             _cam_log.warning(f'[CAM Class ] start_grabbing ignored error: {e}')
+
+    def _configure_free_run(self):
+        """Remove the throttles that cap the IDS frame rate so the camera runs
+        at its full sensor/USB rate. The two-stage grab pipeline drains buffers
+        as fast as they arrive and the converter sees only the newest frame, so
+        no software cap is needed to keep the buffer pool from exhausting.
+
+        Three throttles, set in order (each is an independent ceiling; the
+        lowest wins, so all must be lifted):
+          - DeviceLinkThroughputLimitComponent = 'Link': the default 'Sensor'
+            mode computes the limit against the full raw sensor readout even for
+            a smaller ROI, capping fps; 'Link' applies it to the actual USB
+            transfer instead. This is the keystone -- without it the limit
+            throttles the rate no matter how high the limit value is.
+          - DeviceLinkThroughputLimit = Maximum(): no bandwidth throttle.
+          - AcquisitionFrameRateTarget disabled, then AcquisitionFrameRate
+            maximized: the UserSetDefault enables a low rate-target limiter;
+            disabling it and pushing the rate to its max lets the camera
+            free-run at whatever the throughput ceiling allows.
+        """
+        if not self.active or self.remote_nodemap is None:
+            return
+
+        try:
+            comp = self.remote_nodemap.FindNode('DeviceLinkThroughputLimitComponent')
+            comp.SetCurrentEntry('Link')
+            logger.info('[CAM Class ] DeviceLinkThroughputLimitComponent set to Link')
+        except Exception as e:
+            logger.debug(f'[CAM Class ] DeviceLinkThroughputLimitComponent not available: {e}')
+
+        try:
+            node = self.remote_nodemap.FindNode('DeviceLinkThroughputLimit')
+            node.SetValue(node.Maximum())
+            logger.info(f'[CAM Class ] DeviceLinkThroughputLimit set to {node.Maximum()} B/s')
+        except Exception as e:
+            logger.debug(f'[CAM Class ] DeviceLinkThroughputLimit not available: {e}')
+
+        # Drop the rate-target limiter, then push the acquisition rate to max.
+        self.set_max_acquisition_frame_rate(False)
+        try:
+            fr = self.remote_nodemap.FindNode('AcquisitionFrameRate')
+            fr.SetValue(fr.Maximum())
+            logger.info(f'[CAM Class ] AcquisitionFrameRate set to max: {fr.Maximum()} fps')
+        except Exception as e:
+            logger.debug(f'[CAM Class ] AcquisitionFrameRate not available: {e}')
 
     def set_frame_size(self, w, h):
         try:

@@ -127,12 +127,9 @@ class TestDepthContract:
 
 
 class TestFrameRateCap:
-    """The crash-stop cap: enable + set AcquisitionFrameRateTarget, never
-    maximize the rate (which saturated USB3 and exhausted the buffer pool)."""
-
-    def test_cap_constant_is_below_sustained_rate(self):
-        # Sustained host-unpack rate is ~18 fps; the static cap sits under it.
-        assert 0 < IDSCamera._FPS_CAP <= 18
+    """set_max_acquisition_frame_rate is the manual rate-limiter lever (char
+    tool / API video cap). The driver itself free-runs and only ever calls this
+    with enabled=False; these cover the lever's own enable/disable behavior."""
 
     def test_enable_writes_target_and_enable(self):
         cam = bare_ids_camera()
@@ -157,6 +154,50 @@ class TestFrameRateCap:
         cam.remote_nodemap = _RecordingNodemap()
         cam.set_max_acquisition_frame_rate(True, 16.0)
         assert cam.remote_nodemap.nodes == {}
+
+
+class TestFreeRunConfig:
+    """_configure_free_run lifts every throttle so the camera free-runs:
+    DeviceLinkThroughputLimitComponent -> Link (the keystone -- in the default
+    Sensor mode the limit is computed against the full raw readout and caps
+    fps), the link limit to its max, the rate-target limiter off, and
+    AcquisitionFrameRate to its max."""
+
+    def _cam(self):
+        cam = bare_ids_camera()
+        cam.remote_nodemap = _RecordingNodemap(
+            {
+                'DeviceLinkThroughputLimit': _RecordingNode(maximum=400_000_000),
+                'AcquisitionFrameRate': _RecordingNode(maximum=45.0),
+            }
+        )
+        return cam
+
+    def test_sets_throughput_component_to_link(self):
+        cam = self._cam()
+        cam._configure_free_run()
+        assert cam.remote_nodemap.nodes['DeviceLinkThroughputLimitComponent'].entry == 'Link'
+
+    def test_maximizes_throughput_limit(self):
+        cam = self._cam()
+        cam._configure_free_run()
+        assert cam.remote_nodemap.nodes['DeviceLinkThroughputLimit'].value == 400_000_000
+
+    def test_disables_the_rate_target_limiter(self):
+        cam = self._cam()
+        cam._configure_free_run()
+        assert cam.remote_nodemap.nodes['AcquisitionFrameRateTargetEnable'].value is False
+
+    def test_maximizes_acquisition_frame_rate(self):
+        cam = self._cam()
+        cam._configure_free_run()
+        assert cam.remote_nodemap.nodes['AcquisitionFrameRate'].value == 45.0
+
+    def test_inactive_camera_writes_nothing(self):
+        cam = self._cam()
+        cam.active = False
+        cam._configure_free_run()
+        assert cam.remote_nodemap.nodes['AcquisitionFrameRate'].value is _RecordingNode._UNSET
 
 
 class TestGainDbConversion:
