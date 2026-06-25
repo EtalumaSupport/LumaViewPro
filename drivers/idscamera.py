@@ -287,10 +287,16 @@ class IDSCamera(Camera):
                 # Set geometry and exposure BEFORE configuring the rate -- the
                 # throughput ceiling and the AcquisitionFrameRate max both
                 # depend on the active resolution, so the rate config has to
-                # follow the ROI set.
+                # follow the ROI set. 1900x1900 is the standard LVP camera
+                # resolution (the Pylon driver sets the same), matching the
+                # scope's centered square field; the prior 1920x1528 was an
+                # arbitrary driver-local divergence.
                 self.exposure_t(10)
-                self.set_frame_size(1920, 1528)
+                self.set_frame_size(1900, 1900)
                 self._configure_free_run()
+                # One-shot diagnostic so a bundle shows why the free-run rate is
+                # what it is (esp. whether the Component=Link keystone applied).
+                self._log_free_run_state()
         except Exception as e:
             _cam_log.error(f'[CAM Class ] init_camera_config failed: {e}')
 
@@ -407,6 +413,54 @@ class IDSCamera(Camera):
             logger.info(f'[CAM Class ] AcquisitionFrameRate set to max: {fr.Maximum()} fps')
         except Exception as e:
             logger.debug(f'[CAM Class ] AcquisitionFrameRate not available: {e}')
+
+    def _log_free_run_state(self):
+        """One-shot diagnostic of the throttles that govern the free-run rate, so
+        a log bundle is self-sufficient about why the rate is what it is. The
+        keystone is DeviceLinkThroughputLimitComponent='Link': if it did not
+        apply (node absent, or no 'Link' entry on this body), the limit is
+        computed against the full raw readout and the rate stays Sensor-throttled
+        well below the wire ceiling -- so its failure is logged at WARNING with
+        the node's available entries, not swallowed."""
+        if not self.active or self.remote_nodemap is None:
+            return
+
+        try:
+            comp = self.remote_nodemap.FindNode('DeviceLinkThroughputLimitComponent')
+            entries = [e.SymbolicValue() for e in comp.AvailableEntries()]
+            current = comp.CurrentEntry().SymbolicValue()
+            if current == 'Link':
+                logger.info(
+                    f'[CAM Class ] Free-run: ThroughputLimitComponent=Link applied '
+                    f'(available={entries})'
+                )
+            else:
+                _cam_log.warning(
+                    f'[CAM Class ] Free-run: ThroughputLimitComponent={current}, NOT Link '
+                    f'(available={entries}) -- rate stays Sensor-throttled below the wire ceiling'
+                )
+        except Exception as e:
+            _cam_log.warning(
+                f'[CAM Class ] Free-run: DeviceLinkThroughputLimitComponent node '
+                f'unavailable on this body ({type(e).__name__}: {e}) -- cannot switch to Link'
+            )
+
+        def _value_and_max(name):
+            try:
+                node = self.remote_nodemap.FindNode(name)
+                return node.Value(), node.Maximum()
+            except Exception as e:
+                return None, f'<unavailable: {type(e).__name__}>'
+
+        dltl, dltl_max = _value_and_max('DeviceLinkThroughputLimit')
+        rate, rate_max = _value_and_max('AcquisitionFrameRate')
+        frame = self.get_frame_size() or {}
+        logger.info(
+            f'[CAM Class ] Free-run state: frame={frame.get("width")}x{frame.get("height")} '
+            f'pixel_format={self.get_pixel_format()} '
+            f'DeviceLinkThroughputLimit={dltl}/{dltl_max} B/s '
+            f'AcquisitionFrameRate={rate}/{rate_max} fps'
+        )
 
     def set_frame_size(self, w, h):
         try:
