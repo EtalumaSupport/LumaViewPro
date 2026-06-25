@@ -57,7 +57,6 @@ class LedTransition(enum.Enum):
     cannot ask for a transition the authority does not handle.
     """
 
-    RUN_START = enum.auto()
     STEP_LIGHT = enum.auto()
     AF_ENTER = enum.auto()
     AF_TO_CAPTURE = enum.auto()
@@ -195,8 +194,6 @@ class LedLease:
             if ctx.channel is not None and ctx.mA is not None
             else frozenset()
         )
-        if transition is LedTransition.RUN_START:
-            return ctx.snapshot_lit
         if transition is LedTransition.STEP_LIGHT:
             return primary
         if transition is LedTransition.AF_ENTER:
@@ -222,12 +219,10 @@ class LedLease:
     def apply(self, transition: LedTransition, ctx: LedTransitionCtx) -> None:
         """Drive the LEDs to the transition's target set.
 
-        For every transition except the run start, this diffs the target against
-        the cached state and emits only the channels that changed -- a channel
+        Diffs the target against the cached state -- the single source of truth
+        for LED state -- and emits only the channels that changed. A channel
         already at its target is left untouched, so re-asserting a correct state
-        produces no off-then-on blink. The run start instead forces a known
-        baseline first, because the cache cannot be trusted at that point (see
-        ``_reconcile_to``).
+        produces no off-then-on blink.
         """
         if not self.held:
             # A released lease must not still drive the LEDs. By the time a
@@ -240,11 +235,7 @@ class LedLease:
                 self.owner_name,
             )
             return
-        target = self.target_leds(transition, ctx)
-        if transition is LedTransition.RUN_START:
-            self._reconcile_to(target)
-        else:
-            self._emit_diff(target)
+        self._emit_diff(self.target_leds(transition, ctx))
 
     def _emit_diff(self, target: frozenset[tuple[int, float]]) -> None:
         """Turn off lit channels not in the target, then assert the target.
@@ -265,21 +256,6 @@ class LedLease:
             ch = api.color2ch(color)
             if ch is not None and ch not in target_channels:
                 api.led_off(channel=ch, _lease_owner=self.owner_name)
-        for ch, mA in target:
-            api.led_on(channel=ch, mA=mA, owner=self.owner_name)
-
-    def _reconcile_to(self, target: frozenset[tuple[int, float]]) -> None:
-        """Force the hardware and cache to the target from a known-off baseline.
-
-        Unlike ``_emit_diff`` this does not trust the cache to skip channels: a
-        prior stimulation pulse or live session can leave the cache claiming a
-        channel is lit that is actually dark (or the reverse), so a plain diff at
-        run start could emit nothing for a channel that needs changing. Clearing
-        every channel first, then asserting the target, makes the cache truthful
-        regardless of what left it stale -- the run begins from a known state.
-        """
-        api = self._api
-        api.leds_off()
         for ch, mA in target:
             api.led_on(channel=ch, mA=mA, owner=self.owner_name)
 

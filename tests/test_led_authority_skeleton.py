@@ -9,12 +9,10 @@ command substream a driver listener records, exactly as the end-to-end lifecycle
 test does (test_led_lifecycle_sequence.py); the difference is that this test
 calls the authority methods directly rather than through a protocol run.
 
-The authority's two guarantees under test:
-  1. apply diffs against the cached state and emits only what changed, so
-     re-applying an already-correct target produces no off-then-on blink.
-  2. apply(RUN_START) reconciles the cache to a known baseline, so a run that
-     starts after a write that bypassed the cache (a stimulation pulse, a prior
-     session) re-asserts the correct channels instead of trusting a stale cache.
+The authority's guarantee under test: apply diffs the target against the cached
+LED state -- the single source of truth -- and emits only what changed, so
+re-applying an already-correct target produces no off-then-on blink and a switch
+never leaves two channels lit at once.
 """
 
 from __future__ import annotations
@@ -213,11 +211,6 @@ def test_target_run_end_policy():
     )
 
 
-def test_target_run_start_is_snapshot():
-    assert _td(LedTransition.RUN_START, snapshot_lit=SNAPSHOT) == SNAPSHOT
-    assert _td(LedTransition.RUN_START) == frozenset()
-
-
 def test_target_manual_step_preview_gate():
     assert _td(
         LedTransition.MANUAL_STEP, channel=GREEN_CH, mA=GREEN_MA, preview_on=True
@@ -323,48 +316,6 @@ def test_apply_run_end_return_to_original_relights_snapshot(scope):
     assert sub.lit_transitions('Blue') == [True], sub.render()
     assert sub.final_lit() == {'Blue'}, sub.render()
     assert sub.lit_at_most_one(), f'double illumination during restore\n{sub.render()}'
-
-    lease.release(leave_on=False)
-
-
-def test_apply_run_start_reconcile_reasserts_after_cache_bypass(scope):
-    """A stimulation-style write that bypasses the cache (led_on_fast updates the
-    driver but not _led_state) leaves the cache claiming a channel is off while
-    the hardware has it lit. A plain diff toward a new target would trust that
-    stale cache and never turn the channel off. apply(RUN_START) clears to a
-    known baseline first, so the channel is actually extinguished and the
-    intended targets re-asserted."""
-    ill = scope.illumination
-    # Bypass the cache: driver lit, cache unaware.
-    ill.led_on_fast(_ch(scope, 'Green'), GREEN_MA)
-    assert not ill.led_enabled('Green'), 'precondition: cache is unaware of the fast write'
-
-    sub = LedSubstream()
-    ill.add_led_listener(sub)
-    lease = ill.acquire_led_lease('protocol')
-
-    snap = frozenset({(_ch(scope, 'Blue'), BLUE_MA)})
-    lease.apply(LedTransition.RUN_START, LedTransitionCtx(snapshot_lit=snap))
-
-    # The reconcile drove the hardware off (Green off fired) and re-asserted Blue.
-    assert ('Green', False, 0.0, '') in sub.events, sub.render()
-    assert sub.final_lit() == {'Blue'}, sub.render()
-    assert ill.led_enabled('Blue')
-    assert not ill.led_enabled('Green')
-
-    lease.release(leave_on=False)
-
-
-def test_apply_run_start_empty_snapshot_leaves_all_dark(scope):
-    ill = scope.illumination
-    ill.led_on(_ch(scope, 'Green'), GREEN_MA, owner='ui')
-    sub = LedSubstream()
-    ill.add_led_listener(sub)
-    lease = ill.acquire_led_lease('protocol')
-
-    lease.apply(LedTransition.RUN_START, LedTransitionCtx())
-    assert sub.final_lit() == set(), sub.render()
-    assert not ill.led_enabled('Green')
 
     lease.release(leave_on=False)
 
