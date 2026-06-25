@@ -559,8 +559,16 @@ class IDSCamera(Camera):
                     img = ids_peak_ipl_extension.BufferToImage(buffer)
 
                     # ConvertTo path (the current production unpack + the oracle).
+                    # Bind the converted image to a local before get_numpy():
+                    # get_numpy() returns a view that does NOT keep the IPL image
+                    # alive, so a chained ConvertTo(...).get_numpy().copy() frees
+                    # the converted buffer the instant get_numpy() returns and
+                    # copy() then reads freed memory (access violation). Use a
+                    # SEPARATE name from img -- img stays the packed source the
+                    # numpy path reads just below.
                     t0 = time.perf_counter()
-                    conv = img.ConvertTo(target).get_numpy().copy()
+                    conv_img = img.ConvertTo(target)
+                    conv = conv_img.get_numpy().copy()
                     convert_ms.append((time.perf_counter() - t0) * 1000.0)
 
                     # numpy path: the raw packed wire bytes (uint8 since SDK 2.21)
