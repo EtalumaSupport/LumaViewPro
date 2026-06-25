@@ -1,4 +1,4 @@
 4.0.0-beta20
-2026-06-24 19:42
-line-noise-reduction
-a972edc3
+2026-06-25 00:23
+led-state-authority
+deffa1a1
