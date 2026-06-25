@@ -462,6 +462,149 @@ class IDSCamera(Camera):
             f'AcquisitionFrameRate={rate}/{rate_max} fps'
         )
 
+    def benchmark_unpack(self, n_frames: int = 200) -> dict:
+        """Decode each packed buffer by BOTH the SDK ConvertTo and the numpy
+        ids_unpack path, comparing them for correctness and speed.
+
+        The IMX676 body delivers packed Mono10g40IDS / Mono12g24IDS; every frame
+        must be unpacked to a right-aligned uint16 before anything can use it.
+        The SDK ConvertTo is the host throughput bottleneck that holds live
+        display below the sensor rate; a hand-rolled numpy unpack (drivers/
+        ids_unpack) is the candidate replacement. ConvertTo is the correctness
+        ORACLE: IDS gives the packed layout only as a figure with no per-bit
+        text, so the numpy decode is derived -- a bit-for-bit match against
+        ConvertTo on real frames proves the layout and the right-alignment. The
+        per-frame timings then say whether numpy is actually faster on this host.
+
+        Pauses the unpack worker and drives the data stream directly so each
+        finished buffer is decoded by both paths before it is re-queued, then
+        restores the normal grab pipeline. Returns a results dict; the live
+        unpack path is untouched.
+        """
+        import time
+        import numpy as np
+
+        from drivers import ids_unpack
+
+        results = {
+            'n_requested': n_frames,
+            'n_compared': 0,
+            'mismatches': 0,
+            'first_mismatch': None,
+            'packed_dtype': None,
+            'wire_format': None,
+            'width': None,
+            'height': None,
+            'available_formats': [],
+            'icv': {},
+        }
+        if not self.active or not self.data_stream:
+            results['error'] = 'camera not connected / no data stream'
+            return results
+
+        # The device's real PixelFormat menu: a newer SDK could expose an
+        # unpacked format that removes the need for any host unpack at all.
+        try:
+            results['available_formats'] = [
+                e.SymbolicValue()
+                for e in self.remote_nodemap.FindNode('PixelFormat').AvailableEntries()
+            ]
+        except Exception as e:
+            logger.warning(f'[CAM Class ] benchmark: PixelFormat enum read failed: {e}')
+
+        # Yes/no datapoint on whether the newer IDS ICV conversion library is
+        # importable on this install -- not itself a benchmark.
+        for _icv_import in ('ids_peak_icv', 'ids_peak.ids_peak_icv'):
+            try:
+                mod = __import__(_icv_import, fromlist=['_'])
+                results['icv'] = {
+                    'importable': True,
+                    'as': _icv_import,
+                    'version': getattr(mod, '__version__', '?'),
+                }
+                break
+            except Exception as e:
+                results['icv'] = {'importable': False, 'error': f'{type(e).__name__}: {e}'}
+
+        wire = self.get_pixel_format()
+        frame = self.get_frame_size() or {}
+        width, height = frame.get('width'), frame.get('height')
+        results.update(wire_format=wire, width=width, height=height)
+        if not width or not height:
+            results['error'] = 'could not read frame size'
+            return results
+        target = _ids_ipl_target(wire)
+
+        # Pause the worker so this loop owns the finished-buffer flow, and clear
+        # any KillWait the stop posted so the first wait is not aborted on arrival.
+        handler = self.cam_image_handler
+        if handler is not None:
+            handler.stop()
+        try:
+            self.data_stream.FlushPendingKillWaits()
+        except Exception as e:
+            logger.debug(f'[CAM Class ] benchmark: FlushPendingKillWaits unavailable: {e}')
+
+        convert_ms, numpy_ms = [], []
+        try:
+            for _ in range(n_frames):
+                try:
+                    buffer = self.data_stream.WaitForFinishedBuffer(2000)
+                except Exception as e:
+                    logger.warning(f'[CAM Class ] benchmark: WaitForFinishedBuffer: {e}')
+                    continue
+                try:
+                    if buffer.IsIncomplete():
+                        continue
+                    img = ids_peak_ipl_extension.BufferToImage(buffer)
+
+                    # ConvertTo path (the current production unpack + the oracle).
+                    t0 = time.perf_counter()
+                    conv = img.ConvertTo(target).get_numpy().copy()
+                    convert_ms.append((time.perf_counter() - t0) * 1000.0)
+
+                    # numpy path: the raw packed wire bytes (uint8 since SDK 2.21)
+                    # decoded by our own unpacker. ConvertTo does not mutate img,
+                    # so the original is still the packed source here.
+                    packed = img.get_numpy_1D()
+                    if results['packed_dtype'] is None:
+                        results['packed_dtype'] = str(packed.dtype)
+                    t1 = time.perf_counter()
+                    np_arr = ids_unpack.unpack(wire, packed, width, height)
+                    numpy_ms.append((time.perf_counter() - t1) * 1000.0)
+
+                    results['n_compared'] += 1
+                    if not np.array_equal(conv, np_arr):
+                        results['mismatches'] += 1
+                        if results['first_mismatch'] is None:
+                            diff = np.argwhere(conv != np_arr)
+                            results['first_mismatch'] = {
+                                'differing_pixels': int(diff.shape[0]),
+                                'first_at': diff[0].tolist() if diff.shape[0] else None,
+                            }
+                finally:
+                    self.data_stream.QueueBuffer(buffer)
+        finally:
+            if handler is not None:
+                handler.start()
+
+        def _stat(xs):
+            if not xs:
+                return None
+            s = sorted(xs)
+            mean = sum(xs) / len(xs)
+            return {
+                'mean_ms': round(mean, 3),
+                'median_ms': round(s[len(s) // 2], 3),
+                'min_ms': round(s[0], 3),
+                'max_ms': round(s[-1], 3),
+                'implied_fps': round(1000.0 / mean, 1) if mean else None,
+            }
+
+        results['convert'] = _stat(convert_ms)
+        results['numpy'] = _stat(numpy_ms)
+        return results
+
     def set_frame_size(self, w, h):
         try:
             mins = self.get_min_frame_size()

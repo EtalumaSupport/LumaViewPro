@@ -143,6 +143,51 @@ class TestIDS(unittest.TestCase):
         )
         self.assertGreaterEqual(int(frame.min()), 0)
 
+    def test_unpack_benchmark(self):
+        """Head-to-head: the SDK ConvertTo unpack vs the numpy ids_unpack path,
+        on real packed frames. Two questions in one run:
+
+          1. Correctness -- ConvertTo is the oracle. A zero-mismatch result
+             proves the derived packed-bit layout (and right-alignment) is
+             correct, since IDS documents the layout only as a figure.
+          2. Speed -- the per-frame timings show whether the numpy unpack is
+             actually faster than ConvertTo on this host (the ~18 fps display
+             cap is the ConvertTo throughput).
+
+        Run with output visible:
+            pytest tests/test_ids_hardware.py -k unpack_benchmark --run-ids-hardware -s
+
+        Needs light on the sensor so a real (non-zero) image exercises the
+        full-scale bits; an all-dark frame would match trivially on both paths.
+        """
+        time.sleep(1)  # let acquisition settle
+        res = self.camera.benchmark_unpack(n_frames=200)
+
+        print('\n[IDS unpack benchmark]')
+        for k in (
+            'wire_format',
+            'width',
+            'height',
+            'available_formats',
+            'packed_dtype',
+            'n_compared',
+            'mismatches',
+            'first_mismatch',
+            'convert',
+            'numpy',
+            'icv',
+        ):
+            print(f'  {k}: {res.get(k)}')
+
+        self.assertGreater(res['n_compared'], 0, f'no frames were compared: {res.get("error")}')
+        self.assertEqual(
+            res['mismatches'],
+            0,
+            f'numpy unpack disagrees with ConvertTo on {res["mismatches"]}/'
+            f'{res["n_compared"]} frames -- the derived layout is wrong: '
+            f'{res.get("first_mismatch")}',
+        )
+
 
 class TestIDSPixelFormatResolver(unittest.TestCase):
     """Pure-logic tests for IDSCamera._resolve_logical_format_name.
