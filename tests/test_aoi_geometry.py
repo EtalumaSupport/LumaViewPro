@@ -210,3 +210,39 @@ def test_plan_rejects_nonpositive_target():
 def test_plan_rejects_max_below_one_step():
     with pytest.raises(ValueError):
         plan_aoi(target=(10, 10), step=(48, 4), max_size=(40, 40), offset_step=(1, 1))
+
+
+def test_plan_invariants_over_input_grid():
+    # Exhaustively check the structural invariants over a grid of plausible
+    # camera configs: the AOI is on-grid and inside the sensor, the offset is
+    # on-grid and keeps the whole AOI inside the sensor, the crop sits inside
+    # the AOI, and the delivered size equals the request unless the sensor
+    # physically cannot supply it (capped at the largest legal AOI).
+    targets = [(100, 100), (1900, 1900), (1872, 1528), (3551, 3551), (3552, 3552), (48, 4)]
+    steps = [(48, 4), (4, 4), (2, 2)]
+    maxes = [(3552, 3552), (2704, 1536), (1920, 1200)]
+    offset_steps = [(1, 1), (2, 2), (16, 16)]
+    biases = [(0, 0), (30, -12), (9999, 9999), (-9999, -9999)]
+    for t in targets:
+        for s in steps:
+            for m in maxes:
+                if m[0] < s[0] or m[1] < s[1]:
+                    continue  # plan_aoi rejects max < one step (tested above)
+                legal_max_w = (m[0] // s[0]) * s[0]
+                legal_max_h = (m[1] // s[1]) * s[1]
+                for o in offset_steps:
+                    for b in biases:
+                        p = plan_aoi(target=t, step=s, max_size=m, offset_step=o, bias=b)
+                        # AOI on grid, positive, inside the sensor
+                        assert p.acq_width % s[0] == 0 and p.acq_height % s[1] == 0
+                        assert 0 < p.acq_width <= m[0] and 0 < p.acq_height <= m[1]
+                        # offset on grid; whole AOI inside the sensor
+                        assert p.offset_x % o[0] == 0 and p.offset_y % o[1] == 0
+                        assert p.offset_x >= 0 and p.offset_x + p.acq_width <= m[0]
+                        assert p.offset_y >= 0 and p.offset_y + p.acq_height <= m[1]
+                        # crop inside the acquired AOI
+                        assert p.crop_x0 >= 0 and p.crop_x0 + p.crop_width <= p.acq_width
+                        assert p.crop_y0 >= 0 and p.crop_y0 + p.crop_height <= p.acq_height
+                        # exact size unless physically capped at the sensor
+                        assert p.crop_width == t[0] or p.acq_width == legal_max_w
+                        assert p.crop_height == t[1] or p.acq_height == legal_max_h

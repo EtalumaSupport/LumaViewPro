@@ -89,6 +89,30 @@ class TestIDS(unittest.TestCase):
         self.assertFalse(self.camera.set_binning_size(0))
         self.assertEqual(self.camera.get_binning_size(), 2)
 
+    def test_binned_aoi_space_max_halves(self):
+        """Resolve whether the AOI maxima are reported in binned or native px.
+
+        The oversize-then-crop framing math is planned in displayed
+        (post-binning) pixel space, which is correct only if Width/Height
+        maxima are in binned pixels -- i.e. they roughly halve from 1x to 2x
+        binning. If the max does NOT shrink, the AOI is in native pixels and
+        the framing plan must divide once at the end instead. This records the
+        fact so the math can be trusted; run with -s to see the printed values.
+        """
+        self.camera.set_binning_size(1)
+        max_1x = self.camera.get_max_frame_size()
+        self.camera.set_binning_size(2)
+        max_2x = self.camera.get_max_frame_size()
+        self.camera.set_binning_size(1)  # restore
+        print(f'[binned-aoi-space] max 1x={max_1x} 2x={max_2x}')
+        self.assertLess(
+            max_2x['width'],
+            max_1x['width'],
+            f'AOI max did not shrink with binning ({max_1x} -> {max_2x}): AOI is in '
+            'native pixels, so the oversize-crop plan must divide by binning at the end',
+        )
+        self.assertAlmostEqual(max_2x['width'], max_1x['width'] / 2, delta=max_1x['width'] * 0.02)
+
     def test_grab_frame(self):
         time.sleep(1)  # Allow time for the camera to start grabbing
         result, timestamp = self.camera.grab()
