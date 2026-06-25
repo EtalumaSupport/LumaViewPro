@@ -359,6 +359,13 @@ class ScopeCapabilities:
                 lambda: bool(camera.supports_line_noise_reduction()),
                 False,
             )
+            # Record the detected low-noise toggles so a support bundle shows
+            # whether they were available on this camera without debug mode.
+            logger.info(
+                f'[CAPABILITIES] camera={camera_model!r} '
+                f'conversion_gain_mode={camera_supports_conversion_gain_mode} '
+                f'line_noise_reduction={camera_supports_line_noise_reduction}'
+            )
 
         return cls(
             axes=axes,

@@ -31,6 +31,8 @@ from modules.sequenced_capture_runner import SequencedCaptureRunner, SequencedCa
 from modules.sequential_io_executor import SequentialIOExecutor
 from modules.protocol_thread import ProtocolThread
 
+from lvp_logger import logger
+
 
 class ProtocolRunner:
     """GUI-independent protocol runner wrapping SequencedCaptureRunner."""
@@ -212,6 +214,18 @@ class ProtocolRunner:
 
         if image_capture_config is None:
             image_capture_config = self.build_image_capture_config()
+
+        # One self-describing record per scan: the per-frame save path runs
+        # thousands of times per session and cannot log its depth at info
+        # level, so a scan's capture depth / on-disk encoding is otherwise
+        # recoverable only by inspecting the output file tags afterward. This
+        # line lets a support bundle state the mode the scan ran in.
+        logger.info(
+            f'[Protocol] scan "{sequence_name}" '
+            f'image_mode={image_capture_config["image_mode"]} '
+            f'capture_depth={image_capture_config["capture_depth"]} '
+            f'save_encoding={image_capture_config["save_encoding"]}'
+        )
 
         import modules.config_helpers as config_helpers
 

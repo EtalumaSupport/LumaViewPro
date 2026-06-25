@@ -19,7 +19,6 @@ import modules.config_helpers as config_helpers
 import modules.image_mode as image_mode
 import modules.labware as labware
 from modules.stack_builder import StackBuilder
-from modules.tiling_config import TilingConfig
 from modules.zstack_config import ZStackConfig
 
 logger = logging.getLogger('LVP.modules.config_ui_getters')
@@ -235,9 +234,7 @@ def get_sequenced_capture_config_from_ui() -> dict:
     labware_id, _ = get_selected_labware()
     protocol_settings = _app_ctx.ctx.motion_settings.ids['protocol_settings_id']
     tiling = protocol_settings.ids['tiling_size_spinner'].text
-    tiling_overlap_percent = TilingConfig.validate_overlap_percent(
-        protocol_settings.ids['tiling_overlap_spinner'].text.strip().rstrip('%')
-    )
+    tiling_overlap_percent = protocol_settings.get_tiling_overlap_percent()
     use_zstacking = protocol_settings.ids['acquire_zstack_id'].active
     frame_dimensions = get_current_frame_dimensions()
     zstack_params = get_zstack_params()

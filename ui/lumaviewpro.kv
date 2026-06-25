@@ -1342,39 +1342,6 @@
 					font_size: '12sp'
 					on_release: root.apply_tiling()
 
-			BoxLayout:
-				orientation: 'horizontal'
-				id: tiling_overlap_box_layout_id
-				size_hint_y: None
-				height: '30dp'
-				opacity: 1
-				spacing: '5dp'
-
-				Label:
-					id: tiling_overlap_label_id
-					text: 'Overlap'
-					tooltip_text: 'Set tile overlap percentage for acquisition tiling'
-					size_hint_y: None
-					height: '30dp'
-					size_hint_x: None
-					width: '75dp'
-					font_size: '12sp'
-
-				Spinner:
-					id: tiling_overlap_spinner
-					disabled: app.protocol_running
-					sync_height: True
-					text: '0%'
-					tooltip_text: 'Set tile overlap percentage for acquisition tiling'
-					font_size: '12sp'
-					size_hint_y: None
-					size_hint_x: None
-					width: '65dp'
-					height: '30dp'
-					option_cls: "SpinnerOption0"
-					text_autoupdate: True
-					values: ('0%', '10%', '15%', '20%')
-
 			# Post-protocol creation Z-Stacking
 			BoxLayout:
 				orientation: 'horizontal'
@@ -1432,30 +1399,6 @@
 					valign: 'middle'
 					text_size: self.size
 			
-			# Step Locations
-			BoxLayout:
-				orientation: 'horizontal'
-				size_hint_y: None
-				height: '30dp'
-				spacing: '5dp'
-							
-				CheckBox:
-					id: show_step_locations_id
-					size_hint_x: None
-					width: '30dp'
-					active: False
-					tooltip_text: 'Display yellow cross for each Step'
-					on_release: root.update_show_step_locations()
-
-				Label:
-					id: show_step_locations_label_id
-					text: 'Show step locations'
-					tooltip_text: 'Display yellow cross for each Step'
-					font_size: '12sp'
-					halign: 'left'
-					valign: 'middle'
-					text_size: self.size
-
 			# # Multiple exposure
 			# BoxLayout:
 			#     orientation: 'horizontal'
@@ -2043,63 +1986,11 @@
 				size_hint_y: None
 				height: '30dp'
 				Label:
-					text: 'Lumascope Model'
-					tooltip_text: 'Lumi, LS820, LS850, and LS850T'
-					size_hint_x: None
-					width: '120dp'
-					font_size: '12sp'
-				Spinner:
-					id: scope_spinner
-					disabled: app.protocol_running
-					sync_height: True
-					text: 'Select'
-					font_size:'12sp'
-					option_cls: "SpinnerOption0"
-					# #631 cluster: text_autoupdate causes .values reassignment to
-					# reset .text to alphabetically-first, firing on_text with the
-					# wrong scope_id. Text is driven by settings['scope']['model'].
-					on_release: root.load_scopes()
-					on_text: root.select_scope()
-
-			BoxLayout:
-				orientation: 'horizontal'
-				size_hint_y: None
-				height: '30dp'
-				Label:
-					text: 'Objective'
-					tooltip_text: 'Current objective in the lightpath'
-					size_hint_x: None
-					width: '120dp'
-					font_size: '12sp'
-				Spinner:
-					id: objective_spinner
-					disabled: app.protocol_running
-					sync_height: True
-					text: 'Select'
-					font_size:'12sp'
-					option_cls: "SpinnerOption0"
-					# #631: see objective_spinner2 above for rationale.
-					on_release: root.load_objectives()
-					on_text: root.select_objective()
-
-			BoxLayout:
-				orientation: 'horizontal'
-				size_hint_y: None
-				height: '30dp'
-				Label:
-					text: 'Magnification'
-					tooltip_text: 'Current objective magnification'
-					size_hint_x: None
-					width: '120dp'
-					font_size: '12sp'
-				TextInput:
-					id: magnification_id
-					multiline: False
-					padding: ['5dp', (self.height-self.line_height)/2]
-					halign: 'center'
-					input_filter: 'int'
-					text: '40'
-					disabled: True
+					text: 'Lumascope Model: ' + root.current_scope_model
+					tooltip_text: 'Current scope model. Change it in Advanced Settings.'
+					halign: 'left'
+					valign: 'middle'
+					text_size: self.size
 					font_size: '12sp'
 
 			# Frame Size
@@ -2370,7 +2261,10 @@
 					text: 'Select'
 					font_size:'12sp'
 					option_cls: "SpinnerOption0"
-					# #631 cluster: see scope_spinner / objective_spinner.
+					# Text is driven by the stored value, not text_autoupdate
+					# (kept False): reassigning .values would otherwise reset
+					# .text to the alphabetically-first entry and fire on_text
+					# with the wrong selection.
 					on_release: root.load_binning_sizes()
 					on_text: root.select_binning_size()
 
@@ -2492,38 +2386,11 @@
 					state: 'normal'
 			
 			BoxLayout:
-				id: stim_settings_box
-				orientation: 'horizontal'
-				size_hint_y: None
-				height: '30dp' if root.stim_supported else 0
-				opacity: 1 if root.stim_supported else 0
-				disabled: not root.stim_supported
-				Label:
-					font_size: '12sp'
-					text: 'Stimulation Settings'
-					tooltip_text: 'Enable stimulation features globally'
-					halign: 'left'
-					valign: 'middle'
-					text_size: self.size
-				ToggleButton:
-					id: stimulation_settings_btn
-					disabled: app.protocol_running
-					size_hint: None, None
-					tooltip_text: 'Enable stimulation features globally'
-					size: '45dp', '30dp'
-					border: 0, 0, 0, 0
-					valign: 'middle'
-					background_normal: './data/icons/ToggleL.png'
-					background_down: './data/icons/ToggleRW.png'
-					on_release: root.update_stimulation_settings()
-					state: 'normal'
-
-			BoxLayout:
 				height: '30dp'
 				size_hint_y: None
 				orientation: 'horizontal'
 				opacity: 0
-				
+
 			BoxLayout:
 				id: enable_bullseye_box_id
 				opacity: 0

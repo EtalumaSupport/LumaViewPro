@@ -9,7 +9,7 @@ import threading
 import time
 
 from kivy.clock import Clock
-from kivy.properties import BooleanProperty
+from kivy.properties import BooleanProperty, StringProperty
 from kivy.uix.boxlayout import BoxLayout
 
 import modules.app_context as _app_ctx
@@ -87,11 +87,11 @@ class _CoalescingApplier:
 
 
 class MicroscopeSettings(BoxLayout):
-    # Mirrors the LED firmware's stim capability so the kv can hide the global
-    # Stimulation Settings section when the firmware cannot drive stim. Set
-    # from firmware_stim_supported() at settings load; defaults hidden so stim
-    # never flashes before the capability probe result lands.
-    stim_supported = BooleanProperty(False)
+    # Current scope model name, shown read-only in the panel. The selector
+    # that changes it lives in Advanced Settings; this reflects the settings
+    # SSOT and is refreshed in set_ui_features_for_scope (the one place a
+    # scope change reconfigures the UI).
+    current_scope_model = StringProperty('')
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -263,14 +263,17 @@ class MicroscopeSettings(BoxLayout):
 
             # update GUI values from JSON data:
 
-            # Scope auto-detection
+            # Scope auto-detection. The model selector lives in Advanced
+            # Settings; write the detected (or saved) model to the settings
+            # SSOT here, then reconfigure the UI for it (control visibility +
+            # read-only model label + stage redraw, in that order).
             detected_model = lumaview.scope.diagnostics.get_microscope_model()
             if detected_model in self.scopes:
                 logger.info(f'[LVP Main  ] Auto-detected scope as {detected_model}')
-                self.ids['scope_spinner'].text = detected_model
+                settings['microscope'] = detected_model
             else:
                 logger.info(f'[LVP Main  ] Using scope selection from {filename}')
-                self.ids['scope_spinner'].text = settings['microscope']
+            self.reconfigure_for_scope()
 
             # Image mode selector: populate the options from the camera's
             # capability, then select the stored mode. A stored 12-bit mode on
@@ -383,15 +386,12 @@ class MicroscopeSettings(BoxLayout):
                         f'Startup objective {objective_id} not found in turret objectives ({turret_objectives}).'
                     )
 
-            self.ids['objective_spinner'].text = objective_id
-
             vertical_control_id = ctx.motion_settings.ids['verticalcontrol_id']
             v_control_objective_spinner = vertical_control_id.ids['objective_spinner2']
             v_control_objective_spinner.text = objective_id
 
             objective_helper = ctx.objective_helper
             objective = objective_helper.get_objective_info(objective_id=objective_id)
-            self.ids['magnification_id'].text = f'{objective["magnification"]}'
 
             # Populate FOV fields at startup; otherwise the fields stay blank
             # until the user clicks Frame Size or selects an objective (both
@@ -434,6 +434,9 @@ class MicroscopeSettings(BoxLayout):
             protocol_settings.ids['capture_dur'].text = str(settings['protocol']['duration'])
             protocol_settings.ids['labware_spinner'].text = settings['protocol']['labware']
             protocol_settings.select_labware()
+            # Apply the persisted step-location view at startup; the toggle
+            # that edits this now lives in Advanced Settings.
+            ctx.stage.show_protocol_steps(enable=settings['show_step_locations'])
 
             zstack_settings = ctx.motion_settings.ids['verticalcontrol_id'].ids['zstack_id']
             zstack_settings.ids['zstack_spinner'].text = settings['zstack']['position']
@@ -461,23 +464,13 @@ class MicroscopeSettings(BoxLayout):
                     self.ids['show_tooltips_btn'].state = 'normal'
                     ctx.show_tooltips = False
 
-            # Stimulation is firmware-gated: never expose it unless the LED
-            # firmware reports support. On unsupported firmware force it off so
-            # the per-layer controls and the global toggle stay hidden.
-            self.stim_supported = firmware_stim_supported()
-            if not self.stim_supported:
+            # Stimulation is firmware-gated. The enable toggle lives in
+            # Advanced Settings now; startup just establishes the setting and
+            # pushes the persisted state down to every layer via the single
+            # owner (which forces it off on unsupported firmware).
+            if 'stimulation_enabled' not in settings:
                 settings['stimulation_enabled'] = False
-
-            if 'stimulation_enabled' in settings:
-                if settings['stimulation_enabled']:
-                    self.ids['stimulation_settings_btn'].state = 'down'
-                else:
-                    self.ids['stimulation_settings_btn'].state = 'normal'
-                    # Apply the disabled state to all layers
-                    self.update_stimulation_settings()
-            else:
-                self.ids['stimulation_settings_btn'].state = 'normal'
-                settings['stimulation_enabled'] = False
+            self.apply_stimulation_support()
 
             # Protocol accordions are permanently disabled (no longer a setting)
             settings.pop('disable_protocol_accordions', None)
@@ -764,16 +757,18 @@ class MicroscopeSettings(BoxLayout):
         ctx.show_tooltips = enabled
         settings['show_tooltips'] = enabled
 
-    def update_stimulation_settings(self):
-        """Toggle stimulation features globally across all channels."""
+    def apply_stimulation_support(self):
+        """Push the persisted global stimulation enable to every channel.
+
+        Single owner of the per-layer stimulation sync. Reads
+        ``settings['stimulation_enabled']`` (the source of truth, populated
+        by the settings load) rather than a widget, so the startup load and
+        the Advanced Settings toggle both drive the same path. Firmware
+        without stim support can never enable it, even if a stale setting
+        says otherwise.
+        """
         settings = _app_ctx.ctx.settings
-        # Firmware without stim support can never enable it, even if a stale
-        # setting or a hidden toggle says otherwise.
-        self.stim_supported = firmware_stim_supported()
-        stimulation_enabled = self.stim_supported and (
-            self.ids['stimulation_settings_btn'].state == 'down'
-        )
-        gui_logger.toggle('STIMULATION_ENABLED', stimulation_enabled)
+        stimulation_enabled = firmware_stim_supported() and settings['stimulation_enabled']
         settings['stimulation_enabled'] = stimulation_enabled
 
         # Update all layer controls
@@ -971,22 +966,17 @@ class MicroscopeSettings(BoxLayout):
         )
         self._apply_displayed_frame(new_frame)
 
-    def load_scopes(self):
-        logger.info('[LVP Main  ] MicroscopeSettings.load_scopes()')
-        spinner = self.ids['scope_spinner']
-        spinner.values = list(self.scopes.keys())
+    def reconfigure_for_scope(self) -> None:
+        """Apply the current scope to the UI in the canonical order.
 
-    def select_scope(self):
-        gui_logger.select('SCOPE', self.ids['scope_spinner'].text)
-        logger.info('[LVP Main  ] MicroscopeSettings.select_scope()')
-        ctx = _app_ctx.ctx
-        settings = ctx.settings
-
-        spinner = self.ids['scope_spinner']
-        settings['microscope'] = spinner.text
-
+        set_ui_features_for_scope first (control visibility + the read-only
+        model label), then a stage redraw for the new model's geometry. The
+        single owner of the scope-change reconfigure sequence -- called at
+        startup and when the Advanced Settings selector changes the scope, so
+        the order is identical on both paths.
+        """
         self.set_ui_features_for_scope()
-        ctx.stage.full_redraw()
+        _app_ctx.ctx.stage.full_redraw()
 
     def set_ui_features_for_scope(self) -> None:
         ctx = _app_ctx.ctx
@@ -995,6 +985,8 @@ class MicroscopeSettings(BoxLayout):
         microscope_settings = ctx.motion_settings.ids['microscope_settings_id']
         scope_configs = microscope_settings.scopes
         selected_scope_config = scope_configs[settings['microscope']]
+
+        microscope_settings.current_scope_model = settings['microscope']
 
         motion_settings = ctx.motion_settings
         motion_settings.set_turret_control_visibility(visible=selected_scope_config['Turret'])
@@ -1015,9 +1007,6 @@ class MicroscopeSettings(BoxLayout):
 
         protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
         protocol_settings.set_labware_selection_visibility(visible=selected_scope_config['XYStage'])
-        protocol_settings.set_show_protocol_step_locations_visibility(
-            visible=selected_scope_config['XYStage']
-        )
 
         ctx.motion_settings.ids['post_processing_id'].ids[
             'stitch_controls_id'
@@ -1064,77 +1053,6 @@ class MicroscopeSettings(BoxLayout):
             image_settings._resort_accordion()
         except Exception as e:
             logger.debug(f'[LVP Main  ] image_settings._resort_accordion failed: {e}')
-
-    def load_objectives(self):
-        logger.info('[LVP Main  ] MicroscopeSettings.load_objectives()')
-        spinner = self.ids['objective_spinner']
-        objective_helper = _app_ctx.ctx.objective_helper
-        spinner.values = objective_helper.get_objectives_list()
-
-    def select_objective(self):
-        try:
-            objective_id = self.ids['objective_spinner'].text
-            ctx = _app_ctx.ctx
-            settings = ctx.settings
-
-            # #631: idempotent -- if the spinner text matches current settings, no
-            # work to do. Defends against on_text firing for programmatic text
-            # writes (e.g. settings load, mirror-spinner sync) without redoing
-            # hardware calls or notifications.
-            if objective_id == settings.get('objective_id'):
-                return
-
-            gui_logger.select('OBJECTIVE', objective_id)
-            logger.info('[LVP Main  ] MicroscopeSettings.select_objective()')
-
-            lumaview = ctx.lumaview
-            objective_helper = ctx.objective_helper
-
-            # If turret is present, objective must be assigned to a turret position (#606)
-            if lumaview.scope.motion.has_turret():
-                turret_objectives = list(settings.get('turret_objectives', {}).values())
-                assigned = [obj for obj in turret_objectives if obj is not None]
-                if assigned and objective_id not in assigned:
-                    from modules.notification_center import notifications
-
-                    notifications.warning(
-                        'Objective',
-                        'Objective Not in Turret',
-                        f"[Objective] Cannot select '{objective_id}' -- not assigned "
-                        f'to any turret position. Assign it in Objective Control > '
-                        f'Turret before using.',
-                    )
-
-            objective = objective_helper.get_objective_info(objective_id=objective_id)
-            settings['objective_id'] = objective_id
-            microscope_settings_id = ctx.motion_settings.ids['microscope_settings_id']
-            microscope_settings_id.ids['magnification_id'].text = f'{objective["magnification"]}'
-
-            # Update selected to be consistent with other selector
-            vc_objective_spinner = ctx.motion_settings.ids['verticalcontrol_id'].ids[
-                'objective_spinner2'
-            ]
-            vc_objective_spinner.text = objective_id
-
-            if lumaview.scope.motion.has_turret():
-                lumaview.scope.runtime_state.set_turret_config(
-                    turret_config=settings['turret_objectives']
-                )
-
-            lumaview.scope.runtime_state.set_objective(objective_id=objective_id)
-
-            fov_size = common_utils.get_field_of_view(
-                focal_length=objective['focal_length'],
-                frame_size=settings['frame'],
-                binning_size=get_binning_from_ui(),
-            )
-            self.ids['field_of_view_width_id'].text = str(round(fov_size['width'], 0))
-            self.ids['field_of_view_height_id'].text = str(round(fov_size['height'], 0))
-        except Exception as e:
-            logger.error(f'[UI] select_objective failed: {e}', exc_info=True)
-            from ui.notification_popup import show_notification_popup
-
-            show_notification_popup(title='Error', message=str(e))
 
     def frame_size(self):
         """Apply a user edit of the frame width/height fields.

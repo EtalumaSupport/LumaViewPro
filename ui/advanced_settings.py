@@ -23,15 +23,17 @@ import modules.app_context as _app_ctx
 from lvp_logger import logger
 from modules import gui_logger
 from modules.config_helpers import get_manual_video_max_duration
+from modules.config_ui_getters import firmware_stim_supported
 from modules.sequential_io_executor import IOTask
+from modules.tiling_config import TilingConfig
 
 
 class AdvancedSettings(Popup):
     """Modal container for the advanced settings rows.
 
-    Opened from a button in the Microscope Settings panel. Rows live in the
-    ``advanced_rows`` container, which scrolls so the box holds an arbitrary
-    number of settings without resizing the window.
+    Opened from a button in the Microscope Settings panel. Rows live in a
+    two-column ``advanced_grid``; the popup auto-sizes its height to the grid
+    so it grows as settings are added, with no scroll bar.
     """
 
     # Mirror the camera low-noise capabilities so each toggle hides when the
@@ -48,6 +50,12 @@ class AdvancedSettings(Popup):
     # one is connected. Set on open; default hidden so the row never flashes
     # before the capability is read.
     xy_stage_supported = BooleanProperty(False)
+
+    # Mirrors the LED firmware's stim capability so the row hides when the
+    # firmware cannot drive stimulation. Set on open from
+    # firmware_stim_supported(); default hidden so the row never flashes
+    # before the capability is read.
+    stim_supported = BooleanProperty(False)
 
     def on_open(self):
         """Populate every row from the settings store when the modal opens."""
@@ -90,6 +98,28 @@ class AdvancedSettings(Popup):
         # Setting the slider value drives the text via the kv binding
         # (text: format(acceleration_pct_slider.value)).
         self.ids['acceleration_pct_slider'].value = settings['motion']['acceleration_max_pct']
+
+        # Populate the dropdown values BEFORE setting the text. The spinner
+        # keeps text_autoupdate at its default (False); were it True,
+        # reassigning .values would reset .text to the alphabetically-first
+        # entry and fire on_text with the wrong scope. Setting text here fires
+        # select_scope, which no-ops because it matches the stored model.
+        self.load_scopes()
+        self.ids['scope_spinner'].text = settings['microscope']
+
+        self.stim_supported = firmware_stim_supported()
+        self.ids['stimulation_settings_btn'].state = (
+            'down' if settings['stimulation_enabled'] else 'normal'
+        )
+
+        # Populating the spinner fires on_text -> update_tiling_overlap, which
+        # early-returns because the value already matches the setting (so the
+        # load does not log a phantom user selection).
+        self.ids['tiling_overlap_spinner'].text = f'{int(settings["tiling_overlap_percent"])}%'
+
+        # Setting .active does not fire on_release (a user-press event), so this
+        # populate does not re-run the handler -- no phantom toggle on open.
+        self.ids['show_step_locations_id'].active = settings['show_step_locations']
 
     def update_high_conversion_gain(self):
         ctx = _app_ctx.ctx
@@ -197,6 +227,53 @@ class AdvancedSettings(Popup):
         gui_logger.toggle('PROTOCOL_LED_ON', enabled)
         settings['protocol_led_on'] = enabled
 
+    def update_stimulation_settings(self):
+        ctx = _app_ctx.ctx
+        enabled = self.ids['stimulation_settings_btn'].state == 'down'
+        gui_logger.toggle('STIMULATION_ENABLED', enabled)
+        ctx.settings['stimulation_enabled'] = enabled
+        # The microscope panel owns the per-layer stim sync; the startup load
+        # re-uses the same owner, so the toggle and load stay in lockstep.
+        ctx.motion_settings.ids['microscope_settings_id'].apply_stimulation_support()
+
+    def update_tiling_overlap(self):
+        ctx = _app_ctx.ctx
+        overlap = TilingConfig.validate_overlap_percent(
+            self.ids['tiling_overlap_spinner'].text.strip().rstrip('%')
+        )
+        # on_open populates the spinner with the stored value; that programmatic
+        # write is not a user change, so skip the action log and redundant write.
+        if overlap == ctx.settings['tiling_overlap_percent']:
+            return
+        gui_logger.select('TILING_OVERLAP', overlap)
+        ctx.settings['tiling_overlap_percent'] = overlap
+
+    def update_show_step_locations(self):
+        ctx = _app_ctx.ctx
+        enabled = bool(self.ids['show_step_locations_id'].active)
+        gui_logger.toggle('SHOW_STEP_LOCATIONS', enabled)
+        ctx.settings['show_step_locations'] = enabled
+        ctx.stage.show_protocol_steps(enable=enabled)
+
+    def load_scopes(self):
+        scopes = _app_ctx.ctx.motion_settings.ids['microscope_settings_id'].scopes
+        self.ids['scope_spinner'].values = list(scopes.keys())
+
+    def select_scope(self):
+        ctx = _app_ctx.ctx
+        settings = ctx.settings
+        new_model = self.ids['scope_spinner'].text
+        # on_open sets the spinner to the current model; selecting the value
+        # already in effect is not a scope change, so skip the reconfigure.
+        if new_model == settings['microscope']:
+            return
+        gui_logger.select('SCOPE', new_model)
+        settings['microscope'] = new_model
+        # Reconfigure the panel for the new scope through its single owner
+        # (control visibility + read-only model label + stage redraw); the
+        # startup path uses the same method so both reconfigure identically.
+        ctx.motion_settings.ids['microscope_settings_id'].reconfigure_for_scope()
+
     def acceleration_pct_slider(self):
         acc_val = self.ids['acceleration_pct_slider'].value
         gui_logger.slider('ACCELERATION', acc_val)
@@ -283,7 +360,9 @@ class AdvancedSettings(Popup):
 kv = Builder.load_string(
     """
 <AdvancedSettings>:
-    size_hint: .55, .85
+    size_hint_x: .35
+    size_hint_y: None
+    height: advanced_grid.minimum_height + dp(108)
     auto_dismiss: True
     title: 'Advanced Settings'
 
@@ -291,231 +370,332 @@ kv = Builder.load_string(
         orientation: 'vertical'
         spacing: dp(6)
 
-        ScrollView:
-            scroll_type: ['bars']
-            do_scroll_x: False
-            bar_width: dp(8)
+        # Every item is one column wide in a uniform two-column grid -- no
+        # full-width controls. No ScrollView: the bars read as nearly
+        # invisible in this theme, so the popup just grows with its content.
+        # Camera- and stage-gated rows are paired with their like-gated
+        # sibling so a hidden pair collapses its whole grid row cleanly.
+        GridLayout:
+            id: advanced_grid
+            cols: 2
+            size_hint_y: None
+            height: self.minimum_height
+            padding: dp(6), dp(6)
+            spacing: dp(16), dp(6)
+
             BoxLayout:
-                id: advanced_rows
-                orientation: 'vertical'
+                orientation: 'horizontal'
                 size_hint_y: None
-                height: self.minimum_height
-                padding: 0, 0, dp(8), 0
-                spacing: dp(5)
+                height: '30dp'
+                Label:
+                    text: 'Lumascope Model'
+                    tooltip_text: 'Lumi, LS820, LS850, and LS850T'
+                    size_hint_x: None
+                    width: '110dp'
+                    font_size: '12sp'
+                Spinner:
+                    id: scope_spinner
+                    disabled: app.protocol_running
+                    sync_height: True
+                    text: 'Select'
+                    font_size: '12sp'
+                    option_cls: 'SpinnerOption0'
+                    on_release: root.load_scopes()
+                    on_text: root.select_scope()
 
-                BoxLayout:
-                    orientation: 'horizontal'
-                    size_hint_y: None
-                    height: '30dp' if root.conversion_gain_supported else 0
-                    opacity: 1 if root.conversion_gain_supported else 0
-                    disabled: not root.conversion_gain_supported
-                    Label:
-                        font_size: '12sp'
-                        text: 'High Conversion Gain'
-                        tooltip_text: 'Sensor low-noise mode: lower read noise for dim/fluorescence imaging,\\nat the cost of dynamic range'
-                        halign: 'left'
-                        valign: 'middle'
-                        text_size: self.size
-                    CheckBox:
-                        id: high_conversion_gain
-                        disabled: app.protocol_running
-                        size_hint_x: None
-                        width: '25dp'
-                        active: False
-                        on_release: root.update_high_conversion_gain()
+            BoxLayout:
+                orientation: 'horizontal'
+                size_hint_y: None
+                height: '30dp'
+                Label:
+                    text: 'Save channels in separate folders'
+                    tooltip_text: "Save each channels' images in separate folders"
+                    font_size: '12sp'
+                    halign: 'left'
+                    valign: 'middle'
+                    text_size: self.size
+                ToggleButton:
+                    id: separate_folder_per_channel_id
+                    disabled: app.protocol_running
+                    size_hint: None, None
+                    tooltip_text: "Save each channels' images in separate folders"
+                    size: '45dp', '30dp'
+                    border: 0, 0, 0, 0
+                    valign: 'middle'
+                    background_normal: './data/icons/ToggleL.png'
+                    background_down: './data/icons/ToggleRW.png'
+                    on_release: root.update_separate_folders_per_channel()
+                    state: 'normal'
 
-                BoxLayout:
-                    orientation: 'horizontal'
-                    size_hint_y: None
-                    height: '30dp' if root.line_noise_reduction_supported else 0
-                    opacity: 1 if root.line_noise_reduction_supported else 0
-                    disabled: not root.line_noise_reduction_supported
-                    Label:
-                        font_size: '12sp'
-                        text: 'Line Noise Reduction'
-                        tooltip_text: 'Camera filter that smooths horizontal stripe artifacts in the sensor readout'
-                        halign: 'left'
-                        valign: 'middle'
-                        text_size: self.size
-                    CheckBox:
-                        id: line_noise_reduction
-                        disabled: app.protocol_running
-                        size_hint_x: None
-                        width: '25dp'
-                        active: False
-                        on_release: root.update_line_noise_reduction()
+            BoxLayout:
+                orientation: 'horizontal'
+                size_hint_y: None
+                height: '30dp' if root.conversion_gain_supported else 0
+                opacity: 1 if root.conversion_gain_supported else 0
+                disabled: not root.conversion_gain_supported
+                Label:
+                    font_size: '12sp'
+                    text: 'High Conversion Gain'
+                    tooltip_text: 'Sensor low-noise mode: lower read noise for dim/fluorescence imaging,\\nat the cost of dynamic range'
+                    halign: 'left'
+                    valign: 'middle'
+                    text_size: self.size
+                CheckBox:
+                    id: high_conversion_gain
+                    disabled: app.protocol_running
+                    size_hint_x: None
+                    width: '25dp'
+                    active: False
+                    on_release: root.update_high_conversion_gain()
 
-                BoxLayout:
-                    orientation: 'horizontal'
-                    size_hint_y: None
-                    height: '30dp'
-                    Label:
-                        text: 'Manual Video Max FPS'
-                        tooltip_text: 'Maximum frames per second for manual recording.\\n0 = no limit (camera free-run rate).\\nAt low FPS the camera is rate-limited so live preview slows too;\\nrestored to free-run when recording stops.'
-                        halign: 'left'
-                        valign: 'middle'
-                        text_size: self.size
-                        font_size: '12sp'
-                    TextInput:
-                        id: manual_video_max_fps_input
-                        disabled: app.protocol_running
-                        size_hint_x: None
-                        width: '45dp'
-                        multiline: False
-                        font_size: '12sp'
-                        padding: ['4dp', (self.height-self.line_height)/2]
-                        halign: 'right'
-                        input_filter: 'int'
-                        text: '0'
-                        on_text_validate: root.update_manual_video_max_fps()
-                        on_focus: if not self.focus: root.update_manual_video_max_fps()
+            BoxLayout:
+                orientation: 'horizontal'
+                size_hint_y: None
+                height: '30dp' if root.line_noise_reduction_supported else 0
+                opacity: 1 if root.line_noise_reduction_supported else 0
+                disabled: not root.line_noise_reduction_supported
+                Label:
+                    font_size: '12sp'
+                    text: 'Line Noise Reduction'
+                    tooltip_text: 'Camera filter that smooths horizontal stripe artifacts in the sensor readout'
+                    halign: 'left'
+                    valign: 'middle'
+                    text_size: self.size
+                CheckBox:
+                    id: line_noise_reduction
+                    disabled: app.protocol_running
+                    size_hint_x: None
+                    width: '25dp'
+                    active: False
+                    on_release: root.update_line_noise_reduction()
 
-                BoxLayout:
-                    orientation: 'horizontal'
-                    size_hint_y: None
-                    height: '30dp'
-                    Label:
-                        text: 'Video Time Limit (s)'
-                        tooltip_text: 'Global maximum video length, in seconds.\\nManual recording auto-stops at this limit (press Record\\nagain to stop sooner); a protocol video Step longer than\\nthis is flagged. Memmap is sized for max_fps * limit frames.'
-                        halign: 'left'
-                        valign: 'middle'
-                        text_size: self.size
-                        font_size: '12sp'
-                    TextInput:
-                        id: manual_video_max_duration_input
-                        disabled: app.protocol_running
-                        size_hint_x: None
-                        width: '45dp'
-                        multiline: False
-                        font_size: '12sp'
-                        padding: ['4dp', (self.height-self.line_height)/2]
-                        halign: 'right'
-                        input_filter: 'int'
-                        text: '30'
-                        on_text_validate: root.update_manual_video_max_duration()
-                        on_focus: if not self.focus: root.update_manual_video_max_duration()
+            BoxLayout:
+                orientation: 'horizontal'
+                size_hint_y: None
+                height: '30dp'
+                Label:
+                    text: 'Manual Video Max FPS'
+                    tooltip_text: 'Maximum frames per second for manual recording.\\n0 = no limit (camera free-run rate).\\nAt low FPS the camera is rate-limited so live preview slows too;\\nrestored to free-run when recording stops.'
+                    halign: 'left'
+                    valign: 'middle'
+                    text_size: self.size
+                    font_size: '12sp'
+                TextInput:
+                    id: manual_video_max_fps_input
+                    disabled: app.protocol_running
+                    size_hint_x: None
+                    width: '45dp'
+                    multiline: False
+                    font_size: '12sp'
+                    padding: ['4dp', (self.height-self.line_height)/2]
+                    halign: 'right'
+                    input_filter: 'int'
+                    text: '0'
+                    on_text_validate: root.update_manual_video_max_fps()
+                    on_focus: if not self.focus: root.update_manual_video_max_fps()
 
-                BoxLayout:
-                    orientation: 'horizontal'
-                    size_hint_y: None
-                    height: '30dp'
-                    Label:
-                        text: 'Save channels in separate folders'
-                        tooltip_text: "Save each channels' images in separate folders"
-                        font_size: '12sp'
-                        halign: 'left'
-                        valign: 'middle'
-                        text_size: self.size
-                    ToggleButton:
-                        id: separate_folder_per_channel_id
-                        disabled: app.protocol_running
-                        size_hint: None, None
-                        tooltip_text: "Save each channels' images in separate folders"
-                        size: '45dp', '30dp'
-                        border: 0, 0, 0, 0
-                        valign: 'middle'
-                        background_normal: './data/icons/ToggleL.png'
-                        background_down: './data/icons/ToggleRW.png'
-                        on_release: root.update_separate_folders_per_channel()
-                        state: 'normal'
+            BoxLayout:
+                orientation: 'horizontal'
+                size_hint_y: None
+                height: '30dp'
+                Label:
+                    text: 'Video Time Limit (s)'
+                    tooltip_text: 'Global maximum video length, in seconds.\\nManual recording auto-stops at this limit (press Record\\nagain to stop sooner); a protocol video Step longer than\\nthis is flagged. Memmap is sized for max_fps * limit frames.'
+                    halign: 'left'
+                    valign: 'middle'
+                    text_size: self.size
+                    font_size: '12sp'
+                TextInput:
+                    id: manual_video_max_duration_input
+                    disabled: app.protocol_running
+                    size_hint_x: None
+                    width: '45dp'
+                    multiline: False
+                    font_size: '12sp'
+                    padding: ['4dp', (self.height-self.line_height)/2]
+                    halign: 'right'
+                    input_filter: 'int'
+                    text: '30'
+                    on_text_validate: root.update_manual_video_max_duration()
+                    on_focus: if not self.focus: root.update_manual_video_max_duration()
 
-                BoxLayout:
-                    orientation: 'horizontal'
-                    size_hint_y: None
-                    height: '30dp'
-                    Label:
-                        text: 'Live View FPS'
-                        tooltip_text: 'Maximum frames per second for live camera display'
-                        halign: 'left'
-                        valign: 'middle'
-                        text_size: self.size
-                        font_size: '12sp'
-                    ModSlider:
-                        id: live_view_fps_slider
-                        disabled: app.protocol_running
-                        min: 5
-                        max: 65
-                        value: 30
-                        step: 5
-                        cursor_size: '20dp','20dp'
-                        cursor_image: './data/icons/slider_cursor.png'
-                        track_width: dp(5)
-                        value_track: True
-                        value_track_width: dp(5)
-                        on_release: root.live_view_fps_slider()
-                    TextInput:
-                        size_hint_x: None
-                        width: '45dp'
-                        multiline: False
-                        font_size: '12sp'
-                        padding: ['4dp', (self.height-self.line_height)/2]
-                        halign: 'right'
-                        text: 'Max' if int(live_view_fps_slider.value) > 60 else format(int(live_view_fps_slider.value))
-                        readonly: True
+            BoxLayout:
+                orientation: 'horizontal'
+                size_hint_y: None
+                height: '30dp'
+                Label:
+                    text: 'Live View FPS'
+                    tooltip_text: 'Maximum frames per second for live camera display'
+                    halign: 'left'
+                    valign: 'middle'
+                    text_size: self.size
+                    font_size: '12sp'
+                ModSlider:
+                    id: live_view_fps_slider
+                    disabled: app.protocol_running
+                    min: 5
+                    max: 65
+                    value: 30
+                    step: 5
+                    cursor_size: '20dp','20dp'
+                    cursor_image: './data/icons/slider_cursor.png'
+                    track_width: dp(5)
+                    value_track: True
+                    value_track_width: dp(5)
+                    on_release: root.live_view_fps_slider()
+                TextInput:
+                    size_hint_x: None
+                    width: '40dp'
+                    multiline: False
+                    font_size: '12sp'
+                    padding: ['4dp', (self.height-self.line_height)/2]
+                    halign: 'right'
+                    text: 'Max' if int(live_view_fps_slider.value) > 60 else format(int(live_view_fps_slider.value))
+                    readonly: True
 
-                BoxLayout:
-                    orientation: 'horizontal'
-                    size_hint_y: None
-                    height: '30dp'
-                    Label:
-                        font_size: '12sp'
-                        text: 'LED On When Stepping'
-                        tooltip_text: "Keep the step's LED on while manually navigating through protocol steps so you can preview the illumination. Does not affect LED behavior during a protocol scan."
-                        halign: 'left'
-                        valign: 'middle'
-                        text_size: self.size
-                    ToggleButton:
-                        id: protocol_led_on_btn
-                        disabled: app.protocol_running
-                        size_hint: None, None
-                        tooltip_text: "Keep the step's LED on while manually navigating through protocol steps so you can preview the illumination. Does not affect LED behavior during a protocol scan."
-                        size: '45dp', '30dp'
-                        border: 0, 0, 0, 0
-                        valign: 'middle'
-                        background_normal: './data/icons/ToggleL.png'
-                        background_down: './data/icons/ToggleRW.png'
-                        on_release: root.update_protocol_led_on()
+            # Hidden when firmware lacks stim. The toggle's OWN height collapses
+            # with the row, so the invisible button cannot overlap a neighbor
+            # and, as a disabled ButtonBehavior, swallow that neighbor's click.
+            BoxLayout:
+                id: stim_settings_box
+                orientation: 'horizontal'
+                size_hint_y: None
+                height: '30dp' if root.stim_supported else 0
+                opacity: 1 if root.stim_supported else 0
+                disabled: not root.stim_supported
+                Label:
+                    font_size: '12sp'
+                    text: 'Stimulation Settings'
+                    tooltip_text: 'Enable stimulation features globally'
+                    halign: 'left'
+                    valign: 'middle'
+                    text_size: self.size
+                ToggleButton:
+                    id: stimulation_settings_btn
+                    disabled: app.protocol_running
+                    size_hint: None, None
+                    tooltip_text: 'Enable stimulation features globally'
+                    width: '45dp'
+                    height: '30dp' if root.stim_supported else 0
+                    border: 0, 0, 0, 0
+                    valign: 'middle'
+                    background_normal: './data/icons/ToggleL.png'
+                    background_down: './data/icons/ToggleRW.png'
+                    on_release: root.update_stimulation_settings()
+                    state: 'normal'
 
-                BoxLayout:
-                    orientation: 'horizontal'
+            BoxLayout:
+                orientation: 'horizontal'
+                size_hint_y: None
+                height: '30dp' if root.xy_stage_supported else 0
+                opacity: 1 if root.xy_stage_supported else 0
+                disabled: not root.xy_stage_supported
+                Label:
+                    id: acceleration_pct_label
+                    text: 'Acceleration Max (%)'
+                    tooltip_text: 'Maximum acceleration percentage for X-Y stage'
+                    halign: 'left'
+                    valign: 'middle'
+                    text_size: self.size
+                    font_size: '12sp'
+                ModSlider:
+                    id: acceleration_pct_slider
+                    disabled: app.protocol_running
+                    min: 1
+                    max: 100
+                    value: 100
+                    step: 1
+                    cursor_size: '20dp','20dp'
+                    cursor_image: './data/icons/slider_cursor.png'
+                    track_width: dp(5)
+                    value_track: True
+                    value_track_width: dp(5)
+                    on_release: root.acceleration_pct_slider()
+                TextInput:
+                    id: acceleration_pct_text
+                    disabled: app.protocol_running
+                    size_hint_x: None
+                    width: '40dp'
+                    multiline: False
+                    font_size: '12sp'
+                    padding: ['4dp', (self.height-self.line_height)/2]
+                    halign: 'right'
+                    input_filter: 'int'
+                    text: format(acceleration_pct_slider.value)
+                    on_text_validate: root.acceleration_pct_text()
+                    on_focus: if not self.focus: root.acceleration_pct_text()
+
+            BoxLayout:
+                orientation: 'horizontal'
+                size_hint_y: None
+                height: '30dp' if root.xy_stage_supported else 0
+                opacity: 1 if root.xy_stage_supported else 0
+                disabled: not root.xy_stage_supported
+                Label:
+                    text: 'Tiling Overlap'
+                    tooltip_text: 'Tile overlap percentage for acquisition tiling'
+                    halign: 'left'
+                    valign: 'middle'
+                    text_size: self.size
+                    font_size: '12sp'
+                Spinner:
+                    id: tiling_overlap_spinner
+                    disabled: app.protocol_running
+                    sync_height: True
+                    text: '0%'
+                    font_size: '12sp'
                     size_hint_y: None
                     height: '30dp' if root.xy_stage_supported else 0
-                    opacity: 1 if root.xy_stage_supported else 0
-                    disabled: not root.xy_stage_supported
-                    Label:
-                        id: acceleration_pct_label
-                        text: 'Acceleration Max (%)'
-                        tooltip_text: 'Maximum acceleration percentage for X-Y stage'
-                        halign: 'left'
-                        valign: 'middle'
-                        text_size: self.size
-                        font_size: '12sp'
-                    ModSlider:
-                        id: acceleration_pct_slider
-                        disabled: app.protocol_running
-                        min: 1
-                        max: 100
-                        value: 100
-                        step: 1
-                        cursor_size: '20dp','20dp'
-                        cursor_image: './data/icons/slider_cursor.png'
-                        track_width: dp(5)
-                        value_track: True
-                        value_track_width: dp(5)
-                        on_release: root.acceleration_pct_slider()
-                    TextInput:
-                        id: acceleration_pct_text
-                        disabled: app.protocol_running
-                        size_hint_x: None
-                        width: '45dp'
-                        multiline: False
-                        font_size: '12sp'
-                        padding: ['4dp', (self.height-self.line_height)/2]
-                        halign: 'right'
-                        input_filter: 'int'
-                        text: format(acceleration_pct_slider.value)
-                        on_text_validate: root.acceleration_pct_text()
-                        on_focus: if not self.focus: root.acceleration_pct_text()
+                    size_hint_x: None
+                    width: '65dp'
+                    option_cls: 'SpinnerOption0'
+                    text_autoupdate: True
+                    values: ('0%', '10%', '15%', '20%')
+                    on_text: root.update_tiling_overlap()
+
+            BoxLayout:
+                orientation: 'horizontal'
+                size_hint_y: None
+                height: '30dp'
+                Label:
+                    font_size: '12sp'
+                    text: 'LED On When Stepping'
+                    tooltip_text: "Keep the step's LED on while manually navigating through protocol steps so you can preview the illumination. Does not affect LED behavior during a protocol scan."
+                    halign: 'left'
+                    valign: 'middle'
+                    text_size: self.size
+                ToggleButton:
+                    id: protocol_led_on_btn
+                    disabled: app.protocol_running
+                    size_hint: None, None
+                    tooltip_text: "Keep the step's LED on while manually navigating through protocol steps so you can preview the illumination. Does not affect LED behavior during a protocol scan."
+                    size: '45dp', '30dp'
+                    border: 0, 0, 0, 0
+                    valign: 'middle'
+                    background_normal: './data/icons/ToggleL.png'
+                    background_down: './data/icons/ToggleRW.png'
+                    on_release: root.update_protocol_led_on()
+
+            BoxLayout:
+                orientation: 'horizontal'
+                size_hint_y: None
+                height: '30dp' if root.xy_stage_supported else 0
+                opacity: 1 if root.xy_stage_supported else 0
+                disabled: not root.xy_stage_supported
+                Label:
+                    text: 'Show step locations'
+                    tooltip_text: 'Display yellow cross for each Step'
+                    halign: 'left'
+                    valign: 'middle'
+                    text_size: self.size
+                    font_size: '12sp'
+                CheckBox:
+                    id: show_step_locations_id
+                    size_hint_x: None
+                    width: '30dp'
+                    active: False
+                    tooltip_text: 'Display yellow cross for each Step'
+                    on_release: root.update_show_step_locations()
 
         Button:
             text: 'Close'

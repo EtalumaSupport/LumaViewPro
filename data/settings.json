@@ -228,6 +228,8 @@
 
     "show_tooltips": false,
     "live_view_fps": 30,
+    "tiling_overlap_percent": 0.0,
+    "show_step_locations": false,
     "protocol_led_on": false,
     "stimulation_enabled": false,
     "lvp_lock_port": 43101,

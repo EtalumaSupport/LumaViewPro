@@ -2121,7 +2121,7 @@ class PylonCamera(Camera):
         if mode not in ('Low', 'High'):
             _cam_log.error(f'[CAM Class ] Unsupported conversion gain mode: {mode}')
             return False
-        if self.active.GetNodeMap().GetNode('BslConversionGainMode') is None:
+        if not self._has_node(self.active.GetNodeMap(), 'BslConversionGainMode'):
             return False
         try:
             if _cam_log is not None:
@@ -2168,9 +2168,9 @@ class PylonCamera(Camera):
         if not self.active:
             return False
         node_map = self.active.GetNodeMap()
-        if (
-            node_map.GetNode('BslLineNoiseReductionEnable') is None
-            or node_map.GetNode('BslLineNoiseReduction') is None
+        if not (
+            self._has_node(node_map, 'BslLineNoiseReductionEnable')
+            and self._has_node(node_map, 'BslLineNoiseReduction')
         ):
             return False
         try:
@@ -2203,7 +2203,7 @@ class PylonCamera(Camera):
         if not self.active:
             return False
         try:
-            return self.active.GetNodeMap().GetNode('BslConversionGainMode') is not None
+            return self._has_node(self.active.GetNodeMap(), 'BslConversionGainMode')
         except genicam.RuntimeException as e:
             _cam_log.error(f'[CAM Class ] Failed to probe conversion gain mode support: {e}')
             self._mark_disconnected()
@@ -2220,9 +2220,8 @@ class PylonCamera(Camera):
             return False
         try:
             node_map = self.active.GetNodeMap()
-            return (
-                node_map.GetNode('BslLineNoiseReductionEnable') is not None
-                and node_map.GetNode('BslLineNoiseReduction') is not None
+            return self._has_node(node_map, 'BslLineNoiseReductionEnable') and self._has_node(
+                node_map, 'BslLineNoiseReduction'
             )
         except genicam.RuntimeException as e:
             _cam_log.error(f'[CAM Class ] Failed to probe line noise reduction support: {e}')
@@ -3274,14 +3273,32 @@ class PylonCamera(Camera):
     )
 
     @staticmethod
+    def _has_node(nodemap, name: str) -> bool:
+        """True if the nodemap exposes a node by this name.
+
+        pypylon's GetNode RAISES genicam.LogicalErrorException for a node that
+        is not in the map -- it does not return None. An absent optional node
+        is the EXPECTED case for cameras that do not implement the feature
+        (Basler darts lack the Bsl* nodes; other vendors lack them entirely),
+        so a missing node is a quiet False, not an error. Genuine comms
+        failures (RuntimeException) and any other error propagate to the
+        caller, which decides whether to mark the camera disconnected.
+        """
+        try:
+            return nodemap.GetNode(name) is not None
+        except genicam.LogicalErrorException:
+            return False
+
+    @staticmethod
     def _safe_node(nodemap, *names: str):
         """Read a nodemap node defensively, trying each name in order.
 
-        Camera nodemap returns None for missing nodes; stream-grabber
-        nodemap raises ``_genicam.LogicalErrorException`` ("Node not
-        existing"). This helper unifies both into a sentinel string so
-        the probe never propagates an exception out of an optional
-        read.
+        pypylon's GetNode may raise ``genicam.LogicalErrorException``
+        ("Node not existing") -- or, on some nodemaps / SDK versions,
+        return None -- for a name the map does not expose. This helper
+        handles both (the ``is None`` skip plus the broad except below)
+        and folds any miss into a sentinel string so it never propagates
+        an exception out of an optional read.
 
         Multiple names support the case where different camera families
         expose the same logical parameter under different canonical
