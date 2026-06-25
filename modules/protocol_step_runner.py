@@ -26,6 +26,7 @@ from modules.sequential_io_executor import IOTask
 from modules.settings_init import settings
 
 if TYPE_CHECKING:
+    from modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
     from modules.sequenced_capture_runner import SequencedCaptureRunner
 
 from modules.kivy_utils import schedule_ui as _schedule_ui
@@ -629,3 +630,22 @@ class ProtocolStepRunner:
             fut.result(timeout=30)
         # Sleep for 5 ms to ensure that LED properly turns on before next action
         time.sleep(0.005)
+
+    def apply_led_transition(self, transition: LedTransition, ctx: LedTransitionCtx) -> None:
+        """Drive an LED lifecycle transition through the run's LED authority.
+
+        Submitted on the protocol IO queue so the transition's LED commands
+        serialize with the run's moves and captures -- a move must not race the
+        LEDs off at a well boundary. No-op when the run holds no lease.
+        """
+        p = self._p
+        lease = getattr(p, '_led_lease', None)
+        if lease is None:
+            return
+        fut = p._io_executor.protocol_put(
+            IOTask(action=lease.apply, args=(transition, ctx)), return_future=True
+        )
+        if fut:
+            fut.result(timeout=30)
+        else:
+            lease.apply(transition, ctx)

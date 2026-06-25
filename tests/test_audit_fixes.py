@@ -1606,8 +1606,7 @@ def _run_cleanup_kwargs(**overrides):
         'protocol_execution_record': None,
         'scope': MagicMock(),
         'callbacks': ProtocolCallbacks(),
-        'leds_off_fn': MagicMock(),
-        'led_on_fn': MagicMock(),
+        'apply_led_transition_fn': MagicMock(),
         'default_move_fn': MagicMock(),
         'cancel_scheduled_events_fn': MagicMock(),
         'io_executor': MagicMock(),
@@ -1645,7 +1644,7 @@ class TestRule14_A10_ProtocolCleanupErrorCollection:
 
         kwargs = _run_cleanup_kwargs(
             cancel_scheduled_events_fn=_raiser('cancel'),
-            leds_off_fn=_raiser('led'),
+            apply_led_transition_fn=_raiser('led'),
             callbacks=ProtocolCallbacks(
                 restore_layer_shader=_raiser('shader'),
                 restore_autofocus_state=_raiser('af'),
@@ -10388,25 +10387,34 @@ class TestProtocolCleanupLedRestoreKey:
     """
 
     def test_restore_uses_illumination_ma_key(self, monkeypatch):
-        """Restoring an enabled LED must send the snapshot's mA value to
-        the LED on-fn; a stale-key read would raise and silently skip
-        the restore (the original swallowed-KeyError bug)."""
+        """Restoring an enabled LED must carry the snapshot's mA value into
+        the RUN_END transition; a stale-key read would raise and silently
+        skip the restore (the original swallowed-KeyError bug)."""
         from modules.notification_center import notifications
+        from modules.lumascope_api.illumination import LedTransition
         from modules.protocol_cleanup import run_cleanup
 
         captured = []
         monkeypatch.setattr(notifications, 'warning', lambda *a, **k: captured.append(a))
+        scope = MagicMock()
+        scope.illumination.color2ch.side_effect = lambda c: {'Red': 0, 'Green': 1}.get(c)
+        apply_calls = []
         kwargs = _run_cleanup_kwargs(
             leds_state_at_end='return_to_original',
             original_led_states={
                 'Red': {'enabled': True, 'illumination_ma': 250.0},
                 'Green': {'enabled': False, 'illumination_ma': 80.0},
             },
+            scope=scope,
+            apply_led_transition_fn=lambda transition, ctx: apply_calls.append((transition, ctx)),
         )
         run_cleanup(**kwargs)
-        kwargs['led_on_fn'].assert_called_once_with(
-            color='Red', illumination=250.0, block=True, force=True
-        )
+        assert len(apply_calls) == 1
+        transition, ctx = apply_calls[0]
+        assert transition is LedTransition.RUN_END
+        # Red was lit at 250 mA pre-run; Green was off and excluded. The mA
+        # value must survive the snapshot-shape read intact.
+        assert ctx.snapshot_lit == frozenset({(0, 250.0)})
         assert captured == [], (
             f'the snapshot-shape read must not raise into the summary; got {captured}'
         )

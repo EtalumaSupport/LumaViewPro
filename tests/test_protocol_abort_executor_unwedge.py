@@ -107,10 +107,13 @@ def test_cleanup_skip_path_ends_executor_protocol_mode():
     file_io.protocol_start()
 
     # _run_in_progress_event clear -> _cleanup_inner takes the early-return branch.
+    # The skip path releases the scan's LED lease before ending protocol-mode;
+    # stub it as a no-op since this test is about executor teardown, not LEDs.
     stub = SimpleNamespace(
         _run_in_progress_event=threading.Event(),
         _io_executor=io,
         file_io_executor=file_io,
+        _release_scan_led_lease=lambda: None,
     )
     SequencedCaptureRunner._cleanup_inner(stub)
 

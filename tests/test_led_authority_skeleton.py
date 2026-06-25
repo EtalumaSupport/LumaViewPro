@@ -334,3 +334,38 @@ def test_apply_on_released_lease_is_a_noop(scope):
     lease.apply(LedTransition.STEP_LIGHT, _ctx(scope, 'Red', RED_MA))
     assert sub.events == [], sub.render()
     assert not ill.led_enabled('Red')
+
+
+def test_apply_reclaims_top_from_orphaned_child(scope):
+    """A held parent's apply reclaims authority from an orphaned child lease.
+
+    Autofocus runs inside a protocol step as a child lease. If an AF run wedges
+    and never releases, its child sits atop the lease stack. The protocol's
+    RUN_END must still drive the LEDs dark: a held parent is authoritative over
+    a child that failed to release in order. Without the reclaim, every RUN_END
+    write is checked against the stack top (the orphaned child), silently
+    refused, and the LEDs are left lit after the run -- the exact end-of-run
+    sample-safety failure cleanup exists to prevent.
+    """
+    ill = scope.illumination
+    sub = LedSubstream()
+    ill.add_led_listener(sub)
+
+    protocol = ill.acquire_led_lease('protocol')
+    protocol.apply(LedTransition.STEP_LIGHT, _ctx(scope, 'Green', GREEN_MA))
+
+    # Autofocus takes a child and lights its own channel, then never releases
+    # (a wedged AF run) -- the child is left as the active top-of-stack owner.
+    child = protocol.acquire_child('autofocus')
+    child.apply(LedTransition.AF_ENTER, _ctx(scope, 'Red', RED_MA))
+    assert ill.led_lease_owner == 'autofocus'
+
+    # The protocol parent ends the run. It reclaims the top from the orphaned
+    # child, so the off-everything diff is permitted and actually lands.
+    protocol.apply(LedTransition.RUN_END, LedTransitionCtx(end_policy=LedEndPolicy.OFF))
+    assert ill.led_lease_owner == 'protocol'
+    assert sub.final_lit() == set(), sub.render()
+    assert not ill.led_enabled('Red')
+    assert not ill.led_enabled('Green')
+
+    protocol.release(leave_on=False)

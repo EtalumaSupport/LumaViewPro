@@ -721,60 +721,72 @@ class SequencedCaptureRunner:
         finally:
             self._cleanup_lock.release()
 
-    def _cleanup_inner(self):
-        # Release the scan's LED lease first, on every cleanup path
-        # (normal end and abort). leave_on: the existing run_cleanup LED
-        # block below owns the end-state, so the lease release must not
-        # turn anything off. Idempotent + drops any stranded AF child
-        # lease if an abort unwound out of order. getattr so a stub that
-        # drives _cleanup_inner directly need not set the slot.
+    def _release_scan_led_lease(self):
+        """Release the scan's LED lease (idempotent), leaving the LEDs as-is.
+
+        leave_on: the run's end-state is set by run_cleanup's RUN_END
+        transition (or, on the early-abort path, left untouched), so the
+        release itself must not turn anything off. Releasing also drops any
+        stranded autofocus child lease if an abort unwound out of order, so
+        the next run can acquire. getattr so a stub driving _cleanup_inner
+        directly need not set the slot.
+        """
         led_lease = getattr(self, '_led_lease', None)
         if led_lease is not None:
             led_lease.release(leave_on=True)
             self._led_lease = None
 
-        # Restore popups: the unattended-protocol suppression ends here, on
-        # every cleanup path (normal end and abort).
+    def _cleanup_inner(self):
         from modules.notification_center import notifications
 
-        notifications.set_protocol_running(False)
+        try:
+            # Restore popups: the unattended-protocol suppression ends here, on
+            # every cleanup path (normal end and abort).
+            notifications.set_protocol_running(False)
 
-        if not self._run_in_progress_event.is_set():
-            # run-in-progress was already cleared, so run_cleanup (which
-            # ends the executors' protocol-mode) will not run here. Guarantee
-            # the io + file executors still leave protocol-mode -- an abort
-            # that cleared the run flag without ending them would otherwise
-            # wedge their worker on protocol_queue.get and starve normal file
-            # ops. Idempotent: a no-op when they are not in protocol-mode.
-            self._io_executor.end_protocol_mode()
-            self.file_io_executor.end_protocol_mode()
-            return
+            if not self._run_in_progress_event.is_set():
+                # run-in-progress was already cleared, so run_cleanup (which
+                # ends the executors' protocol-mode and drives the RUN_END LED
+                # transition) will not run here. Guarantee the io + file
+                # executors still leave protocol-mode -- an abort that cleared
+                # the run flag without ending them would otherwise wedge their
+                # worker on protocol_queue.get and starve normal file ops.
+                # Idempotent: a no-op when not in protocol-mode.
+                self._io_executor.end_protocol_mode()
+                self.file_io_executor.end_protocol_mode()
+                return
 
-        run_cleanup(
-            get_state_fn=lambda: self._state,
-            set_state_fn=self._set_state,
-            run_lock=self._run_lock,
-            scan_in_progress=self._scan_in_progress,
-            leds_state_at_end=self._leds_state_at_end,
-            original_led_states=self._original_led_states,
-            original_autofocus_states=self._original_autofocus_states,
-            saved_camera_state=getattr(self, '_saved_camera_state', None),
-            return_to_position=self._return_to_position,
-            disable_saving_artifacts=self._disable_saving_artifacts,
-            protocol=self._protocol,
-            protocol_execution_record=self._protocol_execution_record,
-            scope=self._scope,
-            callbacks=self._callbacks,
-            leds_off_fn=self._step_executor.leds_off,
-            led_on_fn=self._step_executor.leds_exclusive,
-            default_move_fn=self._step_executor.default_move,
-            cancel_scheduled_events_fn=self._cancel_all_scheduled_events,
-            io_executor=self._io_executor,
-            autofocus_thread=self.autofocus_thread,
-            file_io_executor=self.file_io_executor,
-            camera_executor=self.camera_executor,
-            set_run_in_progress_fn=lambda v: (
-                self._run_in_progress_event.set() if v else self._run_in_progress_event.clear()
-            ),
-            logger_name=self.LOGGER_NAME,
-        )
+            run_cleanup(
+                get_state_fn=lambda: self._state,
+                set_state_fn=self._set_state,
+                run_lock=self._run_lock,
+                scan_in_progress=self._scan_in_progress,
+                leds_state_at_end=self._leds_state_at_end,
+                original_led_states=self._original_led_states,
+                original_autofocus_states=self._original_autofocus_states,
+                saved_camera_state=getattr(self, '_saved_camera_state', None),
+                return_to_position=self._return_to_position,
+                disable_saving_artifacts=self._disable_saving_artifacts,
+                protocol=self._protocol,
+                protocol_execution_record=self._protocol_execution_record,
+                scope=self._scope,
+                callbacks=self._callbacks,
+                apply_led_transition_fn=self._step_executor.apply_led_transition,
+                default_move_fn=self._step_executor.default_move,
+                cancel_scheduled_events_fn=self._cancel_all_scheduled_events,
+                io_executor=self._io_executor,
+                autofocus_thread=self.autofocus_thread,
+                file_io_executor=self.file_io_executor,
+                camera_executor=self.camera_executor,
+                set_run_in_progress_fn=lambda v: (
+                    self._run_in_progress_event.set() if v else self._run_in_progress_event.clear()
+                ),
+                logger_name=self.LOGGER_NAME,
+            )
+        finally:
+            # Release on every path -- early-return, normal end, or an
+            # exception mid-cleanup -- so the lease can never leak and lock out
+            # the next run. After run_cleanup, not before: apply(RUN_END) runs
+            # inside it and the authority refuses a released lease, so the lease
+            # stays held through it; this release still runs once it returns.
+            self._release_scan_led_lease()

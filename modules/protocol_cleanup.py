@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 
 from lvp_logger import logger
 
+from modules.lumascope_api.illumination import LedEndPolicy, LedTransition, LedTransitionCtx
 from modules.protocol_state_machine import ProtocolState
 from modules.sequential_io_executor import IOTask
 
@@ -47,8 +48,7 @@ def run_cleanup(
     scope: Lumascope,
     callbacks: ProtocolCallbacks,
     # Executor functions
-    leds_off_fn,
-    led_on_fn,
+    apply_led_transition_fn,
     default_move_fn,
     cancel_scheduled_events_fn,
     # IO executors
@@ -124,27 +124,41 @@ def run_cleanup(
                 )
 
     # --- Restore LEDs ---
+    # One authority diff sets the run's end-state: off, or back to the
+    # channels that were lit before the run. The diff turns off any channel
+    # not in the target set, then asserts the target -- so restoring more
+    # than one pre-run channel does not flash, where the old per-channel
+    # restore loop extinguished each channel as it lit the next. An empty
+    # restore target (nothing was lit pre-run) collapses to off by
+    # construction. apply(RUN_END) runs on the still-held lease and serializes
+    # on the protocol IO queue, so the end-state off cannot race the
+    # return-to-position move across the shared serial bus.
     try:
         if leds_state_at_end == 'off':
-            leds_off_fn()
+            end_policy = LedEndPolicy.OFF
         elif leds_state_at_end == 'return_to_original':
-            any_restored = False
-            for color, color_data in original_led_states.items():
-                if color_data['enabled']:
-                    led_on_fn(
-                        color=color,
-                        illumination=color_data['illumination_ma'],
-                        block=True,
-                        force=True,
-                    )
-                    any_restored = True
-            if not any_restored:
-                # "return_to_original" with no LED active pre-run is silently
-                # equivalent to "off". The user-facing label says restore;
-                # the only honest restore IS leds_off when nothing was on.
-                leds_off_fn()
+            end_policy = LedEndPolicy.RETURN_TO_ORIGINAL
         else:
+            end_policy = None
             logger.error(f'Unsupported LEDs state at end value: {leds_state_at_end}')
+        if end_policy is not None:
+            snapshot_pairs = []
+            if end_policy is LedEndPolicy.RETURN_TO_ORIGINAL:
+                # Only the restore policy consults the snapshot; for OFF the
+                # authority targets an empty set, so skip walking the channel map.
+                for color, color_data in original_led_states.items():
+                    if not color_data['enabled']:
+                        continue
+                    ch = scope.illumination.color2ch(color)
+                    if ch is not None:
+                        snapshot_pairs.append((ch, color_data['illumination_ma']))
+            apply_led_transition_fn(
+                LedTransition.RUN_END,
+                LedTransitionCtx(
+                    end_policy=end_policy,
+                    snapshot_lit=frozenset(snapshot_pairs),
+                ),
+            )
     except CancelledError:
         # An overlapping abort / new-run cycle cleared the protocol queue
         # and cancelled this restore task before it ran. The superseding

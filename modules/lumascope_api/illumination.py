@@ -235,6 +235,13 @@ class LedLease:
                 self.owner_name,
             )
             return
+        # A held lease is authoritative over the children it spawned: a child
+        # holds only delegated authority, so one still on the stack when its
+        # parent acts is orphaned (its operation died without releasing in
+        # order). Reclaim the top before emitting, else the diff's writes --
+        # checked against the stack top -- would be silently refused by the
+        # dead child and the transition would no-op.
+        self._api._reclaim_lease(self)
         self._emit_diff(self.target_leds(transition, ctx))
 
     def _emit_diff(self, target: frozenset[tuple[int, float]]) -> None:
@@ -1121,6 +1128,35 @@ class IlluminationAPI:
         if not leave_on:
             self.leds_off_owned(owner_name)
         _api_log.info('LED lease released by %r%s', owner_name, ' (leave_on)' if leave_on else '')
+
+    def _reclaim_lease(self, lease: LedLease) -> None:
+        """Make *lease* the active (top) owner, releasing any descendants above it.
+
+        The symmetric twin of the out-of-order tail-drop in
+        ``_release_led_lease``: there a child outliving its parent's release
+        drops the stranded tail; here a held parent that needs to act reclaims
+        from descendants that never released. A held lease is authoritative
+        over what it spawned, so a child still stacked above it has been
+        orphaned (e.g. an autofocus run wedged past its abort wait and never
+        ran its release). No-op when *lease* is already the top or has been
+        released. Only the held lease's own write paths call this, so it cannot
+        steal authority from a live sibling -- there are no siblings, only a
+        single ownership stack.
+        """
+        with self._led_lease_lock:
+            if lease._released or lease not in self._led_lease_stack:
+                return
+            idx = self._led_lease_stack.index(lease)
+            stranded = self._led_lease_stack[idx + 1 :]
+            for held in stranded:
+                held._released = True
+            del self._led_lease_stack[idx + 1 :]
+        if stranded:
+            _api_log.warning(
+                'LED lease %r reclaimed top from orphaned descendants: %s',
+                lease.owner_name,
+                [held.owner_name for held in stranded],
+            )
 
     def led_write_allowed(self, owner_name: str) -> bool:
         """Whether *owner_name* may drive the LEDs right now.

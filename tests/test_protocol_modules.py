@@ -344,8 +344,7 @@ class TestRunCleanup:
             'protocol_execution_record': None,
             'scope': MagicMock(),
             'callbacks': ProtocolCallbacks(),
-            'leds_off_fn': lambda: None,
-            'led_on_fn': lambda **kw: None,
+            'apply_led_transition_fn': lambda transition, ctx: None,
             'default_move_fn': lambda **kw: None,
             'cancel_scheduled_events_fn': lambda: None,
             'io_executor': io_exec,
@@ -400,39 +399,48 @@ class TestRunCleanup:
         run_cleanup(**args)  # should not raise
         assert state[0] == ProtocolState.IDLE
 
-    def test_cleanup_calls_leds_off(self):
+    def test_cleanup_offs_leds_via_run_end_transition(self):
+        from modules.lumascope_api.illumination import LedEndPolicy, LedTransition
         from modules.protocol_cleanup import run_cleanup
 
-        leds_off_called = []
+        calls = []
         args, _, _ = self._make_cleanup_args(
-            leds_off_fn=lambda: leds_off_called.append(True),
+            apply_led_transition_fn=lambda transition, ctx: calls.append((transition, ctx)),
             leds_state_at_end='off',
         )
         run_cleanup(**args)
-        assert len(leds_off_called) == 1
+        assert len(calls) == 1
+        transition, ctx = calls[0]
+        assert transition is LedTransition.RUN_END
+        assert ctx.end_policy is LedEndPolicy.OFF
 
     def test_cleanup_restores_leds_to_original(self):
+        from modules.lumascope_api.illumination import LedEndPolicy, LedTransition
         from modules.protocol_cleanup import run_cleanup
 
-        restored = []
+        calls = []
         # Schema matches lumascope_api.illumination's get_led_states():
-        # color -> {'enabled': bool, 'illumination_ma': float}. The cleanup
-        # code reads color_data['illumination_ma'] when restoring.
+        # color -> {'enabled': bool, 'illumination_ma': float}. Cleanup maps
+        # each lit channel to its (channel, mA) pair for the RUN_END snapshot.
         original_leds = {
             'Red': {'enabled': True, 'illumination_ma': 50},
             'Green': {'enabled': False, 'illumination_ma': 0},
         }
+        scope = MagicMock()
+        scope.illumination.color2ch.side_effect = lambda c: {'Red': 0, 'Green': 1}.get(c)
         args, _, _ = self._make_cleanup_args(
             leds_state_at_end='return_to_original',
             original_led_states=original_leds,
-            led_on_fn=lambda color=None, illumination=None, block=True, force=True: restored.append(
-                (color, illumination)
-            ),
+            scope=scope,
+            apply_led_transition_fn=lambda transition, ctx: calls.append((transition, ctx)),
         )
         run_cleanup(**args)
-        assert ('Red', 50) in restored
-        # Green was not enabled, so should not be restored
-        assert ('Green', 0) not in restored
+        assert len(calls) == 1
+        transition, ctx = calls[0]
+        assert transition is LedTransition.RUN_END
+        assert ctx.end_policy is LedEndPolicy.RETURN_TO_ORIGINAL
+        # Red (channel 0) was lit at 50 mA pre-run; Green was off, so excluded.
+        assert ctx.snapshot_lit == frozenset({(0, 50)})
 
     def test_cleanup_ends_all_executors(self):
         from modules.protocol_cleanup import run_cleanup
@@ -610,10 +618,10 @@ class TestRunCleanupCancelledHandoff:
         from unittest.mock import patch
         from modules.protocol_cleanup import run_cleanup
 
-        def cancelled_leds_off():
+        def cancelled_apply(transition, ctx):
             raise CancelledError()
 
-        args, _, _ = self._args(leds_off_fn=cancelled_leds_off)
+        args, _, _ = self._args(apply_led_transition_fn=cancelled_apply)
         with patch('modules.notification_center.notifications') as mock_notif:
             run_cleanup(**args)
             mock_notif.warning.assert_not_called()
@@ -638,10 +646,10 @@ class TestRunCleanupCancelledHandoff:
         from unittest.mock import patch
         from modules.protocol_cleanup import run_cleanup
 
-        def broken_leds_off():
+        def broken_apply(transition, ctx):
             raise RuntimeError('serial dead')
 
-        args, _, _ = self._args(leds_off_fn=broken_leds_off)
+        args, _, _ = self._args(apply_led_transition_fn=broken_apply)
         with patch('modules.notification_center.notifications') as mock_notif:
             run_cleanup(**args)
             mock_notif.warning.assert_called_once()
