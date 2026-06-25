@@ -162,6 +162,7 @@ class ProtocolPostProcessor(abc.ABC):
         existing_count = 0
         current_group = 1
         last_error = None
+        output_significant_bits = None
 
         for _, group in groups:
             if len(group) == 0:
@@ -229,6 +230,13 @@ class ProtocolPostProcessor(abc.ABC):
 
             new_count += 1
             current_group += 1
+            # Carry the depth the artifact was written at so the completion
+            # line states whether the input depth round-tripped through this
+            # operation instead of requiring a tag read on the output file.
+            # Every post-processor populates significant_bits in its output
+            # metadata; index directly so a subclass that ever omits it fails
+            # loudly here rather than reporting a silent unknown.
+            output_significant_bits = alg_results['metadata']['significant_bits']
 
             if popup is not None:
                 popup.progress = (new_count / group_count) * 100
@@ -275,6 +283,7 @@ class ProtocolPostProcessor(abc.ABC):
         end_ts = datetime.datetime.now()
         elapsed_time = end_ts - start_ts
         logger.info(
-            f'{self._name}: Complete - Created {new_count} {self._post_function.value.lower()} artifacts in {elapsed_time}.'
+            f'{self._name}: Complete - Created {new_count} {self._post_function.value.lower()} '
+            f'artifacts (significant_bits={output_significant_bits}) in {elapsed_time}.'
         )
         return {'status': True, 'message': 'Success'}
