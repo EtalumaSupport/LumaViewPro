@@ -268,54 +268,77 @@ class TestGrabNewCaptureTimeout:
         assert isinstance(cam.data_stream.timeout_arg, int)
 
 
-class TestLatestFrameSlot:
-    """The newest-wins handoff between the poll thread and the unpack worker:
-    a put() that lands on an unconsumed frame drops the older one (so the
-    converter -- the host bottleneck -- only ever unpacks the freshest frame),
-    and get() drains a pending frame before reporting the stop sentinel."""
+class _FakeBuffer:
+    """A finished/incomplete GenTL buffer stand-in (identity == the buffer)."""
+
+    def __init__(self, tag, complete=True):
+        self.tag = tag
+        self._complete = complete
+
+    def IsIncomplete(self):
+        return not self._complete
+
+    def SizeFilled(self):
+        return 1
+
+    def Size(self):
+        return 2
+
+    def __repr__(self):
+        return f'<FakeBuffer {self.tag}>'
+
+
+class TestLatestBufferSlot:
+    """The newest-wins buffer handoff: a put() that lands on an unconsumed
+    buffer displaces the older one and re-queues it (so the converter only ever
+    unpacks the freshest buffer and no displaced buffer leaks from the pool),
+    and stop() re-queues a still-held buffer before reporting the sentinel."""
 
     def _slot(self):
-        from drivers.idscamera import _LatestFrameSlot
+        from drivers.idscamera import _LatestBufferSlot
 
-        return _LatestFrameSlot()
+        requeued = []
+        return _LatestBufferSlot(requeued.append), requeued
 
-    def test_put_then_get_returns_frame(self):
-        slot = self._slot()
+    def test_put_then_get_returns_buffer_without_requeue(self):
+        slot, rq = self._slot()
         slot.put('a')
         assert slot.get(timeout=0) == 'a'
+        assert rq == []  # nothing displaced -> nothing re-queued
 
-    def test_newest_wins_drops_the_superseded_frame(self):
-        slot = self._slot()
+    def test_newest_wins_requeues_the_displaced_buffer(self):
+        slot, rq = self._slot()
         slot.put('old')
         slot.put('new')
         assert slot.get(timeout=0) == 'new'
+        assert rq == ['old']  # the stale buffer went back to the pool
         assert slot.dropped == 1
-        # Slot is empty after the single consume (the old frame is gone).
         assert slot.get(timeout=0) is None
 
     def test_get_on_empty_returns_none_on_timeout(self):
-        slot = self._slot()
+        slot, _rq = self._slot()
         assert slot.get(timeout=0) is None
 
-    def test_stop_then_empty_get_returns_stop_sentinel(self):
-        from drivers.idscamera import _LatestFrameSlot
+    def test_stop_empty_returns_stop_sentinel(self):
+        from drivers.idscamera import _LatestBufferSlot
 
-        slot = self._slot()
+        slot, rq = self._slot()
         slot.stop()
-        assert slot.get(timeout=0) is _LatestFrameSlot._STOP
+        assert slot.get(timeout=0) is _LatestBufferSlot._STOP
+        assert rq == []
 
-    def test_stop_drains_pending_frame_before_sentinel(self):
-        from drivers.idscamera import _LatestFrameSlot
+    def test_stop_requeues_a_held_buffer(self):
+        from drivers.idscamera import _LatestBufferSlot
 
-        slot = self._slot()
-        slot.put('pending')
+        slot, rq = self._slot()
+        slot.put('held')
         slot.stop()
-        # The pending frame comes out first; only then the sentinel.
-        assert slot.get(timeout=0) == 'pending'
-        assert slot.get(timeout=0) is _LatestFrameSlot._STOP
+        # The held buffer goes back to the pool (not to the worker), then STOP.
+        assert rq == ['held']
+        assert slot.get(timeout=0) is _LatestBufferSlot._STOP
 
     def test_get_blocks_until_put(self):
-        slot = self._slot()
+        slot, _rq = self._slot()
         out = []
 
         def consume():
@@ -330,26 +353,20 @@ class TestLatestFrameSlot:
         assert out == ['arrived']
 
 
-def _packed(width=4, height=1, wire='Mono12g24IDS', tag=b'\x00'):
-    """A fake _PackedFrame-shaped payload for lifecycle tests (no SDK)."""
-    from drivers.idscamera import _PackedFrame
-
-    return _PackedFrame(
-        packed=tag, pixel_format_id=0, wire_name=wire, width=width, height=height, ts=None
-    )
-
-
 class _FakeDataStream:
     """A scripted buffer source for the two-stage pipeline lifecycle tests.
 
-    WaitForFinishedBuffer yields each queued item in turn, then blocks until
+    WaitForFinishedBuffer yields each scripted buffer in turn, then blocks until
     KillWait/stop releases it (mirroring the real blocking poll). Records
-    QueueBuffer / KillWait / FlushPendingKillWaits so teardown is assertable.
+    QueueBuffer / KillWait / FlushPendingKillWaits so teardown + re-queue counts
+    are assertable; QueueBuffer is called from both the poll and worker threads,
+    so its record is lock-guarded.
     """
 
     def __init__(self, buffers):
         self._pending = list(buffers)
         self._gate = threading.Event()
+        self._lock = threading.Lock()
         self.requeued = []
         self.kill_wait_calls = 0
         self.flush_calls = 0
@@ -363,7 +380,8 @@ class _FakeDataStream:
         raise RuntimeError('aborted: KillWait')
 
     def QueueBuffer(self, buffer):
-        self.requeued.append(buffer)
+        with self._lock:
+            self.requeued.append(buffer)
 
     def KillWait(self):
         self.kill_wait_calls += 1
@@ -374,187 +392,120 @@ class _FakeDataStream:
 
 
 def _ids_handler(data_stream):
-    """An ImageHandler with the SDK-touching seams replaced by deterministic
-    fakes, so the tests cover the threading/handoff lifecycle (the Mac-testable
-    core) without the real ids_peak SDK."""
+    """An ImageHandler with the SDK unpack seam replaced by a deterministic
+    fake, so the tests cover the threading/handoff/buffer-lifecycle (the
+    Mac-testable core) without the real ids_peak SDK."""
     from drivers import idscamera
 
     handler = idscamera.ImageHandler.__new__(idscamera.ImageHandler)
-    ImageHandlerBaseInit = idscamera.ImageHandlerBase.__init__
-    ImageHandlerBaseInit(handler)
+    idscamera.ImageHandlerBase.__init__(handler)
     handler.data_stream = data_stream
     handler.timeout_ms = 50
     handler._parent = MagicMock()
     handler._stop_event = threading.Event()
-    handler._slot = idscamera._LatestFrameSlot()
+    handler._requeue_lock = threading.Lock()
+    handler._slot = idscamera._LatestBufferSlot(handler._requeue)
     handler._poll_thread = None
     handler._worker_thread = None
     return handler
 
 
 class TestPipelineLifecycle:
-    """Stage A (drain + re-queue) / Stage B (unpack + store) wiring: the SDK
-    buffer is re-queued for every drained frame, the worker stores what it
-    unpacks, newest-wins drops backlog under worker stall, and stop() unblocks
-    a parked poll via KillWait and joins both threads."""
+    """Stage A (poll -> slot) / Stage B (unpack -> store -> re-queue) wiring, with
+    the key invariant: EVERY finished buffer is re-queued exactly once -- the
+    worker re-queues what it unpacks, the slot re-queues what newest-wins
+    displaces, the poll loop re-queues an incomplete buffer. stop() unblocks the
+    parked poll via KillWait and joins both threads. _unpack is faked so these
+    cover the threading + buffer lifecycle without the SDK."""
 
-    def test_drained_frame_is_stored_and_stop_unblocks_the_poll(self):
-        ds = _FakeDataStream(['buf0'])
+    @staticmethod
+    def _wait_until(pred, timeout=2.0):
+        deadline = time.time() + timeout
+        while not pred() and time.time() < deadline:
+            time.sleep(0.01)
+
+    def test_complete_buffer_stored_and_requeued_once(self):
+        b0 = _FakeBuffer('b0')
+        ds = _FakeDataStream([b0])
         h = _ids_handler(ds)
         stored = []
-        h._drain_buffer = lambda buf: _packed(tag=buf)
-        h._unpack = lambda frame: (frame.packed, 12)
+        h._unpack = lambda buf: (buf.tag, 12)
         h._store_frame = lambda img, ts, *, significant_bits: stored.append((img, significant_bits))
         h.start()
-        deadline = time.time() + 2.0
-        while not stored and time.time() < deadline:
-            time.sleep(0.01)
+        self._wait_until(lambda: stored)
         h.stop()
-        assert stored == [('buf0', 12)]
+        assert stored == [('b0', 12)]
+        assert ds.requeued.count(b0) == 1  # re-queued once, by the worker
         assert ds.kill_wait_calls == 1  # stop() unblocked the parked poll
         assert h._poll_thread is None and h._worker_thread is None
 
-    def test_incomplete_buffer_requeued_and_counts_failure_not_stored(self):
-        ds = _FakeDataStream(['bad'])
+    def test_incomplete_buffer_requeued_once_not_stored(self):
+        bad = _FakeBuffer('bad', complete=False)
+        ds = _FakeDataStream([bad])
         h = _ids_handler(ds)
         stored = []
-        h._drain_buffer = lambda buf: None  # None == incomplete (already re-queued)
+        h._unpack = lambda buf: (buf.tag, 12)
         h._store_frame = lambda *a, **k: stored.append(a)
         h.start()
-        time.sleep(0.2)
+        self._wait_until(lambda: bad in ds.requeued)
         h.stop()
         assert stored == []  # nothing stored for an incomplete buffer
+        assert ds.requeued.count(bad) == 1  # re-queued once, by the poll loop
 
-    def test_newest_wins_under_worker_stall(self):
-        ds = _FakeDataStream(['b0', 'b1', 'b2'])
+    def test_newest_wins_requeues_every_buffer_exactly_once(self):
+        bufs = [_FakeBuffer(f'b{i}') for i in range(3)]
+        ds = _FakeDataStream(list(bufs))
         h = _ids_handler(ds)
         release = threading.Event()
         stored = []
 
-        def slow_unpack(frame):
+        def slow_unpack(buf):
             release.wait(timeout=5)  # hold the worker so a backlog forms
-            return frame.packed, 12
+            return buf.tag, 12
 
-        h._drain_buffer = lambda buf: _packed(tag=buf)
         h._unpack = slow_unpack
         h._store_frame = lambda img, ts, *, significant_bits: stored.append(img)
         h.start()
-        time.sleep(0.3)  # let all three drain while the worker is held on b0
+        time.sleep(0.3)  # all three drain while the worker is held on b0
         release.set()
         time.sleep(0.3)
         h.stop()
-        # b0 was in-flight when the stall hit; b1 is superseded by b2 in the
-        # slot, so the worker stores b0 then the freshest (b2), never b1.
+        # b0 was in-flight when the stall hit; b1 is displaced by b2 in the slot,
+        # so the worker stores b0 then the freshest (b2), never b1.
         assert 'b2' in stored
         assert 'b1' not in stored
         assert h._slot.dropped >= 1
+        # The invariant: every buffer returned to the pool exactly once, whether
+        # unpacked (worker) or displaced (slot).
+        for b in bufs:
+            assert ds.requeued.count(b) == 1
 
-    def test_worker_survives_an_unpack_exception(self):
-        ds = _FakeDataStream(['boom', 'good'])
+    def test_worker_survives_unpack_exception_and_still_requeues(self):
+        boom = _FakeBuffer('boom')
+        good = _FakeBuffer('good')
+        ds = _FakeDataStream([boom, good])
         h = _ids_handler(ds)
         stored = []
 
-        def flaky_unpack(frame):
-            if frame.packed == 'boom':
+        def flaky_unpack(buf):
+            if buf.tag == 'boom':
                 raise ValueError('synthetic unpack failure')
-            return frame.packed, 12
+            return buf.tag, 12
 
-        h._drain_buffer = lambda buf: _packed(tag=buf)
         h._unpack = flaky_unpack
         h._store_frame = lambda img, ts, *, significant_bits: stored.append(img)
         h.start()
-        deadline = time.time() + 2.0
-        while 'good' not in stored and time.time() < deadline:
-            time.sleep(0.01)
+        self._wait_until(lambda: 'good' in stored)
         h.stop()
         assert 'good' in stored  # the exception on 'boom' didn't kill the worker
+        assert ds.requeued.count(boom) == 1  # re-queued via finally despite raising
 
     def test_stop_is_idempotent_and_joins(self):
         ds = _FakeDataStream([])
         h = _ids_handler(ds)
-        h._drain_buffer = lambda buf: None
-        h._unpack = lambda frame: (frame.packed, 12)
+        h._unpack = lambda buf: (buf.tag, 12)
         h.start()
         time.sleep(0.05)
         h.stop()
         h.stop()  # second stop must not raise
         assert h._poll_thread is None and h._worker_thread is None
-
-
-class _FakeBuffer:
-    """A finished/incomplete GenTL buffer stand-in for _drain_buffer tests."""
-
-    def __init__(self, complete=True, pf=0, w=4, h=1, filled=10, size=10):
-        self._complete = complete
-        self._pf = pf
-        self._w = w
-        self._h = h
-        self._filled = filled
-        self._size = size
-
-    def IsIncomplete(self):
-        return not self._complete
-
-    def PixelFormat(self):
-        return self._pf
-
-    def Width(self):
-        return self._w
-
-    def Height(self):
-        return self._h
-
-    def SizeFilled(self):
-        return self._filled
-
-    def Size(self):
-        return self._size
-
-
-class TestDrainBuffer:
-    """The real Stage A drain: it re-queues the SDK buffer for EVERY finished
-    buffer (the immediate re-queue is the crash-protection guarantee) and owns a
-    copy of the packed bytes; an incomplete buffer is re-queued and reported as
-    None (no frame), so the poll loop counts it as a failure without storing."""
-
-    def _handler(self):
-        ds = _FakeDataStream([])
-        h = _ids_handler(ds)
-        h._parent.get_pixel_format = lambda: 'Mono12g24IDS'
-        return h, ds
-
-    def test_complete_buffer_is_copied_and_requeued(self, monkeypatch):
-        from drivers import idscamera
-
-        h, ds = self._handler()
-        fake_img = MagicMock()
-        fake_img.get_numpy_1D.return_value = bytearray(b'\x01\x02\x03')
-        monkeypatch.setattr(idscamera.ids_peak_ipl_extension, 'BufferToImage', lambda buf: fake_img)
-        buf = _FakeBuffer(complete=True, pf=7, w=4, h=2)
-        frame = h._drain_buffer(buf)
-        assert buf in ds.requeued  # re-queued immediately, before any unpack
-        assert frame.packed == b'\x01\x02\x03'  # owning bytes copy
-        assert frame.pixel_format_id == 7
-        assert frame.wire_name == 'Mono12g24IDS'
-        assert (frame.width, frame.height) == (4, 2)
-
-    def test_incomplete_buffer_is_requeued_and_returns_none(self):
-        h, ds = self._handler()
-        buf = _FakeBuffer(complete=False)
-        assert h._drain_buffer(buf) is None
-        assert buf in ds.requeued  # incomplete buffers are re-queued too
-
-    def test_requeues_exactly_once_even_when_the_copy_raises(self, monkeypatch):
-        from drivers import idscamera
-
-        h, ds = self._handler()
-
-        def boom(buf):
-            raise RuntimeError('synthetic BufferToImage failure')
-
-        monkeypatch.setattr(idscamera.ids_peak_ipl_extension, 'BufferToImage', boom)
-        buf = _FakeBuffer(complete=True)
-        with pytest.raises(RuntimeError):
-            h._drain_buffer(buf)
-        # The finally re-queues once; the poll loop must not re-queue again.
-        assert ds.requeued.count(buf) == 1

@@ -330,11 +330,13 @@ class IDSCamera(Camera):
         if _cam_log is not None:
             _cam_log.info('ids start_grabbing: alloc buffers + StartAcquisition + AcquisitionStart')
         try:
-            # Allocate buffers -- minimum + 3 extra to prevent starvation during
-            # frame conversion. With only min (2-3), the camera runs out of
-            # buffers while ConvertTo holds one, capping throughput.
+            # Allocate buffers -- minimum + extra so the pool never starves while
+            # the unpack worker holds a buffer through ConvertTo. In flight at
+            # once: the worker's buffer, the newest-wins slot's buffer, and the
+            # poll thread's just-grabbed buffer; the margin keeps free buffers
+            # for the camera to fill at the (now uncapped) acquisition rate.
             payload_size = self.remote_nodemap.FindNode('PayloadSize').Value()
-            num_buffers = self.data_stream.NumBuffersAnnouncedMinRequired() + 3
+            num_buffers = self.data_stream.NumBuffersAnnouncedMinRequired() + 5
             for _ in range(num_buffers):
                 buffer = self.data_stream.AllocAndAnnounceBuffer(payload_size)
                 self.data_stream.QueueBuffer(buffer)
@@ -933,81 +935,84 @@ def _exc_is(exc: Exception, type_name: str, *substrings: str) -> bool:
     return any(s in message for s in substrings)
 
 
-class _PackedFrame:
-    """An owning copy of one grabbed buffer's packed wire bytes plus the
-    metadata needed to unpack it later, off the poll thread. Decoupling the
-    pixels from the SDK buffer is what lets the poll thread re-queue the buffer
-    immediately -- before the expensive unpack runs -- so the buffer pool can
-    never starve while the converter is busy."""
+class _LatestBufferSlot:
+    """Newest-wins handoff of finished SDK buffers from the poll thread to the
+    unpack worker. A put() that lands on an unconsumed buffer displaces the
+    older one and re-queues it immediately (returns it to the pool unread), so
+    the converter -- the host's throughput bottleneck -- only ever unpacks the
+    freshest buffer, and no displaced buffer is stranded out of the pool. The
+    live display path is itself newest-wins (it polls the latest stored frame),
+    so dropping intermediate live frames changes nothing a consumer can observe;
+    protocol capture runs on the separate grab_new_capture() path.
 
-    __slots__ = ('height', 'packed', 'pixel_format_id', 'ts', 'width', 'wire_name')
-
-    def __init__(self, packed, pixel_format_id, wire_name, width, height, ts):
-        self.packed = packed
-        self.pixel_format_id = pixel_format_id
-        self.wire_name = wire_name
-        self.width = width
-        self.height = height
-        self.ts = ts
-
-
-class _LatestFrameSlot:
-    """Single-slot, newest-wins handoff from the poll thread to the unpack
-    worker. A put() that lands on an unconsumed frame drops the older one (and
-    counts it in `dropped`), so the worker only ever unpacks the freshest frame
-    -- the host never spends the converter, its throughput bottleneck, on a
-    frame already superseded on screen. The live display path is itself
-    newest-wins (it polls the latest stored frame), so dropping intermediate
-    live frames changes nothing a consumer can observe; protocol capture runs on
-    the separate grab_new_capture() path and is unaffected.
-
-    get() blocks until a frame arrives or the slot is stopped, draining any
-    pending frame before it reports the stop sentinel.
+    get() blocks until a buffer arrives or the slot is stopped, draining any
+    pending buffer before it reports the stop sentinel. stop() re-queues a
+    still-held buffer so teardown leaks nothing.
     """
 
     _STOP = object()
 
-    def __init__(self):
+    def __init__(self, requeue):
+        # requeue(buffer): return a buffer to the SDK pool. Called for every
+        # buffer newest-wins displaces, so a dropped buffer never leaks.
+        self._requeue = requeue
         self._cond = threading.Condition()
-        self._frame = None
+        self._buffer = None
         self._stopped = False
         self.dropped = 0
 
-    def put(self, frame):
+    def put(self, buffer):
         with self._cond:
-            if self._frame is not None:
+            stale = self._buffer
+            self._buffer = buffer
+            if stale is not None:
                 self.dropped += 1
-            self._frame = frame
             self._cond.notify()
+        # Re-queue the displaced buffer OUTSIDE the lock (QueueBuffer may block).
+        if stale is not None:
+            self._requeue(stale)
 
     def get(self, timeout):
-        """Return the latest frame, None on timeout, or _STOP when stopped+empty."""
+        """Return the latest buffer, None on timeout, or _STOP when stopped+empty."""
         with self._cond:
-            if self._frame is None and not self._stopped:
+            if self._buffer is None and not self._stopped:
                 self._cond.wait(timeout)
-            if self._frame is not None:
-                frame, self._frame = self._frame, None
-                return frame
+            if self._buffer is not None:
+                buffer, self._buffer = self._buffer, None
+                return buffer
             return self._STOP if self._stopped else None
 
     def stop(self):
         with self._cond:
             self._stopped = True
+            stale = self._buffer
+            self._buffer = None
             self._cond.notify_all()
+        if stale is not None:
+            self._requeue(stale)
 
 
 class ImageHandler(ImageHandlerBase):
     """IDS image handler -- a two-stage poll/unpack pipeline.
 
-    Stage A (poll thread): WaitForFinishedBuffer, own-copy the packed wire
-    bytes, re-queue the SDK buffer immediately, and hand the copy to the slot.
-    This stage is cheap and never runs the unpack, so the buffer pool cannot
-    starve while the converter is busy.
+    Stage A (poll thread): WaitForFinishedBuffer, hand the finished SDK buffer
+    to a newest-wins slot. Cheap; it never runs the unpack, so it keeps draining
+    at the full acquisition rate.
 
-    Stage B (unpack worker): take the freshest packed frame, unpack it to a
-    right-aligned uint16 array at the sensor's native depth, and store it. A
-    single worker matches the host converter's sustained rate; newest-wins means
-    it never wastes the converter on a superseded frame.
+    Stage B (unpack worker): take the freshest buffer, unpack it in place with
+    BufferToImage + ConvertTo (the SDK's own, bench-proven conversion -- no
+    intermediate byte copy or image-from-buffer reconstruction), store the
+    result, and re-queue the buffer. A single worker matches the host
+    converter's sustained rate; newest-wins means it never spends the converter
+    on a superseded buffer.
+
+    Buffer lifecycle: every finished buffer is re-queued EXACTLY once -- the
+    worker re-queues the buffer it unpacks (success or failure, via finally), the
+    slot re-queues any buffer newest-wins displaces, and the poll loop re-queues
+    an incomplete buffer or one still in hand when stop fires. All QueueBuffer
+    calls route through _requeue under a single lock, because the poll and worker
+    threads both return buffers to the pool and the SDK does not promise
+    QueueBuffer is concurrency-safe.
     """
 
     # 10 failures x the (exposure-scaled) timeout before declaring the device
@@ -1024,7 +1029,8 @@ class ImageHandler(ImageHandlerBase):
         self.timeout_ms = 2000  # Updated by exposure_t() for long exposures
         self._parent = parent_cam
         self._stop_event = threading.Event()
-        self._slot = _LatestFrameSlot()
+        self._requeue_lock = threading.Lock()
+        self._slot = _LatestBufferSlot(self._requeue)
         self._poll_thread = None
         self._worker_thread = None
 
@@ -1032,7 +1038,7 @@ class ImageHandler(ImageHandlerBase):
         if self._poll_thread is not None:
             return
         self._stop_event.clear()
-        self._slot = _LatestFrameSlot()
+        self._slot = _LatestBufferSlot(self._requeue)
         # Clear any KillWait left pending by a previous stop() so the first
         # WaitForFinishedBuffer of this session is not aborted on arrival.
         try:
@@ -1063,7 +1069,7 @@ class ImageHandler(ImageHandlerBase):
         self._worker_thread = None
 
     def _poll_loop(self):
-        """Stage A: drain finished buffers, re-queue immediately, hand off."""
+        """Stage A: drain finished buffers and hand each to the unpack worker."""
         while not self._stop_event.is_set():
             try:
                 buffer = self.data_stream.WaitForFinishedBuffer(self.timeout_ms)
@@ -1075,26 +1081,21 @@ class ImageHandler(ImageHandlerBase):
                 continue
 
             if self._stop_event.is_set():
-                self._safe_requeue(buffer)
+                self._requeue(buffer)
                 break
 
-            packed = None
-            try:
-                # Always re-queues the buffer exactly once (its own finally),
-                # for success, incomplete, AND copy-failure -- so the poll loop
-                # must NOT re-queue here or the buffer would be queued twice.
-                packed = self._drain_buffer(buffer)
-            except Exception as e:
-                _cam_log.warning(f'[CAM Class ] IDS drain failed: {type(e).__name__}: {e!r}')
-
-            if packed is None:
+            if buffer.IsIncomplete():
+                self._log_incomplete(buffer)
+                self._requeue(buffer)
                 if self._record_failure():
                     _cam_log.error('[CAM Class ] Too many grab failures; marking device as removed')
                     self._parent._mark_disconnected()
                     break
                 continue
 
-            self._slot.put(packed)
+            # Hand the buffer to the worker. A buffer this displaces is re-queued
+            # by the slot; the worker re-queues this one once it has unpacked it.
+            self._slot.put(buffer)
 
     def _handle_wait_error(self, e: Exception) -> bool:
         """Classify a WaitForFinishedBuffer error; return True to stop the loop.
@@ -1119,86 +1120,71 @@ class ImageHandler(ImageHandlerBase):
             return True
         return False
 
-    def _safe_requeue(self, buffer):
-        try:
-            self.data_stream.QueueBuffer(buffer)
-        except Exception as e:
-            logger.debug(f'[CAM Class ] QueueBuffer on teardown ignored: {e}')
+    def _requeue(self, buffer):
+        """Return a buffer to the SDK pool, serialized across threads.
 
-    def _drain_buffer(self, buffer):
-        """Own-copy the packed bytes from a finished buffer and re-queue it.
-
-        Returns a _PackedFrame, or None if the buffer was incomplete. A single
-        finally re-queues the buffer EXACTLY ONCE on every path -- success,
-        incomplete, and copy-failure -- so the buffer is back in the pool long
-        before the converter runs on the worker, and a caller must not re-queue
-        it again. The copy is a cheap memcpy of the packed wire bytes, far
-        cheaper than the unpack.
+        Both the poll thread (incomplete + newest-wins-displaced buffers) and
+        the worker thread (unpacked buffers) return buffers, and the SDK does
+        not promise QueueBuffer is concurrency-safe, so the lock makes it so.
         """
-        try:
-            if buffer.IsIncomplete():
-                # Log every incomplete buffer with fill info. Partial-fill
-                # extent is the only signal we get for USB packet loss /
-                # bandwidth saturation; throttling loses the cause distribution.
-                try:
-                    bsize = buffer.SizeFilled() if hasattr(buffer, 'SizeFilled') else None
-                    bcap = buffer.Size() if hasattr(buffer, 'Size') else None
-                except Exception as _bintrospect:
-                    bsize, bcap = None, f'<introspect failed: {_bintrospect!r}>'
-                _cam_log.warning(
-                    f'[CAM Class ] IDS buffer.IsIncomplete()=True filled={bsize} capacity={bcap}'
-                )
-                return None
+        with self._requeue_lock:
+            try:
+                self.data_stream.QueueBuffer(buffer)
+            except Exception as e:
+                logger.debug(f'[CAM Class ] QueueBuffer ignored: {e}')
 
-            wire = self._parent.get_pixel_format()
-            pixel_format_id = buffer.PixelFormat()
-            width = buffer.Width()
-            height = buffer.Height()
-            # BufferToImage aliases the locked buffer; bytes() forces an owning
-            # copy of the packed wire payload so the buffer can be re-queued
-            # without the copy aliasing memory the SDK is about to refill.
-            img = ids_peak_ipl_extension.BufferToImage(buffer)
-            packed = bytes(img.get_numpy_1D())
-            ts = datetime.datetime.now()
-            return _PackedFrame(packed, pixel_format_id, wire, width, height, ts)
-        finally:
-            self.data_stream.QueueBuffer(buffer)
+    def _log_incomplete(self, buffer):
+        # Log every incomplete buffer with fill info. Partial-fill extent is the
+        # only signal we get for USB packet loss / bandwidth saturation;
+        # throttling loses the cause distribution.
+        try:
+            bsize = buffer.SizeFilled() if hasattr(buffer, 'SizeFilled') else None
+            bcap = buffer.Size() if hasattr(buffer, 'Size') else None
+        except Exception as _bintrospect:
+            bsize, bcap = None, f'<introspect failed: {_bintrospect!r}>'
+        _cam_log.warning(
+            f'[CAM Class ] IDS buffer.IsIncomplete()=True filled={bsize} capacity={bcap}'
+        )
 
     def _worker_loop(self):
-        """Stage B: unpack the freshest packed frame and store it."""
+        """Stage B: unpack the freshest buffer, store it, and re-queue it."""
         while True:
-            frame = self._slot.get(self._WORKER_POLL_S)
-            if frame is _LatestFrameSlot._STOP:
+            buffer = self._slot.get(self._WORKER_POLL_S)
+            if buffer is _LatestBufferSlot._STOP:
                 return
-            if frame is None:  # idle poll, no frame waiting
+            if buffer is None:  # idle poll, no buffer waiting
                 if self._stop_event.is_set():
                     return
                 continue
             try:
-                array, significant_bits = self._unpack(frame)
+                array, significant_bits = self._unpack(buffer)
+                # Stamp the frame with the depth it was captured under so depth
+                # and pixels stay paired across a later format switch.
+                self._store_frame(array, datetime.datetime.now(), significant_bits=significant_bits)
             except Exception as e:
-                # One bad frame must not kill the worker; the next frame stores
+                # One bad frame must not kill the worker; the next stores
                 # normally. Log so the cause stays visible without throttling.
                 _cam_log.warning(f'[CAM Class ] IDS unpack failed: {type(e).__name__}: {e!r}')
-                continue
-            # Stamp the frame with the depth it was captured under so depth and
-            # pixels stay paired across a later format switch.
-            self._store_frame(array, frame.ts, significant_bits=significant_bits)
+            finally:
+                # Re-queue exactly once, whether the unpack succeeded or threw --
+                # ConvertTo has already copied the pixels out, so the SDK may
+                # refill this buffer now.
+                self._requeue(buffer)
 
-    def _unpack(self, frame: _PackedFrame):
-        """Unpack one packed frame to a right-aligned uint16 array + its depth.
+    def _unpack(self, buffer):
+        """Unpack one finished buffer to a right-aligned uint16 array + its depth.
 
-        Rebuilds an IPL image from the owning byte copy (the SDK buffer is long
-        gone) and lets ConvertTo do the unpack -- the same conversion the inline
-        path used, now off the poll thread. ids_unpack.py is the bench
-        cross-check for the result. Worker-thread-only.
+        Uses the SDK's own BufferToImage + ConvertTo -- the exact conversion the
+        original inline grab loop ran and the bench validated -- so there is no
+        intermediate byte copy or image-from-buffer reconstruction to get wrong.
+        ConvertTo produces an independent copy, so the buffer is safe to re-queue
+        once this returns. ids_unpack.py is the bench cross-check. Worker-only.
         """
-        target = _ids_ipl_target(frame.wire_name)
-        img = ids_peak_ipl.Image.CreateFromSizeAndPythonBuffer(
-            frame.pixel_format_id, frame.packed, frame.width, frame.height
-        )
+        wire = self._parent.get_pixel_format()
+        target = _ids_ipl_target(wire)
+        img = ids_peak_ipl_extension.BufferToImage(buffer)
         if img.PixelFormat() != target:
             img = img.ConvertTo(target)
         # get_numpy() is a view onto the converted image; copy before it leaves.
         array = img.get_numpy().copy()
-        return array, ids_significant_bits(frame.wire_name)
+        return array, ids_significant_bits(wire)
