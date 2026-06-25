@@ -199,6 +199,45 @@ def test_target_step_boundary_across_move_is_opt_in():
     )
 
 
+def test_target_step_boundary_scan_boundary_forces_off():
+    # A scan boundary goes dark even when the hold flags would otherwise hold
+    # (z-stack or same-color opt-in): the sample must not stay lit between scans.
+    assert (
+        _td(
+            LedTransition.STEP_BOUNDARY,
+            channel=GREEN_CH,
+            mA=GREEN_MA,
+            same_zstack_group=True,
+            same_color=True,
+            keep_led_across_moves=True,
+            is_scan_boundary=True,
+        )
+        == frozenset()
+    )
+
+
+def test_target_step_boundary_restore_hold_keeps_lit():
+    # Final step whose channel run-end will re-light: hold, so the boundary off
+    # plus run-end on do not blink. Holds even with no inter-step hold flag set.
+    assert _td(
+        LedTransition.STEP_BOUNDARY,
+        channel=GREEN_CH,
+        mA=GREEN_MA,
+        restore_hold=True,
+    ) == frozenset({(GREEN_CH, GREEN_MA)})
+    # A scan boundary still wins over restore_hold (dark beats hold for safety).
+    assert (
+        _td(
+            LedTransition.STEP_BOUNDARY,
+            channel=GREEN_CH,
+            mA=GREEN_MA,
+            restore_hold=True,
+            is_scan_boundary=True,
+        )
+        == frozenset()
+    )
+
+
 def test_target_run_end_policy():
     assert _td(LedTransition.RUN_END, end_policy=LedEndPolicy.OFF) == frozenset()
     assert (

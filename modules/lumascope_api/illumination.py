@@ -98,6 +98,13 @@ class LedTransitionCtx:
             instead of restoring the pre-autofocus state.
         preview_on: Manual-nav preview is enabled, so stepping lights the step
             channel.
+        is_scan_boundary: This boundary crosses into the inter-scan idle (the
+            last step of a non-final scan). The LED goes dark across it
+            regardless of the hold flags, so the sample is not lit during the
+            wait between scans.
+        restore_hold: This is the final step of the run and the run-end policy
+            will re-light this same channel. Hold it lit so the boundary off
+            plus run-end on do not produce a visible end-of-acquire flicker.
         end_policy: The run's end-state when the run finishes.
         snapshot_lit: The (channel, mA) pairs lit at the moment a snapshot was
             taken -- the pre-run / pre-autofocus live state to restore.
@@ -110,6 +117,8 @@ class LedTransitionCtx:
     keep_led_across_moves: bool = False
     keep_led_on: bool = False
     preview_on: bool = False
+    is_scan_boundary: bool = False
+    restore_hold: bool = False
     end_policy: LedEndPolicy = LedEndPolicy.OFF
     snapshot_lit: frozenset[tuple[int, float]] = frozenset()
 
@@ -201,9 +210,17 @@ class LedLease:
         if transition is LedTransition.AF_TO_CAPTURE:
             return primary if ctx.keep_led_on else ctx.snapshot_lit
         if transition is LedTransition.STEP_BOUNDARY:
-            # Hold within a z-stack group always; hold across a stage move only
-            # for a same-color step when the opt-in is on. Otherwise extinguish,
-            # so the default behavior never leaves a channel lit across a move.
+            # A scan boundary always goes dark -- the sample must not stay lit
+            # through the inter-scan idle, whatever the hold flags say.
+            if ctx.is_scan_boundary:
+                return frozenset()
+            # Final step whose channel the run-end policy is about to re-light:
+            # hold, so the boundary off plus run-end on do not blink the sample.
+            if ctx.restore_hold:
+                return primary
+            # Otherwise hold within a z-stack group always, and hold across a
+            # stage move only for a same-color step when the opt-in is on. Else
+            # extinguish, so the default never leaves a channel lit across a move.
             hold = ctx.same_zstack_group or (ctx.same_color and ctx.keep_led_across_moves)
             return primary if hold else frozenset()
         if transition is LedTransition.RUN_END:

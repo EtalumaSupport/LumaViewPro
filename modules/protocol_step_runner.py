@@ -21,12 +21,12 @@ from typing import TYPE_CHECKING
 from lvp_logger import logger
 
 import modules.config_helpers as config_helpers
+from modules.lumascope_api.illumination import LedLease, LedTransition, LedTransitionCtx
 from modules.protocol_state_machine import ProtocolState
 from modules.sequential_io_executor import IOTask
 from modules.settings_init import settings
 
 if TYPE_CHECKING:
-    from modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
     from modules.sequenced_capture_runner import SequencedCaptureRunner
 
 from modules.kivy_utils import schedule_ui as _schedule_ui
@@ -309,38 +309,63 @@ class ProtocolStepRunner:
 
                 # Video encoding runs on FILE_WORKER after capture -- no gate needed
 
-                # Keep the LED on between consecutive same-channel steps in
-                # two cases. (1) Always within one z-stack: slices of the same
-                # Z-Stack Group are a single acquisition, so cycling the LED
-                # between Z moves would blink the sample on every slice.
-                # (2) Between distinct same-channel steps only when the opt-in
-                # speed optimization is enabled (default off) -- otherwise the
-                # LED extinguishes between steps. On non-final scans the last
-                # step always evaluates _keep_led=False so the inter-scan
-                # period runs with LEDs off (sample safety).
-                _keep_led = False
+                # Whether to hold this channel lit across the step boundary is
+                # the LED authority's STEP_BOUNDARY decision. The caller reads
+                # the protocol and precomputes primitives; the authority owns
+                # the policy (hold within a z-stack group, hold across a
+                # same-color move only on the opt-in, go dark across a scan
+                # boundary, hold on the final step when run-end will re-light
+                # this same channel). _keep_led is then just "is the target
+                # non-empty"; the capture leaf reuses it to skip its end-of-step
+                # off when the channel is held.
                 num_steps = p._protocol.num_steps()
+                same_color = False
+                same_zstack_group = False
+                is_scan_boundary = False
+                restore_hold = False
                 if p._curr_step < num_steps - 1:
                     next_step = p._protocol.step(idx=p._curr_step + 1)
-                    if next_step['Color'] == step['Color']:
-                        same_zstack = (
-                            step['Z-Stack Group ID'] != -1
-                            and next_step['Z-Stack Group ID'] == step['Z-Stack Group ID']
-                        )
-                        if same_zstack or p._keep_led_between_steps:
-                            _keep_led = True
-                elif p.remaining_scans() <= 1 and p._leds_state_at_end == 'return_to_original':
-                    # Final step of the final scan: if cleanup is about to
-                    # re-light this same channel (it was lit before the run),
-                    # turning it off here produces a visible off->on blink a
-                    # few ms later -- the end-of-acquire flicker on a
-                    # live-view-lit z-stack. Hold it; cleanup's restore
-                    # adjusts the current without a dark gap and turns off
-                    # anything that should not stay lit.
+                    same_color = next_step['Color'] == step['Color']
+                    # A z-stack group is one channel acquired across z slices, so
+                    # group membership already implies the same color.
+                    same_zstack_group = (
+                        same_color
+                        and step['Z-Stack Group ID'] != -1
+                        and next_step['Z-Stack Group ID'] == step['Z-Stack Group ID']
+                    )
+                elif p.remaining_scans() <= 1:
+                    # Final step of the final scan -- the run-end boundary. Hold
+                    # only if run-end will re-light this same channel (it was lit
+                    # before the run and the end policy restores it); else the
+                    # off here plus the restore a few ms later is a visible
+                    # end-of-acquire flicker on a live-view-lit z-stack.
                     _orig = getattr(p, '_original_led_states', None) or {}
                     _orig_channel = _orig.get(step['Color'])
-                    if _orig_channel and _orig_channel.get('enabled'):
-                        _keep_led = True
+                    restore_hold = p._leds_state_at_end == 'return_to_original' and bool(
+                        _orig_channel and _orig_channel.get('enabled')
+                    )
+                else:
+                    # Last step of a non-final scan: the inter-scan idle runs dark.
+                    is_scan_boundary = True
+                # _keep_led is just "did the policy decide to hold." An unmapped
+                # channel (color2ch returns None when no LED board is present)
+                # makes the target empty and _keep_led False, but that is moot:
+                # with no board the capture leaf's end-of-step off is a no-op,
+                # so there is nothing to keep lit anyway.
+                _keep_led = bool(
+                    LedLease.target_leds(
+                        LedTransition.STEP_BOUNDARY,
+                        LedTransitionCtx(
+                            channel=p._scope.illumination.color2ch(step['Color']),
+                            mA=step['Illumination'],
+                            same_color=same_color,
+                            same_zstack_group=same_zstack_group,
+                            keep_led_across_moves=p._keep_led_between_steps,
+                            is_scan_boundary=is_scan_boundary,
+                            restore_hold=restore_hold,
+                        ),
+                    )
+                )
 
                 _t_capture_start = time.monotonic()
                 p._image_writer.capture(
