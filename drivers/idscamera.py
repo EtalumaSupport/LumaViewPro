@@ -498,7 +498,10 @@ class IDSCamera(Camera):
         resolved = self._resolve_logical_format(pixel_format)
         if resolved is None:
             supported = self.get_supported_pixel_formats()
-            _cam_log.error(
+            # Caller-correctable (returns False; callers fall back to a
+            # supported format), so WARNING not ERROR -- e.g. an 8-bit image
+            # mode asks for Mono8 on the IMX676, which exposes only Mono10/12.
+            _cam_log.warning(
                 f'[CAM Class ] Unsupported pixel format: {pixel_format} '
                 f'(camera supports: {list(supported)})'
             )

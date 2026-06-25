@@ -1089,9 +1089,12 @@ class PylonCamera(Camera):
             return True
 
         except genicam.RuntimeException as ex:
-            _cam_log.error(
-                '[CAM Class ] Pylon camera connect failed (may be open in another '
-                f'application): {ex}'
+            # Expected when no Basler is present (e.g. the registry probing
+            # Pylon on an IDS-only bench) or the device is busy -- the registry
+            # recovers by trying the next driver, so WARNING not ERROR.
+            _cam_log.warning(
+                '[CAM Class ] Pylon camera connect failed (no device, or open in '
+                f'another application): {ex}'
             )
             self.active = None
             self._stop_image_grab_worker()
