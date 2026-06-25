@@ -11,9 +11,11 @@ extension.
 
 from __future__ import annotations
 
+import enum
 import logging as _logging
 import os
 import threading
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from lib import profile_trace
@@ -44,6 +46,73 @@ def _read_fx2_wire_setting() -> bool:
 
 
 _FX2_WIRE_SETTING = _read_fx2_wire_setting()
+
+
+class LedTransition(enum.Enum):
+    """The LED-relevant moments in a run / autofocus / manual-nav lifecycle.
+
+    The LED authority decides one target illumination set per transition. Naming
+    the moments as an enum (rather than threading booleans through call sites)
+    means every decider routes through a single decision function, and a caller
+    cannot ask for a transition the authority does not handle.
+    """
+
+    RUN_START = enum.auto()
+    STEP_LIGHT = enum.auto()
+    AF_ENTER = enum.auto()
+    AF_TO_CAPTURE = enum.auto()
+    STEP_BOUNDARY = enum.auto()
+    RUN_END = enum.auto()
+    MANUAL_STEP = enum.auto()
+
+
+class LedEndPolicy(enum.Enum):
+    """What the LEDs do when a run ends: go dark, or return to the pre-run state."""
+
+    OFF = enum.auto()
+    RETURN_TO_ORIGINAL = enum.auto()
+
+
+@dataclass(frozen=True)
+class LedTransitionCtx:
+    """Primitives the LED authority needs to decide a transition's target set.
+
+    Every field is a channel number, a current, a boolean, or a set of
+    (channel, mA) pairs -- never a protocol Step. The protocol-layer caller reads
+    the Step and precomputes the booleans (same color as the next step, same
+    z-stack group, the resolved across-move setting), then calls down with this
+    context. Keeping the illumination layer free of Step parsing keeps it
+    independent of the protocol schema, and a frozen primitives-only dataclass
+    makes passing a Step dict a type error rather than a thing to remember not
+    to do.
+
+    Fields:
+        channel: The transition's primary channel (the step / AF / preview
+            color), or None when the transition lights nothing.
+        mA: The primary channel's current, paired with ``channel``.
+        same_zstack_group: This step and the next are in one z-stack group, so
+            illumination is held unconditionally across the boundary.
+        same_color: This step and the next request the same color.
+        keep_led_across_moves: The resolved opt-in that keeps a same-color
+            channel lit across a stage move (default off; brightfield speed).
+        keep_led_on: Autofocus holds its channel for the following capture
+            instead of restoring the pre-autofocus state.
+        preview_on: Manual-nav preview is enabled, so stepping lights the step
+            channel.
+        end_policy: The run's end-state when the run finishes.
+        snapshot_lit: The (channel, mA) pairs lit at the moment a snapshot was
+            taken -- the pre-run / pre-autofocus live state to restore.
+    """
+
+    channel: int | None = None
+    mA: float | None = None
+    same_zstack_group: bool = False
+    same_color: bool = False
+    keep_led_across_moves: bool = False
+    keep_led_on: bool = False
+    preview_on: bool = False
+    end_policy: LedEndPolicy = LedEndPolicy.OFF
+    snapshot_lit: frozenset[tuple[int, float]] = frozenset()
 
 
 class LedLease:
@@ -100,6 +169,119 @@ class LedLease:
 
     def __exit__(self, *exc: object) -> None:
         self.release()
+
+    @staticmethod
+    def target_leds(
+        transition: LedTransition, ctx: LedTransitionCtx
+    ) -> frozenset[tuple[int, float]]:
+        """The single LED decision: which channels should be lit after a transition.
+
+        Pure function of the transition and its context -- it reads no hardware
+        and holds no state, so the policy is testable in isolation and identical
+        for every caller. An empty set means "all channels dark."
+
+        Args:
+            transition: The lifecycle moment being decided.
+            ctx: The precomputed primitives for this transition.
+
+        Returns:
+            The set of (channel, mA) pairs that should be lit afterward.
+
+        Raises:
+            ValueError: If the transition is not one the authority handles.
+        """
+        primary: frozenset[tuple[int, float]] = (
+            frozenset({(ctx.channel, ctx.mA)})
+            if ctx.channel is not None and ctx.mA is not None
+            else frozenset()
+        )
+        if transition is LedTransition.RUN_START:
+            return ctx.snapshot_lit
+        if transition is LedTransition.STEP_LIGHT:
+            return primary
+        if transition is LedTransition.AF_ENTER:
+            return primary
+        if transition is LedTransition.AF_TO_CAPTURE:
+            return primary if ctx.keep_led_on else ctx.snapshot_lit
+        if transition is LedTransition.STEP_BOUNDARY:
+            # Hold within a z-stack group always; hold across a stage move only
+            # for a same-color step when the opt-in is on. Otherwise extinguish,
+            # so the default behavior never leaves a channel lit across a move.
+            hold = ctx.same_zstack_group or (ctx.same_color and ctx.keep_led_across_moves)
+            return primary if hold else frozenset()
+        if transition is LedTransition.RUN_END:
+            return (
+                ctx.snapshot_lit
+                if ctx.end_policy is LedEndPolicy.RETURN_TO_ORIGINAL
+                else frozenset()
+            )
+        if transition is LedTransition.MANUAL_STEP:
+            return primary if ctx.preview_on else frozenset()
+        raise ValueError(f'unhandled LED transition: {transition!r}')
+
+    def apply(self, transition: LedTransition, ctx: LedTransitionCtx) -> None:
+        """Drive the LEDs to the transition's target set.
+
+        For every transition except the run start, this diffs the target against
+        the cached state and emits only the channels that changed -- a channel
+        already at its target is left untouched, so re-asserting a correct state
+        produces no off-then-on blink. The run start instead forces a known
+        baseline first, because the cache cannot be trusted at that point (see
+        ``_reconcile_to``).
+        """
+        if not self.held:
+            # A released lease must not still drive the LEDs. By the time a
+            # queued transition runs the run may be over, or a new run may hold
+            # the lease under the same owner name; acting now would light or
+            # extinguish a channel out of turn. Refuse loudly rather than write.
+            _api_log.warning(
+                'LED transition %s ignored: lease %r already released',
+                transition.name,
+                self.owner_name,
+            )
+            return
+        target = self.target_leds(transition, ctx)
+        if transition is LedTransition.RUN_START:
+            self._reconcile_to(target)
+        else:
+            self._emit_diff(target)
+
+    def _emit_diff(self, target: frozenset[tuple[int, float]]) -> None:
+        """Turn off lit channels not in the target, then assert the target.
+
+        The single diff-and-emit every transition drives through. Trusts the
+        state cache to skip already-correct channels: led_on self-skips a channel
+        already at its current and led_off self-skips a dark one, so re-asserting
+        a correct target emits nothing (no off-then-on blink). The off uses an
+        empty owner so it clears the channel regardless of who lit it, but checks
+        the lease as this owner so it is permitted while this lease is held. The
+        legacy single-channel (leds_exclusive) and restore (restore_led_state)
+        primitives are this same diff specialized; they fold into this one once
+        their callers move onto the authority.
+        """
+        api = self._api
+        target_channels = {ch for ch, _ in target}
+        for color in api.led_states:
+            ch = api.color2ch(color)
+            if ch is not None and ch not in target_channels:
+                api.led_off(channel=ch, _lease_owner=self.owner_name)
+        for ch, mA in target:
+            api.led_on(channel=ch, mA=mA, owner=self.owner_name)
+
+    def _reconcile_to(self, target: frozenset[tuple[int, float]]) -> None:
+        """Force the hardware and cache to the target from a known-off baseline.
+
+        Unlike ``_emit_diff`` this does not trust the cache to skip channels: a
+        prior stimulation pulse or live session can leave the cache claiming a
+        channel is lit that is actually dark (or the reverse), so a plain diff at
+        run start could emit nothing for a channel that needs changing. Clearing
+        every channel first, then asserting the target, makes the cache truthful
+        regardless of what left it stale -- the run begins from a known state.
+        """
+        api = self._api
+        api.leds_off()
+        for ch, mA in target:
+            api.led_on(channel=ch, mA=mA, owner=self.owner_name)
 
 
 class IlluminationAPI:
