@@ -884,95 +884,289 @@ class IDSCamera(Camera):
         pass
 
 
-class ImageHandler(ImageHandlerBase):
-    """IDS camera image handler -- polls for frames on a background thread."""
+def _exc_is(exc: Exception, type_name: str, *substrings: str) -> bool:
+    """True when `exc` is the named ids_peak exception type (if this SDK build
+    exposes it) or, for builds that don't, its message matches any substring.
 
-    # Override base class: 10 failures x 1s timeout = ~10s disconnect detection
+    Typed-first so an intentional teardown abort or a host stall is recognized
+    by class, not by message text alone; the substring fallback keeps the
+    classification working where the typed name is absent. When ids_peak is the
+    test MagicMock the attribute is not a real type, so only the substring path
+    runs -- which is what the unit tests exercise.
+    """
+    typ = getattr(ids_peak, type_name, None)
+    if isinstance(typ, type) and isinstance(exc, typ):
+        return True
+    message = str(exc).lower()
+    return any(s in message for s in substrings)
+
+
+class _PackedFrame:
+    """An owning copy of one grabbed buffer's packed wire bytes plus the
+    metadata needed to unpack it later, off the poll thread. Decoupling the
+    pixels from the SDK buffer is what lets the poll thread re-queue the buffer
+    immediately -- before the expensive unpack runs -- so the buffer pool can
+    never starve while the converter is busy."""
+
+    __slots__ = ('height', 'packed', 'pixel_format_id', 'ts', 'width', 'wire_name')
+
+    def __init__(self, packed, pixel_format_id, wire_name, width, height, ts):
+        self.packed = packed
+        self.pixel_format_id = pixel_format_id
+        self.wire_name = wire_name
+        self.width = width
+        self.height = height
+        self.ts = ts
+
+
+class _LatestFrameSlot:
+    """Single-slot, newest-wins handoff from the poll thread to the unpack
+    worker. A put() that lands on an unconsumed frame drops the older one (and
+    counts it in `dropped`), so the worker only ever unpacks the freshest frame
+    -- the host never spends the converter, its throughput bottleneck, on a
+    frame already superseded on screen. The live display path is itself
+    newest-wins (it polls the latest stored frame), so dropping intermediate
+    live frames changes nothing a consumer can observe; protocol capture runs on
+    the separate grab_new_capture() path and is unaffected.
+
+    get() blocks until a frame arrives or the slot is stopped, draining any
+    pending frame before it reports the stop sentinel.
+    """
+
+    _STOP = object()
+
+    def __init__(self):
+        self._cond = threading.Condition()
+        self._frame = None
+        self._stopped = False
+        self.dropped = 0
+
+    def put(self, frame):
+        with self._cond:
+            if self._frame is not None:
+                self.dropped += 1
+            self._frame = frame
+            self._cond.notify()
+
+    def get(self, timeout):
+        """Return the latest frame, None on timeout, or _STOP when stopped+empty."""
+        with self._cond:
+            if self._frame is None and not self._stopped:
+                self._cond.wait(timeout)
+            if self._frame is not None:
+                frame, self._frame = self._frame, None
+                return frame
+            return self._STOP if self._stopped else None
+
+    def stop(self):
+        with self._cond:
+            self._stopped = True
+            self._cond.notify_all()
+
+
+class ImageHandler(ImageHandlerBase):
+    """IDS image handler -- a two-stage poll/unpack pipeline.
+
+    Stage A (poll thread): WaitForFinishedBuffer, own-copy the packed wire
+    bytes, re-queue the SDK buffer immediately, and hand the copy to the slot.
+    This stage is cheap and never runs the unpack, so the buffer pool cannot
+    starve while the converter is busy.
+
+    Stage B (unpack worker): take the freshest packed frame, unpack it to a
+    right-aligned uint16 array at the sensor's native depth, and store it. A
+    single worker matches the host converter's sustained rate; newest-wins means
+    it never wastes the converter on a superseded frame.
+    """
+
+    # 10 failures x the (exposure-scaled) timeout before declaring the device
+    # gone -- preserves the prior disconnect-detection threshold.
     MAX_CONSECUTIVE_FAILURES = 10
+
+    # The worker wakes at least this often to re-check the stop request even
+    # when no frames are arriving (a stalled stream must still shut down).
+    _WORKER_POLL_S = 0.5
 
     def __init__(self, data_stream: ids_peak.DataStream, parent_cam: 'IDSCamera'):
         super().__init__()
         self.data_stream = data_stream
         self.timeout_ms = 2000  # Updated by exposure_t() for long exposures
         self._parent = parent_cam
-        self._grab_thread = None
         self._stop_event = threading.Event()
+        self._slot = _LatestFrameSlot()
+        self._poll_thread = None
+        self._worker_thread = None
 
     def start(self):
-        if self._grab_thread is None:
-            self._grab_thread = threading.Thread(target=self._grab_loop, daemon=True)
-            self._stop_event.clear()
-            self._grab_thread.start()
+        if self._poll_thread is not None:
+            return
+        self._stop_event.clear()
+        self._slot = _LatestFrameSlot()
+        # Clear any KillWait left pending by a previous stop() so the first
+        # WaitForFinishedBuffer of this session is not aborted on arrival.
+        try:
+            self.data_stream.FlushPendingKillWaits()
+        except Exception as e:
+            logger.debug(f'[CAM Class ] FlushPendingKillWaits unavailable: {e}')
+        self._worker_thread = threading.Thread(
+            target=self._worker_loop, name='IDSUnpackWorker', daemon=True
+        )
+        self._poll_thread = threading.Thread(target=self._poll_loop, name='IDSPoll', daemon=True)
+        self._worker_thread.start()
+        self._poll_thread.start()
 
     def stop(self):
-        if self._grab_thread is not None:
-            self._stop_event.set()
-            self._grab_thread.join(timeout=5)
-            self._grab_thread = None
+        self._stop_event.set()
+        self._slot.stop()
+        # Unblock a poll thread parked in WaitForFinishedBuffer so the join
+        # returns promptly instead of waiting out the (exposure-scaled) timeout.
+        # A long-exposure shutdown would otherwise hang for that whole window.
+        try:
+            self.data_stream.KillWait()
+        except Exception as e:
+            logger.debug(f'[CAM Class ] KillWait unavailable: {e}')
+        for thread in (self._poll_thread, self._worker_thread):
+            if thread is not None:
+                thread.join(timeout=5)
+        self._poll_thread = None
+        self._worker_thread = None
 
-    def _grab_loop(self):
+    def _poll_loop(self):
+        """Stage A: drain finished buffers, re-queue immediately, hand off."""
         while not self._stop_event.is_set():
             try:
                 buffer = self.data_stream.WaitForFinishedBuffer(self.timeout_ms)
-                if buffer.IsIncomplete():
-                    # Log every incomplete buffer with fill info. Partial-fill
-                    # extent is the only signal we get for USB packet loss /
-                    # bandwidth saturation; throttling loses the cause
-                    # distribution.
-                    try:
-                        bsize = buffer.SizeFilled() if hasattr(buffer, 'SizeFilled') else None
-                        bcap = buffer.Size() if hasattr(buffer, 'Size') else None
-                    except Exception as _bintrospect:
-                        bsize, bcap = None, f'<introspect failed: {_bintrospect!r}>'
-                    _cam_log.warning(
-                        f'[CAM Class ] IDS buffer.IsIncomplete()=True '
-                        f'filled={bsize} capacity={bcap}'
-                    )
-                    self.data_stream.QueueBuffer(buffer)
-                    should_stop = self._record_failure()
-                    if should_stop:
-                        _cam_log.error(
-                            '[CAM Class ] Too many grab failures; marking device as removed'
-                        )
-                        self._parent._mark_disconnected()
-                        break
-                    continue
-
-                # Unpack to the sensor's native depth (uint16 for Mono10/Mono12),
-                # NOT Mono8 -- the old target discarded the native depth. The SDK
-                # does the unpack via ConvertTo; ids_unpack.py is the bench
-                # cross-check for the result.
-                wire = self._parent.get_pixel_format()
-                target = _ids_ipl_target(wire)
-                img = ids_peak_ipl_extension.BufferToImage(buffer)
-                if img.PixelFormat() != target:
-                    img = img.ConvertTo(target)
-                # ConvertTo produced an independent copy; copy the numpy view and
-                # THEN re-queue, so the SDK cannot refill the buffer while the
-                # array still aliases it (the old code queued before the copy).
-                frame = img.get_numpy().copy()
-                ts = datetime.datetime.now()
-                self.data_stream.QueueBuffer(buffer)
-                # Stamp the frame with the depth it was captured under so depth
-                # and pixels stay paired across a later format switch.
-                self._store_frame(frame, ts, significant_bits=ids_significant_bits(wire))
             except Exception as e:
-                err_str = str(e).lower()
-                if 'abort' in err_str or 'removed' in err_str or 'device' in err_str:
-                    _cam_log.warning(f'[CAM Class ] Device removal detected in grab loop: {e}')
+                if self._stop_event.is_set():
+                    break
+                if self._handle_wait_error(e):
+                    break
+                continue
+
+            if self._stop_event.is_set():
+                self._safe_requeue(buffer)
+                break
+
+            packed = None
+            try:
+                # Always re-queues the buffer exactly once (its own finally),
+                # for success, incomplete, AND copy-failure -- so the poll loop
+                # must NOT re-queue here or the buffer would be queued twice.
+                packed = self._drain_buffer(buffer)
+            except Exception as e:
+                _cam_log.warning(f'[CAM Class ] IDS drain failed: {type(e).__name__}: {e!r}')
+
+            if packed is None:
+                if self._record_failure():
+                    _cam_log.error('[CAM Class ] Too many grab failures; marking device as removed')
                     self._parent._mark_disconnected()
                     break
-                # Log every grab-loop exception. Type + message may vary
-                # between failures (timeout vs malformed buffer vs SDK-internal
-                # fault); throttling loses the distribution. !r on `e` so
-                # any non-ASCII in the SDK message is escaped at format time.
+                continue
+
+            self._slot.put(packed)
+
+    def _handle_wait_error(self, e: Exception) -> bool:
+        """Classify a WaitForFinishedBuffer error; return True to stop the loop.
+
+        An AbortedException is our own KillWait at teardown -- a clean stop, not
+        a fault. A device-lost signal marks the camera removed. Anything else
+        (timeout, transient SDK fault) counts toward the disconnect threshold.
+        """
+        if _exc_is(e, 'AbortedException', 'abort'):
+            return True
+        if _exc_is(e, 'DeviceLostException', 'removed', 'device'):
+            _cam_log.warning(f'[CAM Class ] Device removal detected in grab loop: {e}')
+            self._parent._mark_disconnected()
+            return True
+        # Log every wait error. Type + message vary (timeout vs malformed buffer
+        # vs SDK-internal fault); throttling loses the cause distribution. !r so
+        # any non-ASCII in the SDK message is escaped at format time.
+        _cam_log.warning(f'[CAM Class ] ImageHandler poll exception: {type(e).__name__}: {e!r}')
+        if self._record_failure():
+            _cam_log.error('[CAM Class ] Too many grab exceptions; marking device as removed')
+            self._parent._mark_disconnected()
+            return True
+        return False
+
+    def _safe_requeue(self, buffer):
+        try:
+            self.data_stream.QueueBuffer(buffer)
+        except Exception as e:
+            logger.debug(f'[CAM Class ] QueueBuffer on teardown ignored: {e}')
+
+    def _drain_buffer(self, buffer):
+        """Own-copy the packed bytes from a finished buffer and re-queue it.
+
+        Returns a _PackedFrame, or None if the buffer was incomplete. A single
+        finally re-queues the buffer EXACTLY ONCE on every path -- success,
+        incomplete, and copy-failure -- so the buffer is back in the pool long
+        before the converter runs on the worker, and a caller must not re-queue
+        it again. The copy is a cheap memcpy of the packed wire bytes, far
+        cheaper than the unpack.
+        """
+        try:
+            if buffer.IsIncomplete():
+                # Log every incomplete buffer with fill info. Partial-fill
+                # extent is the only signal we get for USB packet loss /
+                # bandwidth saturation; throttling loses the cause distribution.
+                try:
+                    bsize = buffer.SizeFilled() if hasattr(buffer, 'SizeFilled') else None
+                    bcap = buffer.Size() if hasattr(buffer, 'Size') else None
+                except Exception as _bintrospect:
+                    bsize, bcap = None, f'<introspect failed: {_bintrospect!r}>'
                 _cam_log.warning(
-                    f'[CAM Class ] ImageHandler grab loop exception: {type(e).__name__}: {e!r}'
+                    f'[CAM Class ] IDS buffer.IsIncomplete()=True filled={bsize} capacity={bcap}'
                 )
-                should_stop = self._record_failure()
-                if should_stop:
-                    _cam_log.error(
-                        '[CAM Class ] Too many grab exceptions; marking device as removed'
-                    )
-                    self._parent._mark_disconnected()
-                    break
+                return None
+
+            wire = self._parent.get_pixel_format()
+            pixel_format_id = buffer.PixelFormat()
+            width = buffer.Width()
+            height = buffer.Height()
+            # BufferToImage aliases the locked buffer; bytes() forces an owning
+            # copy of the packed wire payload so the buffer can be re-queued
+            # without the copy aliasing memory the SDK is about to refill.
+            img = ids_peak_ipl_extension.BufferToImage(buffer)
+            packed = bytes(img.get_numpy_1D())
+            ts = datetime.datetime.now()
+            return _PackedFrame(packed, pixel_format_id, wire, width, height, ts)
+        finally:
+            self.data_stream.QueueBuffer(buffer)
+
+    def _worker_loop(self):
+        """Stage B: unpack the freshest packed frame and store it."""
+        while True:
+            frame = self._slot.get(self._WORKER_POLL_S)
+            if frame is _LatestFrameSlot._STOP:
+                return
+            if frame is None:  # idle poll, no frame waiting
+                if self._stop_event.is_set():
+                    return
+                continue
+            try:
+                array, significant_bits = self._unpack(frame)
+            except Exception as e:
+                # One bad frame must not kill the worker; the next frame stores
+                # normally. Log so the cause stays visible without throttling.
+                _cam_log.warning(f'[CAM Class ] IDS unpack failed: {type(e).__name__}: {e!r}')
+                continue
+            # Stamp the frame with the depth it was captured under so depth and
+            # pixels stay paired across a later format switch.
+            self._store_frame(array, frame.ts, significant_bits=significant_bits)
+
+    def _unpack(self, frame: _PackedFrame):
+        """Unpack one packed frame to a right-aligned uint16 array + its depth.
+
+        Rebuilds an IPL image from the owning byte copy (the SDK buffer is long
+        gone) and lets ConvertTo do the unpack -- the same conversion the inline
+        path used, now off the poll thread. ids_unpack.py is the bench
+        cross-check for the result. Worker-thread-only.
+        """
+        target = _ids_ipl_target(frame.wire_name)
+        img = ids_peak_ipl.Image.CreateFromSizeAndPythonBuffer(
+            frame.pixel_format_id, frame.packed, frame.width, frame.height
+        )
+        if img.PixelFormat() != target:
+            img = img.ConvertTo(target)
+        # get_numpy() is a view onto the converted image; copy before it leaves.
+        array = img.get_numpy().copy()
+        return array, ids_significant_bits(frame.wire_name)
