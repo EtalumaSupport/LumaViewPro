@@ -235,7 +235,13 @@ class MotorConfig:
     # --- Image center offset ---
 
     def image_center_offset(self) -> tuple[int, int]:
-        """Return (X, Y) image center offset in microsteps."""
+        """Return (X, Y) optical-center offset in sensor pixels.
+
+        The collimator-measured offset of the sensor from the tube lens's
+        optical axis, taken with no objective so it is objective-independent.
+        Defaults to (0, 0) -- geometric center -- when the unit was never
+        characterized.
+        """
         section = self._config.get('ImageCenter')
         if section is None:
             return (0, 0)
