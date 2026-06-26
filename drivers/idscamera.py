@@ -510,7 +510,7 @@ class IDSCamera(Camera):
                 for e in self.remote_nodemap.FindNode('PixelFormat').AvailableEntries()
             ]
         except Exception as e:
-            logger.warning(f'[CAM Class ] benchmark: PixelFormat enum read failed: {e}')
+            _cam_log.warning(f'[CAM Class ] benchmark: PixelFormat enum read failed: {e}')
 
         # Yes/no datapoint on whether the newer IDS ICV conversion library is
         # importable on this install -- not itself a benchmark.
@@ -551,7 +551,7 @@ class IDSCamera(Camera):
                 try:
                     buffer = self.data_stream.WaitForFinishedBuffer(2000)
                 except Exception as e:
-                    logger.warning(f'[CAM Class ] benchmark: WaitForFinishedBuffer: {e}')
+                    _cam_log.warning(f'[CAM Class ] benchmark: WaitForFinishedBuffer: {e}')
                     continue
                 try:
                     if buffer.IsIncomplete():
