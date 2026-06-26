@@ -956,6 +956,10 @@ class MicroscopeSettings(BoxLayout):
         # changes read a fixed value and round-trip exactly.
         native = self._native_roi()
         self._store_native_roi(native)
+        # Floor to the active driver's DELIVERABLE granularity: get_pixel_alignment
+        # reports the camera grid for floor-only drivers (Pylon/FX2/sim) and just
+        # 'even' for the IDS driver, which crops back to the exact request -- so a
+        # 1900 frame stays 1900 on IDS but floors to the real grid elsewhere.
         new_frame = binning.native_to_displayed(
             native, new_binning_size, imaging.get_pixel_alignment()
         )
@@ -1092,6 +1096,9 @@ class MicroscopeSettings(BoxLayout):
         native = binning.displayed_to_native(typed, cur_binning, native_max)
         self._store_native_roi(native)
 
+        # Floor to the active driver's deliverable granularity (see
+        # select_binning_size): the IDS driver crops to the exact request, so
+        # get_pixel_alignment reports 'even' for it and the real grid elsewhere.
         displayed = binning.native_to_displayed(native, cur_binning, imaging.get_pixel_alignment())
         self._apply_displayed_frame(displayed)
 

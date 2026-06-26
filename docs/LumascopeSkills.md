@@ -511,7 +511,7 @@ scope.imaging.get_frame_size()                     # {'width': ..., 'height': ..
 scope.imaging.get_max_width()                      # max at the current binning
 scope.imaging.get_max_height()
 scope.imaging.get_native_resolution()              # {'width','height'} unbinned sensor ceiling
-scope.imaging.get_pixel_alignment()                # {'width','height'} frame-size multiple
+scope.imaging.get_pixel_alignment()                # {'width','height'} deliverable frame-size granularity (even on IDS; camera grid on floor-only drivers)
 
 # Binning
 scope.imaging.set_binning_size(2)

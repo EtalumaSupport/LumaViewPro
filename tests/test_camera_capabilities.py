@@ -192,7 +192,9 @@ class TestU3L34ProfileMatch:
 
         profile = lookup_profile('U3-34LxXLS-M')
         assert profile.driver == 'ids'
-        assert profile.alignment == {'width': 48, 'height': 4}
+        # Deliverable granularity is even (2x2): the IDS driver crops to the
+        # exact request, reading the real 48x4 AOI grid from the SDK nodemap.
+        assert profile.alignment == {'width': 2, 'height': 2}
         assert profile.binning_sizes == [1, 2]
         assert profile.pixel_formats == ['Mono10g40IDS', 'Mono12g24IDS']
         assert profile.model_name == 'U3-34LxXLS-M'  # actual reported name retained

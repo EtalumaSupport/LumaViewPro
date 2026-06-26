@@ -1435,10 +1435,15 @@ class ImagingAPI:
             return {}
 
     def get_pixel_alignment(self) -> dict:
-        """Return the camera's frame-size pixel alignment.
+        """Return the camera's deliverable frame-size granularity.
 
-        Frame width/height must be a multiple of these values (a Pylon
-        constraint on most current models). Defaults to 4x4 when unknown.
+        The frame width/height a caller can request, floored to these values, is
+        what the camera will actually deliver. For a floor-only driver (Pylon,
+        FX2, simulator) this is the hardware AOI grid -- a request off the grid
+        is floored down (e.g. multiple-of-4 on most Pylon models). The IDS
+        driver instead delivers any even size exactly via oversize-then-crop, so
+        it reports ``{2, 2}`` -- the only constraint is even dimensions (H.264).
+        Defaults to 4x4 when unknown.
 
         Returns:
             dict: ``{'width': int, 'height': int}``.

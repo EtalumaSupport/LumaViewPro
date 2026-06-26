@@ -228,7 +228,12 @@ _U3_34L0XCP_M = CameraProfile(
     exposure_max_us=2_000_000,
     binning_sizes=[1, 2],  # Sensor 2x2 only, H+V joint
     binning_modes=['Sum'],
-    alignment={'width': 48, 'height': 4},
+    # Deliverable frame-size granularity, NOT the hardware AOI grid. The IDS
+    # driver delivers any even size via oversize-then-crop (it reads the real
+    # 48x4 AOI grid live from the SDK nodemap, set_frame_size), so the size the
+    # UI/API can request is bounded only by even-dimension video safety. A
+    # floor-only driver (Pylon/FX2/sim) instead reports its true grid here.
+    alignment={'width': 2, 'height': 2},
     gain=GainInfo(
         analog_max_db=None,  # 31.6x max -- query dB from SDK
         has_digital=False,
