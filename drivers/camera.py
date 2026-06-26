@@ -210,6 +210,15 @@ class Camera(ABC):
         # toggles the grab loop.
         self._update_config_depth = 0
 
+        # Start gate: the camera-lifecycle split. connect() returns the
+        # camera CONFIGURED but NOT grabbing; streaming begins exactly once
+        # via open_and_start() (the configure-complete -> start transition).
+        # The latch is per-INSTANCE (set here, never a class attribute, so a
+        # reconnect's fresh camera always starts CLOSED) and is read/written
+        # under _lifecycle_lock so gate checks stay coherent with the grab
+        # loop's stop/start. CLOSED at construction; OPEN after release.
+        self._grab_gate_open = False
+
         self.connect()
         # Registry contract: drivers signal "I couldn't find my hardware"
         # via `found=False`, and `drivers/registry.py::create('auto')` skips
@@ -375,6 +384,33 @@ class Camera(ABC):
                         f'update_camera_config:exit depth={depth} '
                         f'restarted={was_grabbing and end_depth == 0}'
                     )
+
+    def open_and_start(self) -> None:
+        """Release the start gate: begin streaming exactly once.
+
+        The single configure-complete -> start transition. ``connect()``
+        leaves the camera configured but NOT grabbing (gate CLOSED); this
+        opens the gate and fires the one ``start_grabbing()``.
+
+        Flag-idempotent: a no-op when the gate is already OPEN, so the two
+        bring-up release sites (startup + reconnect, which fire ~0.3s
+        apart) cannot double-start -- this does NOT rely on
+        ``start_grabbing`` idempotency. Restarting an already-released
+        camera after a deliberate stop is the primitive ``start_grabbing``
+        path, not this one.
+
+        The gate is opened BEFORE the start, so even if the start fails the
+        camera is RELEASED -- a later restart can recover it instead of the
+        gate stranding CLOSED (a permanently blank live view). The start
+        itself is not wrapped here: every ``start_grabbing()`` is already
+        exception-tolerant by contract (SDK failures are logged, not
+        raised), so callers in a ``finally`` need no guard.
+        """
+        with self._lifecycle_lock:
+            if self._grab_gate_open:
+                return
+            self._grab_gate_open = True
+            self.start_grabbing()
 
     @abstractmethod
     def init_camera_config(self) -> None:

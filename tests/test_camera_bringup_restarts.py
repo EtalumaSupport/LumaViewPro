@@ -96,7 +96,6 @@ def test_config_while_grabbing_bounces_once(make_cam):
 # -- Gate contract: the single configure-complete -> start transition ------
 
 
-@pytest.mark.xfail(strict=True, reason=_GATE_REASON)
 @pytest.mark.parametrize('make_cam', DRIVERS)
 def test_full_bringup_lifecycle_fires_exactly_one_start(make_cam):
     """The canonical invariant: gate closed -> apply settings batch ->
