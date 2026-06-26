@@ -406,6 +406,32 @@ class SequencedCaptureRunner:
                     states[layer] = settings[layer]['autofocus']
         return states
 
+    def _acquire_led_lease_for_run(self):
+        """Acquire the run's LED lease, recovering from a stranded one.
+
+        A refused acquire means a prior run's lease was never released -- its
+        thread died mid-run without cleanup. Nothing legitimately owns the LEDs
+        when a fresh run begins (live-UI control is unleased; autofocus only
+        nests under a running protocol), so the stranded lease is dropped and the
+        lease re-acquired. Without this the run holds no lease, every STEP_LIGHT
+        apply no-ops, and the whole acquisition saves dark frames.
+        """
+        lease = self._scope.illumination.acquire_led_lease('protocol')
+        if lease is None:
+            logger.warning(
+                f'[{self.LOGGER_NAME} ] LED lease refused at run start (a prior '
+                'run stranded it); resetting leases and re-acquiring so the run '
+                'owns illumination'
+            )
+            self._scope.illumination.reset_led_leases()
+            lease = self._scope.illumination.acquire_led_lease('protocol')
+            if lease is None:
+                logger.error(
+                    f'[{self.LOGGER_NAME} ] LED lease still refused after reset; '
+                    'the run will not illuminate'
+                )
+        return lease
+
     def run(
         self,
         protocol: Protocol,
@@ -547,10 +573,11 @@ class SequencedCaptureRunner:
         self._snapshot_run_state()
 
         # Acquire the LED lease for the whole scan so live UI illumination
-        # changes cannot disturb a running protocol's channels. AF steps
-        # nest a child under it. A refused acquire (None) does not stop the
-        # run.
-        self._led_lease = self._scope.illumination.acquire_led_lease('protocol')
+        # changes cannot disturb a running protocol's channels. AF steps nest a
+        # child under it. A refused acquire recovers a stranded lease from a
+        # hard-killed prior run, so the run always ends up owning illumination
+        # (else every STEP_LIGHT apply no-ops and the run captures dark).
+        self._led_lease = self._acquire_led_lease_for_run()
 
         # Snapshot hardware state for restoration after protocol
         self._original_led_states = self._scope.illumination.get_led_states()

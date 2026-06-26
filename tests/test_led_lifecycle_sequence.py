@@ -727,3 +727,26 @@ def test_s7_interactive_af_restores_prerun_live_channel(scope):
     assert sub.final_lit() == {'Blue'}, sub.render()
     # The restore must off Green before re-lighting Blue -- never two lit at once.
     assert sub.lit_at_most_one(), f'double illumination during AF restore\n{sub.render()}'
+
+
+# ---------------------------------------------------------------------------
+# Run-start LED-lease recovery. A prior run that died without releasing strands
+# the 'protocol' lease; a fresh run must reset and re-acquire so it owns
+# illumination -- else every STEP_LIGHT apply no-ops and the run captures dark.
+# ---------------------------------------------------------------------------
+
+
+def test_run_recovers_a_stranded_led_lease(runner):
+    ill = runner._scope.illumination
+    # Simulate a hard-killed prior run: a 'protocol' lease left on the stack.
+    stranded = ill.acquire_led_lease('protocol')
+    assert stranded is not None
+    assert ill.acquire_led_lease('protocol') is None, 'precondition: second acquire is refused'
+
+    lease = runner._acquire_led_lease_for_run()
+
+    assert lease is not None, 'the run must recover a lease despite the stranded one'
+    assert lease.held
+    assert ill.led_lease_owner == 'protocol'
+    assert not stranded.held, 'the stranded lease must be dropped by the reset'
+    lease.release(leave_on=False)
