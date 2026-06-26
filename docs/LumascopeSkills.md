@@ -444,6 +444,17 @@ namespace. The methods below are the L2-stable surface; the underlying
 driver is `scope.imaging._driver` (private; reach through the API).
 
 ```python
+# Streaming control. connect() returns the camera CONFIGURED but NOT
+# grabbing; capture/get_image need a live feed, so start it first. In the
+# GUI this happens automatically at startup; headless callers do it
+# explicitly after constructing the scope.
+scope.imaging.start_streaming()   # begin the live feed (idempotent; also
+                                  # restarts a feed stopped via stop_streaming)
+scope.imaging.stop_streaming()    # stop the feed (get_image then times out)
+scope.imaging.is_streaming()      # True while acquiring (queries the driver)
+```
+
+```python
 # Raw frame grab (no validity wait — use capture_and_wait instead in most cases)
 image = scope.imaging.get_image()
 image = scope.imaging.get_image(force_to_8bit=False)   # keep native 12/16-bit
