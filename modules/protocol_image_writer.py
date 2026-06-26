@@ -59,7 +59,6 @@ class ProtocolImageWriter:
         execution_record: ProtocolExecutionRecord,
         # Functions borrowed from the parent executor
         leds_off_fn,
-        led_on_fn,
         is_run_in_progress_fn,
         stim_profiling: bool = False,
         run_dir: pathlib.Path | None = None,
@@ -76,7 +75,6 @@ class ProtocolImageWriter:
         self._abort_fn = abort_fn
         self._execution_record = execution_record
         self._leds_off = leds_off_fn
-        self._led_on = led_on_fn
         self._is_run_in_progress = is_run_in_progress_fn
         self._stim_profiling = stim_profiling
         self._run_dir = run_dir
@@ -332,15 +330,10 @@ class ProtocolImageWriter:
                     name,
                 )
 
-            # Illuminate
-            if self._scope.led_connected:
-                self._led_on(color=step['Color'], illumination=step['Illumination'], block=True)
-                logger.info(
-                    f'[{self.LOGGER_NAME} ] scope.illumination.led_on({step["Color"]}, {step["Illumination"]})'
-                )
-            else:
-                logger.warning('LED controller not available.')
-
+            # The step's channel is already lit and confirmed on by the runner's
+            # STEP_LIGHT illuminate before this leaf is called; the leaf is a
+            # pure grab+save and drives no LED on the success path (its failure /
+            # video / cancel offs remain as error cleanup below).
             sum_iteration_callback = None
             use_color = step['Color'] if step['False_Color'] else 'BF'
 

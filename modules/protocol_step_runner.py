@@ -248,17 +248,11 @@ class ProtocolStepRunner:
         # exposed. Lighting first lets AG settle toward the real exposure. The
         # capture_and_wait drain then waits the measured auto_gain settle frames
         # (invalidated inside set_auto_gain) before grabbing -- no separate
-        # timed wait. The exclusive light makes this channel the only lit one;
-        # capture() re-asserts the same channel idempotently. Arm once per step
-        # (_auto_gain_armed_step is a one-shot keyed on _curr_step).
+        # timed wait. The STEP_LIGHT illuminate makes this channel the only lit
+        # one; the capture path re-asserts the same channel idempotently. Arm
+        # once per step (_auto_gain_armed_step is a one-shot keyed on _curr_step).
         if step['Auto_Gain'] and p._auto_gain_armed_step != p._curr_step:
-            if p._scope.led_connected:
-                # Make this step's channel the only lit one, idempotently: a
-                # same-color step that kept its LED on (Z-stack slice) is left
-                # lit instead of being blinked off->on while arming AG.
-                p._step_executor.leds_exclusive(
-                    color=step['Color'], illumination=step['Illumination'], block=True
-                )
+            self._apply_step_light(step)
             # Cap AG/AE exposure to this step's channel-class ceiling before
             # arming. Set on the shared settings dict so capture() inherits it.
             # step['Color'] is the layer; the per-install override is read from
@@ -374,6 +368,14 @@ class ProtocolStepRunner:
                     end_policy=end_policy,
                     snapshot_lit=snapshot_lit,
                 )
+
+                # Illuminate the step's channel and confirm it on BEFORE the
+                # grab. The capture leaf no longer drives the LED -- it is a pure
+                # grab+save -- so the run-lifecycle illuminate lives here on the
+                # authority, the symmetric twin of the STEP_BOUNDARY off applied
+                # after capture. Idempotent on an AG step (already lit when AG
+                # armed) and on a held same-color channel.
+                self._apply_step_light(step)
 
                 _t_capture_start = time.monotonic()
                 completed = p._image_writer.capture(
@@ -610,65 +612,6 @@ class ProtocolStepRunner:
                 logger.warning(f'[{p.LOGGER_NAME}] Direct leds_off fallback failed: {ex}')
         # LED observer handles UI sync -- no manual callback
 
-    def led_on(self, color: str, illumination: float, block: bool = True, force: bool = False):
-        """Turn on a single LED channel via the IO executor.
-
-        UI update is handled by the LED observer -- no manual callback needed.
-        """
-        p = self._p
-        if p._aborted.is_set() and not force:
-            return
-
-        fut = p._io_executor.protocol_put(
-            IOTask(
-                action=p._scope.illumination.led_on,
-                kwargs={
-                    'channel': p._scope.illumination.color2ch(color),
-                    'mA': illumination,
-                    'block': block,
-                    'owner': 'protocol',
-                },
-            ),
-            return_future=True,
-        )
-        if fut:
-            fut.result(timeout=30)
-        # Sleep for 5 ms to ensure that LED properly turns on before next action
-        time.sleep(0.005)
-
-    def leds_exclusive(
-        self, color: str, illumination: float, block: bool = True, force: bool = False
-    ):
-        """Make a single channel the only lit LED, via the IO executor.
-
-        Idempotent: a channel already lit at this illumination is left
-        untouched, so consecutive same-color steps (Z-stack slices) do not
-        flicker the LED off->on. Other channels are turned off. Replaces the
-        leds_off + led_on pair at step boundaries.
-
-        UI update is handled by the LED observer -- no manual callback needed.
-        """
-        p = self._p
-        if p._aborted.is_set() and not force:
-            return
-
-        fut = p._io_executor.protocol_put(
-            IOTask(
-                action=p._scope.illumination.leds_exclusive,
-                kwargs={
-                    'channel': p._scope.illumination.color2ch(color),
-                    'mA': illumination,
-                    'block': block,
-                    'owner': 'protocol',
-                },
-            ),
-            return_future=True,
-        )
-        if fut:
-            fut.result(timeout=30)
-        # Sleep for 5 ms to ensure that LED properly turns on before next action
-        time.sleep(0.005)
-
     def apply_led_transition(self, transition: LedTransition, ctx: LedTransitionCtx) -> None:
         """Drive an LED lifecycle transition through the run's LED authority.
 
@@ -687,3 +630,36 @@ class ProtocolStepRunner:
             fut.result(timeout=30)
         else:
             lease.apply(transition, ctx)
+
+    def _apply_step_light(self, step) -> None:
+        """Illuminate the step's channel through the authority, confirmed on.
+
+        The LED must be lit before the camera grabs the step's frame (a dark
+        grab is mis-exposed) and before continuous auto-gain arms against the
+        scene. STEP_LIGHT is a confirm-on transition, so apply blocks until the
+        board reports the channel on; the short settle after covers the board's
+        on-to-stable lag before the grab. A same-color step that kept its channel
+        lit is left untouched (the diff self-skips), so consecutive z-slices do
+        not blink off->on.
+        """
+        p = self._p
+        if p._aborted.is_set():
+            # Aborting: do not re-illuminate the sample during teardown -- the
+            # abort path is turning the LEDs off, and a stray on here flashes
+            # the sample at cancel time.
+            return
+        if not p._scope.led_connected:
+            # A disconnected LED board makes every step grab a dark frame; say so
+            # at the capture point so a black-frame run is diagnosable.
+            logger.warning(
+                '[Capture   ] LED controller not available; step channel not illuminated.'
+            )
+            return
+        self.apply_led_transition(
+            LedTransition.STEP_LIGHT,
+            LedTransitionCtx(
+                channel=p._scope.illumination.color2ch(step['Color']),
+                mA=step['Illumination'],
+            ),
+        )
+        time.sleep(0.005)

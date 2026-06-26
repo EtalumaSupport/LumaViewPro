@@ -65,6 +65,15 @@ class LedTransition(enum.Enum):
     MANUAL_STEP = enum.auto()
 
 
+# Transitions whose illumination must be confirmed lit before the caller moves
+# on: the LED has to be on before the camera grabs a protocol step's frame, or
+# the first frame captures dark. apply() blocks the on-command for these so the
+# confirm-before-grab is a property of the transition, not a flag each caller
+# must remember to pass. AF_ENTER joins this set when autofocus entry migrates
+# onto the authority (it has the same illuminate-before-scan constraint).
+_CONFIRM_ON_TRANSITIONS = frozenset({LedTransition.STEP_LIGHT})
+
+
 class LedEndPolicy(enum.Enum):
     """What the LEDs do when a run ends: go dark, or return to the pre-run state."""
 
@@ -265,16 +274,22 @@ class LedLease:
         # checked against the stack top -- would be silently refused by the
         # dead child and the transition would no-op.
         self._api._reclaim_lease(self)
-        self._emit_diff(self.target_leds(transition, ctx))
+        self._emit_diff(
+            self.target_leds(transition, ctx),
+            block=transition in _CONFIRM_ON_TRANSITIONS,
+        )
 
-    def _emit_diff(self, target: frozenset[tuple[int, float]]) -> None:
+    def _emit_diff(self, target: frozenset[tuple[int, float]], *, block: bool) -> None:
         """Drive this lease's target set through the API's canonical diff.
 
         Tags the emit with this lease's owner so the writes are permitted while
         the lease is held. The diff itself lives on the API (``_emit_led_diff``)
         so the unleased live-UI callers share the exact same diff-and-emit.
+        ``block`` waits for the LED board to confirm an illuminate before
+        returning, so a confirm-before-grab transition cannot proceed dark; the
+        caller derives it from the transition, never defaults it.
         """
-        self._api._emit_led_diff(target, owner=self.owner_name)
+        self._api._emit_led_diff(target, owner=self.owner_name, block=block)
 
 
 def snapshot_lit_pairs(led_states: dict, color2ch) -> frozenset[tuple[int, float]]:
@@ -1235,7 +1250,9 @@ class IlluminationAPI:
         with self._led_lease_lock:
             return self._led_lease_stack[-1].owner_name if self._led_lease_stack else None
 
-    def _emit_led_diff(self, target: frozenset[tuple[int, float]], *, owner: str) -> None:
+    def _emit_led_diff(
+        self, target: frozenset[tuple[int, float]], *, owner: str, block: bool
+    ) -> None:
         """Turn off lit channels not in the target, then assert the target.
 
         The single diff-and-emit every transition drives through -- both the
@@ -1248,7 +1265,10 @@ class IlluminationAPI:
         holds the lease (or while no lease is held, for an unleased UI write).
         The legacy single-channel (leds_exclusive) and restore (restore_led_state)
         primitives are this same diff specialized; they fold into this one once
-        their callers move onto the authority.
+        their callers move onto the authority. ``block`` waits for the board to
+        confirm each illuminate before returning -- set for a transition whose
+        LED must be on before the camera grabs; the off does not block (clearing
+        a channel never gates a grab).
         """
         target_channels = {ch for ch, _ in target}
         for color in self.led_states:
@@ -1256,7 +1276,7 @@ class IlluminationAPI:
             if ch is not None and ch not in target_channels:
                 self.led_off(channel=ch, _lease_owner=owner)
         for ch, mA in target:
-            self.led_on(channel=ch, mA=mA, owner=owner)
+            self.led_on(channel=ch, mA=mA, owner=owner, block=block)
 
     def apply_transition(
         self, transition: LedTransition, ctx: LedTransitionCtx, *, owner: str = ''
@@ -1279,7 +1299,11 @@ class IlluminationAPI:
                 violator,
             )
             return
-        self._emit_led_diff(LedLease.target_leds(transition, ctx), owner=owner)
+        self._emit_led_diff(
+            LedLease.target_leds(transition, ctx),
+            owner=owner,
+            block=transition in _CONFIRM_ON_TRANSITIONS,
+        )
 
     def apply_transition_async(
         self,

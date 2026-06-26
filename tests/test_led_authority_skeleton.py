@@ -512,3 +512,36 @@ def test_apply_transition_refused_while_leased(scope):
     assert not ill.led_enabled('Red')
 
     lease.release(leave_on=False)
+
+
+# ---------------------------------------------------------------------------
+# Confirm-on illuminate: STEP_LIGHT must wait for the board to report the
+# channel on before the caller grabs, or the first frame captures dark. The
+# block is a property of the transition, not a flag the caller passes.
+# ---------------------------------------------------------------------------
+
+
+def test_step_light_blocks_its_illuminate_manual_step_does_not(scope):
+    """STEP_LIGHT confirms its illuminate (block=True reaches the driver, so a
+    protocol grab is never dark); the MANUAL_STEP preview does not block (no
+    grab waits on it)."""
+    ill = scope.illumination
+    blocks = []
+    real_led_on = ill.led_on
+
+    def _spy(*args, **kwargs):
+        blocks.append(kwargs.get('block', False))
+        return real_led_on(*args, **kwargs)
+
+    ill.led_on = _spy
+    try:
+        lease = ill.acquire_led_lease('protocol')
+        lease.apply(LedTransition.STEP_LIGHT, _ctx(scope, 'Green', GREEN_MA))
+        assert blocks == [True], f'STEP_LIGHT must block its on-command: {blocks}'
+        lease.release(leave_on=False)
+
+        blocks.clear()
+        ill.apply_transition(LedTransition.MANUAL_STEP, _ctx(scope, 'Red', RED_MA, preview_on=True))
+        assert blocks == [False], f'MANUAL_STEP preview must not block: {blocks}'
+    finally:
+        ill.led_on = real_led_on

@@ -73,16 +73,18 @@ class TestProtocolRunLoopNoCacheClearingLedsOffAtScanStart:
             f'observed: {events}'
         )
 
-    def test_capture_is_wired_to_leds_exclusive(self):
-        """run() must hand the image writer the exclusive primitive (offs
-        other channels, self-skips an already-lit one), not the additive
-        led_on, so step 0 is not double-illuminated by a stray Live-mode
-        LED and a same-color step is not blinked."""
+    def test_capture_leaf_does_not_drive_the_led(self):
+        """The run-lifecycle illuminate lives on the authority, not the capture
+        leaf: the runner applies STEP_LIGHT (offs other channels, self-skips an
+        already-lit one) and confirms the channel on before the grab, so the
+        leaf is a pure grab+save with no LED-on hook that could double-illuminate
+        step 0 or blink a same-color step (exclusivity itself is pinned by the
+        end-to-end lifecycle test's one-lit-at-a-time scenarios)."""
         runner = bare_capture_runner()
         runner.run(**scr_run_kwargs())
-        assert runner._image_writer._led_on == runner._step_executor.leds_exclusive, (
-            "the writer's LED-on hook must be the step executor's "
-            'leds_exclusive, not the additive led_on'
+        assert not hasattr(runner._image_writer, '_led_on'), (
+            'the capture leaf must not drive the LED; the STEP_LIGHT illuminate '
+            'lives on the authority via the runner'
         )
 
 

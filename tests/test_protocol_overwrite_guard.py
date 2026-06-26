@@ -73,7 +73,6 @@ def test_protocol_image_writer_uses_if_collision(monkeypatch, tmp_path):
         abort_fn=lambda: None,
         execution_record=None,
         leds_off_fn=lambda: None,
-        led_on_fn=lambda **kw: None,
         is_run_in_progress_fn=lambda: True,
         save_encoding='8bit',
     )

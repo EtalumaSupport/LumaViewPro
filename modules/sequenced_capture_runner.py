@@ -645,7 +645,6 @@ class SequencedCaptureRunner:
             abort_fn=self.protocol_thread.abort,
             execution_record=self._protocol_execution_record,
             leds_off_fn=self._step_executor.leds_off,
-            led_on_fn=self._step_executor.leds_exclusive,
             is_run_in_progress_fn=lambda: self._run_in_progress_event.is_set(),
             stim_profiling=stim_profiling,
             run_dir=self._run_dir,
