@@ -12902,3 +12902,87 @@ class TestTransientClassificationLogIsHonest:
         assert not re.search(r'hardware\s+still\s+connected\)', src), (
             'the misleading "(hardware still connected)" transient claim returned'
         )
+
+
+class TestGreaseRedistributionGateAlwaysReleased:
+    """F9: the grease-redistribution gate (_grease_redistribution_event) is
+    cleared before the fire-and-forget grease task runs and set() only at the
+    task's end. If the task raised mid-move, or was never enqueued, the event
+    stayed clear forever and the next scan's scan_iterate gate blocked silently
+    -- a hang the consecutive-failure cap cannot catch (nothing reaches the run
+    loop). Both windows must always release the gate; the failure still
+    surfaces (a raise propagates to the io_executor task runner, which logs it).
+    """
+
+    def _make_runner(self):
+        from modules.sequenced_capture_runner import SequencedCaptureRunner
+
+        return SequencedCaptureRunner(
+            scope=MagicMock(),
+            stage_offset={'x': 0.0, 'y': 0.0, 'z': 0.0},
+            io_executor=MagicMock(),
+            protocol_thread=MagicMock(),
+            file_io_executor=MagicMock(),
+            camera_executor=MagicMock(),
+            autofocus_thread=MagicMock(),
+        )
+
+    def test_grease_task_releases_gate_even_when_a_move_raises(self):
+        import pytest
+
+        from modules.protocol_step_runner import ProtocolStepRunner
+
+        runner = self._make_runner()
+        step = ProtocolStepRunner(runner)
+        runner._grease_redistribution_event.clear()
+        step._move_axis_through_io = MagicMock(side_effect=RuntimeError('Z move timeout'))
+
+        # The failure still propagates (the executor runner logs it), but the
+        # gate must be released by the finally so the next scan is not blocked.
+        with pytest.raises(RuntimeError):
+            step._grease_redist_w_pos()
+        assert runner._grease_redistribution_event.is_set(), (
+            'a grease task that raised mid-move left the scan gate clear (deadlock)'
+        )
+
+    def test_grease_task_releases_gate_on_success(self):
+        from modules.protocol_step_runner import ProtocolStepRunner
+
+        runner = self._make_runner()
+        runner._callbacks = MagicMock(move_position=None)
+        step = ProtocolStepRunner(runner)
+        step._move_axis_through_io = MagicMock()
+        runner._grease_redistribution_event.clear()
+
+        step._grease_redist_w_pos()
+        assert runner._grease_redistribution_event.is_set()
+
+    def test_enqueue_failure_releases_gate(self):
+        from modules.protocol_step_runner import ProtocolStepRunner
+        from modules.sequential_io_executor import PROTOCOL_QUEUE_FULL
+
+        runner = self._make_runner()
+        step = ProtocolStepRunner(runner)
+        runner._io_executor.protocol_put.return_value = PROTOCOL_QUEUE_FULL
+        runner._grease_redistribution_event.set()
+
+        step.perform_grease_redistribution()
+        assert runner._grease_redistribution_event.is_set(), (
+            'a grease task that could not be queued must not leave the gate clear'
+        )
+
+    def test_reset_scan_state_clears_step_and_af_but_not_grease_gate(self):
+        runner = self._make_runner()
+        runner._curr_step = 5
+        runner._af_future = object()
+        runner._grease_redistribution_event.clear()
+
+        runner._reset_scan_state()
+
+        assert runner._curr_step == 0
+        assert runner._af_future is None
+        # The grease gate is owned by the grease task, not the per-scan reset --
+        # re-setting it here would race an in-flight grease move (zero period).
+        assert not runner._grease_redistribution_event.is_set(), (
+            '_reset_scan_state must not touch the grease gate'
+        )

@@ -165,15 +165,27 @@ class SequencedCaptureRunner:
         with self._protocol_state_lock:
             return self._state
 
+    def _reset_scan_state(self) -> None:
+        """Reset the per-scan state at each scan start.
+
+        One place for the fields that must start fresh for every scan, so the
+        run loop calls this rather than open-coding the resets. Does NOT touch
+        _grease_redistribution_event: that gate is owned by the grease task
+        itself (it always set()s on completion-or-failure, and the enqueue path
+        set()s when the task never runs), so re-setting it here would race a
+        grease move still in flight when the period is zero (continuous mode).
+        """
+        self._curr_step = 0
+        # Per-step AF state pointer; None means AF has not been kicked off for
+        # the current step. Set by scan_iterate when AF starts; cleared at step
+        # transition and at scan start.
+        self._af_future = None
+
     def _reset_vars(self):
         self._run_dir = None
         self._run_trigger_source = None
         self._run_in_progress_event.clear()
-        self._curr_step = 0
-        # Per-step AF state pointer; None means AF has not been kicked
-        # off for the current step. Set by scan_iterate when AF starts;
-        # cleared at step transition and at scan start.
-        self._af_future = None
+        self._reset_scan_state()
         self._n_scans = 0
         self._scan_count = 0
         self._scan_in_progress.clear()

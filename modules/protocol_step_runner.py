@@ -28,7 +28,7 @@ from modules.lumascope_api.illumination import (
     resolve_end_state,
 )
 from modules.protocol_state_machine import ProtocolState
-from modules.sequential_io_executor import IOTask
+from modules.sequential_io_executor import IOTask, PROTOCOL_QUEUE_FULL
 from modules.settings_init import settings
 
 if TYPE_CHECKING:
@@ -548,47 +548,63 @@ class ProtocolStepRunner:
     def perform_grease_redistribution(self):
         p = self._p
         p._grease_redistribution_event.clear()
-        p._io_executor.protocol_put(IOTask(action=self._grease_redist_w_pos))
+        result = p._io_executor.protocol_put(IOTask(action=self._grease_redist_w_pos))
+        if result is PROTOCOL_QUEUE_FULL:
+            # The grease task never queued, so the matching set() inside
+            # _grease_redist_w_pos will never run. Release the gate now so the
+            # next scan is not blocked forever waiting on a task that does not
+            # exist.
+            logger.warning(
+                '[PROTOCOL] Grease redistribution task could not be queued '
+                '(io queue full); skipping it and releasing the scan gate'
+            )
+            p._grease_redistribution_event.set()
 
     def _grease_redist_w_pos(self):
         p = self._p
         axis = 'Z'
         _t_start = time.monotonic()
-        # get_current_position is a cache read (LAYER-L pinned that as a
-        # zero-serial-IO accessor); safe to call directly from any thread
-        # that needs the live z position.
-        z_orig = p._scope.motion.get_current_position(axis=axis)
-        self._move_axis_through_io(
-            axis,
-            0,
-            wait_until_complete=True,
-            overshoot_enabled=True,
-            timeout=120.0,
-        )
-
-        if p._callbacks.move_position:
-            _schedule_ui(lambda dt, a=axis: p._callbacks.move_position(a))
-
-        self._move_axis_through_io(
-            axis,
-            z_orig,
-            wait_until_complete=True,
-            overshoot_enabled=True,
-            timeout=120.0,
-        )
-
-        if p._callbacks.move_position:
-            _schedule_ui(lambda dt, a=axis: p._callbacks.move_position(a))
-
-        elapsed = time.monotonic() - _t_start
-        if elapsed > 30:
-            logger.warning(
-                f'[PROTOCOL] Grease redistribution took {elapsed:.1f}s (> 30s threshold)'
+        try:
+            # get_current_position is a cache read (a zero-serial-IO accessor);
+            # safe to call directly from any thread that needs the live z position.
+            z_orig = p._scope.motion.get_current_position(axis=axis)
+            self._move_axis_through_io(
+                axis,
+                0,
+                wait_until_complete=True,
+                overshoot_enabled=True,
+                timeout=120.0,
             )
-        else:
-            logger.debug(f'[PROTOCOL] Grease redistribution completed in {elapsed:.1f}s')
 
-        p._grease_redistribution_event.set()
+            if p._callbacks.move_position:
+                _schedule_ui(lambda dt, a=axis: p._callbacks.move_position(a))
+
+            self._move_axis_through_io(
+                axis,
+                z_orig,
+                wait_until_complete=True,
+                overshoot_enabled=True,
+                timeout=120.0,
+            )
+
+            if p._callbacks.move_position:
+                _schedule_ui(lambda dt, a=axis: p._callbacks.move_position(a))
+
+            elapsed = time.monotonic() - _t_start
+            if elapsed > 30:
+                logger.warning(
+                    f'[PROTOCOL] Grease redistribution took {elapsed:.1f}s (> 30s threshold)'
+                )
+            else:
+                logger.debug(f'[PROTOCOL] Grease redistribution completed in {elapsed:.1f}s')
+        finally:
+            # ALWAYS release the gate, even if a move raised. A raise propagates
+            # to the io_executor task runner (which logs it with a traceback), so
+            # the failure is still surfaced -- but the gate MUST be released
+            # first or the next scan's scan_iterate gate blocks forever, a silent
+            # hang the consecutive-failure cap cannot catch (this runs
+            # fire-and-forget; nothing reaches the run loop).
+            p._grease_redistribution_event.set()
 
     # ------------------------------------------------------------------
     # LED control

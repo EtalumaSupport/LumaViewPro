@@ -163,11 +163,8 @@ class ProtocolRunLoop:
                         )
                     )
 
-                # Initialize scan variables
-                p._curr_step = 0
-                # Reset the AF state pointer so the first step's
-                # kick-off check sees None.
-                p._af_future = None
+                # Initialize per-scan state (curr_step, AF pointer).
+                p._reset_scan_state()
                 if p._callbacks.run_scan_pre:
                     _schedule_ui(lambda dt: p._callbacks.run_scan_pre(), 0)
 
