@@ -1197,6 +1197,47 @@ def check_disk_space(path='/') -> float:
     return free_space_mb
 
 
+# Per-step disk-write estimates (MB). An image step writes one file; a video
+# step scales with its recording length, so a flat per-video figure under-counts
+# a long capture by orders of magnitude.
+ESTIMATED_IMAGE_STEP_MB = 8  # ~1900x1900 16-bit TIFF (~7.2 MB) + metadata
+ESTIMATED_VIDEO_STEP_MB = 50  # floor for a short compressed MP4
+_MP4_COMPRESSION_FRACTION = 0.1  # MP4 ~ a tenth of the raw per-frame bytes
+
+
+def estimate_step_write_mb(step: dict, *, video_as_frames: bool = False) -> float:
+    """Estimate the disk a single protocol step will write, in MB.
+
+    One owner for write-size estimation, shared by the pre-scan free-space check
+    and the per-write threshold so the two cannot drift. An image step writes
+    one file. A video step scales with the recording: the frame count is
+    duration_s * fps, and each frame costs about one image when saved as
+    individual TIFFs (video_as_frames) or a compressed fraction of that in an
+    MP4. Deriving from duration/fps -- not a flat per-video figure -- is what
+    lets a long recording be sized before it fills the disk; the MP4 path is
+    floored at the historical estimate so a short clip is never under-counted.
+
+    Args:
+        step: A protocol step dict (reads Acquire + Video Config).
+        video_as_frames: Run-level flag -- video saved as individual frames
+            rather than a compressed MP4.
+
+    Returns:
+        Estimated megabytes the step will write to disk.
+    """
+    if step.get('Acquire') != 'video':
+        return ESTIMATED_IMAGE_STEP_MB
+    video_config = step.get('Video Config') or {}
+    duration_s = float(video_config.get('duration', 0) or 0)
+    fps = float(video_config.get('fps', 0) or 0)
+    frames = max(1, int(duration_s * fps))
+    if video_as_frames:
+        return frames * ESTIMATED_IMAGE_STEP_MB
+    return max(
+        ESTIMATED_VIDEO_STEP_MB, frames * ESTIMATED_IMAGE_STEP_MB * _MP4_COMPRESSION_FRACTION
+    )
+
+
 def check_disk_space_ok(path, required_mb: float) -> tuple[bool, float]:
     """Probe free disk space and compare against a threshold.
 

@@ -642,10 +642,16 @@ class ProtocolImageWriter:
         captured_frames = 0
         duration_sec = 0.0
 
-        # M8: Check disk space before writing -- long protocols can fill disk.
+        # Check disk space before writing -- long protocols can fill disk.
+        # Require headroom for THIS step's predicted write (a long
+        # video_as_frames recording can far exceed the flat floor), never below
+        # the 500 MB minimum.
         if save_folder is not None:
             try:
-                ok, free_mb = common_utils.check_disk_space_ok(save_folder, 500)
+                required_mb = max(
+                    500, common_utils.estimate_step_write_mb(step, video_as_frames=video_as_frames)
+                )
+                ok, free_mb = common_utils.check_disk_space_ok(save_folder, required_mb)
                 if not ok:
                     from modules.notification_center import notifications
 

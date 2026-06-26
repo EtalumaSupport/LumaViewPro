@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 
 from lvp_logger import logger
 
-from modules.common_utils import check_disk_space_ok
+from modules.common_utils import check_disk_space_ok, estimate_step_write_mb
 from modules.protocol_state_machine import ProtocolState
 
 if TYPE_CHECKING:
@@ -23,8 +23,6 @@ if TYPE_CHECKING:
 from modules.kivy_utils import schedule_ui as _schedule_ui
 
 # --- Disk-space estimation constants ---
-ESTIMATED_VIDEO_STEP_MB = 50  # MP4 compressed, ~10-50 MB typical
-ESTIMATED_IMAGE_STEP_MB = 8  # 1900x1900 16-bit TIFF ~7.2 MB + metadata
 MIN_REQUIRED_DISK_MB = 2048  # Minimum free disk space to start a scan (2 GB)
 
 # --- Hardware health check ---
@@ -175,10 +173,9 @@ class ProtocolRunLoop:
                         num_steps = p._protocol.num_steps()
                         for i in range(num_steps):
                             step = p._protocol.step(idx=i)
-                            if step.get('Acquire') == 'video':
-                                estimated_mb += ESTIMATED_VIDEO_STEP_MB
-                            else:
-                                estimated_mb += ESTIMATED_IMAGE_STEP_MB
+                            estimated_mb += estimate_step_write_mb(
+                                step, video_as_frames=p._video_as_frames
+                            )
                         required_mb = max(MIN_REQUIRED_DISK_MB, estimated_mb)
                         ok, free_mb = check_disk_space_ok(p._parent_dir, required_mb)
                         if not ok:

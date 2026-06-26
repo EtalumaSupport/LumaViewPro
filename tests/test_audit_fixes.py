@@ -12986,3 +12986,52 @@ class TestGreaseRedistributionGateAlwaysReleased:
         assert not runner._grease_redistribution_event.is_set(), (
             '_reset_scan_state must not touch the grease gate'
         )
+
+
+class TestStepWriteEstimateSingleOwner:
+    """F7 + F12: disk-write estimation has one owner (estimate_step_write_mb),
+    derived from duration x fps for video, shared by the pre-scan free-space
+    check and the per-write threshold so the two cannot drift. The old flat
+    per-video constant under-counted a long recording by orders of magnitude.
+    """
+
+    def test_image_step_uses_image_estimate(self):
+        from modules.common_utils import ESTIMATED_IMAGE_STEP_MB, estimate_step_write_mb
+
+        assert estimate_step_write_mb({'Acquire': 'image'}) == ESTIMATED_IMAGE_STEP_MB
+        # A step with no Acquire key is treated as an image step.
+        assert estimate_step_write_mb({}) == ESTIMATED_IMAGE_STEP_MB
+
+    def test_short_video_floored_at_legacy_estimate(self):
+        from modules.common_utils import ESTIMATED_VIDEO_STEP_MB, estimate_step_write_mb
+
+        step = {'Acquire': 'video', 'Video Config': {'duration': 1, 'fps': 30}}
+        assert estimate_step_write_mb(step) == ESTIMATED_VIDEO_STEP_MB
+
+    def test_long_video_scales_with_duration_and_fps(self):
+        from modules.common_utils import ESTIMATED_VIDEO_STEP_MB, estimate_step_write_mb
+
+        short = {'Acquire': 'video', 'Video Config': {'duration': 5, 'fps': 30}}
+        long_clip = {'Acquire': 'video', 'Video Config': {'duration': 600, 'fps': 30}}
+        assert estimate_step_write_mb(long_clip) > estimate_step_write_mb(short)
+        assert estimate_step_write_mb(long_clip) > ESTIMATED_VIDEO_STEP_MB
+
+    def test_video_as_frames_costs_one_image_per_frame(self):
+        from modules.common_utils import ESTIMATED_IMAGE_STEP_MB, estimate_step_write_mb
+
+        step = {'Acquire': 'video', 'Video Config': {'duration': 10, 'fps': 30}}
+        # 10 s * 30 fps = 300 frames, each a full image when saved as frames.
+        assert estimate_step_write_mb(step, video_as_frames=True) == 300 * ESTIMATED_IMAGE_STEP_MB
+
+    def test_both_call_sites_use_the_shared_estimator(self):
+        import pathlib
+
+        root = pathlib.Path(__file__).resolve().parent.parent / 'modules'
+        run_loop = (root / 'protocol_run_loop.py').read_text()
+        writer = (root / 'protocol_image_writer.py').read_text()
+        assert 'estimate_step_write_mb' in run_loop, 'pre-scan check must use the shared estimator'
+        assert 'estimate_step_write_mb' in writer, 'per-write check must use the shared estimator'
+        # The flat per-video constant must no longer drive the pre-scan loop.
+        assert 'ESTIMATED_VIDEO_STEP_MB' not in run_loop, (
+            'flat per-video constant should be gone from the run loop'
+        )
