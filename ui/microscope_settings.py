@@ -679,19 +679,20 @@ class MicroscopeSettings(BoxLayout):
 
         self._refresh_binning_depth_hint()
 
-        # Apply the capture depth to the camera: Mono12 for any 12-bit mode,
-        # Mono8 for 8-bit. Route through the camera executor to avoid racing
-        # the live-view grab loop; fall back to a supported format if the
-        # requested one is rejected.
+        # Apply the capture depth to the camera. Resolve to a format the
+        # sensor actually supports BEFORE pushing, so we never request a
+        # format it lacks (e.g. Mono8 on an IDS sensor that exposes only
+        # Mono10/12 -- that logs a spurious 'Unsupported' warning). Route
+        # through the camera executor to avoid racing the live-view grab loop.
         capture_depth = image_mode.resolve_image_mode(mode)['capture_depth']
-        pixel_format = 'Mono12' if capture_depth == 12 else 'Mono8'
 
         def _set_pixel_format():
             imaging = ctx.lumaview.scope.imaging
-            if not imaging.set_pixel_format(pixel_format):
-                formats = imaging.get_supported_pixel_formats()
-                if formats:
-                    imaging.set_pixel_format(formats[0])
+            target = image_mode.select_capture_pixel_format(
+                capture_depth, imaging.get_supported_pixel_formats()
+            )
+            if target is not None:
+                imaging.set_pixel_format(target)
 
         ctx.camera_executor.put(IOTask(action=_set_pixel_format))
 

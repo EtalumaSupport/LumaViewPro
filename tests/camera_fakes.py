@@ -341,6 +341,7 @@ def bare_ids_camera():
     cam.data_stream = MagicMock()
     cam.data_stream.IsGrabbing.return_value = False
     cam._mark_disconnected = MagicMock()
+    cam._pixel_format_cache = None
     return cam
 
 

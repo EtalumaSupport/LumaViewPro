@@ -156,6 +156,7 @@ class IDSCamera(Camera):
             self.active = None
             self.remote_nodemap = None
             self.data_stream = None
+            self._pixel_format_cache = None
 
         return False
 
@@ -258,6 +259,11 @@ class IDSCamera(Camera):
                 self.remote_nodemap.FindNode('UserSetSelector').SetCurrentEntry('Default')
                 self.remote_nodemap.FindNode('UserSetLoad').Execute()
                 self.remote_nodemap.FindNode('UserSetLoad').WaitUntilDone()
+                # UserSetLoad reset the hardware PixelFormat to the user-set
+                # default; drop the cache so the set_pixel_format() below
+                # actually applies -- its same-value short-circuit must not
+                # match a stale cached value against freshly-reset hardware.
+                self._pixel_format_cache = None
                 # Log the camera's actual PixelFormat options once at init --
                 # the supported list is camera-specific (IDS uses names like
                 # Mono10g40IDS / Mono12g24IDS, and not all sensors expose
@@ -750,6 +756,11 @@ class IDSCamera(Camera):
                 f'(camera supports: {list(supported)})'
             )
             return False
+
+        if resolved == self._pixel_format_cache:
+            # Already at this format: skip the grab-loop stop/realloc/start that
+            # update_camera_config() would otherwise force for a no-op write.
+            return True
 
         if resolved != pixel_format:
             logger.info(

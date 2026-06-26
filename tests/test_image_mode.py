@@ -150,6 +150,48 @@ def test_available_modes_12bit_camera():
     ]
 
 
+def test_camera_supports_12bit_ids_packed_format():
+    """The IDS packed 12-bit format counts; the packed 10-bit one does not."""
+    from modules.image_mode import camera_supports_12bit
+
+    assert camera_supports_12bit(['Mono12g24IDS']) is True
+    assert camera_supports_12bit(['Mono10g40IDS']) is False
+    # An IDS sensor exposing both still offers 12-bit (via the 12-bit entry).
+    assert camera_supports_12bit(['Mono10g40IDS', 'Mono12g24IDS']) is True
+
+
+def test_select_capture_pixel_format_ids_no_mono8():
+    """An IDS sensor without a native Mono8 resolves 8-bit to its lowest
+    native (Mono10) and 12-bit to its Mono12 native -- never a bare Mono8
+    the sensor would reject."""
+    from modules.image_mode import select_capture_pixel_format
+
+    ids = ('Mono10g40IDS', 'Mono12g24IDS')
+    assert select_capture_pixel_format(8, ids) == 'Mono10g40IDS'
+    assert select_capture_pixel_format(12, ids) == 'Mono12g24IDS'
+
+
+def test_select_capture_pixel_format_native_mono8():
+    """A camera with a native Mono8 (Pylon / FX2) uses it for 8-bit and a
+    true Mono12 for 12-bit."""
+    from modules.image_mode import select_capture_pixel_format
+
+    pylon = ('Mono8', 'Mono10', 'Mono12', 'Mono12p')
+    assert select_capture_pixel_format(8, pylon) == 'Mono8'
+    assert select_capture_pixel_format(12, pylon) == 'Mono12'
+    # 8-bit-only sensor (FX2/MT9P031): both depths land on Mono8.
+    assert select_capture_pixel_format(8, ('Mono8',)) == 'Mono8'
+    assert select_capture_pixel_format(12, ('Mono8',)) == 'Mono8'
+
+
+def test_select_capture_pixel_format_no_formats():
+    """No reported formats -> None (caller skips the push)."""
+    from modules.image_mode import select_capture_pixel_format
+
+    assert select_capture_pixel_format(8, ()) is None
+    assert select_capture_pixel_format(12, None) is None
+
+
 def test_image_mode_label_round_trip():
     """Every mode has a label and the label maps back to the mode."""
     from modules.image_mode import IMAGE_MODE_LABELS, LABEL_TO_IMAGE_MODE, resolve_image_mode

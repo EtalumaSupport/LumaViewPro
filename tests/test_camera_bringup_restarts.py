@@ -145,10 +145,6 @@ def test_pylon_mono12_still_recognized_as_12bit():
     assert camera_supports_12bit(('Mono8',)) is False
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason='IDS packed-format 12-bit recognition not built yet (CAMERA_START_GATE_PLAN.md)',
-)
 def test_ids_packed_format_12bit_recognition():
     """The IDS sensor advertises the packed IDS-specific format, not bare
     Mono12. Mono12g24IDS is 12-bit; Mono10g40IDS is not -- the match must
