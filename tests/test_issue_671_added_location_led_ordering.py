@@ -318,9 +318,16 @@ def _run_protocol(executor, protocol, tmp_path):
 class TestAddedLocationLedOrdering:
     """At the boundary between the last TSV step (A2 Red) and the
     first user-added step (added BF), the canonical convention
-    requires `leds_off` BEFORE the first `move_abs` of the next
-    step. The bug is that the convention is violated specifically
+    requires the LED-off BEFORE the first `move_abs` of the next
+    step, so the previous step's LED is not lit during well-to-well
+    motion. The bug is that the convention is violated specifically
     at this transition.
+
+    The invariant is the ordering (off precedes move), not the form
+    of the off: the boundary off may be the nuclear `leds_off` or the
+    LED authority's per-channel `led_off ch=N` diff. Either satisfies
+    the contract, so routing the boundary through the authority must
+    not falsely reproduce the bug.
     """
 
     def test_leds_off_precedes_move_at_added_location_boundary(self, executor, tmp_path):
@@ -368,30 +375,37 @@ class TestAddedLocationLedOrdering:
         last_a2_red_led_on = all_red_led_ons[1]  # A2_Red at step 8
 
         first_move_after_a2_red = None
-        first_leds_off_after_a2_red = None
+        first_boundary_off_after_a2_red = None
         for i in range(last_a2_red_led_on + 1, len(capture.records)):
             msg = capture.records[i][1]
             if first_move_after_a2_red is None and msg.startswith('move_abs '):
                 first_move_after_a2_red = i
-            if first_leds_off_after_a2_red is None and msg.strip() == 'leds_off':
-                first_leds_off_after_a2_red = i
-            if first_move_after_a2_red is not None and first_leds_off_after_a2_red is not None:
+            # The boundary off is either the nuclear leds_off or the LED
+            # authority's per-channel led_off diff; match either form so the
+            # invariant under test is the ordering, not the emission shape.
+            if first_boundary_off_after_a2_red is None and (
+                msg.strip() == 'leds_off' or msg.startswith('led_off ch=')
+            ):
+                first_boundary_off_after_a2_red = i
+            if first_move_after_a2_red is not None and first_boundary_off_after_a2_red is not None:
                 break
 
         assert first_move_after_a2_red is not None, (
             'Did not see any move_abs after A2 Red led_on. '
             'Did the protocol abort before transitioning to step 9?'
         )
-        assert first_leds_off_after_a2_red is not None, 'Did not see leds_off after A2 Red led_on.'
+        assert first_boundary_off_after_a2_red is not None, (
+            'Did not see the boundary LED-off after A2 Red led_on.'
+        )
 
-        # THE ASSERTION: leds_off must precede the first move_abs
-        # at the TSV->added-location boundary. With #671 unfixed,
-        # the move fires first (Red LED stays on during the move).
-        assert first_leds_off_after_a2_red < first_move_after_a2_red, (
-            f'#671 reproduced: leds_off (idx '
-            f'{first_leds_off_after_a2_red}) fired AFTER first move_abs '
+        # THE ASSERTION: the boundary LED-off must precede the first move_abs
+        # at the TSV->added-location boundary. With the bug unfixed, the move
+        # fires first (Red LED stays on during the move).
+        assert first_boundary_off_after_a2_red < first_move_after_a2_red, (
+            f'#671 reproduced: the boundary LED-off (idx '
+            f'{first_boundary_off_after_a2_red}) fired AFTER first move_abs '
             f'following A2 Red (idx {first_move_after_a2_red}). At the '
-            f'TSV->added-location boundary, leds_off must precede the '
+            f'TSV->added-location boundary, the LED-off must precede the '
             f"move so the previous step's LED isn't lit during "
             f'well-to-well motion.\n'
             f'Surrounding events:\n'
@@ -401,7 +415,7 @@ class TestAddedLocationLedOrdering:
                     max(0, last_a2_red_led_on),
                     min(
                         len(capture.records),
-                        max(first_move_after_a2_red, first_leds_off_after_a2_red) + 5,
+                        max(first_move_after_a2_red, first_boundary_off_after_a2_red) + 5,
                     ),
                 )
             )

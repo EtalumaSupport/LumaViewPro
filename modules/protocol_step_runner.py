@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 from lvp_logger import logger
 
 import modules.config_helpers as config_helpers
-from modules.lumascope_api.illumination import LedLease, LedTransition, LedTransitionCtx
+from modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
 from modules.protocol_state_machine import ProtocolState
 from modules.sequential_io_executor import IOTask
 from modules.settings_init import settings
@@ -311,13 +311,13 @@ class ProtocolStepRunner:
 
                 # Whether to hold this channel lit across the step boundary is
                 # the LED authority's STEP_BOUNDARY decision. The caller reads
-                # the protocol and precomputes primitives; the authority owns
-                # the policy (hold within a z-stack group, hold across a
-                # same-color move only on the opt-in, go dark across a scan
-                # boundary, hold on the final step when run-end will re-light
-                # this same channel). _keep_led is then just "is the target
-                # non-empty"; the capture leaf reuses it to skip its end-of-step
-                # off when the channel is held.
+                # the protocol and precomputes primitives into the boundary
+                # ctx; the authority owns the policy (hold within a z-stack
+                # group, hold across a same-color move only on the opt-in, go
+                # dark across a scan boundary, hold on the final step when
+                # run-end will re-light this same channel). The decision is
+                # applied through the authority after the capture completes
+                # (below), not threaded into the capture leaf.
                 num_steps = p._protocol.num_steps()
                 same_color = False
                 same_zstack_group = False
@@ -347,28 +347,22 @@ class ProtocolStepRunner:
                 else:
                     # Last step of a non-final scan: the inter-scan idle runs dark.
                     is_scan_boundary = True
-                # _keep_led is just "did the policy decide to hold." An unmapped
-                # channel (color2ch returns None when no LED board is present)
-                # makes the target empty and _keep_led False, but that is moot:
-                # with no board the capture leaf's end-of-step off is a no-op,
-                # so there is nothing to keep lit anyway.
-                _keep_led = bool(
-                    LedLease.target_leds(
-                        LedTransition.STEP_BOUNDARY,
-                        LedTransitionCtx(
-                            channel=p._scope.illumination.color2ch(step['Color']),
-                            mA=step['Illumination'],
-                            same_color=same_color,
-                            same_zstack_group=same_zstack_group,
-                            keep_led_across_moves=p._keep_led_between_steps,
-                            is_scan_boundary=is_scan_boundary,
-                            restore_hold=restore_hold,
-                        ),
-                    )
+                # An unmapped channel (color2ch returns None when no LED board
+                # is present) makes the boundary target empty, but that is
+                # moot: with no board the authority's diff is a no-op, so there
+                # is nothing to keep lit anyway.
+                boundary_ctx = LedTransitionCtx(
+                    channel=p._scope.illumination.color2ch(step['Color']),
+                    mA=step['Illumination'],
+                    same_color=same_color,
+                    same_zstack_group=same_zstack_group,
+                    keep_led_across_moves=p._keep_led_between_steps,
+                    is_scan_boundary=is_scan_boundary,
+                    restore_hold=restore_hold,
                 )
 
                 _t_capture_start = time.monotonic()
-                p._image_writer.capture(
+                completed = p._image_writer.capture(
                     save_folder=save_folder,
                     step=step,
                     output_format=output_format,
@@ -381,12 +375,17 @@ class ProtocolStepRunner:
                     video_as_frames=p._video_as_frames,
                     separate_folder_per_channel=p._separate_folder_per_channel,
                     curr_step=p._curr_step,
-                    keep_led_on=_keep_led,
                 )
                 _t_capture_done = time.monotonic()
                 logger.debug(
                     f'[TIMING] Step {p._curr_step} capture+save: {(_t_capture_done - _t_capture_start) * 1000:.1f}ms'
                 )
+                # Drive the step-boundary LED decision through the authority,
+                # but only when the capture completed with the LED left lit. A
+                # failed or aborted capture has already turned the LED off as
+                # cleanup, so applying a hold target here would re-light it.
+                if completed:
+                    self.apply_led_transition(LedTransition.STEP_BOUNDARY, boundary_ctx)
 
             else:
                 # No saving -- turn off LEDs manually (capture normally does this)

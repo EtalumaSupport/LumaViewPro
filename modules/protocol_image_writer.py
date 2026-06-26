@@ -164,16 +164,24 @@ class ProtocolImageWriter:
         video_as_frames: bool = False,
         separate_folder_per_channel: bool = False,
         curr_step: int = 0,
-        keep_led_on: bool = False,
-    ):
+    ) -> bool:
         """Orchestrate image/video acquisition for a single protocol step.
 
         Runs on the protocol-executor thread.
+
+        Returns:
+            True if the capture completed normally and left the step channel
+            lit, so the caller should drive the step-boundary LED decision
+            through the authority. False if the capture returned early
+            (aborted, failed, cancelled, or a dropped write); the caller must
+            not apply a boundary hold in that case -- the failure paths have
+            already turned the LED off, and a dropped write leaves the frame's
+            LED for the next step's illuminate to resolve, as before.
         """
         if self._aborted.is_set():
-            return
+            return False
         if not self._is_run_in_progress():
-            return
+            return False
 
         # N5 (STALL-1 H5 disambiguator): proto-state trace.
         # See docs/STALL1_INSTRUMENTATION_EXPERIMENT.md (Firmware repo) sec.4 N5.
@@ -374,7 +382,7 @@ class ProtocolImageWriter:
                             reason='video_cancelled',
                         )
                         _proto_outcome = 'video_cancelled'
-                        return
+                        return False
 
                     self._leds_off()
 
@@ -412,9 +420,9 @@ class ProtocolImageWriter:
                             name=name,
                         )
                         _proto_outcome = 'video_dropped_queue_full'
-                        return
+                        return False
                     _proto_outcome = 'video_success'
-                    return  # Video: leds_off already called at line 181
+                    return False  # Video always extinguishes; leds_off called above
 
                 else:
                     # Frame validity drains stale frames, then grabs a valid one
@@ -474,7 +482,7 @@ class ProtocolImageWriter:
                             )
                             self._abort_fn()
                         _proto_outcome = 'capture_failed'
-                        return
+                        return False
 
                     self._consecutive_capture_failures = 0  # Reset on success
                     logger.info(
@@ -538,7 +546,7 @@ class ProtocolImageWriter:
                             name=name,
                         )
                         _proto_outcome = 'dropped_queue_full'
-                        return
+                        return False
                     _proto_outcome = 'success'
 
             else:
@@ -568,8 +576,13 @@ class ProtocolImageWriter:
                 else:
                     _proto_outcome = 'not_saving'
 
-            if not keep_led_on:
-                self._leds_off()
+            # Completed normally with the step channel still lit. The
+            # step-boundary LED decision -- hold within a z-stack or across a
+            # same-color move, or go dark -- belongs to the LED authority and
+            # is driven by the caller, so the leaf no longer turns the LED off
+            # here. The failure paths above keep their own offs: those are
+            # error cleanup, not the boundary decision.
+            return True
         except Exception:
             _proto_outcome = 'exception'
             raise

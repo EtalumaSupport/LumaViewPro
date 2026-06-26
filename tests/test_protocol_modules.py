@@ -663,14 +663,21 @@ class TestFinalStepKeepsLedWhenCleanupRestoresIt:
     cleanup is about to re-light the same channel (it was lit before the
     run): the off->on pair is a visible end-of-acquire flicker on a
     z-stack started from a live-view-lit channel. Non-final scans keep
-    the LED-off so inter-scan waits stay dark (sample safety).
+    the LED off so inter-scan waits stay dark (sample safety).
+
+    The runner drives the boundary decision through the LED authority
+    (apply_led_transition(STEP_BOUNDARY, ctx)) after a completed capture,
+    so the assertion is on the authority's target set: a non-empty target
+    holds the channel lit, an empty target lets it go dark.
     """
 
-    def _keep_led_for(self, *, leds_state_at_end, original_led_states, n_scans=1):
-        """Drive the final step of a scan and return the keep_led_on flag
-        the capture received."""
+    def _boundary_target_for(self, *, leds_state_at_end, original_led_states, n_scans=1):
+        """Drive the final step of a scan and return the STEP_BOUNDARY target
+        the runner asks the authority for (empty set = goes dark, non-empty =
+        held lit)."""
         from unittest.mock import MagicMock
 
+        from modules.lumascope_api.illumination import LedLease, LedTransition
         from tests.protocol_drives import protocol_step, scan_ready_runner
 
         runner = scan_ready_runner(
@@ -681,49 +688,45 @@ class TestFinalStepKeepsLedWhenCleanupRestoresIt:
             _original_led_states=original_led_states,
             _n_scans=n_scans,
         )
+        captured = {}
+
+        def _spy(transition, ctx):
+            if transition is LedTransition.STEP_BOUNDARY:
+                captured['ctx'] = ctx
+
+        runner._step_executor.apply_led_transition = _spy
         runner._step_executor.scan_iterate()
         assert runner._image_writer.capture.called, 'the step must reach capture'
-        return runner._image_writer.capture.call_args.kwargs['keep_led_on']
+        assert 'ctx' in captured, 'the runner must drive the STEP_BOUNDARY decision'
+        return LedLease.target_leds(LedTransition.STEP_BOUNDARY, captured['ctx'])
 
     @staticmethod
     def _lit_before_run():
         return {'BF': {'enabled': True, 'illumination_ma': 100.0}}
 
     def test_final_scan_restore_keeps_lit_channel(self):
-        assert (
-            self._keep_led_for(
-                leds_state_at_end='return_to_original',
-                original_led_states=self._lit_before_run(),
-            )
-            is True
+        assert self._boundary_target_for(
+            leds_state_at_end='return_to_original',
+            original_led_states=self._lit_before_run(),
         ), 'cleanup is about to re-light this channel; turning it off here blinks'
 
     def test_final_scan_restore_skips_unlit_channel(self):
-        assert (
-            self._keep_led_for(
-                leds_state_at_end='return_to_original',
-                original_led_states={'BF': {'enabled': False, 'illumination_ma': 0.0}},
-            )
-            is False
+        assert not self._boundary_target_for(
+            leds_state_at_end='return_to_original',
+            original_led_states={'BF': {'enabled': False, 'illumination_ma': 0.0}},
         ), 'a channel dark before the run must go dark at the end'
 
     def test_leds_off_at_end_never_keeps(self):
-        assert (
-            self._keep_led_for(
-                leds_state_at_end='off',
-                original_led_states=self._lit_before_run(),
-            )
-            is False
+        assert not self._boundary_target_for(
+            leds_state_at_end='off',
+            original_led_states=self._lit_before_run(),
         ), "leds_state_at_end='off' must always end dark"
 
     def test_non_final_scan_stays_dark(self):
-        assert (
-            self._keep_led_for(
-                leds_state_at_end='return_to_original',
-                original_led_states=self._lit_before_run(),
-                n_scans=2,
-            )
-            is False
+        assert not self._boundary_target_for(
+            leds_state_at_end='return_to_original',
+            original_led_states=self._lit_before_run(),
+            n_scans=2,
         ), 'inter-scan waits must run dark (sample safety) on non-final scans'
 
 
