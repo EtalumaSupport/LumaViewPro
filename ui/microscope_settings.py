@@ -1149,6 +1149,7 @@ class MicroscopeSettings(BoxLayout):
 
     def open_advanced_settings(self):
         """Open the Advanced Settings modal (power-user / rarely-touched rows)."""
+        gui_logger.button('OPEN_ADVANCED_SETTINGS')
         from ui.advanced_settings import AdvancedSettings
 
         self._advanced_settings_popup = AdvancedSettings()
@@ -1156,6 +1157,7 @@ class MicroscopeSettings(BoxLayout):
 
     def generate_support_report(self):
         """Show confirmation dialog, then generate a tech support report."""
+        gui_logger.button('GENERATE_SUPPORT_REPORT')
         from ui.notification_popup import show_confirmation_popup
 
         show_confirmation_popup(
@@ -1231,6 +1233,7 @@ class MicroscopeSettings(BoxLayout):
 
     def zip_logs_only(self):
         """Quick zip of logs + data + recent protocols. No hardware tests."""
+        gui_logger.button('ZIP_LOGS')
         from ui.progress_popup import CustomPopup
         from modules.tech_support_report import TechSupportReport
         import threading
