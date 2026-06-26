@@ -102,6 +102,23 @@ class AoiPlan:
     crop_width: int
     crop_height: int
 
+    @property
+    def needs_crop(self) -> bool:
+        """Whether the crop window is a strict sub-rectangle of the acquired AOI.
+
+        False when the window already covers the whole AOI -- the request landed
+        on the alignment grid (or clamped to the sensor max), so there is no
+        surplus to trim and the acquired frame IS the delivered frame. Lets a
+        caller skip the crop entirely without re-deriving the "no surplus" test
+        from the individual fields.
+        """
+        return (
+            self.crop_x0 != 0
+            or self.crop_y0 != 0
+            or self.crop_width != self.acq_width
+            or self.crop_height != self.acq_height
+        )
+
 
 def plan_aoi(
     target: tuple[int, int],

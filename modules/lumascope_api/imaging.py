@@ -580,8 +580,17 @@ class ImagingAPI:
             return
         self._driver.set_frame_size(w, h)
         self.frame_validity.invalidate('frame_size')
+        # Cache the DELIVERED size, not the request: a driver may clamp a
+        # near-sensor-max request to a smaller legal AOI (oversize-then-crop),
+        # and FOV / pixel-size math reads this cache, so it must reflect what the
+        # camera actually delivers. The active check above plus the just-applied
+        # resize mean get_frame_size returns the real delivered dict here.
+        delivered = self._driver.get_frame_size()
         with self._camera_cache_lock:
-            self._camera_cache['frame_size'] = {'width': int(w), 'height': int(h)}
+            self._camera_cache['frame_size'] = {
+                'width': int(delivered['width']),
+                'height': int(delivered['height']),
+            }
 
     def _notify_camera_absent(self, op_label: str) -> None:
         """Fire a deduped notification when a camera-required operation

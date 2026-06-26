@@ -342,6 +342,10 @@ def bare_ids_camera():
     cam.data_stream.IsGrabbing.return_value = False
     cam._mark_disconnected = MagicMock()
     cam._pixel_format_cache = None
+    # Oversize-then-crop framing state, seeded as __init__ would so
+    # set_frame_size / get_frame_size and the unpack crop run against real state.
+    cam._crop_spec = None
+    cam._sensor_max = None
     return cam
 
 

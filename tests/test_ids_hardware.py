@@ -45,15 +45,17 @@ class TestIDS(unittest.TestCase):
         self.assertFalse(self.camera.is_grabbing())
 
     def test_frame_size(self):
-        # Valid
+        # On-grid request: delivered exactly (no surplus to crop).
         self.camera.set_frame_size(1920, 1528)
         self.assertDictEqual(self.camera.get_frame_size(), {'width': 1920, 'height': 1528})
-        # Out of bounds
+        # Off-grid width: oversize-then-crop now delivers the EXACT request
+        # (acquire 1920x1532, crop to 1919x1529); previously silent-floored to
+        # 1872x1528. get_frame_size reports the delivered (cropped) size.
         self.camera.set_frame_size(1919, 1529)
-        self.assertDictEqual(self.camera.get_frame_size(), {'width': 1872, 'height': 1528})
-        # Incorrect increment
+        self.assertDictEqual(self.camera.get_frame_size(), {'width': 1919, 'height': 1529})
+        # Off-increment on both axes: also delivered exactly (was 1440x904).
         self.camera.set_frame_size(1480, 906)
-        self.assertDictEqual(self.camera.get_frame_size(), {'width': 1440, 'height': 904})
+        self.assertDictEqual(self.camera.get_frame_size(), {'width': 1480, 'height': 906})
 
     def test_pixel_format(self):
         formats = self.camera.get_supported_pixel_formats()

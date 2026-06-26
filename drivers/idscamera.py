@@ -22,6 +22,12 @@ from drivers.camera import Camera, ImageHandlerBase
 from drivers.exceptions import HardwareError
 from drivers.registry import camera_registry
 
+# modules.aoi_geometry (plan_aoi) and modules.image_utils (center_crop) are
+# imported function-locally where used: the driver layer must not import from
+# modules/ at top level (enforced by tests/test_architecture_fixes.py). Both are
+# pure helpers, so the lazy import carries no cycle risk; after first use the
+# import is a sys.modules dict hit, negligible even on the per-frame unpack path.
+
 # IDS Library.Close() shuts down the entire SDK (not per-device).
 # Defer to atexit so it only runs once at process exit.
 _ids_library_initialized = False
@@ -73,6 +79,30 @@ def _ids_ipl_target(wire_format_name: str):
     return ids_peak_ipl.PixelFormatName_Mono8
 
 
+def _unpack_buffer(buffer, wire_format_name: str, crop_spec):
+    """Unpack one finished IDS buffer to a right-aligned uint16 array.
+
+    BufferToImage + ConvertTo to the wire format's native depth, crop the
+    oversize-then-crop surplus (``crop_spec`` = (x0, y0, w, h), or None for a
+    full-frame delivery), then copy to a contiguous, target-sized array that
+    outlives the SDK image and the re-queued buffer. Shared by the live unpack
+    worker and the still-capture path so the crop is applied identically on
+    both -- the delivered frame matches get_frame_size() regardless of which
+    path produced it. center_crop is imported here (drivers must not import
+    modules/ at top level); it is a sys.modules hit after first use.
+    """
+    from modules.image_utils import center_crop
+
+    target = _ids_ipl_target(wire_format_name)
+    img = ids_peak_ipl_extension.BufferToImage(buffer)
+    if img.PixelFormat() != target:
+        img = img.ConvertTo(target)
+    view = img.get_numpy()
+    if crop_spec is not None:
+        view = center_crop(view, *crop_spec)
+    return view.copy()
+
+
 @camera_registry.register('ids', priority=80)
 class IDSCamera(Camera):
     """IDS Peak driver for the U3-34L0XCP-M (Sony IMX676, packed Mono10/12).
@@ -99,6 +129,24 @@ class IDSCamera(Camera):
         # disconnect; get_pixel_format() serves from it to avoid a live
         # node-map read on the per-frame image-metadata path.
         self._pixel_format_cache = None
+
+        # Oversize-then-crop framing state. set_frame_size acquires the next
+        # legal AOI at or above the request (the sensor's 48-px width grid
+        # cannot hit an arbitrary size) and records the centered sub-rectangle
+        # (x0, y0, w, h) the unpack worker crops back to exactly what was asked.
+        # It is the single source of truth for the delivered (public) frame size
+        # -- get_frame_size() reads (w, h) from it, get_acquired_aoi() reports
+        # the larger hardware AOI. None before the first set_frame_size or after
+        # a geometry change invalidates it (see _invalidate_framing).
+        self._crop_spec: tuple[int, int, int, int] | None = None
+
+        # The offset-independent sensor max (width, height), cached from a read
+        # taken with the offsets at zero (Width/Height .Maximum() shrinks as the
+        # offset grows, so a live read once a centering offset is applied would
+        # under-report). Refreshed each set_frame_size; cleared on a geometry
+        # change. None until the first set_frame_size (get_max_frame_size then
+        # reads live, where the offsets are still at their zero default).
+        self._sensor_max: tuple[int, int] | None = None
 
         super().__init__()
 
@@ -465,7 +513,7 @@ class IDSCamera(Camera):
 
         dltl, dltl_max = _value_and_max('DeviceLinkThroughputLimit')
         rate, rate_max = _value_and_max('AcquisitionFrameRate')
-        frame = self.get_frame_size() or {}
+        frame = self.get_acquired_aoi() or {}
         logger.info(
             f'[CAM Class ] Free-run state: frame={frame.get("width")}x{frame.get("height")} '
             f'pixel_format={self.get_pixel_format()} '
@@ -538,7 +586,7 @@ class IDSCamera(Camera):
                 results['icv'] = {'importable': False, 'error': f'{type(e).__name__}: {e}'}
 
         wire = self.get_pixel_format()
-        frame = self.get_frame_size() or {}
+        frame = self.get_acquired_aoi() or {}
         width, height = frame.get('width'), frame.get('height')
         results.update(wire_format=wire, width=width, height=height)
         if not width or not height:
@@ -624,24 +672,136 @@ class IDSCamera(Camera):
         results['numpy'] = _stat(numpy_ms)
         return results
 
-    def set_frame_size(self, w, h):
+    def set_frame_size(self, w, h) -> bool:
+        """Deliver exactly the requested frame size via oversize-then-crop.
+
+        The IMX676 AOI snaps to a coarse grid (48 px wide, 4 px tall), so a
+        request like 1900 cannot be set exactly. Rather than silently floor it
+        (the old behavior delivered 1872 for a 1900 request), acquire the next
+        legal AOI UP, center it on the sensor, and record the sub-rectangle the
+        unpack worker crops back to the exact request. The hardware AOI (the
+        oversized acquisition) is diagnostic only; the delivered, public size is
+        the cropped target.
+        """
+        if not self.active:
+            # Expected during disconnect/teardown; log so a dropped resize is
+            # visible in a bundle rather than a silent no-op.
+            _cam_log.debug('[CAM Class ] set_frame_size skipped: camera inactive')
+            return False
+
         try:
-            mins = self.get_min_frame_size()
-            maxs = self.get_max_frame_size()
+            from modules.aoi_geometry import plan_aoi
 
-            if not mins or not maxs:
-                _cam_log.error('[CAM Class ] set_frame_size: could not read frame size limits')
-                return
+            nodemap = self.remote_nodemap
+            width_node = nodemap.FindNode('Width')
+            height_node = nodemap.FindNode('Height')
+            offset_x_node = nodemap.FindNode('OffsetX')
+            offset_y_node = nodemap.FindNode('OffsetY')
 
-            # Convert w and h to closest valid values
-            width = int(max(mins['width'], min(maxs['width'], w)) / 48) * 48
-            height = int(max(mins['height'], min(maxs['height'], h)) / 4) * 4
+            target = (max(width_node.Minimum(), int(w)), max(height_node.Minimum(), int(h)))
+            step = (self.profile.alignment['width'], self.profile.alignment['height'])
+            bias = self._optical_center_bias()
 
             with self.update_camera_config():
-                self.remote_nodemap.FindNode('Width').SetValue(width)
-                self.remote_nodemap.FindNode('Height').SetValue(height)
+                # Zero the offsets first so Width/Height range over the full
+                # sensor (an AOI's max width shrinks as its X offset grows) and
+                # the max we read is the true sensor max, not max-minus-offset.
+                offset_x_node.SetValue(0)
+                offset_y_node.SetValue(0)
+
+                # This offset-zero read is the only place the true (offset-
+                # independent) sensor max is visible; cache it for
+                # get_max_frame_size, which is called with offsets applied.
+                max_size = (width_node.Maximum(), height_node.Maximum())
+                self._sensor_max = max_size
+
+                plan = plan_aoi(
+                    target=target,
+                    step=step,
+                    max_size=max_size,
+                    offset_step=(offset_x_node.Increment(), offset_y_node.Increment()),
+                    bias=bias,
+                )
+
+                width_node.SetValue(plan.acq_width)
+                height_node.SetValue(plan.acq_height)
+                offset_x_node.SetValue(plan.offset_x)
+                offset_y_node.SetValue(plan.offset_y)
+
+                # Record the crop INSIDE the stopped window: update_camera_config
+                # restarts the grab (and reallocs buffers to the new AOI) on exit,
+                # so the window must be in place before the unpack worker resumes,
+                # or it would crop the new-sized buffer against the old one. None
+                # when the AOI already matches the request (needs_crop False) so
+                # the unpack worker skips the per-frame slice entirely;
+                # get_frame_size then falls back to the acquired AOI, which equals
+                # the delivered size on that path.
+                self._crop_spec = (
+                    (plan.crop_x0, plan.crop_y0, plan.crop_width, plan.crop_height)
+                    if plan.needs_crop
+                    else None
+                )
+
+            if (plan.crop_width, plan.crop_height) != target:
+                # plan_aoi clamps to the sensor: a request within one alignment
+                # step of the max can't be supplied in full. The delivered size
+                # is honest (get_frame_size reports it), but flag the shortfall.
+                _cam_log.warning(
+                    f'[CAM Class ] set_frame_size delivered '
+                    f'{plan.crop_width}x{plan.crop_height}, smaller than requested '
+                    f'{target[0]}x{target[1]} (near sensor max); get_frame_size() '
+                    f'reports the delivered size'
+                )
+
+            _cam_log.info(
+                f'[CAM Class ] set_frame_size target={target[0]}x{target[1]} '
+                f'acq={plan.acq_width}x{plan.acq_height} '
+                f'off=({plan.offset_x},{plan.offset_y}) bias={bias} '
+                f'crop=({plan.crop_x0},{plan.crop_y0},{plan.crop_width},{plan.crop_height})'
+            )
+            return True
         except Exception as e:
+            # A partially-applied AOI (offsets zeroed, or Width/Height set but
+            # the crop not yet recorded) must not leave a stale crop window for
+            # the unpack worker. Invalidate so frames pass through at the full
+            # AOI until the next successful set_frame_size re-applies it.
+            self._invalidate_framing()
             _cam_log.error(f'[CAM Class ] set_frame_size failed: {e}')
+            return False
+
+    def _invalidate_framing(self) -> None:
+        """Drop the recorded crop window so the unpack worker passes frames
+        through at the full AOI.
+
+        Called when the AOI geometry changes out from under the crop -- a
+        binning change (which resizes the buffer) or a failed set_frame_size
+        (which may have committed a new AOI before recording the matching
+        window). get_frame_size() then falls back to the live hardware AOI until
+        the next successful set_frame_size records a window that fits the new
+        buffer. Without this the worker crops every new-sized frame against the
+        old window and drops them all (a frozen/black preview).
+
+        Also drops the cached sensor max: a binning change halves it, so the
+        cached value would otherwise be stale until the next set_frame_size.
+        """
+        self._crop_spec = None
+        self._sensor_max = None
+
+    def _optical_center_bias(self) -> tuple[int, int]:
+        """The optical-center AOI offset bias, in displayed pixels.
+
+        Neutral (0, 0) today: the AOI centers geometrically, which is correct for
+        every unit. set_frame_size already threads the return value through
+        plan_aoi's ``bias``, so the optical-center work (planned ~2 weeks out)
+        implements only this method's body -- read the per-unit optical center
+        (motorconfig ImageCenter, sensor pixels), reorient it into the delivered
+        array frame (aoi_geometry.reorient_image_center, with the sensor's
+        mounted orientation pinned by a one-time bench collimator calibration),
+        and divide by the active binning. It must return without raising:
+        set_frame_size catches exceptions, so a raise would swallow into a silent
+        failure to resize.
+        """
+        return (0, 0)
 
     def get_min_frame_size(self) -> dict:
         if not self.active:
@@ -660,7 +820,18 @@ class IDSCamera(Camera):
         if not self.active:
             return {}
 
+        # Prefer the cached offset-zero read: Width/Height .Maximum() shrinks as
+        # the offset grows (Width.Max = SensorWidth - OffsetX, floored to the
+        # increment), so a live read with the centering offset applied would
+        # under-report the sensor max. set_frame_size caches the true max from
+        # its offset-zero read.
+        if self._sensor_max is not None:
+            return {'width': self._sensor_max[0], 'height': self._sensor_max[1]}
+
         try:
+            # No cache yet (before the first set_frame_size): the offsets are
+            # still at their zero default, so a live Maximum() read is the true
+            # sensor max.
             return {
                 'width': self.remote_nodemap.FindNode('Width').Maximum(),
                 'height': self.remote_nodemap.FindNode('Height').Maximum(),
@@ -670,18 +841,33 @@ class IDSCamera(Camera):
             return {}
 
     def get_frame_size(self):
+        """The delivered (public) frame size -- the cropped target, not the AOI.
+
+        Oversize-then-crop acquires a larger AOI than requested and trims it, so
+        the consumer-facing size is the recorded crop window's (w, h). Falls back
+        to the hardware AOI before the first set_frame_size, or after a geometry
+        change has invalidated the crop (see _invalidate_framing).
+        """
+        if not self.active:
+            return
+        if self._crop_spec is not None:
+            return {'width': self._crop_spec[2], 'height': self._crop_spec[3]}
+        return self.get_acquired_aoi()
+
+    def get_acquired_aoi(self):
+        """The hardware AOI actually set on the sensor (the oversized
+        acquisition before the software crop). Diagnostic only -- the public
+        frame size is the cropped target from get_frame_size()."""
         if not self.active:
             return
 
         try:
-            width = self.remote_nodemap.FindNode('Width').Value()
-            height = self.remote_nodemap.FindNode('Height').Value()
             return {
-                'width': width,
-                'height': height,
+                'width': self.remote_nodemap.FindNode('Width').Value(),
+                'height': self.remote_nodemap.FindNode('Height').Value(),
             }
         except Exception as e:
-            _cam_log.error(f'[CAM Class ] get_frame_size failed: {e}')
+            _cam_log.error(f'[CAM Class ] get_acquired_aoi failed: {e}')
             return None
 
     @staticmethod
@@ -976,6 +1162,21 @@ class IDSCamera(Camera):
             with self.update_camera_config():
                 self.remote_nodemap.FindNode('BinningVertical').SetValue(size)
                 self.remote_nodemap.FindNode('BinningHorizontal').SetValue(size)
+                # Zero the offsets: the crop is invalidated just below (frames
+                # pass at the full binned AOI until set_frame_size re-centers),
+                # and a leftover centering offset would make get_max_frame_size's
+                # live fallback read Width.Maximum() = sensor - offset, i.e.
+                # under-report the binned sensor max in the window before the UI
+                # re-applies set_frame_size.
+                self.remote_nodemap.FindNode('OffsetX').SetValue(0)
+                self.remote_nodemap.FindNode('OffsetY').SetValue(0)
+                # Binning resizes the AOI buffer, so the recorded crop window no
+                # longer fits. Invalidate INSIDE the stopped window (before the
+                # grab restarts on exit) so the unpack worker passes frames
+                # through at the full binned AOI instead of cropping against a
+                # stale window and dropping every frame. The UI re-applies
+                # set_frame_size with the new displayed size right after.
+                self._invalidate_framing()
 
             logger.debug(
                 f'[CAM Class ] Binning set to {self.get_binning_size()}, frame now {self.get_frame_size()}'
@@ -1015,32 +1216,33 @@ class IDSCamera(Camera):
             # grab loop already uses ms -- convert here too, or the SWIG call
             # rejects the float and every capture-path grab fails.
             buffer = self.data_stream.WaitForFinishedBuffer(int(timeout_s * 1000))
-            result = not buffer.IsIncomplete()
-            if not result:
-                self.data_stream.QueueBuffer(buffer)
+        except Exception as e:
+            _cam_log.warning(f'[CAM Class ] grab_new_capture wait failed: {e}')
+            return False, None
+
+        # Re-queue the buffer in EVERY exit (incomplete, success, or an unpack
+        # error) -- _unpack_buffer can raise (center_crop / SDK), and a buffer
+        # that is never re-queued is permanently lost from the pool, which after
+        # a few failures starves the stream and hangs all captures. Mirrors the
+        # live worker's finally+_requeue. The copy in _unpack_buffer takes the
+        # pixels out, so re-queue is safe once it returns.
+        try:
+            if buffer.IsIncomplete():
                 return False, None
-
-            # Convert to the unpacked native depth (uint16 for Mono10/Mono12),
-            # NOT Mono8: the still-capture path reads this frame's depth from
-            # last_significant_bits, which now reflects native depth, so an
-            # 8-bit array here would be downconverted against a 10/12-bit depth.
+            # Unpack to the native depth (uint16 for Mono10/Mono12), NOT Mono8:
+            # the still-capture path reads this frame's depth from
+            # last_significant_bits, which reflects native depth, so an 8-bit
+            # array here would be downconverted against a 10/12-bit depth. Apply
+            # the same crop as the live path so a saved/scan/AF frame is the
+            # delivered size, not the oversized AOI.
             wire = self.get_pixel_format()
-            target = _ids_ipl_target(wire)
-            img = ids_peak_ipl_extension.BufferToImage(buffer)
-            if img.PixelFormat() != target:
-                img = img.ConvertTo(target)
-            # ConvertTo copied the data out; copy the numpy view, THEN re-queue
-            # so the SDK cannot refill the buffer while the array still aliases it.
-            img = img.get_numpy().copy()
-            img_ts = datetime.datetime.now()
-            self.data_stream.QueueBuffer(buffer)
-
-            self.array = img
-            return True, img_ts
-
+            self.array = _unpack_buffer(buffer, wire, self._crop_spec)
+            return True, datetime.datetime.now()
         except Exception as e:
             _cam_log.warning(f'[CAM Class ] grab_new_capture failed: {e}')
             return False, None
+        finally:
+            self.data_stream.QueueBuffer(buffer)
 
     def update_auto_gain_target_brightness(self, auto_target_brightness: float):
         try:
@@ -1395,17 +1597,12 @@ class ImageHandler(ImageHandlerBase):
     def _unpack(self, buffer):
         """Unpack one finished buffer to a right-aligned uint16 array + its depth.
 
-        Uses the SDK's own BufferToImage + ConvertTo -- the exact conversion the
-        original inline grab loop ran and the bench validated -- so there is no
-        intermediate byte copy or image-from-buffer reconstruction to get wrong.
-        ConvertTo produces an independent copy, so the buffer is safe to re-queue
-        once this returns. ids_unpack.py is the bench cross-check. Worker-only.
+        Delegates to _unpack_buffer (shared with the still-capture path) so the
+        oversize-then-crop crop is applied identically on both: BufferToImage +
+        ConvertTo to the native depth, crop to the recorded window, copy out.
+        crop_spec and the buffer size change together inside update_camera_config
+        (grab stopped), so they stay consistent. Worker-only.
         """
         wire = self._parent.get_pixel_format()
-        target = _ids_ipl_target(wire)
-        img = ids_peak_ipl_extension.BufferToImage(buffer)
-        if img.PixelFormat() != target:
-            img = img.ConvertTo(target)
-        # get_numpy() is a view onto the converted image; copy before it leaves.
-        array = img.get_numpy().copy()
+        array = _unpack_buffer(buffer, wire, self._parent._crop_spec)
         return array, ids_significant_bits(wire)

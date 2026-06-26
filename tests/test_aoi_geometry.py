@@ -109,6 +109,17 @@ def test_plan_at_sensor_max_degrades_to_noop_crop():
     assert (plan.offset_x, plan.offset_y) == (0, 0)
 
 
+def test_needs_crop_true_when_surplus_false_when_full_frame():
+    """needs_crop reports whether there is surplus to trim: True for an off-grid
+    request (oversize), False when the window covers the whole AOI (on-grid or
+    clamped at the sensor max)."""
+    oversize = plan_aoi(target=(1900, 1900), step=STEP, max_size=MAX, offset_step=(1, 1))
+    assert oversize.needs_crop is True
+
+    at_max = plan_aoi(target=MAX, step=STEP, max_size=MAX, offset_step=(1, 1))
+    assert at_max.needs_crop is False
+
+
 def test_plan_request_above_max_is_capped():
     plan = plan_aoi(target=(9999, 9999), step=STEP, max_size=MAX, offset_step=(1, 1))
     # capped to the largest legal AOI at/below max; crop never exceeds it
