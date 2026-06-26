@@ -212,7 +212,8 @@ _a2A3536_31umBAS = CameraProfile(
     driver='pylon',
 )
 
-# IDS -- U3-34L0XCP-M (NO and GL variants share same specs)
+# IDS -- U3-34L family (IMX676): XCP, XLS, ... body variants share the same
+# sensor specs; matched by the 'U3-34Lx' substring in _PROFILES below.
 _U3_34L0XCP_M = CameraProfile(
     model_name='U3-34L0XCP-M',
     sensor='Sony IMX676-AAMR1-C',
@@ -317,7 +318,11 @@ _PROFILES: list[tuple[str, CameraProfile]] = [
     ('dmA3536-9gm', _dmA3536_9gm),
     ('a2A3536-31umBAS', _a2A3536_31umBAS),
     ('U3-34L0XCP-M', _U3_34L0XCP_M),  # spec sheet model
-    ('U3-34LxXCP-M', _U3_34L0XCP_M),  # as reported by SDK
+    # SDK reports the U3-34L family as 'U3-34Lx<variant>-M' (XCP, XLS, ...).
+    # The variants are the same IMX676 sensor in different body builds, so the
+    # substring covers all of them; a body whose processor differs gets its own
+    # entry above this one once characterized.
+    ('U3-34Lx', _U3_34L0XCP_M),
     ('SimulatedCamera', _simulated),
     ('MT9P031', _MT9P031_LS620),  # FX2Camera sets model_name='MT9P031-LS620'
     ('LS620', _MT9P031_LS620),  # explicit model-name match

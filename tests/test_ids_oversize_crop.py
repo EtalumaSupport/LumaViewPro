@@ -132,6 +132,21 @@ def test_request_near_sensor_max_delivers_clamped_size_truthfully():
     assert cam.get_frame_size() == {'width': 1872, 'height': 1900}
 
 
+def test_set_frame_size_uses_nodemap_increment_not_profile():
+    """The alignment step comes from the SDK nodemap (Width.Increment), not the
+    profile: an unrecognized model gets a default profile (alignment 4) the
+    hardware rejects (Inc=48). With a wrong profile alignment (4) but the real
+    nodemap increment (48), the AOI must still land on the 48 grid."""
+    cam = _ids_camera_with_aoi()
+    cam.profile = CameraProfile(alignment={'width': 4, 'height': 4})  # default/wrong
+
+    cam.set_frame_size(1900, 1900)
+
+    # acq width on the 48 grid (from the nodemap increment), not the profile's 4.
+    assert cam.get_acquired_aoi()['width'] == 1920
+    assert cam.get_acquired_aoi()['width'] % 48 == 0
+
+
 def test_set_frame_size_zeroes_offsets_before_reading_max():
     """Offsets must be set to 0 before Width/Height so the planner reads the true
     sensor max, not max-minus-current-offset, and the AOI fits on a fresh open."""

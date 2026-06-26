@@ -179,3 +179,30 @@ def test_driver_class_attributes_match_contract(driver_cls, expected_color, expe
     """One-shot parametrized class-attribute check across all camera drivers."""
     assert driver_cls.is_color_native is expected_color
     assert driver_cls.native_bit_depth == expected_depth
+
+
+class TestU3L34ProfileMatch:
+    """The U3-34L IDS family reports as 'U3-34Lx<variant>-M' (XCP, XLS, ...);
+    all variants are the same IMX676 sensor and must resolve to its profile, not
+    the default fallback (which would break alignment / binning / pixel formats).
+    """
+
+    def test_xls_variant_resolves_to_imx676_profile(self):
+        from drivers.camera_profiles import lookup_profile
+
+        profile = lookup_profile('U3-34LxXLS-M')
+        assert profile.driver == 'ids'
+        assert profile.alignment == {'width': 48, 'height': 4}
+        assert profile.binning_sizes == [1, 2]
+        assert profile.pixel_formats == ['Mono10g40IDS', 'Mono12g24IDS']
+        assert profile.model_name == 'U3-34LxXLS-M'  # actual reported name retained
+
+    def test_xcp_variant_still_resolves(self):
+        from drivers.camera_profiles import lookup_profile
+
+        assert lookup_profile('U3-34LxXCP-M').driver == 'ids'
+
+    def test_unknown_model_still_falls_back_to_default(self):
+        from drivers.camera_profiles import lookup_profile
+
+        assert lookup_profile('SomeOtherCamera-9000').driver == 'unknown'

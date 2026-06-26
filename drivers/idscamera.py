@@ -699,7 +699,11 @@ class IDSCamera(Camera):
             offset_y_node = nodemap.FindNode('OffsetY')
 
             target = (max(width_node.Minimum(), int(w)), max(height_node.Minimum(), int(h)))
-            step = (self.profile.alignment['width'], self.profile.alignment['height'])
+            # Alignment step from the SDK nodemap, not the profile: the hardware
+            # increment is authoritative (48 wide on the IMX676 bodies), and an
+            # unrecognized model falls back to a default profile whose alignment
+            # (4) the SDK rejects. Couple to the hardware, not a static spec.
+            step = (width_node.Increment(), height_node.Increment())
             bias = self._optical_center_bias()
 
             with self.update_camera_config():
