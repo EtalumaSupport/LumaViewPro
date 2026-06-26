@@ -102,9 +102,11 @@ class LedTransitionCtx:
             last step of a non-final scan). The LED goes dark across it
             regardless of the hold flags, so the sample is not lit during the
             wait between scans.
-        restore_hold: This is the final step of the run and the run-end policy
-            will re-light this same channel. Hold it lit so the boundary off
-            plus run-end on do not produce a visible end-of-acquire flicker.
+        is_run_end_boundary: This is the final step of the run. The boundary
+            holds this channel only if the run-end target (end_policy +
+            snapshot_lit) re-lights it, so the boundary off plus run-end on do
+            not produce a visible end-of-acquire flicker. The hold derives from
+            the run-end target itself, not a separately-computed flag.
         end_policy: The run's end-state when the run finishes.
         snapshot_lit: The (channel, mA) pairs lit at the moment a snapshot was
             taken -- the pre-run / pre-autofocus live state to restore.
@@ -118,7 +120,7 @@ class LedTransitionCtx:
     keep_led_on: bool = False
     preview_on: bool = False
     is_scan_boundary: bool = False
-    restore_hold: bool = False
+    is_run_end_boundary: bool = False
     end_policy: LedEndPolicy = LedEndPolicy.OFF
     snapshot_lit: frozenset[tuple[int, float]] = frozenset()
 
@@ -214,10 +216,14 @@ class LedLease:
             # through the inter-scan idle, whatever the hold flags say.
             if ctx.is_scan_boundary:
                 return frozenset()
-            # Final step whose channel the run-end policy is about to re-light:
-            # hold, so the boundary off plus run-end on do not blink the sample.
-            if ctx.restore_hold:
-                return primary
+            # Final step of the run: hold this channel only if the run-end
+            # policy is about to re-light it, so the boundary off plus run-end
+            # on do not blink the sample. The decision IS the run-end target,
+            # so the boundary and the cleanup never derive the end state from
+            # the same inputs in two places.
+            if ctx.is_run_end_boundary:
+                run_end_lit = {ch for ch, _ in LedLease.target_leds(LedTransition.RUN_END, ctx)}
+                return primary if ctx.channel in run_end_lit else frozenset()
             # Otherwise hold within a z-stack group always, and hold across a
             # stage move only for a same-color step when the opt-in is on. Else
             # extinguish, so the default never leaves a channel lit across a move.
@@ -282,6 +288,46 @@ class LedLease:
                 api.led_off(channel=ch, _lease_owner=self.owner_name)
         for ch, mA in target:
             api.led_on(channel=ch, mA=mA, owner=self.owner_name)
+
+
+def resolve_end_state(
+    leds_state_at_end: str,
+    original_led_states: dict,
+    color2ch,
+) -> tuple[LedEndPolicy | None, frozenset[tuple[int, float]]]:
+    """Map a run's end-state policy and pre-run snapshot to the LED authority's
+    (end_policy, snapshot_lit).
+
+    The single derivation of a run's end LED state, shared by run cleanup (the
+    RUN_END transition) and the final-step boundary (which holds a channel only
+    if run-end will re-light it). Deriving it in one place is what lets the
+    boundary and the cleanup agree by construction instead of computing the same
+    answer from the same inputs in two places.
+
+    Args:
+        leds_state_at_end: The run's end policy -- 'off' or 'return_to_original'.
+        original_led_states: The pre-run snapshot, color -> {'enabled': bool,
+            'illumination_ma': float}.
+        color2ch: Callable mapping a color name to a channel number (or None
+            when no LED board maps it).
+
+    Returns:
+        (end_policy, snapshot_lit). end_policy is None for an unrecognized
+        policy string -- the caller decides how to surface that. snapshot_lit is
+        the (channel, mA) set to restore, empty for the OFF policy.
+    """
+    if leds_state_at_end == 'off':
+        return LedEndPolicy.OFF, frozenset()
+    if leds_state_at_end == 'return_to_original':
+        pairs = []
+        for color, color_data in (original_led_states or {}).items():
+            if not color_data.get('enabled'):
+                continue
+            ch = color2ch(color)
+            if ch is not None:
+                pairs.append((ch, color_data['illumination_ma']))
+        return LedEndPolicy.RETURN_TO_ORIGINAL, frozenset(pairs)
+    return None, frozenset()
 
 
 class IlluminationAPI:

@@ -216,22 +216,51 @@ def test_target_step_boundary_scan_boundary_forces_off():
     )
 
 
-def test_target_step_boundary_restore_hold_keeps_lit():
-    # Final step whose channel run-end will re-light: hold, so the boundary off
-    # plus run-end on do not blink. Holds even with no inter-step hold flag set.
+def test_target_step_boundary_run_end_boundary_holds_relit_channel():
+    # Final step of the run: hold this channel iff the run-end target re-lights
+    # it. The hold derives from the run-end target (end_policy + snapshot_lit),
+    # not a separate flag -- so the boundary and the cleanup cannot disagree.
     assert _td(
         LedTransition.STEP_BOUNDARY,
         channel=GREEN_CH,
         mA=GREEN_MA,
-        restore_hold=True,
+        is_run_end_boundary=True,
+        end_policy=LedEndPolicy.RETURN_TO_ORIGINAL,
+        snapshot_lit=frozenset({(GREEN_CH, GREEN_MA)}),
     ) == frozenset({(GREEN_CH, GREEN_MA)})
-    # A scan boundary still wins over restore_hold (dark beats hold for safety).
+    # Run-end policy OFF lets the final-step channel go dark.
     assert (
         _td(
             LedTransition.STEP_BOUNDARY,
             channel=GREEN_CH,
             mA=GREEN_MA,
-            restore_hold=True,
+            is_run_end_boundary=True,
+            end_policy=LedEndPolicy.OFF,
+        )
+        == frozenset()
+    )
+    # Restore policy whose snapshot does NOT include this channel: go dark
+    # (run-end will not re-light it, so there is nothing to hold for).
+    assert (
+        _td(
+            LedTransition.STEP_BOUNDARY,
+            channel=GREEN_CH,
+            mA=GREEN_MA,
+            is_run_end_boundary=True,
+            end_policy=LedEndPolicy.RETURN_TO_ORIGINAL,
+            snapshot_lit=frozenset({(RED_CH, RED_MA)}),
+        )
+        == frozenset()
+    )
+    # A scan boundary still wins (dark beats hold for safety).
+    assert (
+        _td(
+            LedTransition.STEP_BOUNDARY,
+            channel=GREEN_CH,
+            mA=GREEN_MA,
+            is_run_end_boundary=True,
+            end_policy=LedEndPolicy.RETURN_TO_ORIGINAL,
+            snapshot_lit=frozenset({(GREEN_CH, GREEN_MA)}),
             is_scan_boundary=True,
         )
         == frozenset()
@@ -248,6 +277,34 @@ def test_target_run_end_policy():
         )
         == SNAPSHOT
     )
+
+
+def test_resolve_end_state_shared_builder():
+    from modules.lumascope_api.illumination import resolve_end_state
+
+    color2ch = {'BF': 0, 'Green': GREEN_CH, 'Blue': BLUE_CH}.get
+
+    # OFF policy: no snapshot walk, empty target.
+    assert resolve_end_state(
+        'off', {'Green': {'enabled': True, 'illumination_ma': GREEN_MA}}, color2ch
+    ) == (
+        LedEndPolicy.OFF,
+        frozenset(),
+    )
+    # Restore policy: only enabled, mapped channels make the snapshot.
+    policy, snapshot = resolve_end_state(
+        'return_to_original',
+        {
+            'Green': {'enabled': True, 'illumination_ma': GREEN_MA},
+            'Blue': {'enabled': False, 'illumination_ma': BLUE_MA},
+            'Unmapped': {'enabled': True, 'illumination_ma': 99.0},
+        },
+        color2ch,
+    )
+    assert policy is LedEndPolicy.RETURN_TO_ORIGINAL
+    assert snapshot == frozenset({(GREEN_CH, GREEN_MA)})
+    # Unrecognized policy: None, so the caller can surface the misconfiguration.
+    assert resolve_end_state('bogus', {}, color2ch) == (None, frozenset())
 
 
 def test_target_manual_step_preview_gate():

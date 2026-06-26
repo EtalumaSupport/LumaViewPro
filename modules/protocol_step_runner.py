@@ -21,7 +21,12 @@ from typing import TYPE_CHECKING
 from lvp_logger import logger
 
 import modules.config_helpers as config_helpers
-from modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
+from modules.lumascope_api.illumination import (
+    LedEndPolicy,
+    LedTransition,
+    LedTransitionCtx,
+    resolve_end_state,
+)
 from modules.protocol_state_machine import ProtocolState
 from modules.sequential_io_executor import IOTask
 from modules.settings_init import settings
@@ -322,7 +327,9 @@ class ProtocolStepRunner:
                 same_color = False
                 same_zstack_group = False
                 is_scan_boundary = False
-                restore_hold = False
+                is_run_end_boundary = False
+                end_policy = LedEndPolicy.OFF
+                snapshot_lit = frozenset()
                 if p._curr_step < num_steps - 1:
                     next_step = p._protocol.step(idx=p._curr_step + 1)
                     same_color = next_step['Color'] == step['Color']
@@ -334,16 +341,21 @@ class ProtocolStepRunner:
                         and next_step['Z-Stack Group ID'] == step['Z-Stack Group ID']
                     )
                 elif p.remaining_scans() <= 1:
-                    # Final step of the final scan -- the run-end boundary. Hold
-                    # only if run-end will re-light this same channel (it was lit
-                    # before the run and the end policy restores it); else the
-                    # off here plus the restore a few ms later is a visible
-                    # end-of-acquire flicker on a live-view-lit z-stack.
-                    _orig = getattr(p, '_original_led_states', None) or {}
-                    _orig_channel = _orig.get(step['Color'])
-                    restore_hold = p._leds_state_at_end == 'return_to_original' and bool(
-                        _orig_channel and _orig_channel.get('enabled')
+                    # Final step of the final scan -- the run-end boundary. The
+                    # authority holds this channel only if the run-end target
+                    # re-lights it, so the boundary off plus the restore a few
+                    # ms later is not a visible end-of-acquire flicker on a
+                    # live-view-lit z-stack. Feed the SAME end-state the cleanup
+                    # RUN_END uses (resolved once), so the boundary and cleanup
+                    # cannot disagree about what run-end will light.
+                    is_run_end_boundary = True
+                    resolved_policy, snapshot_lit = resolve_end_state(
+                        p._leds_state_at_end,
+                        getattr(p, '_original_led_states', None),
+                        p._scope.illumination.color2ch,
                     )
+                    if resolved_policy is not None:
+                        end_policy = resolved_policy
                 else:
                     # Last step of a non-final scan: the inter-scan idle runs dark.
                     is_scan_boundary = True
@@ -358,7 +370,9 @@ class ProtocolStepRunner:
                     same_zstack_group=same_zstack_group,
                     keep_led_across_moves=p._keep_led_between_steps,
                     is_scan_boundary=is_scan_boundary,
-                    restore_hold=restore_hold,
+                    is_run_end_boundary=is_run_end_boundary,
+                    end_policy=end_policy,
+                    snapshot_lit=snapshot_lit,
                 )
 
                 _t_capture_start = time.monotonic()

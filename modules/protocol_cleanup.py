@@ -16,7 +16,11 @@ from typing import TYPE_CHECKING
 
 from lvp_logger import logger
 
-from modules.lumascope_api.illumination import LedEndPolicy, LedTransition, LedTransitionCtx
+from modules.lumascope_api.illumination import (
+    LedTransition,
+    LedTransitionCtx,
+    resolve_end_state,
+)
 from modules.protocol_state_machine import ProtocolState
 from modules.sequential_io_executor import IOTask
 
@@ -134,30 +138,15 @@ def run_cleanup(
     # on the protocol IO queue, so the end-state off cannot race the
     # return-to-position move across the shared serial bus.
     try:
-        if leds_state_at_end == 'off':
-            end_policy = LedEndPolicy.OFF
-        elif leds_state_at_end == 'return_to_original':
-            end_policy = LedEndPolicy.RETURN_TO_ORIGINAL
-        else:
-            end_policy = None
+        end_policy, snapshot_lit = resolve_end_state(
+            leds_state_at_end, original_led_states, scope.illumination.color2ch
+        )
+        if end_policy is None:
             logger.error(f'Unsupported LEDs state at end value: {leds_state_at_end}')
-        if end_policy is not None:
-            snapshot_pairs = []
-            if end_policy is LedEndPolicy.RETURN_TO_ORIGINAL:
-                # Only the restore policy consults the snapshot; for OFF the
-                # authority targets an empty set, so skip walking the channel map.
-                for color, color_data in original_led_states.items():
-                    if not color_data['enabled']:
-                        continue
-                    ch = scope.illumination.color2ch(color)
-                    if ch is not None:
-                        snapshot_pairs.append((ch, color_data['illumination_ma']))
+        else:
             apply_led_transition_fn(
                 LedTransition.RUN_END,
-                LedTransitionCtx(
-                    end_policy=end_policy,
-                    snapshot_lit=frozenset(snapshot_pairs),
-                ),
+                LedTransitionCtx(end_policy=end_policy, snapshot_lit=snapshot_lit),
             )
     except CancelledError:
         # An overlapping abort / new-run cycle cleared the protocol queue
