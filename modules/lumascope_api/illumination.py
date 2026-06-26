@@ -785,6 +785,53 @@ class IlluminationAPI:
             self._fire_led_listeners(color, False, 0.0, '')
 
     # --- Async control ---
+    def _submit_io(
+        self,
+        action,
+        name,
+        *,
+        args=None,
+        kwargs=None,
+        callback=None,
+        cb_kwargs=None,
+        return_future=False,
+    ):
+        """Guard LED connectivity, then queue an IOTask on the io_executor.
+
+        The shared connectivity-guard + executor-resolve + enqueue path behind
+        both the async LED wrappers and the blocking ``*_sync`` wrappers, so a
+        disconnected board no-ops identically everywhere instead of each wrapper
+        re-deriving the guard. Returns False (warning logged) when the
+        controller is absent so callers can no-op uniformly; otherwise True for
+        a fire-and-forget submit, or the task waiter when ``return_future`` is
+        set (the ``*_sync`` wrappers block on it; it can be None when the
+        executor declines the task, e.g. a protocol is running).
+
+        Args:
+            action: The bound method the IOTask runs.
+            name: Caller name for the executor-required diagnostic.
+            args: Positional args for ``action``.
+            kwargs: Keyword args for ``action``.
+            callback: Optional completion callback.
+            cb_kwargs: Optional kwargs passed to the callback.
+            return_future: When True, return the executor waiter to block on.
+        """
+        if not self._scope.led_connected:
+            logger.warning('[SCOPE API ] LED controller not available.')
+            return False
+        ex = self._scope._require_executor(self._scope._io_executor, name)
+        result = ex.put(
+            IOTask(
+                action=action,
+                args=args,
+                kwargs=kwargs,
+                callback=callback,
+                cb_kwargs=cb_kwargs,
+            ),
+            return_future=return_future,
+        )
+        return result if return_future else True
+
     def leds_off_async(self, *, callback=None) -> None:
         """Submit ``leds_off`` to the io_executor.
 
@@ -793,12 +840,8 @@ class IlluminationAPI:
         Args:
             callback: Optional completion callback.
         """
-        if not self._scope.led_connected:
-            logger.warning('[SCOPE API ] LED controller not available.')
-            return
-        ex = self._scope._require_executor(self._scope._io_executor, 'leds_off_async')
-        ex.put(IOTask(action=self.leds_off, callback=callback))
-        logger.info('[SCOPE API ] leds_off_async()')
+        if self._submit_io(self.leds_off, 'leds_off_async', callback=callback):
+            logger.info('[SCOPE API ] leds_off_async()')
 
     def led_on_async(self, channel, mA, *, callback=None, cb_kwargs=None, owner: str = '') -> None:
         """Submit ``led_on(channel, mA)`` to the io_executor.
@@ -810,19 +853,14 @@ class IlluminationAPI:
             cb_kwargs: Optional kwargs passed to the callback.
             owner: Optional ownership tag for the LED state.
         """
-        if not self._scope.led_connected:
-            logger.warning('[SCOPE API ] LED controller not available.')
-            return
-        kwargs = {'owner': owner} if owner else {}
-        ex = self._scope._require_executor(self._scope._io_executor, 'led_on_async')
-        ex.put(
-            IOTask(
-                action=self.led_on,
-                args=(channel, mA),
-                kwargs=kwargs,
-                callback=callback,
-                cb_kwargs=cb_kwargs,
-            )
+        kwargs = {'owner': owner} if owner else None
+        self._submit_io(
+            self.led_on,
+            'led_on_async',
+            args=(channel, mA),
+            kwargs=kwargs,
+            callback=callback,
+            cb_kwargs=cb_kwargs,
         )
 
     def led_off_async(self, channel, *, callback=None, cb_kwargs=None, owner: str = '') -> None:
@@ -835,20 +873,15 @@ class IlluminationAPI:
             owner: Optional ownership tag; only matching owner can turn
                 off the channel.
         """
-        if not self._scope.led_connected:
-            logger.warning('[SCOPE API ] LED controller not available.')
-            return
         kwargs = {'channel': channel}
         if owner:
             kwargs['owner'] = owner
-        ex = self._scope._require_executor(self._scope._io_executor, 'led_off_async')
-        ex.put(
-            IOTask(
-                action=self.led_off,
-                kwargs=kwargs,
-                callback=callback,
-                cb_kwargs=cb_kwargs,
-            )
+        self._submit_io(
+            self.led_off,
+            'led_off_async',
+            kwargs=kwargs,
+            callback=callback,
+            cb_kwargs=cb_kwargs,
         )
 
     def led_on_sync(self, channel, mA, *, timeout_s=5, owner: str = '') -> None:
@@ -860,13 +893,14 @@ class IlluminationAPI:
             timeout_s: Max seconds to wait for completion.
             owner: Optional ownership tag for the LED state.
         """
-        if not self._scope.led_connected:
-            logger.warning('[SCOPE API ] LED controller not available.')
-            return
-        kwargs = {'owner': owner} if owner else {}
-        ex = self._scope._require_executor(self._scope._io_executor, 'led_on_sync')
-        task = IOTask(action=self.led_on, args=(channel, mA), kwargs=kwargs)
-        fut = ex.put(task, return_future=True)
+        kwargs = {'owner': owner} if owner else None
+        fut = self._submit_io(
+            self.led_on,
+            'led_on_sync',
+            args=(channel, mA),
+            kwargs=kwargs,
+            return_future=True,
+        )
         if fut:
             fut.result(timeout=timeout_s)
 
@@ -876,12 +910,7 @@ class IlluminationAPI:
         Args:
             timeout_s: Max seconds to wait for completion.
         """
-        if not self._scope.led_connected:
-            logger.warning('[SCOPE API ] LED controller not available.')
-            return
-        ex = self._scope._require_executor(self._scope._io_executor, 'leds_off_sync')
-        task = IOTask(action=self.leds_off)
-        fut = ex.put(task, return_future=True)
+        fut = self._submit_io(self.leds_off, 'leds_off_sync', return_future=True)
         if fut:
             fut.result(timeout=timeout_s)
 
@@ -1320,19 +1349,14 @@ class IlluminationAPI:
         the same io_executor as the stage moves (no move racing the LEDs) and
         does not block the UI thread.
         """
-        if not self._scope.led_connected:
-            logger.warning('[SCOPE API ] LED controller not available.')
-            return
-        kwargs = {'owner': owner} if owner else {}
-        ex = self._scope._require_executor(self._scope._io_executor, 'apply_transition_async')
-        ex.put(
-            IOTask(
-                action=self.apply_transition,
-                args=(transition, ctx),
-                kwargs=kwargs,
-                callback=callback,
-                cb_kwargs=cb_kwargs,
-            )
+        kwargs = {'owner': owner} if owner else None
+        self._submit_io(
+            self.apply_transition,
+            'apply_transition_async',
+            args=(transition, ctx),
+            kwargs=kwargs,
+            callback=callback,
+            cb_kwargs=cb_kwargs,
         )
 
     def force_off(self) -> None:
