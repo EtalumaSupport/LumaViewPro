@@ -95,6 +95,10 @@ class AdvancedSettings(Popup):
             'down' if settings.get('protocol_led_on') else 'normal'
         )
 
+        self.ids['keep_led_between_steps_btn'].state = (
+            'down' if settings.get('keep_led_between_steps') else 'normal'
+        )
+
         # Setting the slider value drives the text via the kv binding
         # (text: format(acceleration_pct_slider.value)).
         self.ids['acceleration_pct_slider'].value = settings['motion']['acceleration_max_pct']
@@ -226,6 +230,12 @@ class AdvancedSettings(Popup):
         enabled = self.ids['protocol_led_on_btn'].state == 'down'
         gui_logger.toggle('PROTOCOL_LED_ON', enabled)
         settings['protocol_led_on'] = enabled
+
+    def update_keep_led_between_steps(self):
+        settings = _app_ctx.ctx.settings
+        enabled = self.ids['keep_led_between_steps_btn'].state == 'down'
+        gui_logger.toggle('KEEP_LED_BETWEEN_STEPS', enabled)
+        settings['keep_led_between_steps'] = enabled
 
     def update_stimulation_settings(self):
         ctx = _app_ctx.ctx
@@ -659,7 +669,7 @@ kv = Builder.load_string(
                 height: '30dp'
                 Label:
                     font_size: '12sp'
-                    text: 'LED On When Stepping'
+                    text: 'Preview LED when stepping'
                     tooltip_text: "Keep the step's LED on while manually navigating through protocol steps so you can preview the illumination. Does not affect LED behavior during a protocol scan."
                     halign: 'left'
                     valign: 'middle'
@@ -675,6 +685,29 @@ kv = Builder.load_string(
                     background_normal: './data/icons/ToggleL.png'
                     background_down: './data/icons/ToggleRW.png'
                     on_release: root.update_protocol_led_on()
+
+            BoxLayout:
+                orientation: 'horizontal'
+                size_hint_y: None
+                height: '30dp'
+                Label:
+                    font_size: '12sp'
+                    text: 'Keep LED on across moves'
+                    tooltip_text: "During a protocol scan, keep the LED on while the stage moves between steps instead of switching it off and back on. Speeds up brightfield scans; off by default."
+                    halign: 'left'
+                    valign: 'middle'
+                    text_size: self.size
+                ToggleButton:
+                    id: keep_led_between_steps_btn
+                    disabled: app.protocol_running
+                    size_hint: None, None
+                    tooltip_text: "During a protocol scan, keep the LED on while the stage moves between steps instead of switching it off and back on. Speeds up brightfield scans; off by default."
+                    size: '45dp', '30dp'
+                    border: 0, 0, 0, 0
+                    valign: 'middle'
+                    background_normal: './data/icons/ToggleL.png'
+                    background_down: './data/icons/ToggleRW.png'
+                    on_release: root.update_keep_led_between_steps()
 
             BoxLayout:
                 orientation: 'horizontal'
