@@ -66,12 +66,12 @@ class LedTransition(enum.Enum):
 
 
 # Transitions whose illumination must be confirmed lit before the caller moves
-# on: the LED has to be on before the camera grabs a protocol step's frame, or
-# the first frame captures dark. apply() blocks the on-command for these so the
-# confirm-before-grab is a property of the transition, not a flag each caller
-# must remember to pass. AF_ENTER joins this set when autofocus entry migrates
-# onto the authority (it has the same illuminate-before-scan constraint).
-_CONFIRM_ON_TRANSITIONS = frozenset({LedTransition.STEP_LIGHT})
+# on: the LED has to be on before the camera grabs a protocol step's frame
+# (STEP_LIGHT) or autofocus scans for focus (AF_ENTER), or the frame captures
+# dark / the focus metric reads an unlit field. apply() blocks the on-command
+# for these so the confirm-before-acquire is a property of the transition, not a
+# flag each caller must remember to pass.
+_CONFIRM_ON_TRANSITIONS = frozenset({LedTransition.STEP_LIGHT, LedTransition.AF_ENTER})
 
 
 class LedEndPolicy(enum.Enum):

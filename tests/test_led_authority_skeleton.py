@@ -515,16 +515,16 @@ def test_apply_transition_refused_while_leased(scope):
 
 
 # ---------------------------------------------------------------------------
-# Confirm-on illuminate: STEP_LIGHT must wait for the board to report the
-# channel on before the caller grabs, or the first frame captures dark. The
-# block is a property of the transition, not a flag the caller passes.
+# Confirm-on illuminate: the illuminate-before-acquire transitions (STEP_LIGHT
+# before a grab, AF_ENTER before a focus scan) must wait for the board to report
+# the channel on, or the frame captures dark / the focus metric reads an unlit
+# field. The block is a property of the transition, not a flag the caller passes.
 # ---------------------------------------------------------------------------
 
 
-def test_step_light_blocks_its_illuminate_manual_step_does_not(scope):
-    """STEP_LIGHT confirms its illuminate (block=True reaches the driver, so a
-    protocol grab is never dark); the MANUAL_STEP preview does not block (no
-    grab waits on it)."""
+def test_confirm_on_transitions_block_others_do_not(scope):
+    """STEP_LIGHT and AF_ENTER confirm their illuminate (block=True reaches the
+    driver); the MANUAL_STEP preview does not block (no acquire waits on it)."""
     ill = scope.illumination
     blocks = []
     real_led_on = ill.led_on
@@ -538,6 +538,10 @@ def test_step_light_blocks_its_illuminate_manual_step_does_not(scope):
         lease = ill.acquire_led_lease('protocol')
         lease.apply(LedTransition.STEP_LIGHT, _ctx(scope, 'Green', GREEN_MA))
         assert blocks == [True], f'STEP_LIGHT must block its on-command: {blocks}'
+
+        blocks.clear()
+        lease.apply(LedTransition.AF_ENTER, _ctx(scope, 'Red', RED_MA))
+        assert blocks == [True], f'AF_ENTER must block its on-command: {blocks}'
         lease.release(leave_on=False)
 
         blocks.clear()

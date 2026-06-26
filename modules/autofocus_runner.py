@@ -260,9 +260,9 @@ class AutofocusRunner:
             self._scope.imaging.set_gain(self._camera_gain)
         if self._camera_exposure is not None:
             self._scope.imaging.set_exposure_time(self._camera_exposure)
-        # Acquire the LED lease BEFORE driving illumination below. The
-        # leds_exclusive write carries owner 'autofocus'; issued before AF
-        # holds a lease, a protocol's already-held lease refuses the
+        # Acquire the LED lease BEFORE driving illumination below. AF
+        # illuminates by calling apply(AF_ENTER) ON this lease; issued before AF
+        # holds a lease, a protocol's already-held lease would refuse the
         # out-of-turn write and the AF channel never lights -- AF would then
         # scan an unlit field. Inside a protocol step the protocol passes its
         # lease and AF nests as a child it must outlive; an interactive run
@@ -272,24 +272,26 @@ class AutofocusRunner:
             self._led_lease = led_lease.acquire_child('autofocus')
         else:
             self._led_lease = self._scope.illumination.acquire_led_lease('autofocus')
-        # Make the AF channel the only lit one before scanning. A Live-mode
-        # LED on a different channel would otherwise stay lit alongside the AF
-        # channel and corrupt the focus metric with mixed illumination. Using
-        # the exclusive primitive (rather than leds_off + led_on) leaves an
-        # AF channel that is already lit at target untouched, so AF does not
-        # blink it off->on at scan start. Pre-AF state is snapshotted into
-        # self._saved_led_state above and restored on AF exit.
-        if self._led_color is not None and self._scope.led_connected:
-            self._scope.illumination.leds_exclusive(
-                channel=self._scope.illumination.color2ch(self._led_color),
-                mA=self._led_illumination,
-                block=True,
-                owner='autofocus',
+        # Make the AF channel the only lit one before scanning, confirmed on
+        # (AF_ENTER blocks) so the focus metric never reads a dark or
+        # mixed-illumination frame: a Live-mode LED on another channel would
+        # otherwise stay lit alongside the AF channel and bias the metric. The
+        # authority diff offs every non-target channel and leaves an AF channel
+        # already at target untouched (no off->on blink). No AF color means an
+        # empty target, so ambient AF clears every channel. Pre-AF state was
+        # snapshotted into self._saved_led_state above; the exit restores it via
+        # AF_TO_CAPTURE. A refused lease (None) leaves the field as-is -- the
+        # same dark-scan outcome the old out-of-turn write produced.
+        if self._led_lease is not None:
+            af_channel = (
+                self._scope.illumination.color2ch(self._led_color)
+                if self._led_color is not None
+                else None
             )
-        else:
-            # No AF illumination configured -- focus on ambient; clear any
-            # Live-mode LED so it does not bias the metric.
-            self._scope.illumination.leds_off()
+            self._led_lease.apply(
+                LedTransition.AF_ENTER,
+                LedTransitionCtx(channel=af_channel, mA=self._led_illumination),
+            )
         # Drop Z precision for the coarse passes; the fine pass restores
         # precision ON, and all exit paths (success, abort, exception)
         # also restore ON via the finally block and reset().
