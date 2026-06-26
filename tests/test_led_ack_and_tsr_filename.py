@@ -84,6 +84,27 @@ class TestLedOnBlockAckShape:
         assert 0.08 < elapsed < 0.3, f'elapsed={elapsed:.3f}s out of band'
         assert led.exchange_command.call_count >= 3
 
+    def test_firmware_silent_aborts_polling_immediately(self):
+        """A board that connected silent never echoes a command until a power
+        cycle, so the block loop must abort at once rather than poll the full
+        timeout -- otherwise every confirm-on caller (a protocol step light,
+        autofocus entry) stalls the whole timeout, compounding to minutes over a
+        run. Distinct from a live-but-transiently-empty firmware (above), which
+        keeps polling for a visible timeout."""
+        led = self._make_led([None] * 200)
+        led.firmware_silent = True
+        import time
+
+        t0 = time.monotonic()
+        led.led_on(channel=3, mA=2, block=True, timeout_s=5.0)
+        elapsed = time.monotonic() - t0
+        assert elapsed < 0.5, (
+            f'silent-board block must abort fast, not poll: elapsed={elapsed:.3f}s'
+        )
+        # Only the pre-loop exchange ran; the loop aborted on the silent check
+        # before any retry.
+        assert led.exchange_command.call_count == 1
+
 
 class TestLedDriverRejectsNonAckResponses:
     """The ack guard on the polling loop is load-bearing: only a

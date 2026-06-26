@@ -370,6 +370,19 @@ class LEDBoard(SerialBoard):
                 command not in response
                 and not check_each_substr(['LED', str(int(channel)), str(int(mA))], response)
             ):
+                if getattr(self, 'firmware_silent', False):
+                    # The board connected silent: its firmware never echoes a
+                    # command until a power cycle, and exchange_command already
+                    # fast-rejects every non-INFO command in that state. Polling
+                    # to the deadline here only burns the full timeout for
+                    # nothing, and on a multi-step protocol that compounds into
+                    # minutes -- so the loop must honor the same silent contract
+                    # and give up now. The caller sees the unconfirmed write.
+                    logger.warning(
+                        f'[LED Class ] led_on(ch={channel}, mA={mA}, block=True) '
+                        'aborted: board silent, power cycle required'
+                    )
+                    break
                 if time.monotonic() > deadline:
                     logger.warning(
                         f'[LED Class ] led_on(ch={channel}, mA={mA}, block=True) '
