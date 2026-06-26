@@ -40,6 +40,20 @@ def _make_two_scan_parent():
     p._start_t = datetime.datetime.now() - datetime.timedelta(hours=1)
     p._curr_step = 0
     p._af_future = None
+
+    # The run loop drives per-scan state + the scan-count increment through the
+    # runner's own methods now (single-owner counters); the stub implements them
+    # to match. advance_scan_count increments and returns the new count.
+    def _reset_scan_state():
+        p._curr_step = 0
+        p._af_future = None
+
+    def _advance_scan_count():
+        p._scan_count += 1
+        return p._scan_count
+
+    p._reset_scan_state = _reset_scan_state
+    p.advance_scan_count = _advance_scan_count
     p._step_executor = mock.MagicMock()
     p._scan_in_progress = mock.MagicMock()
     p._set_state = mock.MagicMock()
