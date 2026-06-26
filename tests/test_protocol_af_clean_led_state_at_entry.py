@@ -114,8 +114,17 @@ class TestAutofocusRunnerExclusiveIlluminationAtRunStart:
             'or the exit restore would restore the wrong (already-changed) '
             f'state; LED calls: {names}'
         )
-        assert 'restore_led_state' in names[names.index('leds_exclusive') :], (
-            f'AF exit must restore the pre-AF snapshot; LED calls: {names}'
+        # AF exit drives the pre-AF restore through the authority's
+        # AF_TO_CAPTURE transition on its lease (the diff offs the AF channel
+        # and re-asserts the snapshot), replacing the old direct
+        # restore_led_state call.
+        from modules.lumascope_api.illumination import LedTransition
+
+        af_lease = scope.illumination.acquire_led_lease.return_value
+        applied = [c.args[0] for c in af_lease.apply.call_args_list if c.args]
+        assert LedTransition.AF_TO_CAPTURE in applied, (
+            f'AF exit must restore via the authority AF_TO_CAPTURE transition; '
+            f'lease.apply transitions: {applied}'
         )
 
     def test_ambient_fallback_clears_leds(self, monkeypatch):

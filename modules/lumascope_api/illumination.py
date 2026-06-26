@@ -290,6 +290,33 @@ class LedLease:
             api.led_on(channel=ch, mA=mA, owner=self.owner_name)
 
 
+def snapshot_lit_pairs(led_states: dict, color2ch) -> frozenset[tuple[int, float]]:
+    """Convert a saved LED-state mapping to the authority's lit (channel, mA) set.
+
+    Mirrors the filter restore_led_state uses for its restore target: a channel
+    counts as lit only if it is enabled with a positive current. Used to feed a
+    save_led_state snapshot into apply() as snapshot_lit.
+
+    Args:
+        led_states: color -> {'enabled': bool, 'illumination_ma': float | None}.
+        color2ch: Callable mapping a color name to a channel number (or None).
+
+    Returns:
+        The (channel, mA) set of channels that should be lit.
+    """
+    pairs = []
+    for color, state in (led_states or {}).items():
+        if not state.get('enabled'):
+            continue
+        mA = state.get('illumination_ma') or 0
+        if mA <= 0:
+            continue
+        ch = color2ch(color)
+        if ch is not None:
+            pairs.append((ch, mA))
+    return frozenset(pairs)
+
+
 def resolve_end_state(
     leds_state_at_end: str,
     original_led_states: dict,

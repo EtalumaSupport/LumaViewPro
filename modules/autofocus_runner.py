@@ -18,6 +18,11 @@ import modules.common_utils as common_utils
 import modules.lumascope_api as lumascope_api
 from modules.exceptions import AutofocusAborted
 from modules.kivy_utils import schedule_ui as _schedule_ui
+from modules.lumascope_api.illumination import (
+    LedTransition,
+    LedTransitionCtx,
+    snapshot_lit_pairs,
+)
 from modules.notification_center import notifications
 from modules.objectives_loader import ObjectiveLoader
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor
@@ -392,29 +397,44 @@ class AutofocusRunner:
                         'Could not restore Z position after autofocus stopped. '
                         'Move Z manually if needed.',
                     )
-            if self._keep_led_on and completed_successfully:
-                # Skip the off + restore cycle so the downstream capture
-                # inherits the AF LED state -- the caller guarantees the
-                # capture that follows AF in the same step uses the same
-                # channel + illumination. Success-only: on abort or error
-                # that capture never runs, so inheriting would leave the
-                # LED lit with no owner to ever turn it off (overnight
-                # sample damage); the restore/off branch below covers
-                # those exits.
-                _af_log.info('[AF] keep_led_on -- skipping LED off + restore')
-            else:
-                if self._saved_led_state:
-                    # restore_led_state(owner='autofocus') turns off AF-owned
-                    # channels that should not be lit and re-asserts the pre-AF
-                    # snapshot idempotently -- a channel already at its pre-AF
-                    # target is left untouched, so AF does not blink it off->on
-                    # at scan end. A separate leds_off first would turn the
-                    # channel off only for restore to re-light it.
-                    self._scope.illumination.restore_led_state(
-                        self._saved_led_state, owner='autofocus'
+            # The AF-end LED state is the authority's AF_TO_CAPTURE decision:
+            # hold the AF channel for the following capture, or restore the
+            # pre-AF snapshot. Hold only on success -- on abort or error the
+            # capture never runs, so inheriting would leave the LED lit with no
+            # owner to turn it off (overnight sample damage); a non-success
+            # exit always restores. The authority's diff is idempotent (a
+            # channel already at its target is left untouched, so no off->on
+            # blink) and offs whatever is lit but not in the target.
+            keep_for_capture = self._keep_led_on and completed_successfully
+            illumination = self._scope.illumination
+            if self._led_lease is not None:
+                af_channel = (
+                    illumination.color2ch(self._led_color) if self._led_color is not None else None
+                )
+                snapshot_lit = (
+                    snapshot_lit_pairs(
+                        self._saved_led_state.get('states', {}), illumination.color2ch
                     )
+                    if self._saved_led_state
+                    else frozenset()
+                )
+                self._led_lease.apply(
+                    LedTransition.AF_TO_CAPTURE,
+                    LedTransitionCtx(
+                        channel=af_channel,
+                        mA=self._led_illumination,
+                        keep_led_on=keep_for_capture,
+                        snapshot_lit=snapshot_lit,
+                    ),
+                )
+            elif not keep_for_capture:
+                # AF never acquired the LED lease (a refused acquire), so the
+                # authority's apply would no-op. Mirror the pre-authority
+                # end-state directly: restore the snapshot, or release AF's
+                # own channel when there is nothing to restore.
+                if self._saved_led_state:
+                    illumination.restore_led_state(self._saved_led_state, owner='autofocus')
                 else:
-                    # No snapshot to restore -- just release AF's own channel.
                     self._led_off()
             if self._saved_camera_state:
                 restore = self._camera_state_to_restore()

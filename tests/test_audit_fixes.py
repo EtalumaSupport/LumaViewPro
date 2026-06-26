@@ -1131,27 +1131,27 @@ class TestIssue602_AFExecutorLED:
             io_executor=io,
             file_io_executor=file_ex,
         )
-        # Set LED state as if AF were running with LED. AFE.run()'s
-        # finally block calls _led_off regardless of exit path
-        # (success / abort / exception); this checks the invariant.
+        # AF lights its channel at scan start; a non-success exit must end
+        # with that channel dark. AFE.run()'s finally routes the AF-end state
+        # through the authority's AF_TO_CAPTURE transition, whose diff offs the
+        # AF channel on abort -- so this checks the outcome (channel dark), not
+        # which helper emitted the off.
         af._led_color = 'BF'
         af._led_illumination = 100
-        af._saved_led_state = {'channel': 'BF', 'mA': 0}
 
         abort_event = threading.Event()
         abort_event.set()  # pre-set so AFE.run() unwinds via abort path
         with (
-            patch.object(af, '_led_off') as mock_led_off,
             patch.object(af, '_move_absolute_position'),
-            patch.object(scope.illumination, 'save_led_state', return_value={}),
             patch.object(scope.imaging, 'save_camera_state', return_value={}),
             patch.object(scope.motion, 'set_precision_mode'),
-            patch.object(scope.illumination, 'restore_led_state'),
             patch.object(scope.imaging, 'restore_camera_state'),
         ):
             with pytest.raises(AutofocusAborted):
                 af.run(objective_id='4x', abort_event=abort_event)
-            mock_led_off.assert_called_once()
+            assert not scope.illumination.get_led_state('BF')['enabled'], (
+                'aborted AF must leave its channel dark (#602)'
+            )
 
 
 class TestAFPrecisionModeRestoresOn:
