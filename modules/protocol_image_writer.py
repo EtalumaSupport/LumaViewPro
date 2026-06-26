@@ -433,6 +433,22 @@ class ProtocolImageWriter:
                         logger.error(
                             f'[PROTOCOL] Capture failed for step {curr_step} ({step.get("Name", "?")}), scan {scan_count} -- camera inactive or frame drain failed (failure {self._consecutive_capture_failures}/{self._MAX_CONSECUTIVE_CAPTURE_FAILURES})'
                         )
+                        aborting = (
+                            self._consecutive_capture_failures
+                            >= self._MAX_CONSECUTIVE_CAPTURE_FAILURES
+                        )
+                        # Surface the abort cause to the user BEFORE the cleanup
+                        # side effects (recording the failed step, leds_off), so
+                        # the notification leads the effects rather than trailing
+                        # them. The abort itself runs after leds_off below.
+                        if aborting:
+                            from modules.notification_center import notifications
+
+                            notifications.critical(
+                                'Protocol',
+                                'Camera Failure',
+                                f'Camera failed {self._consecutive_capture_failures} consecutive captures. Aborting protocol.',
+                            )
                         # Still record the step with "capture_failed" so the record isn't silently missing.
                         # If the file-IO queue is also full, fall back to recording directly (synchronously)
                         # so the failure isn't doubly hidden.
@@ -462,17 +478,7 @@ class ProtocolImageWriter:
                                 name=name,
                             )
                         self._leds_off()
-                        if (
-                            self._consecutive_capture_failures
-                            >= self._MAX_CONSECUTIVE_CAPTURE_FAILURES
-                        ):
-                            from modules.notification_center import notifications
-
-                            notifications.critical(
-                                'Protocol',
-                                'Camera Failure',
-                                f'Camera failed {self._consecutive_capture_failures} consecutive captures. Aborting protocol.',
-                            )
+                        if aborting:
                             self._abort_fn()
                         _proto_outcome = 'capture_failed'
                         return False

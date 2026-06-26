@@ -12818,3 +12818,59 @@ class TestRemainingScansAtomicSnapshot:
             )
         t.join(timeout=2)
         assert result == [8]
+
+
+class TestCaptureFailureAbortNotificationOrdering:
+    """F14: on the consecutive-failure abort, the user-facing 'Camera Failure'
+    notification must fire BEFORE the cleanup side effects (queuing the
+    failed-step record, leds_off), so the cause leads the effects instead of
+    trailing them. Pre-fix the notification fired only after the record queue
+    and leds_off.
+    """
+
+    def test_abort_notification_precedes_record_and_leds_off(self, monkeypatch):
+        from unittest.mock import MagicMock
+
+        import modules.notification_center as nc
+
+        order = []
+        writer = _bare_protocol_writer(
+            file_io_executor=MagicMock(),
+            leds_off_fn=lambda: order.append('leds_off'),
+            abort_fn=lambda: order.append('abort'),
+        )
+        writer._file_io_executor.protocol_put.side_effect = lambda *a, **k: order.append('record')
+        scope = writer._scope
+        scope.led_connected = False
+        scope.motion.has_turret.return_value = False
+        # Force the capture to fail (returns no frame) so the failure branch runs.
+        scope.imaging.capture_and_wait.return_value = None
+        monkeypatch.setattr(nc.notifications, 'critical', lambda *a, **k: order.append('notify'))
+        protocol = MagicMock()
+        protocol.capture_root.return_value = ''
+
+        # Two prior failures so this call crosses the 3-strike abort threshold.
+        writer._consecutive_capture_failures = 2
+
+        result = writer.capture(
+            save_folder='/tmp',
+            step=_protocol_step(),
+            output_format='TIFF',
+            protocol=protocol,
+            image_capture_config={'capture_depth': 8, 'save_encoding': '8bit'},
+            enable_image_saving=True,
+            curr_step=0,
+            scan_count=0,
+        )
+
+        assert result is False
+        assert 'notify' in order, 'abort notification must fire on the 3rd consecutive failure'
+        assert order.index('notify') < order.index('record'), (
+            f'notification must precede the failed-step record queue; order={order}'
+        )
+        assert order.index('notify') < order.index('leds_off'), (
+            f'notification must precede leds_off; order={order}'
+        )
+        assert order.index('leds_off') < order.index('abort'), (
+            f'leds_off must precede the abort; order={order}'
+        )
