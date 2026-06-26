@@ -1,7 +1,7 @@
 """Regression test for #671 -- LED-state-hygiene at the transition
 from a TSV-loaded last step to a `Protocol.insert_step()`-added step.
 
-User repro (Chris, beta12, 2026-05-19):
+User repro (the beta tester, beta12, 2026-05-19):
   1. Load an 8-step TSV (A1+A2 well, 4 channels each: BF, Blue, Green,
      Red, in that order).
   2. Use the UI to add a 4-channel location at a 3rd X/Y. The UI

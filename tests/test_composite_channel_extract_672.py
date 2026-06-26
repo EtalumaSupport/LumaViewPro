@@ -1,7 +1,7 @@
 """Regression test: composite_generation extracts single-plane false-color
 TIFFs without luminance attenuation (#672 round 4).
 
-Bug shape: Chris's 2026-05-25 bundle showed 12-bit fluorescence
+Bug shape: the beta tester's 2026-05-25 bundle showed 12-bit fluorescence
 composites coming out "mostly green" + the 8-bit composite being
 LARGER than the 12-bit (18 MB vs 8 MB). Root cause traced to two
 ``cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)`` sites in

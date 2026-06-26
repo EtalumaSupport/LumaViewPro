@@ -11,7 +11,7 @@ Protocol click, ``new_protocol_ex`` carried over the old per-well Z
 via ``previous_well_z`` (introduced by #535 for per-well-tuned focus
 preservation). That carry-over WON over ``layer_config['focus']`` so
 the newly-saved focus was silently ignored: scans still moved to Z=7000.
-Chris's observed workaround was to click Save Focus + Goto Focus
+The beta tester's observed workaround was to click Save Focus + Goto Focus
 multiple times until the existing protocol's per-step Z values matched
 the saved focus.
 

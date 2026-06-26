@@ -10668,7 +10668,7 @@ class TestAutoGainArmedInScanIterate:
 
 
 class TestWindowsBuildIsWindowed_559:
-    """Issue #559 recurrence: Chris reported "extra terminal windows
+    """Issue #559 recurrence: the beta tester reported "extra terminal windows
     that say 'exiting'" on the Windows .exe lock-loser path.
 
     Root cause: the PyInstaller spec had `console=True`, so every
@@ -10730,7 +10730,7 @@ class TestWindowsBuildIsWindowed_559:
         """Lock-loser path at lumaviewpro.py:~129-154 must not write
         to sys.stderr. On a windowed build that stderr write is
         silent anyway; on a console=True build it was the literal
-        line Chris saw left behind in the orphan terminal."""
+        line the beta tester saw left behind in the orphan terminal."""
         src = self._main_src()
         # Locate the lock-loser block by its sentinel _msg assignment.
         msg_idx = src.find("_msg = 'Another instance of LVP may already be running")

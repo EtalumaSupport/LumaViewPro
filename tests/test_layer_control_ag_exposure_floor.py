@@ -15,7 +15,7 @@ appropriate floor:
   default min is 0.01 ms, so np.clip(0.030, 0.01, max) returned 0.030.
 - The 0.030 ms write then fires set_exposure_time's <0.1 ms
   "Value should be in milliseconds" WARNING on every subsequent
-  apply_settings (visible in Chris's beta9 logs as recurring spam).
+  apply_settings (visible in the beta tester's beta9 logs as recurring spam).
 
 Fix
 ---
