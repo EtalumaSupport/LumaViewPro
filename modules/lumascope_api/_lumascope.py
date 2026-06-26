@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from drivers.motorboard import MotorBoard
 from drivers.ledboard import LEDBoard
 from modules.lumascope_api import _constants as _api_constants
+import modules.image_mode as image_mode
 
 try:
     from drivers.idscamera import IDSCamera
@@ -602,6 +603,17 @@ class Lumascope:
         self.runtime_state.set_objective(config.objective_id)
         self.imaging.set_binning_size(config.binning_size)
         self.imaging.set_frame_size(config.frame_width, config.frame_height)
+        # Apply the capture pixel format HERE, synchronously, while the start
+        # gate is still closed (this runs before the bring-up start_streaming).
+        # Resolving + setting it now -- instead of via the async camera-executor
+        # push that the image-mode spinner enqueues -- removes the race where
+        # the format lands after streaming begins and forces a redundant
+        # grab-loop restart. The spinner handler skips its push during init.
+        pixel_format = image_mode.select_capture_pixel_format(
+            config.capture_depth, self.imaging.get_supported_pixel_formats()
+        )
+        if pixel_format is not None:
+            self.imaging.set_pixel_format(pixel_format)
         if self.capabilities.camera_supports_conversion_gain_mode:
             self.imaging.set_conversion_gain_mode('High' if config.high_conversion_gain else 'Low')
         if self.capabilities.camera_supports_line_noise_reduction:
