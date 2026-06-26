@@ -12,6 +12,7 @@ protocol layer never imports this module directly.
 import logging
 
 from modules.kivy_utils import schedule_ui as _schedule_ui
+from modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
 
 import modules.app_context as _app_ctx
 
@@ -148,13 +149,19 @@ def go_to_step(
             layer_obj.apply_settings(ignore_auto_gain=ignore_auto_gain, protocol=True)
 
         if not called_from_protocol and settings['protocol_led_on']:
-            # Make the new step's channel the only lit one. leds_exclusive
-            # turns off every other channel and leaves an already-correct
-            # channel untouched, so stepping between consecutive same-color
-            # steps holds the LED steady instead of blinking it off then on.
-            # A previously-on channel of a different color is still cleared,
-            # so the preview is never double-illuminated.
-            ctx.scope.illumination.leds_exclusive_async(color, step['Illumination'])
+            # Manual-nav preview: make the new step's channel the only lit one.
+            # The LED authority diffs the target against the cached state, so
+            # stepping between consecutive same-color steps holds the LED steady
+            # (no off-then-on blink) while a previously-lit channel of a different
+            # color is cleared, so the preview is never double-illuminated.
+            # Outside a run nothing holds the LED lease -- live-UI control is
+            # unleased -- so this routes through the lease-free apply_transition.
+            led_ctx = LedTransitionCtx(
+                channel=ctx.scope.illumination.color2ch(color),
+                mA=step['Illumination'],
+                preview_on=True,
+            )
+            ctx.scope.illumination.apply_transition_async(LedTransition.MANUAL_STEP, led_ctx)
             _schedule_ui(lambda dt: temp(), 0)
         else:
             layer_obj.apply_settings(ignore_auto_gain=ignore_auto_gain, protocol=True)

@@ -56,6 +56,7 @@ _mock_settings_init.settings = {
 sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
 from modules.lumascope_api import Lumascope
+from modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
 from modules.protocol import Protocol
 from modules.sequenced_capture_runner import (
     SequencedCaptureRunner,
@@ -542,11 +543,11 @@ def test_s8_live_write_refused_while_run_holds_lease(scope):
 
 
 # ---------------------------------------------------------------------------
-# Manual-nav preview (transitions 13/14). Driven via the production preview
-# primitive leds_exclusive_async -- the exact call ui/step_navigation.py makes
-# when settings['protocol_led_on'] is True. The full go_to_step UI drive (the
-# settings->preview gate) is UI-thread-bound and stays covered by the #718 locks
-# + becomes authority-owned (apply(MANUAL_STEP, ctx{preview_policy})) in Phase 4.
+# Manual-nav preview (transitions 13/14). Driven via the production authority
+# call apply_transition_async(MANUAL_STEP, ctx) -- the exact call
+# ui/step_navigation.py makes when settings['protocol_led_on'] is True. The full
+# go_to_step UI drive (the settings->preview gate) is UI-thread-bound and stays
+# covered by the issue locks; here the LED-substream invariant is what matters.
 # ---------------------------------------------------------------------------
 
 
@@ -574,19 +575,26 @@ def test_s9_manual_nav_preview_lights_holds_and_switches(scope_io):
     sub = LedSubstream()
     ill.add_led_listener(sub)
 
+    def _preview(color, mA):
+        return _run_async(
+            ill.apply_transition_async,
+            LedTransition.MANUAL_STEP,
+            LedTransitionCtx(channel=ill.color2ch(color), mA=mA, preview_on=True),
+        )
+
     # Preview to a Green step.
-    _run_async(ill.leds_exclusive_async, ill.color2ch('Green'), 250.0)
+    _preview('Green', 250.0)
     assert ill.led_enabled('Green')
     assert sub.lit_transitions('Green') == [True], sub.render()
 
     # Re-navigate to the same color: idempotent hold, no blink.
-    _run_async(ill.leds_exclusive_async, ill.color2ch('Green'), 250.0)
+    _preview('Green', 250.0)
     assert sub.lit_transitions('Green') == [True], (
         f'same-color re-nav blinked the channel\n{sub.render()}'
     )
 
     # Navigate to a different color: exclusive switch.
-    _run_async(ill.leds_exclusive_async, ill.color2ch('Red'), 350.0)
+    _preview('Red', 350.0)
     assert sub.lit_transitions('Green') == [True, False], sub.render()
     assert sub.lit_transitions('Red') == [True], sub.render()
     assert sub.lit_at_most_one(), f'double illumination during preview\n{sub.render()}'

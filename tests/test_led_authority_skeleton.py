@@ -465,3 +465,50 @@ def test_apply_reclaims_top_from_orphaned_child(scope):
     assert not ill.led_enabled('Green')
 
     protocol.release(leave_on=False)
+
+
+# ---------------------------------------------------------------------------
+# apply_transition -- the lease-free entry point for unleased live-UI writers
+# (manual-nav preview). Same decision (target_leds) and same diff (_emit_led_diff)
+# as the leased path, but no lease is held: live-UI LED control is open season.
+# ---------------------------------------------------------------------------
+
+
+def test_apply_transition_manual_preview_lights_holds_and_switches(scope):
+    """Unleased manual-nav preview lights the step channel exclusively, holds a
+    same-color re-navigation with zero commands, and switches exclusively."""
+    ill = scope.illumination
+    sub = LedSubstream()
+    ill.add_led_listener(sub)
+
+    ill.apply_transition(LedTransition.MANUAL_STEP, _ctx(scope, 'Green', GREEN_MA, preview_on=True))
+    assert ill.led_enabled('Green')
+    assert sub.on_events() == [('Green', GREEN_MA)], sub.render()
+
+    # Re-navigate to the same color: idempotent hold, no off-then-on blink.
+    ill.apply_transition(LedTransition.MANUAL_STEP, _ctx(scope, 'Green', GREEN_MA, preview_on=True))
+    assert sub.lit_transitions('Green') == [True], sub.render()
+
+    # Switch color: Green off, Red on, never two lit at once.
+    ill.apply_transition(LedTransition.MANUAL_STEP, _ctx(scope, 'Red', RED_MA, preview_on=True))
+    assert sub.final_lit() == {'Red'}, sub.render()
+    assert sub.lit_at_most_one(), f'double illumination during preview switch\n{sub.render()}'
+
+
+def test_apply_transition_refused_while_leased(scope):
+    """A live-UI write must not cut into a run. While a lease is held, the
+    unleased apply_transition emits nothing rather than a partial diff the
+    per-channel lease check would reject anyway."""
+    ill = scope.illumination
+    lease = ill.acquire_led_lease('protocol')
+    lease.apply(LedTransition.STEP_LIGHT, _ctx(scope, 'Green', GREEN_MA))
+
+    sub = LedSubstream()
+    ill.add_led_listener(sub)
+    # An unleased manual-nav preview arrives mid-run: refused, no LED touched.
+    ill.apply_transition(LedTransition.MANUAL_STEP, _ctx(scope, 'Red', RED_MA, preview_on=True))
+    assert sub.events == [], sub.render()
+    assert ill.led_enabled('Green'), 'run channel disturbed by a refused UI write'
+    assert not ill.led_enabled('Red')
+
+    lease.release(leave_on=False)

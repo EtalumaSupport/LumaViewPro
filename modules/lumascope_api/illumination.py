@@ -268,26 +268,13 @@ class LedLease:
         self._emit_diff(self.target_leds(transition, ctx))
 
     def _emit_diff(self, target: frozenset[tuple[int, float]]) -> None:
-        """Turn off lit channels not in the target, then assert the target.
+        """Drive this lease's target set through the API's canonical diff.
 
-        The single diff-and-emit every transition drives through. Trusts the
-        state cache to skip already-correct channels: led_on self-skips a channel
-        already at its current and led_off self-skips a dark one, so re-asserting
-        a correct target emits nothing (no off-then-on blink). The off uses an
-        empty owner so it clears the channel regardless of who lit it, but checks
-        the lease as this owner so it is permitted while this lease is held. The
-        legacy single-channel (leds_exclusive) and restore (restore_led_state)
-        primitives are this same diff specialized; they fold into this one once
-        their callers move onto the authority.
+        Tags the emit with this lease's owner so the writes are permitted while
+        the lease is held. The diff itself lives on the API (``_emit_led_diff``)
+        so the unleased live-UI callers share the exact same diff-and-emit.
         """
-        api = self._api
-        target_channels = {ch for ch, _ in target}
-        for color in api.led_states:
-            ch = api.color2ch(color)
-            if ch is not None and ch not in target_channels:
-                api.led_off(channel=ch, _lease_owner=self.owner_name)
-        for ch, mA in target:
-            api.led_on(channel=ch, mA=mA, owner=self.owner_name)
+        self._api._emit_led_diff(target, owner=self.owner_name)
 
 
 def snapshot_lit_pairs(led_states: dict, color2ch) -> frozenset[tuple[int, float]]:
@@ -849,38 +836,6 @@ class IlluminationAPI:
             )
         )
 
-    def leds_exclusive_async(
-        self, channel, mA, *, callback=None, cb_kwargs=None, owner: str = ''
-    ) -> None:
-        """Submit ``leds_exclusive(channel, mA)`` to the io_executor.
-
-        Makes ``channel`` the only lit LED without blinking a channel that is
-        already correct off then on (see ``leds_exclusive``). Use this for
-        manual step navigation so stepping between consecutive same-color
-        steps holds the LED steady.
-
-        Args:
-            channel: Channel number or color name.
-            mA: LED current in milliamps.
-            callback: Optional completion callback.
-            cb_kwargs: Optional kwargs passed to the callback.
-            owner: Optional ownership tag for the LED state.
-        """
-        if not self._scope.led_connected:
-            logger.warning('[SCOPE API ] LED controller not available.')
-            return
-        kwargs = {'owner': owner} if owner else {}
-        ex = self._scope._require_executor(self._scope._io_executor, 'leds_exclusive_async')
-        ex.put(
-            IOTask(
-                action=self.leds_exclusive,
-                args=(channel, mA),
-                kwargs=kwargs,
-                callback=callback,
-                cb_kwargs=cb_kwargs,
-            )
-        )
-
     def led_on_sync(self, channel, mA, *, timeout_s=5, owner: str = '') -> None:
         """Run ``led_on`` through the io_executor and block until done.
 
@@ -1279,6 +1234,82 @@ class IlluminationAPI:
         """The active LED-lease owner name, or None if the LEDs are unleased."""
         with self._led_lease_lock:
             return self._led_lease_stack[-1].owner_name if self._led_lease_stack else None
+
+    def _emit_led_diff(self, target: frozenset[tuple[int, float]], *, owner: str) -> None:
+        """Turn off lit channels not in the target, then assert the target.
+
+        The single diff-and-emit every transition drives through -- both the
+        leased run callers (via LedLease) and the unleased live-UI callers (via
+        apply_transition). Trusts the state cache to skip already-correct
+        channels: led_on self-skips a channel already at its current and led_off
+        self-skips a dark one, so re-asserting a correct target emits nothing (no
+        off-then-on blink). The off clears the channel regardless of who lit it
+        but checks the lease as ``owner`` so it is permitted while that owner
+        holds the lease (or while no lease is held, for an unleased UI write).
+        The legacy single-channel (leds_exclusive) and restore (restore_led_state)
+        primitives are this same diff specialized; they fold into this one once
+        their callers move onto the authority.
+        """
+        target_channels = {ch for ch, _ in target}
+        for color in self.led_states:
+            ch = self.color2ch(color)
+            if ch is not None and ch not in target_channels:
+                self.led_off(channel=ch, _lease_owner=owner)
+        for ch, mA in target:
+            self.led_on(channel=ch, mA=mA, owner=owner)
+
+    def apply_transition(
+        self, transition: LedTransition, ctx: LedTransitionCtx, *, owner: str = ''
+    ) -> None:
+        """Drive an unleased LED transition through the authority.
+
+        The lease-free counterpart to LedLease.apply, for live-UI writers that
+        hold no lease -- LED control is open season while nothing is leased, but
+        the decision still routes through target_leds and the emit through the
+        one diff, so a no-op transition (a same-color re-navigation) blinks
+        nothing. Refuses while a lease is held: a run owns the LEDs, and a stray
+        UI write must not cut in mid-run rather than emit a partial diff the
+        per-channel lease check would reject anyway.
+        """
+        violator = self._lease_violation(owner)
+        if violator is not None:
+            _api_log.warning(
+                'LED transition %s ignored: LEDs leased by %r, not the unleased UI',
+                transition.name,
+                violator,
+            )
+            return
+        self._emit_led_diff(LedLease.target_leds(transition, ctx), owner=owner)
+
+    def apply_transition_async(
+        self,
+        transition: LedTransition,
+        ctx: LedTransitionCtx,
+        *,
+        owner: str = '',
+        callback=None,
+        cb_kwargs=None,
+    ) -> None:
+        """Submit ``apply_transition`` to the io_executor.
+
+        Manual step navigation runs the LED transition here so it serializes on
+        the same io_executor as the stage moves (no move racing the LEDs) and
+        does not block the UI thread.
+        """
+        if not self._scope.led_connected:
+            logger.warning('[SCOPE API ] LED controller not available.')
+            return
+        kwargs = {'owner': owner} if owner else {}
+        ex = self._scope._require_executor(self._scope._io_executor, 'apply_transition_async')
+        ex.put(
+            IOTask(
+                action=self.apply_transition,
+                args=(transition, ctx),
+                kwargs=kwargs,
+                callback=callback,
+                cb_kwargs=cb_kwargs,
+            )
+        )
 
     def force_off(self) -> None:
         """Turn off all LEDs unconditionally, bypassing any held lease.
