@@ -41,6 +41,25 @@ def test_ceil_to(value, step, expected):
 
 
 @pytest.mark.parametrize(
+    'value,step,base,expected',
+    [
+        # the 2x-binned IDS height failure: Min=418, Inc=4, legal grid 418+4k.
+        # plain ceil-to-4 gives 948 (off grid, SDK throws); phased gives 950.
+        (948, 4, 418, 950),
+        (418, 4, 418, 418),  # the minimum is itself legal -> unchanged
+        (419, 4, 418, 422),  # one past the min rounds to the next legal value
+        (1900, 48, 420, 1908),  # a phased width grid: 420 + k*48
+        (10, 4, 418, 418),  # below the min clamps up to the min
+    ],
+)
+def test_ceil_to_phased(value, step, base, expected):
+    out = ceil_to(value, step, base)
+    assert out == expected
+    assert (out - base) % step == 0  # lands on the legal Min + k*Inc grid
+    assert out >= value or out == base
+
+
+@pytest.mark.parametrize(
     'value,step,expected',
     [
         (1900, 48, 1872),  # the historical down-snap
@@ -51,6 +70,22 @@ def test_ceil_to(value, step, expected):
 )
 def test_floor_to(value, step, expected):
     assert floor_to(value, step) == expected
+
+
+@pytest.mark.parametrize(
+    'value,step,base,expected',
+    [
+        (948, 4, 418, 946),  # largest 418+4k <= 948
+        (1050, 4, 418, 1050),  # already legal (1050-418=632, divisible by 4)
+        (1051, 4, 418, 1050),  # snaps down to the legal grid
+        (418, 4, 418, 418),  # the min is legal
+        (10, 4, 418, 418),  # never below the min
+    ],
+)
+def test_floor_to_phased(value, step, base, expected):
+    out = floor_to(value, step, base)
+    assert out == expected
+    assert (out - base) % step == 0
 
 
 # --- optical-center reorientation -----------------------------------------
@@ -157,6 +192,91 @@ def test_plan_bias_clamps_near_max_graceful_degrade():
     assert 0 <= plan.offset_y <= MAX[1] - plan.acq_height
 
 
+# --- phased grid (node Minimum off the increment grid) ---------------------
+
+
+def test_plan_height_phase_is_the_2x_binning_failure():
+    # The exact bench failure: at 2x binning the Height node reports Min=418,
+    # Inc=4, so the legal grid is 418+4k. A plain multiple-of-4 snap produces
+    # 948 (948-418=530, not divisible by 4) and the SDK throws OUT_OF_RANGE.
+    # With the Min as the grid phase the AOI lands on 950 and crops back to 948.
+    plan = plan_aoi(
+        target=(950, 948),
+        step=(48, 4),
+        max_size=(1056, 1050),
+        offset_step=(2, 2),
+        size_min=(48, 418),
+    )
+    assert (plan.acq_height - 418) % 4 == 0  # legal Min + k*Inc
+    assert plan.acq_height == 950
+    assert plan.acq_height != 948  # the off-grid value that threw at the bench
+    assert plan.crop_height == 948  # exact request honored
+
+
+def test_plan_width_phase_latent_broaden():
+    # the same defect latently affects Width: a phased width Min (420, Inc 48 ->
+    # 420 % 48 == 36) must snap to 420 + k*48, not a plain multiple of 48.
+    plan = plan_aoi(
+        target=(1900, 1500),
+        step=(48, 4),
+        max_size=(3552, 3552),
+        offset_step=(2, 2),
+        size_min=(420, 4),
+    )
+    assert (plan.acq_width - 420) % 48 == 0
+    assert plan.acq_width == 1908
+    assert plan.crop_width == 1900
+
+
+def test_plan_offset_phase_latent_broaden():
+    # an offset node with a phased Minimum: the snapped offset must satisfy
+    # (offset - offset_min) % offset_step == 0 and never fall below the min.
+    plan = plan_aoi(
+        target=(1900, 950),
+        step=(48, 2),
+        max_size=(3552, 3552),
+        offset_step=(4, 4),
+        offset_min=(0, 2),
+    )
+    assert (plan.offset_y - 2) % 4 == 0
+    assert plan.offset_y >= 2
+
+
+def test_plan_legal_max_stays_on_phased_grid():
+    # a request above the max caps at the largest legal AOI, which must itself
+    # sit on the phased grid (floor_to with the Min as base), not a plain
+    # multiple that the SDK would reject.
+    plan = plan_aoi(
+        target=(9999, 9999),
+        step=(48, 4),
+        max_size=(1056, 1050),
+        offset_step=(2, 2),
+        size_min=(48, 418),
+    )
+    assert (plan.acq_height - 418) % 4 == 0
+    assert plan.acq_height <= 1050
+
+
+def test_plan_offset_min_caps_aoi_to_placeable_extent():
+    # A non-zero offset Minimum shrinks the placeable region: the AOI must cap at
+    # (max - offset_min) so the centered offset still has a legal slot
+    # (offset >= offset_min AND offset + acq <= max) -- never running past the
+    # sensor edge. Without the cap a near-full AOI would force offset >= omin to
+    # overflow the sensor. (offset_min is 0 on every camera today; this guards
+    # the general phased path.)
+    omin = (40, 24)
+    plan = plan_aoi(
+        target=(9999, 9999),  # force the sensor cap
+        step=(4, 4),
+        max_size=(1000, 800),
+        offset_step=(4, 4),
+        offset_min=omin,
+    )
+    assert plan.offset_x >= omin[0] and plan.offset_y >= omin[1]
+    assert plan.offset_x + plan.acq_width <= 1000
+    assert plan.offset_y + plan.acq_height <= 800
+
+
 # --- center_crop -----------------------------------------------------------
 
 
@@ -234,26 +354,42 @@ def test_plan_invariants_over_input_grid():
     maxes = [(3552, 3552), (2704, 1536), (1920, 1200)]
     offset_steps = [(1, 1), (2, 2), (16, 16)]
     biases = [(0, 0), (30, -12), (9999, 9999), (-9999, -9999)]
+    # AOI minimums that are NOT on the increment grid (Min % step != 0) -- the
+    # phase that the 2x-binned Height (418 % 4 == 2) exposed. (0, 0) is the
+    # historical phase-0 case. The legal AOI grid is min + k*step, so the
+    # structural predicate is (acq - min) % step == 0, not acq % step == 0.
+    size_mins = [(0, 0), (48, 418), (420, 4)]
     for t in targets:
         for s in steps:
             for m in maxes:
                 if m[0] < s[0] or m[1] < s[1]:
                     continue  # plan_aoi rejects max < one step (tested above)
-                legal_max_w = (m[0] // s[0]) * s[0]
-                legal_max_h = (m[1] // s[1]) * s[1]
-                for o in offset_steps:
-                    for b in biases:
-                        p = plan_aoi(target=t, step=s, max_size=m, offset_step=o, bias=b)
-                        # AOI on grid, positive, inside the sensor
-                        assert p.acq_width % s[0] == 0 and p.acq_height % s[1] == 0
-                        assert 0 < p.acq_width <= m[0] and 0 < p.acq_height <= m[1]
-                        # offset on grid; whole AOI inside the sensor
-                        assert p.offset_x % o[0] == 0 and p.offset_y % o[1] == 0
-                        assert p.offset_x >= 0 and p.offset_x + p.acq_width <= m[0]
-                        assert p.offset_y >= 0 and p.offset_y + p.acq_height <= m[1]
-                        # crop inside the acquired AOI
-                        assert p.crop_x0 >= 0 and p.crop_x0 + p.crop_width <= p.acq_width
-                        assert p.crop_y0 >= 0 and p.crop_y0 + p.crop_height <= p.acq_height
-                        # exact size unless physically capped at the sensor
-                        assert p.crop_width == t[0] or p.acq_width == legal_max_w
-                        assert p.crop_height == t[1] or p.acq_height == legal_max_h
+                for smin in size_mins:
+                    if m[0] < (smin[0] or s[0]) or m[1] < (smin[1] or s[1]):
+                        continue  # max below the minimum AOI is rejected
+                    legal_max_w = floor_to(m[0], s[0], smin[0])
+                    legal_max_h = floor_to(m[1], s[1], smin[1])
+                    for o in offset_steps:
+                        for b in biases:
+                            p = plan_aoi(
+                                target=t,
+                                step=s,
+                                max_size=m,
+                                offset_step=o,
+                                size_min=smin,
+                                bias=b,
+                            )
+                            # AOI on the phased grid, positive, inside the sensor
+                            assert (p.acq_width - smin[0]) % s[0] == 0
+                            assert (p.acq_height - smin[1]) % s[1] == 0
+                            assert 0 < p.acq_width <= m[0] and 0 < p.acq_height <= m[1]
+                            # offset on grid; whole AOI inside the sensor
+                            assert p.offset_x % o[0] == 0 and p.offset_y % o[1] == 0
+                            assert p.offset_x >= 0 and p.offset_x + p.acq_width <= m[0]
+                            assert p.offset_y >= 0 and p.offset_y + p.acq_height <= m[1]
+                            # crop inside the acquired AOI
+                            assert p.crop_x0 >= 0 and p.crop_x0 + p.crop_width <= p.acq_width
+                            assert p.crop_y0 >= 0 and p.crop_y0 + p.crop_height <= p.acq_height
+                            # exact size unless physically capped at the sensor
+                            assert p.crop_width == min(t[0], legal_max_w)
+                            assert p.crop_height == min(t[1], legal_max_h)

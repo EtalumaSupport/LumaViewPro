@@ -20,25 +20,44 @@ offset, and the crop window.
 from dataclasses import dataclass
 
 
-def ceil_to(value: int, step: int) -> int:
-    """Smallest multiple of ``step`` that is >= ``value``. ``step`` <= 1 is a no-op."""
+def ceil_to(value: int, step: int, base: int = 0) -> int:
+    """Smallest legal grid value (``base + k*step``, k >= 0) that is >= ``value``.
+
+    ``base`` is the grid phase -- a hardware AOI node's Minimum, whose legal set
+    is ``Min + k*Inc``, not plain multiples of ``Inc``. The two coincide only
+    when ``Min % Inc == 0``; they diverge whenever a node reports a Minimum off
+    the increment grid (e.g. a binned sensor height, Min=418 Inc=4), and a
+    plain-multiple snap then lands off the legal grid and the SDK rejects it.
+    ``base`` defaults to 0 (the grid through the origin). ``step`` <= 1 is a no-op.
+    """
     if step <= 1:
         return int(value)
-    return ((int(value) + step - 1) // step) * step
+    n = (int(value) - base + step - 1) // step
+    return base + max(n, 0) * step
 
 
-def floor_to(value: int, step: int) -> int:
-    """Largest multiple of ``step`` that is <= ``value``, never below ``step`` itself."""
+def floor_to(value: int, step: int, base: int = 0) -> int:
+    """Largest legal grid value (``base + k*step``, k >= 0) that is <= ``value``.
+
+    Never below the grid floor: ``base`` when a phase is supplied, else ``step``
+    itself (a zero-size AOI is never legal). See ``ceil_to`` for ``base``.
+    """
     if step <= 1:
         return int(value)
-    return max((int(value) // step) * step, step)
+    snapped = base + ((int(value) - base) // step) * step
+    return max(snapped, base if base else step)
 
 
-def _snap(value: int, step: int) -> int:
-    """Round ``value`` down to a multiple of ``step`` (hardware offset increments)."""
+def _snap(value: int, step: int, base: int = 0) -> int:
+    """Round ``value`` down to a legal grid value (``base + k*step``).
+
+    Used for the hardware offset grid; ``base`` is the offset node's Minimum so
+    the snapped offset stays on the legal ``Min + k*Inc`` set. See ``ceil_to``.
+    """
     if step <= 1:
         return int(value)
-    return (int(value) // step) * step
+    n = (int(value) - base) // step
+    return base + max(n, 0) * step
 
 
 def _clamp(value: int, lo: int, hi: int) -> int:
@@ -125,16 +144,25 @@ def plan_aoi(
     step: tuple[int, int],
     max_size: tuple[int, int],
     offset_step: tuple[int, int],
+    size_min: tuple[int, int] = (0, 0),
+    offset_min: tuple[int, int] = (0, 0),
     bias: tuple[int, int] = (0, 0),
 ) -> AoiPlan:
     """Plan a centered, oversize-then-crop AOI for a requested frame size.
 
     All sizes are in displayed (post-binning) pixels -- the space the AOI nodes
     operate in. ``target`` is the exact request; ``step`` is the alignment grid
-    the AOI must be a multiple of; ``max_size`` is the current max AOI (smaller
-    at higher binning); ``offset_step`` is the hardware offset increment;
-    ``bias`` is the optical-center offset already reoriented into the array
-    frame and divided by binning (default ``(0, 0)`` -> geometric center).
+    the AOI must land on; ``max_size`` is the current max AOI (smaller at higher
+    binning); ``offset_step`` is the hardware offset increment; ``bias`` is the
+    optical-center offset already reoriented into the array frame and divided by
+    binning (default ``(0, 0)`` -> geometric center).
+
+    ``size_min`` / ``offset_min`` are the AOI and offset nodes' Minimums, which
+    set the grid PHASE: the legal AOI sizes are ``size_min + k*step`` and the
+    legal offsets ``offset_min + k*offset_step``, NOT plain multiples (the two
+    differ whenever a Minimum is off its increment grid -- e.g. a binned sensor
+    height with Min=418, Inc=4). Both default to ``(0, 0)`` (the grid through the
+    origin), which preserves the plain-multiple behavior for phase-0 nodes.
 
     The AOI rounds UP to the next legal size but never past the sensor. The
     offset and the crop window are then derived from the optical-axis position,
@@ -157,20 +185,44 @@ def plan_aoi(
     sx, sy = step
     wmax, hmax = max_size
     ox, oy = offset_step
+    smin_x, smin_y = size_min
+    omin_x, omin_y = offset_min
     bx, by = bias
+
+    # The placeable width is the sensor max minus the offset floor: the AOI's
+    # left edge cannot sit below the offset node's Minimum, so the largest AOI
+    # that still fits at a legal offset is wmax - omin (the offset window
+    # [omin, wmax-acq] is non-empty exactly when acq <= wmax - omin). With
+    # offset_min 0 (every camera today) this is just wmax.
+    place_w = wmax - omin_x
+    place_h = hmax - omin_y
+
+    # The smallest legal AOI is the node Minimum when it carries a phase
+    # (Min > 0, e.g. a binned Height of 418), else one alignment step (the
+    # historical phase-0 floor). Reject only a sensor that cannot place it --
+    # a placeable extent EQUAL to the minimum is still a valid one-AOI sensor.
+    min_aoi_w = smin_x if smin_x else sx
+    min_aoi_h = smin_y if smin_y else sy
 
     if wt < 1 or ht < 1:
         raise ValueError(f'target must be positive, got {target!r}')
-    if wmax < sx or hmax < sy:
-        raise ValueError(f'sensor max {max_size!r} is below one alignment step {step!r}')
+    if place_w < min_aoi_w or place_h < min_aoi_h:
+        raise ValueError(
+            f'sensor max {max_size!r} cannot place the minimum AOI '
+            f'{(min_aoi_w, min_aoi_h)!r} at offset minimum {offset_min!r}'
+        )
 
-    # Largest grid-aligned AOI the sensor can supply, vs the request rounded up
-    # to the grid -- whichever is smaller. min() with the legal max is what caps
-    # acq at the sensor even when the max is not itself on the grid.
-    legal_max_w = (wmax // sx) * sx
-    legal_max_h = (hmax // sy) * sy
-    acq_w = min(ceil_to(wt, sx), legal_max_w)
-    acq_h = min(ceil_to(ht, sy), legal_max_h)
+    # Largest legal AOI the sensor can supply, vs the request rounded up to the
+    # grid -- whichever is smaller. min() with the legal max is what caps acq at
+    # the sensor even when the max is not itself on the grid. Both snaps carry
+    # the AOI Minimum as the grid phase so the value the SDK receives is legal.
+    # Cap against the PLACEABLE extent (max - offset_min), not the raw max, so
+    # the centered offset below is guaranteed a legal slot (offset >= omin with
+    # offset + acq <= max) without a post-hoc clamp.
+    legal_max_w = floor_to(place_w, sx, smin_x)
+    legal_max_h = floor_to(place_h, sy, smin_y)
+    acq_w = min(ceil_to(wt, sx, smin_x), legal_max_w)
+    acq_h = min(ceil_to(ht, sy, smin_y), legal_max_h)
 
     crop_w = min(wt, acq_w)
     crop_h = min(ht, acq_h)
@@ -182,9 +234,9 @@ def plan_aoi(
 
     # Position the AOI to put the axis near its center -- clamp into the sensor
     # FIRST so the grid-snap can't push the offset back out of range, then snap
-    # down to the offset grid.
-    off_x = _snap(_clamp(axis_x - acq_w // 2, 0, wmax - acq_w), ox)
-    off_y = _snap(_clamp(axis_y - acq_h // 2, 0, hmax - acq_h), oy)
+    # down to the offset grid (phased by the offset node's Minimum).
+    off_x = _snap(_clamp(axis_x - acq_w // 2, omin_x, wmax - acq_w), ox, omin_x)
+    off_y = _snap(_clamp(axis_y - acq_h // 2, omin_y, hmax - acq_h), oy, omin_y)
 
     # Crop relative to the ACTUAL offset, so snap/clamp residual is compensated;
     # clamp keeps the window inside the acquired AOI at the very edge.

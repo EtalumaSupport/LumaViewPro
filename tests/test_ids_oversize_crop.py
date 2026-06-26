@@ -36,7 +36,7 @@ class _FakeIdsAoiNodemap:
     does). Records every SetValue in ``writes`` for sequence assertions.
     """
 
-    def __init__(self, sensor=(SENSOR_W, SENSOR_H), offset_step=(8, 2), fail_on=()):
+    def __init__(self, sensor=(SENSOR_W, SENSOR_H), offset_step=(8, 2), fail_on=(), minimums=None):
         self.sensor_w, self.sensor_h = sensor
         self.off_step_x, self.off_step_y = offset_step
         self.width, self.height = sensor
@@ -44,6 +44,12 @@ class _FakeIdsAoiNodemap:
         self.writes: list[tuple[str, int]] = []
         # Node names whose SetValue raises, to exercise mid-call failure paths.
         self.fail_on = set(fail_on)
+        # Node Minimums. The default is phase-0 (Min % Inc == 0); pass an
+        # override (e.g. {'Height': 418} with Inc 4) to model a binned node
+        # whose legal grid is Min + k*Inc, off the plain-multiple grid.
+        self.minimums = {'Width': 48, 'Height': 4, 'OffsetX': 0, 'OffsetY': 0}
+        if minimums:
+            self.minimums.update(minimums)
 
     def FindNode(self, name):
         return _FakeIdsAoiNode(self, name)
@@ -61,7 +67,7 @@ class _FakeIdsAoiNode:
         ]
 
     def Minimum(self):
-        return {'Width': 48, 'Height': 4, 'OffsetX': 0, 'OffsetY': 0}[self._name]
+        return self._nm.minimums[self._name]
 
     def Maximum(self):
         nm = self._nm
@@ -88,6 +94,16 @@ class _FakeIdsAoiNode:
         nm = self._nm
         if self._name in nm.fail_on:
             raise RuntimeError(f'simulated SDK failure on {self._name}.SetValue({value})')
+        # Mirror GenICam: the legal set is Minimum + k*Increment, and an off-grid
+        # write raises OUT_OF_RANGE (the exact bench failure on a 2x-binned
+        # Height, Min=418 Inc=4). A phase-0 fixture can't surface a phased-grid
+        # bug, so enforce the real predicate on every write.
+        inc = self.Increment()
+        if (value - self.Minimum()) % inc != 0:
+            raise RuntimeError(
+                f'simulated OUT_OF_RANGE on {self._name}.SetValue({value}): '
+                f'(value - Min={self.Minimum()}) not divisible by Inc={inc}'
+            )
         nm.writes.append((self._name, value))
         setattr(
             nm,
@@ -211,6 +227,21 @@ def test_set_frame_size_failure_clears_stale_crop_spec():
 
     assert cam.set_frame_size(1900, 1900) is False
     assert cam._crop_spec is None
+
+
+def test_set_frame_size_on_phased_height_grid_2x_binning():
+    """The 2x-binning bench failure: the binned Height node reports Min=418,
+    Inc=4, so its legal AOI grid is 418+4k. A plain multiple-of-4 snap produces
+    an off-grid height (948) and the SDK throws OUT_OF_RANGE; the driver must
+    feed the node Minimum as the grid phase so the AOI lands on a legal value
+    (950) and crops back to the exact request (948)."""
+    cam = _ids_camera_with_aoi(sensor=(1056, 1050), minimums={'Height': 418})
+
+    assert cam.set_frame_size(950, 948) is True
+    aoi = cam.get_acquired_aoi()
+    assert (aoi['height'] - 418) % 4 == 0  # legal Min + k*Inc, not off-grid 948
+    assert aoi['height'] == 950
+    assert cam.get_frame_size()['height'] == 948  # exact request delivered
 
 
 def test_optical_center_bias_is_neutral():

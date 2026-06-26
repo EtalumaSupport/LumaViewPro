@@ -698,7 +698,12 @@ class IDSCamera(Camera):
             offset_x_node = nodemap.FindNode('OffsetX')
             offset_y_node = nodemap.FindNode('OffsetY')
 
-            target = (max(width_node.Minimum(), int(w)), max(height_node.Minimum(), int(h)))
+            # Width/Height Minimum is offset-independent, so read it once here
+            # and reuse for both the request floor (target) and the grid phase
+            # (size_min below). The offset minimums DO depend on the offsets, so
+            # they are read later with the offsets zeroed.
+            w_min, h_min = width_node.Minimum(), height_node.Minimum()
+            target = (max(w_min, int(w)), max(h_min, int(h)))
             # Alignment step from the SDK nodemap, not the profile: the hardware
             # increment is authoritative (48 wide on the IMX676 bodies), and an
             # unrecognized model falls back to a default profile whose alignment
@@ -719,11 +724,23 @@ class IDSCamera(Camera):
                 max_size = (width_node.Maximum(), height_node.Maximum())
                 self._sensor_max = max_size
 
+                # Each node's Minimum is the grid PHASE, not just a request
+                # floor: the legal set is Min + k*Inc, and a binned Height
+                # reports Min=418 with Inc=4 -- off the plain-multiple grid, so a
+                # multiple-of-Inc snap is rejected. Width/Height Minimum (w_min,
+                # h_min) was read above; the offset minimums are read here with
+                # the offsets zeroed so they are the true, offset-independent
+                # phase. Couple to the hardware, not a static spec.
+                size_min = (w_min, h_min)
+                offset_min = (offset_x_node.Minimum(), offset_y_node.Minimum())
+
                 plan = plan_aoi(
                     target=target,
                     step=step,
                     max_size=max_size,
                     offset_step=(offset_x_node.Increment(), offset_y_node.Increment()),
+                    size_min=size_min,
+                    offset_min=offset_min,
                     bias=bias,
                 )
 
