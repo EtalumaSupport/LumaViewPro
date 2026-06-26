@@ -7,55 +7,51 @@ Clicking the AF button defocuses the exposure field, whose apply chain
 (exp_text -> apply_settings -> update_led_state -> set_led_state) issued a
 led_off on the channel autofocus was using -- about 50 ms after autofocus
 turned it on. Autofocus then scanned dark frames yet reported success (the
-focus score collapsed). The ImagingAPI is_focusing flag existed and was
-mirrored by the AF runner, but the live LED-apply path never consulted it.
+focus score collapsed).
 
 Fix
 ---
-LayerControl.update_led_state early-returns while scope.imaging.is_focusing
-is True, so a live UI apply cannot turn off the channel autofocus is using.
+The protection is structural, not a UI guard. Autofocus holds the LED
+ownership lease for the duration of a scan, and led_on/led_off refuse any
+write whose owner is not the lease holder. A bare UI led_off (empty owner)
+arriving mid-scan is therefore rejected at the API and the AF channel stays
+lit. The former update_led_state is_focusing early-return duplicated this
+refusal and has been retired -- the lease is the single structural guard.
 
 Test approach
 -------------
-AST source scan -- behavioral exec of update_led_state needs a live Kivy
-LayerControl widget + scope + camera_executor (out of scope here, matching
-test_autofocus_is_focusing_wired.py). The structural lock catches a
-re-removal of the guard.
+Real-path API test (no Kivy widget needed): autofocus takes the lease and
+lights its channel; a live UI led_off is refused; the channel stays lit.
+This fails if the lease enforcement that replaced the guard is removed.
 """
 
 from __future__ import annotations
 
-import ast
-import pathlib
+import pytest
+
+from modules.lumascope_api import Lumascope
 
 
-REPO = pathlib.Path(__file__).resolve().parent.parent
-LAYER_CONTROL_SRC = REPO / 'ui' / 'layer_control.py'
+@pytest.fixture
+def scope():
+    s = Lumascope(simulate=True)
+    s._led_driver.set_timing_mode('fast')
+    yield s
 
 
-def _method(name: str) -> ast.FunctionDef:
-    tree = ast.parse(LAYER_CONTROL_SRC.read_text())
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ClassDef) and node.name == 'LayerControl':
-            for child in node.body:
-                if isinstance(child, ast.FunctionDef) and child.name == name:
-                    return child
-    raise AssertionError(f'LayerControl.{name} not found')
+def _lit(scope, ch):
+    color = scope.illumination.ch2color(ch)
+    return scope.illumination.led_enabled(color)
 
 
-def test_update_led_state_early_returns_while_focusing():
-    """update_led_state must early-return when scope.imaging.is_focusing."""
-    method = _method('update_led_state')
-    guarded = False
-    for node in ast.walk(method):
-        if isinstance(node, ast.If):
-            test_src = ast.unparse(node.test)
-            body_returns = any(isinstance(stmt, ast.Return) for stmt in node.body)
-            if 'is_focusing' in test_src and body_returns:
-                guarded = True
-                break
-    assert guarded, (
-        'update_led_state must early-return when scope.imaging.is_focusing is '
-        'True, so a live UI apply cannot turn off the channel autofocus is '
-        'using mid-scan (#695)'
-    )
+def test_live_ui_off_cannot_dark_an_af_owned_channel(scope):
+    """An unleased UI led_off must not turn off the channel autofocus owns."""
+    scope.illumination.acquire_led_lease('autofocus')
+    scope.illumination.led_on(channel=3, mA=200, owner='autofocus')
+    assert _lit(scope, 3)
+
+    # The #695 shape: the AF button click defocuses the exposure field, whose
+    # apply chain issues a bare UI led_off. While AF holds the lease this is
+    # refused, so the AF channel stays lit and the scan does not go dark.
+    scope.illumination.led_off(channel=3, owner='')
+    assert _lit(scope, 3), 'live UI off darkened an AF-owned channel (#695 regression)'

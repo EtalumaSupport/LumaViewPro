@@ -902,16 +902,11 @@ class LayerControl(BoxLayout):
 
     def update_led_state(self, apply_settings=True):
         ctx = _app_ctx.ctx
-        # While autofocus owns the LED, a live UI apply -- such as the
-        # exposure field losing focus when the AF button is clicked -- must
-        # not turn off the channel autofocus is using, or AF scans a dark
-        # frame. Logged so a bench run can confirm the suppression fired.
-        if ctx.scope.imaging.is_focusing:
-            logger.debug(
-                '[LVP Main  ] update_led_state suppressed -- autofocus owns '
-                f'the LED (layer={self.layer})'
-            )
-            return
+        # No autofocus guard here: while AF holds the LED ownership lease,
+        # led_on/led_off refuse any unleased UI write, so a live UI apply during
+        # a scan (e.g. the exposure field losing focus when the AF button is
+        # clicked) cannot turn off the channel AF is using. The lease is the
+        # structural guard; an early-return here would only duplicate it.
         # Skip hardware commands during programmatic state changes
         # (e.g., disable_leds_for_other_layers toggling buttons).
         if LayerControl._suppressing_led_log or self._initializing:
