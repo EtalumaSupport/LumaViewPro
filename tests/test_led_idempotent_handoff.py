@@ -6,10 +6,11 @@ lit LED. Doing that with a nuclear leds_off followed by led_on blinks a channel
 that is already lit at the target current off->on -- a visible flicker at every
 autofocus scan boundary and on every same-color protocol step (Z-stack slice).
 
-leds_exclusive and the diff-based restore_led_state leave an already-correct
-channel untouched, so re-asserting it does not flicker. LED listeners fire only
-when a command actually reaches the driver (a self-skipped no-op does not fire),
-so counting listener events is a direct measure of "did the LED blink".
+The diff-based restore_led_state and the apply_transition manual-nav path leave
+an already-correct channel untouched, so re-asserting it does not flicker. LED
+listeners fire only when a command actually reaches the driver (a self-skipped
+no-op does not fire), so counting listener events is a direct measure of "did
+the LED blink".
 """
 
 import threading
@@ -29,33 +30,6 @@ def scope():
 
 def _color(scope, ch):
     return scope.illumination.ch2color(ch)
-
-
-def test_leds_exclusive_skips_already_lit_channel(scope):
-    """A channel already on at the target current is not re-commanded."""
-    scope.illumination.led_on(channel=3, mA=200, owner='protocol')
-
-    events = []
-    scope.illumination.add_led_listener(lambda c, e, m, o: events.append((c, e)))
-    scope.illumination.leds_exclusive(channel=3, mA=200, owner='protocol')
-
-    assert events == [], f'already-lit channel was re-commanded (flicker): {events}'
-    assert scope.illumination.led_enabled(_color(scope, 3))
-
-
-def test_leds_exclusive_turns_off_other_channels(scope):
-    """Other lit channels are turned off; the target channel ends up lit."""
-    scope.illumination.led_on(channel=0, mA=100)
-    scope.illumination.leds_exclusive(channel=3, mA=200, owner='protocol')
-
-    assert not scope.illumination.led_enabled(_color(scope, 0))
-    assert scope.illumination.led_enabled(_color(scope, 3))
-
-
-def test_leds_exclusive_lights_a_dark_channel(scope):
-    """With nothing lit, leds_exclusive turns the target channel on."""
-    scope.illumination.leds_exclusive(channel=3, mA=200, owner='protocol')
-    assert scope.illumination.led_enabled(_color(scope, 3))
 
 
 def test_restore_does_not_blink_channel_already_at_target(scope):

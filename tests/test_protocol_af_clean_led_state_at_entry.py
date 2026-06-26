@@ -21,9 +21,10 @@ Two mode-entry sites were silently skipping the convention:
 * ``modules/autofocus_runner.py::run`` -- at AF start with a Live-mode
   LED on a different channel than the AF channel, additive illumination
   would leave both lit. AF's focus metric would see mixed illumination
-  and converge to the wrong Z. AF now uses ``leds_exclusive`` so its
-  channel is the only one lit (and an already-lit AF channel is not
-  blinked off->on), AFTER snapshotting prior state for the exit restore.
+  and converge to the wrong Z. AF now makes its channel the only one lit
+  via the LED authority (the AF_ENTER transition diffs off other channels,
+  and an already-lit AF channel is not blinked off->on), AFTER snapshotting
+  prior state for the exit restore.
 
 The tests drive the real run loop / AF run headlessly (via
 tests/protocol_drives.py and tests/af_drives.py) and observe the LED
@@ -117,7 +118,8 @@ class TestAutofocusRunnerExclusiveIlluminationAtRunStart:
         # AF makes its channel the only lit one via the authority's AF_ENTER
         # (the diff offs other channels) and restores the pre-AF snapshot on
         # exit via AF_TO_CAPTURE -- both transitions driven on the AF lease,
-        # replacing the old direct leds_exclusive / restore_led_state calls.
+        # replacing the old direct per-channel LED calls AF made before the
+        # authority.
         af_lease = scope.illumination.acquire_led_lease.return_value
         applied = [c.args[0] for c in af_lease.apply.call_args_list if c.args]
         assert LedTransition.AF_ENTER in applied, (

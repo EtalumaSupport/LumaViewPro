@@ -605,7 +605,7 @@ def test_s9_manual_nav_preview_lights_holds_and_switches(scope_io):
 # Autofocus LED handoff (transitions 4/6/7). Driven on a real
 # Lumascope(simulate=True) so illumination events fire, with a real
 # AutofocusRunner whose focus loop (_iterate) is stubbed to converge on the
-# first pass. The stub isolates the AF *LED lifecycle* (entry leds_exclusive +
+# first pass. The stub isolates the AF *LED lifecycle* (entry illuminate +
 # the finally keep/restore) from the focus algorithm, which writes no LED.
 # ---------------------------------------------------------------------------
 
@@ -691,8 +691,9 @@ def test_s6_protocol_af_then_different_color_no_stale_channel(scope):
         led_lease=lease,
         run_trigger_source='protocol',
     )
-    # Next-color step light (the protocol's STEP_LIGHT for a Red step).
-    ill.leds_exclusive(channel=ill.color2ch('Red'), mA=350.0, owner='protocol')
+    # Next-color step light (the protocol's STEP_LIGHT for a Red step): the
+    # exclusive-Red diff the run drives on the held lease.
+    ill._emit_led_diff(frozenset({(ill.color2ch('Red'), 350.0)}), owner='protocol', block=False)
 
     assert sub.on_events() == [('Green', 250.0), ('Red', 350.0)], sub.render()
     assert sub.lit_transitions('Green') == [True, False], sub.render()

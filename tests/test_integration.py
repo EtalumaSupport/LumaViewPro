@@ -1180,8 +1180,8 @@ class TestAbortedAutofocusRestoresLeds:
                 keep_led_on=True,
             )
 
-        # AF setup lit the BF channel via leds_exclusive before the
-        # abort was observed; the aborted exit must have turned it off.
+        # AF setup lit the BF channel before the abort was observed; the
+        # aborted exit must have turned it off.
         state = scope.illumination.get_led_state('BF')
         assert not state['enabled'], (
             'Aborted AF left its LED lit: keep_led_on must skip the LED '

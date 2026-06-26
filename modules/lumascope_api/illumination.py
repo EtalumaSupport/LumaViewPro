@@ -443,8 +443,9 @@ class IlluminationAPI:
                 no ownership tracking.
             _lease_owner: Owner to use for the LED-lease check when this
                 write is an internal recomposition done on behalf of a lease
-                holder (e.g. ``leds_exclusive`` clearing other channels).
-                Defaults to ``owner``; external callers leave it unset.
+                holder (e.g. a transition diff clearing other channels on
+                behalf of the run). Defaults to ``owner``; external callers
+                leave it unset.
 
         Raises:
             ValueError: If channel or mA is out of range.
@@ -615,42 +616,6 @@ class IlluminationAPI:
         _api_log.info('leds_off')
         for color in self._driver.available_colors():
             self._fire_led_listeners(color, False, 0.0, '')
-
-    def leds_exclusive(self, channel, mA, *, block: bool = False, owner: str = '') -> None:
-        """Make ``channel`` the only lit LED, at ``mA``, idempotently.
-
-        Turns off every other currently-lit channel, then ensures ``channel``
-        is on at ``mA``. A channel already on at ``mA`` is left untouched, so
-        re-asserting an already-correct channel does not produce a visible
-        off-then-on blink. This is the canonical "switch illumination to a
-        single channel" primitive: autofocus needs exclusive illumination so
-        mixed light cannot corrupt the focus metric, and protocol stepping
-        needs an already-lit channel (consecutive same-color steps) to stay
-        lit rather than flicker.
-
-        Args:
-            channel: Channel number (0-5) or color name string.
-            mA: Illumination current in milliamps.
-            block: If True, wait for confirmation from the LED board.
-            owner: Ownership tag recorded for ``channel`` (see ``led_on``).
-
-        Raises:
-            ValueError: If channel or mA is out of range (via ``led_on``).
-        """
-        if not self._driver:
-            return
-        if isinstance(channel, str):
-            channel = self.color2ch(color=channel)
-        keep_color = self.ch2color(channel)
-        # Turn off every OTHER lit channel. Exclusive illumination overrides
-        # any prior ownership of the channels being cleared, so an empty owner
-        # (unconditional off) is correct here.
-        for color in list(self.get_led_states()):
-            if color != keep_color and self.led_enabled(color):
-                self.led_off(channel=color, _lease_owner=owner)
-        # led_on already self-skips when the channel is on at mA, so an
-        # already-correct channel is not re-commanded (no blink).
-        self.led_on(channel=channel, mA=mA, block=block, owner=owner)
 
     def leds_off_emergency(self, *, timeout_s: float = 2.0) -> None:
         """Bounded leds-off for atexit / abnormal-exit paths only.
@@ -1292,12 +1257,13 @@ class IlluminationAPI:
         off-then-on blink). The off clears the channel regardless of who lit it
         but checks the lease as ``owner`` so it is permitted while that owner
         holds the lease (or while no lease is held, for an unleased UI write).
-        The legacy single-channel (leds_exclusive) and restore (restore_led_state)
-        primitives are this same diff specialized; they fold into this one once
-        their callers move onto the authority. ``block`` waits for the board to
-        confirm each illuminate before returning -- set for a transition whose
-        LED must be on before the camera grabs; the off does not block (clearing
-        a channel never gates a grab).
+        ``block`` waits for the board to confirm each illuminate before
+        returning -- set for a transition whose LED must be on before the
+        camera grabs; the off does not block (clearing a channel never gates a
+        grab). ``restore_led_state`` is an owner-scoped variant of this same
+        off-non-target-then-reassert diff (it offs only the restoring owner's
+        channels before re-asserting the snapshot); keep its blink-avoidance
+        consistent with this primitive.
         """
         target_channels = {ch for ch, _ in target}
         for color in self.led_states:

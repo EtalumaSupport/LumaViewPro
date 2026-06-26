@@ -160,13 +160,14 @@ def test_lease_violation_detects_external_writer(scope):
     assert scope.illumination._lease_violation('') == 'protocol'  # bare UI click
 
 
-def test_owner_leds_exclusive_does_not_self_violate(scope, caplog):
-    # The lease holder's own exclusive call clears other channels via an
-    # internal owner-less off; that must NOT be flagged as a violation.
+def test_owner_emit_diff_does_not_self_violate(scope, caplog):
+    # The lease holder driving its own diff clears other channels via an
+    # owner-less off whose lease check is tagged with the holder; that must
+    # NOT be flagged as a violation of the holder's own lease.
     scope.illumination.acquire_led_lease('protocol')
     scope.illumination.led_on(channel=0, mA=100, owner='protocol')
     with caplog.at_level(logging.WARNING, logger='LVP.api'):
-        scope.illumination.leds_exclusive(channel=3, mA=200, owner='protocol')
+        scope.illumination._emit_led_diff(frozenset({(3, 200.0)}), owner='protocol', block=False)
     assert not any('holds the lease' in r.message for r in caplog.records)
 
 
