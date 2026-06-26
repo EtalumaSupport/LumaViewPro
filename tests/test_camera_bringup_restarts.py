@@ -1,20 +1,20 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Invariant tests for the camera bring-up start gate.
 
-These encode the contract from CAMERA_START_GATE_PLAN.md ahead of the
-implementation. The gate -- a per-instance latch, an open_and_start()
-release that fires the single start, and a gate-aware start_grabbing()
-that refuses to stream while the latch is closed -- lands in a later
-phase. The IDS packed-format 12-bit recognition lands with the Mono8-push
-fix in the phase after that.
+These encode the contract from CAMERA_START_GATE_PLAN.md. The gate is the
+camera-lifecycle split: connect() returns the camera configured but NOT
+grabbing (a per-instance latch starts CLOSED), and open_and_start() is the
+single configure-complete -> start transition that opens the latch and
+fires the one start. Enforcement is structural -- nothing starts the grab
+before open_and_start(), so start_grabbing() stays a pure restartable
+primitive (no runtime gate guard).
 
-Tests that encode that not-yet-built behavior carry
-``xfail(strict=True)``: they FAIL today and FLIP GREEN when their phase
-lands. ``strict=True`` turns the marker red the moment the behavior
-exists, forcing the stale marker to be removed (a regression guard on the
-regression test). The restart-accounting tests pass today -- they pin the
-invariant that configuration applied while NOT grabbing causes zero
-stop/start churn, which is what the closed gate guarantees structurally.
+The restart-accounting tests pin the invariant that configuration applied
+while NOT grabbing causes zero stop/start churn (what the closed gate
+guarantees). The IDS packed-format 12-bit recognition lands with the
+Mono8-push fix in a later phase, so its test carries ``xfail(strict=True)``
+-- it FAILS today and FLIPS GREEN when that fix lands; ``strict=True`` then
+turns red so the stale marker is removed.
 
 Built on tests/camera_fakes.py: real driver objects (via __new__) with a
 fake SDK attached, so production methods run and observable behavior is
@@ -37,9 +37,6 @@ DRIVERS = [
     pytest.param(bare_ids_camera, id='ids'),
     pytest.param(bare_fx2_camera, id='fx2'),
 ]
-
-_GATE_REASON = 'start gate not built yet (CAMERA_START_GATE_PLAN.md)'
-
 
 # -- Restart accounting: the closed-window invariant (passes today) --------
 
@@ -123,43 +120,17 @@ def test_full_bringup_lifecycle_fires_exactly_one_start(make_cam):
     cam.start_grabbing.assert_called_once()
 
 
-@pytest.mark.xfail(strict=True, reason=_GATE_REASON)
-def test_pylon_start_grabbing_denied_while_gate_closed():
-    """A stray start_grabbing() while the gate is closed must not reach
-    the SDK StartGrabbing -- the latch denies it."""
-    cam = bare_pylon_camera()
-    cam._grab_strategy_name = 'LatestImageOnly'
+def test_connect_does_not_eager_start_and_open_and_start_releases():
+    """connect() returns configured but NOT grabbing; open_and_start()
+    is the single release that begins streaming."""
+    from drivers.simulated_camera import SimulatedCamera
 
-    cam.start_grabbing()
-
-    cam.active.StartGrabbing.assert_not_called()
-
-
-@pytest.mark.xfail(strict=True, reason=_GATE_REASON)
-def test_ids_start_grabbing_denied_while_gate_closed():
-    """IDS analog: closed gate denies the SDK StartAcquisition."""
-    cam = bare_ids_camera()
-    cam.cam_image_handler = None
-    cam._configure_free_run = MagicMock()
-    cam.data_stream.NumBuffersAnnouncedMinRequired.return_value = 0
-
-    cam.start_grabbing()
-
-    cam.data_stream.StartAcquisition.assert_not_called()
-
-
-@pytest.mark.xfail(strict=True, reason=_GATE_REASON)
-def test_fx2_start_grabbing_denied_while_gate_closed():
-    """FX2 analog: closed gate denies the platform streaming start, and
-    the grabbing flag stays false."""
-    cam = bare_fx2_camera()
-
-    cam.start_grabbing()
-
-    assert cam._grabbing is False
-    cam._start_iso_streaming.assert_not_called()
-    cam._start_winusb_iso_streaming.assert_not_called()
-    cam._start_bulk_streaming.assert_not_called()
+    cam = SimulatedCamera()
+    assert cam._grab_gate_open is False
+    assert cam.is_grabbing() is False
+    cam.open_and_start()
+    assert cam._grab_gate_open is True
+    assert cam.is_grabbing() is True
 
 
 # -- Pixel-format capability: exact match, additive (pure logic) -----------

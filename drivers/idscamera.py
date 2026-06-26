@@ -140,7 +140,8 @@ class IDSCamera(Camera):
             self.cam_image_handler = ImageHandler(self.data_stream, parent_cam=self)
 
             self.init_camera_config()
-            self.start_grabbing()
+            # connect() returns CONFIGURED but NOT grabbing; the single
+            # start fires later via open_and_start() (the start gate).
 
             logger.info('[CAM Class ] Connected to IDS camera')
             return True
@@ -333,6 +334,10 @@ class IDSCamera(Camera):
             _cam_log.warning(f'[CAM Class ] stop_grabbing ignored error: {e}')
 
     def start_grabbing(self):
+        if self.is_grabbing():
+            if _cam_log is not None:
+                _cam_log.info('ids start_grabbing SKIPPED: already grabbing')
+            return
         if _cam_log is not None:
             _cam_log.info('ids start_grabbing: alloc buffers + StartAcquisition + AcquisitionStart')
         try:

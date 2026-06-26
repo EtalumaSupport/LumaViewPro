@@ -29,6 +29,7 @@ from drivers.idscamera import IDSCamera
 class TestIDS(unittest.TestCase):
     def setUp(self):
         self.camera = IDSCamera()
+        self.camera.open_and_start()
 
     def tearDown(self):
         self.camera.disconnect()

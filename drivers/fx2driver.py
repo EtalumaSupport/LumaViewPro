@@ -1276,16 +1276,14 @@ class FX2Camera(Camera):
         """Called by Camera base class during construction.
 
         Initializes the MT9P031 sensor, creates the frame handler, loads
-        the camera profile, applies default exposure/gain via
-        ``init_camera_config()``, and **starts ISO streaming**. The
-        start-grabbing-in-connect convention matches PylonCamera
-        (drivers/pyloncamera.py:191), IDSCamera (drivers/idscamera.py:76),
-        and SimulatedCamera (drivers/simulated_camera.py:176). LVP's
-        ScopeDisplay polls the camera assuming it's already grabbing; if
-        connect() returns without starting streaming, the live view stays
-        blank. This bug bit on the first LS620 GUI launch (2026-04-15) --
-        manual Stage 3.5 scripts didn't notice because they all called
-        cam.start_grabbing() explicitly.
+        the camera profile, and applies default exposure/gain via
+        ``init_camera_config()``. Returns the camera CONFIGURED but NOT
+        grabbing -- the camera-lifecycle split: streaming begins exactly
+        once via ``open_and_start()`` (the start gate). ScopeDisplay polls
+        assuming the camera is grabbing, so the live view stays blank until
+        the gate is released; the bring-up sites release it via
+        ``scope.imaging.start_streaming()`` after configuration (the
+        blank-view failure that bit the first LS620 GUI launch 2026-04-15).
         """
         self.model_name = 'MT9P031-LS620'
         self._init_sensor()
@@ -1294,7 +1292,6 @@ class FX2Camera(Camera):
         self._load_profile()
         self._query_dynamic_capabilities()
         self.init_camera_config()
-        self.start_grabbing()
         logger.info('[FX2 Cam   ] connected: %s', self.model_name)
         return True
 

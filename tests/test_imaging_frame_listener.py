@@ -152,12 +152,12 @@ def _make_simulated_scope():
 
 def _start_sim_pump(scope):
     """Spin up the SimulatedCamera callback pump."""
-    scope._camera_driver.start_grabbing()
+    scope.imaging.start_streaming()
 
 
 def _stop_sim_pump(scope):
     """Stop the SimulatedCamera pump (releases the background thread)."""
-    scope._camera_driver.stop_grabbing()
+    scope.imaging.stop_streaming()
 
 
 def test_integration_basic_fanout_via_simulated_camera():

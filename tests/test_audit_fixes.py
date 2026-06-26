@@ -4066,6 +4066,7 @@ def _sim_backed_imaging():
 
     cam = SimulatedCamera()
     cam.connect()
+    cam.open_and_start()
     scope = Lumascope.__new__(Lumascope)
     scope._camera_driver = cam
     scope.runtime_state = RuntimeState(scope)

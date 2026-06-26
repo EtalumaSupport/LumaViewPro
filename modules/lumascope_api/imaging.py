@@ -2008,6 +2008,49 @@ class ImagingAPI:
         """
         return self._driver.significant_bits if self._driver is not None else 16
 
+    # --- Streaming control ---
+    def start_streaming(self) -> None:
+        """Begin camera streaming -- the public way to start the live feed.
+
+        After ``connect()`` the camera is configured but NOT grabbing (the
+        camera-lifecycle split); this is the sanctioned release. Opens the
+        start gate (idempotent) and ensures the grab is running, so it both
+        performs the one-time bring-up start and restarts a feed that was
+        deliberately stopped. No-op when no camera is attached.
+
+        The UI bring-up calls this in load_settings / reconnect; headless
+        callers (scripts, tests) call it after constructing the scope
+        instead of reaching into the private camera driver.
+        """
+        driver = self._driver
+        if driver is None:
+            return
+        driver.open_and_start()
+        if not driver.is_grabbing():
+            driver.start_grabbing()
+
+    def stop_streaming(self) -> None:
+        """Stop camera streaming.
+
+        After this, ``get_image()`` / ``capture_and_wait()`` time out until
+        streaming resumes. No-op when no camera is attached.
+        """
+        driver = self._driver
+        if driver is None:
+            return
+        driver.stop_grabbing()
+
+    def is_streaming(self) -> bool:
+        """Whether the camera is currently acquiring frames.
+
+        Queries the driver directly (unlike ``camera_active``, which reads
+        the cached connected-state). False when no camera is attached.
+        """
+        driver = self._driver
+        if driver is None:
+            return False
+        return driver.is_grabbing()
+
     # --- State / lifecycle properties ---
     @property
     def camera_active(self) -> bool:

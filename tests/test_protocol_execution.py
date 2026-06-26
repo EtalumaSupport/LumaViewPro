@@ -58,7 +58,7 @@ def _make_simulated_scope():
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
-    s._camera_driver.start_grabbing()
+    s.imaging.start_streaming()
     return s
 
 
@@ -297,7 +297,7 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
 def scope():
     s = _make_simulated_scope()
     yield s
-    s._camera_driver.stop_grabbing()
+    s.imaging.stop_streaming()
     s.disconnect()
 
 

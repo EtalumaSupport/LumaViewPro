@@ -172,6 +172,10 @@ class MicroscopeSettings(BoxLayout):
         scope_config = self.scopes.get(settings.get('microscope'))
         config = ScopeInitConfig.from_settings(settings, labware, scope_config=scope_config)
         lumaview.scope.initialize(config)
+        # Start gate release: configuration is applied, so open the gate and
+        # fire the single grab (the camera-lifecycle split -- connect() left
+        # it configured but not grabbing).
+        lumaview.scope.imaging.start_streaming()
 
         ctx.sequenced_capture_runner.set_scope(lumaview.scope)
         ctx.autofocus_runner.set_scope(lumaview.scope)
@@ -428,6 +432,9 @@ class MicroscopeSettings(BoxLayout):
             scope_config = self.scopes.get(settings.get('microscope'))
             config = ScopeInitConfig.from_settings(settings, labware, scope_config=scope_config)
             lumaview.scope.initialize(config)
+            # Start gate release (primary startup site): configuration is
+            # applied, so open the gate and fire the single grab.
+            lumaview.scope.imaging.start_streaming()
 
             protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
             protocol_settings.ids['capture_period'].text = str(settings['protocol']['period'])

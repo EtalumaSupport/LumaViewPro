@@ -224,7 +224,7 @@ def sim_scope():
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
     s._camera_driver.load_cycle_images()
-    s._camera_driver.start_grabbing()
+    s.imaging.start_streaming()
     yield s
-    s._camera_driver.stop_grabbing()
+    s.imaging.stop_streaming()
     s.disconnect()

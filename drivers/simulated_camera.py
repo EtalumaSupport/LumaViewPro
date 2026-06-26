@@ -214,7 +214,8 @@ class SimulatedCamera(Camera):
 
             self._load_profile()
             self.init_camera_config()
-            self._grabbing = True
+            # connect() returns CONFIGURED but NOT grabbing; the single
+            # start fires later via open_and_start() (the start gate).
 
             if _cam_log is not None:
                 _cam_log.info(f'sim Connected: {self.model_name} ({self._device_serial})')

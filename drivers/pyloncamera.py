@@ -915,6 +915,20 @@ class PylonCamera(Camera):
 
             camera.Open()
 
+            # Start gate, SDK-side enforcement: pypylon 26.4.x's
+            # AcquireContinuousConfiguration can auto-StartGrabbing from
+            # inside Open(). connect() must return NOT grabbing, so stop it
+            # immediately -- one rule, every SDK. Doing it here (before the
+            # MaxNumBuffer / MaxTransferSize block below) also means those
+            # StreamGrabber node writes land while stopped, which is where
+            # the SDK wants them. IsGrabbing/StopGrabbing are core
+            # InstantCamera methods present on every transport (unlike the
+            # optional nodes below), so no node-availability guard is needed;
+            # a genuine SDK failure propagates to connect()'s own handler.
+            if camera.IsGrabbing():
+                camera.StopGrabbing()
+                _log_cam('info', '[CAM Class ] post-Open: stopped SDK auto-start grab (start gate)')
+
             # MaxNumBuffer cap. Applied post-Open() -- earliest window
             # before pypylon 26.4.x's AcquireContinuousConfiguration
             # auto-starts grabbing and locks the node. Bench-validated
@@ -1083,7 +1097,8 @@ class PylonCamera(Camera):
                 self.cam_image_handler.reset()
 
             self.init_camera_config()
-            self.start_grabbing()
+            # connect() returns CONFIGURED but NOT grabbing; the single
+            # start fires later via open_and_start() (the start gate).
 
             _log_cam('info', '[CAM Class ] Connected to Pylon camera')
             return True
