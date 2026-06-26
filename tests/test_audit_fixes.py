@@ -12874,3 +12874,31 @@ class TestCaptureFailureAbortNotificationOrdering:
         assert order.index('leds_off') < order.index('abort'), (
             f'leds_off must precede the abort; order={order}'
         )
+
+
+class TestTransientClassificationLogIsHonest:
+    """F13: the during-scan transient/fatal classification keys on
+    are_all_connected(), which is a cached handle-state check, NOT a liveness
+    round-trip -- a camera whose handle is valid but whose grab has died still
+    classifies transient. The real fix (a liveness probe) is hardware-visible
+    and bench-gated, so it is deferred; the log must not meanwhile assert the
+    hardware is 'still connected' as if confirmed (a misleading log is itself a
+    bug). This pins the honest wording so the over-claim cannot silently return.
+    """
+
+    def test_transient_warning_qualifies_handle_state_not_liveness(self):
+        import pathlib
+        import re
+
+        src = (
+            pathlib.Path(__file__).resolve().parent.parent / 'modules' / 'protocol_run_loop.py'
+        ).read_text()
+        assert 'handle-state' in src, (
+            'the transient classification must be documented as handle-state only'
+        )
+        assert 'not a confirmed liveness' in src or 'not a liveness' in src, (
+            'the transient warning must qualify that it is not a liveness probe'
+        )
+        assert not re.search(r'hardware\s+still\s+connected\)', src), (
+            'the misleading "(hardware still connected)" transient claim returned'
+        )

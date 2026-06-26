@@ -251,6 +251,12 @@ class ProtocolRunLoop:
                 # out. The 30s periodic are_all_connected() check
                 # earlier in this loop covers between-scan
                 # disconnects; this branch covers during-scan ones.
+                # Handle-state check only (cached connected flags), NOT a
+                # liveness round-trip: a camera whose handle is valid but whose
+                # grab has died reads connected=True and so classifies as
+                # transient. The consecutive-failure cap below bounds that case;
+                # a true liveness probe (a hardware round-trip) is deferred --
+                # it needs bench validation before it can change classification.
                 try:
                     connected = p._scope.are_all_connected()
                 except Exception:
@@ -289,9 +295,9 @@ class ProtocolRunLoop:
                 # do NOT break. The outer while loop's next iteration
                 # waits the protocol period and re-runs the scan.
                 logger.warning(
-                    f'[Protocol] Transient scan failure (hardware '
-                    f'still connected); will retry on next period: '
-                    f'{ex}',
+                    f'[Protocol] Scan failure with hardware handles still '
+                    f'present (handle-state check, not a confirmed liveness '
+                    f'probe); retrying on next period: {ex}',
                     exc_info=True,
                 )
                 p._scan_in_progress.clear()
