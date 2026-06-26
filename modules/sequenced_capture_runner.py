@@ -222,22 +222,49 @@ class SequencedCaptureRunner:
 
         return n_scans
 
+    def progress_snapshot(self) -> tuple[int, int]:
+        """Atomic (n_scans, scan_count) for cross-thread readers.
+
+        scan_count is advanced on the protocol worker under
+        _protocol_state_lock; reading it together with n_scans under the same
+        lock hands the UI a consistent pair, so a torn read can't report a
+        remaining count where one half updated between the two field reads.
+        """
+        with self._protocol_state_lock:
+            return self._n_scans, self._scan_count
+
     def num_scans(self) -> int:
-        return self._n_scans
+        with self._protocol_state_lock:
+            return self._n_scans
 
     def scan_count(self) -> int:
-        return self._scan_count
+        with self._protocol_state_lock:
+            return self._scan_count
 
     def remaining_scans(self) -> int:
-        return self._n_scans - self._scan_count
+        n_scans, scan_count = self.progress_snapshot()
+        return n_scans - scan_count
+
+    def advance_scan_count(self) -> int:
+        """Increment the completed-scan counter and return the new value.
+
+        The single mutation site for scan_count, so the counter's lock is
+        owned here rather than reached into from the run loop. Called only on
+        the protocol worker at scan completion.
+        """
+        with self._protocol_state_lock:
+            self._scan_count += 1
+            return self._scan_count
 
     def _init_for_new_scan(self, max_scans: int) -> bool:
         self._reset_vars()
-        self._n_scans = self._calculate_num_scans(
+        n_scans = self._calculate_num_scans(
             protocol=self._protocol,
             run_mode=self._run_mode,
             max_scans=max_scans,
         )
+        with self._protocol_state_lock:
+            self._n_scans = n_scans
 
         self._start_t = datetime.datetime.now()
 

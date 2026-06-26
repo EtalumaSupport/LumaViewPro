@@ -227,9 +227,8 @@ class ProtocolRunLoop:
                     f'Protocol scan {p._scan_count} completed in {scan_duration.total_seconds():.2f} seconds'
                 )
 
-                with p._protocol_state_lock:
-                    p._scan_count += 1
-                logger.debug(f'[{p.LOGGER_NAME}] Scan {p._scan_count}/{p._n_scans} completed')
+                new_count = p.advance_scan_count()
+                logger.debug(f'[{p.LOGGER_NAME}] Scan {new_count}/{p._n_scans} completed')
 
                 if p._callbacks.scan_iterate_post:
                     _schedule_ui(lambda dt: p._callbacks.scan_iterate_post(), 0)

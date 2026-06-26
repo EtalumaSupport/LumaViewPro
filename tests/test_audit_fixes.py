@@ -12747,3 +12747,74 @@ class TestPS11VideoCancelledRecordsRow:
 
         assert record.add_step.called, 'cancelled video must leave a record row'
         assert record.add_step.call_args.kwargs['capture_result_file_name'] == 'video_cancelled'
+
+
+class TestRemainingScansAtomicSnapshot:
+    """F10: progress counters must be read under the same lock the protocol
+    worker uses to advance scan_count, so a cross-thread UI reader (the abort
+    popup) never sees a torn 'remaining' where n_scans and scan_count updated
+    between the two field reads. The increment is also encapsulated on the
+    runner (advance_scan_count) so the run loop no longer reaches into the raw
+    field + lock.
+    """
+
+    def _make_runner(self):
+        from modules.sequenced_capture_runner import SequencedCaptureRunner
+
+        return SequencedCaptureRunner(
+            scope=MagicMock(),
+            stage_offset={'x': 0.0, 'y': 0.0, 'z': 0.0},
+            io_executor=MagicMock(),
+            protocol_thread=MagicMock(),
+            file_io_executor=MagicMock(),
+            camera_executor=MagicMock(),
+            autofocus_thread=MagicMock(),
+        )
+
+    def test_progress_snapshot_returns_consistent_pair(self):
+        runner = self._make_runner()
+        runner._n_scans = 10
+        runner._scan_count = 3
+        assert runner.progress_snapshot() == (10, 3)
+        assert runner.num_scans() == 10
+        assert runner.scan_count() == 3
+        assert runner.remaining_scans() == 7
+
+    def test_advance_scan_count_increments_and_returns_new_value(self):
+        runner = self._make_runner()
+        runner._n_scans = 5
+        runner._scan_count = 0
+        assert runner.advance_scan_count() == 1
+        assert runner.advance_scan_count() == 2
+        assert runner.scan_count() == 2
+        assert runner.remaining_scans() == 3
+
+    def test_remaining_scans_blocks_on_the_writer_lock(self):
+        """A correctly-locked reader serializes behind the lock the worker
+        holds while advancing scan_count. Holding that lock, a concurrent
+        remaining_scans() must not complete until release -- proving the read
+        cannot tear against an in-flight increment. Fails before the fix
+        (the unlocked read returned immediately while the lock was held)."""
+        import time
+
+        runner = self._make_runner()
+        runner._n_scans = 10
+        runner._scan_count = 2
+        result = []
+        started = threading.Event()
+
+        def reader():
+            started.set()
+            result.append(runner.remaining_scans())
+
+        with runner._protocol_state_lock:
+            t = threading.Thread(target=reader)
+            t.start()
+            assert started.wait(timeout=1)
+            time.sleep(0.05)
+            assert not result, (
+                'remaining_scans() returned while the worker lock was held -- '
+                'it read the counters without the lock (torn-snapshot race)'
+            )
+        t.join(timeout=2)
+        assert result == [8]

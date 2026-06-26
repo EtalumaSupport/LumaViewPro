@@ -1,4 +1,4 @@
 4.0.0-beta20
-2026-06-26 14:14
-led-state-authority
-030b4dfd
+2026-06-26 15:17
+protocol-workflow-closure
+b81aa7d1
