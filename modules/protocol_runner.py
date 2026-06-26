@@ -272,9 +272,8 @@ class ProtocolRunner:
             callbacks=merged_callbacks,
             return_to_position=return_to_position,
             leds_state_at_end='off',
-            video_as_frames=self.session.settings.get('video_as_frames', False),
-            keep_led_between_steps=self.session.settings.get('keep_led_between_steps', False),
             initial_autofocus_states=initial_autofocus_states,
+            **config_helpers.get_sequenced_run_settings(self.session.settings),
         )
 
     # ------------------------------------------------------------------

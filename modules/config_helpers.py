@@ -116,6 +116,25 @@ def get_auto_gain_settings(settings: dict) -> dict:
     return autogain_settings
 
 
+def get_sequenced_run_settings(settings: dict) -> dict:
+    """Resolve the settings-derived kwargs a sequenced-capture run forwards.
+
+    The single source for the run-parameters a protocol scan reads from the
+    user settings, spread into SequencedCaptureRunner.run() at every call site.
+    Both the GUI scan path and the API protocol path build the run kwargs, and
+    each forwarding a separate hand-picked subset is how they drift: a key
+    present on one path but missing on the other silently changes hardware
+    behavior (LED hold, output layout) for whichever path forgot it. Routing
+    both through here makes the per-path subset one definition, so adding a new
+    run-param cannot reach the runner on only one path.
+    """
+    return {
+        'keep_led_between_steps': settings.get('keep_led_between_steps', False),
+        'video_as_frames': settings.get('video_as_frames', False),
+        'separate_folder_per_channel': settings.get('separate_folder_per_channel', False),
+    }
+
+
 def get_manual_video_max_duration(settings: dict) -> float:
     """Return the manual-video max recording duration in seconds.
 

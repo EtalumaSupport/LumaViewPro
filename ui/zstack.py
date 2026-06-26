@@ -262,12 +262,11 @@ class ZStack(FloatLayout):
                 parent_dir=parent_dir,
                 image_capture_config=image_capture_config,
                 enable_image_saving=is_image_saving_enabled(),
-                separate_folder_per_channel=False,
                 autogain_settings=autogain_settings,
                 callbacks=callbacks,
                 return_to_position=initial_position,
                 leds_state_at_end='return_to_original',
-                video_as_frames=settings['video_as_frames'],
+                **config_helpers.get_sequenced_run_settings(settings),
             )
 
             set_last_save_folder(dir=ctx.sequenced_capture_runner.run_dir())

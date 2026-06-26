@@ -118,19 +118,22 @@ def test_step_runner_consults_zstack_group_for_boundary_decision():
     )
 
 
-def test_protocol_runner_passes_flag_from_settings_default_false():
+def test_protocol_runner_forwards_run_params_via_helper():
+    # protocol_runner forwards the settings-derived run params (including
+    # keep_led_between_steps) into run() through the single-source helper, not a
+    # hand-passed kwarg, so the GUI and API paths cannot drift over which
+    # settings they forward. The helper's False default is pinned in
+    # test_sequenced_run_settings_single_source.py.
     for node in ast.walk(_tree(PROTO_RUNNER_SRC)):
         if (
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
             and node.func.attr == 'run'
         ):
-            kw = {k.arg: k.value for k in node.keywords}
-            if 'keep_led_between_steps' in kw:
-                src = ast.unparse(kw['keep_led_between_steps'])
-                assert "'keep_led_between_steps'" in src and 'False' in src, (
-                    'protocol_runner must read keep_led_between_steps from '
-                    'settings with a False default'
-                )
-                return
-    raise AssertionError('protocol_runner must pass keep_led_between_steps to the runner')
+            for kw in node.keywords:
+                if kw.arg is None and 'get_sequenced_run_settings' in ast.unparse(kw.value):
+                    return
+    raise AssertionError(
+        'protocol_runner must spread get_sequenced_run_settings(settings) into '
+        'the runner.run() call (the single source for keep_led_between_steps)'
+    )
