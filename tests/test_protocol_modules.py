@@ -486,6 +486,42 @@ class TestRunCleanup:
         run_cleanup(**args)
         assert state[0] == ProtocolState.IDLE
 
+    def test_pending_writes_dropped_only_on_error_abort(self):
+        """The pending FILE-write queue is cleared only on an ERROR-state abort.
+        A non-ERROR end/abort (user Stop) deliberately DRAINS pending writes so
+        already-captured frames are not discarded. Pins that decision against the
+        opposite recommendation (drop on every abort).
+        """
+        from modules.protocol_cleanup import run_cleanup
+
+        # ERROR abort (hardware fault): pending file writes are dropped.
+        err_state = [ProtocolState.ERROR]
+        args, _, _ = self._make_cleanup_args()
+        args['get_state_fn'] = lambda: err_state[0]
+
+        def set_err_state(s):
+            if err_state[0] == ProtocolState.ERROR and s == ProtocolState.IDLE:
+                err_state[0] = s
+            elif err_state[0] == s:
+                pass
+            else:
+                validate_transition(err_state[0], s)
+                err_state[0] = s
+
+        args['set_state_fn'] = set_err_state
+        run_cleanup(**args)
+        assert args['file_io_executor'].protocol_pending_cleared, (
+            'an ERROR-state abort must drop the pending file-write queue'
+        )
+
+        # Non-ERROR end/abort (user Stop, RUNNING -> COMPLETING -> IDLE): pending
+        # writes drain, not dropped.
+        args2, _, _ = self._make_cleanup_args()
+        run_cleanup(**args2)
+        assert not args2['file_io_executor'].protocol_pending_cleared, (
+            'a non-ERROR (user Stop) abort must drain pending writes, not drop them'
+        )
+
 
 # ===========================================================================
 # protocol_image_writer.py
