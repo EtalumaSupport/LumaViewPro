@@ -348,12 +348,16 @@ class ScopeDisplayThread:
                 connected = ctx.scope.camera_connected
             except Exception:
                 connected = '?'
+            # Report the CONFIGURED cap as fps_cap, not fps: self._fps is the
+            # target rate (default 30), so a bare "fps=30" on a stall line reads
+            # as healthy throughput when delivered throughput is in fact zero
+            # (the "no new frame for {elapsed}s" above is the real rate).
             logger.warning(
                 f'Live-view frames stalled: no new frame for {elapsed:.1f}s '
                 f'(warn threshold {STALL_WARN_SECONDS:.0f}s). '
                 f'camera_connected={connected} camera_active={camera_active} '
                 f'last_status={status} generation={self._generation} '
-                f'fps={self._fps} paused={self._paused.is_set()}'
+                f'fps_cap={self._fps} delivered_fps=0 paused={self._paused.is_set()}'
             )
             # Surface the stall once per episode (re-armed when frames resume,
             # same as the log). The full diagnostic stays in the log line above;
