@@ -501,21 +501,15 @@ class MicroscopeSettings(BoxLayout):
                 if 'ill_ma' in settings[layer]:
                     layer_obj.ids['ill_slider'].value = settings[layer]['ill_ma']
 
+                # Size the sliders to the camera caps BEFORE setting the value
+                # (the Kivy slider clamps the displayed value to its max). The
+                # over-cap STORED value is reconciled + persisted by the single
+                # clamp_layer_settings_to_caps pass after the loop, not a
+                # duplicate inline clamp here.
                 layer_obj.ids['gain_slider'].max = max_gain
-
-                if settings[layer]['gain_db'] <= max_gain:
-                    layer_obj.ids['gain_slider'].value = settings[layer]['gain_db']
-                else:
-                    layer_obj.ids['gain_slider'].value = max_gain
-                    settings[layer]['gain_db'] = max_gain
-
+                layer_obj.ids['gain_slider'].value = settings[layer]['gain_db']
                 layer_obj.ids['exp_slider'].max = max_exposure
-
-                if settings[layer]['exp_ms'] <= max_exposure:
-                    layer_obj.ids['exp_slider'].value = settings[layer]['exp_ms']
-                else:
-                    layer_obj.ids['exp_slider'].value = max_exposure
-                    settings[layer]['exp_ms'] = max_exposure
+                layer_obj.ids['exp_slider'].value = settings[layer]['exp_ms']
 
                 layer_obj.ids['false_color'].active = settings[layer]['false_color']
 
@@ -586,6 +580,12 @@ class MicroscopeSettings(BoxLayout):
                     layer_obj.ids['stim_pulse_width_box'].opacity = 0
 
                     layer_obj.update_stim_controls_visibility()
+
+            # Reconcile any layer whose stored gain/exposure exceeds the new
+            # camera's cap down to it -- the single clamp owner, shared with the
+            # reconnect resync, instead of the per-layer inline clamp this loop
+            # used to carry.
+            ctx.image_settings.clamp_layer_settings_to_caps()
 
         except json.JSONDecodeError as e:
             # Real "incompatible JSON" -- file content can't be parsed.

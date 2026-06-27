@@ -183,3 +183,24 @@ class TestReconnectResync:
         assert _name_calls(method, 'camera_max_gain_for_ui'), (
             'load_settings must resolve the gain cap via camera_max_gain_for_ui.'
         )
+
+    def test_load_settings_delegates_clamp_not_inline(self):
+        # De-dup: load_settings reconciles over-cap values via the single
+        # clamp_layer_settings_to_caps owner, not a duplicate inline clamp.
+        method = _method_node(MS_PATH, 'load_settings')
+        assert _attr_calls(method, 'clamp_layer_settings_to_caps'), (
+            'load_settings must delegate over-cap reconciliation to clamp_layer_settings_to_caps.'
+        )
+        inline = [
+            t
+            for node in ast.walk(method)
+            if isinstance(node, ast.Assign)
+            for t in node.targets
+            if isinstance(t, ast.Subscript)
+            and isinstance(t.slice, ast.Constant)
+            and t.slice.value in ('gain_db', 'exp_ms')
+        ]
+        assert not inline, (
+            'load_settings must not carry an inline gain_db/exp_ms clamp-persist '
+            '(it duplicates clamp_layer_settings_to_caps).'
+        )
