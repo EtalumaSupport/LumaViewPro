@@ -307,6 +307,56 @@ def test_resolve_end_state_shared_builder():
     assert resolve_end_state('bogus', {}, color2ch) == (None, frozenset())
 
 
+def test_lit_pairs_shared_helper_snapshot_and_restore_agree():
+    # The snapshot (pre-run) and the run-end restore must define "which channels
+    # count as lit" from one place, so a tightened criterion cannot leave the
+    # restore re-lighting a channel the snapshot treated as dark. Both route
+    # through _lit_channel_pairs; only the drop-nonpositive filter differs.
+    from modules.lumascope_api.illumination import (
+        _lit_channel_pairs,
+        resolve_end_state,
+        snapshot_lit_pairs,
+    )
+
+    color2ch = {'BF': 0, 'Green': GREEN_CH, 'Blue': BLUE_CH}.get
+
+    # Representative mix: an enabled lit channel, an enabled zero-current
+    # channel, a disabled channel, and an enabled channel with no LED mapping.
+    states = {
+        'Green': {'enabled': True, 'illumination_ma': GREEN_MA},
+        'Blue': {'enabled': True, 'illumination_ma': 0.0},
+        'Red': {'enabled': False, 'illumination_ma': 80.0},
+        'Unmapped': {'enabled': True, 'illumination_ma': 99.0},
+    }
+
+    # drop_nonpositive=True (the snapshot path): the zero-current Blue channel is
+    # treated as dark and dropped; disabled and unmapped never count.
+    snap = snapshot_lit_pairs(states, color2ch)
+    assert snap == frozenset({(GREEN_CH, GREEN_MA)})
+    assert snap == _lit_channel_pairs(states, color2ch, drop_nonpositive=True)
+
+    # drop_nonpositive=False (the restore path): every enabled mapped channel is
+    # taken verbatim, so the zero-current Blue channel is restored as-is.
+    policy, restore = resolve_end_state('return_to_original', states, color2ch)
+    assert policy is LedEndPolicy.RETURN_TO_ORIGINAL
+    assert restore == frozenset({(GREEN_CH, GREEN_MA), (BLUE_CH, 0.0)})
+    assert restore == _lit_channel_pairs(states, color2ch, drop_nonpositive=False)
+
+    # When every enabled channel carries a positive current both sites agree
+    # exactly -- the common case where snapshot and restore must not disagree.
+    lit_only = {
+        'Green': {'enabled': True, 'illumination_ma': GREEN_MA},
+        'Blue': {'enabled': True, 'illumination_ma': BLUE_MA},
+    }
+    both = frozenset({(GREEN_CH, GREEN_MA), (BLUE_CH, BLUE_MA)})
+    assert snapshot_lit_pairs(lit_only, color2ch) == both
+    assert resolve_end_state('return_to_original', lit_only, color2ch)[1] == both
+
+    # A missing illumination_ma reads as dark under the snapshot filter (None ->
+    # 0 -> dropped) without raising.
+    assert snapshot_lit_pairs({'Green': {'enabled': True}}, color2ch) == frozenset()
+
+
 def test_target_manual_step_preview_gate():
     assert _td(
         LedTransition.MANUAL_STEP, channel=GREEN_CH, mA=GREEN_MA, preview_on=True

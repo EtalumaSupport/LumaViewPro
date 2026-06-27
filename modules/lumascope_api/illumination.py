@@ -292,6 +292,47 @@ class LedLease:
         self._api._emit_led_diff(target, owner=self.owner_name, block=block)
 
 
+def _lit_channel_pairs(
+    led_states: dict, color2ch, *, drop_nonpositive: bool
+) -> frozenset[tuple[int, float]]:
+    """Build the lit (channel, mA) set from a color -> state mapping.
+
+    The single definition of "which channels count as lit" shared by the pre-run
+    snapshot and the run-end restore, so the two cannot drift: if the lit
+    criterion were tightened in one loop but not the other, the run-end restore
+    could re-light a channel the snapshot treated as dark (or omit one it treated
+    as lit). An enabled channel whose color maps to a real LED channel
+    contributes its (channel, mA) pair.
+
+    Args:
+        led_states: color -> {'enabled': bool, 'illumination_ma': float | None}.
+        color2ch: Callable mapping a color name to a channel number (or None).
+        drop_nonpositive: When True, a channel must also carry a strictly
+            positive current to count as lit, and a missing/None current reads as
+            zero (so an enabled zero-current channel is treated as dark). When
+            False, every enabled mapped channel is taken with its stored current
+            verbatim.
+
+    Returns:
+        The (channel, mA) set of channels that should be lit.
+    """
+    pairs = []
+    for color, state in (led_states or {}).items():
+        if not state.get('enabled'):
+            continue
+        ch = color2ch(color)
+        if ch is None:
+            continue
+        if drop_nonpositive:
+            mA = state.get('illumination_ma') or 0
+            if mA <= 0:
+                continue
+        else:
+            mA = state['illumination_ma']
+        pairs.append((ch, mA))
+    return frozenset(pairs)
+
+
 def snapshot_lit_pairs(led_states: dict, color2ch) -> frozenset[tuple[int, float]]:
     """Convert a saved LED-state mapping to the authority's lit (channel, mA) set.
 
@@ -306,17 +347,7 @@ def snapshot_lit_pairs(led_states: dict, color2ch) -> frozenset[tuple[int, float
     Returns:
         The (channel, mA) set of channels that should be lit.
     """
-    pairs = []
-    for color, state in (led_states or {}).items():
-        if not state.get('enabled'):
-            continue
-        mA = state.get('illumination_ma') or 0
-        if mA <= 0:
-            continue
-        ch = color2ch(color)
-        if ch is not None:
-            pairs.append((ch, mA))
-    return frozenset(pairs)
+    return _lit_channel_pairs(led_states, color2ch, drop_nonpositive=True)
 
 
 def resolve_end_state(
@@ -348,14 +379,9 @@ def resolve_end_state(
     if leds_state_at_end == 'off':
         return LedEndPolicy.OFF, frozenset()
     if leds_state_at_end == 'return_to_original':
-        pairs = []
-        for color, color_data in (original_led_states or {}).items():
-            if not color_data.get('enabled'):
-                continue
-            ch = color2ch(color)
-            if ch is not None:
-                pairs.append((ch, color_data['illumination_ma']))
-        return LedEndPolicy.RETURN_TO_ORIGINAL, frozenset(pairs)
+        return LedEndPolicy.RETURN_TO_ORIGINAL, _lit_channel_pairs(
+            original_led_states, color2ch, drop_nonpositive=False
+        )
     return None, frozenset()
 
 
