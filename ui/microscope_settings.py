@@ -894,6 +894,7 @@ class MicroscopeSettings(BoxLayout):
                 'width': int(frame['native_width']),
                 'height': int(frame['native_height']),
             }
+            src = 'stored'
         else:
             cur_binning = imaging.get_binning_size()
             displayed = {'width': int(frame['width']), 'height': int(frame['height'])}
@@ -902,9 +903,15 @@ class MicroscopeSettings(BoxLayout):
                 'height': displayed['height'] * cur_binning,
             }
             native = binning.displayed_to_native(displayed, cur_binning, cap)
+            src = f'reconstructed displayed={displayed["width"]}x{displayed["height"]} binning={cur_binning}'
         if native_max:
             native['width'] = min(native['width'], native_max['width'])
             native['height'] = min(native['height'], native_max['height'])
+        # Forensic line: whether the native ROI came from the stored source of
+        # truth or was rebuilt from displayed*binning. A reconstructed value
+        # reading a stale binning is how the native size silently drifts, so
+        # the src + inputs need to be visible in the log.
+        logger.info(f'[LVP Main  ] native_roi: src={src} -> {native["width"]}x{native["height"]}')
         return native
 
     def _store_native_roi(self, native: dict) -> None:
@@ -938,6 +945,7 @@ class MicroscopeSettings(BoxLayout):
             return
 
         settings['binning']['size'] = new_binning_size_str
+        gui_logger.select('BINNING', new_binning_size_str)
 
         self._refresh_binning_depth_hint()
 
@@ -1131,6 +1139,12 @@ class MicroscopeSettings(BoxLayout):
 
         settings['frame']['width'] = width
         settings['frame']['height'] = height
+
+        # The single framing chokepoint: both the frame-field edit and the
+        # binning toggle reach the camera through here, so one log call records
+        # every framing change the user makes (the prior gap that left the
+        # frame-box resize invisible in the GUI log).
+        gui_logger.frame_size(width, height, get_binning_from_ui())
 
         self.ids['frame_width_id'].text = str(width)
         self.ids['frame_height_id'].text = str(height)
