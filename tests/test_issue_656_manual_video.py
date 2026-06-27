@@ -263,6 +263,114 @@ def test_build_session_manifest_includes_channel_color():
     assert m['recording']['channel_color'] == 'Blue'
 
 
+# ---------------------------------------------------------------------------
+# Single-open per frame -- the overlay build must not re-open each TIFF for the
+# timestamp after already opening it for pixels + depth, and an overlay-OFF
+# build must not pay the per-frame Timestamp.to_pydatetime conversion it never
+# uses.
+# ---------------------------------------------------------------------------
+
+
+def test_overlay_build_opens_each_tiff_once(tmp_path, monkeypatch):
+    from collections import Counter
+
+    folder = _make_manual_folder(tmp_path, n_frames=3, include_hyperstack=False)
+
+    opens = []
+    real_tifffile = image_utils.tf.TiffFile
+
+    def spy_tifffile(path, *args, **kwargs):
+        opens.append(str(path))
+        return real_tifffile(path, *args, **kwargs)
+
+    monkeypatch.setattr(image_utils.tf, 'TiffFile', spy_tifffile)
+
+    builder = VideoBuilder(has_turret=False)
+    result = builder.build_from_folder(
+        folder, tmp_path / 'tiling.json', None, frames_per_sec=5, enable_timestamp_overlay=True
+    )
+    assert result['status'] is True
+
+    frame_opens = [p for p in opens if p.lower().endswith(('.tiff', '.tif'))]
+    counts = Counter(frame_opens)
+    # All three source frames are read -- and each exactly once -- even though the
+    # overlay needs pixels, depth, AND the per-frame timestamp from every file.
+    assert len(counts) == 3, f'expected 3 distinct frames opened, got {dict(counts)}'
+    assert all(c == 1 for c in counts.values()), (
+        f'a frame was opened more than once: {dict(counts)}'
+    )
+
+
+class _SpyTimestamp:
+    """Stand-in for a pandas Timestamp that counts to_pydatetime conversions."""
+
+    def __init__(self, counter, when):
+        self._counter = counter
+        self._when = when
+
+    def to_pydatetime(self):
+        self._counter['n'] += 1
+        return self._when
+
+
+def _spy_timestamp_df(folder, counter, n_frames):
+    for i in range(n_frames):
+        tf.imwrite(str(folder / f'frame_{i:04}.tiff'), np.full((64, 64), 12000, dtype=np.uint16))
+    return pd.DataFrame(
+        {
+            'Filepath': [f'frame_{i:04}.tiff' for i in range(n_frames)],
+            'Scan Count': range(n_frames),
+            'Timestamp': [_SpyTimestamp(counter, _ts(i)) for i in range(n_frames)],
+            'Color': None,
+        }
+    )
+
+
+def test_overlay_off_skips_to_pydatetime(tmp_path):
+    # The frames carry no readable timestamp, so with the overlay ON the fallback
+    # step time is converted per frame; with the overlay OFF that conversion is
+    # never needed and must be skipped entirely.
+    builder = VideoBuilder(has_turret=False)
+
+    off_folder = tmp_path / 'off'
+    off_folder.mkdir()
+    off_counter = {'n': 0}
+    off_df = _spy_timestamp_df(off_folder, off_counter, n_frames=3)
+    result_off = builder._create_video(
+        path=off_folder,
+        df=off_df,
+        frames_per_sec=5,
+        enable_timestamp_overlay=False,
+        output_file_loc=pathlib.Path('out.mp4'),
+        popup=None,
+        total_groups=1,
+        current_group=1,
+    )
+    assert result_off['status'] is True
+    assert off_counter['n'] == 0, f'overlay OFF must convert no Timestamp, got {off_counter["n"]}'
+
+    # Sanity that the spy actually fires when the overlay is ON, so the zero above
+    # is a real skip and not a dead probe.
+    on_folder = tmp_path / 'on'
+    on_folder.mkdir()
+    on_counter = {'n': 0}
+    on_df = _spy_timestamp_df(on_folder, on_counter, n_frames=3)
+    result_on = builder._create_video(
+        path=on_folder,
+        df=on_df,
+        frames_per_sec=5,
+        enable_timestamp_overlay=True,
+        output_file_loc=pathlib.Path('out.mp4'),
+        popup=None,
+        total_groups=1,
+        current_group=1,
+    )
+    assert result_on['status'] is True
+    assert on_counter['n'] == 3, (
+        f'overlay ON must convert the fallback per frame, got {on_counter["n"]}'
+    )
+
+
 def test_create_video_missing_timestamp_no_crash(tmp_path):
     # Frames with no recoverable timestamp + an empty df Timestamp (the value
     # the loader fills for missing data). Overlay ON must degrade to no overlay

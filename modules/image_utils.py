@@ -254,18 +254,77 @@ def load_pixels(
         FileNotFoundError: the path does not exist.
         ValueError: the file cannot be decoded as an image.
     """
+    image, sig, _ = _load_pixels_and_timestamp(
+        path,
+        collapse_legacy_false_color=collapse_legacy_false_color,
+        read_timestamp=False,
+    )
+    return image, sig
+
+
+def load_pixels_with_timestamp(
+    path: pathlib.Path,
+    *,
+    collapse_legacy_false_color: bool = True,
+) -> tuple[np.ndarray, int, 'datetime.datetime | None']:
+    """Load a frame's pixels, significant-bit depth, and capture time in one open.
+
+    The video builder needs all three per frame: the pixels to encode, the depth
+    to scale them to 8-bit, and the per-frame capture time for the optional
+    overlay. Reading them through a single TiffFile handle keeps an
+    overlay-enabled build to one open + IFD parse per frame instead of two (one
+    for pixels + depth, a second just for the timestamp metadata). For non-TIFF
+    inputs (PNG / JPEG), which carry no per-frame timestamp metadata, the
+    timestamp is None.
+
+    See load_pixels for the pixel + depth contract (the array and depth are
+    identical to what load_pixels returns) and read_frame_timestamp for the
+    metadata shapes the timestamp is recovered from.
+
+    Returns:
+        (image, significant_bits, timestamp). timestamp is None when the file
+        carries no readable per-frame capture time.
+    """
+    return _load_pixels_and_timestamp(
+        path,
+        collapse_legacy_false_color=collapse_legacy_false_color,
+        read_timestamp=True,
+    )
+
+
+def _load_pixels_and_timestamp(
+    path: pathlib.Path,
+    *,
+    collapse_legacy_false_color: bool,
+    read_timestamp: bool,
+) -> tuple[np.ndarray, int, 'datetime.datetime | None']:
+    """Shared loader behind load_pixels and load_pixels_with_timestamp.
+
+    Keeps a single source of truth for the pixel + depth read so the two public
+    entry points cannot drift. When read_timestamp is True the per-frame capture
+    time is recovered from the same open TIFF handle, so no caller opens a file
+    twice. A timestamp read that fails leaves the pixels intact: the frame still
+    loads, the overlay just falls back to its caller-supplied time.
+    """
     path = pathlib.Path(path)
     if not path.exists():
         raise FileNotFoundError(f'No such pixel file: {path}')
 
     if path.suffix.lower() in ('.tif', '.tiff'):
-        # One open serves both reads: the pixel array and the significant-bit
-        # depth come from the same TiffFile handle. load_pixels runs per tile in
-        # stitch / zproject / composite, so a second open just for the depth tag
-        # would double the file opens and IFD parses of every post-processing run.
+        # One open serves every read: the pixel array, the significant-bit depth,
+        # and (when asked) the per-frame timestamp come from the same TiffFile
+        # handle. load_pixels runs per tile in stitch / zproject / composite, so a
+        # second open just for the depth tag -- or the timestamp -- would double
+        # the file opens and IFD parses of every post-processing or video run.
+        timestamp = None
         with tf.TiffFile(str(path)) as tif:
             image = tif.asarray()
             sig = _significant_bits_from_open(tif)
+            if read_timestamp:
+                try:
+                    timestamp = _timestamp_from_shaped(tif.shaped_metadata)
+                except Exception:
+                    timestamp = None
         if collapse_legacy_false_color:
             image = _collapse_legacy_false_color(image, path)
         # Debug (not info): load_pixels runs per-tile in stitch/zproject, so this
@@ -276,11 +335,12 @@ def load_pixels(
             f'color={is_color_image(image)} significant_bits={sig} '
             f'collapse={collapse_legacy_false_color}'
         )
-        return image, sig
+        return image, sig, timestamp
 
     # Non-TIFF (PNG / JPEG): no depth carrier, so the container width is the
-    # depth. cv2 returns color files in BGR channel order; the depth-sensitive
-    # payloads are mono, where channel order is moot.
+    # depth, and no per-frame timestamp metadata to recover. cv2 returns color
+    # files in BGR channel order; the depth-sensitive payloads are mono, where
+    # channel order is moot.
     image = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
     if image is None:
         raise ValueError(f'Could not decode image: {path}')
@@ -290,7 +350,7 @@ def load_pixels(
         f'color={is_color_image(image)} significant_bits={sig} '
         f'collapse={collapse_legacy_false_color}'
     )
-    return image, sig
+    return image, sig, None
 
 
 def read_image_geometry(path: pathlib.Path) -> tuple[tuple[int, ...], np.dtype]:
@@ -553,6 +613,17 @@ def read_frame_timestamp(path: pathlib.Path) -> datetime.datetime | None:
     except Exception:
         return None
 
+    return _timestamp_from_shaped(shaped)
+
+
+def _timestamp_from_shaped(shaped) -> datetime.datetime | None:
+    """Recover a per-frame capture time from an open TIFF's shaped_metadata.
+
+    Split out from read_frame_timestamp so the video loader can recover the
+    timestamp from the same handle it decodes the pixels with, instead of
+    opening the file a second time. See read_frame_timestamp for the metadata
+    shapes and the ISO -> capture-format resolution order.
+    """
     if not shaped:
         return None
     structured = shaped[0]

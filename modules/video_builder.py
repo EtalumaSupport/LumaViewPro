@@ -145,28 +145,34 @@ class VideoBuilder(ProtocolPostProcessor):
         stored right-aligned (12-bit data, max 4095) renders near-black if scaled
         as a full 16-bit value, so the depth is not optional context -- dropping
         it on any one path silently darkens every frame that path encodes.
-        load_pixels returns the array and its depth in a single call so the two
-        cannot drift apart, and keeping the read-and-add sequence in one place
-        means a future depth change cannot quietly skip one of the two paths.
+        The array and its depth come from a single call so the two cannot drift
+        apart, and keeping the read-and-add sequence in one place means a future
+        depth change cannot quietly skip one of the two paths.
 
-        The per-frame time comes from each frame's own metadata so a video built
-        from recorded frames shows the real capture time per frame; it falls back
-        to the caller-supplied step time when the frame carries none.
+        When the timestamp overlay is on, the per-frame time comes from each
+        frame's own metadata so a video built from recorded frames shows the real
+        capture time per frame; it falls back to the caller-supplied step time
+        when the frame carries none. The pixels, depth, and timestamp are read
+        from a single file open, so an overlay-enabled build opens each frame
+        once rather than twice. When the overlay is off, the timestamp is neither
+        read nor stamped, so the cheaper depth-only read is used.
 
         Returns True when the frame was added, False when the source could not be
         read (the caller counts it as a skipped / dropped frame).
         """
         try:
-            image, significant_bits = image_utils.load_pixels(image_path)
+            if enable_timestamp_overlay:
+                image, significant_bits, frame_ts = image_utils.load_pixels_with_timestamp(
+                    image_path
+                )
+                if frame_ts is None:
+                    frame_ts = fallback_timestamp
+            else:
+                image, significant_bits = image_utils.load_pixels(image_path)
+                frame_ts = None
         except Exception as e:
             logger.error(f'[{self._name}] Failed to read image: {image_path}: {e}')
             return False
-
-        frame_ts = None
-        if enable_timestamp_overlay:
-            frame_ts = image_utils.read_frame_timestamp(image_path)
-            if frame_ts is None:
-                frame_ts = fallback_timestamp
 
         # image is mono 2D (a legacy 3-channel replica collapses to mono inside
         # load_pixels). VideoWriter applies the layer false-color, the 8-bit
@@ -241,14 +247,18 @@ class VideoBuilder(ProtocolPostProcessor):
         skipped = 0
         for _, row in df.iterrows():
             image_path = path / row['Filepath']
-            # Guard the dataframe Timestamp: the loader fills missing values with
-            # the empty string (no to_pydatetime) rather than a pandas Timestamp.
-            # This step time is only the fallback when the frame carries none.
-            fallback_ts = (
-                row['Timestamp'].to_pydatetime()
-                if hasattr(row['Timestamp'], 'to_pydatetime')
-                else None
-            )
+            # The step time is only the fallback the overlay uses when a frame
+            # carries no timestamp of its own, so with the overlay off it is never
+            # read -- skip the per-frame conversion entirely. Guard the dataframe
+            # Timestamp: the loader fills missing values with the empty string (no
+            # to_pydatetime) rather than a pandas Timestamp.
+            fallback_ts = None
+            if enable_timestamp_overlay:
+                fallback_ts = (
+                    row['Timestamp'].to_pydatetime()
+                    if hasattr(row['Timestamp'], 'to_pydatetime')
+                    else None
+                )
             if not self._add_source_frame(
                 video,
                 image_path,
