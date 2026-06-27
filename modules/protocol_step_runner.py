@@ -21,7 +21,6 @@ from typing import TYPE_CHECKING
 from lvp_logger import logger
 
 import modules.config_helpers as config_helpers
-from modules.exceptions import AutofocusAborted
 from modules.lumascope_api.illumination import (
     LedEndPolicy,
     LedTransition,
@@ -109,23 +108,25 @@ class ProtocolStepRunner:
         if p._af_future is not None and not p._af_future.done():
             return
 
-        if p._af_future is not None and p._af_future.done():
-            # Surface an autofocus failure that was otherwise swallowed: the gate
-            # only ever read .done(), never the outcome, so a camera/motion fault
-            # during AF produced a silent out-of-focus capture with no log trace.
-            # An unattended protocol must NOT stop or pop a modal over a
-            # step-level AF fault -- log it and keep capturing at the fallback Z
-            # (AFE restores the pre-AF Z on non-success). An intentional abort is
-            # not a fault, so it stays at debug.
-            _af_exc = p._af_future.exception()
-            if isinstance(_af_exc, AutofocusAborted):
-                logger.debug(f'[PROTOCOL] Autofocus aborted at step {p._curr_step}')
-            elif _af_exc is not None:
-                logger.warning(
-                    f'[PROTOCOL] Autofocus failed at step {p._curr_step} '
-                    f'({type(_af_exc).__name__}: {_af_exc}) -- capturing at '
-                    f'fallback Z and continuing'
-                )
+        if p._af_future is not None and not p._af_result_consumed:
+            # The autofocus run has resolved (we passed the not-done gate above).
+            # Handle it exactly once. AFE restores the pre-AF Z on a non-success,
+            # which leaves the stage in motion, so the polls that immediately
+            # follow hit the is_moving early-return below WITHOUT clearing
+            # _af_future (it is cleared only at the step transition). Without this
+            # one-shot latch each of those ~1 kHz settle polls would re-enter and
+            # re-handle the same resolved future.
+            #
+            # The autofocus thread is the sole owner of LOGGING an AF fault: it
+            # already records every non-abort exception with a full traceback
+            # before setting it on the future. Here we only consume the future's
+            # exception to mark the outcome observed -- we do not re-log it, which
+            # would be the same event recorded twice at two altitudes. An AF fault
+            # mid-protocol is non-fatal: AFE has restored a usable Z, so the step
+            # still captures and the run continues; it never halts the protocol or
+            # raises a modal.
+            p._af_result_consumed = True
+            p._af_future.exception()
             _cam_gain = p._scope.imaging.get_gain() if p._scope.imaging.camera_active else '?'
             _cam_exp = (
                 p._scope.imaging.get_exposure_time() if p._scope.imaging.camera_active else '?'
@@ -452,6 +453,9 @@ class ProtocolStepRunner:
             with p._protocol_state_lock:
                 p._curr_step = min(p._curr_step + 1, num_steps - 1)
                 p._af_future = None
+                # The handled-latch travels with the future pointer: the next
+                # step starts a fresh AF run whose outcome must be consumed anew.
+                p._af_result_consumed = False
 
             if p._callbacks.update_step_number:
                 _schedule_ui(lambda dt: p._callbacks.update_step_number(p._curr_step + 1), 0)

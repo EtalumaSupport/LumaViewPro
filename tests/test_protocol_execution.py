@@ -467,12 +467,13 @@ class TestSingleScanAutoFocusNoneResult:
 
 class TestAutofocusFailureDoesNotHaltProtocol:
     """An autofocus failure mid-protocol must not stop the run or pop a modal --
-    an unattended scan keeps capturing at the fallback Z. The failure must be
-    logged: previously the AF future's exception was never read, so a camera or
-    motion fault during AF was swallowed with no log trace.
+    an unattended scan keeps capturing at the fallback Z. The autofocus thread is
+    the sole owner of LOGGING the fault (with a traceback); the step runner only
+    consumes the future's exception to drive control flow and must NOT re-log it,
+    which would record the same event twice at two altitudes.
     """
 
-    def test_af_exception_is_logged_and_run_continues(self, executor, scope, tmp_path, monkeypatch):
+    def test_af_exception_does_not_halt_or_relog(self, executor, scope, tmp_path, monkeypatch):
         import modules.protocol_step_runner as psr
 
         protocol = _make_single_step_protocol(color='BF', auto_focus=True)
@@ -489,9 +490,60 @@ class TestAutofocusFailureDoesNotHaltProtocol:
 
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed, 'an AF failure must not halt the protocol'
-        assert any('Autofocus failed' in w for w in warnings), (
-            'the AF failure must be logged, not swallowed'
+        assert not any('Autofocus failed' in w for w in warnings), (
+            'the step runner must not duplicate the autofocus thread fault log'
         )
+
+    def test_af_failure_consumed_once_no_log_flood(self, executor, scope, monkeypatch):
+        """Drive scan_iterate directly while the stage stays in motion -- the
+        exact condition that made the old gate re-handle and re-log the same
+        resolved AF future on every ~1 kHz settle poll. A single fault must be
+        consumed exactly once and never re-logged here.
+        """
+        import threading as _threading
+
+        import modules.protocol_step_runner as psr
+
+        # Stage never reports idle: scan_iterate keeps hitting the motion-settle
+        # early-return after the AF gate, so _af_future is not cleared between
+        # polls (it is cleared only at the step transition).
+        monkeypatch.setattr(scope.motion, 'is_moving', lambda *a, **k: True)
+
+        protocol = _make_single_step_protocol(color='BF', auto_focus=True)
+        executor._protocol = protocol
+        executor._aborted = _threading.Event()
+        executor._scan_in_progress.set()
+        executor._run_in_progress_event.set()
+        executor._grease_redistribution_event.set()
+        executor._curr_step = 0
+        executor._motion_wait_start = None
+        executor._step_start_time = 0.0
+        with executor._protocol_state_lock:
+            executor._n_scans = 1
+            executor._scan_count = 0
+        executor._af_result_consumed = False
+
+        af_future = MagicMock()
+        af_future.done.return_value = True
+        af_future.exception.return_value = RuntimeError('camera fault during AF')
+        executor._af_future = af_future
+
+        warnings = []
+        monkeypatch.setattr(psr.logger, 'warning', lambda msg, *a, **k: warnings.append(str(msg)))
+
+        for _ in range(10):
+            executor._step_executor.scan_iterate()
+
+        af_warnings = [w for w in warnings if 'Autofocus' in w]
+        assert af_warnings == [], (
+            f'the step runner must not re-log the AF fault (got {len(af_warnings)} '
+            'warnings across the settle polls)'
+        )
+        assert af_future.exception.call_count == 1, (
+            'the resolved AF future must be consumed exactly once, not per poll '
+            f'(consumed {af_future.exception.call_count} times)'
+        )
+        assert executor._af_result_consumed is True
 
 
 class TestSingleScanAutoGainAndAutoFocus:

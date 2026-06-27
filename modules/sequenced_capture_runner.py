@@ -180,6 +180,10 @@ class SequencedCaptureRunner:
         # the current step. Set by scan_iterate when AF starts; cleared at step
         # transition and at scan start.
         self._af_future = None
+        # One-shot latch: the resolved AF future is consumed exactly once, even
+        # if the stage is still settling on the polls that follow. Travels with
+        # _af_future (reset wherever the pointer is cleared).
+        self._af_result_consumed = False
 
     def _reset_vars(self):
         self._run_dir = None
