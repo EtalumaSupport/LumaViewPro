@@ -486,3 +486,167 @@ class TestSubOneFpsRate:
 
         assert fake_container.rate != 0, 'sub-1 fps must not open the encoder at rate 0'
         assert float(fake_container.rate) == pytest.approx(0.3)
+
+
+class _FpsGatedCv2VideoWriter:
+    """Mimics OpenCV's built-in AVI/MJPEG encoder, the fallback used when no
+    FFMPEG plugin is present: it asserts fps >= 1 and fails to open below it.
+    Reports openness based on the fps it was constructed with."""
+
+    def __init__(self, fps):
+        self._fps = fps
+        self.frames = []
+
+    def isOpened(self):
+        return self._fps is not None and self._fps >= 1
+
+    def write(self, frame):
+        self.frames.append(frame)
+        return True
+
+    def release(self):
+        pass
+
+
+class TestCv2SubOneFpsFallback:
+    """The cv2/AVI fallback must not lose a true sub-1-fps recording. The
+    FFMPEG-backed encoder honors a fractional rate, so the writer passes the
+    real rate (0.3) -- never an int floored to 0. When the backend in use is the
+    built-in AVI encoder (no FFMPEG plugin), which refuses sub-1 fps, the writer
+    must still end up open (reopened at the 1 fps floor with a warning) rather
+    than silently produce an empty, unplayable file."""
+
+    def _make_writer(self, tmp_path, ctor):
+        with (
+            mock.patch('modules.video_writer.cv2.VideoWriter', side_effect=ctor),
+            mock.patch('modules.video_writer._HAS_PYAV', False),
+        ):
+            return VideoWriter(
+                output_path=tmp_path / 'slow.avi',
+                fps=0.3,  # 3 frames over 10 seconds
+                width=32,
+                height=24,
+                color='Red',
+                include_timestamp_overlay=False,
+            )
+
+    def test_ffmpeg_backend_preserves_true_sub_one_rate(self, tmp_path):
+        # When the backend accepts sub-1 fps (FFMPEG), the real rate is kept
+        # and the writer opens on the first try -- no clamp, no second open.
+        fps_args = []
+
+        def _ctor(*args, **kwargs):
+            fps = kwargs.get('fps')
+            fps_args.append(fps)
+            return _FakeCv2VideoWriter()
+
+        self._make_writer(tmp_path, _ctor)
+        assert fps_args == [pytest.approx(0.3)], 'a supported sub-1 rate must pass through intact'
+
+    def test_builtin_backend_rejecting_sub_one_does_not_lose_recording(self, tmp_path, monkeypatch):
+        fps_args = []
+        warnings = []
+        monkeypatch.setattr(
+            video_writer_module.logger, 'warning', lambda m, *a, **k: warnings.append(str(m))
+        )
+
+        def _ctor(*args, **kwargs):
+            fps = kwargs.get('fps')
+            fps_args.append(fps)
+            return _FpsGatedCv2VideoWriter(fps)
+
+        writer = self._make_writer(tmp_path, _ctor)
+
+        # No init attempt may pass a rate of 0 -- that yields an empty file.
+        assert 0 not in fps_args and 0.0 not in fps_args
+        # The real sub-1 rate was tried first (preserve it where supported)...
+        assert fps_args[0] == pytest.approx(0.3)
+        # ...and because this backend rejected it, the writer reopened at the
+        # 1 fps floor so the recording survives instead of being lost.
+        assert fps_args[-1] >= 1
+        assert writer._cv2_video is not None and writer._cv2_video.isOpened()
+        assert any('sub-1' in w or 'fps >= 1' in w for w in warnings), (
+            'the faster-than-real-time fallback must warn, naming the constraint'
+        )
+
+
+class _FpsGatedCv2VideoWriter:
+    """Mimics OpenCV's built-in AVI/MJPEG encoder, the fallback used when no
+    FFMPEG plugin is present: it asserts fps >= 1 and fails to open below it.
+    Reports openness based on the fps it was constructed with."""
+
+    def __init__(self, fps):
+        self._fps = fps
+        self.frames = []
+
+    def isOpened(self):
+        return self._fps is not None and self._fps >= 1
+
+    def write(self, frame):
+        self.frames.append(frame)
+        return True
+
+    def release(self):
+        pass
+
+
+class TestCv2SubOneFpsFallback:
+    """The cv2/AVI fallback must not lose a true sub-1-fps recording. The
+    FFMPEG-backed encoder honors a fractional rate, so the writer passes the
+    real rate (0.3) -- never an int floored to 0. When the backend in use is the
+    built-in AVI encoder (no FFMPEG plugin), which refuses sub-1 fps, the writer
+    must still end up open (reopened at the 1 fps floor with a warning) rather
+    than silently produce an empty, unplayable file."""
+
+    def _make_writer(self, tmp_path, ctor):
+        with (
+            mock.patch('modules.video_writer.cv2.VideoWriter', side_effect=ctor),
+            mock.patch('modules.video_writer._HAS_PYAV', False),
+        ):
+            return VideoWriter(
+                output_path=tmp_path / 'slow.avi',
+                fps=0.3,  # 3 frames over 10 seconds
+                width=32,
+                height=24,
+                color='Red',
+                include_timestamp_overlay=False,
+            )
+
+    def test_ffmpeg_backend_preserves_true_sub_one_rate(self, tmp_path):
+        # When the backend accepts sub-1 fps (FFMPEG), the real rate is kept
+        # and the writer opens on the first try -- no clamp, no second open.
+        fps_args = []
+
+        def _ctor(*args, **kwargs):
+            fps = kwargs.get('fps')
+            fps_args.append(fps)
+            return _FakeCv2VideoWriter()
+
+        self._make_writer(tmp_path, _ctor)
+        assert fps_args == [pytest.approx(0.3)], 'a supported sub-1 rate must pass through intact'
+
+    def test_builtin_backend_rejecting_sub_one_does_not_lose_recording(self, tmp_path, monkeypatch):
+        fps_args = []
+        warnings = []
+        monkeypatch.setattr(
+            video_writer_module.logger, 'warning', lambda m, *a, **k: warnings.append(str(m))
+        )
+
+        def _ctor(*args, **kwargs):
+            fps = kwargs.get('fps')
+            fps_args.append(fps)
+            return _FpsGatedCv2VideoWriter(fps)
+
+        writer = self._make_writer(tmp_path, _ctor)
+
+        # No init attempt may pass a rate of 0 -- that yields an empty file.
+        assert 0 not in fps_args and 0.0 not in fps_args
+        # The real sub-1 rate was tried first (preserve it where supported)...
+        assert fps_args[0] == pytest.approx(0.3)
+        # ...and because this backend rejected it, the writer reopened at the
+        # 1 fps floor so the recording survives instead of being lost.
+        assert fps_args[-1] >= 1
+        assert writer._cv2_video is not None and writer._cv2_video.isOpened()
+        assert any('sub-1' in w or 'fps >= 1' in w for w in warnings), (
+            'the faster-than-real-time fallback must warn, naming the constraint'
+        )

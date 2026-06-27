@@ -96,19 +96,28 @@ class VideoWriter:
             ts = datetime.datetime.now()
         return ts.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
 
+    def _encoder_rate(self) -> Fraction:
+        """Canonical encoder frame rate, shared by every writer-init path.
+
+        A slow recording (timelapse / long-exposure) captures fewer frames than
+        the seconds elapsed, so its true rate is below 1 fps. Flooring such a
+        rate to an integer turns a value like 0.3 into 0, which every encoder
+        backend rejects -- producing an empty, unplayable file and losing the
+        recording. Keeping the rate as a clean fraction preserves the real
+        sub-1 rate so the encoders honor it and playback duration stays true;
+        limit_denominator trims the binary-float artifacts of a value like 0.3
+        to an exact ratio.
+        """
+        return Fraction(self._fps).limit_denominator()
+
     def _init_pyav(self, width, height, is_color):
         """Initialize PyAV H.264 encoder."""
         try:
             self._container = av.open(str(self._output_path), mode='w')
-            # A slow recording (timelapse / long-exposure) has a true rate below
-            # 1 fps. int(fps) would floor that to 0, which libx264 rejects --
-            # producing an empty, unplayable file and losing the recording. A
-            # Fraction preserves the real sub-1 rate so the encoder honors it and
-            # playback duration stays true; limit_denominator trims the binary-
-            # float artifacts of a value like 0.3 to a clean ratio.
-            self._stream = self._container.add_stream(
-                'libx264', rate=Fraction(self._fps).limit_denominator()
-            )
+            # libx264 honors the fractional rate, so a true sub-1 fps recording
+            # (timelapse / long-exposure) keeps its real duration -- see
+            # _encoder_rate for why an int floor would lose it.
+            self._stream = self._container.add_stream('libx264', rate=self._encoder_rate())
             # Multi-threaded libx264, capped to cores-2 so the encode scales
             # with the machine but always leaves headroom for the GUI/GL main
             # thread (uncapped it grabs every core and froze the GUI mid-encode
@@ -137,19 +146,45 @@ class VideoWriter:
             self._stream = None
             self._init_cv2(width, height, is_color)
 
+    def _open_cv2_writer(self, fourcc, fallback_path, rate, width, height, is_color):
+        """Construct one cv2.VideoWriter at the given rate."""
+        return cv2.VideoWriter(
+            filename=str(fallback_path),
+            fourcc=fourcc,
+            fps=rate,
+            frameSize=(width, height),
+            isColor=is_color,
+        )
+
     def _init_cv2(self, width, height, is_color):
         """Initialize cv2 VideoWriter fallback (XVID/AVI)."""
         # Use XVID -- bundled with OpenCV, works on all platforms
         fourcc = cv2.VideoWriter_fourcc(*'XVID')
         fallback_path = self._output_path.with_suffix('.avi')
         self._output_path = fallback_path
-        self._cv2_video = cv2.VideoWriter(
-            filename=str(fallback_path),
-            fourcc=fourcc,
-            fps=self._fps,
-            frameSize=(width, height),
-            isColor=is_color,
+        # cv2.VideoWriter takes a double fps. The FFMPEG-backed AVI encoder
+        # honors a true sub-1 rate (timelapse / long-exposure), so pass the real
+        # rate rather than an int that would floor 0.3 to 0 and lose the file.
+        rate = float(self._encoder_rate())
+        self._cv2_video = self._open_cv2_writer(
+            fourcc, fallback_path, rate, width, height, is_color
         )
+        if not self._cv2_video.isOpened() and rate < 1.0:
+            # OpenCV's built-in AVI/MJPEG encoder -- the fallback used when no
+            # FFMPEG plugin is present -- refuses to open below 1 fps (it
+            # asserts fps >= 1). Rather than ship an empty, unplayable file,
+            # reopen at the 1 fps floor so the captured frames are preserved.
+            # Playback then runs faster than the real capture rate; warn so that
+            # speedup is not a silent surprise.
+            logger.warning(
+                f'VideoWriter: cv2/AVI backend rejected sub-1 fps ({rate:g}); the '
+                f'built-in AVI encoder requires fps >= 1. Reopening at 1 fps -- '
+                f'playback will run faster than the real capture rate.'
+            )
+            rate = 1.0
+            self._cv2_video = self._open_cv2_writer(
+                fourcc, fallback_path, rate, width, height, is_color
+            )
         if not self._cv2_video.isOpened():
             logger.error(
                 f'VideoWriter: cv2 fallback ALSO failed to open {fallback_path}. '
