@@ -38,6 +38,13 @@ if TYPE_CHECKING:
     from modules.sequential_io_executor import SequentialIOExecutor
 
 
+# Minimum free disk space to allow a SINGLE protocol write, in MB. Distinct from
+# the run loop's larger whole-run MIN_REQUIRED_DISK_MB: each individual capture
+# must have at least this much headroom beyond its own estimated size before it
+# is allowed to write, so one write cannot fill the last sliver of a disk.
+MIN_PER_WRITE_DISK_MB = 500
+
+
 class ProtocolImageWriter:
     """Handles image/video capture and file writing during protocol runs.
 
@@ -645,11 +652,12 @@ class ProtocolImageWriter:
         # Check disk space before writing -- long protocols can fill disk.
         # Require headroom for THIS step's predicted write (a long
         # video_as_frames recording can far exceed the flat floor), never below
-        # the 500 MB minimum.
+        # the per-write minimum.
         if save_folder is not None:
             try:
                 required_mb = max(
-                    500, common_utils.estimate_step_write_mb(step, video_as_frames=video_as_frames)
+                    MIN_PER_WRITE_DISK_MB,
+                    common_utils.estimate_step_write_mb(step, video_as_frames=video_as_frames),
                 )
                 ok, free_mb = common_utils.check_disk_space_ok(save_folder, required_mb)
                 if not ok:

@@ -86,6 +86,15 @@ class ProtocolRunLoop:
 
         consecutive_scan_failures = 0
 
+        # The per-step write estimate is a per-run invariant -- the protocol
+        # steps and the video_as_frames mode do not change mid-run -- so compute
+        # the required free space once on the first scan that checks and reuse
+        # it, instead of re-walking every step on each scan's disk check. Stays
+        # None (and unevaluated) until a scan with an output dir actually needs
+        # it.
+        run_required_mb = None
+        num_steps = 0
+
         while p._run_in_progress_event.is_set() and not p._aborted.is_set():
             try:
                 # ERROR is terminal for the run: a step-level failure (e.g.
@@ -166,22 +175,27 @@ class ProtocolRunLoop:
                 if p._callbacks.run_scan_pre:
                     _schedule_ui(lambda dt: p._callbacks.run_scan_pre(), 0)
 
-                # Check disk space once per scan
+                # Check disk space once per scan, against the per-run estimate
+                # summed once on the first check and reused thereafter.
                 try:
                     if p._parent_dir is not None:
-                        estimated_mb = 0
-                        num_steps = p._protocol.num_steps()
-                        for i in range(num_steps):
-                            step = p._protocol.step(idx=i)
-                            estimated_mb += estimate_step_write_mb(
-                                step, video_as_frames=p._video_as_frames
+                        if run_required_mb is None:
+                            num_steps = p._protocol.num_steps()
+                            run_required_mb = max(
+                                MIN_REQUIRED_DISK_MB,
+                                sum(
+                                    estimate_step_write_mb(
+                                        p._protocol.step(idx=i),
+                                        video_as_frames=p._video_as_frames,
+                                    )
+                                    for i in range(num_steps)
+                                ),
                             )
-                        required_mb = max(MIN_REQUIRED_DISK_MB, estimated_mb)
-                        ok, free_mb = check_disk_space_ok(p._parent_dir, required_mb)
+                        ok, free_mb = check_disk_space_ok(p._parent_dir, run_required_mb)
                         if not ok:
                             msg = (
                                 f'Insufficient disk space: {free_mb:.0f} MB free, '
-                                f'need ~{required_mb:.0f} MB for {num_steps} steps.'
+                                f'need ~{run_required_mb:.0f} MB for {num_steps} steps.'
                             )
                             logger.error(f'[PROTOCOL] {msg} -- aborting protocol')
                             from modules.notification_center import notifications
