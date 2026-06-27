@@ -153,10 +153,12 @@ class ProtocolRunLoop:
                 # Check if enough time has elapsed for the next scan
                 # Skip this check for the first scan (scan_count == 0)
                 if p._scan_count > 0:
-                    current_time = datetime.datetime.now()
+                    # Monotonic pacing (see _start_t init): elapsed and period
+                    # are both in seconds, immune to wall-clock jumps.
+                    current_time = time.monotonic()
                     elapsed_time = current_time - p._start_t
 
-                    if elapsed_time < p._protocol.period():
+                    if elapsed_time < p._protocol.period().total_seconds():
                         time.sleep(0.1)
                         continue
 

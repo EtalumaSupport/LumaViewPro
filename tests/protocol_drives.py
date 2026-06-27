@@ -17,6 +17,7 @@ Three layers of readiness:
 from __future__ import annotations
 
 import datetime
+import time
 from unittest.mock import MagicMock
 
 
@@ -128,7 +129,8 @@ def run_loop_ready_runner(step, n_scans=1, **state):
     runner._scan_in_progress.clear()
     runner._n_scans = n_scans
     runner._protocol.period.return_value = datetime.timedelta(0)
-    runner._start_t = datetime.datetime.now()
+    # _start_t is a monotonic timestamp (seconds), matching the run loop's pacing.
+    runner._start_t = time.monotonic()
     runner._callbacks = ProtocolCallbacks(go_to_step=MagicMock())
     runner._cleanup = MagicMock()
     runner._set_state(ProtocolState.RUNNING)

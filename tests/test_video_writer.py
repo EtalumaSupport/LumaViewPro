@@ -293,8 +293,10 @@ class TestVideoWriterDropAccounting:
 
 
 class TestWriteVideoDropNotification:
-    """write_video must warn the user once when a recording loses frames --
-    otherwise a short video is discovered only by frame arithmetic, if ever."""
+    """write_video must surface a recording that lost frames -- otherwise a short
+    video is discovered only by frame arithmetic, if ever. write_video runs only
+    on the protocol path, so it surfaces drops via a LOG line, never a modal (an
+    unattended protocol does not pop a dialog for a non-fatal drop)."""
 
     def _capture_warnings(self, monkeypatch):
         from modules.notification_center import notifications
@@ -316,10 +318,13 @@ class TestWriteVideoDropNotification:
             dropped_frames=dropped,
         )
 
-    def test_producer_drops_fire_one_warning(self, tmp_path, monkeypatch):
+    def test_producer_drops_log_not_modal(self, tmp_path, monkeypatch):
+        import modules.video_capture as vc
         from modules.video_capture import write_video
 
         fired = self._capture_warnings(monkeypatch)
+        logged = []
+        monkeypatch.setattr(vc.logger, 'warning', lambda msg, *a, **k: logged.append(str(msg)))
         write_video(
             result=self._empty_result(dropped=2),
             save_folder=tmp_path,
@@ -330,9 +335,10 @@ class TestWriteVideoDropNotification:
             save_encoding='8bit',
             capture_depth=8,
         )
-        assert len(fired) == 1, 'a recording that dropped frames must warn exactly once'
-        body = ' '.join(str(x) for x in fired[0][0])
-        assert '2' in body
+        assert fired == [], 'drops must not pop a modal during a protocol'
+        assert any('dropped' in m and '2' in m for m in logged), (
+            'a recording that dropped frames must log the count'
+        )
 
     def test_no_drops_is_silent(self, tmp_path, monkeypatch):
         from modules.video_capture import write_video

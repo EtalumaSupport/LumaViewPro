@@ -68,11 +68,16 @@ def run_cleanup(
 
     Called from ``SequencedCaptureRunner._cleanup_inner()``.
     """
-    # PF-2: capture initial state BEFORE the COMPLETING transition below so we
-    # can distinguish abort (ERROR) from normal end. On abort (e.g. hardware
-    # disconnect), file_io_executor's pending queue is cleared along with the
-    # other executors -- otherwise queued frames stay pinned in memory while
-    # they slowly drain to disk, which can lock the next protocol-start.
+    # Capture the abort state BEFORE the COMPLETING transition below. Only a
+    # hardware-error abort (ERROR state) clears file_io_executor's pending queue:
+    # on a hardware fault the queued frames are suspect, and letting them drain
+    # can pin memory and lock the next protocol-start. Every other abort path
+    # (user Stop, disk-full, 3-strike camera) leaves ERROR unset, so its pending
+    # writes DRAIN to disk instead of being dropped. Considered routing those
+    # through is_aborted too so Stop returns control instantly; rejected -- an
+    # already-captured frame must not be discarded because the user stopped the
+    # run; preserving the captured data wins over the faster stop. Revisit if
+    # draining a large pending queue on Stop becomes a real usability problem.
     is_aborted = get_state_fn() == ProtocolState.ERROR
 
     # Transition to COMPLETING (or stay in ERROR if that's how we got here)
@@ -305,10 +310,12 @@ def run_cleanup(
 
     io_executor.clear_protocol_pending()
     if is_aborted:
-        # PF-2: drop pending writes on abort. Drain (the COMPLETING-path default)
-        # would write everything queued to disk before releasing memory -- fine on
-        # normal completion, but on disconnect/error the user wants control back
-        # without waiting for many GB of frames to slowly drain.
+        # Drop pending writes only on an ERROR-state abort. Drain (the
+        # COMPLETING-path default) writes everything queued to disk before
+        # releasing memory -- correct on normal completion AND on a user Stop
+        # (don't discard captured frames), but on a hardware disconnect/error the
+        # frames are suspect and the user wants control back without waiting for
+        # many GB to slowly drain.
         file_io_executor.clear_protocol_pending()
         logger.info(f'[{logger_name}] Cleanup: file_io_executor pending cleared (aborted)')
 
