@@ -28,7 +28,7 @@ from modules.lumascope_api.illumination import (
     resolve_end_state,
 )
 from modules.protocol_state_machine import ProtocolState
-from modules.sequential_io_executor import IOTask, PROTOCOL_QUEUE_FULL
+from modules.sequential_io_executor import IOTask, PROTOCOL_ENQUEUED
 from modules.settings_init import settings
 
 if TYPE_CHECKING:
@@ -549,14 +549,17 @@ class ProtocolStepRunner:
         p = self._p
         p._grease_redistribution_event.clear()
         result = p._io_executor.protocol_put(IOTask(action=self._grease_redist_w_pos))
-        if result is PROTOCOL_QUEUE_FULL:
-            # The grease task never queued, so the matching set() inside
-            # _grease_redist_w_pos will never run. Release the gate now so the
-            # next scan is not blocked forever waiting on a task that does not
-            # exist.
+        if result is not PROTOCOL_ENQUEUED:
+            # The grease task did not enter the queue -- io executor disabled,
+            # protocol not running, or queue full all return a non-enqueued
+            # value -- so the matching set() inside _grease_redist_w_pos's
+            # finally will never run. Release the gate now or the next scan's
+            # scan_iterate gate blocks forever waiting on a task that does not
+            # exist, a silent hang the consecutive-failure cap cannot catch.
             logger.warning(
-                '[PROTOCOL] Grease redistribution task could not be queued '
-                '(io queue full); skipping it and releasing the scan gate'
+                '[PROTOCOL] Grease redistribution task was not queued '
+                '(io executor unavailable or queue full); skipping it and '
+                'releasing the scan gate'
             )
             p._grease_redistribution_event.set()
 

@@ -38,6 +38,12 @@ _IOTASK_TRACE_HEADER = (
 # `is PROTOCOL_QUEUE_FULL` so a frame can be marked capture_failed in
 # the execution record instead of silently dropped.
 PROTOCOL_QUEUE_FULL = object()
+# Sentinel returned from protocol_put when a fire-and-forget task (return_future
+# False) DID enter the queue. Distinct from None: a no-future enqueue used to
+# return None too, so a caller could not tell a successful enqueue from a
+# dropped one (disabled / protocol-not-running both return None). Callers that
+# gate later work on "did this task actually run?" check `is PROTOCOL_ENQUEUED`.
+PROTOCOL_ENQUEUED = object()
 # Sentinel returned by put() when a frame-carrying (droppable_live) task is
 # dropped because too many are already in flight on the single worker.
 LIVE_FRAME_DROPPED = object()
@@ -547,10 +553,19 @@ class SequentialIOExecutor:
         return False
 
     def protocol_put(self, task: IOTask, return_future: bool = False):
-        """
-        Adds an IOTask to the Protocol Execution Queue
-        NOTE: Protocol Execution Queue only executes when protocol is in session:
-        ie protocol_start has been called.
+        """Add an IOTask to the protocol execution queue.
+
+        The protocol queue only drains while a protocol is in session (after
+        protocol_start). Return value reports the enqueue outcome so a caller
+        can tell whether the task will actually run:
+
+        - return_future True, enqueued: the task's Future (await its result).
+        - return_future False, enqueued: PROTOCOL_ENQUEUED.
+        - queue full (bounded queue at cap): PROTOCOL_QUEUE_FULL.
+        - executor disabled or protocol not running: None (task dropped).
+
+        The three non-PROTOCOL_ENQUEUED / non-Future outcomes all mean the task
+        did not enter the queue and will never run.
         """
         if self._disable:
             return None
@@ -616,7 +631,13 @@ class SequentialIOExecutor:
                 f'[{self.executor_name}] Protocol queue depth: {depth} -- '
                 f'file writes may be falling behind'
             )
-        return fut
+        # Enqueue succeeded. A return_future caller needs the Future back to
+        # await it; a fire-and-forget caller gets PROTOCOL_ENQUEUED so it can
+        # distinguish this real enqueue from a dropped task -- disabled,
+        # not-running, and queue-full all return a non-PROTOCOL_ENQUEUED value.
+        if return_future:
+            return fut
+        return PROTOCOL_ENQUEUED
 
     def protocol_start(self):
         # Clear stale finish flag from previous run. If protocol_finish is
