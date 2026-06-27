@@ -111,7 +111,7 @@ exe = EXE(
     # Kivy SDL2 window, and the lock-loser path's os._exit(1) (after
     # writing "ERROR: ... Exiting." to stderr) left that terminal
     # orphaned showing the last stderr line -- the "extra terminal
-    # windows that say 'exiting'" symptom the beta tester reported on #559. LVP
+    # windows that say 'exiting'" symptom researchers see on startup. LVP
     # log output is file-only (KIVY_NO_CONSOLELOG=1 at lumaviewpro.py
     # :115), so a windowed build doesn't lose any production logging.
     console=False,

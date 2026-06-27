@@ -179,10 +179,10 @@ def finalize_manual_video(
 
                 output_file_loc = save_folder / f'{frame_name}.tiff'
 
-                # Issue #633 Stage 2A: per-frame timestamp metadata. Existing
-                # 'datetime' / 'timestamp' / 'frame_num' keys preserved for
-                # backward compatibility with downstream readers that look
-                # for them. New 'timestamp_iso' / 'timestamp_camera_ticks' /
+                # Per-frame timestamp metadata. The 'datetime' / 'timestamp' /
+                # 'frame_num' keys are kept for backward compatibility with
+                # downstream readers that look for them. The
+                # 'timestamp_iso' / 'timestamp_camera_ticks' /
                 # 'timestamp_camera_tick_hz' / 'frame_id' keys mirror the
                 # structured Plane fields used elsewhere; the video_frame
                 # TIFF path serializes them into the description tag.
@@ -236,11 +236,10 @@ def finalize_manual_video(
 
             logger.info('Manual-Video] Video frames written to disk.')
 
-            # Issue #633 Stage 2B: write session_manifest.json next to
-            # the TIFFs. Single summary file per recording with provenance,
-            # rate stats, and per-frame index. Failure to write does not
-            # abort the recording cleanup -- the TIFFs are the primary
-            # deliverable.
+            # Write session_manifest.json next to the TIFFs: a single summary
+            # file per recording with provenance, rate stats, and per-frame
+            # index. Failure to write does not abort the recording cleanup --
+            # the TIFFs are the primary deliverable.
             try:
                 from lvp_logger import version as _lvp_version
 
