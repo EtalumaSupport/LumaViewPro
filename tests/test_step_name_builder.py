@@ -230,6 +230,28 @@ class TestTurretToken:
         assert c.objective == '20x'
 
 
+class TestLargeMosaicTile:
+    """A mosaic past 26 rows labels rows with one-OR-MORE letters ('AA', 'AB',
+    ... bijective base-26), not chr() punctuation. The multi-letter tile token
+    must round-trip through parse/build, and widening the row label must still
+    leave 'Turret<n>' -- whose leading 'T' it shares -- classified as a turret."""
+
+    @pytest.mark.parametrize('tile', ['AA1', 'AB3', 'BZ12', 'ZZ9'])
+    def test_multiletter_tile_round_trips(self, tile):
+        name = build_step_name(StepNameComponents(well='A1', channel='BF', tile=tile))
+        assert name == f'A1_BF_T{tile}'
+        c = parse_step_name(name, known_layers=_KNOWN_LAYERS, known_objectives=_KNOWN_OBJECTIVES)
+        assert c.tile == tile
+        assert build_step_name(c) == name
+
+    def test_turret_not_swallowed_by_multiletter_tile(self):
+        c = parse_step_name(
+            'A1_BF_Turret7', known_layers=_KNOWN_LAYERS, known_objectives=_KNOWN_OBJECTIVES
+        )
+        assert c.turret_position == 7
+        assert c.tile is None
+
+
 class TestBuildEdgeCases:
     def test_empty_components_render_empty(self):
         assert build_step_name(StepNameComponents()) == ''

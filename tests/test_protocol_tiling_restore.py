@@ -30,9 +30,11 @@ same convention as the other test_protocol_settings_*.py files).
 from __future__ import annotations
 
 import ast
+import json
 import pathlib
 
-from modules.tiling_config import TilingConfig
+from modules.common_utils import build_step_name, parse_step_name
+from modules.tiling_config import TilingConfig, _row_label, _split_row_col
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -137,3 +139,61 @@ def test_apply_tiling_guards_against_recompounding():
         'apply_tiling must detect an already-tiled protocol (via the step '
         'names) and refuse, since it appends tile groups with no un-tile path.'
     )
+
+
+# --- (c) row labels stay alphabetic past 26 rows so large mosaics round-trip ---
+
+
+def test_row_label_is_bijective_base26():
+    # A naive chr(i + ord('A')) leaves the alphabet past row 25 into '[', '\\',
+    # ... and '_' (the step-name delimiter) at row 30; the label must instead
+    # carry over to 'AA', 'AB', ... so it stays parseable.
+    assert _row_label(0) == 'A'
+    assert _row_label(25) == 'Z'
+    assert _row_label(26) == 'AA'
+    assert _row_label(27) == 'AB'
+    assert _row_label(51) == 'AZ'
+    assert _row_label(52) == 'BA'
+    # Every label is uppercase letters only -- never punctuation or the '_'
+    # token separator -- for a generous row count.
+    for i in range(1000):
+        assert _row_label(i).isalpha() and _row_label(i).isupper()
+
+
+def test_split_row_col_round_trips_multiletter():
+    for label in ('A1', 'Z9', 'AA1', 'AB12', 'BZ3'):
+        letters, col = _split_row_col(label)
+        assert f'{letters}{col}' == label
+
+
+def _large_config(tmp_path, m, n):
+    label = f'{m}x{n}'
+    cfg = {
+        'metadata': {'name': 'tiling', 'version': 1, 'default': '1x1'},
+        'data': {'1x1': {'m': 1, 'n': 1}, label: {'m': m, 'n': n}},
+    }
+    loc = tmp_path / 'tiling.json'
+    loc.write_text(json.dumps(cfg))
+    return TilingConfig(tiling_configs_file_loc=loc), label
+
+
+def test_large_mosaic_tile_labels_round_trip_through_step_names(tmp_path):
+    # End-to-end on the reachable path: a 32-row config (past the chr() break,
+    # including row 30 that would have rendered the '_' token separator) produces
+    # tile labels that parse back as tiles and round-trip through the step name.
+    tc, label = _large_config(tmp_path, m=32, n=32)
+    tiles = tc.get_tile_centers(
+        config_label=label,
+        focal_length=50.0,
+        frame_size={'width': 1936, 'height': 1216},
+        fill_factor=1,
+        binning_size=1,
+    )
+    assert len(tiles) == 32 * 32
+    for tile_label in tiles:
+        name = build_step_name(parse_step_name(f'A1_BF_T{tile_label}'))
+        assert name == f'A1_BF_T{tile_label}'
+        assert parse_step_name(name).tile == tile_label
+    # The inference workhorse recovers the same MxN from those names.
+    names = [f'A1_BF_T{t}' for t in tiles]
+    assert tc.determine_tiling_label_from_names(names) == label

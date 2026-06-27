@@ -201,7 +201,7 @@ class Protocol:
         'Stim_Enabled',
     ]
     STEP_NAME_PATTERN = re.compile(
-        r'^(?P<well_label>[A-Z][0-9]+)(_(?P<color>(Blue|Green|Red|BF|DF|PC|Lumi)))(_T(?P<tile_label>[A-Z][0-9]+))?(_Z(?P<z_slice>[0-9]+))?(_([0-9]*))?(.tif[f])?$'
+        r'^(?P<well_label>[A-Z][0-9]+)(_(?P<color>(Blue|Green|Red|BF|DF|PC|Lumi)))(_T(?P<tile_label>[A-Z]+[0-9]+))?(_Z(?P<z_slice>[0-9]+))?(_([0-9]*))?(.tif[f])?$'
     )
 
     def __init__(self, tiling_configs_file_loc: pathlib.Path, config: dict | None = None):

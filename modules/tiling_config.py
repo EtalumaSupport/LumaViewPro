@@ -10,6 +10,30 @@ from lvp_logger import logger
 import modules.common_utils as common_utils
 
 
+def _row_label(index: int) -> str:
+    """Spreadsheet-style row label for a zero-based mosaic row index.
+
+    Bijective base-26: A..Z for the first 26 rows, then AA, AB, ... A naive
+    chr(index + ord('A')) walks off the end of the alphabet past row 25 into
+    punctuation -- including '_' at row 30, the very character that separates
+    step-name tokens -- so a large-mosaic tile label could neither be matched
+    as a tile nor round-tripped through the step name. Staying inside the
+    uppercase alphabet keeps every label parseable and sortable.
+    """
+    label = ''
+    index += 1
+    while index > 0:
+        index, remainder = divmod(index - 1, 26)
+        label = chr(ord('A') + remainder) + label
+    return label
+
+
+def _split_row_col(tile_label: str) -> tuple[str, int]:
+    """Split a tile label into its row letters and integer column."""
+    letters = ''.join(itertools.takewhile(str.isalpha, tile_label))
+    return letters, int(tile_label[len(letters) :])
+
+
 class TilingConfig:
     DEFAULT_FILL_FACTORS: ClassVar[dict] = {
         'position': 1.0  # No overlap needed for position-based tiling
@@ -78,8 +102,7 @@ class TilingConfig:
             if label is None:
                 continue
 
-            label_letter = label[0]
-            label_number = int(label[1:])
+            label_letter, label_number = _split_row_col(label)
 
             label_letters.add(label_letter)
             label_numbers.add(label_number)
@@ -163,7 +186,7 @@ class TilingConfig:
                 # Handle special case where tiling is 1x1 (i.e. no tiling)
                 tile_label = ''
             else:
-                row_letter = chr(i + ord('A'))
+                row_letter = _row_label(i)
                 col_number = j + 1
                 tile_label = f'{row_letter}{col_number}'
 

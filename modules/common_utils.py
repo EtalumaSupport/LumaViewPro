@@ -170,16 +170,18 @@ def parse_step_name(name, known_layers=None, known_objectives=()) -> StepNameCom
 
         Order is the disambiguation: a turret token ('Turret<n>') is tested
         before the tile token, whose prefix is the same 'T' letter. The tile
-        shape is also pinned to 'T<letter><number>' (the row-letter/col-number
-        a tile label carries) so it cannot swallow 'Turret<n>' and lose the
-        turret position -- which then surfaced as a bogus tile that broke
-        callers parsing the tile's trailing number.
+        shape is 'T<row-letters><col-number>', where the row label is one OR
+        MORE uppercase letters (a mosaic past 26 rows carries 'AA', 'AB', ...).
+        Requiring uppercase letters then digits means it cannot swallow
+        'Turret<n>' (whose 'urret' is lowercase) and lose the turret position,
+        which would otherwise surface as a bogus tile that broke callers
+        parsing the tile's trailing number.
         """
         if seg in layers or seg == 'Composite':
             return 'channel'
         if re.fullmatch(r'Turret\d+', seg):
             return 'turret_position'
-        if re.fullmatch(r'T[A-Z]\d+', seg):
+        if re.fullmatch(r'T[A-Z]+\d+', seg):
             return 'tile'
         if seg in objectives or re.fullmatch(r'\d+x.*', seg):
             return 'objective'
