@@ -451,3 +451,56 @@ def test_stim_edge_not_refused_while_protocol_owns_lease():
         StimEdge(target_offset_s=0.0, action='on', channel=ch, mA=50.0, color='Blue')
     )
     assert scope.illumination.led_enabled('Blue'), 'stim pulse was refused under the protocol lease'
+
+
+def _one_frame_result(stim_end_reason):
+    import datetime
+    import queue as _queue
+
+    from modules.video_capture import VideoCaptureResult
+
+    frames = _queue.Queue()
+    frames.put((np.zeros((4, 4), dtype=np.uint8), datetime.datetime.now()))
+    return VideoCaptureResult(
+        captured_frames=1,
+        calculated_fps=1,
+        video_images=frames,
+        duration_sec=1.0,
+        stim_end_reason=stim_end_reason,
+    )
+
+
+def test_failed_stim_writes_status_sidecar(tmp_path):
+    """A stim schedule that ended on a dispatch fault must leave a stim-status
+    sidecar next to the saved recording, so the incomplete stimulation is on disk
+    rather than the run looking like a normal stim recording."""
+    from modules.video_capture import write_video
+
+    write_video(
+        result=_one_frame_result('dispatch_error'),
+        save_folder=tmp_path,
+        name='rec',
+        video_as_frames=True,
+        step={'Color': 'Blue'},
+        callbacks={},
+    )
+    sidecar = tmp_path / 'rec_stim_status.txt'
+    assert sidecar.exists(), 'a failed stim run must leave a status sidecar'
+    assert 'dispatch_error' in sidecar.read_text()
+
+
+def test_clean_and_intentional_stim_runs_write_no_sidecar(tmp_path):
+    from modules.video_capture import write_video
+
+    for reason in ('schedule_complete', 'stop_event_set', None):
+        write_video(
+            result=_one_frame_result(reason),
+            save_folder=tmp_path,
+            name=f'rec_{reason}',
+            video_as_frames=True,
+            step={'Color': 'Blue'},
+            callbacks={},
+        )
+        assert not (tmp_path / f'rec_{reason}_stim_status.txt').exists(), (
+            f'end_reason={reason!r} is clean/intentional and must not write a sidecar'
+        )

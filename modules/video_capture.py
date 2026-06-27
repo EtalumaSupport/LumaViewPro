@@ -24,11 +24,26 @@ from modules.kivy_utils import schedule_ui as _schedule_ui
 from modules.video_writer import VideoWriter
 
 
+# Stim end_reason values that mean the schedule finished as intended: it ran to
+# completion, or was deliberately stopped (the video is shorter than the stim
+# schedule, or the run was cancelled). Anything else (a failed LED edge dispatch)
+# means the sample received only a fraction of the configured pulses.
+_CLEAN_STIM_END_REASONS = frozenset(
+    {'schedule_complete', 'stop_event_set', 'stop_event_set_before_start'}
+)
+
+
 class VideoCaptureResult:
     """Result of a video capture session."""
 
     def __init__(
-        self, captured_frames, calculated_fps, video_images, duration_sec, dropped_frames=0
+        self,
+        captured_frames,
+        calculated_fps,
+        video_images,
+        duration_sec,
+        dropped_frames=0,
+        stim_end_reason=None,
     ):
         self.captured_frames = captured_frames
         self.calculated_fps = calculated_fps
@@ -37,6 +52,10 @@ class VideoCaptureResult:
         # Frames the capture loop could not queue (consumer fell behind).
         # Surfaced at write time so a short recording is not silent.
         self.dropped_frames = dropped_frames
+        # How the stimulation schedule ended (None if no stim ran). A non-clean
+        # reason is recorded next to the video so an incomplete stim run is not
+        # saved as a normal one.
+        self.stim_end_reason = stim_end_reason
 
 
 class VideoCaptureSession:
@@ -124,6 +143,7 @@ class VideoCaptureSession:
 
         # Start one stimulation scheduler thread for all enabled channels.
         stim_thread = None
+        scheduler = None
         enabled_stim_configs = {
             color: stim_config
             for color, stim_config in step['Stim_Config'].items()
@@ -261,6 +281,7 @@ class VideoCaptureSession:
             video_images=video_images,
             duration_sec=duration_sec,
             dropped_frames=dropped_frames,
+            stim_end_reason=(scheduler._end_reason if scheduler is not None else None),
         )
 
 
@@ -386,6 +407,25 @@ def write_video(
         _drain_queue(video_images)
         capture_result = output_file_loc
 
+    # A stim schedule that ended on a fault (not clean completion nor an
+    # intentional stop) means the sample received only a fraction of its pulses.
+    # Drop a status sidecar next to the video so the incomplete stimulation is
+    # recorded on disk, rather than the run looking like a normal stim recording.
+    # No popup: an unattended protocol does not interrupt for a non-fatal issue.
+    if result.stim_end_reason is not None and result.stim_end_reason not in _CLEAN_STIM_END_REASONS:
+        status_path = save_folder / f'{name}_stim_status.txt'
+        try:
+            status_path.write_text(
+                f'Stimulation did not complete: end_reason={result.stim_end_reason}\n'
+            )
+        except OSError as ex:
+            logger.error(f'[PROTOCOL-VIDEO] Could not write stim status sidecar: {ex}')
+        logger.warning(
+            f'[PROTOCOL-VIDEO] Stimulation schedule for "{name}" ended early '
+            f'(end_reason={result.stim_end_reason}); recording saved with a '
+            'stim-status sidecar.'
+        )
+
     if 'reset_title' in callbacks:
         _schedule_ui(lambda dt: callbacks['reset_title'](), 0)
 
@@ -465,6 +505,9 @@ class StimulationController:
         self._run_dir = run_dir
         self._active_channels: list[tuple[str, int]] = []
         self._edges = self._build_edge_schedule()
+        # Set by run() (in its finally) to the schedule's final end_reason, so the
+        # recording can record how the stimulation actually ended.
+        self._end_reason = 'schedule_complete'
 
     def _build_edge_schedule(self) -> list[StimEdge]:
         edges = []
@@ -683,6 +726,8 @@ class StimulationController:
 
                 executed_edges += 1
         finally:
+            # Publish the final reason before cleanup so the recording can stamp it.
+            self._end_reason = end_reason
             if sys.platform.startswith('win') and time_period_set:
                 try:
                     ctypes.windll.winmm.timeEndPeriod(1)
