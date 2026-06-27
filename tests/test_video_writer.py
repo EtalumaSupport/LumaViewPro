@@ -376,3 +376,65 @@ class TestVideoBuilderDropAccounting:
         )
         assert result['frame_count'] == 0, 'no readable frame should encode'
         assert result['dropped_frames'] == 2, 'both unreadable sources must be counted'
+
+
+class TestBuildVideoSignificantBits:
+    """build_video must read each source TIFF's significant-bit depth and pass
+    it to the writer, exactly as the protocol-post pipeline (_create_video)
+    does. A right-aligned 12-bit frame (full-scale payload 4095) scaled as if it
+    were full 16-bit renders near-black -- white maps to ~15/255 -- so the depth
+    has to reach add_frame on this path too, not just the pipeline path."""
+
+    @staticmethod
+    def _write_right_aligned_12bit(path, value=4095):
+        import tifffile as tf
+
+        # Store a uint16 frame whose payload is right-aligned 12-bit (0..4095)
+        # and record SignificantBits=12 via the durable private tag the loader
+        # reads back (image_utils._TIFF_TAG_SIGNIFICANT_BITS == 65123, type SHORT).
+        frame = np.full((8, 8), value, dtype=np.uint16)
+        tf.imwrite(str(path), frame, extratags=[(65123, 3, 1, 12, True)])
+
+    def test_right_aligned_12bit_depth_reaches_writer(self, tmp_path):
+        import modules.image_utils as image_utils
+        import modules.video_builder as video_builder_module
+        from modules.video_builder import VideoBuilder
+
+        src = tmp_path / 'frames'
+        src.mkdir()
+        frame_path = src / 'frame_0000.tiff'
+        self._write_right_aligned_12bit(frame_path)
+
+        # Guard the fixture itself: the file must record 12-bit depth, not the
+        # 16-bit container width, or the test could not distinguish the bug.
+        assert image_utils.read_tiff_significant_bits(frame_path) == 12
+
+        captured = []
+
+        class _RecordingWriter:
+            dropped_frames = 0
+
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def add_frame(self, image=None, timestamp=None, significant_bits=None):
+                captured.append(significant_bits)
+
+            def close(self):
+                pass
+
+        with mock.patch.object(video_builder_module, 'VideoWriter', _RecordingWriter):
+            builder = VideoBuilder(has_turret=False)
+            result = builder.build_video(
+                source_dir=src,
+                output_file=tmp_path / 'out.mp4',
+                fps=10,
+            )
+
+        assert result['frame_count'] == 1, 'the readable frame must encode'
+        # The bug passed significant_bits=None (16-bit fallback in add_frame),
+        # which maps 4095 -> ~15/255 and renders the video near-black.
+        assert captured == [12], (
+            'build_video must hand the writer the source frame depth (12), '
+            f'not the 16-bit container width; got {captured}'
+        )

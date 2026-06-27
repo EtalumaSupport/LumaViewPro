@@ -129,6 +129,51 @@ class VideoBuilder(ProtocolPostProcessor):
             **kwargs,
         )
 
+    def _add_source_frame(
+        self,
+        writer: VideoWriter,
+        image_path: pathlib.Path,
+        *,
+        enable_timestamp_overlay: bool,
+        fallback_timestamp=None,
+    ) -> bool:
+        """Read one saved frame and hand it to the writer with its payload depth.
+
+        Both encode paths (the protocol-post-processor pipeline and the public
+        path-based build) funnel through here so a uint16 frame's significant-bit
+        depth is always read alongside its pixels and passed to add_frame. A frame
+        stored right-aligned (12-bit data, max 4095) renders near-black if scaled
+        as a full 16-bit value, so the depth is not optional context -- dropping
+        it on any one path silently darkens every frame that path encodes.
+        load_pixels returns the array and its depth in a single call so the two
+        cannot drift apart, and keeping the read-and-add sequence in one place
+        means a future depth change cannot quietly skip one of the two paths.
+
+        The per-frame time comes from each frame's own metadata so a video built
+        from recorded frames shows the real capture time per frame; it falls back
+        to the caller-supplied step time when the frame carries none.
+
+        Returns True when the frame was added, False when the source could not be
+        read (the caller counts it as a skipped / dropped frame).
+        """
+        try:
+            image, significant_bits = image_utils.load_pixels(image_path)
+        except Exception as e:
+            logger.error(f'[{self._name}] Failed to read image: {image_path}: {e}')
+            return False
+
+        frame_ts = None
+        if enable_timestamp_overlay:
+            frame_ts = image_utils.read_frame_timestamp(image_path)
+            if frame_ts is None:
+                frame_ts = fallback_timestamp
+
+        # image is mono 2D (a legacy 3-channel replica collapses to mono inside
+        # load_pixels). VideoWriter applies the layer false-color, the 8-bit
+        # downconvert scaled by significant_bits, and any cv2 BGR-swap internally.
+        writer.add_frame(image=image, timestamp=frame_ts, significant_bits=significant_bits)
+        return True
+
     def _create_video(
         self,
         path: pathlib.Path,
@@ -196,31 +241,22 @@ class VideoBuilder(ProtocolPostProcessor):
         skipped = 0
         for _, row in df.iterrows():
             image_path = path / row['Filepath']
-            try:
-                image = image_utils.read_tiff_with_legacy_collapse(image_path)
-                significant_bits = image_utils.read_tiff_significant_bits(image_path)
-            except Exception as e:
-                logger.error(f'[{self._name}] Failed to read image: {image_path}: {e}')
+            # Guard the dataframe Timestamp: the loader fills missing values with
+            # the empty string (no to_pydatetime) rather than a pandas Timestamp.
+            # This step time is only the fallback when the frame carries none.
+            fallback_ts = (
+                row['Timestamp'].to_pydatetime()
+                if hasattr(row['Timestamp'], 'to_pydatetime')
+                else None
+            )
+            if not self._add_source_frame(
+                video,
+                image_path,
+                enable_timestamp_overlay=enable_timestamp_overlay,
+                fallback_timestamp=fallback_ts,
+            ):
                 skipped += 1
                 continue
-
-            # Post-1d: image is mono 2D (legacy 3-channel collapses to mono
-            # via read_tiff_with_legacy_collapse). VideoWriter applies the
-            # layer false-color and any cv2 BGR-swap internally.
-
-            # Timestamp overlay and 8-bit conversion handled by VideoWriter.add_frame().
-            # Source the per-frame time from each frame's own metadata so a video
-            # built from recorded frames shows the real capture time per frame, not
-            # one repeated step time. Fall back to the dataframe's Timestamp (set
-            # from the protocol execution record for scan-image videos), guarding
-            # the case where it is the empty string the loader fills for missing
-            # values rather than a pandas Timestamp.
-            frame_ts = None
-            if enable_timestamp_overlay:
-                frame_ts = image_utils.read_frame_timestamp(image_path)
-                if frame_ts is None and hasattr(row['Timestamp'], 'to_pydatetime'):
-                    frame_ts = row['Timestamp'].to_pydatetime()
-            video.add_frame(image=image, timestamp=frame_ts, significant_bits=significant_bits)
 
             if popup is not None:
                 popup.progress = start_percentage + (i / total_frames) * percent_diff
@@ -317,13 +353,13 @@ class VideoBuilder(ProtocolPostProcessor):
         error = None
         try:
             for tiff_path in tiff_paths:
-                try:
-                    image = image_utils.read_tiff_with_legacy_collapse(tiff_path)
-                except Exception as e:
-                    logger.error(f'[{self._name}] build_video: failed to read {tiff_path}: {e}')
+                if not self._add_source_frame(
+                    writer,
+                    tiff_path,
+                    enable_timestamp_overlay=include_timestamp_overlay,
+                ):
                     skipped += 1
                     continue
-                writer.add_frame(image)
                 frame_count += 1
         except Exception as e:
             logger.exception(f'[{self._name}] build_video: encode failed')
