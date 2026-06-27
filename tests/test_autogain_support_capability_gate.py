@@ -234,14 +234,19 @@ class TestUiWiring:
             ), f'{fn} must resolve capabilities via _live_capabilities().'
 
     def test_init_ui_applies_autogain_support_on_connect(self):
+        # _init_ui applies the gate via the sync_camera_capability_ranges
+        # grouping (which calls set_layer_autogain_support -- see
+        # test_reconnect_camera_resync).
         method = _method_node(IMAGE_SETTINGS_PATH, '_init_ui')
-        assert _calls_named(method, 'set_layer_autogain_support'), (
-            'ImageSettings._init_ui must apply the autogain gate on connect.'
+        assert _calls_named(method, 'sync_camera_capability_ranges'), (
+            'ImageSettings._init_ui must apply the autogain gate (via the '
+            'sync_camera_capability_ranges grouping) on connect.'
         )
 
     def test_reconnect_applies_autogain_support_on_reconnect(self):
+        # reconnect applies the gate via the same grouping as connect.
         method = _method_node(MS_PATH, 'reconnect')
-        assert _calls_named(method, 'set_layer_autogain_support'), (
-            'MicroscopeSettings.reconnect must re-apply the autogain gate on '
-            'scope-change / reconnect.'
+        assert _calls_named(method, 'sync_camera_capability_ranges'), (
+            'MicroscopeSettings.reconnect must re-apply the autogain gate (via '
+            'the sync_camera_capability_ranges grouping) on scope-change / reconnect.'
         )

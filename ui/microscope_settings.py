@@ -17,8 +17,8 @@ import modules.binning as binning
 import modules.common_utils as common_utils
 from modules import gui_logger
 from modules.config_helpers import (
-    DEFAULT_MAX_EXPOSURE_MS,
-    DEFAULT_MAX_GAIN_DB,
+    camera_max_exposure_for_ui,
+    camera_max_gain_for_ui,
 )
 from modules.config_ui_getters import (
     firmware_stim_supported,
@@ -190,9 +190,18 @@ class MicroscopeSettings(BoxLayout):
         # on_start uses. Pre-LVP-A-5 this block was open-coded here and
         # had subtly drifted from the App's version.
         ctx.session.start_application_session(disable_homing=ctx.disable_homing)
-        ctx.image_settings.set_layer_exposure_ranges()
-        ctx.image_settings.set_layer_autogain_support()
-        layer_obj = ctx.image_settings.layer_lookup(layer='BF')
+        # Resync the whole per-camera UI surface from the NEW camera: refresh
+        # the slider caps first (reconnect previously left the gain cap stale,
+        # a blackout risk on a lower-cap camera), then the per-layer ranges +
+        # gates through the single grouping.
+        ctx.max_exposure = camera_max_exposure_for_ui(lumaview.scope.imaging)
+        ctx.max_gain = camera_max_gain_for_ui(lumaview.scope.imaging)
+        ctx.image_settings.sync_camera_capability_ranges()
+        # Re-apply the VISIBLE layer (not a hardcoded channel) so its controls
+        # reflect the new camera -- e.g. a non-BF open layer's gain/exposure
+        # sliders get re-enabled when the new camera lacks hardware auto-gain.
+        visible_layer = ctx.image_settings.open_or_default_layer()
+        layer_obj = ctx.image_settings.layer_lookup(layer=visible_layer)
         layer_obj.apply_settings()
 
         scope_leds_off()
@@ -326,18 +335,13 @@ class MicroscopeSettings(BoxLayout):
             self.ids['sequenced_image_output_format_spinner'].text = sequenced_fmt
             self.select_sequenced_image_output_format()
 
-            # camera_max_exposure returns None when no camera is connected;
-            # fall back to the default slider upper bound. See #616.
-            max_exposure = lumaview.scope.imaging.camera_max_exposure or DEFAULT_MAX_EXPOSURE_MS
-
+            # The exposure/gain slider caps from the live camera (the resolver
+            # applies the documented no-camera fallback; #616). The gain cap
+            # keeps the slider honest per-camera -- a universal 48 dB let LS620
+            # users overdrive past the usable range and black out the image.
+            max_exposure = camera_max_exposure_for_ui(lumaview.scope.imaging)
             ctx.max_exposure = max_exposure
-
-            # Parallel treatment for gain -- see #gain-slider-clamp note.
-            # Pre-fix, the gain slider was hardcoded 0-48 dB in the kv,
-            # which let users overdrive LS620 past its usable range (the
-            # image went black at high gain). Pulling the cap from the
-            # camera profile keeps the slider honest per-camera.
-            max_gain = lumaview.scope.imaging.camera_max_gain or DEFAULT_MAX_GAIN_DB
+            max_gain = camera_max_gain_for_ui(lumaview.scope.imaging)
             ctx.max_gain = max_gain
 
             if not settings['video_as_frames']:

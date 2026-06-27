@@ -746,6 +746,33 @@ DEFAULT_AG_AE_MAX_EXPOSURE_MS = {
 DEFAULT_MAX_GAIN_DB = 48.0
 
 
+def _camera_cap_for_ui(value: float | None, default: float) -> float:
+    """A live camera cap, or the no-camera default.
+
+    camera_max_* return None by design when no camera is connected (so callers
+    can tell "missing" from a real value; #616); this applies the documented
+    UI fallback in one place for both the exposure and gain resolvers.
+    """
+    if value is not None:
+        return value
+    return default
+
+
+def camera_max_exposure_for_ui(imaging) -> float:
+    """The exposure-slider upper bound from the live camera, or the no-camera
+    default. The single UI-facing resolver, so the connect (load_settings) and
+    reconnect paths can't apply the fallback differently.
+    """
+    return _camera_cap_for_ui(imaging.camera_max_exposure, DEFAULT_MAX_EXPOSURE_MS)
+
+
+def camera_max_gain_for_ui(imaging) -> float:
+    """The gain-slider upper bound from the live camera, or the no-camera
+    default. Parallel to camera_max_exposure_for_ui.
+    """
+    return _camera_cap_for_ui(imaging.camera_max_gain, DEFAULT_MAX_GAIN_DB)
+
+
 def get_binning_from_settings(settings: dict) -> int:
     """Read binning size from settings dict (no UI needed)."""
     try:

@@ -368,9 +368,7 @@ class ImageSettings(BoxLayout):
         # Skip accordion_collapse during app initialization to prevent premature apply_settings
         if not ctx.initializing:
             self.accordion_collapse()
-        self.set_layer_exposure_ranges()
-        self.set_layer_gain_ranges()
-        self.set_layer_autogain_support()
+        self.sync_camera_capability_ranges()
         self.enable_image_stats_if_needed()
 
     def enable_image_stats_if_needed(self):
@@ -446,6 +444,56 @@ class ImageSettings(BoxLayout):
         for layer in common_utils.get_layers():
             layer_obj = self.layer_lookup(layer=layer)
             layer_obj.camera_autogain_support = supported
+
+    def sync_camera_capability_ranges(self):
+        """Resync every per-layer camera control from the live camera caps.
+
+        The single grouping of the per-layer capability setters, so the connect
+        path (_init_ui) and the reconnect path apply the SAME set and can't
+        drift to a subset (reconnect previously refreshed only exposure ranges).
+        Callers that change the camera (reconnect) must refresh ctx.max_gain /
+        ctx.max_exposure first -- these setters read those caps.
+        """
+        self.set_layer_exposure_ranges()
+        self.set_layer_gain_ranges()
+        self.set_layer_autogain_support()
+        self.clamp_layer_settings_to_caps()
+
+    def clamp_layer_settings_to_caps(self):
+        """Bring every layer's stored gain/exposure within the live camera caps.
+
+        A camera swap can leave a layer's persisted gain_db/exp_ms above the new
+        body's physical maximum; applying that value blacks the channel out (and
+        it would persist to current.json on the next save). Reconcile the stored
+        value -- and its slider -- down to the cap for every layer, the same
+        reconciliation load_settings performs, so connect and reconnect agree.
+        An over-cap value cannot be honored by the hardware regardless.
+        """
+        ctx = _app_ctx.ctx
+        settings = ctx.settings
+        for layer in common_utils.get_layers():
+            layer_obj = self.layer_lookup(layer=layer)
+            if settings[layer]['gain_db'] > ctx.max_gain:
+                settings[layer]['gain_db'] = ctx.max_gain
+                layer_obj.ids['gain_slider'].value = ctx.max_gain
+            if settings[layer]['exp_ms'] > ctx.max_exposure:
+                settings[layer]['exp_ms'] = ctx.max_exposure
+                layer_obj.ids['exp_slider'].value = ctx.max_exposure
+
+    def open_or_default_layer(self):
+        """The layer whose accordion is expanded, or 'BF' when none is open.
+
+        Lets the reconnect path re-apply the VISIBLE layer's controls against
+        the new camera (so e.g. its gain/exposure sliders reflect it), instead
+        of only ever refreshing a hardcoded channel. Delegates the open-layer
+        scan to common_utils.get_opened_layer (which guards the accordion
+        lookup); BF is the default channel shown when every accordion is
+        collapsed.
+        """
+        layer = common_utils.get_opened_layer(self)
+        if layer is not None:
+            return layer
+        return 'BF'
 
     def assign_led_button_down_images(self):
         led_button_down_background_map = {
