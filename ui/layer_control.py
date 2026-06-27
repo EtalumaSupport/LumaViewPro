@@ -81,6 +81,12 @@ class LayerControl(BoxLayout):
     stimulation_support = BooleanProperty(False)
     show_stim_controls = BooleanProperty(False)
     autogain_support = BooleanProperty(True)
+    # Orthogonal runtime gate (like show_camera_controls): the Auto Gain/Exp
+    # checkbox drives the camera's hardware auto-gain, so it is hidden on a
+    # camera whose profile reports no hardware AG (IDS U3-34Lx, FX2 LS620).
+    # Set from scope.capabilities.camera_supports_auto_gain on connect /
+    # scope-change; AND-ed with the per-layer static autogain_support in the kv.
+    camera_autogain_support = BooleanProperty(True)
     exposure_summing_support = BooleanProperty(False)
     show_camera_controls = BooleanProperty(True)
     # Drives the 8-bit summing depth-loss hint row; the row height follows the
@@ -1089,6 +1095,19 @@ class LayerControl(BoxLayout):
         except Exception as e:
             logger.warning(f'[LVP Main  ] {self.layer} widget sync from settings failed: {e}')
 
+    def effective_auto_gain(self) -> bool:
+        """The auto-gain enable actually in force for this layer's camera.
+
+        The saved preference (settings[layer]['auto_gain']) gated by the
+        camera's hardware capability (camera_autogain_support -- the same gate
+        the kv visibility uses). On a camera without hardware AG/AE the Auto
+        Gain/Exp control is hidden, so its stored preference resolves to off
+        here. Derived on read, never written back, so a capable camera's saved
+        preference survives a swap to an AG-less body and back.
+        """
+        settings = _app_ctx.ctx.settings
+        return bool(settings[self.layer]['auto_gain'] and self.camera_autogain_support)
+
     def apply_settings(self, ignore_auto_gain=False, update_led=True, protocol=False):
 
         # Skip apply_settings if layer is still initializing
@@ -1217,7 +1236,12 @@ class LayerControl(BoxLayout):
         gain = settings[self.layer]['gain_db']
 
         if not protocol_running_global.is_set():
-            auto_gain_enabled = settings[self.layer]['auto_gain']
+            # Effective enable = saved preference gated by camera capability
+            # (effective_auto_gain): on a camera without hardware AG/AE the
+            # control is hidden, so a stored True must read as off here -- else
+            # the gain/exposure sliders below stay disabled with no UI to clear
+            # them. Non-destructive: the stored preference is left intact.
+            auto_gain_enabled = self.effective_auto_gain()
             # Sync the toggle CheckBox + dependent slider-disabled state to
             # the settings value before applying to the camera. The .kv has
             # no Kivy binding from settings to auto_gain.active, so when the

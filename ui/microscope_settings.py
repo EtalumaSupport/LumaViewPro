@@ -191,6 +191,7 @@ class MicroscopeSettings(BoxLayout):
         # had subtly drifted from the App's version.
         ctx.session.start_application_session(disable_homing=ctx.disable_homing)
         ctx.image_settings.set_layer_exposure_ranges()
+        ctx.image_settings.set_layer_autogain_support()
         layer_obj = ctx.image_settings.layer_lookup(layer='BF')
         layer_obj.apply_settings()
 

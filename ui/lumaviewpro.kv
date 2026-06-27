@@ -2846,7 +2846,7 @@
 				spacing: '5dp'
 				disabled: False if self.visible else True
 				opacity: 1 if self.visible else 0
-				visible: True if root.autogain_support and root.show_camera_controls else False
+				visible: True if root.autogain_support and root.camera_autogain_support and root.show_camera_controls else False
 
 				CheckBox:
 					id: auto_gain

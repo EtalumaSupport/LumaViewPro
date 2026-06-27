@@ -370,6 +370,7 @@ class ImageSettings(BoxLayout):
             self.accordion_collapse()
         self.set_layer_exposure_ranges()
         self.set_layer_gain_ranges()
+        self.set_layer_autogain_support()
         self.enable_image_stats_if_needed()
 
     def enable_image_stats_if_needed(self):
@@ -420,6 +421,31 @@ class ImageSettings(BoxLayout):
         for layer in common_utils.get_layers():
             layer_obj = self.layer_lookup(layer=layer)
             layer_obj.ids['gain_slider'].max = ctx.max_gain
+
+    def set_layer_autogain_support(self):
+        """Gate the Auto Gain/Exp control on the camera's hardware AG/AE support.
+
+        The checkbox drives hardware auto-gain/exposure (imaging.set_auto_gain
+        -> driver.auto_gain), so on a camera without either (IDS U3-34Lx, FX2
+        LS620) the control is a no-op and is hidden. Parallel to
+        set_layer_gain_ranges: runs at every capability-sync point (connect /
+        scope-change). The per-layer static rule (Lumi has no autogain) is
+        preserved -- this only drives the orthogonal camera_autogain_support
+        gate, AND-ed with autogain_support in the kv. Capability resolution +
+        fail-safe live in camera_autogain_supported() (the single gate).
+
+        Only the visibility gate is set here; the persisted per-layer auto_gain
+        is NOT mutated. The effective enable (preference AND capability) is
+        derived non-destructively at the consumption point
+        (LayerControl.effective_auto_gain), so a capable camera's saved
+        preference survives a swap to an AG-less body and back.
+        """
+        from modules.config_ui_getters import camera_autogain_supported
+
+        supported = camera_autogain_supported()
+        for layer in common_utils.get_layers():
+            layer_obj = self.layer_lookup(layer=layer)
+            layer_obj.camera_autogain_support = supported
 
     def assign_led_button_down_images(self):
         led_button_down_background_map = {

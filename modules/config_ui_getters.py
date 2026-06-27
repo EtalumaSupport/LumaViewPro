@@ -29,6 +29,19 @@ logger = logging.getLogger('LVP.modules.config_ui_getters')
 # ---------------------------------------------------------------------------
 
 
+def _live_capabilities():
+    """The capability surface of the LIVE scope, or None if not built yet.
+
+    Reads ``ctx.lumaview.scope`` -- the reference ``reconnect()`` rebuilds on a
+    scope change -- NOT the ``ctx.scope`` registry field, which is a build-time
+    reference reconnect never refreshes. Every capability gate must resolve
+    through here so a reconnect is reflected and the gates can't drift apart.
+    """
+    lumaview = getattr(_app_ctx.ctx, 'lumaview', None)
+    scope = getattr(lumaview, 'scope', None)
+    return getattr(scope, 'capabilities', None)
+
+
 def firmware_stim_supported() -> bool:
     """True only when the connected LED firmware supports stimulation.
 
@@ -37,9 +50,24 @@ def firmware_stim_supported() -> bool:
     Fails safe to False (hide) when the scope or its capability surface is not
     yet available, so stim never appears on firmware that cannot drive it.
     """
-    scope = getattr(_app_ctx.ctx, 'scope', None)
-    caps = getattr(scope, 'capabilities', None)
+    caps = _live_capabilities()
     return bool(caps.supports('firmware_stim')) if caps is not None else False
+
+
+def camera_autogain_supported() -> bool:
+    """True when the connected camera has hardware auto-gain or auto-exposure.
+
+    The single gate for the "Auto Gain/Exp" control, which drives BOTH
+    auto-gain and auto-exposure -- so it stays visible if the hardware offers
+    either, and hides only when the camera offers neither (IDS U3-34Lx, FX2
+    LS620). Fails safe to True (show) when no capability surface exists yet, so
+    a not-yet-built scope keeps the prior always-shown behavior rather than
+    hiding on unknown.
+    """
+    caps = _live_capabilities()
+    if caps is None:
+        return True
+    return bool(caps.camera_supports_auto_gain or caps.camera_supports_auto_exposure)
 
 
 # ---------------------------------------------------------------------------
