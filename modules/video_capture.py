@@ -21,7 +21,7 @@ import numpy as np
 from lvp_logger import logger
 import modules.image_save as image_save
 from modules.kivy_utils import schedule_ui as _schedule_ui
-from modules.video_writer import VideoWriter
+from modules.video_writer import VideoWriter, fps_from_frames
 
 
 # One shared vocabulary of stim-schedule end_reason values, referenced by BOTH
@@ -349,11 +349,7 @@ class VideoCaptureSession:
                 _write_stim_status_sidecar(self._save_folder, self._name, stim_end_reason)
             return None
 
-        # True frames-per-second of the recording. Real division, not an
-        # int()-clamped-to-1: a slow protocol video can capture fewer frames
-        # than the seconds elapsed, and clamping that sub-1 rate up to 1 fps
-        # distorts the playback duration. The writer preserves the float rate.
-        calculated_fps = captured_frames / duration_sec
+        calculated_fps = fps_from_frames(captured_frames, duration_sec)
 
         logger.info(f'[PROTOCOL-VIDEO] Images present in video array: {not video_images.empty()}')
         logger.info(f'[PROTOCOL-VIDEO] Captured Frames: {captured_frames}')

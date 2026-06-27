@@ -650,3 +650,31 @@ class TestCv2SubOneFpsFallback:
         assert any('sub-1' in w or 'fps >= 1' in w for w in warnings), (
             'the faster-than-real-time fallback must warn, naming the constraint'
         )
+
+
+class TestFpsFromFrames:
+    """fps_from_frames is the single owner of the frames-per-recorded-second
+    rate both recording paths (protocol video and manual recording) use. A
+    sub-1-fps recording must keep its true float rate, not floor to 0 (which
+    loses the file) or clamp to 1 (which distorts duration)."""
+
+    def test_sub_one_rate_is_preserved_not_floored(self):
+        from modules.video_writer import fps_from_frames
+
+        # 3 frames over 10 s -> 0.3 fps, not 0 and not 1.
+        assert fps_from_frames(3, 10.0) == pytest.approx(0.3)
+
+    def test_normal_rate(self):
+        from modules.video_writer import fps_from_frames
+
+        assert fps_from_frames(100, 10.0) == pytest.approx(10.0)
+
+    def test_both_recording_paths_use_the_shared_helper(self):
+        # The protocol and manual recording modules both import the one helper,
+        # so the rate policy cannot drift between them again.
+        import modules.manual_video_finalize as mvf
+        import modules.video_capture as vc
+        from modules.video_writer import fps_from_frames
+
+        assert vc.fps_from_frames is fps_from_frames
+        assert mvf.fps_from_frames is fps_from_frames

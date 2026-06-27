@@ -22,6 +22,19 @@ except ImportError:
     logger.info('VideoWriter: PyAV not available -- falling back to OpenCV VideoWriter')
 
 
+def fps_from_frames(captured_frames: int, duration_sec: float) -> float:
+    """Playback frames-per-second for captured_frames recorded over duration_sec.
+
+    Real division, never floor or int()-clamp. A slow recording (long-exposure
+    or timelapse) can capture fewer frames than the seconds elapsed, so the true
+    rate is below 1 fps: flooring it yields 0 (an empty, unplayable file that
+    silently loses the recording) and clamping it up to 1 distorts the playback
+    duration. The float rate is carried through to the encoder unchanged. The
+    caller guarantees duration_sec > 0.
+    """
+    return captured_frames / duration_sec
+
+
 class VideoWriter:
     def __init__(
         self,
