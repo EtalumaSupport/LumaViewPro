@@ -3035,6 +3035,27 @@ def _bare_protocol_writer(**overrides):
     return ProtocolImageWriter(**kwargs)
 
 
+def _make_capture_runner(**overrides):
+    """SequencedCaptureRunner on stub collaborators; kwargs override any slot.
+
+    One owner of the seven-MagicMock construction so the constructor signature
+    is pinned in a single place, not re-pasted per test class.
+    """
+    from modules.sequenced_capture_runner import SequencedCaptureRunner
+
+    kwargs = {
+        'scope': MagicMock(),
+        'stage_offset': {'x': 0.0, 'y': 0.0, 'z': 0.0},
+        'io_executor': MagicMock(),
+        'protocol_thread': MagicMock(),
+        'file_io_executor': MagicMock(),
+        'camera_executor': MagicMock(),
+        'autofocus_thread': MagicMock(),
+    }
+    kwargs.update(overrides)
+    return SequencedCaptureRunner(**kwargs)
+
+
 def _protocol_step(**overrides):
     """Minimal protocol step dict covering every key capture()/write_capture() read."""
     step = {
@@ -9046,18 +9067,7 @@ class TestSCEResetSignalsAbort:
     """
 
     def _make_runner(self):
-        from modules.sequenced_capture_runner import SequencedCaptureRunner
-
-        runner = SequencedCaptureRunner(
-            scope=MagicMock(),
-            stage_offset={'x': 0.0, 'y': 0.0, 'z': 0.0},
-            io_executor=MagicMock(),
-            protocol_thread=MagicMock(),
-            file_io_executor=MagicMock(),
-            camera_executor=MagicMock(),
-            autofocus_thread=MagicMock(),
-        )
-        return runner
+        return _make_capture_runner()
 
     def test_reset_calls_protocol_thread_abort_when_in_progress(self):
         runner = self._make_runner()
@@ -12759,17 +12769,7 @@ class TestRemainingScansAtomicSnapshot:
     """
 
     def _make_runner(self):
-        from modules.sequenced_capture_runner import SequencedCaptureRunner
-
-        return SequencedCaptureRunner(
-            scope=MagicMock(),
-            stage_offset={'x': 0.0, 'y': 0.0, 'z': 0.0},
-            io_executor=MagicMock(),
-            protocol_thread=MagicMock(),
-            file_io_executor=MagicMock(),
-            camera_executor=MagicMock(),
-            autofocus_thread=MagicMock(),
-        )
+        return _make_capture_runner()
 
     def test_progress_snapshot_returns_consistent_pair(self):
         runner = self._make_runner()
@@ -12948,17 +12948,7 @@ class TestGreaseRedistributionGateAlwaysReleased:
     """
 
     def _make_runner(self):
-        from modules.sequenced_capture_runner import SequencedCaptureRunner
-
-        return SequencedCaptureRunner(
-            scope=MagicMock(),
-            stage_offset={'x': 0.0, 'y': 0.0, 'z': 0.0},
-            io_executor=MagicMock(),
-            protocol_thread=MagicMock(),
-            file_io_executor=MagicMock(),
-            camera_executor=MagicMock(),
-            autofocus_thread=MagicMock(),
-        )
+        return _make_capture_runner()
 
     def test_grease_task_releases_gate_even_when_a_move_raises(self):
         import pytest
