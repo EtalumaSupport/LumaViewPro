@@ -1,4 +1,4 @@
 4.0.0-beta20
-2026-06-27 08:22
-protocol-workflow-closure
-15550394
+2026-06-27 08:41
+fix/b2-sigbits-helper
+13194e07

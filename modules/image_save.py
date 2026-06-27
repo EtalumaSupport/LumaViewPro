@@ -42,6 +42,18 @@ if TYPE_CHECKING:
 _NUM_SEQ_DIGITS = 6
 
 
+def _default_significant_bits(scope, array) -> int:
+    """Resolve the payload depth to record when no caller states one.
+
+    An already-8-bit frame carries 8 significant bits; any wider frame
+    carries the camera's current native payload depth. This single rule
+    is shared by every save path -- the TIFF metadata, the JPG
+    downconversion, and the post-save log line -- so they can never
+    disagree about how deep a frame is when the depth rule changes.
+    """
+    return 8 if array.dtype == np.uint8 else scope.imaging.significant_bits
+
+
 def write_video_frame(
     frame: np.ndarray,
     file_loc: pathlib.Path,
@@ -454,7 +466,7 @@ def prepare_image_for_saving(
     metadata = generate_image_metadata(scope, color=true_color, x=x, y=y, z=z)
 
     if significant_bits is None:
-        significant_bits = 8 if array.dtype == np.uint8 else scope.imaging.significant_bits
+        significant_bits = _default_significant_bits(scope, array)
     metadata['significant_bits'] = significant_bits
 
     array = _apply_save_orientation(array)
@@ -594,9 +606,7 @@ def save_image(
             # an already-8-bit array, else the camera's current payload depth.
             jpg_significant_bits = significant_bits
             if jpg_significant_bits is None:
-                jpg_significant_bits = (
-                    8 if array.dtype == np.uint8 else scope.imaging.significant_bits
-                )
+                jpg_significant_bits = _default_significant_bits(scope, array)
             jpg_bytes = image_utils.encode_display_jpg(
                 _apply_save_orientation(array),
                 color,
@@ -731,7 +741,7 @@ def save_live_image(
         logged_bits = (
             significant_bits
             if significant_bits is not None
-            else (8 if array.dtype == np.uint8 else scope.imaging.significant_bits)
+            else _default_significant_bits(scope, array)
         )
         logger.info(
             f'[ImageSave] manual capture encoding={save_encoding} '
