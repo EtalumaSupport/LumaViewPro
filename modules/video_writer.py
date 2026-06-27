@@ -4,6 +4,7 @@ import datetime
 import os
 import pathlib
 import threading
+from fractions import Fraction
 
 import cv2
 import numpy as np
@@ -99,7 +100,15 @@ class VideoWriter:
         """Initialize PyAV H.264 encoder."""
         try:
             self._container = av.open(str(self._output_path), mode='w')
-            self._stream = self._container.add_stream('libx264', rate=int(self._fps))
+            # A slow recording (timelapse / long-exposure) has a true rate below
+            # 1 fps. int(fps) would floor that to 0, which libx264 rejects --
+            # producing an empty, unplayable file and losing the recording. A
+            # Fraction preserves the real sub-1 rate so the encoder honors it and
+            # playback duration stays true; limit_denominator trims the binary-
+            # float artifacts of a value like 0.3 to a clean ratio.
+            self._stream = self._container.add_stream(
+                'libx264', rate=Fraction(self._fps).limit_denominator()
+            )
             # Multi-threaded libx264, capped to cores-2 so the encode scales
             # with the machine but always leaves headroom for the GUI/GL main
             # thread (uncapped it grabs every core and froze the GUI mid-encode
@@ -119,7 +128,7 @@ class VideoWriter:
             self._stream.options = {'crf': '23', 'preset': 'ultrafast'}
             self._is_color = is_color
             logger.info(
-                f'VideoWriter: Opened H.264 encoder ({width}x{height} @ {int(self._fps)}fps)'
+                f'VideoWriter: Opened H.264 encoder ({width}x{height} @ {float(self._fps):g}fps)'
             )
         except Exception as e:
             logger.warning(f'VideoWriter: PyAV init failed ({e}), falling back to cv2')

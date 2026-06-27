@@ -87,7 +87,13 @@ def finalize_manual_video(
             logger.error('Manual-Video] No frames captured, aborting video write')
             return memmap_path
 
-        calculated_fps = captured_frames // video_duration
+        # True frames-per-second of the recording. Use real division, not floor
+        # division: a slow manual recording (long-exposure / timelapse) can
+        # capture fewer frames than the seconds elapsed, and flooring that ratio
+        # to an integer yields 0 fps -- which the encoder rejects, producing an
+        # empty, unplayable file that silently loses the recording. A float rate
+        # preserves the true sub-1-fps playback duration.
+        calculated_fps = captured_frames / video_duration
 
         logger.info(
             f'Manual-Video] Images present in video array: {len(video_frames) > 0 if video_frames is not None else 0}'

@@ -438,3 +438,51 @@ class TestBuildVideoSignificantBits:
             'build_video must hand the writer the source frame depth (12), '
             f'not the 16-bit container width; got {captured}'
         )
+
+
+class _RateCapturingContainer:
+    """Records the rate handed to add_stream so a test can assert the encoder
+    was opened at the real frame rate, not a truncated one."""
+
+    def __init__(self, stream):
+        self._stream = stream
+        self.rate = 'UNSET'
+
+    def add_stream(self, codec, rate=None):
+        self.rate = rate
+        return self._stream
+
+    def close(self):
+        pass
+
+
+class TestSubOneFpsRate:
+    """A slow recording captures fewer frames than the seconds elapsed
+    (long-exposure / timelapse), so its true rate is below 1 fps. The encoder
+    must receive that real sub-1 rate: truncating it to an integer yields 0,
+    which libx264/cv2 reject -- the output is an empty, unplayable file and the
+    recording is lost. The rate is preserved as a Fraction so playback duration
+    stays true."""
+
+    def test_pyav_sub_one_fps_not_truncated_to_zero(self, tmp_path):
+        fake_stream = _FakeStream()
+        fake_container = _RateCapturingContainer(fake_stream)
+        fake_av = mock.MagicMock()
+        fake_av.open.return_value = fake_container
+
+        out = tmp_path / 'slow.mp4'
+        with (
+            mock.patch.object(video_writer_module, '_HAS_PYAV', True),
+            mock.patch.object(video_writer_module, 'av', fake_av, create=True),
+        ):
+            VideoWriter(
+                output_path=out,
+                fps=0.3,  # 3 frames over 10 seconds
+                width=32,
+                height=24,
+                color='Red',
+                include_timestamp_overlay=False,
+            )
+
+        assert fake_container.rate != 0, 'sub-1 fps must not open the encoder at rate 0'
+        assert float(fake_container.rate) == pytest.approx(0.3)

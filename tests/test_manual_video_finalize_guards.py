@@ -75,6 +75,46 @@ def _kwargs(tmp_path, **overrides):
     return kwargs
 
 
+# --- sub-1-fps recording keeps a real rate (no floor-to-zero) --------------
+
+
+def test_sub_one_fps_recording_keeps_nonzero_rate(tmp_path, monkeypatch):
+    """A slow manual recording captures fewer frames than the seconds elapsed
+    (long-exposure / timelapse). Its true rate is below 1 fps; computing it with
+    floor division yields 0, which the encoder rejects -- the MP4 comes out empty
+    and the recording is silently lost. The writer must receive the real sub-1
+    rate, preserving the recording's playback duration."""
+    notifications.clear()
+    captured_fps = {}
+
+    class _FpsCapturingWriter:
+        def __init__(self, **kwargs):
+            captured_fps['fps'] = kwargs['fps']
+            self.dropped_frames = 0
+
+        def add_frame(self, **kwargs):
+            pass
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr('modules.manual_video_finalize.VideoWriter', _FpsCapturingWriter)
+
+    # 3 frames over 10 seconds -> 0.3 fps. Floor division would yield 0.
+    finalize_manual_video(
+        **_kwargs(
+            tmp_path,
+            captured_frames=3,
+            video_duration=10.0,
+            video_frames=np.zeros((3, 16, 16), dtype=np.uint8),
+        )
+    )
+
+    assert captured_fps['fps'] != 0, 'sub-1-fps recording must not hand the writer a 0 rate'
+    assert captured_fps['fps'] == pytest.approx(0.3)
+    notifications.clear()
+
+
 # --- E1a: characterization (extraction preserved behavior) -----------------
 
 

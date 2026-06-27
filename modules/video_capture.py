@@ -347,7 +347,11 @@ class VideoCaptureSession:
                 _write_stim_status_sidecar(self._save_folder, self._name, scheduler._end_reason)
             return None
 
-        calculated_fps = max(1, int(captured_frames / duration_sec))
+        # True frames-per-second of the recording. Real division, not an
+        # int()-clamped-to-1: a slow protocol video can capture fewer frames
+        # than the seconds elapsed, and clamping that sub-1 rate up to 1 fps
+        # distorts the playback duration. The writer preserves the float rate.
+        calculated_fps = captured_frames / duration_sec
 
         logger.info(f'[PROTOCOL-VIDEO] Images present in video array: {not video_images.empty()}')
         logger.info(f'[PROTOCOL-VIDEO] Captured Frames: {captured_frames}')
