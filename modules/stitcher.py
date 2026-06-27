@@ -172,13 +172,15 @@ class Stitcher(ProtocolPostProcessor):
 
         source_image_sample_row = df.iloc[0]
         source_image_sample_filename = source_image_sample_row['Filepath']
-        # Depth is collected per tile in the placement loop below (which reads
-        # every tile including this one); this read is only for geometry/dtype.
-        source_image_sample, _ = image_utils.load_pixels(
-            path / source_image_sample_filename, collapse_legacy_false_color=False
+        # Only the tile geometry (size + dtype + color-ness) is needed here to
+        # size the canvas; the pixels and depth of every tile -- including this
+        # one -- are read in the placement loop below. Read the header alone so
+        # this first tile is not decoded once here and again in the loop.
+        source_image_shape, source_image_dtype = image_utils.read_image_geometry(
+            path / source_image_sample_filename
         )
-        source_image_h = source_image_sample.shape[0]
-        source_image_w = source_image_sample.shape[1]
+        source_image_h = source_image_shape[0]
+        source_image_w = source_image_shape[1]
 
         df = df.sort_values(['X', 'Y'], ascending=False)
         df['x_index'] = df.groupby(by=['X']).ngroup()
@@ -197,13 +199,11 @@ class Stitcher(ProtocolPostProcessor):
         if reverse_y:
             df['y_pix_range'] = stitched_im_y - df['y_pix_range']
 
-        is_color_image = image_utils.is_color_image(image=source_image_sample)
+        is_color_image = len(source_image_shape) == 3 and source_image_shape[2] == 3
         if is_color_image:
-            stitched_img = np.zeros(
-                (stitched_im_y, stitched_im_x, 3), dtype=source_image_sample.dtype
-            )
+            stitched_img = np.zeros((stitched_im_y, stitched_im_x, 3), dtype=source_image_dtype)
         else:
-            stitched_img = np.zeros((stitched_im_y, stitched_im_x), dtype=source_image_sample.dtype)
+            stitched_img = np.zeros((stitched_im_y, stitched_im_x), dtype=source_image_dtype)
 
         input_depths = []
         for _, row in df.iterrows():

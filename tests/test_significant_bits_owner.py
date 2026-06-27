@@ -368,6 +368,36 @@ class TestLoadPixelsBoundary:
         image, _ = image_utils.load_pixels(path, collapse_legacy_false_color=False)
         assert image.shape == (8, 8, 3)
 
+    @pytest.mark.parametrize('collapse', [True, False])
+    def test_load_pixels_opens_tiff_once(self, tmp_path, monkeypatch, collapse):
+        """load_pixels reads the pixels AND the depth from a single TiffFile
+        open. Stitch / zproject / composite call it per tile, so a second open
+        just for the depth tag would double the file opens of every run. The
+        returned (pixels, sig) must stay byte-identical to the two-open form."""
+        import tifffile as tf
+
+        from modules import image_utils
+
+        path = self._write_tiff(tmp_path, 4095, significant_bits=12, ome=False)
+
+        # Baseline equal to the pre-refactor two-call form.
+        expected_image = tf.imread(str(path))
+        expected_sig = image_utils.read_tiff_significant_bits(path)
+
+        real_tifffile = image_utils.tf.TiffFile
+        opens = []
+
+        def counting_tifffile(arg, *args, **kwargs):
+            opens.append(arg)
+            return real_tifffile(arg, *args, **kwargs)
+
+        monkeypatch.setattr(image_utils.tf, 'TiffFile', counting_tifffile)
+        image, sig = image_utils.load_pixels(path, collapse_legacy_false_color=collapse)
+
+        assert len(opens) == 1
+        assert sig == expected_sig
+        assert np.array_equal(image, expected_image)
+
 
 class TestWriteTiffDepthRequired:
     """A write that does not state its payload depth fails loudly instead of

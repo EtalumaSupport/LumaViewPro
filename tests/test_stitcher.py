@@ -204,6 +204,32 @@ class TestSimplePositionStitcher:
         # No black pixels -- all tiles have nonzero values
         assert img.min() > 0
 
+    def test_first_tile_not_opened_repeatedly(self, tile_dir, tile_df, monkeypatch):
+        """The canvas-sizing geometry probe reads a header only, so the first
+        tile is opened once for geometry plus once for its placement -- not
+        re-decoded a third/fourth time. Each other tile is opened once. The
+        stitched output stays byte-identical to the unspied run."""
+        from modules import image_utils
+
+        baseline = Stitcher._simple_position_stitcher(tile_dir, tile_df)['image']
+
+        real_tifffile = image_utils.tf.TiffFile
+        opens = {}
+
+        def counting_tifffile(arg, *args, **kwargs):
+            opens[pathlib.Path(arg).name] = opens.get(pathlib.Path(arg).name, 0) + 1
+            return real_tifffile(arg, *args, **kwargs)
+
+        monkeypatch.setattr(image_utils.tf, 'TiffFile', counting_tifffile)
+        result = Stitcher._simple_position_stitcher(tile_dir, tile_df)
+
+        # df.iloc[0] is the geometry-probe + placement tile; up to one open each.
+        assert opens['tile_0_0.tiff'] == 2
+        assert opens['tile_1_0.tiff'] == 1
+        assert opens['tile_0_1.tiff'] == 1
+        assert opens['tile_1_1.tiff'] == 1
+        assert np.array_equal(result['image'], baseline)
+
     def test_single_tile(self, tmp_path):
         tile = np.full((64, 64), 42, dtype=np.uint8)
         cv2.imwrite(str(tmp_path / 'single.tiff'), tile)

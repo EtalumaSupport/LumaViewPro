@@ -143,8 +143,18 @@ def read_tiff_with_legacy_collapse(path: pathlib.Path) -> np.ndarray:
         2D mono ndarray for mono and collapsed-legacy files; 3D RGB
         ndarray for real color images.
     """
+    return _collapse_legacy_false_color(tf.imread(str(path)), path)
+
+
+def _collapse_legacy_false_color(img: np.ndarray, path: pathlib.Path) -> np.ndarray:
+    """Apply the legacy false-color collapse rule to an already-read array.
+
+    Split out from read_tiff_with_legacy_collapse so load_pixels can decode the
+    pixels from a single open TIFF handle and still reuse the exact collapse
+    logic, instead of opening the file a second time. See
+    read_tiff_with_legacy_collapse for the detection rule and rationale.
+    """
     global _legacy_collapse_warned
-    img = tf.imread(str(path))
     if img.ndim == 3 and img.shape[2] == 3:
         nonzero_channels = [i for i in range(3) if img[..., i].any()]
         # Considered tightening this to a known-LUT match or a metadata
@@ -182,15 +192,26 @@ def read_tiff_significant_bits(path: pathlib.Path) -> int:
     container-width scaling is the correct interpretation.
     """
     with tf.TiffFile(str(path)) as tif:
-        ome = tif.ome_metadata
-        if ome:
-            match = re.search(r'SignificantBits="(\d+)"', ome)
-            if match:
-                return int(match.group(1))
-        tag = tif.pages[0].tags.get(_TIFF_TAG_SIGNIFICANT_BITS)
-        if tag is not None and tag.value:
-            return int(tag.value)
-        return tif.pages[0].dtype.itemsize * 8
+        return _significant_bits_from_open(tif)
+
+
+def _significant_bits_from_open(tif: 'tf.TiffFile') -> int:
+    """Resolve significant bits from an already-open TiffFile handle.
+
+    Split out from read_tiff_significant_bits so load_pixels can read the depth
+    from the same handle it decodes the pixels with, instead of opening the
+    file a second time just for the tag. See read_tiff_significant_bits for the
+    OME -> private-tag -> container-width resolution order and rationale.
+    """
+    ome = tif.ome_metadata
+    if ome:
+        match = re.search(r'SignificantBits="(\d+)"', ome)
+        if match:
+            return int(match.group(1))
+    tag = tif.pages[0].tags.get(_TIFF_TAG_SIGNIFICANT_BITS)
+    if tag is not None and tag.value:
+        return int(tag.value)
+    return tif.pages[0].dtype.itemsize * 8
 
 
 def load_pixels(
@@ -238,11 +259,15 @@ def load_pixels(
         raise FileNotFoundError(f'No such pixel file: {path}')
 
     if path.suffix.lower() in ('.tif', '.tiff'):
+        # One open serves both reads: the pixel array and the significant-bit
+        # depth come from the same TiffFile handle. load_pixels runs per tile in
+        # stitch / zproject / composite, so a second open just for the depth tag
+        # would double the file opens and IFD parses of every post-processing run.
+        with tf.TiffFile(str(path)) as tif:
+            image = tif.asarray()
+            sig = _significant_bits_from_open(tif)
         if collapse_legacy_false_color:
-            image = read_tiff_with_legacy_collapse(path)
-        else:
-            image = tf.imread(str(path))
-        sig = read_tiff_significant_bits(path)
+            image = _collapse_legacy_false_color(image, path)
         # Debug (not info): load_pixels runs per-tile in stitch/zproject, so this
         # is high-volume; it records how a saved file was interpreted on read-back
         # (depth + whether a false-color file collapsed to mono) when diagnosing.
@@ -266,6 +291,40 @@ def load_pixels(
         f'collapse={collapse_legacy_false_color}'
     )
     return image, sig
+
+
+def read_image_geometry(path: pathlib.Path) -> tuple[tuple[int, ...], np.dtype]:
+    """Read an image's (shape, dtype) without decoding its pixels when possible.
+
+    A caller that only needs the spatial size and dtype to size an output canvas
+    (the stitcher's per-region setup) should not pay a full pixel decode -- nor a
+    second open for the depth tag it then discards. A TIFF's IFD header carries
+    the page shape and dtype, so a single TiffFile open answers without reading
+    the pixel data. Non-TIFF inputs (PNG / JPEG) have no separable header, so
+    they fall back to a full load through load_pixels.
+
+    The returned shape matches what load_pixels would return for the raw file
+    (no legacy false-color collapse): mono is (H, W); a 3-channel frame is
+    (H, W, 3).
+
+    Args:
+        path: Path to a saved pixel file (TIFF, PNG, or JPEG).
+
+    Returns:
+        (shape, dtype) of the stored array.
+
+    Raises:
+        FileNotFoundError: the path does not exist.
+    """
+    path = pathlib.Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f'No such pixel file: {path}')
+    if path.suffix.lower() in ('.tif', '.tiff'):
+        with tf.TiffFile(str(path)) as tif:
+            page = tif.pages[0]
+            return tuple(page.shape), page.dtype
+    image, _ = load_pixels(path, collapse_legacy_false_color=False)
+    return image.shape, image.dtype
 
 
 def resolve_output_depth(input_depths) -> int:
