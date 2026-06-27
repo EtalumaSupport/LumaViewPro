@@ -464,6 +464,35 @@ class TestSingleScanAutoFocusNoneResult:
         )
 
 
+class TestAutofocusFailureDoesNotHaltProtocol:
+    """An autofocus failure mid-protocol must not stop the run or pop a modal --
+    an unattended scan keeps capturing at the fallback Z. The failure must be
+    logged: previously the AF future's exception was never read, so a camera or
+    motion fault during AF was swallowed with no log trace.
+    """
+
+    def test_af_exception_is_logged_and_run_continues(self, executor, scope, tmp_path, monkeypatch):
+        import modules.protocol_step_runner as psr
+
+        protocol = _make_single_step_protocol(color='BF', auto_focus=True)
+        af = executor._autofocus_runner
+        af.complete.return_value = True
+        af.in_progress.return_value = False
+        executor._af_future = MagicMock()
+        executor._af_future.done.return_value = True
+        # The AF run raised (e.g. camera fault) -- carried on the Future.
+        executor._af_future.exception.return_value = RuntimeError('camera fault during AF')
+
+        warnings = []
+        monkeypatch.setattr(psr.logger, 'warning', lambda msg, *a, **k: warnings.append(str(msg)))
+
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed, 'an AF failure must not halt the protocol'
+        assert any('Autofocus failed' in w for w in warnings), (
+            'the AF failure must be logged, not swallowed'
+        )
+
+
 class TestSingleScanAutoGainAndAutoFocus:
     """Test 4: Single scan with both auto-gain and auto-focus."""
 

@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 from lvp_logger import logger
 
 import modules.config_helpers as config_helpers
+from modules.exceptions import AutofocusAborted
 from modules.protocol_state_machine import ProtocolState
 from modules.sequential_io_executor import IOTask
 from modules.settings_init import settings
@@ -103,6 +104,22 @@ class ProtocolStepRunner:
             return
 
         if p._af_future is not None and p._af_future.done():
+            # Surface an autofocus failure that was otherwise swallowed: the gate
+            # only ever read .done(), never the outcome, so a camera/motion fault
+            # during AF produced a silent out-of-focus capture with no log trace.
+            # An unattended protocol must NOT stop or pop a modal over a
+            # step-level AF fault -- log it and keep capturing at the fallback Z
+            # (AFE restores the pre-AF Z on non-success). An intentional abort is
+            # not a fault, so it stays at debug.
+            _af_exc = p._af_future.exception()
+            if isinstance(_af_exc, AutofocusAborted):
+                logger.debug(f'[PROTOCOL] Autofocus aborted at step {p._curr_step}')
+            elif _af_exc is not None:
+                logger.warning(
+                    f'[PROTOCOL] Autofocus failed at step {p._curr_step} '
+                    f'({type(_af_exc).__name__}: {_af_exc}) -- capturing at '
+                    f'fallback Z and continuing'
+                )
             _cam_gain = p._scope.imaging.get_gain() if p._scope.imaging.camera_active else '?'
             _cam_exp = (
                 p._scope.imaging.get_exposure_time() if p._scope.imaging.camera_active else '?'
