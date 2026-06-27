@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 
 from lvp_logger import logger
+from modules import common_utils
 from modules.objectives_loader import ObjectiveLoader
 
 
@@ -211,8 +212,8 @@ class ProtocolTimeEstimator:
         # Capture
         acquire = step.get('Acquire', 'image')
         if acquire == 'video':
-            vc = step.get('Video Config', {})
-            duration = float(vc.get('duration', 5.0)) if isinstance(vc, dict) else 5.0
+            vc = common_utils.read_video_config(step)
+            duration = float(vc.get('duration', 5.0))
             capture_time = duration + max(exposure_s, MIN_FRAME_TIME_S)
         else:
             frame_time = max(exposure_s, MIN_FRAME_TIME_S)

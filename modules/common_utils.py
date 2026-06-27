@@ -1205,7 +1205,48 @@ ESTIMATED_VIDEO_STEP_MB = 50  # floor for a short compressed MP4
 _MP4_COMPRESSION_FRACTION = 0.1  # MP4 ~ a tenth of the raw per-frame bytes
 
 
-def estimate_step_write_mb(step: dict, *, video_as_frames: bool = False) -> float:
+def read_video_config(step) -> dict:
+    """Return a step's Video Config as a dict, or {} when absent or malformed.
+
+    The one safe reader of a step's Video Config, shared by the disk-write
+    estimate and the time estimate. A protocol step is a pandas Series (or a
+    dict, or None at some defaults), and its 'Video Config' cell can be an
+    unpopulated NaN -- a truthy float, so a plain `or {}` does NOT guard it. A
+    caller that read it unguarded raised (None.get / nan.get), and the disk
+    check that wraps the call in a broad except then silently skipped, leaving a
+    near-full disk undetected. Returning {} for every non-dict keeps the reader
+    total so the guard can never be disabled by malformed config.
+
+    Args:
+        step: A protocol step (pandas Series / dict / None).
+
+    Returns:
+        The step's Video Config dict, or {} if the step or the cell is not a dict.
+    """
+    get = getattr(step, 'get', None)
+    if get is None:
+        return {}
+    video_config = get('Video Config')
+    return video_config if isinstance(video_config, dict) else {}
+
+
+def _coerce_positive_float(value) -> float:
+    """Coerce a Video Config numeric to a float >= 0, defaulting bad input to 0.
+
+    Video Config values come from a user-edited protocol and may be a
+    non-numeric string or a NaN; float() raises on the former and NaN poisons
+    the frame-count arithmetic. Both collapse to 0 (a missing dimension), which
+    floors the estimate rather than raising and disabling the disk guard.
+    """
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    # NaN != NaN; a NaN duration/fps means "unknown", treated as 0.
+    return result if result == result and result > 0 else 0.0
+
+
+def estimate_step_write_mb(step, *, video_as_frames: bool = False) -> float:
     """Estimate the disk a single protocol step will write, in MB.
 
     One owner for write-size estimation, shared by the pre-scan free-space check
@@ -1217,19 +1258,25 @@ def estimate_step_write_mb(step: dict, *, video_as_frames: bool = False) -> floa
     lets a long recording be sized before it fills the disk; the MP4 path is
     floored at the historical estimate so a short clip is never under-counted.
 
+    Total by construction: a None / malformed step or Video Config sizes to the
+    single-image estimate rather than raising, so the broad except around the
+    disk check can never silently disable the guard.
+
     Args:
-        step: A protocol step dict (reads Acquire + Video Config).
+        step: A protocol step (pandas Series / dict / None); reads Acquire +
+            Video Config.
         video_as_frames: Run-level flag -- video saved as individual frames
             rather than a compressed MP4.
 
     Returns:
         Estimated megabytes the step will write to disk.
     """
-    if step.get('Acquire') != 'video':
+    get = getattr(step, 'get', None)
+    if get is None or get('Acquire') != 'video':
         return ESTIMATED_IMAGE_STEP_MB
-    video_config = step.get('Video Config') or {}
-    duration_s = float(video_config.get('duration', 0) or 0)
-    fps = float(video_config.get('fps', 0) or 0)
+    video_config = read_video_config(step)
+    duration_s = _coerce_positive_float(video_config.get('duration'))
+    fps = _coerce_positive_float(video_config.get('fps'))
     frames = max(1, int(duration_s * fps))
     if video_as_frames:
         return frames * ESTIMATED_IMAGE_STEP_MB

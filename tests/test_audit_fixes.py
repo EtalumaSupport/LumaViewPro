@@ -13107,3 +13107,45 @@ class TestStepWriteEstimateSingleOwner:
         assert 'ESTIMATED_VIDEO_STEP_MB' not in run_loop, (
             'flat per-video constant should be gone from the run loop'
         )
+
+    def test_estimator_is_total_on_malformed_step(self):
+        from modules.common_utils import (
+            ESTIMATED_IMAGE_STEP_MB,
+            ESTIMATED_VIDEO_STEP_MB,
+            estimate_step_write_mb,
+        )
+
+        # A None step (a parameter default at some call sites) must not raise --
+        # a raise here is swallowed by the disk-check except, silently skipping
+        # the free-space guard.
+        assert estimate_step_write_mb(None) == ESTIMATED_IMAGE_STEP_MB
+        # A NaN Video Config cell (a truthy float from an unpopulated DataFrame
+        # row) must not raise; the video sizes to the floor, not a crash.
+        nan_cfg = {'Acquire': 'video', 'Video Config': float('nan')}
+        assert estimate_step_write_mb(nan_cfg) == ESTIMATED_VIDEO_STEP_MB
+        # Non-numeric duration/fps coerce to 0 (a missing dimension), floored.
+        bad_nums = {'Acquire': 'video', 'Video Config': {'duration': 'abc', 'fps': 'x'}}
+        assert estimate_step_write_mb(bad_nums) == ESTIMATED_VIDEO_STEP_MB
+
+    def test_read_video_config_guards_every_non_dict(self):
+        from modules.common_utils import read_video_config
+
+        assert read_video_config(None) == {}
+        assert read_video_config({'Video Config': float('nan')}) == {}
+        assert read_video_config({'Video Config': None}) == {}
+        assert read_video_config({}) == {}
+        assert read_video_config({'Video Config': {'fps': 30}}) == {'fps': 30}
+
+    def test_time_estimator_uses_the_shared_video_config_accessor(self):
+        import pathlib
+
+        src = (
+            pathlib.Path(__file__).resolve().parent.parent
+            / 'modules'
+            / 'protocol_time_estimator.py'
+        ).read_text()
+        assert 'read_video_config' in src, (
+            'the time estimator must read Video Config through the shared accessor'
+        )
+        # The old inline isinstance-guarded parse is replaced by the one owner.
+        assert 'isinstance(vc, dict)' not in src
