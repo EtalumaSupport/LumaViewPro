@@ -21,8 +21,18 @@ from fractions import Fraction
 from lvp_logger import logger, version
 
 
+def is_color_shape(shape) -> bool:
+    """True when an array of this shape is a 3-channel color image (H, W, 3).
+
+    The single channel-count rule, shared by callers that hold a full image and
+    callers that hold only a shape tuple (e.g. a stitcher sizing its canvas from
+    a header read without decoding pixels), so the two cannot disagree.
+    """
+    return len(shape) == 3 and shape[2] == 3
+
+
 def is_color_image(image) -> bool:
-    return len(image.shape) == 3 and image.shape[2] == 3
+    return is_color_shape(image.shape)
 
 
 def fit_frame_to_shape(image: np.ndarray, target_shape: tuple[int, ...]) -> np.ndarray | None:

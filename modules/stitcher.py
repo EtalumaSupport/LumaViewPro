@@ -199,8 +199,8 @@ class Stitcher(ProtocolPostProcessor):
         if reverse_y:
             df['y_pix_range'] = stitched_im_y - df['y_pix_range']
 
-        is_color_image = len(source_image_shape) == 3 and source_image_shape[2] == 3
-        if is_color_image:
+        is_color = image_utils.is_color_shape(source_image_shape)
+        if is_color:
             stitched_img = np.zeros((stitched_im_y, stitched_im_x, 3), dtype=source_image_dtype)
         else:
             stitched_img = np.zeros((stitched_im_y, stitched_im_x), dtype=source_image_dtype)
@@ -220,23 +220,23 @@ class Stitcher(ProtocolPostProcessor):
 
             if reverse_y:
                 if reverse_x:
-                    if is_color_image:
+                    if is_color:
                         stitched_img[y_val - im_y : y_val, x_val - im_x : x_val, :] = image
                     else:
                         stitched_img[y_val - im_y : y_val, x_val - im_x : x_val] = image
                 else:
-                    if is_color_image:
+                    if is_color:
                         stitched_img[y_val - im_y : y_val, x_val : x_val + im_x, :] = image
                     else:
                         stitched_img[y_val - im_y : y_val, x_val : x_val + im_x] = image
             else:
                 if reverse_x:
-                    if is_color_image:
+                    if is_color:
                         stitched_img[y_val : y_val + im_y, x_val - im_x : x_val, :] = image
                     else:
                         stitched_img[y_val : y_val + im_y, x_val - im_x : x_val] = image
                 else:
-                    if is_color_image:
+                    if is_color:
                         stitched_img[y_val : y_val + im_y, x_val : x_val + im_x, :] = image
                     else:
                         stitched_img[y_val : y_val + im_y, x_val : x_val + im_x] = image
