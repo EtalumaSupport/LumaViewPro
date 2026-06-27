@@ -724,6 +724,16 @@ class IDSCamera(Camera):
                 max_size = (width_node.Maximum(), height_node.Maximum())
                 self._sensor_max = max_size
 
+                # The live Width/Height node bounds: min is the grid phase, inc
+                # the alignment step, max the offset-zeroed sensor max. The 1x
+                # minimum is otherwise only inferred from the delivered size --
+                # logging it makes the real hardware floor observable in a bundle.
+                _cam_log.info(
+                    f'[CAM Class ] set_frame_size nodes '
+                    f'W[min={w_min} inc={step[0]} max={max_size[0]}] '
+                    f'H[min={h_min} inc={step[1]} max={max_size[1]}]'
+                )
+
                 # Each node's Minimum is the grid PHASE, not just a request
                 # floor: the legal set is Min + k*Inc, and a binned Height
                 # reports Min=418 with Inc=4 -- off the plain-multiple grid, so a

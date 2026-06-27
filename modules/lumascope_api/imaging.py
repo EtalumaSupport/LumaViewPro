@@ -638,6 +638,17 @@ class ImagingAPI:
                 self._notify_camera_absent('binning')
             if ok:
                 self.frame_validity.invalidate('binning')
+                # The minimum frame size is binning-dependent (the sensor floor
+                # halves at 2x), so refresh the cache from the driver here. Left
+                # stale, the UI's frame-size clamp reads the 1x minimum after a
+                # binning change until the next full hardware refresh.
+                fresh_min = self._driver.get_min_frame_size()
+                if fresh_min:
+                    with self._camera_cache_lock:
+                        self._camera_cache['min_frame_size'] = {
+                            'width': int(fresh_min['width']),
+                            'height': int(fresh_min['height']),
+                        }
             _api_log.info(f'set_binning {size}x{size} -> {ok}')
             return ok
         except Exception as ex:
