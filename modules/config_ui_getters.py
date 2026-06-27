@@ -16,7 +16,6 @@ import pathlib
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 import modules.config_helpers as config_helpers
-import modules.image_mode as image_mode
 import modules.labware as labware
 from modules.stack_builder import StackBuilder
 from modules.zstack_config import ZStackConfig
@@ -218,14 +217,11 @@ def get_image_capture_config_from_ui() -> dict:
         'sequenced': microscope_settings.ids['sequenced_image_output_format_spinner'].text,
     }
     mode = _app_ctx.ctx.scope_display.image_mode
-    derived = image_mode.resolve_image_mode(mode)
-    return {
-        'output_format': output_format,
-        'image_mode': mode,
-        'capture_depth': derived['capture_depth'],
-        'save_encoding': derived['save_encoding'],
-        'jpg_quality': int(_app_ctx.ctx.settings.get('jpg_quality', 90)),
-    }
+    return config_helpers.build_image_capture_config(
+        output_format=output_format,
+        mode=mode,
+        jpg_quality=_app_ctx.ctx.settings.get('jpg_quality', 90),
+    )
 
 
 def get_sequenced_capture_config_from_ui() -> dict:

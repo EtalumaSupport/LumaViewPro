@@ -104,19 +104,19 @@ class ProtocolRunner:
         image_mode value rather than carried independently, so the config that
         drives capture also drives the save: a 12-bit-scaled capture cannot be
         paired with an 8-bit save that stores it right-aligned (dark). This is
-        the GUI-less mirror of get_image_capture_config_from_ui.
+        the GUI-less mirror of get_image_capture_config_from_ui; both route
+        through the same shared builder so the two paths cannot drift.
         """
-        derived = image_mode_module.resolve_image_mode(image_mode)
-        return {
-            'output_format': {
+        import modules.config_helpers as config_helpers
+
+        return config_helpers.build_image_capture_config(
+            output_format={
                 'live': live_format,
                 'sequenced': sequenced_format,
             },
-            'image_mode': image_mode,
-            'capture_depth': derived['capture_depth'],
-            'save_encoding': derived['save_encoding'],
-            'jpg_quality': jpg_quality,
-        }
+            mode=image_mode,
+            jpg_quality=jpg_quality,
+        )
 
     # ------------------------------------------------------------------
     # Run methods

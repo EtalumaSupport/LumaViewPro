@@ -828,6 +828,34 @@ def get_protocol_time_params_from_settings(settings: dict) -> dict:
     }
 
 
+def build_image_capture_config(
+    output_format: dict,
+    mode: str,
+    jpg_quality: int = 90,
+) -> dict:
+    """Assemble the canonical image-capture config from a resolved image mode
+    plus the common inputs.
+
+    Single source for the capture_depth / save_encoding derivation: both are
+    derived together from the one image_mode value rather than carried
+    independently, so the config that drives capture also drives the matching
+    save (a 12-bit-scaled capture cannot be paired with an 8-bit save that
+    stores it right-aligned and dark). Every lane that builds a capture config
+    -- live/sequenced UI widgets, settings/headless, and explicit-arg -- routes
+    its source-specific values through here, so a new image-mode-derived key is
+    a single edit and the lanes cannot forward different capture configs for the
+    same image mode.
+    """
+    derived = image_mode.resolve_image_mode(mode)
+    return {
+        'output_format': output_format,
+        'image_mode': mode,
+        'capture_depth': derived['capture_depth'],
+        'save_encoding': derived['save_encoding'],
+        'jpg_quality': int(jpg_quality),
+    }
+
+
 def get_image_capture_config_from_settings(settings: dict) -> dict:
     """Read image capture config from settings dict (no UI needed).
 
@@ -838,17 +866,14 @@ def get_image_capture_config_from_settings(settings: dict) -> dict:
     """
     output_format = settings.get('image_output_format', {})
     mode = image_mode.resolve_settings_image_mode(settings)
-    derived = image_mode.resolve_image_mode(mode)
-    return {
-        'output_format': {
+    return build_image_capture_config(
+        output_format={
             'live': output_format.get('live', 'TIFF'),
             'sequenced': output_format.get('sequenced', 'TIFF'),
         },
-        'image_mode': mode,
-        'capture_depth': derived['capture_depth'],
-        'save_encoding': derived['save_encoding'],
-        'jpg_quality': int(settings.get('jpg_quality', 90)),
-    }
+        mode=mode,
+        jpg_quality=settings.get('jpg_quality', 90),
+    )
 
 
 DEFAULT_LABWARE_ID = '96 well microplate'

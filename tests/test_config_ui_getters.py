@@ -240,6 +240,86 @@ class TestTimingAndBinningParseNotifies:
         assert warnings == []
 
 
+class TestImageCaptureConfigSharedBuilder:
+    """The UI lane (get_image_capture_config_from_ui) and the settings/headless
+    lane (get_image_capture_config_from_settings) must forward an IDENTICAL
+    capture-config dict for the same image mode + inputs. They differ only in
+    where the mode / output_format / jpg_quality come from; the dict shape and
+    the capture_depth / save_encoding derivation are folded into one shared
+    builder so the two paths cannot drift.
+    """
+
+    @staticmethod
+    def _patch_ui_ctx(monkeypatch, *, mode, live, sequenced, jpg_quality):
+        live_spinner = MagicMock()
+        live_spinner.text = live
+        seq_spinner = MagicMock()
+        seq_spinner.text = sequenced
+        microscope_settings = MagicMock()
+        microscope_settings.ids = {
+            'live_image_output_format_spinner': live_spinner,
+            'sequenced_image_output_format_spinner': seq_spinner,
+        }
+        ctx = MagicMock()
+        ctx.motion_settings.ids = {'microscope_settings_id': microscope_settings}
+        ctx.scope_display.image_mode = mode
+        ctx.settings = {'jpg_quality': jpg_quality}
+
+        import modules.app_context as app_context
+
+        monkeypatch.setattr(app_context, 'ctx', ctx)
+
+    def test_ui_and_settings_lanes_produce_identical_config(self, monkeypatch):
+        mode = '12bit_scientific'
+        live, sequenced, jpg_quality = 'PNG', 'JPG', 55
+        self._patch_ui_ctx(
+            monkeypatch, mode=mode, live=live, sequenced=sequenced, jpg_quality=jpg_quality
+        )
+
+        from modules.config_ui_getters import get_image_capture_config_from_ui
+        from modules.config_helpers import (
+            build_image_capture_config,
+            get_image_capture_config_from_settings,
+        )
+
+        ui_cfg = get_image_capture_config_from_ui()
+        settings_cfg = get_image_capture_config_from_settings(
+            {
+                'image_output_format': {'live': live, 'sequenced': sequenced},
+                'image_mode': mode,
+                'jpg_quality': jpg_quality,
+            }
+        )
+        shared = build_image_capture_config(
+            output_format={'live': live, 'sequenced': sequenced},
+            mode=mode,
+            jpg_quality=jpg_quality,
+        )
+
+        # All three are the SAME dict for the same inputs.
+        assert ui_cfg == settings_cfg == shared
+
+    def test_derived_keys_come_only_from_the_shared_builder(self, monkeypatch):
+        # Drift proof: patch the single mode-resolution the shared builder uses
+        # and confirm BOTH lanes pick up the changed capture_depth /
+        # save_encoding identically -- i.e. a new image-mode-derived key is a
+        # single edit in the builder, not one-per-lane.
+        mode = '12bit_scientific'
+        self._patch_ui_ctx(monkeypatch, mode=mode, live='TIFF', sequenced='TIFF', jpg_quality=90)
+
+        import modules.config_helpers as config_helpers
+        from modules.config_ui_getters import get_image_capture_config_from_ui
+
+        sentinel = {'capture_depth': 999, 'save_encoding': 'SENTINEL'}
+        monkeypatch.setattr(config_helpers.image_mode, 'resolve_image_mode', lambda _mode: sentinel)
+
+        ui_cfg = get_image_capture_config_from_ui()
+        settings_cfg = config_helpers.get_image_capture_config_from_settings({'image_mode': mode})
+
+        assert ui_cfg['capture_depth'] == settings_cfg['capture_depth'] == 999
+        assert ui_cfg['save_encoding'] == settings_cfg['save_encoding'] == 'SENTINEL'
+
+
 def test_protocol_time_clamped_detects_subsecond_per_unit():
     # The edit handlers use this to decide whether to warn, with the correct
     # unit: period is minutes, duration is hours.
