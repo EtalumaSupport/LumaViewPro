@@ -877,13 +877,29 @@ class MicroscopeSettings(BoxLayout):
             sizes = [1, 2, 4]
         spinner.values = [f'{s}x{s}' for s in sizes]
 
+    def _ui_binning_size(self) -> int:
+        """The binning factor the UI currently shows (the settings SSOT).
+
+        Native-ROI reconstruction multiplies the displayed frame size by the
+        binning it was entered at, so it must read the SYNCHRONOUS UI binning
+        (``settings['binning']['size']``), NOT ``imaging.get_binning_size()``.
+        The hardware binning is applied asynchronously through the camera
+        executor, so right after a binning change the driver still reports the
+        previous factor; reconstructing displayed * that stale factor rebuilds
+        a wrong (and, when only one axis was previously off-square, non-square)
+        native ROI -- the 1056x950-instead-of-950x950 bench bug.
+        """
+        settings = _app_ctx.ctx.settings
+        return binning.binning_size_str_to_int(settings['binning']['size'])
+
     def _native_roi(self) -> dict:
         """Return the unbinned ROI -- the source of truth for frame sizing.
 
         Persisted as ``settings['frame']['native_width']/['native_height']``.
-        When absent (older settings files that stored only the displayed
-        size), reconstruct it from the displayed frame size times the current
-        binning, capped at the sensor native resolution.
+        The stored pair is the unconditional source of truth (binning never
+        changes it). Only when absent (older settings files that stored just
+        the displayed size) is it reconstructed from the displayed frame size
+        times the UI binning, capped at the sensor native resolution.
         """
         ctx = _app_ctx.ctx
         frame = ctx.settings['frame']
@@ -896,21 +912,29 @@ class MicroscopeSettings(BoxLayout):
             }
             src = 'stored'
         else:
-            cur_binning = imaging.get_binning_size()
+            cur_binning = self._ui_binning_size()
             displayed = {'width': int(frame['width']), 'height': int(frame['height'])}
             cap = native_max or {
                 'width': displayed['width'] * cur_binning,
                 'height': displayed['height'] * cur_binning,
             }
+            # displayed_to_native already caps the reconstruction at the cap
+            # (native_max when known), so no separate clamp is needed here.
             native = binning.displayed_to_native(displayed, cur_binning, cap)
-            src = f'reconstructed displayed={displayed["width"]}x{displayed["height"]} binning={cur_binning}'
-        if native_max:
-            native['width'] = min(native['width'], native_max['width'])
-            native['height'] = min(native['height'], native_max['height'])
+            src = (
+                f'reconstructed displayed={displayed["width"]}x{displayed["height"]} '
+                f'ui_binning={cur_binning}'
+            )
+        # The stored pair is returned verbatim -- the unconditional source of
+        # truth. It is deliberately NOT re-capped against the live native_max: a
+        # transient small reading (a camera reconnect / init race) would
+        # otherwise shrink the persisted native_* permanently when a binning
+        # toggle re-stores it. The driver's set_frame_size is the real clamp to
+        # the current sensor max.
         # Forensic line: whether the native ROI came from the stored source of
-        # truth or was rebuilt from displayed*binning. A reconstructed value
-        # reading a stale binning is how the native size silently drifts, so
-        # the src + inputs need to be visible in the log.
+        # truth or was rebuilt from displayed*binning, and at which binning.
+        # A reconstruction against a stale binning is how the native size
+        # silently drifted, so the src + inputs stay visible in the log.
         logger.info(f'[LVP Main  ] native_roi: src={src} -> {native["width"]}x{native["height"]}')
         return native
 
@@ -944,30 +968,29 @@ class MicroscopeSettings(BoxLayout):
             )
             return
 
-        settings['binning']['size'] = new_binning_size_str
-        gui_logger.select('BINNING', new_binning_size_str)
-
-        self._refresh_binning_depth_hint()
-
-        # Native ROI is the source of truth; the displayed/captured size is
-        # native / binning. Deriving from the fixed native ROI (not the prior
-        # displayed value) is what makes binning round-trip: iterating on the
-        # already-floored displayed value lost pixels that never came back.
-        #
-        # Persist the native ROI here too, not just on a frame-field edit.
-        # Without this, settings that never had native_* stored fall through
-        # _native_roi's reconstruction (displayed * binning) on every binning
-        # change -- and at a coarse binning the displayed value is already
-        # floored, so reconstruction shrinks native a little each step and the
-        # cycle drifts (1x1 -> 4x4 -> 1x1 came back smaller). Storing the
-        # native ROI on the first change locks the source of truth so later
-        # changes read a fixed value and round-trip exactly.
+        # Capture the native ROI BEFORE overwriting the binning setting.
+        # _native_roi reconstruction multiplies the displayed value by the UI
+        # binning (settings['binning']['size']), so it must read the OLD binning
+        # the current displayed value corresponds to; reading it after the
+        # overwrite would rebuild native against the new factor and skew it (the
+        # non-square frame at 2x). Storing it locks the source of truth so this
+        # and every later binning change round-trips exactly -- without it,
+        # settings that never had native_* fall through reconstruction
+        # (displayed * binning) on every change, and at a coarse binning the
+        # already-floored displayed value shrinks native a little each step so
+        # the cycle drifts (1x1 -> 4x4 -> 1x1 came back smaller).
         native = self._native_roi()
         self._store_native_roi(native)
-        # Floor to the active driver's DELIVERABLE granularity: get_pixel_alignment
-        # reports the camera grid for floor-only drivers (Pylon/FX2/sim) and just
-        # 'even' for the IDS driver, which crops back to the exact request -- so a
-        # 1900 frame stays 1900 on IDS but floors to the real grid elsewhere.
+
+        settings['binning']['size'] = new_binning_size_str
+        gui_logger.select('BINNING', new_binning_size_str)
+        self._refresh_binning_depth_hint()
+
+        # The displayed/captured size is native / binning, floored to the active
+        # driver's DELIVERABLE granularity: get_pixel_alignment reports the
+        # camera grid for floor-only drivers (Pylon/FX2/sim) and just 'even' for
+        # the IDS driver, which crops back to the exact request -- so a 1900
+        # frame stays 1900 on IDS but floors to the real grid elsewhere.
         new_frame = binning.native_to_displayed(
             native, new_binning_size, imaging.get_pixel_alignment()
         )
@@ -1096,7 +1119,10 @@ class MicroscopeSettings(BoxLayout):
             frame = ctx.settings['frame']
             typed = {'width': frame['width'], 'height': frame['height']}
 
-        cur_binning = imaging.get_binning_size()
+        # The typed value is a displayed size at the UI binning, so reconstruct
+        # native against the synchronous UI binning, not the async hardware
+        # binning (see _ui_binning_size).
+        cur_binning = self._ui_binning_size()
         native_max = imaging.get_native_resolution() or {
             'width': int(typed['width']) * cur_binning,
             'height': int(typed['height']) * cur_binning,
