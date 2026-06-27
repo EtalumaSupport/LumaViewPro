@@ -172,6 +172,64 @@ class TestTileOmittedNotStripped:
         assert build_step_name(c) == 'A1_Composite_stitched'
 
 
+class TestTurretToken:
+    """The turret token shares its leading 'T' with the tile token, so a loose
+    tile match ('any segment starting with T') swallowed 'Turret<n>': the turret
+    position was lost and surfaced as a bogus tile ('urret<n>'). Parsing must
+    keep the two distinct in every combination, and the round-trip must hold."""
+
+    def test_turret_only_round_trips(self):
+        name = build_step_name(StepNameComponents(well='A1', channel='BF', turret_position=3))
+        assert name == 'A1_BF_Turret3'
+        c = parse_step_name(name, known_layers=_KNOWN_LAYERS, known_objectives=_KNOWN_OBJECTIVES)
+        assert c.turret_position == 3
+        assert c.tile is None
+        assert build_step_name(c) == name
+
+    def test_turret_with_objective_round_trips(self):
+        # Objective and turret are distinct tokens; the loose tile match also
+        # reordered them by stealing the turret segment first.
+        name = build_step_name(
+            StepNameComponents(
+                well='A1', channel='BF', objective='10x', turret_position=3, z_index=0
+            )
+        )
+        assert name == 'A1_BF_10x_Turret3_Z0'
+        c = parse_step_name(name, known_layers=_KNOWN_LAYERS, known_objectives=_KNOWN_OBJECTIVES)
+        assert c.objective == '10x'
+        assert c.turret_position == 3
+        assert c.tile is None
+        assert build_step_name(c) == name
+
+    def test_turret_with_tile_keeps_both(self):
+        name = build_step_name(
+            StepNameComponents(well='A1', channel='BF', tile='B2', turret_position=4, z_index=1)
+        )
+        assert name == 'A1_BF_TB2_Turret4_Z1'
+        c = parse_step_name(name, known_layers=_KNOWN_LAYERS, known_objectives=_KNOWN_OBJECTIVES)
+        assert c.tile == 'B2'
+        assert c.turret_position == 4
+        assert build_step_name(c) == name
+
+    def test_full_name_with_all_tokens_round_trips(self):
+        name = build_step_name(
+            StepNameComponents(
+                well='A1',
+                channel='Green',
+                tile='C3',
+                objective='20x',
+                turret_position=2,
+                z_index=4,
+                scan_count=7,
+            )
+        )
+        c = parse_step_name(name, known_layers=_KNOWN_LAYERS, known_objectives=_KNOWN_OBJECTIVES)
+        assert build_step_name(c) == name
+        assert c.tile == 'C3'
+        assert c.turret_position == 2
+        assert c.objective == '20x'
+
+
 class TestBuildEdgeCases:
     def test_empty_components_render_empty(self):
         assert build_step_name(StepNameComponents()) == ''

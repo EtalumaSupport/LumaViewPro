@@ -159,19 +159,42 @@ def parse_step_name(name, known_layers=None, known_objectives=()) -> StepNameCom
     if not segs or segs == ['']:
         return StepNameComponents()
 
+    def token_kind(seg):
+        """Classify one segment into the component it fills, or None.
+
+        The single definition of "what is a step-name token", shared by the
+        custom-prefix accretion below (which only needs to know whether a
+        segment classifies) and the field-assignment loop (which needs which
+        field it fills). One table means the two cannot disagree, and adding a
+        token type is a single edit.
+
+        Order is the disambiguation: a turret token ('Turret<n>') is tested
+        before the tile token, whose prefix is the same 'T' letter. The tile
+        shape is also pinned to 'T<letter><number>' (the row-letter/col-number
+        a tile label carries) so it cannot swallow 'Turret<n>' and lose the
+        turret position -- which then surfaced as a bogus tile that broke
+        callers parsing the tile's trailing number.
+        """
+        if seg in layers or seg == 'Composite':
+            return 'channel'
+        if re.fullmatch(r'Turret\d+', seg):
+            return 'turret_position'
+        if re.fullmatch(r'T[A-Z]\d+', seg):
+            return 'tile'
+        if seg in objectives or re.fullmatch(r'\d+x.*', seg):
+            return 'objective'
+        if re.fullmatch(r'Z\d+', seg):
+            return 'z_index'
+        if re.fullmatch(r'\d{4,}', seg):
+            return 'scan_count'
+        if seg in _POST_SUFFIX_TOKENS:
+            return 'post'
+        if seg == 'zproj':
+            return 'zproj'
+        return None
+
     def classifies(seg):
-        return (
-            seg in layers
-            or seg == 'Composite'
-            or (len(seg) > 1 and seg.startswith('T'))
-            or seg in objectives
-            or re.fullmatch(r'\d+x.*', seg) is not None
-            or re.fullmatch(r'Turret\d+', seg) is not None
-            or re.fullmatch(r'Z\d+', seg) is not None
-            or re.fullmatch(r'\d{4,}', seg) is not None
-            or seg in _POST_SUFFIX_TOKENS
-            or seg == 'zproj'
-        )
+        return token_kind(seg) is not None
 
     well = ''
     custom_prefix = ''
@@ -191,21 +214,22 @@ def parse_step_name(name, known_layers=None, known_objectives=()) -> StepNameCom
     post = []
     while i < len(segs):
         seg = segs[i]
-        if seg in layers or seg == 'Composite':
+        kind = token_kind(seg)
+        if kind == 'channel':
             channel = seg
-        elif len(seg) > 1 and seg.startswith('T'):
+        elif kind == 'tile':
             tile = seg[1:]
-        elif seg in objectives or re.fullmatch(r'\d+x.*', seg):
+        elif kind == 'objective':
             objective = seg
-        elif re.fullmatch(r'Turret\d+', seg):
+        elif kind == 'turret_position':
             turret_position = int(seg[len('Turret') :])
-        elif re.fullmatch(r'Z\d+', seg):
+        elif kind == 'z_index':
             z_index = int(seg[1:])
-        elif re.fullmatch(r'\d{4,}', seg):
+        elif kind == 'scan_count':
             scan_count = int(seg)
-        elif seg in _POST_SUFFIX_TOKENS:
+        elif kind == 'post':
             post.append(seg)
-        elif seg == 'zproj' and i + 1 < len(segs):
+        elif kind == 'zproj' and i + 1 < len(segs):
             post.append(f'zproj_{segs[i + 1]}')
             i += 1
         i += 1

@@ -1,4 +1,4 @@
 4.0.0-beta20
-2026-06-27 08:16
-fix/af-log-flood
-d9d395d3
+2026-06-27 08:21
+protocol-workflow-closure
+eaa0185d

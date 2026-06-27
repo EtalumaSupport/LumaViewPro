@@ -68,6 +68,24 @@ def test_infers_3x3_from_tiled_step_names():
     assert tc.determine_tiling_label_from_names(names) == '3x3'
 
 
+def test_turret_token_does_not_raise_and_infers_tiling():
+    # A turret token ('Turret<n>') shares its leading 'T' with the tile token.
+    # When the parser misclassified it as a tile ('urret<n>'), this site did
+    # int(label[1:]) -> int('rret<n>') and raised ValueError, taking down the
+    # tiling inference for any protocol whose step names carry a turret token.
+    tc = _tiling_config()
+    names = [f'A1_BF_T{row}{col}_Turret3' for row in ('A', 'B') for col in (1, 2)]
+    assert tc.determine_tiling_label_from_names(names) == '2x2'
+
+
+def test_turret_only_names_have_no_tile():
+    # Turret tokens with no tile must not be mistaken for tiles (which would
+    # raise on the trailing-number parse); they simply contribute no tile.
+    tc = _tiling_config()
+    names = ['A1_BF_Turret1', 'A1_Green_Turret2']
+    assert (tc.determine_tiling_label_from_names(names) or tc.no_tiling_label()) == '1x1'
+
+
 def test_untiled_protocol_falls_back_to_no_tiling():
     tc = _tiling_config()
     # Untiled step names have no _T<gridlabel> segment.
