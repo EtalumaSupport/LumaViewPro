@@ -1,4 +1,4 @@
 4.0.0-beta20
 2026-06-27 08:21
 protocol-workflow-closure
-c266adc5
+7daf75b2

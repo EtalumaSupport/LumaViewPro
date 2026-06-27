@@ -365,6 +365,10 @@ class ProtocolImageWriter:
                         leds_off_fn=self._leds_off,
                         stim_profiling=self._stim_profiling,
                         run_dir=self._run_dir,
+                        # Passed so a zero-frame recording can still drop the
+                        # incomplete-stim sidecar (no write_video runs in that case).
+                        save_folder=save_folder,
+                        name=name,
                     )
                     video_result = session.capture()
 

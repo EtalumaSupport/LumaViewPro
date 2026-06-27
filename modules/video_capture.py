@@ -24,13 +24,72 @@ from modules.kivy_utils import schedule_ui as _schedule_ui
 from modules.video_writer import VideoWriter
 
 
-# Stim end_reason values that mean the schedule finished as intended: it ran to
-# completion, or was deliberately stopped (the video is shorter than the stim
-# schedule, or the run was cancelled). Anything else (a failed LED edge dispatch)
-# means the sample received only a fraction of the configured pulses.
+# One shared vocabulary of stim-schedule end_reason values, referenced by BOTH
+# the producer (StimulationController.run) and the consumer classifier below so
+# the two cannot drift. A reason is "clean" only when the schedule finished as
+# intended: it ran every edge to completion, or it was deliberately stopped (the
+# video is shorter than the stim schedule, or the run was cancelled). Every other
+# value -- including the incomplete-by-default sentinel a never-finished run
+# leaves behind -- means the sample received only a fraction of its configured
+# pulses, so the recording earns a stim-status sidecar. The clean state is made
+# unrepresentable unless earned: the default is INCOMPLETE, and a clean reason is
+# assigned only at the point the schedule genuinely reaches that state.
+
+# Earned-clean reasons.
+STIM_END_SCHEDULE_COMPLETE = 'schedule_complete'  # dispatched every edge, no break
+STIM_END_STOP_EVENT_SET = 'stop_event_set'  # stopped on purpose (short video / cancel)
+STIM_END_STOP_BEFORE_START = 'stop_event_set_before_start'  # stopped before the first edge
+
+# Not-clean reasons -- the sample was under-dosed.
+STIM_END_INCOMPLETE = 'incomplete'  # default sentinel: run() never published a real reason
+STIM_END_EMPTY_SCHEDULE = 'empty_schedule'  # enabled but zero edges built (misconfigured step)
+STIM_END_DISPATCH_ERROR = 'dispatch_error'  # an LED edge raised mid-schedule
+STIM_END_JOIN_TIMEOUT = 'join_timeout'  # scheduler thread still alive past its join
+STIM_END_CAPTURE_FAULT = 'capture_fault'  # capture loop ended on a camera fault, not a normal end
+
 _CLEAN_STIM_END_REASONS = frozenset(
-    {'schedule_complete', 'stop_event_set', 'stop_event_set_before_start'}
+    {
+        STIM_END_SCHEDULE_COMPLETE,
+        STIM_END_STOP_EVENT_SET,
+        STIM_END_STOP_BEFORE_START,
+    }
 )
+
+
+def _write_stim_status_sidecar(save_folder, name, stim_end_reason) -> bool:
+    """Drop a stim-status sidecar next to a recording when the schedule did not
+    end cleanly.
+
+    A stim schedule that ended on a fault (not clean completion nor an
+    intentional stop) means the sample received only a fraction of its pulses,
+    so the incomplete stimulation is recorded on disk rather than the run looking
+    like a normal stim recording. This is the one place that classifies a reason
+    and writes the file, so the zero-frame path and the normal write path cannot
+    disagree about what counts as clean.
+
+    No popup: an unattended protocol does not interrupt for a non-fatal issue.
+
+    Returns True when a sidecar was written, False on a clean/absent reason or
+    when there is nowhere to write it.
+    """
+    if stim_end_reason is None or stim_end_reason in _CLEAN_STIM_END_REASONS:
+        return False
+    if save_folder is None or name is None:
+        logger.warning(
+            f'[PROTOCOL-VIDEO] Stimulation ended early (end_reason={stim_end_reason}) '
+            'but no save location is known, so no stim-status sidecar was written.'
+        )
+        return False
+    status_path = save_folder / f'{name}_stim_status.txt'
+    try:
+        status_path.write_text(f'Stimulation did not complete: end_reason={stim_end_reason}\n')
+    except OSError as ex:
+        logger.error(f'[PROTOCOL-VIDEO] Could not write stim status sidecar: {ex}')
+    logger.warning(
+        f'[PROTOCOL-VIDEO] Stimulation schedule for "{name}" ended early '
+        f'(end_reason={stim_end_reason}); recording saved with a stim-status sidecar.'
+    )
+    return True
 
 
 class VideoCaptureResult:
@@ -80,6 +139,8 @@ class VideoCaptureSession:
         *,
         stim_profiling: bool = False,
         run_dir: pathlib.Path | None = None,
+        save_folder: pathlib.Path | None = None,
+        name: str | None = None,
     ):
         self._scope = scope
         self._step = step
@@ -89,9 +150,18 @@ class VideoCaptureSession:
         self._leds_off = leds_off_fn
         self._stim_profiling = stim_profiling
         self._run_dir = run_dir
+        # Save location for the zero-frame stim-status sidecar: when no frames are
+        # captured there is no write_video call, but an incomplete stim still
+        # dosed the sample wrong and must be recorded on disk.
+        self._save_folder = save_folder
+        self._name = name
 
         self._stim_start_event = threading.Event()
         self._stim_stop_event = threading.Event()
+        # Distinguishes a camera-fault stop from a normal/intentional stop. Both
+        # set _stim_stop_event, but only a fault means the schedule was truncated
+        # against the sample's intent, so the scheduler reads this to classify.
+        self._stim_fault_event = threading.Event()
 
     def capture(self) -> VideoCaptureResult | None:
         """Run the video capture loop. Blocking.
@@ -157,7 +227,7 @@ class VideoCaptureSession:
             stim_thread = threading.Thread(
                 target=scheduler.run,
                 name='stim-scheduler',
-                args=(self._stim_start_event, self._stim_stop_event),
+                args=(self._stim_start_event, self._stim_stop_event, self._stim_fault_event),
                 daemon=True,
             )
             stim_thread.start()
@@ -215,6 +285,12 @@ class VideoCaptureSession:
                     f'({type(image).__name__}) - camera may have disconnected. '
                     'Ending video capture.'
                 )
+                # Mark the upcoming stim stop as a fault, not a normal end, so a
+                # schedule truncated by this disconnect classifies incomplete
+                # instead of looking like an intentional short recording. Set
+                # before _stim_stop_event below so the scheduler sees the fault
+                # the moment it observes the stop.
+                self._stim_fault_event.set()
                 break
 
             if isinstance(image, np.ndarray):
@@ -254,11 +330,21 @@ class VideoCaptureSession:
             stim_thread.join(timeout=5.0)
             if stim_thread.is_alive():
                 logger.warning('[STIMULATOR] Scheduler thread did not exit within 5s timeout')
+                # The thread is wedged: run()'s finally never published a reason,
+                # so the default sentinel still stands. Force an explicit
+                # join-timeout marker so a wedged dispatch is never read as clean.
+                if scheduler is not None:
+                    scheduler._end_reason = STIM_END_JOIN_TIMEOUT
 
         if captured_frames == 0:
             logger.warning(
                 '[PROTOCOL] Zero frames captured during video recording - skipping write'
             )
+            # No frames means no write_video call downstream, but an incomplete
+            # stim still dosed the sample wrong. Record it here so a frame-less
+            # recording is not silently treated as a clean stim run.
+            if scheduler is not None:
+                _write_stim_status_sidecar(self._save_folder, self._name, scheduler._end_reason)
             return None
 
         calculated_fps = max(1, int(captured_frames / duration_sec))
@@ -408,24 +494,10 @@ def write_video(
         _drain_queue(video_images)
         capture_result = output_file_loc
 
-    # A stim schedule that ended on a fault (not clean completion nor an
-    # intentional stop) means the sample received only a fraction of its pulses.
-    # Drop a status sidecar next to the video so the incomplete stimulation is
-    # recorded on disk, rather than the run looking like a normal stim recording.
-    # No popup: an unattended protocol does not interrupt for a non-fatal issue.
-    if result.stim_end_reason is not None and result.stim_end_reason not in _CLEAN_STIM_END_REASONS:
-        status_path = save_folder / f'{name}_stim_status.txt'
-        try:
-            status_path.write_text(
-                f'Stimulation did not complete: end_reason={result.stim_end_reason}\n'
-            )
-        except OSError as ex:
-            logger.error(f'[PROTOCOL-VIDEO] Could not write stim status sidecar: {ex}')
-        logger.warning(
-            f'[PROTOCOL-VIDEO] Stimulation schedule for "{name}" ended early '
-            f'(end_reason={result.stim_end_reason}); recording saved with a '
-            'stim-status sidecar.'
-        )
+    # Flag an under-dosed sample when the stim schedule did not end cleanly. The
+    # classification and the file write live in one shared helper so this path and
+    # the zero-frame path in capture() cannot disagree about what counts as clean.
+    _write_stim_status_sidecar(save_folder, name, result.stim_end_reason)
 
     if 'reset_title' in callbacks:
         _schedule_ui(lambda dt: callbacks['reset_title'](), 0)
@@ -506,9 +578,12 @@ class StimulationController:
         self._run_dir = run_dir
         self._active_channels: list[tuple[str, int]] = []
         self._edges = self._build_edge_schedule()
-        # Set by run() (in its finally) to the schedule's final end_reason, so the
-        # recording can record how the stimulation actually ended.
-        self._end_reason = 'schedule_complete'
+        # How the stimulation actually ended, read by the recording to decide
+        # whether to flag an under-dosed sample. Defaults to an INCOMPLETE
+        # sentinel so a run that never reaches its finally (an early return, a
+        # wedged thread) is never mistaken for clean; run() overwrites this with
+        # a clean reason only once the schedule genuinely earns it.
+        self._end_reason = STIM_END_INCOMPLETE
 
     def _build_edge_schedule(self) -> list[StimEdge]:
         edges = []
@@ -633,16 +708,39 @@ class StimulationController:
                 )
         return time.perf_counter()
 
-    def run(self, start_event: threading.Event, stop_event: threading.Event):
-        """Thread target. Runs a merged pulse-edge schedule for all channels."""
+    @staticmethod
+    def _stop_reason(fault_event: threading.Event | None) -> str:
+        """Classify a stop: a camera fault truncated the schedule (incomplete) vs
+        a normal/intentional stop (clean)."""
+        if fault_event is not None and fault_event.is_set():
+            return STIM_END_CAPTURE_FAULT
+        return STIM_END_STOP_EVENT_SET
+
+    def run(
+        self,
+        start_event: threading.Event,
+        stop_event: threading.Event,
+        fault_event: threading.Event | None = None,
+    ):
+        """Thread target. Runs a merged pulse-edge schedule for all channels.
+
+        fault_event distinguishes a camera-fault stop from a normal/intentional
+        one: both trip stop_event, but a fault means the schedule was truncated
+        against the sample's intent, so it classifies incomplete.
+        """
         if not self._edges:
+            # An enabled stim that built zero edges is a misconfigured step (e.g.
+            # pulse_count or frequency out of range): it delivers no pulses, so it
+            # returns here BEFORE the try/finally and must not read clean.
+            self._end_reason = STIM_END_EMPTY_SCHEDULE
             return
 
         enabled_colors = [color for color, _ in self._active_channels]
         logger.info(f'[STIMULATOR] Starting merged scheduler for {enabled_colors}')
 
         time_period_set = False
-        end_reason = 'schedule_complete'
+        # Start incomplete; only the for-else (every edge dispatched) earns clean.
+        end_reason = STIM_END_INCOMPLETE
         executed_edges = 0
         lateness_ms = []
 
@@ -667,26 +765,26 @@ class StimulationController:
         try:
             while not start_event.wait(timeout=0.05):
                 if stop_event.is_set():
-                    end_reason = 'stop_event_set_before_start'
+                    end_reason = STIM_END_STOP_BEFORE_START
                     return
 
             if stop_event.is_set():
-                end_reason = 'stop_event_set_before_start'
+                end_reason = STIM_END_STOP_BEFORE_START
                 return
 
             start_epoch = time.perf_counter()
 
             for edge in self._edges:
                 if stop_event.is_set():
-                    end_reason = 'stop_event_set'
+                    end_reason = self._stop_reason(fault_event)
                     break
 
                 if not self._wait_until(start_epoch + edge.target_offset_s, stop_event):
-                    end_reason = 'stop_event_set'
+                    end_reason = self._stop_reason(fault_event)
                     break
 
                 if stop_event.is_set():
-                    end_reason = 'stop_event_set'
+                    end_reason = self._stop_reason(fault_event)
                     break
 
                 t_before = time.perf_counter()
@@ -699,7 +797,7 @@ class StimulationController:
                 try:
                     t_after = self._dispatch_edge(edge)
                 except Exception as ex:
-                    end_reason = 'dispatch_error'
+                    end_reason = STIM_END_DISPATCH_ERROR
                     logger.error(f'[STIMULATOR] {edge.color}: {edge.action} edge failed: {ex}')
                     break
 
@@ -726,6 +824,11 @@ class StimulationController:
                             pulses_executed[edge.color] = pulses_executed.get(edge.color, 0) + 1
 
                 executed_edges += 1
+            else:
+                # for-else: reached only when no break fired, i.e. every edge was
+                # dispatched. This is the single place the schedule earns a clean
+                # reason -- the sample received its full configured dose.
+                end_reason = STIM_END_SCHEDULE_COMPLETE
         finally:
             # Publish the final reason before cleanup so the recording can stamp it.
             self._end_reason = end_reason
