@@ -468,37 +468,58 @@ class TestSingleScanAutoFocusNoneResult:
 class TestAutofocusFailureDoesNotHaltProtocol:
     """An autofocus failure mid-protocol must not stop the run or pop a modal --
     an unattended scan keeps capturing at the fallback Z. The autofocus thread is
-    the sole owner of LOGGING the fault (with a traceback); the step runner only
-    consumes the future's exception to drive control flow and must NOT re-log it,
-    which would record the same event twice at two altitudes.
+    the sole owner of recording the fault with a traceback; the step runner adds
+    exactly one step-correlated warning so a possibly-out-of-focus fallback-Z
+    capture is traceable back to its step and well. That single line is
+    complementary to the AF thread's traceback (which it does not repeat) and the
+    one-shot latch keeps it from flooding once per settle poll.
     """
 
-    def test_af_exception_does_not_halt_or_relog(self, executor, scope, tmp_path, monkeypatch):
+    def test_af_exception_warns_with_step_context_without_halt(
+        self, executor, scope, tmp_path, monkeypatch
+    ):
         import modules.protocol_step_runner as psr
 
         protocol = _make_single_step_protocol(color='BF', auto_focus=True)
         af = executor._autofocus_runner
         af.complete.return_value = True
         af.in_progress.return_value = False
-        executor._af_future = MagicMock()
-        executor._af_future.done.return_value = True
+        # The run kicks off its own AF future via autofocus_thread.run_autofocus,
+        # so control the fault on that returned Future -- a pre-set _af_future is
+        # cleared at run start and replaced by the kicked-off one.
+        af_future = MagicMock()
+        af_future.done.return_value = True
         # The AF run raised (e.g. camera fault) -- carried on the Future.
-        executor._af_future.exception.return_value = RuntimeError('camera fault during AF')
+        af_future.exception.return_value = RuntimeError('camera fault during AF')
+        executor.autofocus_thread.run_autofocus.return_value = af_future
 
         warnings = []
         monkeypatch.setattr(psr.logger, 'warning', lambda msg, *a, **k: warnings.append(str(msg)))
 
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed, 'an AF failure must not halt the protocol'
-        assert not any('Autofocus failed' in w for w in warnings), (
-            'the step runner must not duplicate the autofocus thread fault log'
+
+        af_warnings = [w for w in warnings if 'Autofocus failed' in w]
+        assert len(af_warnings) == 1, (
+            'the step runner must emit exactly one step-correlated AF-failure '
+            f'warning (got {len(af_warnings)})'
         )
+        w = af_warnings[0]
+        # The step and well tie a blurry fallback-Z capture to its origin, and the
+        # exception type + message make the line user-actionable.
+        assert 'step 0' in w, f'warning is missing the step index: {w!r}'
+        assert 'well A1' in w, f'warning is missing the well: {w!r}'
+        assert 'RuntimeError' in w and 'camera fault during AF' in w, (
+            f'warning is missing the AF exception type/message: {w!r}'
+        )
+        assert 'fallback Z' in w, f'warning must say capture continues at fallback Z: {w!r}'
 
     def test_af_failure_consumed_once_no_log_flood(self, executor, scope, monkeypatch):
         """Drive scan_iterate directly while the stage stays in motion -- the
         exact condition that made the old gate re-handle and re-log the same
         resolved AF future on every ~1 kHz settle poll. A single fault must be
-        consumed exactly once and never re-logged here.
+        consumed exactly once and produce exactly one step-correlated warning
+        across all the settle polls -- not zero, and not one per poll.
         """
         import threading as _threading
 
@@ -534,10 +555,13 @@ class TestAutofocusFailureDoesNotHaltProtocol:
         for _ in range(10):
             executor._step_executor.scan_iterate()
 
-        af_warnings = [w for w in warnings if 'Autofocus' in w]
-        assert af_warnings == [], (
-            f'the step runner must not re-log the AF fault (got {len(af_warnings)} '
-            'warnings across the settle polls)'
+        af_warnings = [w for w in warnings if 'Autofocus failed' in w]
+        assert len(af_warnings) == 1, (
+            'the step runner must emit exactly one step-correlated AF-failure '
+            f'warning across the settle polls, not one per poll (got {len(af_warnings)})'
+        )
+        assert 'step 0' in af_warnings[0], (
+            f'the AF-failure warning is missing the step index: {af_warnings[0]!r}'
         )
         assert af_future.exception.call_count == 1, (
             'the resolved AF future must be consumed exactly once, not per poll '

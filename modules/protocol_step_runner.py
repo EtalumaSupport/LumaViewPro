@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 from lvp_logger import logger
 
 import modules.config_helpers as config_helpers
+from modules.exceptions import AutofocusAborted
 from modules.lumascope_api.illumination import (
     LedEndPolicy,
     LedTransition,
@@ -117,16 +118,29 @@ class ProtocolStepRunner:
             # one-shot latch each of those ~1 kHz settle polls would re-enter and
             # re-handle the same resolved future.
             #
-            # The autofocus thread is the sole owner of LOGGING an AF fault: it
-            # already records every non-abort exception with a full traceback
-            # before setting it on the future. Here we only consume the future's
-            # exception to mark the outcome observed -- we do not re-log it, which
-            # would be the same event recorded twice at two altitudes. An AF fault
-            # mid-protocol is non-fatal: AFE has restored a usable Z, so the step
-            # still captures and the run continues; it never halts the protocol or
-            # raises a modal.
+            # The autofocus thread is the sole owner of recording the fault with
+            # a full traceback: it logs every non-abort exception before setting
+            # it on the future, but at that altitude it has no idea which protocol
+            # step or well the run belonged to. AFE has restored a usable Z, so an
+            # AF fault mid-protocol is non-fatal -- the step still captures here at
+            # that fallback Z and the run continues (no halt, no modal). That
+            # fallback capture may be out of focus, so emit one step-correlated
+            # warning that ties a possibly-blurry frame back to its step and well.
+            # It is complementary to the AF thread's traceback (which it does not
+            # repeat), and the one-shot latch keeps it to a single line per fault
+            # rather than one per ~1 kHz settle poll. An intentional abort is not a
+            # fault, so it stays at debug.
             p._af_result_consumed = True
-            p._af_future.exception()
+            _af_exc = p._af_future.exception()
+            if isinstance(_af_exc, AutofocusAborted):
+                logger.debug(f'[PROTOCOL] Autofocus aborted at step {p._curr_step}')
+            elif _af_exc is not None:
+                _af_well = p._protocol.step(idx=p._curr_step).get('Well', '?')
+                logger.warning(
+                    f'[PROTOCOL] Autofocus failed at step {p._curr_step} '
+                    f'(well {_af_well}) ({type(_af_exc).__name__}: {_af_exc}) -- '
+                    f'capturing at fallback Z and continuing'
+                )
             _cam_gain = p._scope.imaging.get_gain() if p._scope.imaging.camera_active else '?'
             _cam_exp = (
                 p._scope.imaging.get_exposure_time() if p._scope.imaging.camera_active else '?'
