@@ -4893,7 +4893,7 @@ class TestPylonDisconnectDestroyDevice:
 class TestPylonDiagnosticProbe:
     """DiagnosticsAPI.run_pylon_diagnostic_probe captures a one-shot
     cross-host / cross-camera / cross-firmware diagnostic snapshot
-    and writes it to data/pylon_probe/<...>.json. Designed for
+    and writes it to data/camera_probe/<...>.json. Designed for
     bench-wave comparison; replaces /tmp/probe.py-style bespoke
     scripts (Rule 22).
 
@@ -4985,6 +4985,30 @@ class TestPylonDiagnosticProbe:
         assert result['connected'] is False
         assert result.get('supported') is False
 
+    def test_supported_snapshot_stamps_driver_sdk_and_neutral_folder(self, tmp_path, monkeypatch):
+        """A supported=True snapshot is stamped with the active driver's SDK
+        (not a hardcoded Pylon assumption) and written to the driver-neutral
+        camera_probe/ folder."""
+        import modules.lumascope_api.diagnostics as diag
+
+        monkeypatch.setattr(diag, 'log_dir', str(tmp_path))
+
+        class _Driver:
+            active = True
+
+            def read_diagnostic_snapshot(self, duration_s, drain_camera_side_errors):
+                return {'connected': True, 'supported': True, 'camera': {}, 'config': {}}
+
+            def get_sdk_info(self):
+                return {'name': 'IDS peak', 'version': '2.21'}
+
+        result = self._make_scope_with_fake_camera(
+            _Driver()
+        ).diagnostics.run_pylon_diagnostic_probe(duration_s=0.0)
+        assert result['host']['camera_sdk'] == {'name': 'IDS peak', 'version': '2.21'}
+        assert 'pypylon_version' not in result['host']
+        assert 'camera_probe' in result.get('output_path', '')
+
     def test_dltl_filename_token_off(self):
         """Mode=Off -> 'dltloff'."""
         from modules.lumascope_api.diagnostics import DiagnosticsAPI
@@ -5059,10 +5083,10 @@ class TestPylonDiagnosticProbe:
             'DiagnosticsAPI.run_pylon_diagnostic_probe to function.',
         )
 
-    def test_ids_camera_has_read_diagnostic_snapshot_stub(self):
-        """Source-shape lock: IDSCamera must have a stub returning
-        supported=False so the API can report the gap rather than
-        raising AttributeError when an IDS camera is connected."""
+    def test_ids_camera_implements_read_diagnostic_snapshot(self):
+        """IDSCamera must implement read_diagnostic_snapshot (no longer a
+        supported=False stub): it reports supported=True and the parity
+        shape so the API can surface real IDS camera + stream state."""
         from pathlib import Path
 
         from tests.ast_seams import assert_def
@@ -5070,13 +5094,13 @@ class TestPylonDiagnosticProbe:
         assert_def(
             'drivers/idscamera.py',
             'read_diagnostic_snapshot',
-            msg='IDSCamera must have a read_diagnostic_snapshot stub '
-            'returning supported=False until the IDS implementation lands.',
+            msg='IDSCamera must define read_diagnostic_snapshot.',
         )
         src = (Path(__file__).resolve().parent.parent / 'drivers' / 'idscamera.py').read_text()
         body = _function_source(src, 'read_diagnostic_snapshot')
-        assert "'supported': False" in body or '"supported": False' in body, (
-            'IDS read_diagnostic_snapshot stub must return supported=False'
+        assert "'supported': True" in body or '"supported": True' in body, (
+            'IDS read_diagnostic_snapshot is now implemented and must report '
+            'supported=True (the supported=False stub was replaced).'
         )
 
 

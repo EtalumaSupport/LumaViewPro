@@ -4,6 +4,7 @@ import datetime
 import math
 import re
 import threading
+import time
 
 from ids_peak import ids_peak
 from ids_peak import ids_peak_ipl_extension
@@ -101,6 +102,19 @@ def _unpack_buffer(buffer, wire_format_name: str, crop_spec):
     if crop_spec is not None:
         view = center_crop(view, *crop_spec)
     return view.copy()
+
+
+# GenTL SFNC-standard DataStream statistics counters read by the diagnostic
+# snapshot. The names are GenTL-standard; the access path (DataStream nodemap)
+# is bench-confirmed separately -- the snapshot self-reports an access error so
+# a bench run shows whether the path resolved.
+_DIAG_STREAM_COUNTERS = (
+    'StreamDeliveredFrameCount',
+    'StreamLostFrameCount',
+    'StreamUnderrunCount',
+    'StreamStartedFrameCount',
+    'StreamAnnouncedBufferCount',
+)
 
 
 @camera_registry.register('ids', priority=80)
@@ -236,25 +250,169 @@ class IDSCamera(Camera):
             return False
         return not self._device_removed
 
+    def _diag_node_value(self, name: str, enum: bool = False):
+        """Read one remote-nodemap value for the snapshot, sentinel on failure.
+
+        Mirrors the Pylon snapshot's ``_safe_node``: a missing/unreadable node
+        records a ``<missing>`` string instead of raising, so one absent node
+        never aborts the whole snapshot. ``enum=True`` reads the current
+        symbolic entry (PixelFormat, throughput component).
+        """
+        try:
+            node = self.remote_nodemap.FindNode(name)
+            if node is None:
+                return '<missing>'
+            if enum:
+                return node.CurrentEntry().SymbolicValue()
+            return node.Value()
+        except Exception as e:
+            return f'<missing: {type(e).__name__}>'
+
+    def _read_stream_stats(self) -> dict:
+        """Read the GenTL DataStream statistics counters, defensively.
+
+        Counter names are GenTL SFNC-standard; the DataStream-nodemap access
+        path is not exercised elsewhere in this driver, so an access failure
+        is recorded under ``_access_error`` (the snapshot stays honest about
+        whether the path resolved on this body/SDK) rather than raising. Each
+        counter reads to a ``<missing>`` sentinel so the delta math downstream
+        skips it cleanly.
+        """
+        try:
+            nodemaps = self.data_stream.NodeMaps()
+        except Exception as e:
+            return {'_access_error': f'NodeMaps() raised: {type(e).__name__}: {e}'}
+        if not nodemaps:
+            return {'_access_error': 'no DataStream nodemaps'}
+        stream_nm = nodemaps[0]
+        stats: dict = {}
+        for name in _DIAG_STREAM_COUNTERS:
+            try:
+                node = stream_nm.FindNode(name)
+                stats[name] = node.Value() if node is not None else '<missing>'
+            except Exception as e:
+                stats[name] = f'<missing: {type(e).__name__}>'
+        return stats
+
     def read_diagnostic_snapshot(
         self,
         duration_s: float = 3.0,
         drain_camera_side_errors: bool = True,
     ) -> dict:
-        """Stub: IDS path not yet supported by the diagnostic probe API.
+        """Capture a single diagnostic snapshot of camera + stream state.
 
-        The IDS Peak SDK exposes a different node-map structure and
-        statistics surface from Pylon. A separate implementation is
-        required; not provided in this commit. The stub returns a
-        structured "supported=False" response so the API layer can
-        report the gap without raising.
+        Parity with the Pylon driver: reads camera identity, current
+        configuration, temperatures, and buffer-pool state, then samples the
+        GenTL DataStream statistics counters across a ``duration_s`` window and
+        computes per-counter deltas + derived rates (observed_fps,
+        loss_rate_pct, losses_per_second). Does NOT change grab state; when the
+        camera is not grabbing the deltas are near-zero (counters do not
+        advance without an active grab loop), a sentinel rather than an error.
+
+        Every node read is defensive (``_diag_node_value`` / ``_read_stream_stats``)
+        so a missing node records a sentinel rather than raising.
+        ``drain_camera_side_errors`` is accepted for signature parity with the
+        Pylon driver; IDS exposes no equivalent camera-side error log, so it is
+        a no-op here.
         """
-        return {
-            'connected': self.active not in (False, None),
-            'supported': False,
-            'reason': 'IDS Peak diagnostic probe not yet implemented; Pylon driver only for now.',
+        result: dict = {
+            'connected': False,
+            'supported': True,
+            'duration_s_requested': float(duration_s),
+            'duration_s_actual': 0.0,
+            'camera': {},
+            'config': {},
+            'temperatures': {},
+            'buffers': {},
+            'stats_pre': {},
+            'stats_post': {},
+            'deltas': {},
+            'derived': {},
             'errors': [],
         }
+
+        if not self.active or self.remote_nodemap is None:
+            result['errors'].append('camera not connected')
+            return result
+        result['connected'] = True
+
+        for name, key in (
+            ('DeviceModelName', 'model_name'),
+            ('DeviceSerialNumber', 'serial'),
+            ('DeviceFirmwareVersion', 'firmware_version'),
+            ('DeviceVersion', 'device_version'),
+        ):
+            result['camera'][key] = self._diag_node_value(name)
+
+        for name, key, is_enum in (
+            ('PixelFormat', 'pixel_format', True),
+            ('Width', 'width', False),
+            ('Height', 'height', False),
+            ('ExposureTime', 'exposure_us', False),
+            ('Gain', 'gain', False),
+            ('DeviceLinkThroughputLimit', 'dltl_value_bps', False),
+            ('DeviceLinkThroughputLimitComponent', 'dltl_component', True),
+            ('AcquisitionFrameRate', 'acquisition_frame_rate', False),
+            ('PayloadSize', 'payload_size_bytes', False),
+            ('BinningVertical', 'binning_vertical', False),
+            ('BinningHorizontal', 'binning_horizontal', False),
+        ):
+            result['config'][key] = self._diag_node_value(name, enum=is_enum)
+
+        result['temperatures'] = self.get_all_temperatures()
+
+        # Buffer-pool state from proven DataStream accessors.
+        for accessor, key in (
+            (lambda: self.data_stream.IsGrabbing(), 'is_grabbing'),
+            (lambda: len(self.data_stream.AnnouncedBuffers()), 'announced_count'),
+            (lambda: self.data_stream.NumBuffersAnnouncedMinRequired(), 'min_required'),
+        ):
+            try:
+                result['buffers'][key] = accessor()
+            except Exception as e:
+                result['buffers'][key] = f'<missing: {type(e).__name__}>'
+
+        # Statistics sampling window.
+        result['stats_pre'] = self._read_stream_stats()
+        t0 = time.monotonic()
+        try:
+            if duration_s > 0:
+                time.sleep(duration_s)
+        except Exception as e:
+            result['errors'].append(f'sleep raised: {type(e).__name__}: {e}')
+        dt = time.monotonic() - t0
+        result['duration_s_actual'] = dt
+        result['stats_post'] = self._read_stream_stats()
+
+        # Deltas only where both pre and post returned numeric counters AND the
+        # counter did not go backwards: GenTL counters reset to 0 on
+        # StartAcquisition, so post < pre means a stop/start happened inside the
+        # window and the delta is meaningless (recorded None) rather than a
+        # negative rate.
+        for name in _DIAG_STREAM_COUNTERS:
+            pre = result['stats_pre'].get(name)
+            post = result['stats_post'].get(name)
+            if isinstance(pre, (int, float)) and isinstance(post, (int, float)) and post >= pre:
+                result['deltas'][name] = post - pre
+            else:
+                result['deltas'][name] = None
+
+        # Derived rates, only when a real sampling window was requested
+        # (duration_s > 0). Gating on dt alone (always > 0) would emit bogus
+        # rates over a ~microsecond span for a 0-duration snapshot, reading as a
+        # measured-and-clean stream that was never actually observed.
+        delivered_d = result['deltas'].get('StreamDeliveredFrameCount')
+        lost_d = result['deltas'].get('StreamLostFrameCount')
+        if duration_s > 0 and dt > 0:
+            if isinstance(delivered_d, (int, float)):
+                result['derived']['observed_fps'] = delivered_d / dt
+                total = delivered_d + lost_d if isinstance(lost_d, (int, float)) else None
+                if isinstance(total, (int, float)) and total > 0:
+                    result['derived']['loss_rate_pct'] = 100.0 * lost_d / total
+            if isinstance(lost_d, (int, float)):
+                result['derived']['losses_per_second'] = lost_d / dt
+
+        return result
 
     def _query_dynamic_capabilities(self):
         """Query IDS SDK for gain/exposure ranges and merge into profile."""
@@ -1076,8 +1234,87 @@ class IDSCamera(Camera):
             _cam_log.error(f'[CAM Class ] auto_exposure_t failed: {e}')
             return False
 
-    def get_all_temperatures(self):
-        return {}
+    def get_sdk_info(self) -> dict:
+        """IDS peak SDK provenance (name + version) for diagnostics.
+
+        Best-effort, mirroring the Pylon driver's get_sdk_info: the version is
+        a provenance label, so an unreadable value is reported as None
+        (unknown) -- ids_peak.Library.Version() is the runtime accessor, the
+        module __version__ the fallback.
+        """
+        version = None
+        for reader in (
+            lambda: str(ids_peak.Library.Version()),
+            lambda: getattr(ids_peak, '__version__', None),
+        ):
+            try:
+                version = reader()
+            except Exception:
+                continue
+            if version is not None:
+                break
+        return {'name': 'IDS peak', 'version': version}
+
+    def get_all_temperatures(self) -> dict:
+        """Return {selector: degC, ...} per DeviceTemperatureSelector entry; {} if unreadable.
+
+        Mirrors the Pylon driver's shape using the GenICam-standard
+        DeviceTemperature / DeviceTemperatureSelector nodes through the IDS
+        Peak FindNode API. A body that exposes a single sensor (no selector)
+        reports it under 'Device'. Returns {} when the camera is inactive or
+        the body exposes no temperature telemetry (FindNode raises on an
+        absent node). Never raises.
+        """
+        if not self.active or self.remote_nodemap is None:
+            return {}
+        try:
+            temp = self.remote_nodemap.FindNode('DeviceTemperature')
+        except Exception as e:
+            _cam_log.debug(f'[CAM Class ] DeviceTemperature node absent: {e}')
+            return {}
+        if temp is None:
+            return {}
+        # The selector is optional -- a single-sensor body may expose only
+        # DeviceTemperature. With a selector, read every available entry.
+        try:
+            selector = self.remote_nodemap.FindNode('DeviceTemperatureSelector')
+        except Exception:
+            selector = None
+        temps: dict[str, float] = {}
+        try:
+            if selector is not None:
+                # Restore the selector afterwards so a later DeviceTemperature
+                # read (or a concurrent reader) is not left pointed at the last
+                # iterated sensor.
+                try:
+                    original = selector.CurrentEntry().SymbolicValue()
+                except Exception:
+                    original = None
+                try:
+                    for entry in selector.AvailableEntries():
+                        name = entry.SymbolicValue()
+                        try:
+                            selector.SetCurrentEntry(name)
+                            temps[name] = float(temp.Value())
+                        except Exception as e:
+                            _cam_log.debug(f'[CAM Class ] temperature read for {name} failed: {e}')
+                finally:
+                    if original is not None:
+                        try:
+                            selector.SetCurrentEntry(original)
+                        except Exception as e:
+                            _cam_log.debug(
+                                f'[CAM Class ] restoring DeviceTemperatureSelector failed: {e}'
+                            )
+            # Fall back to the bare DeviceTemperature when there is no selector
+            # OR the selector yielded nothing readable (a vestigial/empty
+            # selector still leaves a single sensor readable).
+            if not temps:
+                temps['Device'] = float(temp.Value())
+        except Exception as e:
+            _cam_log.warning(f'[CAM Class ] get_all_temperatures failed: {e}')
+            return {}
+        return temps
 
     def set_device_link_throughput_limit(
         self,

@@ -85,10 +85,10 @@ class DiagnosticsAPI:
 
         # Tag the active imaging-SDK runtime so characterization output
         # (grab-benchmark filenames, tech-support snapshots) ties to the
-        # exact Pylon SDK that produced the numbers. Best-effort: None for
-        # non-Basler cameras, where the filename keeps its unknown-SDK
-        # fallback -- this is a provenance label, not a control input.
-        info['sdk_version'] = self._safe_pylon_versions().get('pylon_sdk_version')
+        # exact camera SDK that produced the numbers. Driver-neutral via
+        # get_sdk_info: the active driver names its own SDK + version (None
+        # when unknown) -- a provenance label, not a control input.
+        info['sdk_version'] = self._scope._camera_driver.get_sdk_info().get('version')
 
         info['temperatures'] = self.get_camera_temperatures()
         return info
@@ -417,9 +417,9 @@ class DiagnosticsAPI:
 
         Captures camera identity, current configuration, and stream-
         grabber statistics counter deltas over a sampling window of
-        ``duration_s`` seconds. Adds host metadata (OS, hostname,
-        pypylon + pylon SDK versions) and writes a single JSON file
-        to ``<log folder>/pylon_probe/`` keyed on
+        ``duration_s`` seconds. Adds host metadata (OS, hostname, and the
+        active camera SDK name + version) and writes a single JSON file
+        to ``<log folder>/camera_probe/`` keyed on
         ``<model>__sn<serial>__fw<firmware>__<host>__dltl<config>__<datetime>.json``.
 
         Designed for cross-host / cross-camera / cross-firmware
@@ -447,9 +447,9 @@ class DiagnosticsAPI:
             dict: Snapshot from driver plus host / timestamps /
                 output_path metadata. Returns
                 ``{'connected': False, 'errors': [...]}`` if no
-                camera is active. Returns the driver's
-                ``{'supported': False, 'reason': ...}`` shape for
-                IDS or other non-Pylon drivers.
+                camera is active. A driver that does not implement the
+                probe returns the ``{'supported': False, 'reason': ...}``
+                shape, passed through unchanged.
         """
         if progress_cb is not None:
             try:
@@ -495,13 +495,15 @@ class DiagnosticsAPI:
         import socket
         import platform as _platform
 
-        host_versions = self._safe_pylon_versions()
+        # Driver-neutral SDK provenance: stamp whichever camera SDK actually
+        # produced this snapshot (Basler pylon, IDS peak, ...), not a hardcoded
+        # Pylon assumption. Every Camera driver implements get_sdk_info (base
+        # class default for SDK-less drivers).
         snapshot['host'] = {
             'os': self._human_os_version(),
             'hostname': socket.gethostname(),
             'machine': _platform.machine(),
-            'pypylon_version': host_versions['pypylon_version'],
-            'pylon_sdk_version': host_versions['pylon_sdk_version'],
+            'camera_sdk': self._scope._camera_driver.get_sdk_info(),
         }
 
         now_utc = datetime.datetime.now(datetime.UTC)
@@ -524,7 +526,7 @@ class DiagnosticsAPI:
         try:
             import json
 
-            out_dir = pathlib.Path(log_dir) / 'pylon_probe'
+            out_dir = pathlib.Path(log_dir) / 'camera_probe'
             out_dir.mkdir(parents=True, exist_ok=True)
 
             def _safe_token(v: str | None, fallback: str) -> str:

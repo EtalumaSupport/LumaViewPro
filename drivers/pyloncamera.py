@@ -1179,6 +1179,35 @@ class PylonCamera(Camera):
             _cam_log.exception(f'[CAM Class ] Unexpected error reading temperatures: {e}')
             return {}
 
+    def get_sdk_info(self) -> dict:
+        """Basler pylon SDK provenance (name + versions) for diagnostics.
+
+        Both reads are best-effort: pypylon may be absent and the SDK version
+        helper has been renamed across releases.
+        """
+        version = None
+        try:
+            from pypylon import pylon as _pylon
+
+            for fn_name in ('GetPylonVersion', 'GetVersionString'):
+                fn = getattr(_pylon, fn_name, None)
+                if callable(fn):
+                    try:
+                        version = str(fn())
+                        break
+                    except Exception:
+                        continue
+        except Exception as e:
+            _cam_log.debug(f'[CAM Class ] pylon SDK version unavailable: {e}')
+        pypylon_version = None
+        try:
+            import pypylon as _pyp
+
+            pypylon_version = getattr(_pyp, '__version__', None)
+        except Exception as e:
+            _cam_log.debug(f'[CAM Class ] pypylon module version unavailable: {e}')
+        return {'name': 'Basler pylon', 'version': version, 'pypylon_version': pypylon_version}
+
     def init_camera_config(self) -> None:
         """Apply Etaluma's canonical camera configuration once on connect.
 

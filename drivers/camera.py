@@ -601,6 +601,19 @@ class Camera(ABC):
         """
         pass
 
+    def get_sdk_info(self) -> dict:
+        """Return the camera SDK provenance label for diagnostic snapshots.
+
+        Driver-neutral so the diagnostic collector can stamp whichever SDK
+        actually produced a snapshot instead of assuming Pylon. The base
+        returns an unknown SDK; SDK-backed drivers override with the real
+        name + version.
+
+        Returns:
+            dict: ``{'name': <sdk name or None>, 'version': <str or None>}``.
+        """
+        return {'name': None, 'version': None}
+
     def _load_profile(self):
         """Load the camera profile based on model_name.
 

@@ -689,11 +689,12 @@ gc = scope.diagnostics.run_grab_lifecycle_benchmark(
     num_cycles=100, inter_cycle_delay_ms=200, vary_settings=False,
 )
 
-# Pylon-specific cross-host / cross-camera / cross-firmware probe.
-# Captures camera identity, current config, stream-grabber stats
-# deltas over duration_s. Writes JSON to data/pylon_probe/. Returns
-# the driver's {'supported': False, ...} shape unchanged for IDS or
-# other non-Pylon drivers. Does NOT change grab state.
+# Cross-host / cross-camera / cross-firmware diagnostic probe.
+# Captures camera identity, current config, temperatures, and stream
+# stats deltas over duration_s, stamped with the active camera SDK
+# (Basler pylon, IDS peak, ...). Writes JSON to data/camera_probe/.
+# A driver that does not implement the probe returns the driver's
+# {'supported': False, ...} shape unchanged. Does NOT change grab state.
 probe = scope.diagnostics.run_pylon_diagnostic_probe(
     duration_s=3.0, drain_camera_side_errors=True,
 )

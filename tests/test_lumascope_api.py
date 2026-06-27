@@ -904,12 +904,13 @@ class TestRunGrabLifecycleBenchmark:
         import os
 
         scope = self._scope_with_camera()
-        # Pin a known SDK version regardless of whether pypylon is installed
-        # on the test host (absent on Mac / CI).
+        # Pin a known SDK version via the driver-neutral get_sdk_info (the
+        # active driver names its own SDK), regardless of whether pypylon is
+        # installed on the test host (absent on Mac / CI).
         monkeypatch.setattr(
-            type(scope.diagnostics),
-            '_safe_pylon_versions',
-            staticmethod(lambda: {'pypylon_version': '26.4.1', 'pylon_sdk_version': '11.5.0.1169'}),
+            scope._camera_driver,
+            'get_sdk_info',
+            lambda: {'name': 'Basler pylon', 'version': '11.5.0.1169'},
         )
 
         info = scope.diagnostics.get_camera_diagnostic_info()
