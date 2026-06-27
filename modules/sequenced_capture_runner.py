@@ -186,8 +186,14 @@ class SequencedCaptureRunner:
         self._run_trigger_source = None
         self._run_in_progress_event.clear()
         self._reset_scan_state()
-        self._n_scans = 0
-        self._scan_count = 0
+        # _n_scans and _scan_count are the cross-thread progress pair, read
+        # together under _protocol_state_lock by progress_snapshot(). Zero them
+        # under the same lock so a concurrent remaining_scans() poll during run
+        # re-init cannot observe a half-reset pair (n_scans already 0 while
+        # scan_count still holds the prior run's value -> negative remaining).
+        with self._protocol_state_lock:
+            self._n_scans = 0
+            self._scan_count = 0
         self._scan_in_progress.clear()
         self._autofocus_count = 0
         # Tracks the curr_step value for which Auto_Gain was already
@@ -260,9 +266,10 @@ class SequencedCaptureRunner:
     def advance_scan_count(self) -> int:
         """Increment the completed-scan counter and return the new value.
 
-        The single mutation site for scan_count, so the counter's lock is
-        owned here rather than reached into from the run loop. Called only on
-        the protocol worker at scan completion.
+        The only site that ADVANCES scan_count (the run-init reset to zero in
+        _reset_vars is the other writer; both hold _protocol_state_lock). The
+        counter's lock is owned here rather than reached into from the run loop.
+        Called only on the protocol worker at scan completion.
         """
         with self._protocol_state_lock:
             self._scan_count += 1

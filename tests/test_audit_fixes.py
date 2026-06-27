@@ -12819,6 +12819,39 @@ class TestRemainingScansAtomicSnapshot:
         t.join(timeout=2)
         assert result == [8]
 
+    def test_reset_vars_zeroes_scan_pair_under_the_writer_lock(self):
+        """_reset_vars zeroes the (n_scans, scan_count) progress pair on run
+        re-init; it must do so under _protocol_state_lock, the same lock
+        progress_snapshot() reads it under. Holding that lock, a concurrent
+        _reset_vars must not write the pair until release -- proving the reset
+        cannot land a half-written (0, prior_scan_count) for a cross-thread
+        poll. Fails before the fix (the unlocked zero-writes landed while the
+        lock was held)."""
+        import time
+
+        runner = self._make_runner()
+        runner._n_scans = 9
+        runner._scan_count = 4
+        done = threading.Event()
+
+        def resetter():
+            runner._reset_vars()
+            done.set()
+
+        with runner._protocol_state_lock:
+            t = threading.Thread(target=resetter)
+            t.start()
+            time.sleep(0.05)
+            # The reset thread has run up to the locked pair-write and is
+            # blocked; the pair must still hold its pre-reset values, never a
+            # half-written (0, 4).
+            assert (runner._n_scans, runner._scan_count) == (9, 4), (
+                '_reset_vars wrote the scan pair without the lock (torn-reset race)'
+            )
+        t.join(timeout=2)
+        assert done.is_set()
+        assert (runner._n_scans, runner._scan_count) == (0, 0)
+
 
 class TestCaptureFailureAbortNotificationOrdering:
     """F14: on the consecutive-failure abort, the user-facing 'Camera Failure'
