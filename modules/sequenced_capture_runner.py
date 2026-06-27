@@ -237,7 +237,11 @@ class SequencedCaptureRunner:
             max_scans=max_scans,
         )
 
-        self._start_t = datetime.datetime.now()
+        # Scan-interval pacing uses a monotonic clock, not wall time: a DST
+        # change, an NTP step, or a backward clock adjustment must not stretch,
+        # shrink, or stall a multi-day timelapse's inter-scan wait. Wall-clock
+        # timestamps for filenames and records are taken separately where needed.
+        self._start_t = time.monotonic()
 
         if self._disable_saving_artifacts:
             return {'status': True, 'data': None, 'error': None}
