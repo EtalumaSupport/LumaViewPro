@@ -431,13 +431,13 @@ def write_video(
 
     total_dropped = result.dropped_frames + lost_in_write
     if total_dropped > 0:
-        from modules.notification_center import notifications
-
-        notifications.warning(
-            'Protocol',
-            'Video Frames Dropped',
-            f'{total_dropped} frame(s) were dropped from "{name}" -- the video '
-            'is shorter than the recording. Check the log for the cause.',
+        # Log-only, never a modal: write_video runs only on the protocol path, and
+        # an unattended protocol must not pop a dialog for a non-fatal dropped-frame
+        # count (the video is shorter than the recording but still valid). Only a
+        # fatal, run-aborting error pops during a protocol.
+        logger.warning(
+            f'[PROTOCOL-VIDEO] {total_dropped} frame(s) dropped from "{name}" -- '
+            'the video is shorter than the recording.'
         )
 
     logger.info('[PROTOCOL-VIDEO] Video writing finished.')

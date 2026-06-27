@@ -504,3 +504,31 @@ def test_clean_and_intentional_stim_runs_write_no_sidecar(tmp_path):
         assert not (tmp_path / f'rec_{reason}_stim_status.txt').exists(), (
             f'end_reason={reason!r} is clean/intentional and must not write a sidecar'
         )
+
+
+def test_dropped_frames_are_logged_not_a_modal(tmp_path, monkeypatch):
+    """Dropped frames during a protocol video are logged, never a modal:
+    write_video runs only on the protocol path, and an unattended protocol must
+    not pop a non-fatal dialog."""
+    import modules.notification_center as nc
+    import modules.video_capture as vc
+    from modules.video_capture import write_video
+
+    result = _one_frame_result('schedule_complete')
+    result.dropped_frames = 3
+
+    notified = []
+    monkeypatch.setattr(nc.notifications, 'warning', lambda *a, **k: notified.append(a))
+    warnings = []
+    monkeypatch.setattr(vc.logger, 'warning', lambda msg, *a, **k: warnings.append(str(msg)))
+
+    write_video(
+        result=result,
+        save_folder=tmp_path,
+        name='rec',
+        video_as_frames=True,
+        step={'Color': 'Blue'},
+        callbacks={},
+    )
+    assert not notified, 'dropped frames must not pop a modal during a protocol'
+    assert any('dropped' in w for w in warnings), 'the dropped-frame count must be logged'
