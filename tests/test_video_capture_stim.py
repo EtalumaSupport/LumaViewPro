@@ -7,7 +7,9 @@ import pytest
 from modules.video_capture import (
     STIM_END_CAPTURE_FAULT,
     STIM_END_EMPTY_SCHEDULE,
+    STIM_END_INCOMPLETE,
     STIM_END_JOIN_TIMEOUT,
+    STIM_END_SCHEDULE_COMPLETE,
     STIM_END_STOP_EVENT_SET,
     _CLEAN_STIM_END_REASONS,
     StimulationController,
@@ -748,3 +750,96 @@ def test_zero_frame_capture_with_incomplete_stim_writes_sidecar(tmp_path, monkey
     assert result is None  # zero frames -> no video result
     sidecar = tmp_path / 'rec_stim_status.txt'
     assert sidecar.exists(), 'a frame-less recording with an incomplete stim must leave a sidecar'
+
+
+class _LateFinallyScheduler(StimulationController):
+    """Simulates the scheduler thread's finally running LATE.
+
+    The capture thread, on a join timeout, classifies the recording JOIN_TIMEOUT.
+    The real risk is that the wedged thread then unwedges and its finally
+    publishes a clean reason onto the shared _end_reason field BEFORE the capture
+    thread reads its result. This subclass reproduces that exact clobber: the
+    moment a JOIN_TIMEOUT is written to the field, it overwrites it with a clean
+    reason, as the late finally would. The hardened capture path must not read
+    this back -- it owns the decision in a local.
+    """
+
+    @property
+    def _end_reason(self):
+        return self.__dict__.get('_end_reason_value', STIM_END_INCOMPLETE)
+
+    @_end_reason.setter
+    def _end_reason(self, value):
+        if value == STIM_END_JOIN_TIMEOUT:
+            # The late finally wins the race and stamps the field clean.
+            self.__dict__['_end_reason_value'] = STIM_END_SCHEDULE_COMPLETE
+        else:
+            self.__dict__['_end_reason_value'] = value
+
+
+def test_late_scheduler_finally_cannot_clobber_join_timeout(tmp_path, monkeypatch):
+    """Race guard: a join-timeout classification owns the recording even if the
+    wedged scheduler thread's finally runs late and publishes a clean reason.
+
+    On the unhardened code the capture thread forced JOIN_TIMEOUT onto the shared
+    field, then re-read that field for the result -- so a late finally that
+    overwrote it with schedule_complete flipped the recording to clean and wrote
+    no sidecar, hiding an under-dosed sample. The capture thread must snapshot the
+    join-timeout decision into a local and never re-read the cross-thread field.
+    """
+    from modules.video_capture import write_video
+
+    class WedgedThread:
+        def __init__(self, target, name, args, daemon=False):
+            self.target = target
+            self.name = name
+            self.args = args
+            self.daemon = daemon
+
+        def start(self):
+            pass  # never runs run(): _end_reason stays the constructor default
+
+        def join(self, timeout=None):
+            pass  # returns without the thread having exited
+
+        def is_alive(self):
+            return True
+
+    monkeypatch.setattr('modules.video_capture.threading.Thread', WedgedThread)
+    # The session builds the scheduler internally; swap in the late-clobber
+    # variant so any write of JOIN_TIMEOUT to the shared field is overwritten
+    # clean, exactly as a late finally on the real thread would.
+    monkeypatch.setattr('modules.video_capture.StimulationController', _LateFinallyScheduler)
+
+    session = VideoCaptureSession(
+        scope=FakeScope(),
+        step=_stim_step(0.03),
+        autogain_settings={},
+        is_protocol_running_fn=lambda: True,
+        callbacks={},
+        leds_off_fn=lambda: None,
+        save_folder=tmp_path,
+        name='rec',
+    )
+    result = session.capture()
+
+    assert result is not None
+    assert result.stim_end_reason == STIM_END_JOIN_TIMEOUT
+    assert result.stim_end_reason not in _CLEAN_STIM_END_REASONS
+
+    write_video(
+        result=result,
+        save_folder=tmp_path,
+        name='rec',
+        video_as_frames=True,
+        step={'Color': 'Red', 'False_Color': False},
+        callbacks={},
+        save_encoding='8bit',
+        capture_depth=8,
+    )
+    sidecar = tmp_path / 'rec_stim_status.txt'
+    assert sidecar.exists(), (
+        'a join-timeout recording must leave a sidecar even when the wedged '
+        'thread later publishes a clean reason'
+    )
+    assert STIM_END_JOIN_TIMEOUT in sidecar.read_text()

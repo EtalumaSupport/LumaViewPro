@@ -56,7 +56,7 @@ _CLEAN_STIM_END_REASONS = frozenset(
 )
 
 
-def _write_stim_status_sidecar(save_folder, name, stim_end_reason) -> bool:
+def _write_stim_status_sidecar(save_folder, name, stim_end_reason):
     """Drop a stim-status sidecar next to a recording when the schedule did not
     end cleanly.
 
@@ -68,18 +68,15 @@ def _write_stim_status_sidecar(save_folder, name, stim_end_reason) -> bool:
     disagree about what counts as clean.
 
     No popup: an unattended protocol does not interrupt for a non-fatal issue.
-
-    Returns True when a sidecar was written, False on a clean/absent reason or
-    when there is nowhere to write it.
     """
     if stim_end_reason is None or stim_end_reason in _CLEAN_STIM_END_REASONS:
-        return False
+        return
     if save_folder is None or name is None:
         logger.warning(
             f'[PROTOCOL-VIDEO] Stimulation ended early (end_reason={stim_end_reason}) '
             'but no save location is known, so no stim-status sidecar was written.'
         )
-        return False
+        return
     status_path = save_folder / f'{name}_stim_status.txt'
     try:
         status_path.write_text(f'Stimulation did not complete: end_reason={stim_end_reason}\n')
@@ -89,7 +86,6 @@ def _write_stim_status_sidecar(save_folder, name, stim_end_reason) -> bool:
         f'[PROTOCOL-VIDEO] Stimulation schedule for "{name}" ended early '
         f'(end_reason={stim_end_reason}); recording saved with a stim-status sidecar.'
     )
-    return True
 
 
 class VideoCaptureResult:
@@ -328,13 +324,19 @@ class VideoCaptureSession:
 
         if stim_thread is not None:
             stim_thread.join(timeout=5.0)
-            if stim_thread.is_alive():
-                logger.warning('[STIMULATOR] Scheduler thread did not exit within 5s timeout')
-                # The thread is wedged: run()'s finally never published a reason,
-                # so the default sentinel still stands. Force an explicit
-                # join-timeout marker so a wedged dispatch is never read as clean.
-                if scheduler is not None:
-                    scheduler._end_reason = STIM_END_JOIN_TIMEOUT
+
+        # Snapshot the schedule's end_reason into a local that owns the
+        # classification for THIS recording. A thread that exited published its
+        # real reason in run()'s finally during the join above, so the snapshot
+        # reads it. A wedged thread (join returned while still alive) is forced to a
+        # join-timeout marker here. The snapshot is taken once and never re-read
+        # from the cross-thread field afterward: if a wedged thread later unwedges
+        # and its finally publishes a clean reason, it cannot reach back and stamp
+        # this recording clean, so an under-dosed sample always reads incomplete.
+        stim_end_reason = scheduler._end_reason if scheduler is not None else None
+        if stim_thread is not None and stim_thread.is_alive():
+            logger.warning('[STIMULATOR] Scheduler thread did not exit within 5s timeout')
+            stim_end_reason = STIM_END_JOIN_TIMEOUT
 
         if captured_frames == 0:
             logger.warning(
@@ -344,7 +346,7 @@ class VideoCaptureSession:
             # stim still dosed the sample wrong. Record it here so a frame-less
             # recording is not silently treated as a clean stim run.
             if scheduler is not None:
-                _write_stim_status_sidecar(self._save_folder, self._name, scheduler._end_reason)
+                _write_stim_status_sidecar(self._save_folder, self._name, stim_end_reason)
             return None
 
         # True frames-per-second of the recording. Real division, not an
@@ -365,7 +367,7 @@ class VideoCaptureSession:
             video_images=video_images,
             duration_sec=duration_sec,
             dropped_frames=dropped_frames,
-            stim_end_reason=(scheduler._end_reason if scheduler is not None else None),
+            stim_end_reason=stim_end_reason,
         )
 
 
