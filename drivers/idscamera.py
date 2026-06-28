@@ -1555,9 +1555,12 @@ class IDSCamera(Camera):
         factor = 10 ** (dB / 20) before writing -- the app's 0 dB floor maps to
         the node's 1.0x unity minimum, which is why the previous unconverted
         write of 0.0 was rejected as out-of-range. The valid dB range is
-        published through the profile (see _query_dynamic_capabilities), so a
-        caller that honors it stays in range; a genuinely out-of-range request
-        still surfaces as a False return, not a silent clamp.
+        published through the profile (see _query_dynamic_capabilities). The
+        converted factor is reconciled to the Gain node's reported [Minimum,
+        Maximum] before writing: the dB->factor round-trip overshoots the node
+        maximum by a float epsilon exactly at the cap, so without this the camera
+        rejects its own reported maximum gain (the same self-clamp the FX2
+        register conversion does). A genuine SDK failure still returns False.
 
         Returns True on success, False on a confirmed hardware rejection --
         per-frame chunk metadata is not yet wired, so a swallowed write failure
@@ -1571,12 +1574,17 @@ class IDSCamera(Camera):
 
         try:
             factor = 10.0 ** (float(value) / 20.0)
+            gain_node = self.remote_nodemap.FindNode('Gain')
+            # Reconcile to the node's reported range: the dB->factor conversion
+            # overshoots Gain.Maximum() by a float epsilon at the cap, so the
+            # camera rejects its own reported maximum gain without this clamp.
+            factor = min(max(factor, gain_node.Minimum()), gain_node.Maximum())
             if _cam_log is not None:
                 _cam_log.info(
                     f'ids GainSelector=AnalogAll Gain.SetValue({factor:.3f}) (={value} dB)'
                 )
             self.remote_nodemap.FindNode('GainSelector').SetCurrentEntry('AnalogAll')
-            self.remote_nodemap.FindNode('Gain').SetValue(factor)
+            gain_node.SetValue(factor)
             logger.debug(f'[CAM Class ] Gain set to {value} dB ({factor:.3f}x)')
             return True
         except Exception as e:

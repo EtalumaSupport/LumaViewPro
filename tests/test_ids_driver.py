@@ -230,6 +230,17 @@ class TestGainDbConversion:
         assert cam.gain(30.0) is True
         assert cam.remote_nodemap.nodes['Gain'].value == pytest.approx(31.62, abs=0.05)
 
+    def test_gain_at_cap_clamps_factor_to_node_maximum(self):
+        """The reported max gain converts back to a factor a float epsilon ABOVE
+        Gain.Maximum(), so the camera rejected its own cap (OUT_OF_RANGE). The
+        written factor must be reconciled to the node maximum, never exceed it."""
+        cam = self._cam_with_gain_node(maximum=31.622776)
+        # 30 dB -> 10**(30/20) = 31.6227766..., just over the 31.622776 cap.
+        assert cam.gain(30.0) is True
+        written = cam.remote_nodemap.nodes['Gain'].value
+        assert written <= 31.622776  # clamped, not the overshoot
+        assert written == pytest.approx(31.622776)
+
     def test_selects_analog_all(self):
         cam = self._cam_with_gain_node()
         cam.gain(6.0)
