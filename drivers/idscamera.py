@@ -162,6 +162,18 @@ class IDSCamera(Camera):
         # reads live, where the offsets are still at their zero default).
         self._sensor_max: tuple[int, int] | None = None
 
+        # Recovery contract: DeviceLost is the terminal removal signal for this
+        # fixed-cable, reconnect-disabled body (uEye+ U3 default). The
+        # callback wrapper AND its registration handle must both stay alive -- GC
+        # of the wrapper auto-deregisters the callback -- so they are held as
+        # attrs. _device_key (the GenTL key captured at open) filters the
+        # manager-wide DeviceLost down to our device; _async_teardown_started
+        # guards the one-shot deferred close/destroy off the SDK callback thread.
+        self._device_key = None
+        self._device_lost_callback = None
+        self._device_lost_callback_handle = None
+        self._async_teardown_started = False
+
         super().__init__()
 
     def connect(self) -> bool:
@@ -177,12 +189,21 @@ class IDSCamera(Camera):
             if self.device_manager.Devices().empty():
                 raise ConnectionError('Could not find IDS camera')
 
-            self.active = self.device_manager.Devices()[0].OpenDevice(
-                ids_peak.DeviceAccessType_Control
-            )
+            # Capture the device descriptor's key before opening: DeviceLost is
+            # delivered for EVERY device in the system, so the callback filters on
+            # this key to act only on our camera's removal.
+            descriptor = self.device_manager.Devices()[0]
+            self._device_key = descriptor.Key()
+            self.active = descriptor.OpenDevice(ids_peak.DeviceAccessType_Control)
             self.data_stream = self.active.DataStreams()[0].OpenDataStream()
             self.remote_nodemap = self.active.RemoteDevice().NodeMaps()[0]
             self._device_removed = False
+            self._async_teardown_started = False
+
+            # Register the terminal removal signal now that our device is open --
+            # events only transmit from registration time, and we cannot lose a
+            # device we have not opened yet.
+            self._register_device_callbacks()
 
             try:
                 self.model_name = self.active.ModelName()
@@ -224,12 +245,27 @@ class IDSCamera(Camera):
 
     def disconnect(self) -> bool:
         try:
+            # Unregister the DeviceLost callback first, while device_manager is
+            # still set -- a stale registration would outlive the camera.
+            self._unregister_device_callbacks()
             if self.active:
-                try:
-                    if self.is_grabbing():
-                        self.stop_grabbing()
-                except Exception:
-                    pass
+                if self._device_removed:
+                    # The handle is dead: the remote-nodemap AcquisitionStop /
+                    # StopAcquisition / Flush / RevokeBuffers in stop_grabbing()
+                    # can hang or abort on a removed device, so skip them and run
+                    # only the poll/unpack teardown (KillWait + thread joins),
+                    # which never touches the removed remote nodemap.
+                    try:
+                        if self.cam_image_handler:
+                            self.cam_image_handler.stop()
+                    except Exception as e:
+                        logger.debug(f'[CAM Class ] handler stop on removed device ignored: {e}')
+                else:
+                    try:
+                        if self.is_grabbing():
+                            self.stop_grabbing()
+                    except Exception as e:
+                        logger.debug(f'[CAM Class ] stop_grabbing during disconnect ignored: {e}')
                 self.active = None
                 self.remote_nodemap = None
                 self.data_stream = None
@@ -243,6 +279,104 @@ class IDSCamera(Camera):
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] IDS camera disconnect failed: {e}')
         return False
+
+    def _register_device_callbacks(self) -> None:
+        """Register the terminal DeviceLost signal on the DeviceManager.
+
+        DeviceLost is the only removal event this body emits: reconnect is
+        disabled by default on uEye+ U3 cameras, so an unplug fires DeviceLost
+        (DeviceDisconnected fires only with reconnect enabled, which we never turn
+        on). Both the wrapper object AND the returned handle are stored -- if the
+        wrapper is garbage-collected the SDK silently deregisters the callback.
+        Guarded so an SDK build without the API degrades to the in-loop typed
+        DeviceLostException fallback rather than failing the connect.
+
+        Future reconnect support extends here: enable ReconnectEnable and also
+        register DeviceDisconnected/DeviceReconnected callbacks. The
+        _handle_device_lost single owner and this register/unregister scaffolding
+        are reusable as-is.
+        """
+        dm = self.device_manager
+        if dm is None:
+            return
+        try:
+            self._device_lost_callback = dm.DeviceLostCallback(self._on_device_lost)
+            self._device_lost_callback_handle = dm.RegisterDeviceLostCallback(
+                self._device_lost_callback
+            )
+            logger.info('[CAM Class ] Registered DeviceLost callback')
+        except Exception as e:
+            self._device_lost_callback = None
+            self._device_lost_callback_handle = None
+            logger.debug(f'[CAM Class ] DeviceLost callback unavailable: {e}')
+
+    def _unregister_device_callbacks(self) -> None:
+        """Deregister the DeviceLost callback by handle and drop the refs.
+
+        Idempotent -- safe when nothing was registered or device_manager is gone.
+        """
+        dm = self.device_manager
+        handle = self._device_lost_callback_handle
+        if dm is not None and handle is not None:
+            try:
+                dm.UnregisterDeviceLostCallback(handle)
+            except Exception as e:
+                logger.debug(f'[CAM Class ] DeviceLost unregister ignored: {e}')
+        self._device_lost_callback = None
+        self._device_lost_callback_handle = None
+
+    def _on_device_lost(self, key) -> None:
+        """DeviceManager DeviceLost handler -- fires on an SDK-owned thread.
+
+        Receives the GenTL device key of the lost device; DeviceLost is delivered
+        for every device in the system, so act only when it is ours. Wrapped in
+        BaseException because the SDK swallows callback exceptions -- a leak here
+        would silently drop the removal signal.
+        """
+        try:
+            if key != self._device_key:
+                return
+            _cam_log.warning(f'[CAM Class ] DeviceLost callback for our device (key={key})')
+            self._handle_device_lost()
+        except BaseException as e:
+            try:
+                _cam_log.error(f'[CAM Class ] _on_device_lost guard caught {type(e).__name__}: {e}')
+            except BaseException:
+                pass
+
+    def _handle_device_lost(self) -> None:
+        """Single owner of camera removal: flip the disconnected flag (cheap,
+        thread-safe) and schedule the close/destroy off the callback thread.
+
+        Triggered by the DeviceLost callback (SDK thread) and, as a fallback, by
+        a typed DeviceLostException in the poll loop -- both idempotent via the
+        _device_removed and _async_teardown_started guards.
+        """
+        self._mark_disconnected()
+        self._schedule_async_teardown()
+
+    def _schedule_async_teardown(self) -> None:
+        """Run disconnect() (the SDK close/destroy) on a daemon thread.
+
+        IDS's own callbacks may reconfigure the stream inline, but never close or
+        destroy the device on the callback thread -- so the lightweight
+        _mark_disconnected runs inline while the close/destroy defers here. The
+        _async_teardown_started latch makes this one-shot under concurrent
+        triggers (the callback and the poll-loop fallback).
+        """
+        with self._state_lock:
+            if self._async_teardown_started:
+                return
+            self._async_teardown_started = True
+
+        def _run_teardown():
+            try:
+                time.sleep(0.05)  # let the SDK callback return before close/destroy
+                self.disconnect()
+            except Exception as e:
+                logger.debug(f'[CAM Class ] async teardown ignored: {e}')
+
+        threading.Thread(target=_run_teardown, name='IDSAsyncTeardown', daemon=True).start()
 
     def is_connected(self) -> bool:
         if self.active in (False, None):
@@ -1729,9 +1863,10 @@ class ImageHandler(ImageHandlerBase):
     QueueBuffer is concurrency-safe.
     """
 
-    # 10 failures x the (exposure-scaled) timeout before declaring the device
-    # gone -- preserves the prior disconnect-detection threshold.
-    MAX_CONSECUTIVE_FAILURES = 10
+    # Removal is owned solely by the DeviceLost callback (with a typed
+    # DeviceLostException fallback in the poll loop), so the poll loop no longer
+    # accrues consecutive failures toward an auto-disconnect -- the old
+    # N-consecutive-timeouts heuristic mislabeled a host stall as a removal.
 
     # The worker wakes at least this often to re-check the stop request even
     # when no frames are arriving (a stalled stream must still shut down).
@@ -1799,12 +1934,12 @@ class ImageHandler(ImageHandlerBase):
                 break
 
             if buffer.IsIncomplete():
+                # Incomplete = USB packet loss / bandwidth saturation: a degraded
+                # stream, not a removal. Log and re-queue; never mark disconnected
+                # (removal is owned by the DeviceLost callback). A sustained
+                # no-frame stall is surfaced to the user by the display watchdog.
                 self._log_incomplete(buffer)
                 self._requeue(buffer)
-                if self._record_failure():
-                    _cam_log.error('[CAM Class ] Too many grab failures; marking device as removed')
-                    self._parent._mark_disconnected()
-                    break
                 continue
 
             # Hand the buffer to the worker. A buffer this displaces is re-queued
@@ -1822,9 +1957,11 @@ class ImageHandler(ImageHandlerBase):
         first wait -- seen under rapid reconfigure (e.g. fast binning toggles).
         Flush the stale abort and keep polling (return False); returning True
         here would strand the live view with a dead poll thread and no frames
-        until the next reconfigure. A device-lost signal marks the camera
-        removed. Anything else (timeout, transient SDK fault) counts toward the
-        disconnect threshold.
+        until the next reconfigure. A timeout is a STALL -- keep polling, never
+        disconnect. A typed DeviceLostException is an authoritative removal
+        (fallback to the DeviceLost callback) and routes to the single removal
+        owner. Any other fault is logged and polling continues; removal is owned
+        solely by DeviceLost, not by a consecutive-failure count.
         """
         if _exc_is(e, 'AbortedException', 'abort'):
             try:
@@ -1834,18 +1971,25 @@ class ImageHandler(ImageHandlerBase):
                     f'[CAM Class ] FlushPendingKillWaits (spurious abort) unavailable: {fe}'
                 )
             return False
+        if _exc_is(e, 'TimeoutException', 'timeout'):
+            # A timeout is a STALL, not a removal: no frame arrived within the
+            # (exposure-scaled) window -- a host stall, a throughput hiccup, or a
+            # wedged-but-present camera. Keep polling; never disconnect on it. A
+            # sustained stall is surfaced by the display watchdog, and a real
+            # removal arrives via the DeviceLost callback (or the typed fallback).
+            logger.debug(f'[CAM Class ] poll timeout (stall, not removal): {e!r}')
+            return False
         if _exc_is(e, 'DeviceLostException', 'removed', 'device'):
+            # Authoritative typed removal -- the fallback if the DeviceLost
+            # callback ever misses. Routes to the same single removal owner.
             _cam_log.warning(f'[CAM Class ] Device removal detected in grab loop: {e}')
-            self._parent._mark_disconnected()
+            self._parent._handle_device_lost()
             return True
-        # Log every wait error. Type + message vary (timeout vs malformed buffer
-        # vs SDK-internal fault); throttling loses the cause distribution. !r so
-        # any non-ASCII in the SDK message is escaped at format time.
+        # Any other wait error: log and keep polling. Removal is owned solely by
+        # DeviceLost (callback + typed fallback above), so a transient SDK fault
+        # no longer accrues toward an auto-disconnect -- the old N-consecutive
+        # heuristic mislabeled a host stall as a removal. !r escapes non-ASCII.
         _cam_log.warning(f'[CAM Class ] ImageHandler poll exception: {type(e).__name__}: {e!r}')
-        if self._record_failure():
-            _cam_log.error('[CAM Class ] Too many grab exceptions; marking device as removed')
-            self._parent._mark_disconnected()
-            return True
         return False
 
     def _requeue(self, buffer):

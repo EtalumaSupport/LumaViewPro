@@ -450,6 +450,134 @@ class TestSpuriousAbortKeepsPolling:
         ds.FlushPendingKillWaits.assert_not_called()
 
 
+class TestStallNotRemoval:
+    """Recovery contract: a poll-loop STALL (timeout / incomplete) is
+    never promoted to a disconnect -- removal is owned solely by DeviceLost. The
+    old 'N consecutive failures = removed' heuristic mislabeled a host stall as a
+    removal; this pins that it no longer does."""
+
+    def test_timeout_stall_never_marks_disconnected(self):
+        ds = MagicMock()
+        h = _ids_handler(ds)
+        # Far more than any old consecutive-failure threshold.
+        for _ in range(50):
+            should_stop = h._handle_wait_error(RuntimeError('WaitForFinishedBuffer timeout'))
+            assert should_stop is False  # keep polling
+        h._parent._mark_disconnected.assert_not_called()
+        h._parent._handle_device_lost.assert_not_called()
+
+    def test_generic_fault_keeps_polling_without_disconnect(self):
+        ds = MagicMock()
+        h = _ids_handler(ds)
+        should_stop = h._handle_wait_error(RuntimeError('malformed buffer'))
+        assert should_stop is False
+        h._parent._mark_disconnected.assert_not_called()
+        h._parent._handle_device_lost.assert_not_called()
+
+    def test_typed_device_lost_routes_to_single_owner(self):
+        # The authoritative typed removal (fallback to the callback) stops the
+        # loop and routes to the single removal owner, not a bare _mark_disconnected.
+        ds = MagicMock()
+        h = _ids_handler(ds)
+        should_stop = h._handle_wait_error(RuntimeError('DeviceLostException: removed'))
+        assert should_stop is True
+        h._parent._handle_device_lost.assert_called_once()
+
+
+def _ids_cam_for_recovery():
+    cam = bare_ids_camera()
+    cam._device_key = 'KEY-OURS'
+    cam._device_lost_callback = None
+    cam._device_lost_callback_handle = None
+    cam._async_teardown_started = False
+    cam.cam_image_handler = MagicMock()
+    return cam
+
+
+class TestDeviceLostCallback:
+    """The DeviceLost callback is the single owner of camera removal: registered
+    with both wrapper + handle kept alive, filtered to our device key, marking
+    disconnected inline and deferring close/destroy to a daemon thread."""
+
+    def test_register_stores_wrapper_and_handle(self):
+        cam = _ids_cam_for_recovery()
+        cam.device_manager = MagicMock()
+        cam._register_device_callbacks()
+        cam.device_manager.DeviceLostCallback.assert_called_once_with(cam._on_device_lost)
+        cam.device_manager.RegisterDeviceLostCallback.assert_called_once_with(
+            cam._device_lost_callback
+        )
+        assert cam._device_lost_callback is not None  # wrapper kept alive
+        assert cam._device_lost_callback_handle is not None  # handle kept alive
+
+    def test_unregister_uses_handle_and_clears_refs(self):
+        cam = _ids_cam_for_recovery()
+        cam.device_manager = MagicMock()
+        handle = object()
+        cam._device_lost_callback = object()
+        cam._device_lost_callback_handle = handle
+        cam._unregister_device_callbacks()
+        cam.device_manager.UnregisterDeviceLostCallback.assert_called_once_with(handle)
+        assert cam._device_lost_callback is None
+        assert cam._device_lost_callback_handle is None
+
+    def test_unregister_is_idempotent_with_nothing_registered(self):
+        cam = _ids_cam_for_recovery()
+        cam.device_manager = MagicMock()
+        cam._unregister_device_callbacks()  # no handle -> no SDK call, no raise
+        cam.device_manager.UnregisterDeviceLostCallback.assert_not_called()
+
+    def test_device_lost_for_our_key_triggers_removal(self):
+        cam = _ids_cam_for_recovery()
+        cam._handle_device_lost = MagicMock()
+        cam._on_device_lost('KEY-OURS')
+        cam._handle_device_lost.assert_called_once()
+
+    def test_device_lost_for_other_key_is_ignored(self):
+        cam = _ids_cam_for_recovery()
+        cam._handle_device_lost = MagicMock()
+        cam._on_device_lost('SOME-OTHER-CAMERA')
+        cam._handle_device_lost.assert_not_called()
+
+    def test_handle_device_lost_marks_and_schedules_teardown(self):
+        cam = _ids_cam_for_recovery()
+        cam._schedule_async_teardown = MagicMock()
+        cam._handle_device_lost()
+        cam._mark_disconnected.assert_called_once()
+        cam._schedule_async_teardown.assert_called_once()
+
+    def test_async_teardown_is_one_shot(self):
+        cam = _ids_cam_for_recovery()
+        cam.disconnect = MagicMock()
+        cam._schedule_async_teardown()
+        cam._schedule_async_teardown()  # second is a no-op via the latch
+        deadline = time.time() + 2.0
+        while cam.disconnect.call_count < 1 and time.time() < deadline:
+            time.sleep(0.01)
+        assert cam.disconnect.call_count == 1  # exactly once despite two schedules
+
+    def test_disconnect_on_removed_device_skips_nodemap_stop(self):
+        cam = _ids_cam_for_recovery()
+        cam.device_manager = MagicMock()
+        cam.active = MagicMock()
+        cam._device_removed = True
+        cam.stop_grabbing = MagicMock()
+        cam.is_grabbing = MagicMock(return_value=True)
+        cam.disconnect()
+        cam.stop_grabbing.assert_not_called()  # nodemap stops skipped on dead handle
+        cam.cam_image_handler.stop.assert_called_once()  # safe teardown still runs
+
+    def test_disconnect_on_live_device_uses_stop_grabbing(self):
+        cam = _ids_cam_for_recovery()
+        cam.device_manager = MagicMock()
+        cam.active = MagicMock()
+        cam._device_removed = False
+        cam.stop_grabbing = MagicMock()
+        cam.is_grabbing = MagicMock(return_value=True)
+        cam.disconnect()
+        cam.stop_grabbing.assert_called_once()
+
+
 class TestPipelineLifecycle:
     """Stage A (poll -> slot) / Stage B (unpack -> store -> re-queue) wiring, with
     the key invariant: EVERY finished buffer is re-queued exactly once -- the
