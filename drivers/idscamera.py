@@ -402,6 +402,52 @@ class IDSCamera(Camera):
         except Exception as e:
             return f'<missing: {type(e).__name__}>'
 
+    def _diag_probe_node(self, nodemap, name: str) -> dict:
+        """Probe one optional node's presence + access on a given nodemap.
+
+        Reports whether the node exists on THIS body, its access status
+        (writable vs read-only vs not-available), and its current value or
+        symbolic entries. Some capabilities a setter might want -- an internal
+        test pattern, chunk data, USB3 transfer-size tuning -- are exposed only
+        on certain bodies, and a node the IDS manual advertises can still be
+        absent or read-only on a given camera. This lets a single bench snapshot
+        confirm a node is actually usable here before any setter is wired to it.
+        Never raises: a missing node records ``present=False``.
+        """
+        try:
+            node = nodemap.FindNode(name)
+        except Exception as e:
+            return {'present': False, 'detail': f'{type(e).__name__}: {e}'}
+        if node is None:
+            return {'present': False}
+        info: dict = {'present': True}
+        try:
+            info['access'] = (
+                node.AccessStatus() if hasattr(node, 'AccessStatus') else '<no AccessStatus>'
+            )
+        except Exception as e:
+            info['access'] = f'<error: {type(e).__name__}>'
+        # Enum nodes report symbolic entries; scalar nodes a value. Resolve the
+        # enum shape first and fall back to a scalar read on any failure, so a
+        # node is never left both entry- and value-shaped (a non-enum node that
+        # happens to expose AvailableEntries falls through cleanly to Value()).
+        try:
+            entries = [entry.SymbolicValue() for entry in node.AvailableEntries()]
+        except Exception:
+            entries = None
+        if entries is not None:
+            info['entries'] = entries
+            try:
+                info['current'] = node.CurrentEntry().SymbolicValue()
+            except Exception as e:
+                info['current'] = f'<error: {type(e).__name__}>'
+        else:
+            try:
+                info['value'] = node.Value()
+            except Exception as e:
+                info['value'] = f'<error: {type(e).__name__}>'
+        return info
+
     def _read_stream_stats(self) -> dict:
         """Read the GenTL DataStream statistics counters, defensively.
 
@@ -462,6 +508,7 @@ class IDSCamera(Camera):
             'stats_post': {},
             'deltas': {},
             'derived': {},
+            'feature_nodes': {},
             'errors': [],
         }
 
@@ -505,6 +552,35 @@ class IDSCamera(Camera):
                 result['buffers'][key] = accessor()
             except Exception as e:
                 result['buffers'][key] = f'<missing: {type(e).__name__}>'
+
+        # Optional-feature node probe. A few capabilities a setter might want --
+        # an internal test pattern, chunk data, USB3 transfer-size tuning -- are
+        # exposed only on some IDS bodies and are not confirmed on the
+        # U3-34L0XCP-M. Probe each candidate's presence + access here (remote
+        # nodemap first, then the DataStream nodemap for the transfer-tuning
+        # nodes) so one bench snapshot settles whether a setter can rely on it.
+        feature_remote = {
+            name: self._diag_probe_node(self.remote_nodemap, name)
+            for name in ('TestPattern', 'ChunkModeActive', 'ChunkSelector')
+        }
+        feature_stream: dict = {}
+        try:
+            nodemaps = self.data_stream.NodeMaps()
+            stream_nm = nodemaps[0] if nodemaps else None
+        except Exception as e:
+            stream_nm = None
+            feature_stream['_access_error'] = f'NodeMaps() raised: {type(e).__name__}: {e}'
+        if stream_nm is None:
+            # Distinguish 'nodemap never resolved' from 'probed and absent' so
+            # the snapshot stays honest about which (mirrors _read_stream_stats).
+            feature_stream.setdefault('_access_error', 'no DataStream nodemaps')
+        else:
+            for name in (
+                'U3vStreamChannelBulkTransferSize',
+                'U3vStreamChannelTransferRequestCount',
+            ):
+                feature_stream[name] = self._diag_probe_node(stream_nm, name)
+        result['feature_nodes'] = {'remote': feature_remote, 'stream': feature_stream}
 
         # Statistics sampling window.
         result['stats_pre'] = self._read_stream_stats()
@@ -1514,19 +1590,28 @@ class IDSCamera(Camera):
         return False
 
     def set_gev_packet_size(self, size_bytes: int) -> bool:
-        """IDS does not expose Pylon GevSCPSPacketSize. Stub False."""
+        """N/A on the U3-34L: GevSCPSPacketSize is a GigE-Vision transport node,
+        and this body is USB3 Vision. Stub False (no GEV transport to tune)."""
         return False
 
     def set_gev_inter_packet_delay(self, delay_ticks: int) -> bool:
-        """IDS does not expose Pylon GevSCPD. Stub False."""
+        """N/A on the U3-34L: GevSCPD is a GigE-Vision transport node, and this
+        body is USB3 Vision. Stub False (no GEV transport to tune)."""
         return False
 
     def set_max_transfer_size(self, value_bytes: int) -> bool:
-        """IDS does not expose Pylon StreamGrabber MaxTransferSize. Stub False."""
+        """Pylon's StreamGrabber MaxTransferSize has no direct IDS analogue; the
+        nearest is the DataStream node U3vStreamChannelBulkTransferSize, whose
+        presence + access on this body is probed by read_diagnostic_snapshot
+        (feature_nodes.stream). Stub False until that is bench-confirmed."""
         return False
 
     def set_num_max_queued_urbs(self, value: int) -> bool:
-        """IDS does not expose Pylon StreamGrabber NumMaxQueuedUrbs. Stub False."""
+        """Pylon's StreamGrabber NumMaxQueuedUrbs has no direct IDS analogue; the
+        nearest is the DataStream node U3vStreamChannelTransferRequestCount,
+        whose presence + access on this body is probed by
+        read_diagnostic_snapshot (feature_nodes.stream). Stub False until that
+        is bench-confirmed."""
         return False
 
     def set_max_acquisition_frame_rate(self, enabled: bool, fps: float = 1.0):
@@ -1763,6 +1848,10 @@ class IDSCamera(Camera):
             return False
 
     def set_test_pattern(self, enabled: bool = False, pattern: str = 'Black'):
+        """No-op until bench-confirmed. Some IDS bodies expose a TestPattern
+        node, but its presence + access on the U3-34L is unverified; it is
+        probed by read_diagnostic_snapshot (feature_nodes.remote) so a setter
+        can be wired here once a bench snapshot confirms the node exists."""
         pass
 
 

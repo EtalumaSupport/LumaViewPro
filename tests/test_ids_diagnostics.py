@@ -289,3 +289,139 @@ class TestReadDiagnosticSnapshot:
         snap = cam.read_diagnostic_snapshot(duration_s=0)
         assert '_access_error' in snap['stats_pre']
         assert all(v is None for v in snap['deltas'].values())
+
+
+# --- optional-feature node probe (bench-confirms candidate nodes) ------------
+
+
+class _AccessEnumNode:
+    """Enum node exposing AccessStatus + AvailableEntries (the shape a probed
+    remote node like TestPattern has on the real body)."""
+
+    def __init__(self, current, entries, access='ReadWrite'):
+        self._current = current
+        self._entries = entries
+        self._access = access
+
+    def AccessStatus(self):
+        return self._access
+
+    def AvailableEntries(self):
+        return [_Entry(name) for name in self._entries]
+
+    def CurrentEntry(self):
+        return _Entry(self._current)
+
+
+class _AccessValueNode:
+    """Scalar node exposing AccessStatus + Value (the shape a probed stream
+    node like U3vStreamChannelBulkTransferSize has)."""
+
+    def __init__(self, value, access='ReadWrite'):
+        self._value = value
+        self._access = access
+
+    def AccessStatus(self):
+        return self._access
+
+    def Value(self):
+        return self._value
+
+
+class TestFeatureNodeProbe:
+    def test_present_enum_node_reports_access_and_entries(self):
+        cam = bare_ids_camera()
+        node = _AccessEnumNode('Off', ['Off', 'GreyHorizontalRamp'], access='ReadWrite')
+        nodemap = _Nodemap(special={'TestPattern': node})
+        info = cam._diag_probe_node(nodemap, 'TestPattern')
+        assert info['present'] is True
+        assert info['access'] == 'ReadWrite'
+        assert info['entries'] == ['Off', 'GreyHorizontalRamp']
+        assert info['current'] == 'Off'
+
+    def test_present_scalar_node_reports_value(self):
+        cam = bare_ids_camera()
+        node = _AccessValueNode(1048576, access='ReadOnly')
+        nodemap = _Nodemap(special={'U3vStreamChannelBulkTransferSize': node})
+        info = cam._diag_probe_node(nodemap, 'U3vStreamChannelBulkTransferSize')
+        assert info['present'] is True
+        assert info['access'] == 'ReadOnly'
+        assert info['value'] == 1048576
+
+    def test_absent_node_reports_not_present_without_raising(self):
+        cam = bare_ids_camera()
+        info = cam._diag_probe_node(_Nodemap(missing=('TestPattern',)), 'TestPattern')
+        assert info['present'] is False
+
+    def test_node_without_access_status_records_sentinel(self):
+        cam = bare_ids_camera()
+        # _ValueNode has Value() but no AccessStatus().
+        nodemap = _Nodemap(values={'TestPattern': 7})
+        info = cam._diag_probe_node(nodemap, 'TestPattern')
+        assert info['present'] is True
+        assert info['access'] == '<no AccessStatus>'
+        assert info['value'] == 7
+
+    def test_snapshot_populates_feature_nodes_from_both_nodemaps(self):
+        cam = bare_ids_camera()
+        cam.remote_nodemap = _Nodemap(
+            special={'TestPattern': _AccessEnumNode('Off', ['Off'], access='ReadWrite')},
+            missing=('ChunkModeActive', 'ChunkSelector'),
+        )
+        stream_nm = _Nodemap(
+            special={
+                'U3vStreamChannelBulkTransferSize': _AccessValueNode(65536, access='ReadOnly')
+            },
+            missing=('U3vStreamChannelTransferRequestCount',),
+        )
+        cam.data_stream.NodeMaps.return_value = [stream_nm]
+        cam.get_all_temperatures = lambda: {}
+        cam._read_stream_stats = lambda: {}
+        snap = cam.read_diagnostic_snapshot(duration_s=0)
+        feat = snap['feature_nodes']
+        assert feat['remote']['TestPattern']['present'] is True
+        assert feat['remote']['TestPattern']['access'] == 'ReadWrite'
+        assert feat['remote']['ChunkModeActive']['present'] is False
+        assert feat['stream']['U3vStreamChannelBulkTransferSize']['access'] == 'ReadOnly'
+        assert feat['stream']['U3vStreamChannelTransferRequestCount']['present'] is False
+
+    def test_snapshot_feature_nodes_self_reports_stream_access_error(self):
+        cam = bare_ids_camera()
+        cam.remote_nodemap = _Nodemap(missing=('TestPattern',))
+        cam.data_stream.NodeMaps.side_effect = RuntimeError('no stream nodemap')
+        cam.get_all_temperatures = lambda: {}
+        cam._read_stream_stats = lambda: {}
+        snap = cam.read_diagnostic_snapshot(duration_s=0)
+        assert '_access_error' in snap['feature_nodes']['stream']
+
+    def test_snapshot_empty_stream_nodemap_is_marked_not_silently_empty(self):
+        # An empty NodeMaps() list must self-report, not leave stream={} (which
+        # a reader could not tell apart from 'probed and all nodes absent').
+        cam = bare_ids_camera()
+        cam.remote_nodemap = _Nodemap(missing=('TestPattern',))
+        cam.data_stream.NodeMaps.return_value = []
+        cam.get_all_temperatures = lambda: {}
+        cam._read_stream_stats = lambda: {}
+        snap = cam.read_diagnostic_snapshot(duration_s=0)
+        assert snap['feature_nodes']['stream']['_access_error'] == 'no DataStream nodemaps'
+
+    def test_probe_node_with_entries_but_failing_current_is_not_both_shaped(self):
+        # If AvailableEntries() succeeds but CurrentEntry() raises, the record
+        # stays enum-shaped (entries + current sentinel), never also scalar.
+        class _BadCurrentEnum:
+            def AccessStatus(self):
+                return 'ReadWrite'
+
+            def AvailableEntries(self):
+                return [_Entry('Off'), _Entry('On')]
+
+            def CurrentEntry(self):
+                raise RuntimeError('current unavailable')
+
+        cam = bare_ids_camera()
+        info = cam._diag_probe_node(
+            _Nodemap(special={'TestPattern': _BadCurrentEnum()}), 'TestPattern'
+        )
+        assert info['entries'] == ['Off', 'On']
+        assert str(info['current']).startswith('<error')
+        assert 'value' not in info
