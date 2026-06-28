@@ -23,13 +23,13 @@ from __future__ import annotations
 
 import ast
 import threading
-from pathlib import Path
 
 import pytest
 
 from drivers.simulated_camera import SimulatedCamera
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.imaging import ImagingAPI
+from tests.ast_seams import parse_module
 
 # Driver methods that mutate camera state. A call to any of these must be wrapped
 # in a write thunk handed to ImagingAPI._camera_write, never issued directly --
@@ -49,7 +49,7 @@ CAMERA_WRITE_METHODS = frozenset(
     }
 )
 
-_IMAGING_SRC = Path(__file__).resolve().parent.parent / 'modules' / 'lumascope_api' / 'imaging.py'
+_IMAGING_REL = 'modules/lumascope_api/imaging.py'
 
 
 class _CamWriteCapableSim(SimulatedCamera):
@@ -352,7 +352,10 @@ class TestCameraWriteAuthority:
 
 
 def _imaging_tree():
-    return ast.parse(_IMAGING_SRC.read_text())
+    # The suite-wide cached parser, so future hardening of production-source AST
+    # reads (encoding, AsyncFunctionDef, path resolution) does not bypass this
+    # guard. The negative tests below still ast.parse() inline source strings.
+    return parse_module(_IMAGING_REL)
 
 
 def _parent_map(tree):
