@@ -423,7 +423,6 @@ class ImagingAPI:
         targets: tuple[tuple[str, float | None], ...] = (),
         force_targets: tuple[tuple[str, float | None], ...] = (),
         cache_update: dict[str, object] | None = None,
-        gate_on_result: bool = False,
     ) -> object:
         """Single sanctioned path for a camera-state write and its validity
         consequence. Every camera setter routes its hardware write through here
@@ -434,7 +433,10 @@ class ImagingAPI:
         Order is load-bearing: the write happens first, then ``force_invalidate``
         fires unconditionally (the always-mark-RED contract for the manual value
         setters, so a hardware-rejected write still expires validity rather than
-        leaving a stale frame acceptable), then the applied-only block runs.
+        leaving a stale frame acceptable), then the applied-only block runs. A
+        write is "applied" when the driver did not return ``False`` -- an explicit
+        ``False`` is the only rejection signal; a ``None`` return (drivers without
+        a confirmation signal) and any truthy result both count as applied.
 
         Args:
             write_fn: Zero-arg callable performing the driver write (including
@@ -450,9 +452,6 @@ class ImagingAPI:
                 (target maintenance stays outside the applied gate).
             cache_update: Keys to write into the ``_camera_cache`` snapshot when
                 the write was applied.
-            gate_on_result: True means "applied" is ``bool(result)`` (the
-                result-gated setters); False means ``result is not False`` (the
-                value/auto setters, where a None return still counts as applied).
 
         Returns:
             The driver write's result, so the caller can do its own rejection
@@ -463,7 +462,7 @@ class ImagingAPI:
             self.frame_validity.invalidate(source)
         for source, value in force_targets:
             self.frame_validity.set_target(source, value)
-        applied = bool(result) if gate_on_result else (result is not False)
+        applied = result is not False
         if applied:
             for source in invalidates:
                 self.frame_validity.invalidate(source)
@@ -711,7 +710,6 @@ class ImagingAPI:
                 ok = self._camera_write(
                     lambda: self._driver.set_binning_size(size=size),
                     invalidates=('binning',),
-                    gate_on_result=True,
                 )
             else:
                 ok = False
@@ -752,7 +750,6 @@ class ImagingAPI:
                 lambda: self._driver.set_pixel_format(pixel_format),
                 invalidates=('pixel_format',),
                 cache_update={'pixel_format': pixel_format},
-                gate_on_result=True,
             )
         except Exception as ex:
             logger.exception(f'[SCOPE API ] Error setting pixel format: {ex}')
@@ -797,7 +794,6 @@ class ImagingAPI:
             result = self._camera_write(
                 lambda: self._driver.set_conversion_gain_mode(mode),
                 invalidates=('conversion_gain_mode',),
-                gate_on_result=True,
             )
         except Exception as ex:
             logger.exception(f'[SCOPE API ] Error setting conversion gain mode: {ex}')
@@ -840,7 +836,6 @@ class ImagingAPI:
             result = self._camera_write(
                 lambda: self._driver.set_line_noise_reduction(enabled=enabled),
                 invalidates=('line_noise_reduction',),
-                gate_on_result=True,
             )
         except Exception as ex:
             logger.exception(f'[SCOPE API ] Error setting line noise reduction: {ex}')

@@ -294,22 +294,22 @@ class TestCameraWriteAuthority:
         assert events == [('invalidate', 'gain'), ('set_target', 'gain', 5.0)]
         assert imaging_capable.camera_gain == pytest.approx(5.0)
 
-    def test_gate_on_result_skips_invalidate_when_falsey(self, imaging_capable):
+    def test_applied_gated_invalidate_skipped_on_false(self, imaging_capable):
+        # The applied-only invalidate (not force_invalidate) is suppressed when
+        # the driver returns False -- the result-gated setters' rejection path.
         events = _record_validity_events(imaging_capable)
         result = imaging_capable._camera_write(
             lambda: False,
             invalidates=('binning',),
-            gate_on_result=True,
         )
         assert result is False
         assert events == []
 
-    def test_gate_on_result_invalidates_when_truthy(self, imaging_capable):
+    def test_applied_gated_invalidate_fires_on_true(self, imaging_capable):
         events = _record_validity_events(imaging_capable)
         result = imaging_capable._camera_write(
             lambda: True,
             invalidates=('binning',),
-            gate_on_result=True,
         )
         assert result is True
         assert events == [('invalidate', 'binning')]
