@@ -235,3 +235,75 @@ class TestSdkPerfSetterSequences:
         result = imaging_plain.set_line_noise_reduction(True)
         assert result is False
         assert events == []
+
+
+class TestCameraWriteAuthority:
+    """The _camera_write authority in isolation: force vs applied-gated
+    invalidation, target + cache maintenance, result-gating, and order."""
+
+    def test_force_invalidate_fires_even_on_rejection(self, imaging_capable):
+        events = _record_validity_events(imaging_capable)
+        result = imaging_capable._camera_write(
+            lambda: False,
+            force_invalidate=('gain',),
+            targets=(('gain', 5.0),),
+        )
+        # Rejection (False): force_invalidate still fires; the applied-only
+        # target is suppressed.
+        assert result is False
+        assert events == [('invalidate', 'gain')]
+
+    def test_applied_block_runs_when_not_rejected(self, imaging_capable):
+        events = _record_validity_events(imaging_capable)
+        imaging_capable._camera_write(
+            lambda: None,
+            force_invalidate=('gain',),
+            targets=(('gain', 5.0),),
+            cache_update={'gain_db': 5.0},
+        )
+        # None result counts as applied: force invalidate, then target + cache.
+        assert events == [('invalidate', 'gain'), ('set_target', 'gain', 5.0)]
+        assert imaging_capable.camera_gain == pytest.approx(5.0)
+
+    def test_gate_on_result_skips_invalidate_when_falsey(self, imaging_capable):
+        events = _record_validity_events(imaging_capable)
+        result = imaging_capable._camera_write(
+            lambda: False,
+            invalidates=('binning',),
+            gate_on_result=True,
+        )
+        assert result is False
+        assert events == []
+
+    def test_gate_on_result_invalidates_when_truthy(self, imaging_capable):
+        events = _record_validity_events(imaging_capable)
+        result = imaging_capable._camera_write(
+            lambda: True,
+            invalidates=('binning',),
+            gate_on_result=True,
+        )
+        assert result is True
+        assert events == [('invalidate', 'binning')]
+
+    def test_force_precedes_applied_invalidate_in_order(self, imaging_capable):
+        events = _record_validity_events(imaging_capable)
+        imaging_capable._camera_write(
+            lambda: None,
+            force_invalidate=('gain',),
+            invalidates=('auto_gain',),
+        )
+        assert events == [('invalidate', 'gain'), ('invalidate', 'auto_gain')]
+
+    def test_multiple_sources_and_targets(self, imaging_capable):
+        events = _record_validity_events(imaging_capable)
+        imaging_capable._camera_write(
+            lambda: None,
+            force_invalidate=('gain', 'exposure'),
+            targets=(('gain', None), ('exposure', None)),
+        )
+        assert events == [
+            ('invalidate', 'gain'),
+            ('invalidate', 'exposure'),
+            ('set_target', 'gain', None),
+            ('set_target', 'exposure', None),
+        ]

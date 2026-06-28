@@ -15,7 +15,7 @@ import logging as _logging
 import threading
 import time
 from typing import TYPE_CHECKING, Any
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 
 import numpy as np
 
@@ -413,6 +413,59 @@ class ImagingAPI:
             if not fv.chunk_match(source, value):
                 return source
         return None
+
+    def _camera_write(
+        self,
+        write_fn: Callable[[], object],
+        *,
+        invalidates: tuple[str, ...] = (),
+        force_invalidate: tuple[str, ...] = (),
+        targets: tuple[tuple[str, float | None], ...] = (),
+        cache_update: dict[str, object] | None = None,
+        gate_on_result: bool = False,
+    ) -> object:
+        """Single sanctioned path for a camera-state write and its validity
+        consequence. Every camera setter routes its hardware write through here
+        so the write and the frame-validity invalidation it requires are
+        declared together -- a new setter cannot write a camera node and forget
+        to invalidate.
+
+        Order is load-bearing: the write happens first, then ``force_invalidate``
+        fires unconditionally (the always-mark-RED contract for the manual value
+        setters, so a hardware-rejected write still expires validity rather than
+        leaving a stale frame acceptable), then the applied-only block runs.
+
+        Args:
+            write_fn: Zero-arg callable performing the driver write (including
+                any lock it needs) and returning the driver's result.
+            invalidates: Sources to invalidate only when the write was applied.
+            force_invalidate: Sources to invalidate unconditionally, regardless
+                of the result.
+            targets: ``(source, value)`` pairs passed to ``set_target`` when the
+                write was applied (``value`` None clears the target).
+            cache_update: Keys to write into the ``_camera_cache`` snapshot when
+                the write was applied.
+            gate_on_result: True means "applied" is ``bool(result)`` (the
+                result-gated setters); False means ``result is not False`` (the
+                value/auto setters, where a None return still counts as applied).
+
+        Returns:
+            The driver write's result, so the caller can do its own rejection
+            handling / listener fire.
+        """
+        result = write_fn()
+        for source in force_invalidate:
+            self.frame_validity.invalidate(source)
+        applied = bool(result) if gate_on_result else (result is not False)
+        if applied:
+            for source in invalidates:
+                self.frame_validity.invalidate(source)
+            for source, value in targets:
+                self.frame_validity.set_target(source, value)
+            if cache_update:
+                with self._camera_cache_lock:
+                    self._camera_cache.update(cache_update)
+        return result
 
     # --- Setters ---
     def set_gain(self, gain_db: float) -> None:

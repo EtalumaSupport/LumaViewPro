@@ -1,4 +1,4 @@
 4.0.0-beta20
-2026-06-28 12:24
+2026-06-28 12:34
 sd1-camera-write-authority
-005e81b6
+06ed152c
