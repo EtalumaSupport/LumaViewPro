@@ -337,16 +337,16 @@ class TestCameraWriteAuthority:
             ('set_target', 'exposure', None),
         ]
 
-    def test_force_targets_fire_even_on_rejection(self, imaging_capable):
+    def test_force_clear_fires_even_on_rejection(self, imaging_capable):
         events = _record_validity_events(imaging_capable)
         result = imaging_capable._camera_write(
             lambda: False,
             force_invalidate=('exposure',),
-            force_targets=(('exposure', None),),
+            force_clear=('exposure',),
             targets=(('gain', 5.0),),
         )
-        # On rejection: force_invalidate and force_targets still fire; the
-        # applied-gated target is suppressed.
+        # On rejection: force_invalidate and force_clear still fire (the
+        # cleared target is None); the applied-gated target is suppressed.
         assert result is False
         assert events == [('invalidate', 'exposure'), ('set_target', 'exposure', None)]
 

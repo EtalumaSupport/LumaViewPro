@@ -421,7 +421,7 @@ class ImagingAPI:
         invalidates: tuple[str, ...] = (),
         force_invalidate: tuple[str, ...] = (),
         targets: tuple[tuple[str, float | None], ...] = (),
-        force_targets: tuple[tuple[str, float | None], ...] = (),
+        force_clear: tuple[str, ...] = (),
         cache_update: dict[str, object] | None = None,
     ) -> object:
         """Single sanctioned path for a camera-state write and its validity
@@ -446,10 +446,13 @@ class ImagingAPI:
                 of the result.
             targets: ``(source, value)`` pairs passed to ``set_target`` when the
                 write was applied (``value`` None clears the target).
-            force_targets: ``(source, value)`` pairs passed to ``set_target``
-                unconditionally -- the mode/one-shot setters clear their chunk
-                target whether or not the driver reported the write applied
-                (target maintenance stays outside the applied gate).
+            force_clear: Sources whose chunk target is cleared (set to None)
+                unconditionally -- the mode/one-shot setters drop their manual
+                target whether or not the driver reported the write applied, so
+                chunk-match falls back to skip-frames settling (target
+                maintenance stays outside the applied gate). Clear-only by
+                construction: an unconditional write can only ever drop a
+                target, never record one for a possibly-rejected value.
             cache_update: Keys to write into the ``_camera_cache`` snapshot when
                 the write was applied.
 
@@ -460,8 +463,8 @@ class ImagingAPI:
         result = write_fn()
         for source in force_invalidate:
             self.frame_validity.invalidate(source)
-        for source, value in force_targets:
-            self.frame_validity.set_target(source, value)
+        for source in force_clear:
+            self.frame_validity.set_target(source, None)
         applied = result is not False
         if applied:
             for source in invalidates:
@@ -618,7 +621,7 @@ class ImagingAPI:
         self._camera_write(
             _write_auto_gain,
             force_invalidate=('gain', 'auto_gain') if arm_settle else ('gain',),
-            force_targets=(('gain', None),),
+            force_clear=('gain',),
         )
         # Hardware-truth wins over cache after the auto cycle ends.
         if not state:
@@ -640,7 +643,7 @@ class ImagingAPI:
         self._camera_write(
             lambda: self._driver.auto_exposure_t(state),
             force_invalidate=('exposure',),
-            force_targets=(('exposure', None),),
+            force_clear=('exposure',),
         )
         # Hardware-truth wins over cache after the auto cycle ends.
         if not state:
@@ -2302,7 +2305,7 @@ class ImagingAPI:
                 ae_max_exposure_ms=ae_max_exposure_ms,
             ),
             force_invalidate=('gain', 'exposure'),
-            force_targets=(('gain', None), ('exposure', None)),
+            force_clear=('gain', 'exposure'),
         )
         # One-shot AG always ends with the auto cycle complete and the
         # SDK toggled back to Off internally; hardware holds the
