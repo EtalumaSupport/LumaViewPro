@@ -120,8 +120,88 @@ class TestIDS(unittest.TestCase):
         time.sleep(1)  # Allow time for the camera to start grabbing
         result, timestamp = self.camera.grab()
         self.assertTrue(result)
-        self.assertTrue(len(self.camera.array) == 1528)
+        # The grabbed array's row count must match the delivered frame height
+        # (assert against the configured size, not a hard-coded resolution that
+        # goes stale the moment the default frame size changes).
+        self.assertEqual(len(self.camera.array), self.camera.get_frame_size()['height'])
         self.assertIsNotNone(timestamp)
+
+    def _feature_node(self, group, name):
+        """Read one optional-feature node's probe record (presence / access /
+        value / current) back off the live camera via the production diagnostic
+        snapshot. ``group`` is 'remote' or 'stream'."""
+        snap = self.camera.read_diagnostic_snapshot(duration_s=0.2)
+        return snap['feature_nodes'].get(group, {}).get(name, {})
+
+    def test_set_test_pattern_write(self):
+        """The TestPattern setter actually WRITES on hardware (node presence +
+        ReadWrite was already bench-proven; this proves the write lands). The
+        node lives on the remote nodemap and is not gated by the grab lock, so
+        it can be written while streaming and takes effect on subsequent frames.
+        """
+        tp = self._feature_node('remote', 'TestPattern')
+        if not tp.get('present'):
+            self.skipTest(f'TestPattern absent on this body (probe={tp})')
+
+        original = tp.get('current')
+        self.assertTrue(self.camera.set_test_pattern(enabled=True, pattern='ColorBar'))
+        self.assertEqual(self._feature_node('remote', 'TestPattern').get('current'), 'ColorBar')
+
+        # An entry outside the SDK's set is rejected (False, not a raise).
+        self.assertFalse(self.camera.set_test_pattern(enabled=True, pattern='NotAPattern'))
+
+        # Disable restores 'Off'.
+        self.assertTrue(self.camera.set_test_pattern(enabled=False))
+        self.assertEqual(self._feature_node('remote', 'TestPattern').get('current'), 'Off')
+
+        # Leave the camera as we found it.
+        if original and original != 'Off':
+            self.camera.set_test_pattern(enabled=True, pattern=original)
+
+    def test_set_max_transfer_size_write(self):
+        self._assert_stream_param_write(
+            'U3vStreamChannelBulkTransferSize', self.camera.set_max_transfer_size
+        )
+
+    def test_set_num_max_queued_urbs_write(self):
+        self._assert_stream_param_write(
+            'U3vStreamChannelTransferRequestCount', self.camera.set_num_max_queued_urbs
+        )
+
+    def _assert_stream_param_write(self, node_name, setter):
+        """Confirm a DataStream channel-parameter setter writes, and record
+        whether a stopped stream is required. These nodes are transport-layer
+        params bracketed by TLParamsLocked (set 1 in start_grabbing, 0 in
+        stop_grabbing), so a write is expected to be rejected mid-stream and to
+        succeed once acquisition is stopped. The deterministic assertion is the
+        stopped-stream write; the while-grabbing result is recorded for the
+        operator (run with -s) since firmware may or may not allow it live.
+        """
+        node = self._feature_node('stream', node_name)
+        if not node.get('present'):
+            self.skipTest(f'{node_name} absent on this body (probe={node})')
+        original = node.get('value')
+
+        applied_while_grabbing = setter(int(original))
+
+        # Stop acquisition to release the TLParamsLocked transport lock, then the
+        # write must take on a ReadWrite node.
+        self.camera.stop_grabbing()
+        try:
+            self.assertTrue(
+                setter(int(original)), f'{node_name}: write rejected even with the stream stopped'
+            )
+            read_back = self._feature_node('stream', node_name).get('value')
+            self.assertEqual(read_back, original)
+        finally:
+            self.camera.start_grabbing()
+
+        print(
+            f'[stream-param-write] {node_name} value={original} '
+            f'applied_while_grabbing={applied_while_grabbing} '
+            f'applied_when_stopped=True (needs_stopped_stream='
+            f'{not applied_while_grabbing})'
+        )
 
     def test_gain(self):
         self.camera.gain(10)
