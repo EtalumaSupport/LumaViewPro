@@ -448,6 +448,38 @@ class IDSCamera(Camera):
                 info['value'] = f'<error: {type(e).__name__}>'
         return info
 
+    def _probe_feature_nodes(self) -> dict:
+        """Presence + access of the optional-feature candidate nodes on this
+        body, grouped by nodemap (remote, then DataStream). A few capabilities a
+        setter might want -- an internal test pattern, chunk data, USB3
+        transfer-size tuning -- are exposed only on some IDS bodies and are not
+        confirmed on the U3-34L0XCP-M. Used by both the diagnostic snapshot and
+        the one-shot free-run log so a normal-startup bundle already shows which
+        exist + are writable, without a separate probe run.
+        """
+        remote = {
+            name: self._diag_probe_node(self.remote_nodemap, name)
+            for name in ('TestPattern', 'ChunkModeActive', 'ChunkSelector')
+        }
+        stream: dict = {}
+        try:
+            nodemaps = self.data_stream.NodeMaps()
+            stream_nm = nodemaps[0] if nodemaps else None
+        except Exception as e:
+            stream_nm = None
+            stream['_access_error'] = f'NodeMaps() raised: {type(e).__name__}: {e}'
+        if stream_nm is None:
+            # Distinguish 'nodemap never resolved' from 'probed and absent' so
+            # the record stays honest about which (mirrors _read_stream_stats).
+            stream.setdefault('_access_error', 'no DataStream nodemaps')
+        else:
+            for name in (
+                'U3vStreamChannelBulkTransferSize',
+                'U3vStreamChannelTransferRequestCount',
+            ):
+                stream[name] = self._diag_probe_node(stream_nm, name)
+        return {'remote': remote, 'stream': stream}
+
     def _read_stream_stats(self) -> dict:
         """Read the GenTL DataStream statistics counters, defensively.
 
@@ -553,34 +585,10 @@ class IDSCamera(Camera):
             except Exception as e:
                 result['buffers'][key] = f'<missing: {type(e).__name__}>'
 
-        # Optional-feature node probe. A few capabilities a setter might want --
-        # an internal test pattern, chunk data, USB3 transfer-size tuning -- are
-        # exposed only on some IDS bodies and are not confirmed on the
-        # U3-34L0XCP-M. Probe each candidate's presence + access here (remote
-        # nodemap first, then the DataStream nodemap for the transfer-tuning
-        # nodes) so one bench snapshot settles whether a setter can rely on it.
-        feature_remote = {
-            name: self._diag_probe_node(self.remote_nodemap, name)
-            for name in ('TestPattern', 'ChunkModeActive', 'ChunkSelector')
-        }
-        feature_stream: dict = {}
-        try:
-            nodemaps = self.data_stream.NodeMaps()
-            stream_nm = nodemaps[0] if nodemaps else None
-        except Exception as e:
-            stream_nm = None
-            feature_stream['_access_error'] = f'NodeMaps() raised: {type(e).__name__}: {e}'
-        if stream_nm is None:
-            # Distinguish 'nodemap never resolved' from 'probed and absent' so
-            # the snapshot stays honest about which (mirrors _read_stream_stats).
-            feature_stream.setdefault('_access_error', 'no DataStream nodemaps')
-        else:
-            for name in (
-                'U3vStreamChannelBulkTransferSize',
-                'U3vStreamChannelTransferRequestCount',
-            ):
-                feature_stream[name] = self._diag_probe_node(stream_nm, name)
-        result['feature_nodes'] = {'remote': feature_remote, 'stream': feature_stream}
+        # Optional-feature candidate nodes (test pattern, chunk data, USB3
+        # transfer-size tuning) -- presence + access on this body, so the
+        # snapshot settles whether a setter can rely on each one.
+        result['feature_nodes'] = self._probe_feature_nodes()
 
         # Statistics sampling window.
         result['stats_pre'] = self._read_stream_stats()
@@ -895,6 +903,12 @@ class IDSCamera(Camera):
             f'DeviceLinkThroughputLimit={dltl}/{dltl_max} B/s '
             f'AcquisitionFrameRate={rate}/{rate_max} fps'
         )
+
+        # Optional-feature candidate nodes, logged on every bring-up so a normal
+        # log bundle already records which exist + are writable on this body.
+        # _probe_feature_nodes is internally defensive (each read is sentineled),
+        # so it never raises here.
+        logger.info(f'[CAM Class ] Optional-feature nodes: {self._probe_feature_nodes()}')
 
     def benchmark_unpack(self, n_frames: int = 200) -> dict:
         """Decode each packed buffer by BOTH the SDK ConvertTo and the numpy
