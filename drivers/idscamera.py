@@ -1090,7 +1090,7 @@ class IDSCamera(Camera):
         results['numpy'] = _stat(numpy_ms)
         return results
 
-    def set_frame_size(self, w, h) -> bool:
+    def set_frame_size(self, w, h) -> dict | bool:
         """Deliver exactly the requested frame size via oversize-then-crop.
 
         The IMX676 AOI snaps to a coarse grid (48 px wide, 4 px tall), so a
@@ -1100,6 +1100,11 @@ class IDSCamera(Camera):
         unpack worker crops back to the exact request. The hardware AOI (the
         oversized acquisition) is diagnostic only; the delivered, public size is
         the cropped target.
+
+        Returns the delivered size as ``{'width': w, 'height': h}`` on success
+        so the caller knows what was actually applied without a read-back (a
+        live get_frame_size() can spuriously drop the camera on a transient
+        error); returns False when the camera is inactive or the apply fails.
         """
         if not self.active:
             # Expected during disconnect/teardown; log so a dropped resize is
@@ -1216,7 +1221,7 @@ class IDSCamera(Camera):
                 f'off=({plan.offset_x},{plan.offset_y}) bias={bias} '
                 f'crop=({plan.crop_x0},{plan.crop_y0},{plan.crop_width},{plan.crop_height})'
             )
-            return True
+            return {'width': plan.crop_width, 'height': plan.crop_height}
         except Exception as e:
             # A partially-applied AOI (offsets zeroed, or Width/Height set but
             # the crop not yet recorded) must not leave a stale crop window for
@@ -1417,8 +1422,12 @@ class IDSCamera(Camera):
             self._pixel_format_cache = resolved
             return True
         except Exception as e:
+            # A transient PixelFormat write failure is not a removal: raise
+            # HardwareError so it propagates, but do NOT _mark_disconnected --
+            # that drops the camera mid-resize over a recoverable fault.
+            # set_binning_size (same update_camera_config machinery) handles it
+            # this way; matching keeps the geometry setters consistent.
             _cam_log.error(f'[CAM Class ] set_pixel_format({resolved}) failed: {e}')
-            self._mark_disconnected()
             raise HardwareError(
                 f'set_pixel_format({resolved}) failed: {type(e).__name__}: {e}'
             ) from e

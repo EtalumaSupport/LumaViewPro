@@ -1850,9 +1850,11 @@ class TestSetBinningSizeReturnsBool:
         with pytest.raises(HardwareError):
             cam.set_binning_size(2)
 
-    def test_idscamera_set_pixel_format_raises_and_annotated(self):
-        """Tier 3a / C3 + Tier 1-A: annotation declared, raises
-        HardwareError and marks disconnected on SDK failure."""
+    def test_idscamera_set_pixel_format_raises_without_disconnect(self):
+        """Tier 3a / C3 + Tier 1-A: annotation declared, raises HardwareError on
+        SDK failure but does NOT mark the camera disconnected -- a transient
+        PixelFormat write fault is recoverable, not a removal, so it must not
+        drop the camera mid-resize (matches set_binning_size, same machinery)."""
         from tests.ast_seams import assert_def
 
         from drivers.exceptions import HardwareError
@@ -1869,7 +1871,7 @@ class TestSetBinningSizeReturnsBool:
         cam.remote_nodemap.FindNode.return_value.SetCurrentEntry.side_effect = RuntimeError('sdk')
         with pytest.raises(HardwareError):
             cam.set_pixel_format('Mono8')
-        cam._mark_disconnected.assert_called_once()
+        cam._mark_disconnected.assert_not_called()
 
 
 class TestHomeReturnsBool:

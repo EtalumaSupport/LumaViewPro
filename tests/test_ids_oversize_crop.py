@@ -126,7 +126,7 @@ def test_set_frame_size_oversizes_centers_and_records_crop():
     centers on the sensor, and the crop trims the 20-px surplus back to 1900."""
     cam = _ids_camera_with_aoi()
 
-    assert cam.set_frame_size(1900, 1900) is True
+    assert cam.set_frame_size(1900, 1900) == {'width': 1900, 'height': 1900}
 
     # Hardware AOI is the oversized acquisition; height (mult of 4) is exact.
     assert cam.get_acquired_aoi() == {'width': 1920, 'height': 1900}
@@ -163,7 +163,7 @@ def test_2x_binning_request_below_min_width_delivers_square():
     # Height Min=418 Inc=4, max AOI ~1776x1774.
     cam = _ids_camera_with_aoi(sensor=(1776, 1774), minimums={'Width': 1056, 'Height': 418})
 
-    assert cam.set_frame_size(950, 950) is True
+    assert cam.set_frame_size(950, 950) == {'width': 950, 'height': 950}
 
     # The AOI floors up to the 1056 width minimum; 950 is on the 418 + k*4 grid.
     assert cam.get_acquired_aoi() == {'width': 1056, 'height': 950}
@@ -179,7 +179,7 @@ def test_request_near_sensor_max_delivers_clamped_size_truthfully():
     truthfully via get_frame_size, still returning True (the op applied)."""
     cam = _ids_camera_with_aoi(sensor=(1900, 1900))
 
-    assert cam.set_frame_size(1900, 1900) is True
+    assert cam.set_frame_size(1900, 1900) == {'width': 1872, 'height': 1900}
     # 1900 width cannot land on the 48-px grid below an 1900 max -> 1872.
     assert cam.get_frame_size() == {'width': 1872, 'height': 1900}
 
@@ -273,7 +273,7 @@ def test_set_frame_size_on_phased_height_grid_2x_binning():
     (950) and crops back to the exact request (948)."""
     cam = _ids_camera_with_aoi(sensor=(1056, 1050), minimums={'Height': 418})
 
-    assert cam.set_frame_size(950, 948) is True
+    assert cam.set_frame_size(950, 948) == {'width': 950, 'height': 948}
     aoi = cam.get_acquired_aoi()
     assert (aoi['height'] - 418) % 4 == 0  # legal Min + k*Inc, not off-grid 948
     assert aoi['height'] == 950
@@ -288,7 +288,7 @@ def test_optical_center_bias_is_neutral():
     failure to resize)."""
     cam = _ids_camera_with_aoi()
     assert cam._optical_center_bias() == (0, 0)
-    assert cam.set_frame_size(1900, 1900) is True
+    assert cam.set_frame_size(1900, 1900) == {'width': 1900, 'height': 1900}
 
 
 def test_unpack_crops_converted_frame_to_target(monkeypatch):
