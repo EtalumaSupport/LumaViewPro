@@ -658,10 +658,13 @@ class ImagingAPI:
         if not self._driver or not self._driver.active:
             self._notify_camera_absent('frame size')
             return
-        self._driver.set_frame_size(w, h)
-        self.frame_validity.invalidate('frame_size')
-        with self._camera_cache_lock:
-            self._camera_cache['frame_size'] = {'width': int(w), 'height': int(h)}
+        # A frame-size change reallocates buffers; the pipeline must flush, so
+        # invalidate unconditionally and snapshot the new geometry.
+        self._camera_write(
+            lambda: self._driver.set_frame_size(w, h),
+            force_invalidate=('frame_size',),
+            cache_update={'frame_size': {'width': int(w), 'height': int(h)}},
+        )
 
     def _notify_camera_absent(self, op_label: str) -> None:
         """Fire a deduped notification when a camera-required operation
@@ -703,12 +706,16 @@ class ImagingAPI:
             self._binning_size = size
 
             if self._driver:
-                ok = self._driver.set_binning_size(size=size)
+                # Binning realloc only takes effect when the driver applied it,
+                # so the invalidate is gated on the driver result.
+                ok = self._camera_write(
+                    lambda: self._driver.set_binning_size(size=size),
+                    invalidates=('binning',),
+                    gate_on_result=True,
+                )
             else:
                 ok = False
                 self._notify_camera_absent('binning')
-            if ok:
-                self.frame_validity.invalidate('binning')
             _api_log.info(f'set_binning {size}x{size} -> {ok}')
             return ok
         except Exception as ex:
@@ -739,7 +746,14 @@ class ImagingAPI:
             self._notify_camera_absent('pixel format')
             return False
         try:
-            result = self._driver.set_pixel_format(pixel_format)
+            # Format change reallocates geometry only when the driver applied
+            # it, so invalidate + snapshot are gated on the driver result.
+            result = self._camera_write(
+                lambda: self._driver.set_pixel_format(pixel_format),
+                invalidates=('pixel_format',),
+                cache_update={'pixel_format': pixel_format},
+                gate_on_result=True,
+            )
         except Exception as ex:
             logger.exception(f'[SCOPE API ] Error setting pixel format: {ex}')
             from modules.notification_center import notifications
@@ -752,10 +766,6 @@ class ImagingAPI:
                 f'previous format.',
             )
             return False
-        if result:
-            self.frame_validity.invalidate('pixel_format')
-            with self._camera_cache_lock:
-                self._camera_cache['pixel_format'] = pixel_format
         return result
 
     def set_conversion_gain_mode(self, mode: str) -> bool:
@@ -784,7 +794,11 @@ class ImagingAPI:
             )
             return False
         try:
-            result = self._driver.set_conversion_gain_mode(mode)
+            result = self._camera_write(
+                lambda: self._driver.set_conversion_gain_mode(mode),
+                invalidates=('conversion_gain_mode',),
+                gate_on_result=True,
+            )
         except Exception as ex:
             logger.exception(f'[SCOPE API ] Error setting conversion gain mode: {ex}')
             from modules.notification_center import notifications
@@ -796,8 +810,6 @@ class ImagingAPI:
                 f'{type(ex).__name__}: {ex}. Camera may still be at the previous mode.',
             )
             return False
-        if result:
-            self.frame_validity.invalidate('conversion_gain_mode')
         return result
 
     def set_line_noise_reduction(self, enabled: bool) -> bool:
@@ -825,7 +837,11 @@ class ImagingAPI:
             )
             return False
         try:
-            result = self._driver.set_line_noise_reduction(enabled=enabled)
+            result = self._camera_write(
+                lambda: self._driver.set_line_noise_reduction(enabled=enabled),
+                invalidates=('line_noise_reduction',),
+                gate_on_result=True,
+            )
         except Exception as ex:
             logger.exception(f'[SCOPE API ] Error setting line noise reduction: {ex}')
             from modules.notification_center import notifications
@@ -837,8 +853,6 @@ class ImagingAPI:
                 f'{type(ex).__name__}: {ex}.',
             )
             return False
-        if result:
-            self.frame_validity.invalidate('line_noise_reduction')
         return result
 
     # --- SDK-perf knobs (write-only by design) ---
