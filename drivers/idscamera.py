@@ -646,15 +646,22 @@ class IDSCamera(Camera):
             comp = self.remote_nodemap.FindNode('DeviceLinkThroughputLimitComponent')
             entries = [e.SymbolicValue() for e in comp.AvailableEntries()]
             current = comp.CurrentEntry().SymbolicValue()
+            # The node's access status tells WHY a non-Link current persisted: a
+            # read-only node is a firmware/body limitation we cannot lift, while a
+            # writable one means the 'Link' set failed for another reason -- so the
+            # bundle distinguishes the two without a probe. The U3-34L reports this
+            # ReadOnly (bench 2026-06-28), locking the rate to Sensor mode.
+            access = comp.AccessStatus() if hasattr(comp, 'AccessStatus') else '<no AccessStatus>'
             if current == 'Link':
                 logger.info(
                     f'[CAM Class ] Free-run: ThroughputLimitComponent=Link applied '
-                    f'(available={entries})'
+                    f'(available={entries}, access={access})'
                 )
             else:
                 _cam_log.warning(
                     f'[CAM Class ] Free-run: ThroughputLimitComponent={current}, NOT Link '
-                    f'(available={entries}) -- rate stays Sensor-throttled below the wire ceiling'
+                    f'(available={entries}, access={access}) -- rate stays Sensor-throttled '
+                    f'below the wire ceiling'
                 )
         except Exception as e:
             _cam_log.warning(
