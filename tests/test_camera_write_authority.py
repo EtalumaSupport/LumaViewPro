@@ -126,10 +126,17 @@ class TestAutoSetterSequences:
     window arms only because invalidate('auto_gain') fires here."""
 
     def test_set_auto_gain_enable_arms_settle_window(self, imaging_capable):
+        # The write authority emits all invalidations before the target-clear,
+        # so 'auto_gain' invalidate precedes the gain target-clear here. That
+        # reorder vs the pre-authority code is semantically inert: invalidate
+        # and set_target write independent frame_validity entries (pending vs
+        # target), and the only load-bearing order -- write before invalidate --
+        # is preserved. The arm itself (invalidate('auto_gain')) is what matters.
         cam = imaging_capable._driver
-        expected = [('invalidate', 'gain'), ('set_target', 'gain', None)]
+        expected = [('invalidate', 'gain')]
         if getattr(cam.profile, 'has_auto_gain', False):
             expected.append(('invalidate', 'auto_gain'))
+        expected.append(('set_target', 'gain', None))
         events = _record_validity_events(imaging_capable)
         imaging_capable.set_auto_gain(
             True,
@@ -307,3 +314,16 @@ class TestCameraWriteAuthority:
             ('set_target', 'gain', None),
             ('set_target', 'exposure', None),
         ]
+
+    def test_force_targets_fire_even_on_rejection(self, imaging_capable):
+        events = _record_validity_events(imaging_capable)
+        result = imaging_capable._camera_write(
+            lambda: False,
+            force_invalidate=('exposure',),
+            force_targets=(('exposure', None),),
+            targets=(('gain', 5.0),),
+        )
+        # On rejection: force_invalidate and force_targets still fire; the
+        # applied-gated target is suppressed.
+        assert result is False
+        assert events == [('invalidate', 'exposure'), ('set_target', 'exposure', None)]

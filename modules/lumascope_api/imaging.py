@@ -421,6 +421,7 @@ class ImagingAPI:
         invalidates: tuple[str, ...] = (),
         force_invalidate: tuple[str, ...] = (),
         targets: tuple[tuple[str, float | None], ...] = (),
+        force_targets: tuple[tuple[str, float | None], ...] = (),
         cache_update: dict[str, object] | None = None,
         gate_on_result: bool = False,
     ) -> object:
@@ -443,6 +444,10 @@ class ImagingAPI:
                 of the result.
             targets: ``(source, value)`` pairs passed to ``set_target`` when the
                 write was applied (``value`` None clears the target).
+            force_targets: ``(source, value)`` pairs passed to ``set_target``
+                unconditionally -- the mode/one-shot setters clear their chunk
+                target whether or not the driver reported the write applied
+                (target maintenance stays outside the applied gate).
             cache_update: Keys to write into the ``_camera_cache`` snapshot when
                 the write was applied.
             gate_on_result: True means "applied" is ``bool(result)`` (the
@@ -456,6 +461,8 @@ class ImagingAPI:
         result = write_fn()
         for source in force_invalidate:
             self.frame_validity.invalidate(source)
+        for source, value in force_targets:
+            self.frame_validity.set_target(source, value)
         applied = bool(result) if gate_on_result else (result is not False)
         if applied:
             for source in invalidates:
@@ -589,24 +596,31 @@ class ImagingAPI:
 
         if not self._driver or not self._driver.active:
             return
-        self._driver.auto_gain(
-            state,
-            target_brightness=settings['target_brightness'],
-            min_gain_db=settings['min_gain_db'],
-            max_gain_db=settings['max_gain_db'],
-            ae_max_exposure_ms=settings.get('max_exposure_ms'),
+
+        def _write_auto_gain():
+            self._driver.auto_gain(
+                state,
+                target_brightness=settings['target_brightness'],
+                min_gain_db=settings['min_gain_db'],
+                max_gain_db=settings['max_gain_db'],
+                ae_max_exposure_ms=settings.get('max_exposure_ms'),
+            )
+
+        # Auto-gain dynamically adjusts the value, so clear the manual gain
+        # target (chunk-match falls back to skip-frames calibration). Arming
+        # hardware continuous AG needs the camera several frames to settle
+        # against the lit scene, so invalidate 'auto_gain' to hold capture for
+        # the settle count -- gated on the camera actually having hardware AG
+        # (cameras without it reach correct exposure through a future software-AG
+        # loop that reuses the gain/exposure settle sources, not this one). The
+        # mode flip leaves the gain value node unchanged, so these are forced,
+        # not gated on a value delta.
+        arm_settle = state and getattr(self._driver.profile, 'has_auto_gain', False)
+        self._camera_write(
+            _write_auto_gain,
+            force_invalidate=('gain', 'auto_gain') if arm_settle else ('gain',),
+            force_targets=(('gain', None),),
         )
-        self.frame_validity.invalidate('gain')
-        # Auto-gain dynamically adjusts the value; clear the manual target
-        # so chunk-match falls back to skip-frames calibration.
-        self.frame_validity.set_target('gain', None)
-        # Arming hardware continuous AG needs the camera several frames to
-        # settle against the lit scene; wait the auto_gain settle count before
-        # a capture grabs. Gated on the camera actually having hardware AG --
-        # cameras without it reach correct exposure through a future software-AG
-        # loop that reuses the gain/exposure settle sources, not this one.
-        if state and getattr(self._driver.profile, 'has_auto_gain', False):
-            self.frame_validity.invalidate('auto_gain')
         # Hardware-truth wins over cache after the auto cycle ends.
         if not state:
             self._refresh_cache_from_hardware_after_auto()
@@ -620,11 +634,15 @@ class ImagingAPI:
 
         if not self._driver or not self._driver.active:
             return
-        self._driver.auto_exposure_t(state)
-        self.frame_validity.invalidate('exposure')
-        # Auto-exposure dynamically adjusts the value; clear the manual
-        # target so chunk-match falls back to skip-frames calibration.
-        self.frame_validity.set_target('exposure', None)
+        # Auto-exposure dynamically adjusts the value, so clear the manual
+        # exposure target (chunk-match falls back to skip-frames calibration).
+        # The mode flip leaves the exposure value node unchanged, so the
+        # invalidate + target-clear are forced, not gated on a value delta.
+        self._camera_write(
+            lambda: self._driver.auto_exposure_t(state),
+            force_invalidate=('exposure',),
+            force_targets=(('exposure', None),),
+        )
         # Hardware-truth wins over cache after the auto cycle ends.
         if not state:
             self._refresh_cache_from_hardware_after_auto()
