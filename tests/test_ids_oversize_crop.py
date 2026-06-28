@@ -137,6 +137,27 @@ def test_set_frame_size_oversizes_centers_and_records_crop():
     assert cam.get_frame_size() == {'width': 1900, 'height': 1900}
 
 
+def test_2x_binning_request_below_min_width_delivers_square():
+    """At 2x binning the Width minimum (1056) exceeds a half-resolution 950
+    request, so the AOI must floor UP to 1056 -- but the DELIVERED frame must
+    still be the square 950x950 the caller asked for, trimmed from the 1056 AOI
+    by the oversize-then-crop window. Flooring the crop TARGET to the node
+    minimum instead delivered 1056x950 (non-square) because the crop then had
+    nothing to trim."""
+    # 2x-binned IMX676 node bounds (bench-probed): Width Min=1056 Inc=48,
+    # Height Min=418 Inc=4, max AOI ~1776x1774.
+    cam = _ids_camera_with_aoi(sensor=(1776, 1774), minimums={'Width': 1056, 'Height': 418})
+
+    assert cam.set_frame_size(950, 950) is True
+
+    # The AOI floors up to the 1056 width minimum; 950 is on the 418 + k*4 grid.
+    assert cam.get_acquired_aoi() == {'width': 1056, 'height': 950}
+    # The delivered (public) size is the exact square request, not the floored AOI.
+    assert cam.get_frame_size() == {'width': 950, 'height': 950}
+    assert cam._crop_spec is not None
+    assert cam._crop_spec[2:] == (950, 950)
+
+
 def test_request_near_sensor_max_delivers_clamped_size_truthfully():
     """When no legal AOI can supply the request (within one alignment step of the
     sensor max), set_frame_size delivers the largest legal size and reports it

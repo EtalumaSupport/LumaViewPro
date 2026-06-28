@@ -857,11 +857,19 @@ class IDSCamera(Camera):
             offset_y_node = nodemap.FindNode('OffsetY')
 
             # Width/Height Minimum is offset-independent, so read it once here
-            # and reuse for both the request floor (target) and the grid phase
-            # (size_min below). The offset minimums DO depend on the offsets, so
-            # they are read later with the offsets zeroed.
+            # and reuse for the grid phase (size_min below). The offset minimums
+            # DO depend on the offsets, so they are read later with the offsets
+            # zeroed.
             w_min, h_min = width_node.Minimum(), height_node.Minimum()
-            target = (max(w_min, int(w)), max(h_min, int(h)))
+            # The request is the crop TARGET, not the acquisition floor -- pass
+            # it through verbatim. plan_aoi rounds the ACQUISITION up to the next
+            # legal AOI (always >= the node minimum) and crops it back to exactly
+            # this target, so a request below the node minimum is still delivered
+            # at the requested size: a 950-wide frame at 2x binning, where
+            # Width.Min is 1056, acquires 1056 and crops to 950 (square). Flooring
+            # the target up to the minimum here instead delivered the floored size
+            # (1056x950, non-square) because the crop then had nothing to trim.
+            target = (int(w), int(h))
             # Alignment step from the SDK nodemap, not the profile: the hardware
             # increment is authoritative (48 wide on the IMX676 bodies), and an
             # unrecognized model falls back to a default profile whose alignment
