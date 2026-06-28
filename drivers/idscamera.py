@@ -117,6 +117,29 @@ _DIAG_STREAM_COUNTERS = (
 )
 
 
+# ids_peak NodeAccessStatus codes (the SDK returns the integer enum value).
+# Mapped to symbolic names so a log bundle reads 'ReadOnly' not '3'. 3/4 are
+# bench-confirmed on the U3-34L (the throughput component reads 3 = ReadOnly,
+# the writable feature nodes read 4); 0/1 (NotImplemented/NotAvailable) order
+# differs between GenApi and the IDS enum, so unknown codes fall back to a
+# labelled integer rather than a guessed name.
+_NODE_ACCESS_STATUS_NAMES = {
+    2: 'WriteOnly',
+    3: 'ReadOnly',
+    4: 'ReadWrite',
+}
+
+
+def _access_status_name(raw) -> str:
+    """Symbolic name for an ids_peak NodeAccessStatus value; falls back to a
+    labelled integer (unknown code) or its string form (non-integer)."""
+    try:
+        code = int(raw)
+    except (TypeError, ValueError):
+        return str(raw)
+    return _NODE_ACCESS_STATUS_NAMES.get(code, f'AccessStatus({code})')
+
+
 @camera_registry.register('ids', priority=80)
 class IDSCamera(Camera):
     """IDS Peak driver for the U3-34L0XCP-M (Sony IMX676, packed Mono10/12).
@@ -423,7 +446,9 @@ class IDSCamera(Camera):
         info: dict = {'present': True}
         try:
             info['access'] = (
-                node.AccessStatus() if hasattr(node, 'AccessStatus') else '<no AccessStatus>'
+                _access_status_name(node.AccessStatus())
+                if hasattr(node, 'AccessStatus')
+                else '<no AccessStatus>'
             )
         except Exception as e:
             info['access'] = f'<error: {type(e).__name__}>'
@@ -869,7 +894,11 @@ class IDSCamera(Camera):
             # writable one means the 'Link' set failed for another reason -- so the
             # bundle distinguishes the two without a probe. The U3-34L reports this
             # ReadOnly (bench 2026-06-28), locking the rate to Sensor mode.
-            access = comp.AccessStatus() if hasattr(comp, 'AccessStatus') else '<no AccessStatus>'
+            access = (
+                _access_status_name(comp.AccessStatus())
+                if hasattr(comp, 'AccessStatus')
+                else '<no AccessStatus>'
+            )
             if current == 'Link':
                 logger.info(
                     f'[CAM Class ] Free-run: ThroughputLimitComponent=Link applied '
@@ -1613,20 +1642,53 @@ class IDSCamera(Camera):
         body is USB3 Vision. Stub False (no GEV transport to tune)."""
         return False
 
+    def _set_data_stream_int_node(self, node_name: str, value: int, method_label: str) -> bool:
+        """Write an integer to a DataStream-nodemap node (the USB3 transfer-
+        tuning channel parameters). Returns True on success; False if the camera
+        is inactive, the DataStream nodemap is unavailable, the node is absent on
+        this body, or the SDK rejects the write -- the channel parameters are
+        typically locked while the stream is grabbing, so a runtime write can
+        fail and the caller must stop the stream first if it needs the change to
+        take. Never raises.
+        """
+        if not self.active or self.data_stream is None:
+            return False
+        try:
+            nodemaps = self.data_stream.NodeMaps()
+            stream_nm = nodemaps[0] if nodemaps else None
+            if stream_nm is None:
+                return False
+            node = stream_nm.FindNode(node_name)
+            if node is None:
+                return False
+            node.SetValue(int(value))
+            return True
+        except Exception as e:
+            _cam_log.warning(
+                f'[CAM Class ] IDS {method_label}({value}) failed: {type(e).__name__}: {e}'
+            )
+            return False
+
     def set_max_transfer_size(self, value_bytes: int) -> bool:
-        """Pylon's StreamGrabber MaxTransferSize has no direct IDS analogue; the
-        nearest is the DataStream node U3vStreamChannelBulkTransferSize, whose
-        presence + access on this body is probed by read_diagnostic_snapshot
-        (feature_nodes.stream). Stub False until that is bench-confirmed."""
-        return False
+        """Set the DataStream U3vStreamChannelBulkTransferSize -- the IDS analogue
+        of Pylon's StreamGrabber MaxTransferSize (bytes per USB transfer the SDK
+        requests). Bench-confirmed ReadWrite on the U3-34L0XCP-M. Returns False
+        if inactive / node absent / the SDK rejects (e.g. locked while grabbing).
+        """
+        return self._set_data_stream_int_node(
+            'U3vStreamChannelBulkTransferSize', int(value_bytes), 'set_max_transfer_size'
+        )
 
     def set_num_max_queued_urbs(self, value: int) -> bool:
-        """Pylon's StreamGrabber NumMaxQueuedUrbs has no direct IDS analogue; the
-        nearest is the DataStream node U3vStreamChannelTransferRequestCount,
-        whose presence + access on this body is probed by
-        read_diagnostic_snapshot (feature_nodes.stream). Stub False until that
-        is bench-confirmed."""
-        return False
+        """Set the DataStream U3vStreamChannelTransferRequestCount -- the IDS
+        analogue of Pylon's StreamGrabber NumMaxQueuedUrbs (count of in-flight
+        USB transfer requests). Bench-confirmed ReadWrite on the U3-34L0XCP-M
+        (observed range up to 6). Returns False if inactive / node absent / the
+        SDK rejects the write.
+        """
+        return self._set_data_stream_int_node(
+            'U3vStreamChannelTransferRequestCount', int(value), 'set_num_max_queued_urbs'
+        )
 
     def set_max_acquisition_frame_rate(self, enabled: bool, fps: float = 1.0):
         if not self.active:
@@ -1861,12 +1923,27 @@ class IDSCamera(Camera):
             _cam_log.error(f'[CAM Class ] auto_gain_once failed: {e}')
             return False
 
-    def set_test_pattern(self, enabled: bool = False, pattern: str = 'Black'):
-        """No-op until bench-confirmed. Some IDS bodies expose a TestPattern
-        node, but its presence + access on the U3-34L is unverified; it is
-        probed by read_diagnostic_snapshot (feature_nodes.remote) so a setter
-        can be wired here once a bench snapshot confirms the node exists."""
-        pass
+    def set_test_pattern(self, enabled: bool = False, pattern: str = 'Black') -> bool:
+        """Apply the IDS TestPattern node: 'Off' when disabled, else the named
+        pattern. Bench-confirmed ReadWrite on the U3-34L0XCP-M with entries
+        Off / Black / White / ColorBar / ColorBarVertical / Gray / LightGrey;
+        a pattern outside that set is rejected by the SDK. Returns True on
+        success, False if inactive / node absent / the SDK rejects the entry
+        (the bool signals the caller, matching the driver's other setters).
+        Takes effect on subsequent free-run frames."""
+        if not self.active or self.remote_nodemap is None:
+            return False
+        entry = pattern if enabled else 'Off'
+        try:
+            self.remote_nodemap.FindNode('TestPattern').SetCurrentEntry(entry)
+            _cam_log.info(f'[CAM Class ] ids TestPattern.SetCurrentEntry({entry})')
+            return True
+        except Exception as e:
+            _cam_log.warning(
+                f'[CAM Class ] IDS set_test_pattern(enabled={enabled}, pattern={pattern}) '
+                f'failed: {type(e).__name__}: {e}'
+            )
+            return False
 
 
 def _exc_is(exc: Exception, type_name: str, *substrings: str) -> bool:

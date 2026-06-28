@@ -7817,7 +7817,10 @@ class TestStreamGrabberSetters:
     NumMaxQueuedUrbs is the lever for "insufficient system memory"
     symptoms (USB3 only). The Pylon driver raises HardwareError on SDK
     RuntimeException and on missing-node (GigE / non-USB3); the API
-    layer notifies + re-raises. IDS stubs return False.
+    layer notifies + re-raises. The IDS driver writes the bench-confirmed
+    equivalent nodes (TestPattern, U3vStreamChannelBulkTransferSize,
+    U3vStreamChannelTransferRequestCount), returning False when inactive
+    or the node is absent.
 
     A6 / B16 closure (AUDIT_PYLONCAMERA_2026-05-07.md).
     """
@@ -7907,10 +7910,16 @@ class TestStreamGrabberSetters:
         assert_def('drivers/pyloncamera.py', 'set_max_transfer_size')
         assert_def('drivers/pyloncamera.py', 'set_num_max_queued_urbs')
 
-    def test_ids_driver_stubs_return_false(self):
-        from drivers.idscamera import IDSCamera
+    def test_ids_driver_setters_return_false_when_inactive(self):
+        # These were stubs; they now perform real node writes (TestPattern and
+        # the U3vStreamChannel* transfer-tuning nodes are bench-confirmed
+        # ReadWrite on the U3-34L0XCP-M) but still return False when the camera
+        # is inactive, so the API layer can call them unconditionally. Full
+        # write coverage lives in tests/test_ids_transport_setters.py.
+        from tests.camera_fakes import bare_ids_camera
 
-        camera = IDSCamera.__new__(IDSCamera)
+        camera = bare_ids_camera()
+        camera.active = False
         assert camera.set_max_transfer_size(262144) is False
         assert camera.set_num_max_queued_urbs(64) is False
 
