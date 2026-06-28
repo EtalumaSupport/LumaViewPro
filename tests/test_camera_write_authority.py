@@ -21,13 +21,35 @@ driver-lacks-method path.
 
 from __future__ import annotations
 
+import ast
 import threading
+from pathlib import Path
 
 import pytest
 
 from drivers.simulated_camera import SimulatedCamera
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.imaging import ImagingAPI
+
+# Driver methods that mutate camera state. A call to any of these must be wrapped
+# in a write thunk handed to ImagingAPI._camera_write, never issued directly --
+# that is what couples every camera write to its frame-validity invalidation.
+CAMERA_WRITE_METHODS = frozenset(
+    {
+        'gain',
+        'exposure_t',
+        'auto_gain',
+        'auto_exposure_t',
+        'auto_gain_once',
+        'set_frame_size',
+        'set_binning_size',
+        'set_pixel_format',
+        'set_conversion_gain_mode',
+        'set_line_noise_reduction',
+    }
+)
+
+_IMAGING_SRC = Path(__file__).resolve().parent.parent / 'modules' / 'lumascope_api' / 'imaging.py'
 
 
 class _CamWriteCapableSim(SimulatedCamera):
@@ -327,3 +349,170 @@ class TestCameraWriteAuthority:
         # applied-gated target is suppressed.
         assert result is False
         assert events == [('invalidate', 'exposure'), ('set_target', 'exposure', None)]
+
+
+def _imaging_tree():
+    return ast.parse(_IMAGING_SRC.read_text())
+
+
+def _parent_map(tree):
+    parents = {}
+    for node in ast.walk(tree):
+        for child in ast.iter_child_nodes(node):
+            parents[id(child)] = node
+    return parents
+
+
+def _find_funcdef(tree, name):
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == name:
+            return node
+    return None
+
+
+def _is_attr_call(node, owner_attr, method_set):
+    """Match self.<owner_attr>.<method>(...) where method in method_set."""
+    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+        return None
+    if node.func.attr not in method_set:
+        return None
+    owner = node.func.value
+    if (
+        isinstance(owner, ast.Attribute)
+        and owner.attr == owner_attr
+        and isinstance(owner.value, ast.Name)
+        and owner.value.id == 'self'
+    ):
+        return node.func.attr
+    return None
+
+
+def _camera_write_calls(tree):
+    """Every self._camera_write(...) call node."""
+    calls = []
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == '_camera_write'
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == 'self'
+        ):
+            calls.append(node)
+    return calls
+
+
+def _enclosing_thunk(node, parents):
+    """Nearest enclosing Lambda or FunctionDef above node."""
+    cur = parents.get(id(node))
+    while cur is not None:
+        if isinstance(cur, (ast.Lambda, ast.FunctionDef)):
+            return cur
+        cur = parents.get(id(cur))
+    return None
+
+
+def _invalidate_offenders(tree):
+    """Line numbers where self.frame_validity.invalidate(...) is called outside
+    the _camera_write authority method."""
+    authority = _find_funcdef(tree, '_camera_write')
+    inside = set(map(id, ast.walk(authority))) if authority is not None else set()
+    return [
+        node.lineno
+        for node in ast.walk(tree)
+        if _is_attr_call(node, 'frame_validity', {'invalidate'}) and id(node) not in inside
+    ]
+
+
+def _driver_write_offenders(tree):
+    """(offenders, found_count): camera driver writes not wrapped in a thunk
+    handed to self._camera_write."""
+    parents = _parent_map(tree)
+    wired_lambdas = set()
+    wired_closure_names = set()
+    for call in _camera_write_calls(tree):
+        for arg in call.args:
+            if isinstance(arg, ast.Lambda):
+                wired_lambdas.add(id(arg))
+            elif isinstance(arg, ast.Name):
+                wired_closure_names.add(arg.id)
+
+    offenders = []
+    found = 0
+    for node in ast.walk(tree):
+        method = _is_attr_call(node, '_driver', CAMERA_WRITE_METHODS)
+        if method is None:
+            continue
+        found += 1
+        thunk = _enclosing_thunk(node, parents)
+        wired = (isinstance(thunk, ast.Lambda) and id(thunk) in wired_lambdas) or (
+            isinstance(thunk, ast.FunctionDef) and thunk.name in wired_closure_names
+        )
+        if not wired:
+            offenders.append((node.lineno, method))
+    return offenders, found
+
+
+class TestAuthorityIsSingleWritePath:
+    """The structural guard that makes the omission unrepresentable: a new
+    camera setter physically cannot write a camera node or invalidate a camera
+    source outside the _camera_write authority. These AST checks fail the build
+    if a future edit reintroduces a raw write or a raw invalidate."""
+
+    def test_invalidate_only_inside_camera_write(self):
+        offenders = _invalidate_offenders(_imaging_tree())
+        assert not offenders, (
+            f'self.frame_validity.invalidate(...) called outside _camera_write at '
+            f'lines {offenders}; all camera invalidation must route through the authority '
+            f'so a write and its invalidation are declared together.'
+        )
+
+    def test_camera_driver_writes_wrapped_in_authority_thunk(self):
+        offenders, found = _driver_write_offenders(_imaging_tree())
+        assert not offenders, (
+            f'camera driver write issued outside a _camera_write thunk: {offenders}; '
+            f'wrap the write in a lambda/closure handed to self._camera_write so it '
+            f'declares its invalidation.'
+        )
+        # Guard against the check silently passing on zero findings (e.g. a
+        # method-set drift): every migrated setter must still be seen.
+        assert found >= len(CAMERA_WRITE_METHODS), (
+            f'expected at least {len(CAMERA_WRITE_METHODS)} camera driver writes, found '
+            f'{found}; the CAMERA_WRITE_METHODS set may be stale.'
+        )
+
+    def test_guard_detects_a_raw_invalidate(self):
+        # The guard must BITE: a setter that invalidates a camera source directly
+        # (outside the authority) is flagged.
+        src = (
+            'class ImagingAPI:\n'
+            '    def _camera_write(self, write_fn):\n'
+            '        return write_fn()\n'
+            '    def set_thing(self):\n'
+            "        self.frame_validity.invalidate('gain')\n"
+        )
+        assert _invalidate_offenders(ast.parse(src))
+
+    def test_guard_detects_a_raw_driver_write(self):
+        # A driver write issued directly, not wrapped in a _camera_write thunk.
+        src = (
+            'class ImagingAPI:\n'
+            '    def _camera_write(self, write_fn):\n'
+            '        return write_fn()\n'
+            '    def set_thing(self):\n'
+            '        self._driver.gain(0)\n'
+        )
+        offenders, found = _driver_write_offenders(ast.parse(src))
+        assert offenders and found == 1
+
+    def test_guard_accepts_a_wrapped_driver_write(self):
+        # A driver write wrapped in a lambda handed to _camera_write is clean.
+        src = (
+            'class ImagingAPI:\n'
+            '    def _camera_write(self, write_fn, **kw):\n'
+            '        return write_fn()\n'
+            '    def set_thing(self):\n'
+            "        self._camera_write(lambda: self._driver.gain(0), force_invalidate=('gain',))\n"
+        )
+        offenders, found = _driver_write_offenders(ast.parse(src))
+        assert not offenders and found == 1
