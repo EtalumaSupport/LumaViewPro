@@ -1,4 +1,4 @@
 4.0.0-beta20
-2026-06-27 11:45
-protocol-workflow-closure
-d17b1cf0
+2026-06-28 12:24
+sd1-camera-write-authority
+005e81b6
