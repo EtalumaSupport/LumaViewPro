@@ -2277,22 +2277,24 @@ class ImagingAPI:
         """
         if not self._driver or not self._driver.active:
             return
-        self._driver.auto_gain_once(
-            state=state,
-            target_brightness=target_brightness,
-            min_gain_db=min_gain_db,
-            max_gain_db=max_gain_db,
-            ae_max_exposure_ms=ae_max_exposure_ms,
+        # One-shot AG changes both gain and exposure on the camera from a single
+        # driver call; the pipeline still needs frames to flush the converged
+        # values, so both validity markers must go RED until they settle. The
+        # converged values are chosen by the SDK, so clear any manual chunk-match
+        # target and fall back to skip-frames settling. Both invalidations and
+        # target-clears are forced -- one call, two sources, no value write the
+        # authority could observe.
+        self._camera_write(
+            lambda: self._driver.auto_gain_once(
+                state=state,
+                target_brightness=target_brightness,
+                min_gain_db=min_gain_db,
+                max_gain_db=max_gain_db,
+                ae_max_exposure_ms=ae_max_exposure_ms,
+            ),
+            force_invalidate=('gain', 'exposure'),
+            force_targets=(('gain', None), ('exposure', None)),
         )
-        # One-shot AG changes both gain and exposure on the camera; the
-        # pipeline still needs frames to flush the converged values, so
-        # the validity marker must go RED until they settle. The converged
-        # values are chosen by the SDK, so clear any manual chunk-match
-        # target and fall back to skip-frames settling.
-        self.frame_validity.invalidate('gain')
-        self.frame_validity.invalidate('exposure')
-        self.frame_validity.set_target('gain', None)
-        self.frame_validity.set_target('exposure', None)
         # One-shot AG always ends with the auto cycle complete and the
         # SDK toggled back to Off internally; hardware holds the
         # converged value while LVP's cache is still pre-auto.
