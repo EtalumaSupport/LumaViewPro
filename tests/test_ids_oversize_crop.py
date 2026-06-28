@@ -137,6 +137,21 @@ def test_set_frame_size_oversizes_centers_and_records_crop():
     assert cam.get_frame_size() == {'width': 1900, 'height': 1900}
 
 
+def test_min_frame_size_is_deliverable_alignment_not_aoi_min():
+    """Oversize-then-crop delivers below the hardware AOI minimum, so the reported
+    min frame size must be the deliverable alignment, NOT the Width/Height node
+    Minimum (1056x418 at 2x binning). The UI clamps a requested frame UP to this
+    min; reporting the AOI min forced a half-resolution 2x request (950) up to
+    1056 -- the non-square delivered frame. Mirrors get_pixel_alignment, which
+    already reports deliverable (not AOI-grid) space for this driver."""
+    cam = _ids_camera_with_aoi(minimums={'Width': 1056, 'Height': 418})
+
+    min_size = cam.get_min_frame_size()
+
+    assert min_size == dict(cam.profile.alignment)  # deliverable granularity
+    assert min_size != {'width': 1056, 'height': 418}  # NOT the AOI node minimum
+
+
 def test_2x_binning_request_below_min_width_delivers_square():
     """At 2x binning the Width minimum (1056) exceeds a half-resolution 950
     request, so the AOI must floor UP to 1056 -- but the DELIVERED frame must
