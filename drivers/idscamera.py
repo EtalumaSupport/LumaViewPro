@@ -1799,12 +1799,26 @@ class ImageHandler(ImageHandlerBase):
     def _handle_wait_error(self, e: Exception) -> bool:
         """Classify a WaitForFinishedBuffer error; return True to stop the loop.
 
-        An AbortedException is our own KillWait at teardown -- a clean stop, not
-        a fault. A device-lost signal marks the camera removed. Anything else
-        (timeout, transient SDK fault) counts toward the disconnect threshold.
+        An AbortedException reaching here is a SPURIOUS abort, never our own
+        teardown: _poll_loop checks the stop event BEFORE calling this, so a
+        requested stop has already broken the loop. The only abort left is a
+        KillWait posted by a previous stop() that outlived its
+        FlushPendingKillWaits and landed on a freshly (re)started poll thread's
+        first wait -- seen under rapid reconfigure (e.g. fast binning toggles).
+        Flush the stale abort and keep polling (return False); returning True
+        here would strand the live view with a dead poll thread and no frames
+        until the next reconfigure. A device-lost signal marks the camera
+        removed. Anything else (timeout, transient SDK fault) counts toward the
+        disconnect threshold.
         """
         if _exc_is(e, 'AbortedException', 'abort'):
-            return True
+            try:
+                self.data_stream.FlushPendingKillWaits()
+            except Exception as fe:
+                logger.debug(
+                    f'[CAM Class ] FlushPendingKillWaits (spurious abort) unavailable: {fe}'
+                )
+            return False
         if _exc_is(e, 'DeviceLostException', 'removed', 'device'):
             _cam_log.warning(f'[CAM Class ] Device removal detected in grab loop: {e}')
             self._parent._mark_disconnected()

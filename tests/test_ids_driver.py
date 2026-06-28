@@ -410,6 +410,35 @@ def _ids_handler(data_stream):
     return handler
 
 
+class TestSpuriousAbortKeepsPolling:
+    """_handle_wait_error is reached only AFTER _poll_loop checks the stop event,
+    so an AbortedException here is never our own teardown -- it is a KillWait
+    leaked by a previous stop() that outlived its FlushPendingKillWaits and
+    landed on a freshly (re)started poll thread's first wait (rapid binning
+    toggles). The handler must flush it and keep polling, not kill the thread,
+    which stranded the live view with no frames after fast toggles."""
+
+    def test_abort_without_stop_request_flushes_and_continues(self):
+        ds = MagicMock()
+        h = _ids_handler(ds)
+        assert not h._stop_event.is_set()  # stop was NOT requested
+
+        should_stop = h._handle_wait_error(RuntimeError('WaitForFinishedBuffer aborted'))
+
+        assert should_stop is False  # keep polling -- do NOT break the loop
+        ds.FlushPendingKillWaits.assert_called_once()
+
+    def test_non_abort_error_is_not_flushed_as_spurious(self):
+        # A genuine fault must not be mistaken for a spurious abort: no flush,
+        # and it still counts toward the disconnect threshold via _record_failure.
+        ds = MagicMock()
+        h = _ids_handler(ds)
+
+        h._handle_wait_error(RuntimeError('malformed buffer'))
+
+        ds.FlushPendingKillWaits.assert_not_called()
+
+
 class TestPipelineLifecycle:
     """Stage A (poll -> slot) / Stage B (unpack -> store -> re-queue) wiring, with
     the key invariant: EVERY finished buffer is re-queued exactly once -- the
