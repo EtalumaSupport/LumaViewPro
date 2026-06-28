@@ -476,16 +476,26 @@ class ImagingAPI:
         """
         if not self._driver or not self._driver.active:
             return
-        # The validity invalidate must NEVER be gated by the software cache:
-        # a cache desynced from hardware once short-circuited it, so a frame
-        # at a stale gain was captured as valid. Always invalidate + drive the
-        # setter (the driver compares against live hardware and skips a truly
-        # redundant SDK write). The cache-equality check gates only the UI
-        # listener + info log, where a missed redundant update is harmless.
+        # The validity invalidate must never be gated by the software cache:
+        # a cache desynced from hardware once short-circuited it, so a frame at
+        # a stale gain was captured as valid. force_invalidate marks 'gain' RED
+        # on every write (even a rejected one); the requested value is recorded
+        # as the chunk target and cached only when the write was not rejected.
+        # The driver compares against live hardware and skips a truly redundant
+        # SDK write; the cache-equality check here gates only the UI listener +
+        # info log, where a missed redundant update is harmless.
         changed = abs(float(gain_db) - self.camera_gain) >= 0.001
-        with self._cam_lock:
-            ok = self._driver.gain(gain_db)
-        self.frame_validity.invalidate('gain')
+
+        def _write_gain():
+            with self._cam_lock:
+                return self._driver.gain(gain_db)
+
+        ok = self._camera_write(
+            _write_gain,
+            force_invalidate=('gain',),
+            targets=(('gain', float(gain_db)),),
+            cache_update={'gain_db': float(gain_db)},
+        )
         if ok is False:
             # Confirmed hardware rejection (drivers without a confirmation
             # signal return None). Frames keep streaming at the OLD gain,
@@ -499,15 +509,9 @@ class ImagingAPI:
                 'Captures will continue at the previous gain. Check that '
                 'the value is within the camera limits.',
             )
-        else:
-            # Record requested gain so capture_and_wait's chunk-match can
-            # clear the pending source once a frame's ChunkGain matches.
-            self.frame_validity.set_target('gain', float(gain_db))
-            with self._camera_cache_lock:
-                self._camera_cache['gain_db'] = float(gain_db)
-            if changed:
-                _api_log.info(f'set_gain {gain_db}dB')
-                self._fire_camera_listeners('gain', float(gain_db))
+        elif changed:
+            _api_log.info(f'set_gain {gain_db}dB')
+            self._fire_camera_listeners('gain', float(gain_db))
 
     def set_exposure_time(self, exposure_ms: float) -> None:
         """Set the camera exposure time.
@@ -539,9 +543,22 @@ class ImagingAPI:
                 f'in milliseconds, not seconds or microseconds.\n'
                 f'Call stack:\n{_caller}'
             )
-        with self._cam_lock:
-            ok = self._driver.exposure_t(exposure_ms)
-        self.frame_validity.invalidate('exposure')
+
+        # Record requested exposure for chunk-match. ChunkExposureTime is
+        # microseconds; the API takes milliseconds. Convert at the seam so the
+        # chunk value and frame_validity's tolerance share units. force_invalidate
+        # marks 'exposure' RED on every write; target + cache only when the write
+        # was not rejected.
+        def _write_exposure():
+            with self._cam_lock:
+                return self._driver.exposure_t(exposure_ms)
+
+        ok = self._camera_write(
+            _write_exposure,
+            force_invalidate=('exposure',),
+            targets=(('exposure', float(exposure_ms) * 1000.0),),
+            cache_update={'exposure_ms': float(exposure_ms)},
+        )
         if ok is False:
             # Confirmed hardware rejection (drivers without a confirmation
             # signal return None). Frames keep streaming at the OLD
@@ -555,17 +572,9 @@ class ImagingAPI:
                 'Captures will continue at the previous exposure. Check '
                 'that the value is within the camera limits.',
             )
-        else:
-            # Record requested exposure for chunk-match. ChunkExposureTime
-            # is microseconds; the API takes milliseconds. Convert at the
-            # seam so the chunk value and frame_validity's tolerance share
-            # units.
-            self.frame_validity.set_target('exposure', float(exposure_ms) * 1000.0)
-            with self._camera_cache_lock:
-                self._camera_cache['exposure_ms'] = float(exposure_ms)
-            if changed:
-                _api_log.info(f'set_exposure {exposure_ms}ms')
-                self._fire_camera_listeners('exposure', float(exposure_ms))
+        elif changed:
+            _api_log.info(f'set_exposure {exposure_ms}ms')
+            self._fire_camera_listeners('exposure', float(exposure_ms))
 
     def set_auto_gain(self, state: bool, settings: dict) -> None:
         """Enable or disable automatic gain adjustment.
