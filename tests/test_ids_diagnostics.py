@@ -328,6 +328,24 @@ class _AccessValueNode:
         return self._value
 
 
+class _AccessCommandNode:
+    """Command node (e.g. DeviceReset): exposes AccessStatus but has no entries
+    and no readable value -- AvailableEntries and Value both raise, the shape a
+    SFNC command has on the real body."""
+
+    def __init__(self, access='ReadWrite'):
+        self._access = access
+
+    def AccessStatus(self):
+        return self._access
+
+    def AvailableEntries(self):
+        raise RuntimeError('command node: no entries')
+
+    def Value(self):
+        raise RuntimeError('command node: no value')
+
+
 class TestFeatureNodeProbe:
     def test_present_enum_node_reports_access_and_entries(self):
         cam = bare_ids_camera()
@@ -384,6 +402,24 @@ class TestFeatureNodeProbe:
         assert feat['remote']['ChunkModeActive']['present'] is False
         assert feat['stream']['U3vStreamChannelBulkTransferSize']['access'] == 'ReadOnly'
         assert feat['stream']['U3vStreamChannelTransferRequestCount']['present'] is False
+
+    def test_snapshot_probes_device_reset_command_node(self):
+        # DeviceReset gates the deferred in-software stream-wedge recovery: the
+        # probe must report its presence + access on a normal-startup snapshot
+        # even though a command node has no readable value, so a bench bundle
+        # answers 'can we reset in software instead of replug?'.
+        cam = bare_ids_camera()
+        cam.remote_nodemap = _Nodemap(
+            special={'DeviceReset': _AccessCommandNode(access='ReadWrite')},
+            missing=('TestPattern', 'ChunkModeActive', 'ChunkSelector'),
+        )
+        cam.data_stream.NodeMaps.return_value = []
+        cam.get_all_temperatures = lambda: {}
+        cam._read_stream_stats = lambda: {}
+        snap = cam.read_diagnostic_snapshot(duration_s=0)
+        reset = snap['feature_nodes']['remote']['DeviceReset']
+        assert reset['present'] is True
+        assert reset['access'] == 'ReadWrite'
 
     def test_snapshot_feature_nodes_self_reports_stream_access_error(self):
         cam = bare_ids_camera()

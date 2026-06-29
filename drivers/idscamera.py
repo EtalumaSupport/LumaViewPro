@@ -490,15 +490,18 @@ class IDSCamera(Camera):
     def _probe_feature_nodes(self) -> dict:
         """Presence + access of the optional-feature candidate nodes on this
         body, grouped by nodemap (remote, then DataStream). A few capabilities a
-        setter might want -- an internal test pattern, chunk data, USB3
-        transfer-size tuning -- are exposed only on some IDS bodies and are not
-        confirmed on the U3-34L0XCP-M. Used by both the diagnostic snapshot and
-        the one-shot free-run log so a normal-startup bundle already shows which
-        exist + are writable, without a separate probe run.
+        setter or recovery path might want -- an internal test pattern, chunk
+        data, USB3 transfer-size tuning, an in-software DeviceReset -- are exposed
+        only on some IDS bodies and are not confirmed on the U3-34L0XCP-M. Used by
+        both the diagnostic snapshot and the one-shot free-run log so a
+        normal-startup bundle already shows which exist + are writable, without a
+        separate probe run. DeviceReset is a command node (no readable value); its
+        presence + access is the signal -- whether an in-software stream-wedge
+        recovery can issue it instead of requiring a physical replug.
         """
         remote = {
             name: self._diag_probe_node(self.remote_nodemap, name)
-            for name in ('TestPattern', 'ChunkModeActive', 'ChunkSelector')
+            for name in ('TestPattern', 'ChunkModeActive', 'ChunkSelector', 'DeviceReset')
         }
         stream: dict = {}
         try:
