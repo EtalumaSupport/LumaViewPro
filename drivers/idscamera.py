@@ -33,6 +33,22 @@ from drivers.registry import camera_registry
 # Defer to atexit so it only runs once at process exit.
 _ids_library_initialized = False
 
+# In-software wedge-recovery timing. No reboot time is documented for the U3
+# bodies, so these are conservative: WaitUntilDone after DeviceReset, the
+# per-Update re-enumeration timeout, the overall re-discovery deadline, and the
+# poll interval between Update() attempts. Tunable from one bench run's measured
+# re-enumeration time.
+_RECOVERY_RESET_WAIT_MS = 2000
+_RECOVERY_UPDATE_TIMEOUT_MS = 5000
+_RECOVERY_REDISCOVER_TIMEOUT_S = 8.0
+_RECOVERY_POLL_INTERVAL_S = 0.25
+# Bound the recovery: at most this many resets within a rolling window before
+# giving up to a clean removal, so a persistently re-wedging stream can't drive
+# an unbounded DeviceReset/reboot loop. A healthy gap longer than the reset
+# window clears the counter (an isolated wedge gets a fresh budget).
+_RECOVERY_MAX_ATTEMPTS = 3
+_RECOVERY_ATTEMPT_RESET_S = 30.0
+
 
 def _ids_library_cleanup():
     global _ids_library_initialized
@@ -196,6 +212,16 @@ class IDSCamera(Camera):
         self._device_lost_callback = None
         self._device_lost_callback_handle = None
         self._async_teardown_started = False
+        # Wedge-recovery state. _device_serial is the stable re-match across a
+        # DeviceReset (the GenTL descriptor/key go invalid after a reset).
+        # _in_recovery suppresses the DeviceLost teardown during a deliberate
+        # reset; _recovery_started is the one-shot latch for the dispatched
+        # recovery thread.
+        self._device_serial = None
+        self._in_recovery = False
+        self._recovery_started = False
+        self._recovery_attempts = 0
+        self._last_recovery_time = 0.0
 
         super().__init__()
 
@@ -230,7 +256,11 @@ class IDSCamera(Camera):
 
             try:
                 self.model_name = self.active.ModelName()
-                self._device_serial = self.active.SerialNumber()
+                # Read the serial from the DESCRIPTOR (the same surface the
+                # post-reset re-discovery matches against) so the re-match is
+                # symmetric, not from the opened Device which may format it
+                # differently.
+                self._device_serial = descriptor.SerialNumber()
                 logger.info(f'[CAM Class ] Camera Model: {self.model_name}')
                 logger.info(f'[CAM Class ] Camera Serial Number: {self._device_serial}')
                 logger.info(
@@ -389,6 +419,12 @@ class IDSCamera(Camera):
         a typed DeviceLostException in the poll loop -- both idempotent via the
         _device_removed and _async_teardown_started guards.
         """
+        with self._state_lock:
+            if self._in_recovery:
+                # A deliberate DeviceReset is in progress; the recovery owns the
+                # reopen, so a DeviceLost it triggers must NOT tear the camera
+                # down permanently.
+                return
         self._mark_disconnected()
         self._schedule_async_teardown()
 
@@ -415,7 +451,243 @@ class IDSCamera(Camera):
 
         threading.Thread(target=_run_teardown, name='IDSAsyncTeardown', daemon=True).start()
 
+    def _schedule_async_recovery(self) -> None:
+        """Recover a wedged data stream off the poll thread.
+
+        The poll thread that detects the wedge cannot reopen the device from
+        within itself, so the reset/reopen runs on a daemon thread. The
+        _recovery_started latch makes this one-shot under repeated wedge
+        detections; _in_recovery suppresses the DeviceLost-driven teardown for the
+        duration of the deliberate reset. A recovery that fails falls back to the
+        permanent teardown so the user sees a clean removal, not a half-dead
+        camera that still reports connected.
+        """
+        now = time.monotonic()
+        with self._state_lock:
+            if self._recovery_started:
+                return
+            # A long healthy gap since the last attempt resets the budget; rapid
+            # repeated wedges accumulate toward the cap.
+            if now - self._last_recovery_time > _RECOVERY_ATTEMPT_RESET_S:
+                self._recovery_attempts = 0
+            self._last_recovery_time = now
+            exhausted = self._recovery_attempts >= _RECOVERY_MAX_ATTEMPTS
+            if not exhausted:
+                self._recovery_attempts += 1
+                self._recovery_started = True
+                self._in_recovery = True
+        if exhausted:
+            _cam_log.error(
+                f'[CAM Class ] IDS recovery exhausted ({_RECOVERY_MAX_ATTEMPTS} resets); '
+                'surfacing removal'
+            )
+            self._handle_device_lost()
+            return
+
+        def _run_recovery():
+            recovered = False
+            try:
+                self._recover_wedged_stream()
+                recovered = True
+            except Exception as e:
+                _cam_log.error(f'[CAM Class ] IDS stream recovery failed: {e}')
+            finally:
+                with self._state_lock:
+                    self._in_recovery = False
+                    self._recovery_started = False
+                    # A successful recovery clears the budget: the cap counts
+                    # CONSECUTIVE failed recoveries, not lifetime resets, so a
+                    # camera that occasionally wedges but recovers each time is
+                    # never permanently torn down.
+                    if recovered:
+                        self._recovery_attempts = 0
+            if not recovered:
+                self._handle_device_lost()
+
+        threading.Thread(target=_run_recovery, name='IDSRecovery', daemon=True).start()
+
+    def _recover_wedged_stream(self) -> None:
+        """Clear a wedged USB3 data stream in software via SFNC DeviceReset, then
+        reopen -- instead of requiring a physical replug. Runs on the IDSRecovery
+        daemon thread.
+
+        The control channel survives a data-stream wedge, so DeviceReset reaches
+        the camera. The reset reboots the device AND reverts it to power-on
+        defaults, so the operator's runtime settings are snapshot first and
+        re-applied after reopen; the old descriptor + handles go invalid (and the
+        GenTL key may change), so the camera is re-discovered by serial number and
+        reopened through the same sequence connect() uses.
+        """
+        if not self.active or not self.remote_nodemap:
+            raise HardwareError('recover: no active device to reset')
+        # No serial captured -> we cannot prove the re-enumerated device is the
+        # same camera; fail rather than risk binding the wrong one.
+        if not self._device_serial:
+            raise HardwareError('recover: no camera serial captured; cannot safely re-match')
+
+        # Snapshot the operator's settings BEFORE the reset wipes them to defaults.
+        settings = self._snapshot_settings()
+
+        _cam_log.warning('[CAM Class ] IDS stream wedged -- issuing DeviceReset to recover')
+        node = self.remote_nodemap.FindNode('DeviceReset')
+        node.Execute()
+        node.WaitUntilDone(_RECOVERY_RESET_WAIT_MS)
+
+        # Tear down the old (now rebooting) handles locally -- do NOT touch the
+        # remote nodemap further (the device is gone for a few seconds). A failure
+        # to quiesce the old grab threads is logged: they reference the dead stream
+        # and exit on their next access, and the recovery latch already blocks a
+        # second reset from a surviving thread.
+        if self.cam_image_handler is not None:
+            try:
+                if not self.cam_image_handler.stop():
+                    _cam_log.warning(
+                        '[CAM Class ] recover: prior grab threads did not quiesce before reset'
+                    )
+            except Exception as e:
+                logger.debug(f'[CAM Class ] recover: handler stop ignored: {e}')
+        self.cam_image_handler = None
+        self.active = None
+        self.remote_nodemap = None
+        self.data_stream = None
+
+        descriptor = self._rediscover_by_serial(self._device_serial)
+        if descriptor is None:
+            raise HardwareError(
+                f'recover: camera serial {self._device_serial} did not re-enumerate '
+                f'within {_RECOVERY_REDISCOVER_TIMEOUT_S}s of DeviceReset'
+            )
+
+        # Reopen against the fresh descriptor (mirror connect()). Unregister the
+        # stale DeviceLost callback before re-registering on the new handle so
+        # registrations do not accumulate across recoveries.
+        self._unregister_device_callbacks()
+        self._device_key = descriptor.Key()
+        self.active = descriptor.OpenDevice(ids_peak.DeviceAccessType_Control)
+        self.data_stream = self.active.DataStreams()[0].OpenDataStream()
+        self.remote_nodemap = self.active.RemoteDevice().NodeMaps()[0]
+        self._device_removed = False
+        self._async_teardown_started = False
+        self._register_device_callbacks()
+        self.cam_image_handler = ImageHandler(self.data_stream, parent_cam=self)
+
+        self.init_camera_config()
+        self._restore_settings(settings)
+        self.start_grabbing()
+        # init_camera_config / start_grabbing swallow their own errors, so confirm
+        # the stream actually came up rather than report a half-configured success.
+        if not self.is_grabbing():
+            raise HardwareError(
+                'recover: stream not grabbing after reopen -- reconfiguration failed'
+            )
+        _cam_log.warning('[CAM Class ] IDS stream recovered via DeviceReset')
+
+    def _snapshot_settings(self) -> dict:
+        """Capture the operator's runtime camera settings so a DeviceReset (which
+        reverts the camera to power-on defaults) does not silently change them.
+
+        The driver getters return SENTINELS on a failed read (get_gain /
+        get_exposure_t -> -1, get_pixel_format -> None) rather than raising, so
+        each value is VALIDATED before it is stored: an invalid/sentinel read is
+        dropped here, not captured and later re-applied as a bad write that would
+        de-bin or zero the operator's settings.
+        """
+
+        def _is_format(v):
+            return isinstance(v, str) and bool(v)
+
+        def _is_binning(v):
+            return isinstance(v, int) and v >= 1
+
+        def _is_size(v):
+            return isinstance(v, dict) and v.get('width', 0) > 0 and v.get('height', 0) > 0
+
+        def _is_positive(v):
+            return isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0
+
+        def _is_nonneg(v):
+            return isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 0
+
+        snap: dict = {}
+        for key, getter, valid in (
+            ('pixel_format', self.get_pixel_format, _is_format),
+            ('binning', self.get_binning_size, _is_binning),
+            ('frame_size', self.get_frame_size, _is_size),
+            ('exposure_ms', self.get_exposure_t, _is_positive),
+            ('gain', self.get_gain, _is_nonneg),
+        ):
+            try:
+                value = getter()
+            except Exception as e:
+                logger.debug(f'[CAM Class ] recover: snapshot {key} skipped: {e}')
+                continue
+            if valid(value):
+                snap[key] = value
+            else:
+                logger.debug(f'[CAM Class ] recover: snapshot {key} invalid ({value!r}); skipped')
+        return snap
+
+    def _restore_settings(self, snap: dict) -> None:
+        """Re-apply a settings snapshot after a reopen. Order: depth, then geometry
+        (binning before ROI), then exposure/gain; best-effort per field so one
+        failed setter does not block the rest.
+        """
+
+        def _apply(key, setter, *args):
+            if key in snap:
+                try:
+                    setter(*args)
+                except Exception as e:
+                    logger.debug(f'[CAM Class ] recover: restore {key} skipped: {e}')
+
+        _apply('pixel_format', self.set_pixel_format, snap.get('pixel_format'))
+        _apply('binning', self.set_binning_size, snap.get('binning'))
+        fs = snap.get('frame_size') or {}
+        if 'frame_size' in snap and 'width' in fs and 'height' in fs:
+            try:
+                self.set_frame_size(fs['width'], fs['height'])
+            except Exception as e:
+                logger.debug(f'[CAM Class ] recover: restore frame_size skipped: {e}')
+        _apply('exposure_ms', self.exposure_t, snap.get('exposure_ms'))
+        _apply('gain', self.gain, snap.get('gain'))
+
+    def _rediscover_by_serial(self, serial, timeout_s=None):
+        """Poll the DeviceManager until the camera with `serial` re-enumerates
+        after a reset; return its fresh descriptor, or None on timeout.
+
+        DeviceReset invalidates the prior descriptor and may change its GenTL key,
+        so serial number is the stable re-match -- an exact match only; never bind
+        an unmatched device (caller guarantees a non-empty serial).
+        """
+        if timeout_s is None:
+            timeout_s = _RECOVERY_REDISCOVER_TIMEOUT_S
+        try:
+            self.device_manager.SetDeviceUpdateTimeout(_RECOVERY_UPDATE_TIMEOUT_MS)
+        except Exception as e:
+            logger.debug(f'[CAM Class ] recover: SetDeviceUpdateTimeout unavailable: {e}')
+        deadline = time.monotonic() + timeout_s
+        while True:
+            try:
+                self.device_manager.Update()
+                for descriptor in list(self.device_manager.Devices()):
+                    try:
+                        if descriptor.SerialNumber() == serial:
+                            return descriptor
+                    except Exception as e:
+                        logger.debug(f'[CAM Class ] recover: descriptor read ignored: {e}')
+            except Exception as e:
+                logger.debug(f'[CAM Class ] recover: device re-enumeration retry: {e}')
+            if time.monotonic() >= deadline:
+                return None
+            time.sleep(_RECOVERY_POLL_INTERVAL_S)
+
     def is_connected(self) -> bool:
+        # A deliberate DeviceReset transiently nulls self.active while the device
+        # reboots; report connected so consumers don't take terminal removal
+        # action mid-recovery (and don't latch _device_removed via the branch
+        # below) for a camera that is present and recovering.
+        if self._in_recovery:
+            return True
         if self.active in (False, None):
             self._device_removed = True
             return False
@@ -2316,8 +2588,9 @@ class ImageHandler(ImageHandlerBase):
         if _exc_is(e, 'InvalidInstanceException', 'invalid', 'bufferhandle'):
             _cam_log.error(
                 '[CAM Class ] IDS finished-buffer handle invalid (stream wedged): '
-                f'{type(e).__name__}: {e!r}'
+                f'{type(e).__name__}: {e!r} -- escalating to in-software recovery'
             )
+            self._parent._schedule_async_recovery()
             return True
         _cam_log.warning(
             f'[CAM Class ] ImageHandler buffer access exception: {type(e).__name__}: {e!r}'
