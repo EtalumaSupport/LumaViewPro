@@ -44,6 +44,7 @@ class TestIDS(unittest.TestCase):
         self.camera.stop_grabbing()
         self.assertFalse(self.camera.is_grabbing())
 
+    @pytest.mark.ids_reset
     def test_device_reset_recovers_stream(self):
         """Bench validation of in-software wedge recovery (the keystone): issue a
         REAL DeviceReset on the live camera and confirm the driver re-discovers

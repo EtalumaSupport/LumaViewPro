@@ -161,6 +161,13 @@ def pytest_addoption(parser):
         help='Run IDS Peak hardware tests (real SDK + connected camera)',
     )
     _safe(
+        '--run-ids-reset',
+        action='store_true',
+        default=False,
+        help='Run the IDS DeviceReset recovery test (REBOOTS the camera; '
+        'isolated from --run-ids-hardware so it does not perturb the shared suite)',
+    )
+    _safe(
         '--run-pylon-hardware',
         action='store_true',
         default=False,
@@ -188,6 +195,12 @@ def pytest_configure(config):
     )
     config.addinivalue_line(
         'markers',
+        'ids_reset: REBOOTS the IDS camera via DeviceReset (only runs with '
+        'BOTH --run-ids-hardware for the SDK AND --run-ids-reset; isolated so '
+        'the mid-suite reboot does not perturb the shared hardware tests)',
+    )
+    config.addinivalue_line(
+        'markers',
         'timing_sensitive: measures wall-clock timing and can be flaky '
         'under CI/load (only runs with --run-timing-sensitive)',
     )
@@ -197,6 +210,7 @@ def pytest_collection_modifyitems(config, items):
     """Skip hardware-marked tests unless the matching opt-in flag is set."""
     gates = [
         ('ids_hardware', '--run-ids-hardware'),
+        ('ids_reset', '--run-ids-reset'),
         ('pylon_hardware', '--run-pylon-hardware'),
         ('timing_sensitive', '--run-timing-sensitive'),
     ]
