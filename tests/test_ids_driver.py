@@ -1106,3 +1106,50 @@ class TestFrameGenerationGate:
             'grab_new_capture must not drive the data stream directly; route '
             f'through the handler frame-gate instead. Found: {bad}'
         )
+
+
+class TestLiveExposureMinimum:
+    """get_min_exposure must report the camera's LIVE ExposureTime node
+    minimum, not the value cached in the profile at connect.
+
+    The node minimum drifts above the connect-time value once other settings
+    change (pixel clock, frame rate, AOI), so a sweep that sources the floor
+    from the stale cache requests an exposure below what the camera will now
+    accept and the SDK rejects it. The accessor reads the live node so callers
+    get the floor the camera will honor right now.
+    """
+
+    def test_reports_live_node_minimum_not_cached_profile(self):
+        from types import SimpleNamespace
+
+        cam = bare_ids_camera()
+        # Live node floor (us) has risen above the connect-time cache.
+        cam.remote_nodemap = _RecordingNodemap(
+            preset={'ExposureTime': _RecordingNode(minimum=37.171717)}
+        )
+        cam.profile = SimpleNamespace(exposure_min_us=31.0)
+
+        # ms: live 0.037171717, NOT the cached 0.031.
+        assert cam.get_min_exposure() == pytest.approx(0.037171717)
+
+    def test_falls_back_to_cached_floor_when_inactive(self):
+        from types import SimpleNamespace
+
+        cam = bare_ids_camera()
+        cam.active = False
+        cam.profile = SimpleNamespace(exposure_min_us=31.0)
+
+        assert cam.get_min_exposure() == pytest.approx(0.031)
+
+    def test_falls_back_to_cached_floor_when_node_read_fails(self):
+        from types import SimpleNamespace
+
+        cam = bare_ids_camera()
+        # Minimum() returns a non-numeric, so the live read raises and the
+        # accessor falls back to the cached profile floor rather than crashing.
+        cam.remote_nodemap = _RecordingNodemap(
+            preset={'ExposureTime': _RecordingNode(minimum=None)}
+        )
+        cam.profile = SimpleNamespace(exposure_min_us=31.0)
+
+        assert cam.get_min_exposure() == pytest.approx(0.031)

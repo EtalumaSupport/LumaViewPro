@@ -1869,6 +1869,22 @@ class IDSCamera(Camera):
             _cam_log.error(f'[CAM Class ] Exposure set failed (likely out of bounds): {e}')
             return False
 
+    def get_min_exposure(self) -> float | None:
+        """Return the camera's LIVE minimum exposure in milliseconds.
+
+        The ExposureTime node minimum drifts above the connect-time value once
+        other settings change (pixel clock, frame rate, AOI), so read it live
+        each call rather than trusting the value cached in the profile at
+        connect. Falls back to the cached profile floor if the node read fails.
+        """
+        if not self.active:
+            return super().get_min_exposure()
+        try:
+            return self.remote_nodemap.FindNode('ExposureTime').Minimum() / 1000.0
+        except Exception as e:
+            _cam_log.warning(f'[CAM Class ] get_min_exposure live read failed: {e}')
+            return super().get_min_exposure()
+
     def get_exposure_t(self):
         if not self.active:
             _cam_log.warning('[CAM Class ] Cannot read exposure: camera inactive')

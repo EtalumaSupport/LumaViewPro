@@ -661,6 +661,30 @@ class Camera(ABC):
         return self.max_exposure
 
     @property
+    def min_exposure(self) -> float | None:
+        """Minimum exposure floor in milliseconds, or None if undeclared.
+
+        Mirror of `max_exposure`, derived from `profile.exposure_min_us` --
+        an optional profile field, so returns None when the profile carries
+        no floor and the caller should fall back. Drivers whose SDK exposes a
+        LIVE node minimum override `get_min_exposure` to report it: the node
+        floor can drift above the connect-time value once other settings
+        change, so a cached value goes stale.
+        """
+        if self.profile and self.profile.exposure_min_us:
+            return self.profile.exposure_min_us / 1000.0
+        return None
+
+    def get_min_exposure(self) -> float | None:
+        """Return the minimum exposure floor in milliseconds.
+
+        Returns:
+            float | None: Same value as the ``min_exposure`` property
+            (None when the profile declares no floor).
+        """
+        return self.min_exposure
+
+    @property
     def max_gain(self) -> float:
         """Maximum gain cap in dB.
 

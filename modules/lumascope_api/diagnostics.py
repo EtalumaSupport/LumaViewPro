@@ -840,9 +840,14 @@ class DiagnosticsAPI:
         if not self._scope._camera_driver or not self._scope._camera_driver.active:
             return None
         try:
-            profile = self._scope._camera_driver.profile
-            exposure_min_us = getattr(profile, 'exposure_min_us', None)
-            exposure_min_ms = exposure_min_us / 1000.0 if exposure_min_us is not None else None
+            driver = self._scope._camera_driver
+            profile = driver.profile
+            # Exposure floor: the driver's LIVE minimum. The ExposureTime node
+            # minimum drifts above the connect-time value once other settings
+            # change, so the cached profile floor goes stale; get_min_exposure
+            # reads the live node (and itself falls back to the cached floor).
+            exposure_min_ms = driver.get_min_exposure()
+            exposure_min_us = exposure_min_ms * 1000.0 if exposure_min_ms is not None else None
             return {
                 'model': profile.model_name,
                 'sensor': profile.sensor,
