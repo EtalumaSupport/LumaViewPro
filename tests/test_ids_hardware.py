@@ -134,29 +134,55 @@ class TestIDS(unittest.TestCase):
         return snap['feature_nodes'].get(group, {}).get(name, {})
 
     def test_set_test_pattern_write(self):
-        """The TestPattern setter actually WRITES on hardware (node presence +
-        ReadWrite was already bench-proven; this proves the write lands). The
-        node lives on the remote nodemap and is not gated by the grab lock, so
-        it can be written while streaming and takes effect on subsequent frames.
+        """The TestPattern setter writes on hardware (node presence + ReadWrite
+        was already bench-proven; this proves the write lands). TestPattern is a
+        remote-nodemap node the SDK locks during acquisition (TLParamsLocked), so
+        the write is attempted live first, then -- if the stream lock rejected it
+        -- re-applied with acquisition stopped, mirroring the transport-param
+        setters. The while-grabbing result is recorded for the operator; the
+        stopped-stream write is the deterministic confirmation.
         """
         tp = self._feature_node('remote', 'TestPattern')
         if not tp.get('present'):
             self.skipTest(f'TestPattern absent on this body (probe={tp})')
-
         original = tp.get('current')
-        self.assertTrue(self.camera.set_test_pattern(enabled=True, pattern='ColorBar'))
-        self.assertEqual(self._feature_node('remote', 'TestPattern').get('current'), 'ColorBar')
 
-        # An entry outside the SDK's set is rejected (False, not a raise).
-        self.assertFalse(self.camera.set_test_pattern(enabled=True, pattern='NotAPattern'))
+        self.camera.set_test_pattern(enabled=True, pattern='ColorBar')
+        applied_while_grabbing = (
+            self._feature_node('remote', 'TestPattern').get('current') == 'ColorBar'
+        )
 
-        # Disable restores 'Off'.
-        self.assertTrue(self.camera.set_test_pattern(enabled=False))
-        self.assertEqual(self._feature_node('remote', 'TestPattern').get('current'), 'Off')
+        if applied_while_grabbing:
+            self._exercise_test_pattern_entries()
+        else:
+            # Locked during acquisition -- release the stream lock and retry.
+            self.camera.stop_grabbing()
+            try:
+                self.assertTrue(
+                    self.camera.set_test_pattern(enabled=True, pattern='ColorBar'),
+                    'TestPattern write rejected even with the stream stopped',
+                )
+                self.assertEqual(
+                    self._feature_node('remote', 'TestPattern').get('current'), 'ColorBar'
+                )
+                self._exercise_test_pattern_entries()
+            finally:
+                self.camera.start_grabbing()
 
         # Leave the camera as we found it.
         if original and original != 'Off':
             self.camera.set_test_pattern(enabled=True, pattern=original)
+
+        print(
+            f'[test-pattern-write] applied_while_grabbing={applied_while_grabbing} '
+            f'needs_stopped_stream={not applied_while_grabbing}'
+        )
+
+    def _exercise_test_pattern_entries(self):
+        """A bogus entry is rejected (False, not a raise); disabling restores Off."""
+        self.assertFalse(self.camera.set_test_pattern(enabled=True, pattern='NotAPattern'))
+        self.assertTrue(self.camera.set_test_pattern(enabled=False))
+        self.assertEqual(self._feature_node('remote', 'TestPattern').get('current'), 'Off')
 
     def test_set_max_transfer_size_write(self):
         self._assert_stream_param_write(
