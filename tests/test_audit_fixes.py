@@ -4634,14 +4634,30 @@ class TestPylonPayloadDiscardedClassification:
         return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
 
     def test_payload_discarded_constant_value(self):
-        """The constant must match the bench-witnessed err_code from
-        Firmware DAILY_LOG (0xE2050012). If Basler renames or splits
-        the code in a future SDK rev, bump this and update the comment."""
+        """The constant must match the bench-witnessed err_code, pinned by
+        the DECIMAL the hardware actually emits: 3791651346 (= 0xE2000212).
+        The decimal was witnessed many times, but was once converted to hex
+        wrong (0xE2050012 = 3791978514) and the constant stored in that bad
+        hex -- so the classifier compared the real 3791651346 against
+        3791978514 and never matched, leaving every discard counted as a
+        failure. Pin by the decimal so a hex slip cannot silently recur. If
+        Basler renames or splits the code in a future SDK rev, bump this."""
         from drivers.pyloncamera import _PYLON_ERR_PAYLOAD_DISCARDED
 
-        assert _PYLON_ERR_PAYLOAD_DISCARDED == 0xE2050012, (
+        assert _PYLON_ERR_PAYLOAD_DISCARDED == 3791651346, (
             'Payload-discarded constant must match the bench-witnessed '
-            'err_code 0xE2050012 from Firmware DAILY_LOG.md.'
+            'err_code decimal 3791651346 (= 0xE2000212). If you found '
+            "3791978514 = 0xE2050012, that's the prior bad hex conversion."
+        )
+
+    def test_payload_discarded_comment_hex_matches_constant(self):
+        """The source comment must show the corrected hex (0xE2000212), the
+        true hex form of the bench decimal 3791651346 -- not the prior
+        miscalculation 0xE2050012 stored as the live value."""
+        src = self._pyloncamera_source()
+        assert '0xE2000212' in src, (
+            'Source comment near _PYLON_ERR_PAYLOAD_DISCARDED must reference '
+            '0xE2000212 (the true hex of decimal 3791651346).'
         )
 
     def test_payload_discarded_comment_explains_disposition(self):

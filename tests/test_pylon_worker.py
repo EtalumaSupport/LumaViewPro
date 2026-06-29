@@ -190,6 +190,16 @@ class TestProcessFailure(unittest.TestCase):
         worker._process_failure(gr, 0.0)
         base._record_failure.assert_not_called()
 
+    def test_payload_discarded_literal_bench_code_does_not_record_failure(self):
+        # Inject the literal hardware code (3791651346 = 0xE2000212), NOT the
+        # constant -- the constant-based test above stays green even if the
+        # constant drifts off the real value, so it can't catch the typo that
+        # left the benign branch dead. This pins the real-hardware code.
+        worker, _, base, _ = _make_worker()
+        gr = _FakeGrabResult(err_code=3791651346, err_desc='Payload data has been discarded')
+        worker._process_failure(gr, 0.0)
+        base._record_failure.assert_not_called()
+
     def test_device_removed_skips_failure_counter(self):
         worker, parent, base, _ = _make_worker()
         parent._device_removed = True

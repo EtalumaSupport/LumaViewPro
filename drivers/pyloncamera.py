@@ -92,7 +92,13 @@ _PYLON_ERR_BUFFER_CANCELED = 3791651074
 # side FIFO can overflow during the stall. The next frame is invalidated
 # via frame_validity, so consumers already wait for a clean frame -- the
 # dropped frame is one the AF runner would have rejected anyway.
-_PYLON_ERR_PAYLOAD_DISCARDED = 0xE2050012
+# Value 0xE2000212 (decimal 3791651346) -- the USB3-Vision payload-discard
+# code per Basler's stream-grabber-parameters.html, bench-confirmed on a
+# daA3840 dart. (Earlier this read 0xE2050012, a value no hardware emits,
+# so the benign branch below never matched and every camera-side discard
+# fell through to the generic path: logged as a WARNING and counted toward
+# MAX_CONSECUTIVE_FAILURES.)
+_PYLON_ERR_PAYLOAD_DISCARDED = 0xE2000212
 
 # Device-not-found: USB-Vision transport returns this when the device
 # handle no longer resolves on the bus (cable unplug, USB hub power
