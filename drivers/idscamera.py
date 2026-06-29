@@ -222,6 +222,14 @@ class IDSCamera(Camera):
         self._recovery_started = False
         self._recovery_attempts = 0
         self._last_recovery_time = 0.0
+        # disconnect() coordinates with an in-flight recovery so the user's
+        # disconnect wins the race regardless of timing: the abort Event makes a
+        # running recovery bail before it reopens, _recovery_thread lets disconnect
+        # join it (bounded), and _disconnect_requested is the sticky latch so a
+        # recovery that reopens anyway is torn straight back down.
+        self._recovery_abort = threading.Event()
+        self._disconnect_requested = False
+        self._recovery_thread = None
 
         super().__init__()
 
@@ -248,6 +256,10 @@ class IDSCamera(Camera):
             self.remote_nodemap = self.active.RemoteDevice().NodeMaps()[0]
             self._device_removed = False
             self._async_teardown_started = False
+            # Fresh lifecycle: clear any sticky disconnect/abort left from a prior
+            # open so a new bring-up never inherits a stale recovery-abort.
+            self._recovery_abort.clear()
+            self._disconnect_requested = False
 
             # Register the terminal removal signal now that our device is open --
             # events only transmit from registration time, and we cannot lose a
@@ -305,6 +317,23 @@ class IDSCamera(Camera):
             # Unregister the DeviceLost callback first, while device_manager is
             # still set -- a stale registration would outlive the camera.
             self._unregister_device_callbacks()
+            # If a wedge-recovery is in flight, the user's disconnect wins: signal
+            # it to bail before it reopens, then wait (bounded) for it to exit so we
+            # don't tear down handles it is mid-way through rebuilding. The
+            # _disconnect_requested latch (checked in the recovery thread's finally)
+            # is the backstop if a recovery slips past the abort and reopens anyway.
+            with self._state_lock:
+                self._disconnect_requested = True
+                in_recovery = self._in_recovery
+                rec = self._recovery_thread
+            if in_recovery:
+                # Signal the abort whether or not we captured the thread handle:
+                # the recovery polls the Event at its checkpoints regardless, so
+                # a handle not yet published (set just after _in_recovery) still
+                # gets the abort. The join is best-effort on top.
+                self._recovery_abort.set()
+                if rec is not None and rec is not threading.current_thread():
+                    rec.join(_RECOVERY_REDISCOVER_TIMEOUT_S + _RECOVERY_RESET_WAIT_MS / 1000.0)
             if self.active:
                 if self._device_removed:
                     # The handle is dead: the remote-nodemap AcquisitionStop /
@@ -501,10 +530,19 @@ class IDSCamera(Camera):
                     # never permanently torn down.
                     if recovered:
                         self._recovery_attempts = 0
-            if not recovered:
+            with self._state_lock:
+                disconnect_requested = self._disconnect_requested
+            if recovered and disconnect_requested:
+                # A disconnect was requested while we reopened: honor it now by
+                # tearing the freshly-reopened camera back down. (_in_recovery is
+                # already cleared above, so this disconnect skips the join branch.)
+                self.disconnect()
+            elif not recovered:
                 self._handle_device_lost()
 
-        threading.Thread(target=_run_recovery, name='IDSRecovery', daemon=True).start()
+        rec_thread = threading.Thread(target=_run_recovery, name='IDSRecovery', daemon=True)
+        self._recovery_thread = rec_thread
+        rec_thread.start()
 
     def _recover_wedged_stream(self) -> None:
         """Clear a wedged USB3 data stream in software via SFNC DeviceReset, then
@@ -527,6 +565,11 @@ class IDSCamera(Camera):
 
         # Snapshot the operator's settings BEFORE the reset wipes them to defaults.
         settings = self._snapshot_settings()
+
+        # Last check before the irreversible reset: a disconnect requested by now
+        # means bail rather than reboot a camera the user is tearing down.
+        if self._recovery_abort.is_set():
+            raise HardwareError('recover: aborted by disconnect before reset')
 
         _cam_log.warning('[CAM Class ] IDS stream wedged -- issuing DeviceReset to recover')
         node = self.remote_nodemap.FindNode('DeviceReset')
@@ -561,6 +604,8 @@ class IDSCamera(Camera):
         # Reopen against the fresh descriptor (mirror connect()). Unregister the
         # stale DeviceLost callback before re-registering on the new handle so
         # registrations do not accumulate across recoveries.
+        if self._recovery_abort.is_set():
+            raise HardwareError('recover: aborted by disconnect before reopen')
         self._unregister_device_callbacks()
         self._device_key = descriptor.Key()
         self.active = descriptor.OpenDevice(ids_peak.DeviceAccessType_Control)
@@ -667,6 +712,8 @@ class IDSCamera(Camera):
             logger.debug(f'[CAM Class ] recover: SetDeviceUpdateTimeout unavailable: {e}')
         deadline = time.monotonic() + timeout_s
         while True:
+            if self._recovery_abort.is_set():
+                return None
             try:
                 self.device_manager.Update()
                 for descriptor in list(self.device_manager.Devices()):

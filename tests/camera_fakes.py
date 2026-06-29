@@ -341,6 +341,14 @@ def bare_ids_camera():
     cam.data_stream = MagicMock()
     cam.data_stream.IsGrabbing.return_value = False
     cam._mark_disconnected = MagicMock()
+    # Recovery-coordination state read by disconnect()/recovery (seeded so a
+    # fake camera can exercise the disconnect-vs-recovery path).
+    cam._device_removed = False
+    cam._in_recovery = False
+    cam._recovery_started = False
+    cam._recovery_abort = threading.Event()
+    cam._disconnect_requested = False
+    cam._recovery_thread = None
     cam._pixel_format_cache = None
     # Oversize-then-crop framing state, seeded as __init__ would so
     # set_frame_size / get_frame_size and the unpack crop run against real state.

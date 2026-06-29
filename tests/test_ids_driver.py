@@ -592,6 +592,9 @@ def _ids_cam_for_recovery():
     cam._recovery_started = False
     cam._recovery_attempts = 0
     cam._last_recovery_time = 0.0
+    cam._recovery_abort = threading.Event()
+    cam._disconnect_requested = False
+    cam._recovery_thread = None
     cam.cam_image_handler = MagicMock()
     return cam
 
@@ -708,6 +711,57 @@ class TestDeviceResetRecovery:
 
         with pytest.raises(HardwareError):
             cam._recover_wedged_stream()
+
+    def test_recover_wedged_stream_bails_when_aborted(self):
+        # A disconnect requested before recovery runs must abort it BEFORE the
+        # irreversible DeviceReset -- never reboot a camera the user is closing.
+        cam = self._recoverable_cam()
+        reset_node = MagicMock()
+        cam.remote_nodemap.FindNode.return_value = reset_node
+        cam._recovery_abort.set()
+        from drivers.exceptions import HardwareError
+
+        with pytest.raises(HardwareError):
+            cam._recover_wedged_stream()
+        reset_node.Execute.assert_not_called()  # bailed before the reset
+        cam._rediscover_by_serial.assert_not_called()
+
+    def test_disconnect_signals_abort_and_joins_recovery(self):
+        # disconnect() during an in-flight recovery signals the abort, joins the
+        # recovery thread, and the camera ends torn down -- the user's disconnect
+        # wins regardless of timing.
+        cam = self._recoverable_cam()
+        started = threading.Event()
+
+        def _recover():
+            started.set()
+            for _ in range(300):
+                if cam._recovery_abort.is_set():
+                    raise RuntimeError('aborted by disconnect')
+                time.sleep(0.01)
+
+        cam._recover_wedged_stream = _recover
+        cam._handle_device_lost = MagicMock()
+        cam._schedule_async_recovery()
+        self._wait_until(started.is_set)
+        rec = cam._recovery_thread
+        cam.disconnect()
+        assert cam._disconnect_requested is True
+        assert cam._recovery_abort.is_set()
+        assert not rec.is_alive()  # disconnect joined the recovery thread
+        assert cam.active is None
+
+    def test_recovery_reopen_with_pending_disconnect_tears_back_down(self):
+        # If a recovery reopens the camera despite a disconnect requested mid-flight
+        # (it slipped past the abort checks), the finally latch tears the freshly
+        # reopened camera back down so the disconnect is honored.
+        cam = self._recoverable_cam()
+        cam._recover_wedged_stream = MagicMock()  # succeeds -> recovered=True
+        cam.disconnect = MagicMock()
+        cam._disconnect_requested = True  # user asked to disconnect mid-recovery
+        cam._schedule_async_recovery()
+        self._wait_until(lambda: cam.disconnect.call_count >= 1)
+        cam.disconnect.assert_called_once()
 
     def test_snapshot_and_restore_round_trip(self):
         cam = _ids_cam_for_recovery()
