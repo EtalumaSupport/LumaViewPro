@@ -2141,7 +2141,7 @@ class ImageHandler(ImageHandlerBase):
             self._worker_thread = None
         quiesced = not poll_alive and not worker_alive
         if not quiesced:
-            logger.error(
+            _cam_log.error(
                 '[CAM Class ] IDS grab threads did not terminate within '
                 f'{self._STOP_JOIN_CEILING_S}s (poll_alive={poll_alive} '
                 f'worker_alive={worker_alive}); skipping buffer revoke this stop'
