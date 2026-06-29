@@ -810,8 +810,6 @@ class IDSCamera(Camera):
                 for buffer in self.data_stream.AnnouncedBuffers():
                     self.data_stream.RevokeBuffer(buffer)
         except Exception as e:
-            if _cam_log is not None:
-                _cam_log.warning(f'ids stop_grabbing FAILED: {e}')
             _cam_log.warning(f'[CAM Class ] stop_grabbing ignored error: {e}')
 
     def start_grabbing(self):
