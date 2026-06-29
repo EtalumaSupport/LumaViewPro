@@ -263,6 +263,10 @@ class IDSCamera(Camera):
             self.remote_nodemap = None
             self.data_stream = None
             self._pixel_format_cache = None
+            # Drop the handler if it was already built (line above the raise):
+            # it pins the just-opened data stream, so leaving it set keeps the
+            # USB3 endpoint bound and a retry rebinds the same stream.
+            self.cam_image_handler = None
 
         return False
 
@@ -301,6 +305,16 @@ class IDSCamera(Camera):
                 logger.info('[CAM Class ] IDS camera not connected')
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] IDS camera disconnect failed: {e}')
+        finally:
+            # Always drop the handler -- it pins the data stream, and ids_peak
+            # exposes no explicit DataStream/Device Close() (release is by dropping
+            # the last Python reference). A partial connect (handler built, active
+            # never set), an error mid-teardown, or a not-connected call must not
+            # leave the stream (USB3 endpoint) bound, or a later reconnect rebinds
+            # the same stream instead of a fresh one. On the active paths the grab
+            # threads were already quiesced above; a partial-connect handler was
+            # never started, so dropping the reference is the only teardown needed.
+            self.cam_image_handler = None
         return False
 
     def _register_device_callbacks(self) -> None:
@@ -2164,7 +2178,23 @@ class ImageHandler(ImageHandlerBase):
                 self._requeue(buffer)
                 break
 
-            if buffer.IsIncomplete():
+            # Accessing a finished buffer can raise if its handle has gone invalid
+            # -- the data stream wedged (revoked / reset) out from under the live
+            # poll thread. This access is OUTSIDE the WaitForFinishedBuffer guard
+            # above, so an unhandled raise here would kill the poll thread with a
+            # traceback; classify it instead.
+            try:
+                incomplete = buffer.IsIncomplete()
+            except Exception as e:
+                if self._handle_buffer_error(e):
+                    break
+                # Non-removal, non-wedge fault: return the buffer to the pool and
+                # keep polling (removal is owned solely by DeviceLost), mirroring
+                # the keep-polling path of _handle_wait_error.
+                self._requeue(buffer)
+                continue
+
+            if incomplete:
                 # Incomplete = USB packet loss / bandwidth saturation: a degraded
                 # stream, not a removal. Log and re-queue; never mark disconnected
                 # (removal is owned by the DeviceLost callback). A sustained
@@ -2221,6 +2251,41 @@ class ImageHandler(ImageHandlerBase):
         # no longer accrues toward an auto-disconnect -- the old N-consecutive
         # heuristic mislabeled a host stall as a removal. !r escapes non-ASCII.
         _cam_log.warning(f'[CAM Class ] ImageHandler poll exception: {type(e).__name__}: {e!r}')
+        return False
+
+    def _handle_buffer_error(self, e: Exception) -> bool:
+        """Classify an error from accessing a finished buffer; return True to stop
+        the loop, False to keep polling.
+
+        WaitForFinishedBuffer already succeeded, so this is not a wait error -- it
+        is the finished buffer's handle raising on access. Three cases, mirroring
+        _handle_wait_error so removal stays owned by the single DeviceLost owner:
+
+        - A typed DeviceLostException is an authoritative removal (the fallback if
+          the DeviceLost callback is ever missed): route to the single removal
+          owner and stop the loop.
+        - An invalid buffer handle means the data stream wedged (revoked / reset)
+          out from under the live poll thread; the buffer is unusable. Stop the
+          loop rather than hot-spin on a stream yielding only invalid buffers. This
+          is a recoverable WEDGE, not a removal -- never mark disconnected here.
+          The stream stays present, so the display watchdog surfaces the stall and
+          a reconnect recovers it.
+        - Any other fault: keep polling. Removal is owned solely by DeviceLost, so
+          an unknown transient fault must not tear the poll thread down for good.
+        """
+        if _exc_is(e, 'DeviceLostException', 'removed', 'device'):
+            _cam_log.warning(f'[CAM Class ] Device removal detected accessing buffer: {e}')
+            self._parent._handle_device_lost()
+            return True
+        if _exc_is(e, 'InvalidInstanceException', 'invalid', 'bufferhandle'):
+            _cam_log.error(
+                '[CAM Class ] IDS finished-buffer handle invalid (stream wedged): '
+                f'{type(e).__name__}: {e!r}'
+            )
+            return True
+        _cam_log.warning(
+            f'[CAM Class ] ImageHandler buffer access exception: {type(e).__name__}: {e!r}'
+        )
         return False
 
     def _requeue(self, buffer):

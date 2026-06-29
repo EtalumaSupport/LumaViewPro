@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import threading
 import time
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import ids_peak_ipl
 import pytest
@@ -484,6 +484,61 @@ class TestStallNotRemoval:
         h._parent._handle_device_lost.assert_called_once()
 
 
+class TestWedgedBufferBreaksLoop:
+    """A finished buffer whose handle is invalid (the data stream wedged out from
+    under the live consumer) makes buffer.IsIncomplete() raise. That access is
+    NOT inside the WaitForFinishedBuffer try, so the raise used to escape
+    _poll_loop and kill the IDSPoll thread with a traceback. The handler must
+    classify the invalid handle as a wedge: break the loop (no hot-spin on a dead
+    stream) and route the log through the camera log -- never mark disconnected
+    (a wedge is recoverable; removal is owned solely by DeviceLost)."""
+
+    def test_invalid_buffer_access_breaks_poll_loop_without_propagating(self):
+        bad = MagicMock()
+        bad.IsIncomplete.side_effect = RuntimeError('bufferHandle is invalid')
+        ds = _FakeDataStream([bad])
+        h = _ids_handler(ds)
+        # Direct (synchronous) poll: the invalid-handle raise must be caught and
+        # break the loop, so the call RETURNS instead of propagating the error.
+        h._poll_loop()
+        assert ds.requeued == []  # never touch an invalid handle to re-queue it
+        h._parent._mark_disconnected.assert_not_called()
+        h._parent._handle_device_lost.assert_not_called()
+
+    def test_handle_buffer_error_breaks_and_logs_via_cam_log(self):
+        from drivers import idscamera
+
+        ds = MagicMock()
+        h = _ids_handler(ds)
+        log = MagicMock()
+        with patch.object(idscamera, '_cam_log', log):
+            should_stop = h._handle_buffer_error(RuntimeError('bufferHandle is invalid'))
+        assert should_stop is True  # break the loop -- do NOT catch-and-continue
+        log.error.assert_called_once()  # routed through the camera log
+        h._parent._mark_disconnected.assert_not_called()
+        h._parent._handle_device_lost.assert_not_called()
+
+    def test_buffer_device_lost_routes_to_single_owner(self):
+        # A removal surfacing as a buffer-access raise (the DeviceLost callback was
+        # missed) must route to the single removal owner -- mirrors the typed
+        # fallback _handle_wait_error carries -- not be logged as a mere wedge.
+        ds = MagicMock()
+        h = _ids_handler(ds)
+        should_stop = h._handle_buffer_error(RuntimeError('DeviceLostException: removed'))
+        assert should_stop is True
+        h._parent._handle_device_lost.assert_called_once()
+
+    def test_generic_buffer_error_keeps_polling(self):
+        # An unknown, non-removal, non-wedge fault must not tear the poll thread
+        # down for good: keep polling (removal is owned solely by DeviceLost).
+        ds = MagicMock()
+        h = _ids_handler(ds)
+        should_stop = h._handle_buffer_error(RuntimeError('some transient fault'))
+        assert should_stop is False
+        h._parent._mark_disconnected.assert_not_called()
+        h._parent._handle_device_lost.assert_not_called()
+
+
 def _ids_cam_for_recovery():
     cam = bare_ids_camera()
     cam._device_key = 'KEY-OURS'
@@ -563,9 +618,10 @@ class TestDeviceLostCallback:
         cam._device_removed = True
         cam.stop_grabbing = MagicMock()
         cam.is_grabbing = MagicMock(return_value=True)
+        handler = cam.cam_image_handler  # captured before disconnect nulls it
         cam.disconnect()
         cam.stop_grabbing.assert_not_called()  # nodemap stops skipped on dead handle
-        cam.cam_image_handler.stop.assert_called_once()  # safe teardown still runs
+        handler.stop.assert_called_once()  # safe teardown still runs before release
 
     def test_disconnect_on_live_device_uses_stop_grabbing(self):
         cam = _ids_cam_for_recovery()
@@ -576,6 +632,28 @@ class TestDeviceLostCallback:
         cam.is_grabbing = MagicMock(return_value=True)
         cam.disconnect()
         cam.stop_grabbing.assert_called_once()
+
+    def test_disconnect_nulls_handler_to_release_stream(self):
+        # disconnect() must drop cam_image_handler: it was constructed with the
+        # data stream and ids_peak has no explicit Close() -- release happens by
+        # dropping the last Python ref. Leaving the handler pinned keeps the USB3
+        # endpoint bound, so a reconnect rebinds the same (possibly wedged) stream.
+        cam = _ids_cam_for_recovery()
+        cam.device_manager = MagicMock()
+        cam.active = MagicMock()
+        cam._device_removed = False
+        cam.stop_grabbing = MagicMock()
+        cam.is_grabbing = MagicMock(return_value=True)
+        cam.disconnect()
+        assert cam.cam_image_handler is None
+
+    def test_disconnect_on_removed_device_also_nulls_handler(self):
+        cam = _ids_cam_for_recovery()
+        cam.device_manager = MagicMock()
+        cam.active = MagicMock()
+        cam._device_removed = True
+        cam.disconnect()
+        assert cam.cam_image_handler is None
 
 
 class TestPipelineLifecycle:
