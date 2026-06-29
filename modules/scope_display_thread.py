@@ -122,6 +122,12 @@ class ScopeDisplayThread:
         # episode). Owned by the loop thread; reset on start().
         self._last_ok_monotonic: float | None = None
         self._stall_warned: bool = False
+        # When set, the stall watchdog is muted: an operation that
+        # deliberately monopolizes the camera (e.g. a characterization run
+        # driving forced grabs) makes live-view frame delivery gap on
+        # purpose, so the "no new frame" warning would be a false alarm.
+        # Rendering is unaffected -- only the warning + popup are withheld.
+        self._stall_suppressed = threading.Event()
 
     @staticmethod
     def _direct_dispatch(fn: Callable, delay: float) -> None:
@@ -179,6 +185,18 @@ class ScopeDisplayThread:
     def resume(self) -> None:
         """Resume rendering iterations after pause()."""
         self._paused.clear()
+
+    def suppress_stall_warnings(self, value: bool = True) -> None:
+        """Mute (or restore) the live-view stall watchdog. Call with True
+        around an operation that deliberately monopolizes the camera with
+        forced grabs (e.g. a characterization run): the live view keeps
+        rendering whatever frames arrive, but the watchdog stops raising
+        false 'camera not updating' warnings + popups for the expected
+        frame-delivery gaps. Call with False when the operation ends."""
+        if value:
+            self._stall_suppressed.set()
+        else:
+            self._stall_suppressed.clear()
 
     # ---- runtime config ----
 
@@ -319,6 +337,15 @@ class ScopeDisplayThread:
         camera is inactive the clock is held cleared so a fresh stream
         starts a fresh stall window rather than inheriting an old gap.
         """
+        # Muted while an operation deliberately monopolizes the camera (see
+        # suppress_stall_warnings). The expected frame-delivery gap is not a
+        # fault, so withhold the warning -- and hold the clock cleared so the
+        # watchdog re-arms on a fresh window once suppression lifts, instead
+        # of firing immediately on the accumulated gap.
+        if self._stall_suppressed.is_set():
+            self._last_ok_monotonic = None
+            self._stall_warned = False
+            return
         if status == STATUS_OK:
             self._last_ok_monotonic = now
             self._stall_warned = False
