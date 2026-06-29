@@ -2180,42 +2180,27 @@ class IDSCamera(Camera):
     # grab() inherited from Camera base class
 
     def grab_new_capture(self, timeout_s):
-        if not self.cam_image_handler:
-            return False, None
+        """Return a frame captured AFTER this call, via the shared latest-frame
+        path -- never by driving the data stream directly.
 
-        try:
-            # WaitForFinishedBuffer wants an integer millisecond timeout
-            # (peak::core::Timeout); the caller passes float seconds. The live
-            # grab loop already uses ms -- convert here too, or the SWIG call
-            # rejects the float and every capture-path grab fails.
-            buffer = self.data_stream.WaitForFinishedBuffer(int(timeout_s * 1000))
-        except Exception as e:
-            _cam_log.warning(f'[CAM Class ] grab_new_capture wait failed: {e}')
+        The handler's poll thread is the single WaitForFinishedBuffer consumer and
+        _requeue the single QueueBuffer; a still capture that ran its own
+        WaitForFinishedBuffer + QueueBuffer (the prior implementation) raced the
+        live poll/worker on the same stream -- stealing finished buffers and
+        re-queueing outside _requeue_lock, which the SDK does not promise is
+        concurrency-safe. Instead, snapshot the worker's frame-generation, wait for
+        it to advance (a genuinely new frame, unpacked + cropped + depth-stamped by
+        the worker), then read that frame through grab() -- which stores it under
+        _array_lock with its paired significant_bits. This mirrors the Pylon
+        driver, which also consumes the handler's frame rather than the stream.
+        """
+        handler = self.cam_image_handler
+        if not handler:
             return False, None
-
-        # Re-queue the buffer in EVERY exit (incomplete, success, or an unpack
-        # error) -- _unpack_buffer can raise (center_crop / SDK), and a buffer
-        # that is never re-queued is permanently lost from the pool, which after
-        # a few failures starves the stream and hangs all captures. Mirrors the
-        # live worker's finally+_requeue. The copy in _unpack_buffer takes the
-        # pixels out, so re-queue is safe once it returns.
-        try:
-            if buffer.IsIncomplete():
-                return False, None
-            # Unpack to the native depth (uint16 for Mono10/Mono12), NOT Mono8:
-            # the still-capture path reads this frame's depth from
-            # last_significant_bits, which reflects native depth, so an 8-bit
-            # array here would be downconverted against a 10/12-bit depth. Apply
-            # the same crop as the live path so a saved/scan/AF frame is the
-            # delivered size, not the oversized AOI.
-            wire = self.get_pixel_format()
-            self.array = _unpack_buffer(buffer, wire, self._crop_spec)
-            return True, datetime.datetime.now()
-        except Exception as e:
-            _cam_log.warning(f'[CAM Class ] grab_new_capture failed: {e}')
+        since = handler.frame_generation()
+        if not handler.wait_for_new_frame(since, timeout_s):
             return False, None
-        finally:
-            self.data_stream.QueueBuffer(buffer)
+        return self.grab()
 
     def update_auto_gain_target_brightness(self, auto_target_brightness: float):
         try:
@@ -2464,6 +2449,13 @@ class ImageHandler(ImageHandlerBase):
         self._slot = _LatestBufferSlot(self._requeue)
         self._poll_thread = None
         self._worker_thread = None
+        # Frame-generation gate: the worker bumps this each time it stores a
+        # frame; a still capture (grab_new_capture) snapshots it and waits for it
+        # to advance, so it returns a genuinely-new frame WITHOUT driving the data
+        # stream itself -- the poll thread stays the single WaitForFinishedBuffer
+        # consumer and _requeue the single QueueBuffer.
+        self._frame_generation = 0
+        self._frame_gen_cond = threading.Condition()
 
     def start(self):
         if self._poll_thread is not None:
@@ -2678,6 +2670,29 @@ class ImageHandler(ImageHandlerBase):
             f'[CAM Class ] IDS buffer.IsIncomplete()=True filled={bsize} capacity={bcap}'
         )
 
+    def frame_generation(self) -> int:
+        """Current frame-store counter. Snapshot it before a still capture, then
+        wait_for_new_frame() past it to get a frame stored after that point."""
+        with self._frame_gen_cond:
+            return self._frame_generation
+
+    def wait_for_new_frame(self, since: int, timeout_s: float) -> bool:
+        """Block until the worker stores a frame newer than ``since`` (or timeout).
+
+        Returns True if a newer frame is available, False on timeout. This is the
+        still-capture path's hook into the live worker: it never touches the data
+        stream, so a still capture cannot race the poll/worker on WaitForFinished-
+        Buffer or QueueBuffer.
+        """
+        deadline = time.monotonic() + timeout_s
+        with self._frame_gen_cond:
+            while self._frame_generation <= since:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                self._frame_gen_cond.wait(remaining)
+            return True
+
     def _worker_loop(self):
         """Stage B: unpack the freshest buffer, store it, and re-queue it."""
         while True:
@@ -2693,6 +2708,9 @@ class ImageHandler(ImageHandlerBase):
                 # Stamp the frame with the depth it was captured under so depth
                 # and pixels stay paired across a later format switch.
                 self._store_frame(array, datetime.datetime.now(), significant_bits=significant_bits)
+                with self._frame_gen_cond:
+                    self._frame_generation += 1
+                    self._frame_gen_cond.notify_all()
             except Exception as e:
                 # One bad frame must not kill the worker; the next stores
                 # normally. Log so the cause stays visible without throttling.

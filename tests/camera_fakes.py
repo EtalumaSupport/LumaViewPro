@@ -333,6 +333,7 @@ def bare_ids_camera():
 
     cam = idscamera.IDSCamera.__new__(idscamera.IDSCamera)
     cam._state_lock = threading.Lock()
+    cam._array_lock = threading.Lock()
     cam._lifecycle_lock = threading.RLock()
     cam._update_config_depth = 0
     cam._grab_gate_open = False

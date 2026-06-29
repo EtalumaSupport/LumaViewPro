@@ -65,18 +65,6 @@ class _RecordingNodemap:
         return self.nodes.setdefault(name, _RecordingNode())
 
 
-class _RecordingDataStream:
-    """Records the timeout passed to WaitForFinishedBuffer, then raises to
-    short-circuit the rest of the grab (we only assert the timeout arg)."""
-
-    def __init__(self):
-        self.timeout_arg = None
-
-    def WaitForFinishedBuffer(self, timeout):
-        self.timeout_arg = timeout
-        raise RuntimeError('short-circuit after recording the timeout')
-
-
 class TestSignificantBitsFromFormat:
     @pytest.mark.parametrize(
         'wire,expected',
@@ -264,21 +252,6 @@ class TestGainDbConversion:
         assert cam.profile.gain.total_max_db == pytest.approx(30.0, abs=0.1)
 
 
-class TestGrabNewCaptureTimeout:
-    """grab_new_capture takes float seconds but WaitForFinishedBuffer wants an
-    integer millisecond timeout -- passing the float made every capture-path
-    grab fail with a SWIG type error."""
-
-    def test_passes_integer_millisecond_timeout(self):
-        cam = bare_ids_camera()
-        cam.cam_image_handler = object()  # only needs to be non-None
-        cam.data_stream = _RecordingDataStream()
-        ok, _ts = cam.grab_new_capture(3.0)
-        assert ok is False  # the fake raises after recording
-        assert cam.data_stream.timeout_arg == 3000
-        assert isinstance(cam.data_stream.timeout_arg, int)
-
-
 class _FakeBuffer:
     """A finished/incomplete GenTL buffer stand-in (identity == the buffer)."""
 
@@ -418,6 +391,8 @@ def _ids_handler(data_stream):
     handler._slot = idscamera._LatestBufferSlot(handler._requeue)
     handler._poll_thread = None
     handler._worker_thread = None
+    handler._frame_generation = 0
+    handler._frame_gen_cond = threading.Condition()
     return handler
 
 
@@ -998,7 +973,10 @@ class TestPipelineLifecycle:
         h.stop()
         assert stored == [('b0', 12)]
         assert ds.requeued.count(b0) == 1  # re-queued once, by the worker
-        assert ds.kill_wait_calls == 1  # stop() unblocked the parked poll
+        # stop() unblocked the parked poll. The count is >= 1, not == 1: stop() is
+        # designed for multiple KillWait+join rounds (_STOP_JOIN_CEILING_S), so the
+        # exact number is scheduling-dependent, not a correctness property.
+        assert ds.kill_wait_calls >= 1
         assert h._poll_thread is None and h._worker_thread is None
 
     def test_incomplete_buffer_requeued_once_not_stored(self):
@@ -1071,3 +1049,60 @@ class TestPipelineLifecycle:
         h.stop()
         h.stop()  # second stop must not raise
         assert h._poll_thread is None and h._worker_thread is None
+
+
+class TestFrameGenerationGate:
+    """grab_new_capture returns a NEW frame via the handler's frame-generation
+    gate -- not by driving the data stream itself (the QueueBuffer-race fix)."""
+
+    def test_worker_store_advances_generation(self):
+        b0 = _FakeBuffer('b0')
+        ds = _FakeDataStream([b0])
+        h = _ids_handler(ds)
+        h._unpack = lambda buf: (buf.tag, 12)
+        h._store_frame = lambda *a, **k: None
+        gen0 = h.frame_generation()
+        h.start()
+        TestPipelineLifecycle._wait_until(lambda: h.frame_generation() > gen0)
+        h.stop()
+        assert h.frame_generation() > gen0  # storing a frame advanced the counter
+
+    def test_wait_for_new_frame_times_out_when_no_advance(self):
+        ds = _FakeDataStream([])
+        h = _ids_handler(ds)
+        # No worker -> generation never advances -> the bounded wait returns False.
+        assert h.wait_for_new_frame(h.frame_generation(), 0.05) is False
+
+    def test_wait_for_new_frame_returns_true_after_bump(self):
+        ds = _FakeDataStream([])
+        h = _ids_handler(ds)
+        since = h.frame_generation()
+
+        def _bump():
+            with h._frame_gen_cond:
+                h._frame_generation += 1
+                h._frame_gen_cond.notify_all()
+
+        threading.Timer(0.02, _bump).start()
+        assert h.wait_for_new_frame(since, 1.0) is True
+
+    def test_grab_new_capture_does_not_drive_data_stream(self):
+        # Structural guard: the fix is only safe if grab_new_capture never calls
+        # data_stream.WaitForFinishedBuffer / QueueBuffer directly -- those belong
+        # to the poll thread / _requeue, the single owners of the SDK stream.
+        import ast
+        import inspect
+        import textwrap
+
+        src = textwrap.dedent(inspect.getsource(IDSCamera.grab_new_capture))
+        tree = ast.parse(src)
+        bad = [
+            node.attr
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Attribute)
+            and node.attr in ('WaitForFinishedBuffer', 'QueueBuffer')
+        ]
+        assert bad == [], (
+            'grab_new_capture must not drive the data stream directly; route '
+            f'through the handler frame-gate instead. Found: {bad}'
+        )

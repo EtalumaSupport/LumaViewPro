@@ -320,58 +320,46 @@ def test_unpack_crops_converted_frame_to_target(monkeypatch):
     assert array.base is None
 
 
-def test_grab_new_capture_applies_crop(monkeypatch):
-    """The still-capture path (snaps / protocol scans / autofocus) goes through
-    grab_new_capture, not the live _unpack worker, so it must apply the crop too
-    -- otherwise saved frames are the oversized AOI, not the delivered size."""
-    from drivers import idscamera
-
+def test_grab_new_capture_returns_worker_stored_frame():
+    """The still-capture path (snaps / protocol scans / autofocus) no longer drives
+    the data stream: it waits for the worker to store a genuinely-new frame (where
+    the crop / unpack / depth-stamp happen -- covered by the _unpack tests) and
+    returns it via grab(). It must never run its own WaitForFinishedBuffer /
+    QueueBuffer, which would race the live poll/worker on the same stream."""
     cam = bare_ids_camera()
-    cam._crop_spec = (10, 0, 1900, 1900)
-    cam.get_pixel_format = lambda: 'Mono12g24IDS'
-    cam.cam_image_handler = object()  # non-None gate in grab_new_capture
+    handler = MagicMock()
+    handler.frame_generation.return_value = 7
+    handler.wait_for_new_frame.return_value = True
+    cropped = np.zeros((1900, 1900), dtype=np.uint16)
+    handler.get_last_image.return_value = (True, cropped, 'TS', 12)
+    cam.cam_image_handler = handler
 
-    full = np.zeros((1900, 1920), dtype=np.uint16)
-    fake_buffer = MagicMock()
-    fake_buffer.IsIncomplete.return_value = False
-    cam.data_stream = MagicMock()
-    cam.data_stream.WaitForFinishedBuffer.return_value = fake_buffer
-    fake_img = MagicMock()
-    fake_img.PixelFormat.return_value = idscamera._ids_ipl_target('Mono12g24IDS')
-    fake_img.get_numpy.return_value = full
-    monkeypatch.setattr(idscamera.ids_peak_ipl_extension, 'BufferToImage', lambda b: fake_img)
-
-    ok, _ts = cam.grab_new_capture(1.0)
+    ok, ts = cam.grab_new_capture(1.0)
 
     assert ok is True
-    assert cam.array.shape == (1900, 1900)
+    assert ts == 'TS'
+    handler.wait_for_new_frame.assert_called_once_with(7, 1.0)  # gated on a NEW frame
+    assert np.array_equal(cam.get_array(), cropped)
+    # Never drove the data stream directly (the worker owns it).
+    cam.data_stream.WaitForFinishedBuffer.assert_not_called()
+    cam.data_stream.QueueBuffer.assert_not_called()
 
 
-def test_grab_new_capture_requeues_buffer_on_unpack_failure(monkeypatch):
-    """A failed unpack (here a crop window that does not fit) must STILL re-queue
-    the SDK buffer -- a buffer never returned to the pool starves the stream and
-    hangs every subsequent capture."""
-    from drivers import idscamera
-
+def test_grab_new_capture_times_out_without_touching_stream():
+    """When no new frame is stored within the timeout, grab_new_capture returns
+    (False, None) and still never drives the data stream."""
     cam = bare_ids_camera()
-    cam._crop_spec = (10, 0, 5000, 5000)  # window > frame -> center_crop raises
-    cam.get_pixel_format = lambda: 'Mono12g24IDS'
-    cam.cam_image_handler = object()
+    handler = MagicMock()
+    handler.frame_generation.return_value = 3
+    handler.wait_for_new_frame.return_value = False  # no new frame in time
+    cam.cam_image_handler = handler
 
-    full = np.zeros((1900, 1920), dtype=np.uint16)
-    fake_buffer = MagicMock()
-    fake_buffer.IsIncomplete.return_value = False
-    cam.data_stream = MagicMock()
-    cam.data_stream.WaitForFinishedBuffer.return_value = fake_buffer
-    fake_img = MagicMock()
-    fake_img.PixelFormat.return_value = idscamera._ids_ipl_target('Mono12g24IDS')
-    fake_img.get_numpy.return_value = full
-    monkeypatch.setattr(idscamera.ids_peak_ipl_extension, 'BufferToImage', lambda b: fake_img)
+    ok, ts = cam.grab_new_capture(0.01)
 
-    ok, _ts = cam.grab_new_capture(1.0)
-
-    assert ok is False  # the unpack failed
-    cam.data_stream.QueueBuffer.assert_called_once_with(fake_buffer)  # ...but buffer returned
+    assert ok is False
+    assert ts is None
+    cam.data_stream.WaitForFinishedBuffer.assert_not_called()
+    cam.data_stream.QueueBuffer.assert_not_called()
 
 
 def test_unpack_without_crop_spec_passes_frame_through(monkeypatch):
