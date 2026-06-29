@@ -766,8 +766,10 @@ class IDSCamera(Camera):
         if _cam_log is not None:
             _cam_log.info('ids AcquisitionStop + StopAcquisition + Flush + RevokeBuffers')
         try:
+            # When no handler exists yet, treat as quiesced (nothing to race).
+            threads_quiesced = True
             if self.cam_image_handler:
-                self.cam_image_handler.stop()
+                threads_quiesced = self.cam_image_handler.stop()
 
             self.remote_nodemap.FindNode('AcquisitionStop').Execute()
             self.remote_nodemap.FindNode('AcquisitionStop').WaitUntilDone()
@@ -780,9 +782,16 @@ class IDSCamera(Camera):
             except Exception as e:
                 logger.debug(f'[CAM Class ] TLParamsLocked=0 not available: {e}')
 
-            self.data_stream.Flush(ids_peak.DataStreamFlushMode_DiscardAll)
-            for buffer in self.data_stream.AnnouncedBuffers():
-                self.data_stream.RevokeBuffer(buffer)
+            # Revoke ONLY once the poll + worker threads are provably dead.
+            # Revoking under a live consumer leaves it holding an invalid buffer
+            # handle (the IDSPoll InvalidInstanceException). If the threads could
+            # not be quiesced, leave the buffers announced -- they are reclaimed
+            # at the next clean stop or at disconnect -- rather than pull them
+            # out from under a running thread.
+            if threads_quiesced:
+                self.data_stream.Flush(ids_peak.DataStreamFlushMode_DiscardAll)
+                for buffer in self.data_stream.AnnouncedBuffers():
+                    self.data_stream.RevokeBuffer(buffer)
         except Exception as e:
             if _cam_log is not None:
                 _cam_log.warning(f'ids stop_grabbing FAILED: {e}')
@@ -2061,6 +2070,13 @@ class ImageHandler(ImageHandlerBase):
     # when no frames are arriving (a stalled stream must still shut down).
     _WORKER_POLL_S = 0.5
 
+    # Upper bound on how long stop() will work to terminate the grab threads
+    # before giving up. A poll thread parked in WaitForFinishedBuffer with a
+    # long (exposure-scaled) timeout only unparks via KillWait, so stop() may
+    # need several KillWait+join rounds; this bounds the total so teardown can
+    # never hang indefinitely on a wedged thread.
+    _STOP_JOIN_CEILING_S = 10.0
+
     def __init__(self, data_stream: ids_peak.DataStream, parent_cam: 'IDSCamera'):
         super().__init__()
         self.data_stream = data_stream
@@ -2090,21 +2106,47 @@ class ImageHandler(ImageHandlerBase):
         self._worker_thread.start()
         self._poll_thread.start()
 
-    def stop(self):
+    def stop(self) -> bool:
+        """Terminate the poll + worker threads and report whether BOTH are
+        confirmed dead. Returns False when a thread could not be joined inside
+        the ceiling; the caller must then NOT revoke buffers -- a buffer revoked
+        under a still-running poll/worker thread is touched as an invalid handle.
+
+        KillWait is re-posted every round, not once: a single pre-join KillWait
+        can miss a poll thread that has not yet entered WaitForFinishedBuffer
+        (it was between iterations), leaving it to wait out the full
+        exposure-scaled timeout. Re-posting guarantees the abort lands once the
+        thread is parked, so join returns promptly instead of timing out.
+        """
         self._stop_event.set()
         self._slot.stop()
-        # Unblock a poll thread parked in WaitForFinishedBuffer so the join
-        # returns promptly instead of waiting out the (exposure-scaled) timeout.
-        # A long-exposure shutdown would otherwise hang for that whole window.
-        try:
-            self.data_stream.KillWait()
-        except Exception as e:
-            logger.debug(f'[CAM Class ] KillWait unavailable: {e}')
+        deadline = time.monotonic() + self._STOP_JOIN_CEILING_S
         for thread in (self._poll_thread, self._worker_thread):
-            if thread is not None:
-                thread.join(timeout=5)
-        self._poll_thread = None
-        self._worker_thread = None
+            while thread is not None and thread.is_alive() and time.monotonic() < deadline:
+                # Unblock a poll thread parked in WaitForFinishedBuffer; harmless
+                # for the worker, which exits via the slot's stop sentinel.
+                try:
+                    self.data_stream.KillWait()
+                except Exception as e:
+                    logger.debug(f'[CAM Class ] KillWait unavailable: {e}')
+                thread.join(timeout=0.5)
+        poll_alive = self._poll_thread is not None and self._poll_thread.is_alive()
+        worker_alive = self._worker_thread is not None and self._worker_thread.is_alive()
+        # Drop a reference only once its thread is provably dead, so a leaked
+        # live thread stays visible to start()'s guard (which would otherwise
+        # launch a second poll thread onto the same data stream).
+        if not poll_alive:
+            self._poll_thread = None
+        if not worker_alive:
+            self._worker_thread = None
+        quiesced = not poll_alive and not worker_alive
+        if not quiesced:
+            logger.error(
+                '[CAM Class ] IDS grab threads did not terminate within '
+                f'{self._STOP_JOIN_CEILING_S}s (poll_alive={poll_alive} '
+                f'worker_alive={worker_alive}); skipping buffer revoke this stop'
+            )
+        return quiesced
 
     def _poll_loop(self):
         """Stage A: drain finished buffers and hand each to the unpack worker."""
