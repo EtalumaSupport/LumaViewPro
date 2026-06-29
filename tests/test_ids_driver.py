@@ -749,6 +749,27 @@ class TestDeviceResetRecovery:
         snap = cam._snapshot_settings()
         assert snap == {'binning': 2, 'frame_size': {'width': 800, 'height': 600}}
 
+    def test_get_binning_size_returns_minus_one_on_read_failure(self):
+        # 1 is a LEGAL binning factor, so it cannot double as the failure
+        # sentinel: an active read that throws must return the out-of-band -1
+        # (rejected by the snapshot validator), not 1 (which would survive
+        # validation and silently de-bin a 2x camera on restore).
+        cam = bare_ids_camera()
+        cam.remote_nodemap.FindNode.side_effect = Exception('node read failed')
+        assert cam.get_binning_size() == -1
+
+    def test_snapshot_drops_binning_read_failure(self):
+        # A failed binning read (-1) during the recovery snapshot must be
+        # DROPPED, not captured as 1 and re-applied by _restore_settings.
+        cam = _ids_cam_for_recovery()
+        cam.get_pixel_format = MagicMock(return_value='Mono8')
+        cam.get_binning_size = MagicMock(return_value=-1)  # read failure
+        cam.get_frame_size = MagicMock(return_value={'width': 800, 'height': 600})
+        cam.get_exposure_t = MagicMock(return_value=10.0)
+        cam.get_gain = MagicMock(return_value=0.0)
+        snap = cam._snapshot_settings()
+        assert 'binning' not in snap
+
     def test_is_connected_true_during_recovery_despite_null_active(self):
         # The reset transiently nulls active; is_connected must not report a
         # removal (or latch _device_removed) mid-recovery.

@@ -193,16 +193,17 @@ class ImagingAPI:
         self._camera_temp_event = None
         self._camera_temp_unschedule_fn = None
 
-        # Binning size cache -- read live from driver if camera is
-        # connected, otherwise default to 1. Defensive against fake/test
-        # cameras that may not implement get_binning_size.
+        # Binning size cache. get_binning_size() (the wrapper) is the single read
+        # accessor. Seed the last-known value, then commit only a VALID live read:
+        # a failed read (driver returns -1, since 1 is a legal factor and cannot
+        # double as the failure sentinel) leaves the last-known value in place
+        # rather than caching -1, which would corrupt native_to_displayed's
+        # frame-size division.
+        self._binning_size = 1
         if self._driver and hasattr(self._driver, 'get_binning_size'):
-            try:
-                self._binning_size = self._driver.get_binning_size()
-            except Exception:
-                self._binning_size = 1
-        else:
-            self._binning_size = 1
+            live = self.get_binning_size()
+            if live >= 1:
+                self._binning_size = live
 
         # Scale-bar overlay config -- defaults disabled; users opt in via
         # set_scale_bar(...). Reads/writes under self._state_lock.
@@ -278,6 +279,14 @@ class ImagingAPI:
                 self._camera_cache['active'] = False
             return
 
+        # Refresh the last-known binning from a valid live read; a failed read
+        # (driver returns -1) leaves it unchanged (validate-before-store,
+        # mirroring __init__) so the cache never holds the failure sentinel.
+        if hasattr(self._driver, 'get_binning_size'):
+            live_binning = self.get_binning_size()
+            if live_binning >= 1:
+                self._binning_size = live_binning
+
         try:
             cache = {
                 'active': True,
@@ -293,9 +302,7 @@ class ImagingAPI:
                 'pixel_format': self._driver.get_pixel_format()
                 if hasattr(self._driver, 'get_pixel_format')
                 else None,
-                'binning': self._driver.get_binning_size()
-                if hasattr(self._driver, 'get_binning_size')
-                else 1,
+                'binning': self._binning_size,
             }
             with self._camera_cache_lock:
                 self._camera_cache.update(cache)

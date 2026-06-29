@@ -2105,6 +2105,14 @@ class IDSCamera(Camera):
             raise HardwareError(f'set_binning_size({size}) failed: {type(e).__name__}: {e}') from e
 
     def get_binning_size(self) -> int:
+        # READ-FAILURE sentinel is -1, not 1: 1 is a legal binning factor (1x =
+        # no binning), so returning 1 on a failed read would be indistinguishable
+        # from a real 1x camera. The recovery settings-snapshot (taken while the
+        # camera is active) validates getters by value -- an in-band 1 would
+        # survive validation and silently de-bin a 2x camera on restore, whereas
+        # -1 is rejected (binning must be >= 1). The INACTIVE case stays 1: no
+        # camera means no binning, the snapshot never runs while inactive, and
+        # callers already treat inactive as the 1x default.
         if not self.active:
             return 1
 
@@ -2120,7 +2128,7 @@ class IDSCamera(Camera):
             return vert_bin
         except Exception as e:
             _cam_log.error(f'[CAM Class ] get_binning_size failed: {e}')
-            return 1
+            return -1
 
     # grab() inherited from Camera base class
 
