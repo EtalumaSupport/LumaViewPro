@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import threading
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import ids_peak_ipl
 import pytest
@@ -537,6 +537,45 @@ class TestWedgedBufferBreaksLoop:
         assert should_stop is False
         h._parent._mark_disconnected.assert_not_called()
         h._parent._handle_device_lost.assert_not_called()
+
+
+class TestStartGrabbingRollback:
+    """start_grabbing() brackets acquisition with TLParamsLocked 1/0 and announces
+    a buffer pool. If a step raises partway, it must roll back to a clean stopped
+    state: otherwise TLParamsLocked stays set (disconnect() skips stop_grabbing()
+    because is_grabbing() is still False) and the announced buffers leak, growing
+    the pool on every retry."""
+
+    def _cam(self):
+        cam = bare_ids_camera()
+        cam.is_grabbing = MagicMock(return_value=False)
+        cam._configure_free_run = MagicMock()
+        cam.cam_image_handler = MagicMock()
+        cam.data_stream.NumBuffersAnnouncedMinRequired.return_value = 1
+        return cam
+
+    def test_acquisition_failure_rolls_back_lock_and_buffers(self):
+        cam = self._cam()
+        announced = [MagicMock(), MagicMock()]
+        cam.data_stream.AnnouncedBuffers.return_value = announced
+        cam.data_stream.StartAcquisition.side_effect = RuntimeError('start failed')
+        cam.start_grabbing()
+        # Transport lock released after it was taken (SetValue(1) then SetValue(0)).
+        lock_node = cam.remote_nodemap.FindNode('TLParamsLocked')
+        assert call(0) in lock_node.SetValue.call_args_list
+        # Announced buffers revoked, not left to leak into the next start.
+        assert cam.data_stream.RevokeBuffer.call_count == len(announced)
+        # Handler quiesced (before any revoke) and acquisition stopped.
+        cam.cam_image_handler.stop.assert_called_once()
+        cam.data_stream.StopAcquisition.assert_called()
+
+    def test_alloc_failure_revokes_announced_pool(self):
+        cam = self._cam()
+        announced = [MagicMock()]
+        cam.data_stream.AnnouncedBuffers.return_value = announced
+        cam.data_stream.AllocAndAnnounceBuffer.side_effect = RuntimeError('alloc failed')
+        cam.start_grabbing()
+        assert cam.data_stream.RevokeBuffer.call_count == len(announced)
 
 
 def _ids_cam_for_recovery():

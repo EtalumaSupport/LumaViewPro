@@ -853,7 +853,42 @@ class IDSCamera(Camera):
 
             logger.info('[CAM Class ] start_grabbing succeeded')
         except Exception as e:
-            _cam_log.warning(f'[CAM Class ] start_grabbing ignored error: {e}')
+            _cam_log.warning(f'[CAM Class ] start_grabbing failed, rolling back: {e}')
+            self._rollback_failed_start()
+
+    def _rollback_failed_start(self):
+        """Return to a clean stopped state after start_grabbing raised partway.
+
+        start_grabbing announces a buffer pool and takes the transport-layer lock
+        (TLParamsLocked=1) before StartAcquisition. If a later step raises, the
+        camera is left half-started: the lock stays set and the announced buffers
+        stay in the pool, yet is_grabbing() is False -- so disconnect() skips
+        stop_grabbing() and never releases either, and the next start_grabbing()
+        announces a fresh pool on top of the orphaned one. Best-effort undo each
+        step, independently guarded so one failure does not strand the rest, and
+        in teardown order: quiesce the handler FIRST (so no live thread holds a
+        buffer), then stop acquisition, release the lock, and revoke the pool.
+        """
+        handler = self.cam_image_handler
+        if handler is not None:
+            try:
+                handler.stop()
+            except Exception as e:
+                logger.debug(f'[CAM Class ] rollback handler.stop ignored: {e}')
+        try:
+            self.data_stream.StopAcquisition()
+        except Exception as e:
+            logger.debug(f'[CAM Class ] rollback StopAcquisition ignored: {e}')
+        try:
+            self.remote_nodemap.FindNode('TLParamsLocked').SetValue(0)
+        except Exception as e:
+            logger.debug(f'[CAM Class ] rollback TLParamsLocked=0 ignored: {e}')
+        try:
+            self.data_stream.Flush(ids_peak.DataStreamFlushMode_DiscardAll)
+            for buffer in self.data_stream.AnnouncedBuffers():
+                self.data_stream.RevokeBuffer(buffer)
+        except Exception as e:
+            logger.debug(f'[CAM Class ] rollback buffer revoke ignored: {e}')
 
     def _configure_free_run(self):
         """Remove the throttles that cap the IDS frame rate so the camera runs
