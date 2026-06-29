@@ -987,6 +987,24 @@ def query_tracemalloc_top_n(n=5):
         return []
 
 
+# A single persistent Process handle for THIS process. psutil's
+# Process.cpu_percent() reports CPU since the PRIOR call on the SAME object, so a
+# fresh Process per snapshot always reads 0.0 -- no reference point -- which made
+# the [PROCESS METRICS] process-CPU figure log 0.0% on every snapshot. Caching
+# the handle (and priming it once on creation) makes each snapshot's process CPU
+# the average over the inter-snapshot interval, the way the module-level
+# psutil.cpu_percent() already reports the system figure.
+_SELF_PROC = None
+
+
+def _self_process():
+    global _SELF_PROC
+    if _SELF_PROC is None:
+        _SELF_PROC = psutil.Process(os.getpid())
+        _SELF_PROC.cpu_percent()  # prime the delta reference (this first read is 0.0)
+    return _SELF_PROC
+
+
 def system_metrics(path='/'):
     """Return a one-shot snapshot of process and host resource state.
 
@@ -1000,7 +1018,7 @@ def system_metrics(path='/'):
     indicates a leak. See `docs/LOG_ANALYSIS_GUIDE.md` "Resource Health"
     section for healthy/unhealthy patterns.
     """
-    proc = psutil.Process(os.getpid())
+    proc = _self_process()
     disk = psutil.disk_usage(path)
     vmem = psutil.virtual_memory()
 
