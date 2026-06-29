@@ -251,6 +251,35 @@ class TestGainDbConversion:
         assert cam.profile.gain.total_min_db == pytest.approx(0.0, abs=0.01)
         assert cam.profile.gain.total_max_db == pytest.approx(30.0, abs=0.1)
 
+    def test_exposure_below_live_min_clamps_to_floor(self):
+        # The live-view slider's 0.01ms startup default is applied before the
+        # saved exposure loads; 10us is below the camera's live minimum and an
+        # unclamped SetValue throws OUT_OF_RANGE. exposure_t reconciles it UP to
+        # the node Minimum() (mirroring the Pylon driver) and applies the floor.
+        cam = bare_ids_camera()
+        cam.profile = CameraProfile()
+        cam.active = MagicMock()
+        cam.cam_image_handler = None
+        cam.remote_nodemap = _RecordingNodemap(
+            {'ExposureTime': _RecordingNode(value=1e4, minimum=31.245791, maximum=2e6)}
+        )
+        assert cam.exposure_t(0.01) is True
+        node = cam.remote_nodemap.nodes['ExposureTime']
+        assert node.value == pytest.approx(31.245791)
+        assert cam._last_exposure_ms == pytest.approx(31.245791 / 1000)
+
+    def test_exposure_above_live_min_passes_through(self):
+        cam = bare_ids_camera()
+        cam.profile = CameraProfile()
+        cam.active = MagicMock()
+        cam.cam_image_handler = None
+        cam.remote_nodemap = _RecordingNodemap(
+            {'ExposureTime': _RecordingNode(value=1e4, minimum=31.245791, maximum=2e6)}
+        )
+        assert cam.exposure_t(10.0) is True  # 10ms = 10000us, well above the floor
+        node = cam.remote_nodemap.nodes['ExposureTime']
+        assert node.value == pytest.approx(10000.0)
+
 
 class _FakeBuffer:
     """A finished/incomplete GenTL buffer stand-in (identity == the buffer)."""

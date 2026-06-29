@@ -1853,11 +1853,20 @@ class IDSCamera(Camera):
         # IDS allows changing exposure while acquisition is running --
         # no need for update_camera_config() stop/start cycle.
         try:
-            us_value = float(exposure_ms) * 1000
+            # Clamp UP to the live node minimum, mirroring the Pylon driver.
+            # The live-view slider initializes to its 0.01ms default and is
+            # applied at startup before the saved exposure loads; that 10us
+            # request is below the camera's live ExposureTime.Minimum() (which
+            # also drifts up as AOI / frame rate change), and an unclamped
+            # SetValue throws OUT_OF_RANGE. Reconcile the request to the
+            # hardware's reported floor so it lands at the nearest valid value
+            # instead of erroring. The max bound stays a reject above.
+            exp_node = self.remote_nodemap.FindNode('ExposureTime')
+            us_value = max(float(exposure_ms) * 1000, exp_node.Minimum())
             if _cam_log is not None:
                 _cam_log.info(f'ids ExposureTime.SetValue({us_value:.0f}us) (={exposure_ms}ms)')
-            self.remote_nodemap.FindNode('ExposureTime').SetValue(us_value)
-            self._last_exposure_ms = float(exposure_ms)
+            exp_node.SetValue(us_value)
+            self._last_exposure_ms = us_value / 1000.0
             # Update grab timeout so long exposures don't cause perpetual timeouts
             if self.cam_image_handler:
                 self.cam_image_handler.timeout_ms = max(2000, int(exposure_ms * 2 + 500))
