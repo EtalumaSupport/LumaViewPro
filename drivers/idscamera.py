@@ -1530,6 +1530,45 @@ class IDSCamera(Camera):
         # so it never raises here.
         logger.info(f'[CAM Class ] Optional-feature nodes: {self._probe_feature_nodes()}')
 
+    def _drain_finished_buffers(self, n_frames: int, per_frame, *, label: str) -> None:
+        """Pause the unpack worker, drive the data stream directly for n_frames,
+        and hand each completed (non-incomplete) buffer's IPL image to
+        per_frame(img); always re-queue the buffer and restore the grab pipeline.
+
+        Shared spine for the bench scaffolds (benchmark_unpack /
+        crosscheck_8bit_unpack): they differ only in the per-frame comparison,
+        so the worker-pause + WaitForFinishedBuffer drain + teardown lives here
+        once. The live unpack path is untouched. ``label`` tags the warning/debug
+        lines so a log shows which scaffold drove the stream.
+        """
+        # Pause the worker so this loop owns the finished-buffer flow, and clear
+        # any KillWait the stop posted so the first wait is not aborted on arrival.
+        handler = self.cam_image_handler
+        if handler is not None:
+            handler.stop()
+        try:
+            self.data_stream.FlushPendingKillWaits()
+        except Exception as e:
+            logger.debug(f'[CAM Class ] {label}: FlushPendingKillWaits unavailable: {e}')
+
+        try:
+            for _ in range(n_frames):
+                try:
+                    buffer = self.data_stream.WaitForFinishedBuffer(2000)
+                except Exception as e:
+                    _cam_log.warning(f'[CAM Class ] {label}: WaitForFinishedBuffer: {e}')
+                    continue
+                try:
+                    if buffer.IsIncomplete():
+                        continue
+                    img = ids_peak_ipl_extension.BufferToImage(buffer)
+                    per_frame(img)
+                finally:
+                    self.data_stream.QueueBuffer(buffer)
+        finally:
+            if handler is not None:
+                handler.start()
+
     def benchmark_unpack(self, n_frames: int = 200) -> dict:
         """Decode each packed buffer by BOTH the SDK ConvertTo and the numpy
         ids_unpack path, comparing them for correctness and speed.
@@ -1603,66 +1642,42 @@ class IDSCamera(Camera):
             return results
         target = _ids_ipl_target(wire)
 
-        # Pause the worker so this loop owns the finished-buffer flow, and clear
-        # any KillWait the stop posted so the first wait is not aborted on arrival.
-        handler = self.cam_image_handler
-        if handler is not None:
-            handler.stop()
-        try:
-            self.data_stream.FlushPendingKillWaits()
-        except Exception as e:
-            logger.debug(f'[CAM Class ] benchmark: FlushPendingKillWaits unavailable: {e}')
-
         convert_ms, numpy_ms = [], []
-        try:
-            for _ in range(n_frames):
-                try:
-                    buffer = self.data_stream.WaitForFinishedBuffer(2000)
-                except Exception as e:
-                    _cam_log.warning(f'[CAM Class ] benchmark: WaitForFinishedBuffer: {e}')
-                    continue
-                try:
-                    if buffer.IsIncomplete():
-                        continue
-                    img = ids_peak_ipl_extension.BufferToImage(buffer)
 
-                    # ConvertTo path (the current production unpack + the oracle).
-                    # Bind the converted image to a local before get_numpy():
-                    # get_numpy() returns a view that does NOT keep the IPL image
-                    # alive, so a chained ConvertTo(...).get_numpy().copy() frees
-                    # the converted buffer the instant get_numpy() returns and
-                    # copy() then reads freed memory (access violation). Use a
-                    # SEPARATE name from img -- img stays the packed source the
-                    # numpy path reads just below.
-                    t0 = time.perf_counter()
-                    conv_img = img.ConvertTo(target)
-                    conv = conv_img.get_numpy().copy()
-                    convert_ms.append((time.perf_counter() - t0) * 1000.0)
+        def _compare(img):
+            # ConvertTo path (the current production unpack + the oracle).
+            # Bind the converted image to a local before get_numpy(): get_numpy()
+            # returns a view that does NOT keep the IPL image alive, so a chained
+            # ConvertTo(...).get_numpy().copy() frees the converted buffer the
+            # instant get_numpy() returns and copy() then reads freed memory
+            # (access violation). Use a SEPARATE name from img -- img stays the
+            # packed source the numpy path reads just below.
+            t0 = time.perf_counter()
+            conv_img = img.ConvertTo(target)
+            conv = conv_img.get_numpy().copy()
+            convert_ms.append((time.perf_counter() - t0) * 1000.0)
 
-                    # numpy path: the raw packed wire bytes (uint8 since SDK 2.21)
-                    # decoded by our own unpacker. ConvertTo does not mutate img,
-                    # so the original is still the packed source here.
-                    packed = img.get_numpy_1D()
-                    if results['packed_dtype'] is None:
-                        results['packed_dtype'] = str(packed.dtype)
-                    t1 = time.perf_counter()
-                    np_arr = ids_unpack.unpack(wire, packed, width, height)
-                    numpy_ms.append((time.perf_counter() - t1) * 1000.0)
+            # numpy path: the raw packed wire bytes (uint8 since SDK 2.21)
+            # decoded by our own unpacker. ConvertTo does not mutate img, so the
+            # original is still the packed source here.
+            packed = img.get_numpy_1D()
+            if results['packed_dtype'] is None:
+                results['packed_dtype'] = str(packed.dtype)
+            t1 = time.perf_counter()
+            np_arr = ids_unpack.unpack(wire, packed, width, height)
+            numpy_ms.append((time.perf_counter() - t1) * 1000.0)
 
-                    results['n_compared'] += 1
-                    if not np.array_equal(conv, np_arr):
-                        results['mismatches'] += 1
-                        if results['first_mismatch'] is None:
-                            diff = np.argwhere(conv != np_arr)
-                            results['first_mismatch'] = {
-                                'differing_pixels': int(diff.shape[0]),
-                                'first_at': diff[0].tolist() if diff.shape[0] else None,
-                            }
-                finally:
-                    self.data_stream.QueueBuffer(buffer)
-        finally:
-            if handler is not None:
-                handler.start()
+            results['n_compared'] += 1
+            if not np.array_equal(conv, np_arr):
+                results['mismatches'] += 1
+                if results['first_mismatch'] is None:
+                    diff = np.argwhere(conv != np_arr)
+                    results['first_mismatch'] = {
+                        'differing_pixels': int(diff.shape[0]),
+                        'first_at': diff[0].tolist() if diff.shape[0] else None,
+                    }
+
+        self._drain_finished_buffers(n_frames, _compare, label='benchmark')
 
         def _stat(xs):
             if not xs:
@@ -1734,43 +1749,22 @@ class IDSCamera(Camera):
             )
             return results
 
-        handler = self.cam_image_handler
-        if handler is not None:
-            handler.stop()
-        try:
-            self.data_stream.FlushPendingKillWaits()
-        except Exception as e:
-            logger.debug(f'[CAM Class ] crosscheck: FlushPendingKillWaits unavailable: {e}')
+        def _compare(img):
+            # Bind each ConvertTo result before get_numpy() (the view does not
+            # keep the IPL image alive) and copy out, same lifetime rule
+            # benchmark_unpack documents.
+            direct_img = img.ConvertTo(direct_target)
+            direct = direct_img.get_numpy().copy()
+            native_img = img.ConvertTo(native_target)
+            native = native_img.get_numpy().copy()
+            oracle = convert_to_8bit(native, native_bits)
 
-        try:
-            for _ in range(n_frames):
-                try:
-                    buffer = self.data_stream.WaitForFinishedBuffer(2000)
-                except Exception as e:
-                    _cam_log.warning(f'[CAM Class ] crosscheck: WaitForFinishedBuffer: {e}')
-                    continue
-                try:
-                    if buffer.IsIncomplete():
-                        continue
-                    img = ids_peak_ipl_extension.BufferToImage(buffer)
-                    # Bind each ConvertTo result before get_numpy() (the view
-                    # does not keep the IPL image alive) and copy out, same
-                    # lifetime rule benchmark_unpack documents.
-                    direct_img = img.ConvertTo(direct_target)
-                    direct = direct_img.get_numpy().copy()
-                    native_img = img.ConvertTo(native_target)
-                    native = native_img.get_numpy().copy()
-                    oracle = convert_to_8bit(native, native_bits)
+            diff = np.abs(direct.astype(np.int16) - oracle.astype(np.int16))
+            results['n_compared'] += 1
+            results['max_abs_diff'] = max(results['max_abs_diff'], int(diff.max()))
+            results['pixels_over_1lsb'] += int((diff > 1).sum())
 
-                    diff = np.abs(direct.astype(np.int16) - oracle.astype(np.int16))
-                    results['n_compared'] += 1
-                    results['max_abs_diff'] = max(results['max_abs_diff'], int(diff.max()))
-                    results['pixels_over_1lsb'] += int((diff > 1).sum())
-                finally:
-                    self.data_stream.QueueBuffer(buffer)
-        finally:
-            if handler is not None:
-                handler.start()
+        self._drain_finished_buffers(n_frames, _compare, label='crosscheck')
         return results
 
     def set_frame_size(self, w, h) -> dict | bool:
