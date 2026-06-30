@@ -1,0 +1,7 @@
+.DS_Store
+__pycache__/
+benchmark_tools/__pycache__/
+generated_tiles/
+results/
+reports/
+
