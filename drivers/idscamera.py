@@ -428,9 +428,20 @@ class IDSCamera(Camera):
         for every device in the system, so act only when it is ours. Wrapped in
         BaseException because the SDK swallows callback exceptions -- a leak here
         would silently drop the removal signal.
+
+        The non-matching branch logs too: without it, "DeviceLost never fired"
+        and "fired but the key did not match ours" are indistinguishable in a
+        bundle -- and a key mismatch would silently strand a real unplug as a
+        display stall instead of a clean disconnect. Logged at INFO (not debug)
+        so it survives a debug-off field run; DeviceLost only fires on an actual
+        device-removal event, so it is not a per-frame chatter source.
         """
         try:
             if key != self._device_key:
+                _cam_log.info(
+                    f'[CAM Class ] DeviceLost fired for another device '
+                    f'(key={key}, ours={self._device_key}); ignoring'
+                )
                 return
             _cam_log.warning(f'[CAM Class ] DeviceLost callback for our device (key={key})')
             self._handle_device_lost()
