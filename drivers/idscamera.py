@@ -49,6 +49,25 @@ _RECOVERY_POLL_INTERVAL_S = 0.25
 _RECOVERY_MAX_ATTEMPTS = 3
 _RECOVERY_ATTEMPT_RESET_S = 30.0
 
+# Active device-presence probe on a SUSTAINED poll stall. DeviceLost never
+# fires on a USB unplug for the U3-34L, so a real removal otherwise looks
+# identical to a wedged-but-present stall -- both just time out forever. After
+# the stream has been stalled this long, actively check the device is still
+# enumerated (rate-limited so a wedged-but-present camera isn't hammered with
+# DeviceManager.Update calls). A short update timeout keeps the probe from
+# blocking the poll thread (and thus teardown) -- a present USB3 device
+# re-enumerates well within it; an absent one never appears regardless.
+_PRESENCE_PROBE_STALL_S = 6.0
+_PRESENCE_PROBE_INTERVAL_S = 5.0
+_PRESENCE_PROBE_UPDATE_TIMEOUT_MS = 500
+# Require this many CONSECUTIVE absent probes (each a separate Update, spaced by
+# _PRESENCE_PROBE_INTERVAL_S) before concluding removal. A single truncated
+# Update on a busy/slow-to-enumerate but still-present USB3 stack can omit the
+# device; confirming across probes prevents a transient enumeration hiccup from
+# permanently tearing down a connected camera. A present (or inconclusive)
+# reading resets the count.
+_PRESENCE_PROBE_CONFIRMATIONS = 2
+
 
 def _ids_library_cleanup():
     global _ids_library_initialized
@@ -510,8 +529,9 @@ class IDSCamera(Camera):
         thread-safe) and schedule the close/destroy off the callback thread.
 
         Triggered by the DeviceLost callback (SDK thread) and, as a fallback, by
-        a typed DeviceLostException in the poll loop -- both idempotent via the
-        _device_removed and _async_teardown_started guards.
+        a typed DeviceLostException in the poll loop or the sustained-stall
+        presence probe -- all idempotent via the _device_removed and
+        _async_teardown_started guards.
         """
         with self._state_lock:
             if self._in_recovery:
@@ -519,8 +539,102 @@ class IDSCamera(Camera):
                 # reopen, so a DeviceLost it triggers must NOT tear the camera
                 # down permanently.
                 return
+            if self._disconnect_requested:
+                # A user disconnect() is already in flight and owns the teardown;
+                # a removal signal racing it (the presence probe finishing its
+                # enumeration after disconnect() began, or a late DeviceLost) must
+                # not schedule a second, competing teardown.
+                return
         self._mark_disconnected()
         self._schedule_async_teardown()
+
+    def _probe_device_presence(self):
+        """Actively check whether our device is still enumerated. PURE query:
+        returns True (present), False (absent), or None (inconclusive) -- it
+        never latches removal or tears down. The caller (the poll thread) owns
+        the confirm-twice debounce and the routing to the single removal owner.
+
+        Called on a SUSTAINED stall, because DeviceLost does not fire on a USB
+        unplug for the U3-34L -- without this a real removal is indistinguishable
+        from a wedged-but-present stall and the live view hangs until the next
+        explicit op. This is the USB-unplug fallback; it does NOT replace
+        DeviceLost (still the owner when it fires) or the in-software DeviceReset
+        recovery (still the owner of a wedge).
+
+        Returns None (inconclusive, NOT proof of removal) when a reset is in
+        flight or teardown/disconnect has begun (recovery drives its own
+        DeviceManager.Update via _rediscover_by_serial, and a reset transiently
+        de-enumerates the device), when there is no device manager / serial yet,
+        or when the Update/enumeration itself faults. A single truncated Update
+        must never be read as removal -- that is why the caller requires repeated
+        absences (_PRESENCE_PROBE_CONFIRMATIONS) before it concludes a removal.
+        """
+        with self._state_lock:
+            if (
+                self._in_recovery
+                or self._device_removed
+                or self._async_teardown_started
+                or self._disconnect_requested
+            ):
+                return None
+        dm = self.device_manager
+        serial = self._device_serial
+        if dm is None or not serial:
+            return None
+        try:
+            # A short update timeout bounds how long this blocks the poll thread;
+            # restored in finally so a later connect()/recovery Update() on this
+            # process-wide singleton never inherits the tightened value (which
+            # would risk missing a present-but-slow-to-enumerate camera).
+            try:
+                dm.SetDeviceUpdateTimeout(_PRESENCE_PROBE_UPDATE_TIMEOUT_MS)
+            except Exception as e:
+                logger.debug(
+                    f'[CAM Class ] presence probe: SetDeviceUpdateTimeout unavailable: {e}'
+                )
+            try:
+                dm.Update()
+                descriptor, read_faulted = self._find_descriptor_by_serial(serial)
+                if descriptor is not None:
+                    return True
+                # Our serial was not in the list. Only call that ABSENT if the
+                # walk was clean: a descriptor read fault means we may have failed
+                # to read OUR descriptor's serial, so the device could still be
+                # present -- inconclusive (None), never a step toward removal.
+                return None if read_faulted else False
+            finally:
+                try:
+                    dm.SetDeviceUpdateTimeout(_RECOVERY_UPDATE_TIMEOUT_MS)
+                except Exception as e:
+                    logger.debug(
+                        f'[CAM Class ] presence probe: update-timeout restore unavailable: {e}'
+                    )
+        except Exception as e:
+            # An Update/enumeration fault is not proof of removal; inconclusive.
+            logger.debug(f'[CAM Class ] presence probe inconclusive: {e}')
+            return None
+
+    def _find_descriptor_by_serial(self, serial):
+        """Walk the enumerated devices for one whose serial matches.
+
+        Returns (descriptor_or_None, read_faulted): the matching descriptor (or
+        None if no clean match), and whether any per-descriptor SerialNumber()
+        read raised. Shared by the post-reset re-discovery (_rediscover_by_serial,
+        which ignores read_faulted and keeps retrying past a bad descriptor) and
+        the unplug presence probe (which treats a fault-without-match as
+        inconclusive, not absent, so a transient read fault can't drive a false
+        removal). The caller must call device_manager.Update() first; this only
+        walks the current Devices() list.
+        """
+        read_faulted = False
+        for descriptor in list(self.device_manager.Devices()):
+            try:
+                if descriptor.SerialNumber() == serial:
+                    return descriptor, read_faulted
+            except Exception as e:
+                read_faulted = True
+                logger.debug(f'[CAM Class ] descriptor read ignored: {e}')
+        return None, read_faulted
 
     def _schedule_async_teardown(self) -> None:
         """Run disconnect() (the SDK close/destroy) on a daemon thread.
@@ -781,12 +895,11 @@ class IDSCamera(Camera):
                 return None
             try:
                 self.device_manager.Update()
-                for descriptor in list(self.device_manager.Devices()):
-                    try:
-                        if descriptor.SerialNumber() == serial:
-                            return descriptor
-                    except Exception as e:
-                        logger.debug(f'[CAM Class ] recover: descriptor read ignored: {e}')
+                # A read fault on another descriptor is ignored here: keep
+                # retrying past it until ours appears or the deadline passes.
+                descriptor, _ = self._find_descriptor_by_serial(serial)
+                if descriptor is not None:
+                    return descriptor
             except Exception as e:
                 logger.debug(f'[CAM Class ] recover: device re-enumeration retry: {e}')
             if time.monotonic() >= deadline:
@@ -2907,11 +3020,28 @@ class ImageHandler(ImageHandlerBase):
         # consumer and _requeue the single QueueBuffer.
         self._frame_generation = 0
         self._frame_gen_cond = threading.Condition()
+        # Sustained-stall tracking for the active device-presence probe. Touched
+        # only by the poll thread: _stall_started is the monotonic time of the
+        # first timeout in the current no-frame run (None once a frame arrives);
+        # _last_presence_probe rate-limits the probe across timeouts;
+        # _absence_confirmations counts consecutive absent probes toward removal
+        # (reset by a frame, a present/inconclusive probe, or a restart).
+        self._stall_started = None
+        self._last_presence_probe = 0.0
+        self._absence_confirmations = 0
 
     def start(self):
         if self._poll_thread is not None:
             return
         self._stop_event.clear()
+        # This handler is reused across stop/start (binning/exposure changes), so
+        # clear the stall clock: a stale _stall_started from an earlier no-frame
+        # run would make the FIRST timeout after restart satisfy the sustained
+        # window immediately and probe (a poll-thread hitch) instead of waiting
+        # out the intended debounce.
+        self._stall_started = None
+        self._last_presence_probe = 0.0
+        self._absence_confirmations = 0
         self._slot = _LatestBufferSlot(self._requeue)
         # Clear any KillWait left pending by a previous stop() so the first
         # WaitForFinishedBuffer of this session is not aborted on arrival.
@@ -2980,6 +3110,13 @@ class ImageHandler(ImageHandlerBase):
                     break
                 continue
 
+            # A finished buffer arrived -> the device is delivering frames, so
+            # any sustained-stall accrual toward the presence probe is cleared
+            # (including a partial absent-confirmation streak from an earlier
+            # stall in this same session).
+            self._stall_started = None
+            self._absence_confirmations = 0
+
             if self._stop_event.is_set():
                 self._requeue(buffer)
                 break
@@ -3041,11 +3178,12 @@ class ImageHandler(ImageHandlerBase):
         if _exc_is(e, 'TimeoutException', 'timeout'):
             # A timeout is a STALL, not a removal: no frame arrived within the
             # (exposure-scaled) window -- a host stall, a throughput hiccup, or a
-            # wedged-but-present camera. Keep polling; never disconnect on it. A
-            # sustained stall is surfaced by the display watchdog, and a real
-            # removal arrives via the DeviceLost callback (or the typed fallback).
+            # wedged-but-present camera. Keep polling unless the sustained-stall
+            # probe has confirmed a USB removal (DeviceLost never fires for it),
+            # in which case stop the loop promptly like the typed-removal path
+            # below rather than spin against a device already routed to teardown.
             logger.debug(f'[CAM Class ] poll timeout (stall, not removal): {e!r}')
-            return False
+            return self._check_sustained_stall()
         if _exc_is(e, 'DeviceLostException', 'removed', 'device'):
             # Authoritative typed removal -- the fallback if the DeviceLost
             # callback ever misses. Routes to the same single removal owner.
@@ -3093,6 +3231,55 @@ class ImageHandler(ImageHandlerBase):
         _cam_log.warning(
             f'[CAM Class ] ImageHandler buffer access exception: {type(e).__name__}: {e!r}'
         )
+        return False
+
+    def _check_sustained_stall(self) -> bool:
+        """On a poll timeout, escalate a SUSTAINED stall to an active presence
+        probe -- the USB-unplug fallback for the DeviceLost callback that never
+        fires on the U3-34L. Returns True iff it concluded a removal (so the
+        caller stops the poll loop, like the typed-removal path); False to keep
+        polling.
+
+        A single timeout is just a stall (host hiccup, wedged-but-present
+        camera); only when the stream has produced no frame for
+        _PRESENCE_PROBE_STALL_S do we ask the parent to actively check the device
+        is still enumerated, and then no more than once per
+        _PRESENCE_PROBE_INTERVAL_S so a long wedge isn't hammered with
+        DeviceManager.Update calls.
+
+        The parent's probe is a pure present/absent/inconclusive query; this
+        method owns the debounce. Only after _PRESENCE_PROBE_CONFIRMATIONS
+        CONSECUTIVE absent probes does it route to the single removal owner --
+        a present or inconclusive reading resets the streak -- so a transient
+        enumeration hiccup can't tear down a still-connected camera.
+        _stall_started and the streak are reset by the poll loop the moment a
+        frame arrives.
+        """
+        now = time.monotonic()
+        if self._stall_started is None:
+            self._stall_started = now
+            return False
+        if now - self._stall_started < _PRESENCE_PROBE_STALL_S:
+            return False
+        if now - self._last_presence_probe < _PRESENCE_PROBE_INTERVAL_S:
+            return False
+        self._last_presence_probe = now
+        present = self._parent._probe_device_presence()
+        if present is False:
+            self._absence_confirmations += 1
+            if self._absence_confirmations >= _PRESENCE_PROBE_CONFIRMATIONS:
+                _cam_log.warning(
+                    f'[CAM Class ] Device absent from enumeration on '
+                    f'{self._absence_confirmations} consecutive probes after a '
+                    'sustained poll stall; treating as USB removal (DeviceLost '
+                    'did not fire)'
+                )
+                self._parent._handle_device_lost()
+                return True
+        else:
+            # Present (True) or inconclusive (None): the device is not confirmed
+            # gone, so break any absence streak rather than carry it forward.
+            self._absence_confirmations = 0
         return False
 
     def _requeue(self, buffer):

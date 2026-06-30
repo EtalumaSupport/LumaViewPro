@@ -457,6 +457,9 @@ def _ids_handler(data_stream):
     handler._worker_thread = None
     handler._frame_generation = 0
     handler._frame_gen_cond = threading.Condition()
+    handler._stall_started = None
+    handler._last_presence_probe = 0.0
+    handler._absence_confirmations = 0
     return handler
 
 
@@ -521,6 +524,241 @@ class TestStallNotRemoval:
         should_stop = h._handle_wait_error(RuntimeError('DeviceLostException: removed'))
         assert should_stop is True
         h._parent._handle_device_lost.assert_called_once()
+
+
+class TestSustainedStallPresenceProbe:
+    """DeviceLost never fires on a USB unplug for the U3-34L, so a real removal
+    is indistinguishable from a wedged-but-present stall -- both just time out
+    forever. The poll loop escalates a SUSTAINED stall to an active presence
+    probe; these pin WHEN it probes and the confirm-twice debounce. A single
+    timeout must not probe; only sustained no-frame time does, rate-limited; and
+    removal needs repeated absent confirmations, not one truncated Update."""
+
+    def _stalled(self, base, *, probe_returns=None):
+        ds = MagicMock()
+        h = _ids_handler(ds)
+        h._parent._probe_device_presence.return_value = probe_returns
+        with patch('drivers.idscamera.time.monotonic', return_value=base):
+            h._handle_wait_error(RuntimeError('WaitForFinishedBuffer timeout'))
+        # First timeout only arms the stall clock; it never probes.
+        h._parent._probe_device_presence.assert_not_called()
+        assert h._stall_started == base
+        return h
+
+    def _timeout_at(self, h, when):
+        with patch('drivers.idscamera.time.monotonic', return_value=when):
+            return h._handle_wait_error(RuntimeError('timeout'))
+
+    def test_first_timeout_arms_without_probing(self):
+        self._stalled(100.0)
+
+    def test_short_stall_does_not_probe(self):
+        from drivers import idscamera
+
+        h = self._stalled(100.0)
+        self._timeout_at(h, 100.0 + idscamera._PRESENCE_PROBE_STALL_S - 0.5)
+        h._parent._probe_device_presence.assert_not_called()
+
+    def test_sustained_stall_probes_once(self):
+        from drivers import idscamera
+
+        h = self._stalled(100.0, probe_returns=True)  # present -> no teardown
+        self._timeout_at(h, 100.0 + idscamera._PRESENCE_PROBE_STALL_S + 0.1)
+        h._parent._probe_device_presence.assert_called_once()
+        h._parent._handle_device_lost.assert_not_called()
+
+    def test_probe_is_rate_limited_then_repeats(self):
+        from drivers import idscamera
+
+        h = self._stalled(100.0, probe_returns=True)
+        first = 100.0 + idscamera._PRESENCE_PROBE_STALL_S + 0.1
+        self._timeout_at(h, first)
+        # A timeout within the probe interval does NOT re-probe.
+        self._timeout_at(h, first + idscamera._PRESENCE_PROBE_INTERVAL_S - 0.5)
+        assert h._parent._probe_device_presence.call_count == 1
+        # ...but once the interval has elapsed it probes again.
+        self._timeout_at(h, first + idscamera._PRESENCE_PROBE_INTERVAL_S + 0.1)
+        assert h._parent._probe_device_presence.call_count == 2
+
+    def test_one_absent_probe_does_not_tear_down(self):
+        # A single absent reading is not enough -- a truncated Update on a busy
+        # but present USB3 stack must not remove a connected camera.
+        from drivers import idscamera
+
+        h = self._stalled(100.0, probe_returns=False)
+        self._timeout_at(h, 100.0 + idscamera._PRESENCE_PROBE_STALL_S + 0.1)
+        assert h._absence_confirmations == 1
+        h._parent._handle_device_lost.assert_not_called()
+
+    def test_consecutive_absent_probes_route_to_removal(self):
+        from drivers import idscamera
+
+        h = self._stalled(100.0, probe_returns=False)
+        t = 100.0 + idscamera._PRESENCE_PROBE_STALL_S + 0.1
+        stop = False
+        for _ in range(idscamera._PRESENCE_PROBE_CONFIRMATIONS):
+            stop = self._timeout_at(h, t)
+            t += idscamera._PRESENCE_PROBE_INTERVAL_S + 0.1
+        h._parent._handle_device_lost.assert_called_once()
+        # The confirmed removal stops the poll loop, like the typed-removal path.
+        assert stop is True
+
+    def test_inconclusive_probe_does_not_advance_streak(self):
+        from drivers import idscamera
+
+        h = self._stalled(100.0, probe_returns=None)  # inconclusive (e.g. read fault)
+        stop = self._timeout_at(h, 100.0 + idscamera._PRESENCE_PROBE_STALL_S + 0.1)
+        assert h._absence_confirmations == 0
+        assert stop is False
+        h._parent._handle_device_lost.assert_not_called()
+
+    def test_a_present_reading_resets_the_absence_streak(self):
+        # Absent, then present (transient hiccup recovered), then absent again
+        # must NOT reach the 2-confirmation threshold on the trailing absent.
+        from drivers import idscamera
+
+        h = self._stalled(100.0, probe_returns=False)
+        t = 100.0 + idscamera._PRESENCE_PROBE_STALL_S + 0.1
+        self._timeout_at(h, t)  # absent #1 -> streak 1
+        assert h._absence_confirmations == 1
+        h._parent._probe_device_presence.return_value = True  # present
+        t += idscamera._PRESENCE_PROBE_INTERVAL_S + 0.1
+        self._timeout_at(h, t)  # present -> streak resets to 0
+        assert h._absence_confirmations == 0
+        h._parent._probe_device_presence.return_value = False  # absent again
+        t += idscamera._PRESENCE_PROBE_INTERVAL_S + 0.1
+        self._timeout_at(h, t)  # absent #1 of a fresh streak
+        assert h._absence_confirmations == 1
+        h._parent._handle_device_lost.assert_not_called()
+
+    def test_frame_arrival_resets_stall_and_streak(self):
+        # A finished buffer means the device is delivering: the poll loop clears
+        # the stall clock AND any partial absence streak, so a later isolated
+        # timeout starts fresh rather than inheriting stale accrual.
+        ds = MagicMock()
+        h = _ids_handler(ds)
+        h._stall_started = 999.0  # as if mid-stall
+        h._absence_confirmations = 1
+
+        buf = _FakeBuffer('f1', complete=True)
+
+        def _wait(_timeout):
+            h._stop_event.set()  # break the loop right after the post-success reset
+            return buf
+
+        ds.WaitForFinishedBuffer.side_effect = _wait
+        h._poll_loop()
+        assert h._stall_started is None
+        assert h._absence_confirmations == 0
+
+    def test_start_resets_a_stale_stall_clock(self):
+        # The handler is reused across stop/start; a stale stall clock would make
+        # the first post-restart timeout probe immediately. start() clears it.
+        # The poll/worker loops are no-oped so start() only spawns instantly-
+        # returning threads -- this exercises the field reset, not live polling.
+        ds = MagicMock()
+        h = _ids_handler(ds)
+        h._stall_started = 12345.0
+        h._last_presence_probe = 12345.0
+        h._absence_confirmations = 1
+        h._poll_loop = lambda: None
+        h._worker_loop = lambda: None
+        h.start()
+        try:
+            assert h._stall_started is None
+            assert h._last_presence_probe == 0.0
+            assert h._absence_confirmations == 0
+        finally:
+            h.stop()
+
+
+class TestProbeDevicePresence:
+    """The presence probe is a PURE present/absent/inconclusive query: it never
+    latches removal or calls _handle_device_lost (the caller's confirm-twice
+    debounce owns routing). It returns None (inconclusive) while a reset is in
+    flight or teardown has begun and on an enumeration fault, and restores the
+    update timeout so a later connect() never inherits the tightened value."""
+
+    def _cam(self, *, serial='SN123'):
+        cam = bare_ids_camera()
+        cam._async_teardown_started = False
+        cam._device_serial = serial
+        cam.device_manager = MagicMock()
+        cam._handle_device_lost = MagicMock()
+        return cam
+
+    def _descriptor(self, serial):
+        d = MagicMock()
+        d.SerialNumber.return_value = serial
+        return d
+
+    def test_present_device_returns_true(self):
+        cam = self._cam(serial='SN123')
+        cam.device_manager.Devices.return_value = [self._descriptor('SN123')]
+        assert cam._probe_device_presence() is True
+        cam._handle_device_lost.assert_not_called()
+
+    def test_absent_device_returns_false_without_routing(self):
+        cam = self._cam(serial='SN123')
+        cam.device_manager.Devices.return_value = [self._descriptor('OTHER')]
+        assert cam._probe_device_presence() is False
+        cam._handle_device_lost.assert_not_called()
+
+    def test_empty_enumeration_returns_false(self):
+        cam = self._cam(serial='SN123')
+        cam.device_manager.Devices.return_value = []
+        assert cam._probe_device_presence() is False
+
+    def test_descriptor_read_fault_is_inconclusive_not_absent(self):
+        # Our device may BE present but its descriptor's SerialNumber() raises; a
+        # read fault without a clean match must be inconclusive (None), never
+        # absent (False) -- otherwise two such faults would false-tear-down a
+        # present camera despite the confirm-twice debounce.
+        cam = self._cam(serial='SN123')
+        bad = MagicMock()
+        bad.SerialNumber.side_effect = RuntimeError('GenTL descriptor read failed')
+        cam.device_manager.Devices.return_value = [bad]
+        assert cam._probe_device_presence() is None
+        cam._handle_device_lost.assert_not_called()
+
+    def test_restores_update_timeout_after_probe(self):
+        from drivers import idscamera
+
+        cam = self._cam(serial='SN123')
+        cam.device_manager.Devices.return_value = [self._descriptor('SN123')]
+        cam._probe_device_presence()
+        # Last SetDeviceUpdateTimeout call restores the generous recovery value,
+        # so a later connect()/recovery Update() does not inherit the 500ms probe
+        # timeout and miss a present-but-slow camera.
+        cam.device_manager.SetDeviceUpdateTimeout.assert_called_with(
+            idscamera._RECOVERY_UPDATE_TIMEOUT_MS
+        )
+
+    def test_skipped_during_recovery(self):
+        cam = self._cam()
+        cam._in_recovery = True
+        cam.device_manager.Devices.return_value = []
+        assert cam._probe_device_presence() is None
+        cam.device_manager.Update.assert_not_called()
+
+    def test_skipped_when_disconnect_requested(self):
+        cam = self._cam()
+        cam._disconnect_requested = True
+        assert cam._probe_device_presence() is None
+        cam.device_manager.Update.assert_not_called()
+
+    def test_skipped_when_teardown_started(self):
+        cam = self._cam()
+        cam._async_teardown_started = True
+        assert cam._probe_device_presence() is None
+        cam.device_manager.Update.assert_not_called()
+
+    def test_update_fault_is_inconclusive(self):
+        # An Update/enumeration fault is not proof of removal; inconclusive.
+        cam = self._cam()
+        cam.device_manager.Update.side_effect = RuntimeError('GenTL update failed')
+        assert cam._probe_device_presence() is None
+        cam._handle_device_lost.assert_not_called()
 
 
 class TestWedgedBufferBreaksLoop:
