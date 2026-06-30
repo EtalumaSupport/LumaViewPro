@@ -108,6 +108,12 @@ class ScopeDisplay(Image):
         # Last (src_shape, dst_shape) logged, so the active downscale factor is
         # recorded once per change instead of every frame.
         self._preview_downscale_logged = None
+        # Full-resolution (W, H) of the most-recent camera frame, before the
+        # preview downscale. self.texture_size reflects the DOWNSCALED preview
+        # texture, so coordinate math (click-to-center, cursor pixel/plate
+        # readouts) that scales by per-sensor-pixel size must read this instead
+        # -- using the downscaled texture under-reports by the downscale factor.
+        self._full_res_frame_wh = None
 
         # FPS tracking -- capture thread (frames grabbed from camera)
         self._capture_fps_count = 0
@@ -360,21 +366,11 @@ class ScopeDisplay(Image):
             ):
                 norm_texture_click_pos_x = click_pos_x - norm_texture_x_min
                 norm_texture_click_pos_y = click_pos_y - norm_texture_y_min
-                texture_width, texture_height = self.texture_size
-
-                # Scale to image pixels
-                texture_click_pos_x = norm_texture_click_pos_x * texture_width / norm_texture_width
-                texture_click_pos_y = (
-                    norm_texture_click_pos_y * texture_height / norm_texture_height
-                )
-
-                # Distance from center
-                x_dist_pixel = (
-                    texture_click_pos_x - texture_width / 2
-                )  # Positive means to the right of center
-                y_dist_pixel = (
-                    texture_click_pos_y - texture_height / 2
-                )  # Positive means above center
+                # Convert against the full-resolution sensor frame, not the
+                # downscaled preview texture (self.texture_size): pixel_size_um
+                # is the size of one sensor pixel, so the downscaled texture
+                # would under-move the stage by the downscale factor.
+                frame_width, frame_height = self.full_resolution_frame_size()
 
                 from modules.config_ui_getters import (
                     get_current_objective_info,
@@ -388,8 +384,14 @@ class ScopeDisplay(Image):
                     binning_size=get_binning_from_ui(),
                 )
 
-                x_dist_um = x_dist_pixel * pixel_size_um
-                y_dist_um = y_dist_pixel * pixel_size_um
+                # Positive x_dist_um -> click right of center; positive y_dist_um
+                # -> click above center.
+                x_dist_um = image_utils.click_offset_to_um(
+                    norm_texture_click_pos_x, norm_texture_width, frame_width, pixel_size_um
+                )
+                y_dist_um = image_utils.click_offset_to_um(
+                    norm_texture_click_pos_y, norm_texture_height, frame_height, pixel_size_um
+                )
 
                 gui_logger.button(
                     'SCOPE_CLICK_TO_CENTER',
@@ -662,6 +664,12 @@ class ScopeDisplay(Image):
         if image is None or image.size == 0:
             return STATUS_EMPTY
 
+        # Record the full-resolution frame size for coordinate math before any
+        # preview downscale. Both the bullseye and the mono preview derive from
+        # this frame; click-to-center and the cursor readouts convert against
+        # the full-resolution sensor pixels, not the downscaled display texture.
+        self._full_res_frame_wh = (image.shape[1], image.shape[0])
+
         # (Re)allocate the reusable buffer to match the frame so the NEXT
         # frame's conversion writes into it. The 8-bit camera path returns
         # its own buffer and never uses this; the cost is one idle buffer.
@@ -855,6 +863,20 @@ class ScopeDisplay(Image):
             if not self._blit_scheduled:
                 self._blit_scheduled = True
                 Clock.schedule_once(self._run_pending_blit, 0)
+
+    def full_resolution_frame_size(self):
+        """(width, height) of the most-recent full-resolution camera frame.
+
+        Coordinate math that scales display offsets by the per-sensor-pixel size
+        (click-to-center, the cursor pixel/plate readouts) must use this, NOT
+        self.texture_size: the live preview texture is downscaled to ~widget
+        size before the blit, so texture_size is smaller than the sensor frame
+        and would make those conversions under-report by the downscale factor.
+        Falls back to texture_size before the first frame is rendered.
+        """
+        if self._full_res_frame_wh is not None:
+            return self._full_res_frame_wh
+        return self.texture_size
 
     def _current_preview_target(self):
         """Display-thread estimate of the on-screen live-image size in pixels.

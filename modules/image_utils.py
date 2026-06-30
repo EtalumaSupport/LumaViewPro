@@ -74,11 +74,18 @@ def decimate_for_preview(image: np.ndarray, target_wh: tuple[int, int] | None) -
 
     Returns:
         The image unchanged when no downscale applies (target unknown, a non-2-D
-        array, or a frame already at/below the target on both axes); otherwise an
-        area-averaged smaller copy. A single integer decimation factor preserves
-        aspect ratio, and the result never falls below the target on either axis
-        (slight oversampling the GPU finishes), so the preview is never softer
-        than the widget can show.
+        array, or a frame already at/below the target); otherwise an area-averaged
+        copy scaled to the frame's on-screen size. The widget shows the frame
+        contain-fit (aspect preserved, letterboxed), so the displayed size is the
+        frame scaled by ``min(tw/w, th/h)``; downscaling to exactly that uploads
+        no more pixels than the screen shows and stays as sharp as the widget can
+        display.
+
+    A single contain-fit ratio (not an integer decimation step) is used so the
+    downscale engages for frames only slightly larger than the widget. An
+    integer step rounds down to 1 -- i.e. no downscale -- for any frame under
+    2x the widget on both axes, leaving e.g. a ~2100x2100 sensor frame blitted
+    at full resolution on a normal display and capping live view at ~5-6 fps.
     """
     if target_wh is None or image is None or image.ndim != 2:
         return image
@@ -86,10 +93,12 @@ def decimate_for_preview(image: np.ndarray, target_wh: tuple[int, int] | None) -
     if tw < 1 or th < 1:
         return image
     h, w = image.shape
-    step = min(h // th, w // tw)
-    if step <= 1:
-        return image
-    return cv2.resize(image, (w // step, h // step), interpolation=cv2.INTER_AREA)
+    factor = min(tw / w, th / h)
+    if factor >= 1.0:
+        return image  # frame already <= widget on the limiting axis; never upscale
+    new_w = max(1, round(w * factor))
+    new_h = max(1, round(h * factor))
+    return cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_AREA)
 
 
 def scaled_preview_target(base_wh: tuple[int, int] | None, scale: float) -> tuple[int, int] | None:
@@ -104,6 +113,14 @@ def scaled_preview_target(base_wh: tuple[int, int] | None, scale: float) -> tupl
 
     Returns None when ``base_wh`` is None (widget not laid out yet), so the
     caller leaves the frame at full resolution.
+
+    Rounds to the nearest displayed pixel (not truncates): at 1:1 the scale is
+    ``sensor/widget``, and ``widget * sensor/widget`` lands a sub-LSB below the
+    sensor size for ~6% of widget/sensor pairs. Truncating would make the target
+    one pixel short of the sensor, so the exact-ratio downscale would do a
+    pointless 1-pixel shrink instead of leaving the 1:1 view at true full
+    resolution. Rounding keeps the target on the sensor size, so the factor is
+    exactly 1.0 and the frame is blitted untouched.
     """
     if base_wh is None:
         return None
@@ -113,7 +130,29 @@ def scaled_preview_target(base_wh: tuple[int, int] | None, scale: float) -> tupl
         s = 1.0
     if not s or s < 1.0:
         s = 1.0
-    return (int(base_wh[0] * s), int(base_wh[1] * s))
+    return (round(base_wh[0] * s), round(base_wh[1] * s))
+
+
+def click_offset_to_um(
+    norm_offset: float, norm_extent: float, frame_extent: float, pixel_size_um: float
+) -> float:
+    """Physical (micron) distance from the frame center for a click landing
+    ``norm_offset`` widget-pixels from the displayed image's edge, where the
+    displayed image spans ``norm_extent`` widget-pixels and the full-resolution
+    sensor frame is ``frame_extent`` pixels. Used by click-to-center to drive
+    the stage so the clicked feature moves to the optical axis.
+
+    ``frame_extent`` MUST be the full-resolution sensor frame, never the
+    preview-display texture: the live preview is downscaled to ~widget size
+    before the blit, but ``pixel_size_um`` is the size of one SENSOR pixel, so
+    feeding the downscaled texture size under-reports the distance by the
+    downscale factor and the stage stops short of the clicked point. Returns
+    0.0 when the displayed extent is degenerate (no division possible).
+    """
+    if norm_extent <= 0:
+        return 0.0
+    frame_pos = norm_offset * frame_extent / norm_extent
+    return (frame_pos - frame_extent / 2.0) * pixel_size_um
 
 
 def center_crop(image: np.ndarray, x0: int, y0: int, width: int, height: int) -> np.ndarray:
