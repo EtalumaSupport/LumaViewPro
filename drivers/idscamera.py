@@ -1211,6 +1211,24 @@ class IDSCamera(Camera):
                 except Exception as e:
                     logger.debug(f'[CAM Class ] Could not query binning range: {e}')
 
+            # Two Pylon-parity capabilities are deliberately NOT resolved here:
+            # they are Basler-proprietary (Bsl*) nodes with no SFNC-standard (or
+            # IDS) equivalent the live nodemap advertises, so they are genuinely
+            # absent from the IDS surface -- a capability-derived absence, not a
+            # stubbed model assumption:
+            #   - conversion-gain mode (pylon set_conversion_gain_mode /
+            #     BslConversionGainMode): a dual high/low charge-to-voltage gain
+            #     select. The IMX676 exposes only the standard Gain node (resolved
+            #     above); there is no advertised conversion-gain selector to bind.
+            #   - line-noise reduction (pylon set_line_noise_reduction /
+            #     BslLineNoiseReductionEnable): a Basler readout-FPN filter. No
+            #     equivalent IDS node, and the production unpack does no host-side
+            #     line-noise correction.
+            # Consistent with every capability above, a future IDS body that
+            # advertised an equivalent node would be wired in here alongside
+            # gain/exposure/pixel-pitch/binning -- never assumed from the model
+            # string.
+
         except Exception as e:
             _cam_log.warning(f'[CAM Class ] _query_dynamic_capabilities failed: {e}')
 
