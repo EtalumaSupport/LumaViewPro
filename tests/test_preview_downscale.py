@@ -29,9 +29,24 @@ class TestDecimateForPreview:
     def test_none_image_returns_none(self):
         assert decimate_for_preview(None, (700, 700)) is None
 
-    def test_color_frame_skipped(self):
-        # 3-D arrays go through the RGB/bullseye path, not this luminance blit.
+    def test_rgb_frame_downscales_preserving_channels(self):
+        # The RGB bullseye preview shares this helper; the channel axis is
+        # preserved and the H/W contain-fit matches the luminance path.
         img = np.zeros((1900, 1900, 3), dtype=np.uint8)
+        out = decimate_for_preview(img, (300, 300))  # factor 300/1900 -> 300
+        assert out.shape == (300, 300, 3)
+        assert out.dtype == np.uint8
+
+    def test_rgb_frame_smaller_than_target_unchanged(self):
+        # No downscale when the frame already fits; never upscale.
+        img = np.zeros((480, 640, 3), dtype=np.uint8)
+        out = decimate_for_preview(img, (1280, 1024))
+        assert out is img
+
+    def test_higher_dimensional_frame_skipped(self):
+        # Only 2-D (luminance) and 3-D (RGB) preview frames downscale; anything
+        # else is returned untouched rather than mis-resized.
+        img = np.zeros((4, 1900, 1900, 3), dtype=np.uint8)
         out = decimate_for_preview(img, (300, 300))
         assert out is img
 

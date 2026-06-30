@@ -756,8 +756,22 @@ class ScopeDisplay(Image):
             if now_be - self._bullseye_last_time >= self._bullseye_min_interval:
                 self._bullseye_last_time = now_be
                 image_bullseye = self.transform_to_bullseye_prealloc(image=image)
-                bullseye_bytes = image_bullseye.tobytes()
-                bullseye_shape = image_bullseye.shape
+                # Downscale the RGB bullseye to ~widget size before the blit,
+                # exactly as the mono path below: a full-resolution bullseye
+                # frame blitted every frame hits the same main-thread upload
+                # ceiling decimate_for_preview removes for the mono preview.
+                preview_target = self._current_preview_target()
+                display_bullseye = image_utils.decimate_for_preview(image_bullseye, preview_target)
+                self._log_preview_downscale(
+                    image_bullseye.shape, display_bullseye.shape, preview_target
+                )
+                # tobytes() copies the (possibly downscaled) frame: when no
+                # downscale applies this decouples from the reused bullseye
+                # buffer the next frame overwrites; when it does, it copies the
+                # fresh cv2.resize output. Either way the bytes are stable for
+                # the coalesced main-thread blit.
+                bullseye_bytes = display_bullseye.tobytes()
+                bullseye_shape = display_bullseye.shape
                 g = generation
                 # Same single-pending-blit coalescing as the main path below.
                 self._schedule_blit(

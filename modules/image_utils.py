@@ -51,8 +51,14 @@ def fit_frame_to_shape(image: np.ndarray, target_shape: tuple[int, ...]) -> np.n
 
 
 def decimate_for_preview(image: np.ndarray, target_wh: tuple[int, int] | None) -> np.ndarray:
-    """Downscale an 8-bit live-preview frame to roughly the on-screen widget
-    size so the main-thread Kivy ``blit_buffer`` uploads far fewer bytes.
+    """Downscale a live-preview frame to roughly the on-screen widget size so
+    the main-thread Kivy ``blit_buffer`` uploads far fewer bytes.
+
+    Handles both the 2-D ``uint8`` luminance preview and the 3-D ``(H, W, 3)``
+    RGB bullseye preview -- both blit paths share the identical
+    downscale-to-widget-size need, so they share one helper (``cv2.resize``
+    preserves the channel axis). Only the channel count differs; the
+    contain-fit math is the same.
 
     Live-view frame rate is bounded by the per-frame texture upload on the main
     (Kivy) thread, which serializes against the capture and convert threads on
@@ -66,16 +72,18 @@ def decimate_for_preview(image: np.ndarray, target_wh: tuple[int, int] | None) -
     paths take the full-resolution image through other code and are untouched.
 
     Args:
-        image: 2-D ``uint8`` grayscale preview frame (already downconverted).
+        image: 2-D ``uint8`` grayscale or 3-D ``(H, W, C)`` ``uint8`` RGB
+            preview frame (already downconverted).
         target_wh: ``(width, height)`` of the display widget in pixels, or None
             when the widget has not been laid out yet -- in which case the
             image is returned unchanged (full-resolution blit, the prior
             behavior), so a missing target never degrades correctness.
 
     Returns:
-        The image unchanged when no downscale applies (target unknown, a non-2-D
-        array, or a frame already at/below the target); otherwise an area-averaged
-        copy scaled to the frame's on-screen size. The widget shows the frame
+        The image unchanged when no downscale applies (target unknown, a frame
+        that is neither 2-D nor 3-D, or a frame already at/below the target);
+        otherwise an area-averaged copy scaled to the frame's on-screen size
+        (channels preserved). The widget shows the frame
         contain-fit (aspect preserved, letterboxed), so the displayed size is the
         frame scaled by ``min(tw/w, th/h)``; downscaling to exactly that uploads
         no more pixels than the screen shows and stays as sharp as the widget can
@@ -87,12 +95,12 @@ def decimate_for_preview(image: np.ndarray, target_wh: tuple[int, int] | None) -
     2x the widget on both axes, leaving e.g. a ~2100x2100 sensor frame blitted
     at full resolution on a normal display and capping live view at ~5-6 fps.
     """
-    if target_wh is None or image is None or image.ndim != 2:
+    if target_wh is None or image is None or image.ndim not in (2, 3):
         return image
     tw, th = target_wh
     if tw < 1 or th < 1:
         return image
-    h, w = image.shape
+    h, w = image.shape[:2]
     factor = min(tw / w, th / h)
     if factor >= 1.0:
         return image  # frame already <= widget on the limiting axis; never upscale
