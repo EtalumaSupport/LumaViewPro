@@ -232,6 +232,10 @@ class TestGainDbConversion:
                 'GainSelector': _RecordingNode(),
             }
         )
+        # Connect resolves the analog selector from the live GainSelector enum
+        # and caches it here; the simple _RecordingNode has no AvailableEntries,
+        # so seed the cached value as connect would (the body exposes AnalogAll).
+        cam._gain_selector = 'AnalogAll'
         return cam
 
     def test_zero_db_maps_to_unity_factor(self):

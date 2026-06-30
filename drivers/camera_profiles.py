@@ -348,6 +348,37 @@ _DEFAULT = CameraProfile(
 )
 
 
+def ids_default_profile(model_name: str) -> CameraProfile:
+    """Generic IDS profile for a body whose model name matched no static entry.
+
+    The cross-vendor ``_DEFAULT`` advertises Mono8 + ``driver='unknown'``, which
+    is wrong for an IDS body (packed Mono10/12, IDS AOI granularity). The IDS
+    driver substitutes this when ``lookup_profile`` falls through, then fills the
+    capability fields from the live nodemap at connect (pixel formats, gain /
+    exposure range, binning ceiling, ``pixel_size_um`` from ``SensorPixelWidth``).
+    So an unrecognized IDS body is still driven AS IDS; the only thing it lacks
+    is curated sensor metadata, which a real profile entry would supply.
+
+    ``pixel_size_um`` is left 0.0 here on purpose -- the driver reads the true
+    value from the ``SensorPixelWidth`` node; a fabricated default would silently
+    corrupt the micron scale bar and stage-distance math.
+    """
+    return CameraProfile(
+        model_name=model_name,
+        sensor='IDS (unrecognized model)',
+        pixel_size_um=0.0,  # filled from SensorPixelWidth at connect
+        pixel_formats=[],  # filled from the live PixelFormat node at connect
+        binning_sizes=[1],  # widened from the live binning ceiling at connect
+        binning_modes=['Sum'],
+        # IDS delivers any even size via oversize-then-crop, reading the real
+        # AOI grid live -- match the known IDS bodies' deliverable granularity.
+        alignment={'width': 2, 'height': 2},
+        gain=GainInfo(gain_selector='AnalogAll'),  # resolved live against the enum
+        driver='ids',
+        notes='Generic IDS fallback -- capabilities read live from the nodemap',
+    )
+
+
 def lookup_profile(model_name: str | None) -> CameraProfile:
     """Find the best matching profile for a camera model name.
 

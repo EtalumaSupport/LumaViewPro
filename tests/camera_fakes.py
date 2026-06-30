@@ -351,6 +351,12 @@ def bare_ids_camera():
     cam._disconnect_requested = False
     cam._recovery_thread = None
     cam._pixel_format_cache = None
+    # Capability values __init__ resolves from the nodemap at connect: the
+    # analog gain selector entry and the max binning factor. Seeded so gain() /
+    # set_binning_size run against real state on a __new__-built fake.
+    cam._gain_selector = None
+    cam._max_binning = 2
+    cam._profile_is_generic = False
     # Oversize-then-crop framing state, seeded as __init__ would so
     # set_frame_size / get_frame_size and the unpack crop run against real state.
     cam._crop_spec = None

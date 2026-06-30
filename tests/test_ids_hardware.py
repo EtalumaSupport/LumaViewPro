@@ -473,5 +473,130 @@ class TestIDSPixelFormatResolver(unittest.TestCase):
         self.assertIsNone(IDSCamera._resolve_logical_format_name('Mono8', ()))
 
 
+class TestIDSDefaultPixelFormatSelection(unittest.TestCase):
+    """Pure-logic tests for IDSCamera._select_default_pixel_format.
+
+    The connect-time default is derived from the camera's live PixelFormat
+    entries, not a model-string-matched static profile, so any IDS body (any
+    sensor, any advertised format set) selects a valid lowest-bandwidth format
+    without a per-model table entry.
+    """
+
+    def test_prefers_mono8_when_present(self):
+        from drivers.idscamera import IDSCamera
+
+        # A body that exposes Mono8 (e.g. Basler-style) starts there -- lowest
+        # bandwidth for the live preview.
+        self.assertEqual(
+            IDSCamera._select_default_pixel_format(('Mono12g24IDS', 'Mono10g40IDS', 'Mono8')),
+            'Mono8',
+        )
+
+    def test_imx676_packed_only_picks_mono10(self):
+        from drivers.idscamera import IDSCamera
+
+        # No Mono8 (the IMX676 bodies): 10-bit packed beats 12-bit packed.
+        self.assertEqual(
+            IDSCamera._select_default_pixel_format(('Mono12g24IDS', 'Mono10g40IDS')),
+            'Mono10g40IDS',
+        )
+
+    def test_mono12_only_picks_mono12(self):
+        from drivers.idscamera import IDSCamera
+
+        self.assertEqual(
+            IDSCamera._select_default_pixel_format(('Mono12g24IDS',)),
+            'Mono12g24IDS',
+        )
+
+    def test_colour_only_returns_none(self):
+        from drivers.idscamera import IDSCamera
+
+        # This driver's pipeline is mono-only; a colour body has no valid
+        # default here (returning a Bayer/RGB entry would feed a mosaic to the
+        # mono unpack/blit path).
+        self.assertIsNone(IDSCamera._select_default_pixel_format(('BayerRG8', 'RGB8')))
+
+    def test_prefers_packed_over_unpacked_same_depth(self):
+        from drivers.idscamera import IDSCamera
+
+        # Same 10-bit depth: the packed IDS entry (fewer bytes on the wire) beats
+        # the unpacked one, so connect does not double USB bandwidth by default.
+        self.assertEqual(
+            IDSCamera._select_default_pixel_format(('Mono10', 'Mono10g40IDS')),
+            'Mono10g40IDS',
+        )
+
+    def test_empty_supported_returns_none(self):
+        from drivers.idscamera import IDSCamera
+
+        self.assertIsNone(IDSCamera._select_default_pixel_format(()))
+
+
+class TestIDSGainSelectorSelection(unittest.TestCase):
+    """Pure-logic tests for IDSCamera._select_gain_selector_name.
+
+    The analog gain selector entry is resolved from the body's live GainSelector
+    enum, not hardcoded to 'AnalogAll', so a body that names it differently still
+    gets gain control (the old hardcoded 'AnalogAll' silently failed every gain
+    write on such a body).
+    """
+
+    def test_preferred_present(self):
+        from drivers.idscamera import IDSCamera
+
+        self.assertEqual(
+            IDSCamera._select_gain_selector_name(('All', 'AnalogAll', 'DigitalAll'), 'AnalogAll'),
+            'AnalogAll',
+        )
+
+    def test_preferred_absent_picks_analog_variant(self):
+        from drivers.idscamera import IDSCamera
+
+        self.assertEqual(
+            IDSCamera._select_gain_selector_name(('All', 'AnalogGain'), 'AnalogAll'),
+            'AnalogGain',
+        )
+
+    def test_no_analog_falls_back_to_all(self):
+        from drivers.idscamera import IDSCamera
+
+        self.assertEqual(
+            IDSCamera._select_gain_selector_name(('All', 'DigitalAll'), 'AnalogAll'),
+            'All',
+        )
+
+    def test_unknown_only_falls_back_to_first(self):
+        from drivers.idscamera import IDSCamera
+
+        self.assertEqual(
+            IDSCamera._select_gain_selector_name(('Tap1', 'Tap2'), 'AnalogAll'),
+            'Tap1',
+        )
+
+    def test_empty_returns_none(self):
+        from drivers.idscamera import IDSCamera
+
+        self.assertIsNone(IDSCamera._select_gain_selector_name((), 'AnalogAll'))
+
+
+class TestIDSDefaultProfile(unittest.TestCase):
+    """An unrecognized IDS body gets an IDS-shaped fallback profile, not the
+    cross-vendor Mono8 'Unknown' default -- so it is still driven as IDS and its
+    capability fields are filled from the live nodemap at connect."""
+
+    def test_is_ids_driver_with_empty_capability_fields(self):
+        from drivers.camera_profiles import ids_default_profile
+
+        p = ids_default_profile('U3-99XYZ-M')
+        self.assertEqual(p.driver, 'ids')
+        self.assertEqual(p.model_name, 'U3-99XYZ-M')
+        # pixel formats + pixel size are left for the live nodemap to fill;
+        # never fabricate a pixel size (would corrupt the micron scale).
+        self.assertEqual(p.pixel_formats, [])
+        self.assertEqual(p.pixel_size_um, 0.0)
+        self.assertEqual(p.alignment, {'width': 2, 'height': 2})
+
+
 if __name__ == '__main__':
     unittest.main()

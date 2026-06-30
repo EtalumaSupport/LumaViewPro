@@ -262,6 +262,16 @@ class IDSCamera(Camera):
         # reset; _recovery_started is the one-shot latch for the dispatched
         # recovery thread.
         self._device_serial = None
+        # Capability values resolved live from the nodemap at connect, not
+        # hardcoded per model: the analog GainSelector enum entry this body
+        # actually exposes, and its maximum square binning factor. Defaults are
+        # safe pre-connect fallbacks; _query_dynamic_capabilities overwrites them.
+        self._gain_selector = None
+        self._max_binning = 2
+        # True when the model name matched no curated profile and the generic
+        # IDS fallback is in use -- gates deriving binning sizes from the nodemap
+        # (a curated body keeps its intentional list).
+        self._profile_is_generic = False
         self._in_recovery = False
         self._recovery_started = False
         self._recovery_attempts = 0
@@ -1048,12 +1058,83 @@ class IDSCamera(Camera):
 
         return result
 
+    def _load_profile(self):
+        """Resolve the static profile, substituting a generic IDS profile when
+        the model name matched no curated entry.
+
+        The base lookup falls through to a cross-vendor Mono8 'Unknown' profile
+        for an unrecognized model; for an IDS body that is wrong (packed
+        Mono10/12, IDS AOI granularity). Substitute the generic IDS profile so
+        the body is still driven as IDS, then let _query_dynamic_capabilities /
+        init_camera_config fill the capability fields from the live nodemap.
+        """
+        super()._load_profile()
+        if self.profile.driver != 'ids':
+            from drivers.camera_profiles import ids_default_profile
+
+            self._profile_is_generic = True
+            _cam_log.warning(
+                f'[CAM Class ] Unrecognized IDS model {self.model_name!r}; using the '
+                f'generic IDS profile (capabilities read live from the nodemap). '
+                f'Add a profile entry for curated sensor metadata.'
+            )
+            self.profile = ids_default_profile(self.model_name)
+
+    @staticmethod
+    def _select_gain_selector_name(available, preferred='AnalogAll'):
+        """Pick the GainSelector enum entry to drive analog gain, from the body's
+        live entries -- so a body that names it 'All' or some 'Analog*' variant
+        instead of the literal 'AnalogAll' still gets gain control. The old
+        hardcoded 'AnalogAll' silently failed every gain write on such a body.
+
+        preferred if present; else the first entry containing 'Analog'; else
+        'All' if present; else the first advertised entry. None only when the
+        enum advertises nothing. Pure-logic + staticmethod for unit-testability.
+        """
+        if preferred and preferred in available:
+            return preferred
+        for entry in available:
+            if 'Analog' in entry:
+                return entry
+        if 'All' in available:
+            return 'All'
+        return available[0] if available else None
+
+    def _resolve_gain_selector(self):
+        """Resolve the analog GainSelector entry from the live nodemap enum, or
+        None if the body has no GainSelector / the read fails."""
+        try:
+            entries = tuple(
+                e.SymbolicValue()
+                for e in self.remote_nodemap.FindNode('GainSelector').AvailableEntries()
+            )
+            preferred = 'AnalogAll'
+            gain = getattr(self.profile, 'gain', None)
+            if gain and getattr(gain, 'gain_selector', None):
+                preferred = gain.gain_selector
+            return self._select_gain_selector_name(entries, preferred)
+        except Exception as e:
+            _cam_log.debug(f'[CAM Class ] Could not resolve GainSelector: {e}')
+            return None
+
     def _query_dynamic_capabilities(self):
         """Query IDS SDK for gain/exposure ranges and merge into profile."""
         if not self.active or not self.remote_nodemap:
             return
 
         try:
+            # Resolve the analog GainSelector entry this body exposes (cached
+            # for gain()), and select it BEFORE reading the Gain range so the
+            # range reflects the selector the setter will use.
+            self._gain_selector = self._resolve_gain_selector()
+            if self._gain_selector:
+                try:
+                    self.remote_nodemap.FindNode('GainSelector').SetCurrentEntry(
+                        self._gain_selector
+                    )
+                except Exception as e:
+                    logger.debug(f'[CAM Class ] Could not pre-select GainSelector: {e}')
+
             # Gain range. The IDS Gain node is a linear multiplier (min ~1.0x),
             # but LVP's gain model is dB (shared with the Pylon driver), so the
             # profile range is reported in dB: dB = 20 * log10(factor).
@@ -1087,6 +1168,43 @@ class IDSCamera(Camera):
             except Exception as e:
                 logger.debug(f'[CAM Class ] Could not query exposure range: {e}')
 
+            # Sensor pixel pitch (micrometers). Read live so the micron scale
+            # bar and click-to-center distance are correct for ANY IDS body,
+            # not only ones with a curated profile. SensorPixelWidth is a Float
+            # node in um (IDS peak ImageFormatControl). Fill only when the
+            # profile did not supply one (an unrecognized body's generic profile
+            # carries 0.0) -- never override a curated, bench-validated value --
+            # but always log the hardware value so a mismatch is visible.
+            try:
+                sensor_px_um = self.remote_nodemap.FindNode('SensorPixelWidth').Value()
+                logger.info(f'[CAM Class ] SensorPixelWidth: {sensor_px_um:.4f} um')
+                if sensor_px_um and sensor_px_um > 0 and not self.profile.pixel_size_um:
+                    self.profile.pixel_size_um = float(sensor_px_um)
+            except Exception as e:
+                logger.debug(f'[CAM Class ] Could not query SensorPixelWidth: {e}')
+
+            # Binning ceiling. Keep a recognized body's CURATED sizes (the
+            # setter cap follows them); for the generic fallback only, derive the
+            # ceiling from the live node so an unrecognized body that supports 4x
+            # is not refused. Advertise the common power-of-two grid up to the
+            # ceiling rather than a contiguous range -- never offer an
+            # intermediate factor (e.g. 3x) the node would reject on SetValue.
+            self._max_binning = max(self.profile.binning_sizes) if self.profile.binning_sizes else 1
+            if self._profile_is_generic:
+                try:
+                    bv_max = int(self.remote_nodemap.FindNode('BinningVertical').Maximum())
+                    bh_max = int(self.remote_nodemap.FindNode('BinningHorizontal').Maximum())
+                    max_bin = min(bv_max, bh_max)
+                    if max_bin >= 1:
+                        self._max_binning = max_bin
+                        self.profile.binning_sizes = [s for s in (1, 2, 4, 8, 16) if s <= max_bin]
+                        logger.info(
+                            f'[CAM Class ] Binning ceiling {max_bin}x '
+                            f'(sizes {self.profile.binning_sizes})'
+                        )
+                except Exception as e:
+                    logger.debug(f'[CAM Class ] Could not query binning range: {e}')
+
         except Exception as e:
             _cam_log.warning(f'[CAM Class ] _query_dynamic_capabilities failed: {e}')
 
@@ -1107,25 +1225,51 @@ class IDSCamera(Camera):
                 # Log the camera's actual PixelFormat options once at init --
                 # the supported list is camera-specific (IDS uses names like
                 # Mono10g40IDS / Mono12g24IDS, and not all sensors expose
-                # Mono8 -- e.g. Sony IMX676 in U3-34L0XCP-M is Mono10/12 only).
-                # Operators need this in the log to diagnose any future
+                # Mono8). Operators need this in the log to diagnose any future
                 # logical-to-camera mismatch.
                 supported = self.get_supported_pixel_formats()
                 logger.info(f'[CAM Class ] Supported PixelFormat entries: {list(supported)}')
-                # Pick the lowest-bandwidth entry the profile lists (cameras
-                # with Mono8 stay Mono8; cameras like IMX676 fall through to
-                # Mono10g40IDS). set_pixel_format resolves logical names
-                # ('Mono8') to camera-specific entries when applicable.
-                if self.profile.pixel_formats:
-                    preferred = (
-                        'Mono8'
-                        if 'Mono8' in self.profile.pixel_formats
-                        else self.profile.pixel_formats[0]
-                    )
+                # Couple to the live nodemap, not a model-keyed static profile:
+                # any IDS body is driven by what its PixelFormat node actually
+                # advertises, the same way gain / exposure / AOI are read live.
+                # Record the real formats on the profile so a body whose model
+                # string matched no static profile entry still reports hardware
+                # truth downstream and selects a valid format here.
+                if supported:
+                    self.profile.pixel_formats = list(supported)
+                    preferred = self._select_default_pixel_format(supported)
                 else:
-                    preferred = 'Mono10g40IDS'
-                self.set_pixel_format(preferred)
-                self.remote_nodemap.FindNode('ReverseX').SetValue(True)
+                    # The live AvailableEntries read returned nothing (transient
+                    # SDK error). Fall back to the curated profile's formats
+                    # rather than leaving the format unset -- an unset format
+                    # streams at the UserSet default depth and would feed the
+                    # unpack pipeline the wrong bit depth.
+                    _cam_log.warning(
+                        '[CAM Class ] Live PixelFormat read empty; falling back '
+                        'to the profile formats'
+                    )
+                    preferred = self._select_default_pixel_format(self.profile.pixel_formats)
+                if preferred:
+                    self.set_pixel_format(preferred)
+                else:
+                    _cam_log.error(
+                        '[CAM Class ] No usable mono PixelFormat available; '
+                        'leaving the format unset'
+                    )
+                # Apply the horizontal flip only when this body advertises
+                # ReverseX as writable -- a capability check via the node's
+                # access status, not an assumption every body has it. Orientation
+                # nodes vary by body/mount; gating here keeps a body without a
+                # writable ReverseX from skipping the rest of init (TriggerMode,
+                # exposure, set_frame_size, free-run config all follow).
+                _reverse_x = self._diag_probe_node(self.remote_nodemap, 'ReverseX')
+                if _reverse_x.get('access') in ('ReadWrite', 'WriteOnly'):
+                    self.remote_nodemap.FindNode('ReverseX').SetValue(True)
+                else:
+                    logger.info(
+                        f'[CAM Class ] ReverseX not writable on this body '
+                        f'({_reverse_x.get("access", "absent")}); leaving default orientation'
+                    )
                 # Ensure freerun mode (no external trigger)
                 try:
                     self.remote_nodemap.FindNode('TriggerMode').SetCurrentEntry('Off')
@@ -1866,6 +2010,41 @@ class IDSCamera(Camera):
             return None
 
     @staticmethod
+    def _select_default_pixel_format(supported) -> str | None:
+        """Pick the connect-time default PixelFormat from the camera's actual
+        advertised entries -- coupling to the live nodemap, not a model-keyed
+        static profile, so ANY IDS body is driven by what it really exposes.
+
+        MONO ONLY: this driver's unpack/blit path delivers a single-channel
+        frame, so a colour (Bayer/RGB) entry is never a valid default -- return
+        None rather than feed the mono pipeline a mosaic. Among mono entries,
+        prefer lowest delivered bandwidth: by bit depth (8 < 10 < 12), then a
+        PACKED entry (IDS 'g..IDS' / 'p' grouped names, fewer bytes on the wire)
+        over an unpacked one of the same depth. Returns None when the body
+        advertises no mono entry (a colour-only body, or an empty/failed read).
+
+        Pure-logic + staticmethod for unit-testability without an SDK
+        connection (same pattern as _resolve_logical_format_name).
+        """
+        mono = [f for f in supported if f.startswith('Mono')]
+        if not mono:
+            return None
+
+        def _rank(fmt):
+            if fmt.startswith('Mono8'):
+                depth = 8
+            elif fmt.startswith('Mono10'):
+                depth = 10
+            elif fmt.startswith('Mono12'):
+                depth = 12
+            else:
+                depth = 99  # Mono14/Mono16/unknown -- valid mono, but heavier
+            packed = ('g' in fmt) or ('IDS' in fmt) or fmt.endswith('p')
+            return (depth, 0 if packed else 1, fmt)
+
+        return sorted(mono, key=_rank)[0]
+
+    @staticmethod
     def _resolve_logical_format_name(logical: str, supported) -> str | None:
         """Pure-logic resolver: map a logical PixelFormat name to a camera-native
         SymbolicValue from the given supported list.
@@ -2199,15 +2378,44 @@ class IDSCamera(Camera):
         """IDS does not expose Pylon BandwidthReserveMode. Stub False."""
         return False
 
+    def _set_remote_node(self, node_name: str, value, method_label: str) -> bool:
+        """Write a value to an OPTIONAL remote-device node iff this body exposes
+        it, returning whether it was applied.
+
+        Orientation (ReverseX) and GigE-transport (GevSCPS*/GevSCPD) nodes are
+        present on some IDS bodies and absent on others. The IDS binding raises
+        from FindNode when a node is absent, so presence detection requires the
+        catch; this returns the applied/not-applied status so callers treat the
+        node as a capability to query, not a node to assume. Same status-return
+        contract as _set_data_stream_int_node (the DataStream-nodemap analogue).
+        Never raises.
+        """
+        if not self.active or self.remote_nodemap is None:
+            return False
+        try:
+            node = self.remote_nodemap.FindNode(node_name)
+            if node is None:
+                return False
+            node.SetValue(value)
+            return True
+        except Exception as e:
+            _cam_log.debug(
+                f'[CAM Class ] {method_label}: optional node {node_name} not '
+                f'applied ({type(e).__name__}: {e})'
+            )
+            return False
+
     def set_gev_packet_size(self, size_bytes: int) -> bool:
-        """N/A on the U3-34L: GevSCPSPacketSize is a GigE-Vision transport node,
-        and this body is USB3 Vision. Stub False (no GEV transport to tune)."""
-        return False
+        """Set GevSCPSPacketSize (GigE-Vision stream packet size / MTU) iff this
+        body exposes it. Returns False on a USB3 body (node absent) and writes
+        it on a GigE (uEye+ GV) body -- capability, queried from the nodemap,
+        not a hardcoded transport verdict (mirrors the Pylon driver)."""
+        return self._set_remote_node('GevSCPSPacketSize', int(size_bytes), 'set_gev_packet_size')
 
     def set_gev_inter_packet_delay(self, delay_ticks: int) -> bool:
-        """N/A on the U3-34L: GevSCPD is a GigE-Vision transport node, and this
-        body is USB3 Vision. Stub False (no GEV transport to tune)."""
-        return False
+        """Set GevSCPD (GigE-Vision inter-packet delay) iff this body exposes it.
+        Returns False on a USB3 body (node absent); writes it on a GigE body."""
+        return self._set_remote_node('GevSCPD', int(delay_ticks), 'set_gev_inter_packet_delay')
 
     def _set_data_stream_int_node(self, node_name: str, value: int, method_label: str) -> bool:
         """Write an integer to a DataStream-nodemap node (the USB3 transfer-
@@ -2283,7 +2491,9 @@ class IDSCamera(Camera):
         """Set camera pixel binning size.
 
         Args:
-            size: Binning factor (1 or 2; IDS bodies cap at 2x2).
+            size: Binning factor. The ceiling is read live from the binning
+                node maximum at connect (self._max_binning), not hardcoded, so a
+                body that supports 4x is not refused.
 
         Returns:
             bool: True on success. False only when the camera is inactive
@@ -2296,8 +2506,8 @@ class IDSCamera(Camera):
         if not self.active:
             return False
 
-        if size < 1 or size > 2:
-            _cam_log.error(f'[CAM Class ] Unsupported bin size: {size}')
+        if size < 1 or size > self._max_binning:
+            _cam_log.error(f'[CAM Class ] Unsupported bin size: {size} (max {self._max_binning})')
             return False
 
         try:
@@ -2436,6 +2646,19 @@ class IDSCamera(Camera):
 
         try:
             factor = 10.0 ** (float(value) / 20.0)
+            # Select the analog gain entry this body actually exposes (resolved
+            # at connect; re-resolve if missing) BEFORE reading the range and
+            # writing -- the Gain Min/Max depend on the active selector. If none
+            # can be resolved, fail loud rather than write the factor against
+            # whatever selector is currently active (that would land analog gain
+            # on the wrong amplifier and still report success).
+            selector = self._gain_selector or self._resolve_gain_selector()
+            if not selector:
+                _cam_log.error(
+                    '[CAM Class ] Cannot set gain: no GainSelector entry resolved on this body'
+                )
+                return False
+            self.remote_nodemap.FindNode('GainSelector').SetCurrentEntry(selector)
             gain_node = self.remote_nodemap.FindNode('Gain')
             # Reconcile to the node's reported range: the dB->factor conversion
             # overshoots Gain.Maximum() by a float epsilon at the cap, so the
@@ -2443,9 +2666,8 @@ class IDSCamera(Camera):
             factor = min(max(factor, gain_node.Minimum()), gain_node.Maximum())
             if _cam_log is not None:
                 _cam_log.info(
-                    f'ids GainSelector=AnalogAll Gain.SetValue({factor:.3f}) (={value} dB)'
+                    f'ids GainSelector={selector} Gain.SetValue({factor:.3f}) (={value} dB)'
                 )
-            self.remote_nodemap.FindNode('GainSelector').SetCurrentEntry('AnalogAll')
             gain_node.SetValue(factor)
             logger.debug(f'[CAM Class ] Gain set to {value} dB ({factor:.3f}x)')
             return True

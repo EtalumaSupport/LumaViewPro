@@ -7755,10 +7755,17 @@ class TestGigeSetters:
             with pytest.raises(HardwareError):
                 call(cam)
 
-    def test_ids_stubs_return_false(self):
-        from drivers.idscamera import IDSCamera
-
-        camera = IDSCamera.__new__(IDSCamera)
+    def test_ids_gev_setters_return_false_when_unwritable(self):
+        # The IDS GEV setters are now guarded live writes (GigE-ready), not
+        # hardcoded stubs: they return False when they can't apply -- inactive
+        # camera, or the node absent on a USB3 body -- so the bench sweep can
+        # still call them unconditionally per cell. BandwidthReserveMode stays a
+        # stub (no IDS equivalent node).
+        camera = _bare_ids_camera()
+        # USB3 body: the GEV transport nodes are absent, so FindNode returns
+        # None and the guarded write returns False (a GigE body would resolve
+        # the node and write it).
+        camera.remote_nodemap.FindNode.return_value = None
         assert camera.set_bandwidth_reserve_mode('Performance') is False
         assert camera.set_gev_packet_size(9000) is False
         assert camera.set_gev_inter_packet_delay(0) is False
