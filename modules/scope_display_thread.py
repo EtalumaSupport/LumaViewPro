@@ -59,6 +59,20 @@ STATUS_NOT_READY = 3  # ctx is None / scope disconnected / similar
 STALL_WARN_SECONDS = 10.0
 
 
+# Idle back-off floor for the pacing wait. The loop's only pacing input is the
+# FPS cap (min_frame_interval); uncapped (fps=0, the rate Etaluma runs so the
+# preview never throttles below the sensor) that interval is 0, so an iteration
+# that delivers NO fresh frame (empty buffer, duplicate timestamp, or
+# not-ready) re-polls with no wait and pins ~a full core whenever the stream is
+# idle, stalled, or between frames. Flooring the wait to this interval on a
+# no-delivery iteration bounds that idle poll rate. A delivered frame
+# (STATUS_OK) skips the floor entirely, so the achievable frame rate is never
+# capped below the camera: the floor is far shorter than any real inter-frame
+# gap (the sensor ceiling is ~31 fps = ~32 ms), so a fresh frame is still
+# picked up within one floor interval of arriving.
+IDLE_BACKOFF_SECONDS = 0.005
+
+
 class ScopeDisplayThread:
     """Owns the live-display refresh loop.
 
@@ -324,6 +338,12 @@ class ScopeDisplayThread:
             # uncapped or already over budget.
             elapsed = time.monotonic() - cycle_start
             wait = max(0.0, min_frame_interval - elapsed)
+            # Idle back-off: an iteration that produced no fresh frame floors the
+            # wait so an idle/stalled/between-frames stream cannot busy-spin (see
+            # IDLE_BACKOFF_SECONDS). STATUS_OK skips this, so a live stream is
+            # never paced below the camera rate.
+            if status != STATUS_OK:
+                wait = max(wait, IDLE_BACKOFF_SECONDS)
             if wait > 0 and self._stop_event.wait(timeout=wait):
                 return
 
