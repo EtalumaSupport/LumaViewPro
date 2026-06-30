@@ -31,6 +31,13 @@ from __future__ import annotations
 import numpy as np
 
 # format name -> (pixels_per_group, bytes_per_group, significant_bits)
+# These two are the packed layouts the U3-34L (IMX676) bodies deliver. This
+# table is the bench-VERIFICATION ORACLE / benchmark cross-check only -- it is
+# body-specific BY DESIGN. The production decode path does NOT use it: it calls
+# the SDK ConvertTo keyed on the format-name prefix (Mono8/10/12), which handles
+# any packed layout the camera advertises. A body with a different packed format
+# would raise ValueError from unpack() here (oracle can't decode it) but still
+# stream fine live -- add an entry only when characterizing a new body.
 IDS_PACKED_FORMATS = {
     'Mono12g24IDS': (2, 3, 12),
     'Mono10g40IDS': (4, 5, 10),

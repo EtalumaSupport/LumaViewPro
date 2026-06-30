@@ -1135,9 +1135,15 @@ class IDSCamera(Camera):
                 except Exception as e:
                     logger.debug(f'[CAM Class ] Could not pre-select GainSelector: {e}')
 
-            # Gain range. The IDS Gain node is a linear multiplier (min ~1.0x),
-            # but LVP's gain model is dB (shared with the Pylon driver), so the
-            # profile range is reported in dB: dB = 20 * log10(factor).
+            # Gain range. The IDS Gain node is a linear multiplier (min ~1.0x)
+            # on the IMX676 bodies, but LVP's gain model is dB (shared with the
+            # Pylon driver), so the profile range is reported in dB:
+            # dB = 20 * log10(factor). The linear-multiplier assumption is
+            # per-body: SFNC permits Gain to be expressed natively in dB, and a
+            # body that does so would be double-converted here. Reading the Gain
+            # node's reported unit to branch the conversion is the robust fix but
+            # needs a bench body to confirm the unit string -- deferred until one
+            # is available; gain stays correct on the IMX676 bodies meanwhile.
             try:
                 gain_node = self.remote_nodemap.FindNode('Gain')
                 min_factor = gain_node.Minimum()
