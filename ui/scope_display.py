@@ -26,6 +26,7 @@ Threading model (Stage B1):
 """
 
 import logging
+import statistics
 import threading
 import time
 
@@ -55,6 +56,26 @@ logger = logging.getLogger('LVP.ui.scope_display')
 BULLSEYE_FPS_CAP = 15  # Max FPS for CPU-intensive bullseye LUT rendering
 VALIDITY_DOT_RADIUS = 10  # Engineering-mode validity indicator dot radius (px)
 VALIDITY_DOT_MARGIN = 20  # Margin from image edge to dot center (px)
+
+# --- Per-spike frame-drop attribution (the "uneven video" instrument) ---
+# A rendered frame is flagged "slow" when its inter-frame interval exceeds
+# both FRAME_SPIKE_RATIO x the recent-window median AND an absolute floor.
+# Median-relative (not mean) so the few spikes themselves don't move the
+# baseline; the floor stops a tiny median (fast steady stream) from firing on
+# normal jitter. A sustained-slow stream raises the median to match, so this
+# fires only on TRANSIENT stutters, not a uniformly slow rate (capture_fps owns
+# that). Unconditional WARN -- it must reach a normal bench bundle whether or
+# not debug_mode/[PERF] is on, and it self-limits to genuine spikes.
+FRAME_SPIKE_RATIO = 2.0  # interval must exceed this x the recent median
+FRAME_SPIKE_FLOOR_MS = 50.0  # ...and this absolute floor (ms)
+FRAME_SPIKE_WINDOW = 120  # recent OK-frame intervals feeding the median (~4-8 s)
+FRAME_SPIKE_MIN_SAMPLES = 30  # need this many before a median is meaningful
+FRAME_SPIKE_MEDIAN_REFRESH_S = 0.5  # recompute the cached median at most this often
+# Min gap between SLOW FRAME logs. The median baseline takes ~a window to catch
+# up to a sustained rate drop (which capture_fps, not this, owns), so without
+# this a fast->slow transition would log every frame until it does. This caps
+# that burst while still surfacing distinct transient stutters seconds apart.
+FRAME_SPIKE_LOG_MIN_GAP_S = 2.0
 
 
 class ScopeDisplay(Image):
@@ -137,6 +158,22 @@ class ScopeDisplay(Image):
 
         self._frame_interval_history = deque(maxlen=2000)
         self._last_frame_pull_time = None
+
+        # Per-spike frame-drop attribution ("uneven video" instrument). Keyed off
+        # the last STATUS_OK frame so it measures inter-DISPLAYED-frame gaps, not
+        # loop iterations (duplicate/empty polls would otherwise collapse the
+        # interval). The window of recent OK-frame intervals feeds the median
+        # baseline; the median is cached and refreshed at most every
+        # FRAME_SPIKE_MEDIAN_REFRESH_S so the hot render path doesn't re-sort it
+        # every frame. _last_ok_compute carries the PREVIOUS OK frame's
+        # grab/proc/eng -- the display-path work that actually ran during the
+        # interval being attributed.
+        self._spike_interval_window = deque(maxlen=FRAME_SPIKE_WINDOW)
+        self._last_ok_frame_time = None
+        self._last_ok_compute = None
+        self._spike_median_cache = None
+        self._spike_median_refresh = 0.0
+        self._slow_frame_last_log = 0.0
 
         # Engineering stats timing (2x per second)
         self._eng_stats_last_time = 0.0
@@ -503,6 +540,68 @@ class ScopeDisplay(Image):
             'n': n,
         }
 
+    def _check_slow_frame(self, cycle_start, *, grab_ms, proc_ms, eng_ms):
+        """Emit one WARN when the gap to the previous displayed frame spikes.
+
+        The "uneven video" instrument. Called only on STATUS_OK, so cycle_start
+        is the start of a genuinely-new displayed frame; the interval to the
+        previous OK frame is the gap the user actually perceives. Fires when that
+        interval exceeds both FRAME_SPIKE_RATIO x the recent-window median AND
+        FRAME_SPIKE_FLOOR_MS -- transient stutters, not a uniformly slow stream
+        (whose median rises to match; capture_fps owns that). Unconditional WARN
+        so it reaches a normal bench bundle whether or not debug_mode/[PERF] is
+        on; the floor+ratio+rate-limit gate keeps it to genuine spikes.
+
+        Attribution: the grab/proc/eng reported are the PREVIOUS frame's --
+        the display-path work that actually ran DURING this interval (this
+        frame's compute happens after cycle_start, outside the interval). gap =
+        interval - that work = the non-display remainder: pacing wait, camera
+        delivery latency, GIL contention, host scheduling / page-fault pressure.
+        A large gap with small prev-frame compute points upstream of the display
+        path; a large prev-frame compute points at the render itself.
+        """
+        prev_time = self._last_ok_frame_time
+        prev_compute = self._last_ok_compute
+        self._last_ok_frame_time = cycle_start
+        self._last_ok_compute = (grab_ms, proc_ms, eng_ms)
+        if prev_time is None:
+            return
+        interval_ms = (cycle_start - prev_time) * 1000.0
+        window = self._spike_interval_window
+        window.append(interval_ms)
+        if len(window) < FRAME_SPIKE_MIN_SAMPLES:
+            return
+        median_ms = self._spike_median(cycle_start)
+        threshold_ms = max(FRAME_SPIKE_FLOOR_MS, FRAME_SPIKE_RATIO * median_ms)
+        if interval_ms <= threshold_ms:
+            return
+        if (cycle_start - self._slow_frame_last_log) < FRAME_SPIKE_LOG_MIN_GAP_S:
+            return
+        self._slow_frame_last_log = cycle_start
+        p_grab, p_proc, p_eng = prev_compute if prev_compute else (0.0, 0.0, 0.0)
+        prev_total = p_grab + p_proc + p_eng
+        logger.warning(
+            f'[SLOW FRAME] interval={interval_ms:.0f}ms (median={median_ms:.0f}ms) | '
+            f'prev-frame grab={p_grab:.1f}ms proc={p_proc:.1f}ms eng={p_eng:.1f}ms '
+            f'(={prev_total:.1f}ms) gap={interval_ms - prev_total:.0f}ms'
+        )
+
+    def _spike_median(self, now):
+        """Median of the recent OK-frame-interval window, cached.
+
+        The baseline shifts slowly, so recomputing the median every frame would
+        re-sort the window on the GIL-bound render path for no benefit. Refresh
+        at most every FRAME_SPIKE_MEDIAN_REFRESH_S; statistics.median averages the
+        two middle samples on an even-length window (no upper-middle bias).
+        """
+        if (
+            self._spike_median_cache is None
+            or (now - self._spike_median_refresh) >= FRAME_SPIKE_MEDIAN_REFRESH_S
+        ):
+            self._spike_median_cache = statistics.median(self._spike_interval_window)
+            self._spike_median_refresh = now
+        return self._spike_median_cache
+
     # _pull_next_frame, update_scopedisplay, _schedule_next retired in Stage B1.
     # The dedicated scope_display_thread owns the FPS-paced loop; this widget
     # provides _render_one_frame as the loop body (one iteration = one frame).
@@ -721,6 +820,10 @@ class ScopeDisplay(Image):
                 ctx.camera_executor.put(IOTask(action=self.get_true_gain_exp, args=(active_layer,)))
 
         t_eng_stats = 0
+        # Display-path compute for THIS frame; set by whichever render branch runs
+        # (mono downscale, or the bullseye transform when its rate cap lets it
+        # render). Stays 0 when a rate cap skips the render -- there was no work.
+        proc_ms = 0.0
         if ctx.engineering_mode:
             # Frame validity indicator: update every frame (lightweight canvas op)
             fv_valid = ctx.scope.imaging.frame_is_valid
@@ -755,6 +858,7 @@ class ScopeDisplay(Image):
             now_be = time.monotonic()
             if now_be - self._bullseye_last_time >= self._bullseye_min_interval:
                 self._bullseye_last_time = now_be
+                t_process_start = now_be  # bullseye render is this frame's process stage
                 image_bullseye = self.transform_to_bullseye_prealloc(image=image)
                 # Downscale the RGB bullseye to ~widget size before the blit, so
                 # it no longer blits full-resolution every frame (the same
@@ -769,6 +873,7 @@ class ScopeDisplay(Image):
                 # fresh cv2.resize output. Either way the bytes are stable for
                 # the coalesced main-thread blit.
                 bullseye_bytes = display_bullseye.tobytes()
+                proc_ms = (time.monotonic() - t_process_start) * 1000.0
                 bullseye_shape = display_bullseye.shape
                 g = generation
                 # Same single-pending-blit coalescing as the main path below.
@@ -796,6 +901,7 @@ class ScopeDisplay(Image):
             # Convert to bytes on worker thread, blit on main thread
             image_bytes = display_image.tobytes()
             t_process_end = time.monotonic()
+            proc_ms = (t_process_end - t_process_start) * 1000.0
             image_shape = display_image.shape
             t_blit_scheduled = time.monotonic()
             g = generation
@@ -851,6 +957,18 @@ class ScopeDisplay(Image):
                     self._perf_process_times.clear()
                     self._perf_blit_schedule_times.clear()
                     self._perf_blit_delays.clear()
+
+        # Attribute this displayed frame's stutter (if any) before returning. Only
+        # reached on STATUS_OK -- a genuinely new frame, past the duplicate gate --
+        # so the interval it measures is between frames the user actually sees, not
+        # between loop iterations. grab/eng are set in both render paths; proc by
+        # whichever render branch ran.
+        self._check_slow_frame(
+            cycle_start,
+            grab_ms=(t_grab_end - t_grab_start) * 1000.0,
+            proc_ms=proc_ms,
+            eng_ms=t_eng_stats * 1000.0,
+        )
 
         return STATUS_OK
 
