@@ -276,6 +276,59 @@ class TestIDS(unittest.TestCase):
         self.camera.gain(10)
         self.assertAlmostEqual(self.camera.get_gain(), 10.0, delta=0.1)
 
+    def test_gain_node_is_linear_multiplier_not_native_db(self):
+        """Anti-fragility guard for the dB<->factor gain conversion.
+
+        LVP's gain model is dB (shared with the Pylon driver); the IDS driver
+        assumes the camera's Gain node is a LINEAR multiplier and converts
+        dB = 20*log10(factor) (idscamera _query_dynamic_capabilities / gain /
+        get_gain). SFNC permits a body to express Gain natively in dB -- such a
+        body would be double-converted. This records the node's unit + range
+        (run with -s to read them) and fails loudly if the body reports gain in
+        dB, which is the exact signal to branch the conversion on the unit.
+        """
+        nm = self.camera.remote_nodemap
+        selector = self.camera._resolve_gain_selector()
+        if selector:
+            nm.FindNode('GainSelector').SetCurrentEntry(selector)
+        gain_node = nm.FindNode('Gain')
+
+        minimum = gain_node.Minimum()
+        maximum = gain_node.Maximum()
+        value = gain_node.Value()
+        try:
+            unit = gain_node.Unit()
+        except Exception as e:
+            unit = f'<unavailable: {e}>'
+        try:
+            reported_db = self.camera.get_gain()
+        except Exception as e:
+            reported_db = f'<error: {e}>'
+        print(
+            f'[gain-node] selector={selector} unit={unit!r} value={value} '
+            f'min={minimum} max={maximum} get_gain()={reported_db} dB'
+        )
+
+        # A unit string saying dB is the authoritative tell that the node is
+        # native dB and the 20*log10(factor) conversion double-converts.
+        if isinstance(unit, str) and 'db' in unit.strip().lower():
+            self.fail(
+                f'Gain node reports unit {unit!r} (native dB): the driver applies '
+                '20*log10(factor) and would double-convert on this body -- branch '
+                'gain()/get_gain()/_query_dynamic_capabilities on the unit.'
+            )
+
+        # Structural backstop when no unit string is exposed: a linear analog
+        # gain multiplier floors at ~1.0x (1x = 0 dB); a native-dB node floors
+        # near 0.0 (0 dB). A minimum well below 1.0 means the node is NOT a
+        # linear multiplier and the log10 conversion is wrong for this body.
+        self.assertGreaterEqual(
+            minimum,
+            0.9,
+            f'Gain.Minimum()={minimum} is not ~1.0x: the node is not a linear '
+            'multiplier (likely native dB), so dB=20*log10(factor) double-converts.',
+        )
+
     def test_native_depth_frame_is_right_aligned_uint16(self):
         """Keystone bench check: a grabbed frame arrives at the sensor's native
         depth in a uint16 container, right-aligned.
