@@ -46,6 +46,7 @@ from modules import gui_logger
 import modules.image_mode as image_mode
 import modules.autofocus_functions as autofocus_functions
 import modules.common_utils as common_utils
+import modules.image_utils as image_utils
 import modules.app_context as _app_ctx
 
 logger = logging.getLogger('LVP.ui.scope_display')
@@ -95,6 +96,18 @@ class ScopeDisplay(Image):
         # Reusable 8-bit LUT destination for the preview 12->8 conversion;
         # (re)allocated lazily to match the frame in _render_one_frame.
         self._display_8bit_buf = None
+
+        # On-screen widget size (px), cached on the main thread by
+        # _on_size_changed so the display thread can downscale each preview
+        # frame to roughly the displayed size before the blit. The main-thread
+        # blit_buffer of a full-resolution large-sensor frame is the live-view
+        # FPS ceiling (it serializes against capture/convert on the GIL);
+        # uploading a near-display-size frame removes it. None until the widget
+        # is laid out -> full-resolution blit (prior behavior).
+        self._preview_target_wh = None
+        # Last (src_shape, dst_shape) logged, so the active downscale factor is
+        # recorded once per change instead of every frame.
+        self._preview_downscale_logged = None
 
         # FPS tracking -- capture thread (frames grabbed from camera)
         self._capture_fps_count = 0
@@ -188,6 +201,10 @@ class ScopeDisplay(Image):
 
     def _on_size_changed(self, *args):
         """Rebuild crosshair overlay when widget size or position changes."""
+        # Cache the widget's pixel box for the display thread's preview
+        # downscale. A plain tuple assignment is atomic in CPython, so the
+        # thread reads a consistent (w, h) without a lock.
+        self._preview_target_wh = (int(self.width), int(self.height))
         if self._crosshair_visible:
             self._build_crosshair_overlay()
 
@@ -748,10 +765,20 @@ class ScopeDisplay(Image):
             if self.use_live_image_histogram_equalization:
                 image = self._contrast_stretcher.update(image)
 
+            # Downscale to ~widget size on this worker thread so the main-thread
+            # blit uploads far fewer bytes. The full-resolution blit of a
+            # large-sensor frame is the live-view FPS ceiling (it serializes
+            # against capture/convert on the GIL); displayed pixels are
+            # unchanged because the GPU was scaling the oversized texture down
+            # to the widget anyway. Stats above used the full-resolution image.
+            preview_target = self._current_preview_target()
+            display_image = image_utils.decimate_for_preview(image, preview_target)
+            self._log_preview_downscale(image.shape, display_image.shape, preview_target)
+
             # Convert to bytes on worker thread, blit on main thread
-            image_bytes = image.tobytes()
+            image_bytes = display_image.tobytes()
             t_process_end = time.monotonic()
-            image_shape = image.shape
+            image_shape = display_image.shape
             t_blit_scheduled = time.monotonic()
             g = generation
             self._schedule_blit(
@@ -828,6 +855,44 @@ class ScopeDisplay(Image):
             if not self._blit_scheduled:
                 self._blit_scheduled = True
                 Clock.schedule_once(self._run_pending_blit, 0)
+
+    def _current_preview_target(self):
+        """Display-thread estimate of the on-screen live-image size in pixels.
+
+        The base widget box (cached on the main thread by _on_size_changed) is
+        scaled UP by the zoom factor of the enclosing Scatter, so a zoomed-in or
+        1:1 view is never downscaled below what it actually shows -- at 1:1 the
+        scale equals sensor/widget, so the target reaches sensor size and the
+        decimation factor falls to 1 (full-resolution blit). Zoom-out is clamped
+        to 1.0 (keep widget-size detail rather than over-shrinking). Reads are
+        plain attribute fetches of numeric Kivy properties; a one-frame-stale
+        value during an active zoom self-corrects on the next frame.
+        """
+        parent = self.parent
+        scale = getattr(parent, 'scale', 1.0) if parent is not None else 1.0
+        return image_utils.scaled_preview_target(self._preview_target_wh, scale)
+
+    def _log_preview_downscale(self, src_shape, dst_shape, target):
+        """Record the active preview-downscale factor once per change.
+
+        Makes a log bundle self-sufficient: the next bench run shows whether the
+        live preview is downscaling and by how much, without inferring it from
+        frame-rate alone. Called every frame; logs only when the src->dst
+        mapping changes (widget resize, zoom, or downscale turning on/off)."""
+        key = (src_shape, dst_shape)
+        if key == self._preview_downscale_logged:
+            return
+        self._preview_downscale_logged = key
+        if dst_shape == src_shape:
+            logger.info(
+                f'[LVP Main  ] Preview downscale OFF (blitting full resolution '
+                f'{src_shape[1]}x{src_shape[0]})'
+            )
+        else:
+            logger.info(
+                f'[LVP Main  ] Preview downscale ON: {src_shape[1]}x{src_shape[0]} -> '
+                f'{dst_shape[1]}x{dst_shape[0]} (display target {target})'
+            )
 
     def _run_pending_blit(self, dt):
         """Main-thread Clock callback: run the latest pending blit, if any."""

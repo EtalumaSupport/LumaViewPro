@@ -50,6 +50,72 @@ def fit_frame_to_shape(image: np.ndarray, target_shape: tuple[int, ...]) -> np.n
     return fitted
 
 
+def decimate_for_preview(image: np.ndarray, target_wh: tuple[int, int] | None) -> np.ndarray:
+    """Downscale an 8-bit live-preview frame to roughly the on-screen widget
+    size so the main-thread Kivy ``blit_buffer`` uploads far fewer bytes.
+
+    Live-view frame rate is bounded by the per-frame texture upload on the main
+    (Kivy) thread, which serializes against the capture and convert threads on
+    the GIL -- not by the camera or the packed-format converter. A large-sensor
+    frame (e.g. 1900x1900, ~3.6 MB) blitted at full resolution every frame
+    starves the main thread; a frame already near the displayed size does not.
+    The displayed pixels are unchanged because the GPU was downscaling the
+    oversized texture to the widget anyway.
+
+    Preview only. Capture, save, autofocus, histogram, and raw frame-listener
+    paths take the full-resolution image through other code and are untouched.
+
+    Args:
+        image: 2-D ``uint8`` grayscale preview frame (already downconverted).
+        target_wh: ``(width, height)`` of the display widget in pixels, or None
+            when the widget has not been laid out yet -- in which case the
+            image is returned unchanged (full-resolution blit, the prior
+            behavior), so a missing target never degrades correctness.
+
+    Returns:
+        The image unchanged when no downscale applies (target unknown, a non-2-D
+        array, or a frame already at/below the target on both axes); otherwise an
+        area-averaged smaller copy. A single integer decimation factor preserves
+        aspect ratio, and the result never falls below the target on either axis
+        (slight oversampling the GPU finishes), so the preview is never softer
+        than the widget can show.
+    """
+    if target_wh is None or image is None or image.ndim != 2:
+        return image
+    tw, th = target_wh
+    if tw < 1 or th < 1:
+        return image
+    h, w = image.shape
+    step = min(h // th, w // tw)
+    if step <= 1:
+        return image
+    return cv2.resize(image, (w // step, h // step), interpolation=cv2.INTER_AREA)
+
+
+def scaled_preview_target(base_wh: tuple[int, int] | None, scale: float) -> tuple[int, int] | None:
+    """Scale a widget's pixel box up by a zoom (Scatter) factor to get the
+    on-screen size of a digitally-zoomed live image, for ``decimate_for_preview``.
+
+    Zoom-in magnifies each texel, so the displayed image needs more resolution,
+    not less: at a 1:1 zoom the scale equals sensor/widget, so the target reaches
+    sensor size and the decimation factor falls to 1 (full-resolution blit).
+    Zoom-out is clamped to 1.0 -- keep widget-size detail rather than
+    over-shrinking a view that is already small on screen.
+
+    Returns None when ``base_wh`` is None (widget not laid out yet), so the
+    caller leaves the frame at full resolution.
+    """
+    if base_wh is None:
+        return None
+    try:
+        s = float(scale)
+    except (TypeError, ValueError):
+        s = 1.0
+    if not s or s < 1.0:
+        s = 1.0
+    return (int(base_wh[0] * s), int(base_wh[1] * s))
+
+
 def center_crop(image: np.ndarray, x0: int, y0: int, width: int, height: int) -> np.ndarray:
     """Return the ``[y0:y0+height, x0:x0+width]`` sub-rectangle of ``image``.
 
