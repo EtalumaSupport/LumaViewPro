@@ -21,7 +21,13 @@ import ids_peak_ipl
 import pytest
 
 from drivers.camera_profiles import CameraProfile
-from drivers.idscamera import IDSCamera, _ids_ipl_target, ids_significant_bits
+from drivers.idscamera import (
+    IDSCamera,
+    _ids_delivery_significant_bits,
+    _ids_delivery_target,
+    _ids_ipl_target,
+    ids_significant_bits,
+)
 from tests.camera_fakes import bare_ids_camera
 
 
@@ -95,6 +101,31 @@ class TestIplTarget:
 
     def test_mono8_stays_mono8(self):
         assert _ids_ipl_target('Mono8') is ids_peak_ipl.PixelFormatName_Mono8
+
+
+class TestDeliveryTarget:
+    """The production unpack delivers Mono10 (the 8-bit-mode wire) straight to
+    8-bit in one ConvertTo pass; Mono12 (the 12-bit modes) stays native uint16."""
+
+    def test_mono10_delivers_mono8_directly(self):
+        # The win: no uint16 intermediate + no host downconvert in 8-bit mode.
+        assert _ids_delivery_target('Mono10g40IDS') is ids_peak_ipl.PixelFormatName_Mono8
+
+    def test_mono12_keeps_native_uint16(self):
+        assert _ids_delivery_target('Mono12g24IDS') is ids_peak_ipl.PixelFormatName_Mono12
+
+    def test_mono8_stays_mono8(self):
+        assert _ids_delivery_target('Mono8') is ids_peak_ipl.PixelFormatName_Mono8
+
+    def test_delivered_significant_bits(self):
+        assert _ids_delivery_significant_bits('Mono10g40IDS') == 8
+        assert _ids_delivery_significant_bits('Mono12g24IDS') == 12
+        assert _ids_delivery_significant_bits('Mono8') == 8
+
+    def test_mono10_delivery_depth_differs_from_native_wire_depth(self):
+        # The Mono10 wire is 10-bit native but delivered as 8-bit in 8-bit mode.
+        assert ids_significant_bits('Mono10g40IDS') == 10
+        assert _ids_delivery_significant_bits('Mono10g40IDS') == 8
 
 
 class TestDepthContract:

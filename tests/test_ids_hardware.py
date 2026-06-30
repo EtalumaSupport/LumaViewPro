@@ -364,6 +364,47 @@ class TestIDS(unittest.TestCase):
             f'{res.get("first_mismatch")}',
         )
 
+    def test_8bit_direct_unpack_matches_rescale(self):
+        """Bench gate for the direct 10->8 delivery (8-bit mode): the SDK's
+        packed->Mono8 ConvertTo must match the prior native-then-host-rescale
+        within 1 LSB on real frames.
+
+        8-bit image mode now unpacks the Mono10 wire straight to 8-bit in one
+        pass (no uint16 intermediate, no display-thread downconvert). That trades
+        the host's exact linear rescale for the SDK's bit-shift; this asserts the
+        swap is <=1 LSB so saved/displayed 8-bit pixels are unchanged in practice.
+
+        Run on a Mono10 wire (8-bit mode) with light on the sensor:
+            pytest tests/test_ids_hardware.py -k 8bit_direct --run-ids-hardware -s
+        """
+        time.sleep(1)  # let acquisition settle
+        res = self.camera.crosscheck_8bit_unpack(n_frames=100)
+
+        print('\n[IDS 8-bit direct-unpack cross-check]')
+        for k in (
+            'wire_format',
+            'skipped',
+            'n_compared',
+            'max_abs_diff',
+            'pixels_over_1lsb',
+            'error',
+        ):
+            print(f'  {k}: {res.get(k)}')
+
+        if res.get('skipped'):
+            self.skipTest(res['skipped'])  # not a Mono10/8-bit-mode wire
+
+        self.assertGreater(res['n_compared'], 0, f'no frames were compared: {res.get("error")}')
+        # max_abs_diff <= 1 already implies pixels_over_1lsb == 0, so one assertion
+        # covers the whole-frame bound.
+        self.assertLessEqual(
+            res['max_abs_diff'],
+            1,
+            f'direct ConvertTo(Mono8) drifts {res["max_abs_diff"]} LSB from the rescale '
+            f'oracle ({res["pixels_over_1lsb"]} pixels over 1 LSB) -- the SDK downconvert is '
+            f'not a simple bit-shift; keep the rescale path',
+        )
+
 
 class TestIDSPixelFormatResolver(unittest.TestCase):
     """Pure-logic tests for IDSCamera._resolve_logical_format_name.

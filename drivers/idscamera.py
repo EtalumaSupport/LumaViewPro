@@ -64,13 +64,20 @@ atexit.register(_ids_library_cleanup)
 
 
 def ids_significant_bits(wire_format_name: str) -> int:
-    """Payload depth of a frame delivered in the given wire PixelFormat.
+    """Native payload depth of the given wire PixelFormat (the oracle counterpart
+    of _ids_ipl_target).
 
     Derived from the GenICam format name so the depth tracks the sensor's
     real format rather than the (16-bit) container the unpacked frame rides
     in: Mono12* -> 12, Mono10* -> 10, Mono8* -> 8. Falls back to the leading
     bit count in the name, then to 8. Pure logic -- no SDK call -- so it is
     unit-testable without a camera.
+
+    NOTE: this is the WIRE's native depth, not necessarily what the production
+    unpack DELIVERS -- 8-bit mode delivers the Mono10 wire reduced to 8-bit (see
+    _ids_delivery_significant_bits). Use this for native-depth reasoning (the
+    unpack benchmark oracle); use the delivery helper for the depth stamp on a
+    live/still frame.
     """
     if wire_format_name.startswith('Mono12'):
         return 12
@@ -83,11 +90,14 @@ def ids_significant_bits(wire_format_name: str) -> int:
 
 
 def _ids_ipl_target(wire_format_name: str):
-    """IPL ConvertTo target that unpacks a wire format to its native depth.
+    """IPL ConvertTo target that unpacks a wire format to its NATIVE depth.
 
-    Mono10/Mono12 unpack to a right-aligned uint16; Mono8 stays 8-bit. The
-    SDK does the unpack (faster than a hand-unpacker and the alignment is the
-    SDK's own); drivers/ids_unpack.py is the bench cross-check for the target.
+    Mono10/Mono12 unpack to a right-aligned uint16; Mono8 stays 8-bit. This is
+    the oracle target used by the unpack benchmark (it compares ConvertTo to the
+    numpy reference at full native depth); the production live/still unpack uses
+    _ids_delivery_target instead. The SDK does the unpack (faster than a
+    hand-unpacker and the alignment is the SDK's own); drivers/ids_unpack.py is
+    the bench cross-check for the target.
     """
     if wire_format_name.startswith('Mono12'):
         return ids_peak_ipl.PixelFormatName_Mono12
@@ -96,21 +106,55 @@ def _ids_ipl_target(wire_format_name: str):
     return ids_peak_ipl.PixelFormatName_Mono8
 
 
-def _unpack_buffer(buffer, wire_format_name: str, crop_spec):
-    """Unpack one finished IDS buffer to a right-aligned uint16 array.
+def _ids_delivery_target(wire_format_name: str):
+    """IPL ConvertTo target for the PRODUCTION live/still unpack.
 
-    BufferToImage + ConvertTo to the wire format's native depth, crop the
-    oversize-then-crop surplus (``crop_spec`` = (x0, y0, w, h), or None for a
-    full-frame delivery), then copy to a contiguous, target-sized array that
-    outlives the SDK image and the re-queued buffer. Shared by the live unpack
-    worker and the still-capture path so the crop is applied identically on
-    both -- the delivered frame matches get_frame_size() regardless of which
-    path produced it. center_crop is imported here (drivers must not import
-    modules/ at top level); it is a sys.modules hit after first use.
+    Differs from _ids_ipl_target (native depth) for the Mono10 wire: this body
+    has no native Mono8 wire format, so 8-bit image mode captures the
+    lowest-bandwidth native (Mono10) and reduces to 8-bit on the host (see
+    modules.image_mode.select_capture_pixel_format). Mono10 is therefore only
+    ever the 8-bit-mode wire, so unpack it straight to Mono8 in ONE ConvertTo
+    pass -- this halves the unpack output (uint8 vs uint16) and lets the display
+    skip its second host downconvert. Mono12 (the 12-bit modes) keeps native
+    uint16 so the full depth survives to save/analysis.
+
+    The Mono10->Mono8 reduction is the SDK's bit-shift, within <=1 LSB of the
+    host rescale LUT it replaces (tests/test_ids_hardware.py cross-checks this on
+    real frames). If a future image mode ever drives Mono10 wire while wanting
+    >8-bit output, this coupling must become an explicit delivered-depth the
+    camera config sets; no such mode exists today.
+    """
+    if wire_format_name.startswith('Mono12'):
+        return ids_peak_ipl.PixelFormatName_Mono12
+    return ids_peak_ipl.PixelFormatName_Mono8
+
+
+def _ids_delivery_significant_bits(wire_format_name: str) -> int:
+    """Payload depth the production unpack delivers, paired with
+    _ids_delivery_target: Mono12 -> 12 (native uint16); everything else,
+    including the 8-bit-mode Mono10 wire, -> 8 (delivered as uint8)."""
+    if wire_format_name.startswith('Mono12'):
+        return 12
+    return 8
+
+
+def _unpack_buffer(buffer, wire_format_name: str, crop_spec):
+    """Unpack one finished IDS buffer to its delivered array.
+
+    BufferToImage + ConvertTo to the delivery target (native uint16 for the
+    12-bit modes; 8-bit uint8 directly for the 8-bit-mode Mono10 wire, see
+    _ids_delivery_target), crop the oversize-then-crop surplus (``crop_spec`` =
+    (x0, y0, w, h), or None for a full-frame delivery), then copy to a
+    contiguous, target-sized array that outlives the SDK image and the re-queued
+    buffer. Shared by the live unpack worker and the still-capture path so the
+    crop is applied identically on both -- the delivered frame matches
+    get_frame_size() regardless of which path produced it. center_crop is
+    imported here (drivers must not import modules/ at top level); it is a
+    sys.modules hit after first use.
     """
     from modules.image_utils import center_crop
 
-    target = _ids_ipl_target(wire_format_name)
+    target = _ids_delivery_target(wire_format_name)
     img = ids_peak_ipl_extension.BufferToImage(buffer)
     if img.PixelFormat() != target:
         img = img.ConvertTo(target)
@@ -1315,9 +1359,17 @@ class IDSCamera(Camera):
         dltl, dltl_max = _value_and_max('DeviceLinkThroughputLimit')
         rate, rate_max = _value_and_max('AcquisitionFrameRate')
         frame = self.get_acquired_aoi() or {}
+        # State the DELIVERED depth, not just the wire format: the Mono10 wire is
+        # delivered as 8-bit (8-bit mode), Mono12 as native uint16. Logging only
+        # the wire format left a bundle unable to say whether a frame arrived as
+        # uint8 or uint16 -- the gap that made a host-side-depth question need a
+        # bench round-trip to answer.
+        wire = self.get_pixel_format()
+        delivered_bits = _ids_delivery_significant_bits(wire)
         logger.info(
             f'[CAM Class ] Free-run state: frame={frame.get("width")}x{frame.get("height")} '
-            f'pixel_format={self.get_pixel_format()} '
+            f'pixel_format={wire} delivers={delivered_bits}-bit '
+            f'({"uint8" if delivered_bits <= 8 else "uint16"}) '
             f'DeviceLinkThroughputLimit={dltl}/{dltl_max} B/s '
             f'AcquisitionFrameRate={rate}/{rate_max} fps'
         )
@@ -1477,6 +1529,98 @@ class IDSCamera(Camera):
 
         results['convert'] = _stat(convert_ms)
         results['numpy'] = _stat(numpy_ms)
+        return results
+
+    def crosscheck_8bit_unpack(self, n_frames: int = 100) -> dict:
+        """Bench gate for the direct 10->8 delivery: prove the SDK's
+        packed->Mono8 ConvertTo matches the prior native-then-rescale path.
+
+        The production unpack now delivers the 8-bit-mode Mono10 wire straight to
+        8-bit (one ConvertTo pass) instead of unpacking to native uint16 and
+        running the host rescale LUT. That swaps the host's exact linear rescale
+        (value/max*255) for the SDK's bit-shift, which should differ by <=1 LSB.
+        This loop verifies that on REAL frames before the direct path is trusted:
+
+          A (new): img.ConvertTo(Mono8)
+          B (old): convert_to_8bit(img.ConvertTo(native), native_significant_bits)
+
+        Returns the per-pixel max abs diff and the count of pixels exceeding
+        1 LSB. The hardware test asserts max_abs_diff <= 1 and over_1lsb == 0.
+        Only meaningful on a packed Mono10/Mono12 wire (an already-8-bit wire is
+        a no-op match).
+        """
+        import numpy as np
+
+        from modules.image_utils import convert_to_8bit
+
+        results = {
+            'n_requested': n_frames,
+            'n_compared': 0,
+            'max_abs_diff': 0,
+            'pixels_over_1lsb': 0,
+            'wire_format': None,
+            'skipped': None,
+            'error': None,
+        }
+        if not self.active or not self.data_stream:
+            results['error'] = 'camera not connected / no data stream'
+            return results
+
+        wire = self.get_pixel_format()
+        results['wire_format'] = wire
+        direct_target = _ids_delivery_target(wire)
+        native_target = _ids_ipl_target(wire)
+        native_bits = ids_significant_bits(wire)
+
+        # Only the Mono10 wire reduces (direct Mono8 vs native Mono10): there the
+        # SDK bit-shift must match the host rescale. On Mono12/Mono8 the delivery
+        # target already equals the native target, so there is no 10->8 reduction
+        # to validate -- comparing a uint16 'direct' against an 8-bit oracle would
+        # be a guaranteed false mismatch. Skip rather than false-alarm.
+        if direct_target == native_target:
+            results['skipped'] = (
+                f'no 8-bit reduction on wire {wire!r} (delivery target == native); '
+                f'run in 8-bit mode (Mono10 wire) to exercise the cross-check'
+            )
+            return results
+
+        handler = self.cam_image_handler
+        if handler is not None:
+            handler.stop()
+        try:
+            self.data_stream.FlushPendingKillWaits()
+        except Exception as e:
+            logger.debug(f'[CAM Class ] crosscheck: FlushPendingKillWaits unavailable: {e}')
+
+        try:
+            for _ in range(n_frames):
+                try:
+                    buffer = self.data_stream.WaitForFinishedBuffer(2000)
+                except Exception as e:
+                    _cam_log.warning(f'[CAM Class ] crosscheck: WaitForFinishedBuffer: {e}')
+                    continue
+                try:
+                    if buffer.IsIncomplete():
+                        continue
+                    img = ids_peak_ipl_extension.BufferToImage(buffer)
+                    # Bind each ConvertTo result before get_numpy() (the view
+                    # does not keep the IPL image alive) and copy out, same
+                    # lifetime rule benchmark_unpack documents.
+                    direct_img = img.ConvertTo(direct_target)
+                    direct = direct_img.get_numpy().copy()
+                    native_img = img.ConvertTo(native_target)
+                    native = native_img.get_numpy().copy()
+                    oracle = convert_to_8bit(native, native_bits)
+
+                    diff = np.abs(direct.astype(np.int16) - oracle.astype(np.int16))
+                    results['n_compared'] += 1
+                    results['max_abs_diff'] = max(results['max_abs_diff'], int(diff.max()))
+                    results['pixels_over_1lsb'] += int((diff > 1).sum())
+                finally:
+                    self.data_stream.QueueBuffer(buffer)
+        finally:
+            if handler is not None:
+                handler.start()
         return results
 
     def set_frame_size(self, w, h) -> dict | bool:
@@ -2758,14 +2902,17 @@ class ImageHandler(ImageHandlerBase):
                 self._requeue(buffer)
 
     def _unpack(self, buffer):
-        """Unpack one finished buffer to a right-aligned uint16 array + its depth.
+        """Unpack one finished buffer to its delivered array + that array's depth.
 
         Delegates to _unpack_buffer (shared with the still-capture path) so the
         oversize-then-crop crop is applied identically on both: BufferToImage +
-        ConvertTo to the native depth, crop to the recorded window, copy out.
-        crop_spec and the buffer size change together inside update_camera_config
-        (grab stopped), so they stay consistent. Worker-only.
+        ConvertTo to the delivery target, crop to the recorded window, copy out.
+        The depth is _ids_delivery_significant_bits (paired with the delivery
+        target): 12 for the 12-bit modes' native uint16, 8 for the 8-bit-mode
+        Mono10 wire delivered directly as uint8. crop_spec and the buffer size
+        change together inside update_camera_config (grab stopped), so they stay
+        consistent. Worker-only.
         """
         wire = self._parent.get_pixel_format()
         array = _unpack_buffer(buffer, wire, self._parent._crop_spec)
-        return array, ids_significant_bits(wire)
+        return array, _ids_delivery_significant_bits(wire)
