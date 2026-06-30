@@ -1468,12 +1468,32 @@ class IDSCamera(Camera):
 
         # Drop the rate-target limiter, then push the acquisition rate to max.
         self.set_max_acquisition_frame_rate(False)
+        new_max = self._maximize_acquisition_frame_rate()
+        if new_max is not None:
+            logger.info(f'[CAM Class ] AcquisitionFrameRate set to max: {new_max} fps')
+
+    def _maximize_acquisition_frame_rate(self):
+        """Set AcquisitionFrameRate to its current maximum (free-run = no software
+        cap) and return that maximum, or None when the node is unavailable.
+
+        The maximum is EXPOSURE-COUPLED: a long exposure lowers it and the camera
+        clamps the current rate down to it, while a later shorter exposure raises
+        the maximum but leaves the rate at the clamped-low value. So this must be
+        re-asserted after every exposure change (see exposure_t), not only at grab
+        start -- otherwise the live rate stays stuck at the slow rate set during
+        the long exposure, and the startup rate stays low when the saved exposure
+        loads after the one-time free-run config.
+        """
+        if not self.active or self.remote_nodemap is None:
+            return None
         try:
             fr = self.remote_nodemap.FindNode('AcquisitionFrameRate')
-            fr.SetValue(fr.Maximum())
-            logger.info(f'[CAM Class ] AcquisitionFrameRate set to max: {fr.Maximum()} fps')
+            new_max = fr.Maximum()
+            fr.SetValue(new_max)
+            return new_max
         except Exception as e:
             logger.debug(f'[CAM Class ] AcquisitionFrameRate not available: {e}')
+            return None
 
     def _log_free_run_state(self):
         """One-shot diagnostic of the throttles that govern the free-run rate, so
@@ -2215,13 +2235,24 @@ class IDSCamera(Camera):
             # instead of erroring. The max bound stays a reject above.
             exp_node = self.remote_nodemap.FindNode('ExposureTime')
             us_value = max(float(exposure_ms) * 1000, exp_node.Minimum())
-            if _cam_log is not None:
-                _cam_log.info(f'ids ExposureTime.SetValue({us_value:.0f}us) (={exposure_ms}ms)')
             exp_node.SetValue(us_value)
             self._last_exposure_ms = us_value / 1000.0
-            # Update grab timeout so long exposures don't cause perpetual timeouts
+            rate_note = ''
             if self.cam_image_handler:
+                # Update grab timeout so long exposures don't cause perpetual timeouts.
                 self.cam_image_handler.timeout_ms = max(2000, int(exposure_ms * 2 + 500))
+                # Re-assert the free-run frame rate: AcquisitionFrameRate's maximum
+                # is exposure-coupled, so a long exposure clamps the rate down and a
+                # later shorter exposure does NOT restore it on its own. Without this
+                # the live fps stays stuck at the slow rate set during the long
+                # exposure (the "fps does not recover" symptom).
+                new_max = self._maximize_acquisition_frame_rate()
+                if new_max is not None:
+                    rate_note = f' AcquisitionFrameRate->{new_max:.1f}fps'
+            if _cam_log is not None:
+                _cam_log.info(
+                    f'ids ExposureTime.SetValue({us_value:.0f}us) (={exposure_ms}ms){rate_note}'
+                )
             logger.debug(f'[CAM Class ] Exposure set to {exposure_ms}ms')
             return True
         except Exception as e:
