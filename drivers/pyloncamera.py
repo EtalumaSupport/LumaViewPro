@@ -827,6 +827,24 @@ class PylonCamera(Camera):
             if _cam_log is not None:
                 _cam_log.info(f'pylon StartGrabbing({_strategy_name}, ProvidedByInstantCamera)')
             camera.StartGrabbing(_strategy, pylon.GrabLoop_ProvidedByInstantCamera)
+            # Mirror the IDS free-run delivered-depth line so an 8-bit run on
+            # either camera prints the same "delivers=" fact: Pylon Mono8 is
+            # delivered as uint8, Mono10/Mono12 as uint16 (the GetArray dtype).
+            # A bundle then states the delivered dtype, not just the wire format.
+            if _cam_log is not None:
+                _fmt = self.get_pixel_format()
+                if _fmt.startswith('Mono8'):
+                    _bits = 8
+                elif 'Mono12' in _fmt:
+                    _bits = 12
+                elif 'Mono10' in _fmt:
+                    _bits = 10
+                else:
+                    _bits = 8
+                _dtype = 'uint8' if _bits <= 8 else 'uint16'
+                _cam_log.info(
+                    f'[CAM Class ] Grabbing: pixel_format={_fmt} delivers={_bits}-bit ({_dtype})'
+                )
             # Start the periodic Pylon stats + thread-count poller.
             # No-op when profile_trace_enabled is false.
             self._start_stats_poller()

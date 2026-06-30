@@ -886,7 +886,8 @@ class ScopeDisplay(Image):
         if dst_shape == src_shape:
             logger.info(
                 f'[LVP Main  ] Preview downscale OFF (blitting full resolution '
-                f'{src_shape[1]}x{src_shape[0]})'
+                f'{src_shape[1]}x{src_shape[0]}, display target {target}) -- '
+                f'frame already <= target (or target not yet known)'
             )
         else:
             logger.info(
