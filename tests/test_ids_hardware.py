@@ -290,8 +290,22 @@ class TestIDS(unittest.TestCase):
         Needs light on the sensor: a near-dark frame can't distinguish the two
         alignments (small values stay small either way), so the test skips
         rather than pass vacuously when the frame is too dark.
+
+        Selects the Mono12 native wire format explicitly: the driver defaults the
+        IMX676 body to Mono10g40IDS (8-bit delivery) for live speed, so without
+        this the grab returns uint8 and the native-depth (uint16) right-alignment
+        this test exists to check is never exercised. The actual 12-bit packed
+        entry is taken from the live supported list (not the logical 'Mono12',
+        which falls back to Mono10 on a body with no 12-bit format); skip a body
+        that advertises none.
         """
-        time.sleep(1)  # let the grab loop store a frame
+        supported = self.camera.get_supported_pixel_formats()
+        native12 = next((f for f in supported if f.startswith('Mono12')), None)
+        if native12 is None:
+            self.skipTest(f'body advertises no Mono12 native format (supported={list(supported)})')
+        self.assertTrue(self.camera.set_pixel_format(native12), f'could not set {native12}')
+
+        time.sleep(1)  # let the grab loop store a native-depth frame post-reconfigure
         result, timestamp = self.camera.grab()
         self.assertTrue(result)
         self.assertIsNotNone(timestamp)
@@ -300,9 +314,7 @@ class TestIDS(unittest.TestCase):
         self.assertEqual(frame.dtype, np.uint16, 'native-depth frame must be a uint16 container')
 
         sig = self.camera.last_significant_bits
-        self.assertIn(
-            sig, (10, 12), f'IMX676 delivers packed 10/12-bit; got significant_bits={sig}'
-        )
+        self.assertEqual(sig, 12, f'Mono12 native wire must deliver significant_bits=12; got {sig}')
 
         peak = int(frame.max())
         if peak < 256:
