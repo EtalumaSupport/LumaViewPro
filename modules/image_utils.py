@@ -50,15 +50,28 @@ def fit_frame_to_shape(image: np.ndarray, target_shape: tuple[int, ...]) -> np.n
     return fitted
 
 
-def decimate_for_preview(image: np.ndarray, target_wh: tuple[int, int] | None) -> np.ndarray:
+def decimate_for_preview(
+    image: np.ndarray, target_wh: tuple[int, int] | None, *, categorical: bool = False
+) -> np.ndarray:
     """Downscale a live-preview frame to roughly the on-screen widget size so
     the main-thread Kivy ``blit_buffer`` uploads far fewer bytes.
 
     Handles both the 2-D ``uint8`` luminance preview and the 3-D ``(H, W, 3)``
     RGB bullseye preview -- both blit paths share the identical
     downscale-to-widget-size need, so they share one helper (``cv2.resize``
-    preserves the channel axis). Only the channel count differs; the
-    contain-fit math is the same.
+    preserves the channel axis). Only the channel count and the resampling
+    differ; the contain-fit math is the same.
+
+    ``categorical`` picks the resampling to match the data's meaning:
+
+    - ``False`` (default, continuous-tone): area-averaging (``INTER_AREA``),
+      the correct antialiased downscale for a grayscale intensity image.
+    - ``True`` (false-color / label image, e.g. the bullseye contour map):
+      nearest-neighbor. The bullseye LUT is a topographic map -- mostly black
+      with thin pure-color iso-intensity bands -- so area-averaging would blend
+      those one-pixel contour lines toward black and erase the focus aid.
+      Nearest-neighbor keeps each sampled label's exact color (what the GPU's
+      texture minification did before the host-side downscale existed).
 
     Live-view frame rate is bounded by the per-frame texture upload on the main
     (Kivy) thread, which serializes against the capture and convert threads on
@@ -81,9 +94,9 @@ def decimate_for_preview(image: np.ndarray, target_wh: tuple[int, int] | None) -
 
     Returns:
         The image unchanged when no downscale applies (target unknown, a frame
-        that is neither 2-D nor 3-D, or a frame already at/below the target);
-        otherwise an area-averaged copy scaled to the frame's on-screen size
-        (channels preserved). The widget shows the frame
+        that is neither 2-D luminance nor 3-D with 3/4 channels, or a frame
+        already at/below the target); otherwise a copy scaled to the frame's
+        on-screen size (channels preserved). The widget shows the frame
         contain-fit (aspect preserved, letterboxed), so the displayed size is the
         frame scaled by ``min(tw/w, th/h)``; downscaling to exactly that uploads
         no more pixels than the screen shows and stays as sharp as the widget can
@@ -95,7 +108,14 @@ def decimate_for_preview(image: np.ndarray, target_wh: tuple[int, int] | None) -
     2x the widget on both axes, leaving e.g. a ~2100x2100 sensor frame blitted
     at full resolution on a normal display and capping live view at ~5-6 fps.
     """
-    if target_wh is None or image is None or image.ndim not in (2, 3):
+    if target_wh is None or image is None:
+        return image
+    # Accept 2-D luminance, or 3-D with a real color channel count (3=RGB,
+    # 4=RGBA). Reject anything else -- notably (H, W, 1), which cv2.resize would
+    # squeeze to a 2-D result, dropping the channel axis the RGB blit assumes.
+    is_luma = image.ndim == 2
+    is_color = image.ndim == 3 and image.shape[2] in (3, 4)
+    if not (is_luma or is_color):
         return image
     tw, th = target_wh
     if tw < 1 or th < 1:
@@ -104,9 +124,10 @@ def decimate_for_preview(image: np.ndarray, target_wh: tuple[int, int] | None) -
     factor = min(tw / w, th / h)
     if factor >= 1.0:
         return image  # frame already <= widget on the limiting axis; never upscale
+    interpolation = cv2.INTER_NEAREST if categorical else cv2.INTER_AREA
     new_w = max(1, round(w * factor))
     new_h = max(1, round(h * factor))
-    return cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_AREA)
+    return cv2.resize(image, (new_w, new_h), interpolation=interpolation)
 
 
 def scaled_preview_target(base_wh: tuple[int, int] | None, scale: float) -> tuple[int, int] | None:

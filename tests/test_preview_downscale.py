@@ -44,11 +44,45 @@ class TestDecimateForPreview:
         assert out is img
 
     def test_higher_dimensional_frame_skipped(self):
-        # Only 2-D (luminance) and 3-D (RGB) preview frames downscale; anything
-        # else is returned untouched rather than mis-resized.
+        # Only 2-D (luminance) and 3-D (RGB/RGBA) preview frames downscale;
+        # anything else is returned untouched rather than mis-resized.
         img = np.zeros((4, 1900, 1900, 3), dtype=np.uint8)
         out = decimate_for_preview(img, (300, 300))
         assert out is img
+
+    def test_single_channel_3d_frame_skipped(self):
+        # cv2.resize would squeeze an (H, W, 1) frame to a 2-D result, dropping
+        # the channel axis the RGB blit assumes -- guard rejects it instead.
+        img = np.zeros((1900, 1900, 1), dtype=np.uint8)
+        out = decimate_for_preview(img, (300, 300))
+        assert out is img
+
+    def test_categorical_downscale_preserves_pure_label_colors(self):
+        # The bullseye is a false-color contour map: thin pure-color iso-intensity
+        # lines on black. categorical=True (nearest-neighbor) must keep a sampled
+        # line's exact color -- never blend it toward black -- so the focus aid
+        # does not fade when downscaled.
+        img = np.zeros((900, 900, 3), dtype=np.uint8)
+        img[:, :, 1] = 255  # pure green field (the worst case for averaging)
+        out = decimate_for_preview(img, (300, 300), categorical=True)
+        assert out.shape == (300, 300, 3)
+        # Every output pixel is still pure green; nearest-neighbor never averages.
+        assert np.all(out[:, :, 1] == 255)
+        assert np.all(out[:, :, 0] == 0)
+        assert np.all(out[:, :, 2] == 0)
+
+    def test_area_downscale_dims_thin_lines_motivating_categorical(self):
+        # Why categorical matters: area-averaging (the continuous-tone default)
+        # blends a one-pixel green line against its black neighbors toward black.
+        # This is the regression categorical=True avoids for the bullseye.
+        img = np.zeros((900, 900, 3), dtype=np.uint8)
+        img[450, :, 1] = 255  # a single-row green contour line
+        area = decimate_for_preview(img, (300, 300), categorical=False)
+        nearest = decimate_for_preview(img, (300, 300), categorical=True)
+        # Area-averaging dims the line (max green < full intensity somewhere it
+        # survives); nearest keeps full-intensity green where the line is sampled.
+        assert area[:, :, 1].max() < 255
+        assert nearest[:, :, 1].max() == 255
 
     def test_zero_target_returns_input_unchanged(self):
         img = np.zeros((1900, 1900), dtype=np.uint8)

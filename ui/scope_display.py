@@ -756,15 +756,13 @@ class ScopeDisplay(Image):
             if now_be - self._bullseye_last_time >= self._bullseye_min_interval:
                 self._bullseye_last_time = now_be
                 image_bullseye = self.transform_to_bullseye_prealloc(image=image)
-                # Downscale the RGB bullseye to ~widget size before the blit,
-                # exactly as the mono path below: a full-resolution bullseye
-                # frame blitted every frame hits the same main-thread upload
-                # ceiling decimate_for_preview removes for the mono preview.
-                preview_target = self._current_preview_target()
-                display_bullseye = image_utils.decimate_for_preview(image_bullseye, preview_target)
-                self._log_preview_downscale(
-                    image_bullseye.shape, display_bullseye.shape, preview_target
-                )
+                # Downscale the RGB bullseye to ~widget size before the blit, so
+                # it no longer blits full-resolution every frame (the same
+                # main-thread upload ceiling the mono path avoids). categorical:
+                # the bullseye is a false-color contour map, so nearest-neighbor
+                # keeps the thin pure-color iso-intensity lines instead of
+                # area-averaging them toward black.
+                display_bullseye = self._downscale_for_blit(image_bullseye, categorical=True)
                 # tobytes() copies the (possibly downscaled) frame: when no
                 # downscale applies this decouples from the reused bullseye
                 # buffer the next frame overwrites; when it does, it copies the
@@ -793,9 +791,7 @@ class ScopeDisplay(Image):
             # against capture/convert on the GIL); displayed pixels are
             # unchanged because the GPU was scaling the oversized texture down
             # to the widget anyway. Stats above used the full-resolution image.
-            preview_target = self._current_preview_target()
-            display_image = image_utils.decimate_for_preview(image, preview_target)
-            self._log_preview_downscale(image.shape, display_image.shape, preview_target)
+            display_image = self._downscale_for_blit(image)
 
             # Convert to bytes on worker thread, blit on main thread
             image_bytes = display_image.tobytes()
@@ -907,6 +903,17 @@ class ScopeDisplay(Image):
         parent = self.parent
         scale = getattr(parent, 'scale', 1.0) if parent is not None else 1.0
         return image_utils.scaled_preview_target(self._preview_target_wh, scale)
+
+    def _downscale_for_blit(self, image, *, categorical=False):
+        """Downscale a preview frame to the on-screen widget size and log the
+        factor. Shared by the mono and bullseye blit paths so both derive the
+        target, downscale, and log identically. ``categorical`` selects
+        nearest-neighbor resampling for a false-color image (the bullseye
+        contour map) vs area-averaging for a continuous-tone frame (mono)."""
+        target = self._current_preview_target()
+        out = image_utils.decimate_for_preview(image, target, categorical=categorical)
+        self._log_preview_downscale(image.shape, out.shape, target)
+        return out
 
     def _log_preview_downscale(self, src_shape, dst_shape, target):
         """Record the active preview-downscale factor once per change.
