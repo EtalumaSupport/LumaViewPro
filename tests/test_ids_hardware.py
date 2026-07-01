@@ -429,6 +429,136 @@ class TestIDS(unittest.TestCase):
             f'{res.get("first_mismatch")}',
         )
 
+    def test_afl_packed_process_acceptance(self):
+        """Bench probe: does ids_peak_afl.Manager.Process() accept a PACKED
+        image, or must it be fed an unpacked one?
+
+        The IMX676 body has no camera-side auto-exposure/gain; a host auto
+        routine must run through ids_peak_afl. Process() takes an IPL image,
+        but IDS does not document whether the packed Mono10g40IDS/Mono12g24IDS
+        wire formats are accepted. This answers it empirically so the future
+        auto routine knows whether it can feed the raw buffer or must unpack
+        each frame first. The probe also dumps the real ids_peak_afl API
+        surface (module/Manager/Controller) since the Python binding spelling
+        is not pinned. Informational -- reads the answer, does not pass/fail on
+        it.
+
+        Run with output visible:
+            pytest tests/test_ids_hardware.py -k afl_packed --run-ids-hardware -s --driver-log
+        """
+        time.sleep(1)  # let acquisition settle
+        res = self.camera.probe_afl_packed_acceptance()
+
+        print('\n[AFL packed-Process probe]')
+        for k in sorted(res):
+            print(f'  {k}: {res.get(k)}')
+
+        if not res.get('afl_importable'):
+            self.skipTest(f'ids_peak_afl not importable: {res.get("afl_import_errors")}')
+
+        # The headline datapoint: whether the PACKED image was accepted. Not an
+        # assertion -- either answer is valid and printed above. Fail only if the
+        # probe could not set up the manager at all (nothing was learned).
+        packed = res.get('packed')
+        print(
+            f'  ==> PACKED accepted: {packed.get("accepted") if packed else None} '
+            f'(exception={packed.get("exception") if packed else None}); '
+            f'UNPACKED accepted: {(res.get("unpacked") or {}).get("accepted")}'
+        )
+        self.assertTrue(
+            res.get('packed') is not None
+            or any(k in res for k in ('error', 'lib_init_error', 'manager_setup_error')),
+            f'AFL probe returned neither a packed result nor a recorded reason: {res}',
+        )
+
+    def test_camera_capability_nodemap_probe(self):
+        """Read-only bench probe: dump the presence/access/entries of the nodes
+        behind our open vendor questions, so they can be answered from the
+        camera instead of by email.
+
+        Covers low-light/HDR/conversion-gain and NoiseReduction (is any
+        sensor-level low-light mode exposed?), the hardware-auto nodes (confirm
+        ExposureAuto/GainAuto/BalanceWhiteAuto are absent), the DataStream
+        statistics + StreamBufferHandlingMode entries, and the temperature
+        selector set. Pure enumeration -- writes nothing to the camera.
+
+        Run with output visible:
+            pytest tests/test_ids_hardware.py -k capability_nodemap --run-ids-hardware -s
+        """
+
+        def _probe_node(nm, name):
+            try:
+                if not nm.HasNode(name):
+                    return f'{name}: ABSENT'
+            except Exception as e:
+                return f'{name}: HasNode error {type(e).__name__}: {e}'
+            try:
+                node = nm.FindNode(name)
+            except Exception as e:
+                return f'{name}: PRESENT, FindNode error {type(e).__name__}: {e}'
+            parts = [f'{name}: PRESENT']
+            for meth in ('IsReadable', 'IsWriteable'):
+                try:
+                    parts.append(f'{meth[2:].lower()}={getattr(node, meth)()}')
+                except Exception:
+                    pass
+            try:
+                parts.append(f'entries={[e.SymbolicValue() for e in node.AvailableEntries()]}')
+            except Exception:
+                pass
+            return ' '.join(parts)
+
+        remote = self.camera.remote_nodemap
+        remote_nodes = [
+            # hardware auto (expect ABSENT on this body)
+            'ExposureAuto',
+            'GainAuto',
+            'BalanceWhiteAuto',
+            # low-light / HDR / conversion-gain / noise (any sensor-level mode?)
+            'SensorOperationMode',
+            'SensorShutterMode',
+            'GainConversionMode',
+            'ConversionGain',
+            'HDRMode',
+            'HDREnable',
+            'NoiseReduction',
+            # black level (long-exposure drift)
+            'BlackLevel',
+            'BlackLevelAuto',
+            'BlackLevelSelector',
+            # temperature selector set
+            'DeviceTemperature',
+            'DeviceTemperatureSelector',
+            # throughput component (bench-confirmed RO; recheck on 3.93)
+            'DeviceLinkThroughputLimit',
+            'DeviceLinkThroughputLimitComponent',
+        ]
+        print('\n[capability probe -- remote (SFNC) nodemap]')
+        for name in remote_nodes:
+            print(f'  {_probe_node(remote, name)}')
+
+        try:
+            ds_nm = self.camera.data_stream.NodeMaps()[0]
+        except Exception as e:
+            print(f'  <data-stream nodemap unavailable: {type(e).__name__}: {e}>')
+            ds_nm = None
+        if ds_nm is not None:
+            ds_nodes = [
+                'StreamBufferHandlingMode',
+                'StreamAnnouncedBufferCount',
+                'StreamDeliveredFrameCount',
+                'StreamDroppedFrameCount',
+                'StreamLostFrameCount',
+                'StreamIncompleteFrameCount',
+                'BufferStatusMonitoringEnabled',
+            ]
+            print('[capability probe -- data-stream nodemap]')
+            for name in ds_nodes:
+                print(f'  {_probe_node(ds_nm, name)}')
+
+        # Sanity: the remote nodemap read path works (PixelFormat is always there).
+        self.assertTrue(remote.HasNode('PixelFormat'))
+
     def test_8bit_direct_unpack_matches_rescale(self):
         """Bench gate for the direct 10->8 delivery (8-bit mode): the SDK's
         packed->Mono8 ConvertTo must match the prior native-then-host-rescale

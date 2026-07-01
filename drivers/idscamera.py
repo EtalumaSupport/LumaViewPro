@@ -1885,6 +1885,202 @@ class IDSCamera(Camera):
             if handler is not None:
                 handler.start()
 
+    def probe_afl_packed_acceptance(self) -> dict:
+        """One-shot bench probe: does ids_peak_afl accept a PACKED image?
+
+        The IMX676 body has no camera-side auto-exposure/gain, so a future host
+        auto-brightness routine must run through ids_peak_afl. Its Process()
+        takes an IPL image, but IDS does not document whether the packed
+        Mono10g40IDS / Mono12g24IDS wire formats are accepted or must be
+        unpacked first. This drives one packed frame -- and its unpacked copy --
+        through afl Process() and records which the library accepts: the single
+        fact that decides whether the auto routine can feed the raw buffer or
+        must unpack every frame first (an INVALID_IMAGE_FORMAT on the packed
+        image is the "must unpack" answer).
+
+        Introspective and defensive: the ids_peak_afl surface (module, Manager,
+        Controller) is captured, and the controller-type enum is resolved by
+        trying the known binding spellings, so a wrong assumption still yields
+        the real API rather than a bare failure. ExposureTime is snapshot and
+        restored because Process() writes that node itself. The live unpack
+        worker is paused and restored by the shared drain spine; the display
+        path is untouched.
+        """
+        result = {
+            'afl_importable': False,
+            'afl_module': None,
+            'afl_version': None,
+            'afl_import_errors': [],
+            'wire_format': None,
+            'packed': None,
+            'unpacked': None,
+        }
+        if not self.active or not self.data_stream:
+            result['error'] = 'camera not connected / no data stream'
+            return result
+
+        # AFL is optional and not on the live path -- import lazily so a host
+        # without the auto-features library still loads the driver. The binding
+        # has shipped under more than one import path; try the known ones.
+        afl = None
+        for path in ('ids_peak_afl.ids_peak_afl', 'ids_peak_afl', 'ids_peak.ids_peak_afl'):
+            try:
+                afl = __import__(path, fromlist=['_'])
+                result['afl_module'] = path
+                break
+            except Exception as e:
+                result['afl_import_errors'].append(f'{path}: {type(e).__name__}: {e}')
+        if afl is None:
+            return result
+        result['afl_importable'] = True
+        result['afl_version'] = getattr(afl, '__version__', '?')
+        result['afl_module_names'] = [n for n in dir(afl) if not n.startswith('__')]
+
+        def _try_process(mgr, image, tag):
+            # Record acceptance, and on rejection the exact exception/status so
+            # a format rejection is distinguishable from an unrelated failure.
+            try:
+                mgr.Process(image)
+                return {'tag': tag, 'accepted': True}
+            except Exception as e:
+                info = {
+                    'tag': tag,
+                    'accepted': False,
+                    'exception': type(e).__name__,
+                    'message': str(e),
+                }
+                for attr in ('code', 'Code', 'status', 'Status'):
+                    member = getattr(e, attr, None)
+                    if member is None:
+                        continue
+                    try:
+                        info['status'] = member() if callable(member) else member
+                    except Exception:
+                        continue
+                    break
+                return info
+
+        # Snapshot exposure AND gain first: the brightness controller drives BOTH,
+        # so if either cannot be captured we must NOT run Process -- we could not
+        # put the camera back, and this probe must leave live state unchanged.
+        def _snap(node_name):
+            try:
+                node = self.remote_nodemap.FindNode(node_name)
+                return node, node.Value()
+            except Exception as e:
+                result.setdefault('snapshot_errors', {})[node_name] = f'{type(e).__name__}: {e}'
+                return None, None
+
+        exposure_node, exposure_before = _snap('ExposureTime')
+        gain_node, gain_before = _snap('Gain')
+        if exposure_before is None or gain_before is None:
+            result['error'] = (
+                'could not snapshot exposure/gain; skipping Process to avoid '
+                'leaving the camera at an auto-nudged setting'
+            )
+            return result
+
+        lib_inited = False
+        try:
+            try:
+                afl.Library.Init()
+                lib_inited = True
+            except Exception as e:
+                # Do NOT proceed to Manager/Process on an uninitialized native
+                # library -- an unpinned binding may hard-crash rather than raise.
+                result['lib_init_error'] = f'{type(e).__name__}: {e}'
+                return result
+
+            mgr = None
+            try:
+                mgr = afl.Manager(self.remote_nodemap)
+                result['manager_names'] = [n for n in dir(mgr) if not n.startswith('_')]
+                ctype = None
+                for name in (
+                    'PEAK_AFL_CONTROLLER_TYPE_BRIGHTNESS',
+                    'CONTROLLER_TYPE_BRIGHTNESS',
+                    'ControllerType_Brightness',
+                ):
+                    if hasattr(afl, name):
+                        ctype = getattr(afl, name)
+                        result['controller_type_attr'] = name
+                        break
+                if ctype is not None:
+                    ctrl = mgr.CreateController(ctype)
+                    mgr.AddController(ctrl)
+                    result['controller_names'] = [n for n in dir(ctrl) if not n.startswith('_')]
+                else:
+                    # No controller means Process() would run on an empty Manager
+                    # and likely 'accept' without touching the pixel path -- a false
+                    # positive. Refuse to conclude rather than report a wrong answer.
+                    result['controller_type_attr'] = 'NONE_MATCHED'
+                    result['error'] = (
+                        'no brightness controller-type enum matched; cannot probe '
+                        '(Process without a controller would be a false positive)'
+                    )
+                    return result
+            except Exception as e:
+                result['manager_setup_error'] = f'{type(e).__name__}: {e}'
+
+            if mgr is None:
+                return result
+
+            wire = self.get_pixel_format()
+            result['wire_format'] = wire
+            if wire is None:
+                # get_pixel_format() returns None on a nodemap read failure;
+                # _ids_ipl_target(None) would raise. Degrade to a recorded error.
+                result['error'] = 'could not read pixel format'
+                return result
+            target = _ids_ipl_target(wire)
+
+            # Probe only the FIRST complete frame (processing more frames would
+            # repeatedly nudge exposure/gain); within it, try the packed image then
+            # an unpacked copy. Both nudges are undone by the finally restore.
+            probed = {'done': False}
+
+            def _probe(img):
+                if probed['done']:
+                    return
+                probed['done'] = True
+                result['packed'] = _try_process(mgr, img, f'packed:{wire}')
+                try:
+                    unpacked = img.ConvertTo(target)
+                    result['unpacked'] = _try_process(mgr, unpacked, 'unpacked')
+                except Exception as e:
+                    result['unpacked'] = {
+                        'tag': 'unpacked',
+                        'error': f'convert failed: {type(e).__name__}: {e}',
+                    }
+
+            # Request several frames so an incomplete first buffer (which the
+            # drain spine skips) does not leave the probe with no frame.
+            self._drain_finished_buffers(5, _probe, label='afl-probe')
+            if not probed['done']:
+                result['error'] = 'no complete frame arrived to probe'
+        finally:
+            # Restore BOTH exposure and gain -- the brightness controller drives
+            # both, and this probe must leave live state unchanged.
+            for node, before, key in (
+                (exposure_node, exposure_before, 'exposure'),
+                (gain_node, gain_before, 'gain'),
+            ):
+                if node is not None and before is not None:
+                    try:
+                        node.SetValue(before)
+                    except Exception as e:
+                        result[f'{key}_restore_error'] = f'{type(e).__name__}: {e}'
+            # Drop the Manager/Controller BEFORE Library.Exit() so their C++-backed
+            # destructors do not run against a torn-down library (use-after-free).
+            ctrl = None
+            mgr = None
+            if lib_inited:
+                try:
+                    afl.Library.Exit()
+                except Exception as e:
+                    logger.debug(f'[CAM Class ] afl-probe: Library.Exit unavailable: {e}')
+        return result
+
     def benchmark_unpack(self, n_frames: int = 200) -> dict:
         """Decode each packed buffer by BOTH the SDK ConvertTo and the numpy
         ids_unpack path, comparing them for correctness and speed.
