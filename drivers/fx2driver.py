@@ -1288,6 +1288,9 @@ class FX2Camera(Camera):
         self.model_name = 'MT9P031-LS620'
         self._init_sensor()
         self.cam_image_handler = _FX2ImageHandler()
+        # Fresh handler starts with an empty dispatch list; re-push any durable
+        # listeners so a reconnect keeps delivering frames to recording / plugins.
+        self._reapply_frame_callbacks()
         self._active = True
         self._load_profile()
         self._query_dynamic_capabilities()
