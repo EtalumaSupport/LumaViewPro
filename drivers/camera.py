@@ -11,7 +11,10 @@ from lvp_logger import logger
 try:
     from lvp_logger import camera_logger as _cam_log
 except ImportError:
-    _cam_log = None
+    # Fall back to the general logger, never None: the _cam_log call sites below
+    # are unguarded, so a None fallback turns every one into an AttributeError the
+    # moment the dedicated camera logger is unavailable.
+    _cam_log = logger
 from drivers.camera_profiles import CameraProfile, lookup_profile
 
 default_max_exposure = 1_000  # in ms
