@@ -642,6 +642,61 @@ class TestSustainedStallPresenceProbe:
         assert stop is False
         h._parent._handle_device_lost.assert_not_called()
 
+    def test_ghost_present_stall_escalates_at_the_hard_ceiling(self):
+        # The producer can keep a PHANTOM entry enumerated after a physical
+        # unplug, so the probe reads "present" forever and removal never
+        # latches -- teardown then treats dead hardware as live and the app
+        # hangs on close. The hard ceiling routes the stall to the removal
+        # drop regardless of what enumeration claims.
+        from drivers import idscamera
+
+        h = self._stalled(100.0, probe_returns=True)
+        stop = self._timeout_at(h, 100.0 + idscamera._PRESENCE_PROBE_STALL_S + 0.1)
+        assert stop is False  # probe says present -> keep polling (pre-ceiling)
+        stop = self._timeout_at(h, 100.0 + idscamera._STALL_ESCALATION_CEILING_S + 0.1)
+        assert stop is True
+        h._parent._handle_device_lost.assert_called_once()
+
+    def test_present_stall_below_the_ceiling_keeps_polling(self):
+        from drivers import idscamera
+
+        h = self._stalled(100.0, probe_returns=True)
+        stop = self._timeout_at(h, 100.0 + idscamera._STALL_ESCALATION_CEILING_S - 1.0)
+        assert stop is False
+        h._parent._handle_device_lost.assert_not_called()
+
+    def test_ceiling_scales_with_the_wait_window(self):
+        # At a long exposure the wait window stretches; the ceiling requires
+        # several consecutive empty windows, so a stall that would cross the
+        # floor after two waits on a long exposure must NOT escalate yet.
+        from drivers import idscamera
+
+        h = self._stalled(100.0, probe_returns=True)
+        h.timeout_ms = 40000  # very long exposure -> effective ceiling 200s
+        stop = self._timeout_at(h, 100.0 + idscamera._STALL_ESCALATION_CEILING_S + 10.0)
+        assert stop is False  # past the floor but not the scaled ceiling
+        h._parent._handle_device_lost.assert_not_called()
+        stop = self._timeout_at(h, 100.0 + 201.0)
+        assert stop is True
+        h._parent._handle_device_lost.assert_called_once()
+
+    def test_stall_age_reads_zero_once_threads_quiesced(self):
+        # The stall clock is only meaningful while a poll thread should be
+        # delivering; a clock armed by a blip before a clean stop must not
+        # keep aging and misclassify a healthy stopped camera as dead at a
+        # much later teardown.
+        h = _ids_handler(MagicMock())
+        h._stall_started = 100.0  # armed mid-stall...
+        assert h.stall_age_s() == 0.0  # ...but no live threads -> void
+
+    def test_stall_age_is_live_while_threads_run(self):
+        h = _ids_handler(MagicMock())
+        h._stall_started = 100.0
+        alive = type('AliveThread', (), {'is_alive': lambda self: True})()
+        h._poll_thread = alive
+        with patch('drivers.idscamera.time.monotonic', return_value=112.0):
+            assert h.stall_age_s() == 12.0
+
     def test_a_present_reading_resets_the_absence_streak(self):
         # Absent, then present (transient hiccup recovered), then absent again
         # must NOT reach the 2-confirmation threshold on the trailing absent.
@@ -1088,6 +1143,8 @@ class TestBufferPoolReclaim:
     def test_stop_skips_revoke_and_breadcrumbs_when_not_quiesced(self):
         cam = bare_ids_camera()
         cam.cam_image_handler = MagicMock()
+        cam.cam_image_handler.timeout_ms = 2000
+        cam.cam_image_handler.stall_age_s.return_value = 0.0  # healthy stream
         cam.cam_image_handler.stop.return_value = False  # threads did not quiesce
         cam.data_stream.AnnouncedBuffers.return_value = [MagicMock(), MagicMock()]
         cam.stop_grabbing()
@@ -1096,9 +1153,64 @@ class TestBufferPoolReclaim:
         cam.data_stream.RevokeBuffer.assert_not_called()
         cam.data_stream.Flush.assert_not_called()
 
+    def test_stop_skips_remote_writes_on_a_long_stalled_stream(self):
+        # Remote-device writes against an unplugged-but-still-enumerated device
+        # block the calling thread ~10s per write before failing -- on the
+        # app-close path that is a frozen UI ending in a force-quit. Past the
+        # assume-dead threshold, stop skips ONLY the remote writes; everything
+        # host-side still runs, including the local StopAcquisition that keeps
+        # is_grabbing() honest so a later start_grabbing can restart a
+        # merely-stalled camera instead of declining as already-grabbing.
+        from drivers import idscamera
+
+        cam = bare_ids_camera()
+        cam.cam_image_handler = MagicMock()
+        cam.cam_image_handler.timeout_ms = 2000
+        cam.cam_image_handler.stall_age_s.return_value = (
+            idscamera._TEARDOWN_ASSUME_DEAD_STALL_S + 1.0
+        )
+        cam.cam_image_handler.stop.return_value = True
+        cam.data_stream.AnnouncedBuffers.return_value = [MagicMock()]
+        cam.stop_grabbing()
+        cam.cam_image_handler.stop.assert_called_once()  # quiesce still runs
+        cam.remote_nodemap.FindNode.assert_not_called()  # no remote writes
+        cam.data_stream.StopAcquisition.assert_called_once()  # host stop still runs
+        assert cam.data_stream.RevokeBuffer.call_count == 1  # local pool cleanup too
+
+    def test_stop_below_the_assume_dead_threshold_stops_remotely(self):
+        from drivers import idscamera
+
+        cam = bare_ids_camera()
+        cam.cam_image_handler = MagicMock()
+        cam.cam_image_handler.timeout_ms = 2000
+        cam.cam_image_handler.stall_age_s.return_value = (
+            idscamera._TEARDOWN_ASSUME_DEAD_STALL_S - 1.0
+        )
+        cam.cam_image_handler.stop.return_value = True
+        cam.stop_grabbing()
+        cam.data_stream.StopAcquisition.assert_called_once()
+        # The remote AcquisitionStop ran (device answered recently enough).
+        assert any(
+            c.args == ('AcquisitionStop',) for c in cam.remote_nodemap.FindNode.call_args_list
+        )
+
+    def test_assume_dead_threshold_scales_with_the_wait_window(self):
+        # The poll wait is exposure-scaled; a fixed threshold would misread a
+        # single healthy long-exposure inter-frame gap as a dead device.
+        from drivers import idscamera
+
+        cam = bare_ids_camera()
+        cam.cam_image_handler = MagicMock()
+        cam.cam_image_handler.timeout_ms = 40000  # very long exposure
+        assert cam._assume_dead_stall_s() == 120.0  # 3 wait windows
+        cam.cam_image_handler.timeout_ms = 2000  # default
+        assert cam._assume_dead_stall_s() == idscamera._TEARDOWN_ASSUME_DEAD_STALL_S
+
     def test_stop_revokes_the_pool_when_quiesced(self):
         cam = bare_ids_camera()
         cam.cam_image_handler = MagicMock()
+        cam.cam_image_handler.timeout_ms = 2000
+        cam.cam_image_handler.stall_age_s.return_value = 0.0  # healthy stream
         cam.cam_image_handler.stop.return_value = True
         cam.data_stream.AnnouncedBuffers.return_value = [MagicMock(), MagicMock()]
         cam.stop_grabbing()
@@ -1322,6 +1434,31 @@ class TestDeviceResetRecovery:
         from drivers.exceptions import HardwareError
 
         with pytest.raises(HardwareError):
+            cam._recover_wedged_stream()
+
+    def test_rediscovery_abort_is_reported_as_abort_not_timeout(self):
+        # Two failure shapes share this exit (rediscovery returned None) but
+        # must not share a message: the abort returns in milliseconds and is
+        # the user's own disconnect winning the race, not a camera that failed
+        # to re-enumerate -- a shared timeout message misdirects diagnosis.
+        from drivers.exceptions import HardwareError
+
+        cam = self._recoverable_cam()
+
+        def _rediscover_then_abort(_serial):
+            cam._recovery_abort.set()  # disconnect lands during re-discovery
+            return None
+
+        cam._rediscover_by_serial = _rediscover_then_abort
+        with pytest.raises(HardwareError, match='aborted by disconnect during re-discovery'):
+            cam._recover_wedged_stream()
+
+    def test_rediscovery_timeout_is_still_reported_as_timeout(self):
+        from drivers.exceptions import HardwareError
+
+        cam = self._recoverable_cam()
+        cam._rediscover_by_serial = MagicMock(return_value=None)  # genuine timeout
+        with pytest.raises(HardwareError, match='did not re-enumerate'):
             cam._recover_wedged_stream()
 
     def test_recovery_reopen_retry_aborts_on_disconnect(self, monkeypatch):
@@ -1754,6 +1891,24 @@ class TestOpenControlRetry:
         opened, _used = cam._open_device_with_retry(descriptor)
         assert opened is device
 
+    def test_not_available_variant_also_retries(self, monkeypatch):
+        # Right after a DeviceReset the device can re-enumerate a beat before
+        # its kernel endpoint is openable (IFOpenDevice NOT_AVAILABLE on the
+        # driver file); that shape is transient like an access denial.
+        self._no_sleep(monkeypatch)
+        cam = bare_ids_camera()
+        device = MagicMock()
+        descriptor = MagicMock()
+        descriptor.OpenDevice.side_effect = [
+            RuntimeError(
+                'Error-Code: 14 (PEAK_RETURN_CODE_NOT_AVAILABLE): '
+                "Opening driver file '\\\\.\\ids_u3vcore-10' failed!"
+            ),
+            device,
+        ]
+        opened, _used = cam._open_device_with_retry(descriptor)
+        assert opened is device
+
     def test_non_denial_fault_propagates_without_retry(self, monkeypatch):
         self._no_sleep(monkeypatch)
         cam = bare_ids_camera()
@@ -1840,6 +1995,19 @@ class TestOpenControlRetry:
         cam = self._bringup_cam(monkeypatch, dm)
         cam.active = False
         assert cam.connect() is False  # ran the bring-up and honestly failed
+
+    def test_device_list_index_race_reads_as_no_camera(self, monkeypatch):
+        # The producer can report a phantom device entry that then fails to
+        # index (list non-empty, [0] raises) -- observed with no camera
+        # attached. That is the no-camera outcome and must be reported as
+        # such, not surfaced as a raw IndexError.
+        dm = MagicMock()
+        devices = dm.Devices.return_value
+        devices.empty.return_value = False  # phantom entry listed...
+        devices.__getitem__.side_effect = IndexError('index out of range')  # ...gone on index
+        cam = self._bringup_cam(monkeypatch, dm)
+        cam.active = None
+        assert cam.connect() is False  # clean no-camera failure, no raise
 
     def test_connect_during_teardown_window_runs_bringup(self, monkeypatch):
         # Between a removal being latched and the async teardown nulling the

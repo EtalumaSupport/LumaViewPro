@@ -78,6 +78,26 @@ _PRESENCE_PROBE_UPDATE_TIMEOUT_MS = 500
 # permanently tearing down a connected camera. A present (or inconclusive)
 # reading resets the count.
 _PRESENCE_PROBE_CONFIRMATIONS = 2
+# FLOOR of the hard ceiling on a sustained stall, independent of what the
+# presence probe reads: the producer can keep a PHANTOM entry enumerated after
+# a physical unplug (observed on the bench -- the probe read the ghost as
+# present for the whole stall, so removal was never latched, teardown took the
+# live-device path, and app close hung on remote writes to dead hardware). A
+# started free-run stream that delivers NOTHING past the ceiling is dead
+# regardless of what enumeration claims, so escalate to the uniform removal
+# drop. The effective ceiling scales with the exposure-scaled wait window
+# (several consecutive empty windows, never below this floor), so a
+# long-exposure inter-frame gap can never reach it.
+_STALL_ESCALATION_CEILING_S = 30.0
+# FLOOR of the stall age past which teardown assumes the device is DEAD: the
+# remote-device writes in stop_grabbing (AcquisitionStop, TLParamsLocked)
+# each block the calling thread ~10 s against unplugged hardware before
+# failing, so a stop past this age skips them and stops host-side only.
+# Shorter than the escalation ceiling above -- a user can close the app
+# mid-stall, before the ceiling latches removal -- but past the presence
+# probe's window, so a live camera with a brief hiccup never has its remote
+# stop skipped. Scaled with the wait window like the ceiling.
+_TEARDOWN_ASSUME_DEAD_STALL_S = 15.0
 
 # A single frame that arrives but yields no usable image -- incomplete (USB
 # packet loss / bandwidth saturation) OR its handle raises a non-removal fault --
@@ -373,11 +393,18 @@ class IDSCamera(Camera):
             self.device_manager = ids_peak.DeviceManager.Instance()
             self.device_manager.Update()
 
-            # Search for devices
-            if self.device_manager.Devices().empty():
+            # Search for devices. The emptiness check and the index are not
+            # atomic -- the producer can report a phantom entry that fails to
+            # index (seen as `IndexError` on [0] with no camera attached) -- so
+            # a failed index IS the no-camera outcome, reported as such rather
+            # than as a raw IndexError.
+            devices = self.device_manager.Devices()
+            if devices.empty():
                 raise ConnectionError('Could not find IDS camera')
-
-            descriptor = self.device_manager.Devices()[0]
+            try:
+                descriptor = devices[0]
+            except IndexError as e:
+                raise ConnectionError('Could not find IDS camera') from e
             self.active, descriptor = self._open_device_with_retry(
                 descriptor,
                 refresh=lambda: self._refresh_descriptor_matching(descriptor),
@@ -485,16 +512,22 @@ class IDSCamera(Camera):
             try:
                 return descriptor.OpenDevice(ids_peak.DeviceAccessType_Control), descriptor
             except Exception as e:
-                is_denial = _exc_is(
+                # Two transient shapes retry: an access DENIAL (the device is
+                # exclusively held and the hold is clearing), and NOT_AVAILABLE
+                # (the OS driver file is not openable yet -- seen right after a
+                # DeviceReset, when the device re-enumerates a beat before its
+                # kernel endpoint is ready). Anything else propagates.
+                is_transient = _exc_is(
                     e, 'BadAccessException', 'bad_access', 'access denied', 'open already'
-                )
-                if not is_denial or attempt >= _OPEN_CONTROL_RETRIES:
+                ) or _exc_is(e, 'NotAvailableException', 'not_available', 'not available')
+                if not is_transient or attempt >= _OPEN_CONTROL_RETRIES:
                     raise
                 attempt += 1
                 delay = _OPEN_CONTROL_BACKOFF_S * attempt
                 _cam_log.warning(
-                    f'[CAM Class ] OpenDevice(Control) denied (device held; attempt '
-                    f'{attempt}/{_OPEN_CONTROL_RETRIES}), retrying in {delay:.1f}s: {e}'
+                    f'[CAM Class ] OpenDevice(Control) transiently unavailable (held or '
+                    f'not ready; attempt {attempt}/{_OPEN_CONTROL_RETRIES}), retrying in '
+                    f'{delay:.1f}s: {e}'
                 )
                 time.sleep(delay)
                 if refresh is not None:
@@ -948,6 +981,13 @@ class IDSCamera(Camera):
 
         descriptor = self._rediscover_by_serial(self._device_serial)
         if descriptor is None:
+            # Two distinct outcomes end here and must not share one message: a
+            # disconnect aborting the rediscovery (returns in milliseconds) and
+            # a genuine re-enumeration timeout. A shared message makes them
+            # indistinguishable in a log bundle and points diagnosis at the
+            # camera when the actual cause was the user's own disconnect.
+            if self._recovery_abort.is_set():
+                raise HardwareError('recover: aborted by disconnect during re-discovery')
             raise HardwareError(
                 f'recover: camera serial {self._device_serial} did not re-enumerate '
                 f'within {_RECOVERY_REDISCOVER_TIMEOUT_S}s of DeviceReset'
@@ -1624,6 +1664,19 @@ class IDSCamera(Camera):
 
         return self.data_stream.IsGrabbing()
 
+    def _assume_dead_stall_s(self) -> float:
+        """The stall age past which teardown treats the device as dead.
+
+        Scaled to the current wait window rather than fixed: the poll wait is
+        exposure-scaled, so at a long exposure a single healthy inter-frame gap
+        could exceed a fixed threshold and a live camera would have its stop
+        misclassified. Requires at least a few consecutive empty wait windows,
+        never less than the configured floor.
+        """
+        handler = self.cam_image_handler
+        timeout_s = (handler.timeout_ms / 1000.0) if handler is not None else 0.0
+        return max(_TEARDOWN_ASSUME_DEAD_STALL_S, 3.0 * timeout_s)
+
     def stop_grabbing(self):
         # Same owner-side connected-device precondition as start_grabbing:
         # multiple independent callers may stop a camera whose connect failed,
@@ -1634,7 +1687,27 @@ class IDSCamera(Camera):
         if self.active is None or self.remote_nodemap is None or self.data_stream is None:
             _cam_log.info('[CAM Class ] stop_grabbing skipped: camera not connected')
             return
-        if _cam_log is not None:
+        # A stream stalled past the assume-dead threshold means the device has
+        # stopped answering (an unplug the producer still enumerates as a
+        # phantom entry, or an unrecoverable wedge). The REMOTE-device writes
+        # below (AcquisitionStop node execute, TLParamsLocked) each block the
+        # calling thread ~10 s against dead hardware before failing -- on the
+        # app-close path that reads as a frozen UI and ends in a force-quit --
+        # so they are skipped when suspect. Everything HOST-side still runs:
+        # the grab-thread quiesce, the local StopAcquisition (which keeps
+        # is_grabbing() honest so a later start_grabbing can restart a
+        # merely-stalled camera), and the pool flush/revoke (local handle
+        # only). The skipped TLParamsLocked release self-heals: the next
+        # start_grabbing re-asserts the lock.
+        handler = self.cam_image_handler
+        stall_age = handler.stall_age_s() if handler is not None else 0.0
+        device_suspect = stall_age >= self._assume_dead_stall_s()
+        if device_suspect:
+            _cam_log.warning(
+                f'[CAM Class ] stop_grabbing: stream stalled {stall_age:.0f}s -- device '
+                'presumed dead; skipping remote-device writes, host-side stop only'
+            )
+        elif _cam_log is not None:
             _cam_log.info('ids AcquisitionStop + StopAcquisition + Flush + RevokeBuffers')
         try:
             # When no handler exists yet, treat as quiesced (nothing to race).
@@ -1642,16 +1715,18 @@ class IDSCamera(Camera):
             if self.cam_image_handler:
                 threads_quiesced = self.cam_image_handler.stop()
 
-            self.remote_nodemap.FindNode('AcquisitionStop').Execute()
-            self.remote_nodemap.FindNode('AcquisitionStop').WaitUntilDone()
+            if not device_suspect:
+                self.remote_nodemap.FindNode('AcquisitionStop').Execute()
+                self.remote_nodemap.FindNode('AcquisitionStop').WaitUntilDone()
             self.data_stream.StopAcquisition()
 
             # Release the transport-layer parameter lock taken in start_grabbing
             # (IDS brackets acquisition with TLParamsLocked 1/0).
-            try:
-                self.remote_nodemap.FindNode('TLParamsLocked').SetValue(0)
-            except Exception as e:
-                logger.debug(f'[CAM Class ] TLParamsLocked=0 not available: {e}')
+            if not device_suspect:
+                try:
+                    self.remote_nodemap.FindNode('TLParamsLocked').SetValue(0)
+                except Exception as e:
+                    logger.debug(f'[CAM Class ] TLParamsLocked=0 not available: {e}')
 
             # Revoke ONLY once the poll + worker threads are provably dead.
             # Revoking under a live consumer leaves it holding an invalid buffer
@@ -3875,6 +3950,24 @@ class ImageHandler(ImageHandlerBase):
         )
         return False
 
+    def stall_age_s(self) -> float:
+        """Seconds since the STARTED stream last produced a finished buffer,
+        0.0 when healthy, not yet started, or already stopped. Read by teardown
+        to decide whether the device is likely dead -- remote-device writes
+        against unplugged hardware block the calling thread for seconds before
+        failing, so a long-stalled stream skips them.
+
+        Zero once the grab threads are quiesced: the stall clock is only
+        meaningful while a poll thread is (supposed to be) delivering. Without
+        this, a clock armed by a brief blip before a clean stop would keep
+        aging in wall-clock time and a much later stop on a healthy stopped
+        camera would misclassify it as dead.
+        """
+        started = self._stall_started
+        if started is None or self.threads_quiesced():
+            return 0.0
+        return time.monotonic() - started
+
     def _check_sustained_stall(self) -> bool:
         """On a poll timeout, escalate a SUSTAINED stall to an active presence
         probe -- the USB-unplug fallback for the DeviceLost callback that never
@@ -3903,6 +3996,25 @@ class ImageHandler(ImageHandlerBase):
             return False
         if now - self._stall_started < _PRESENCE_PROBE_STALL_S:
             return False
+        # The ceiling scales with the (exposure-scaled) wait window so a long
+        # exposure's healthy inter-frame gap can never reach it: it requires
+        # several consecutive empty windows, never less than the floor.
+        ceiling_s = max(_STALL_ESCALATION_CEILING_S, 5.0 * self.timeout_ms / 1000.0)
+        if now - self._stall_started >= ceiling_s:
+            # The probe alone cannot conclude removal when the producer keeps a
+            # phantom entry enumerated after an unplug -- without this ceiling
+            # such a stall lasts forever, removal never latches, and every
+            # teardown path keeps treating dead hardware as live. Routed to the
+            # removal drop, not the DeviceReset self-heal, deliberately: the
+            # same drop the only-bad-frames ceiling takes, and on a ghost entry
+            # there is no device left to reset.
+            _cam_log.error(
+                f'[CAM Class ] stream stalled {now - self._stall_started:.0f}s with the '
+                'device still enumerated -- treating as dead (ghost enumeration or an '
+                'unrecoverable stall); routing to the removal drop'
+            )
+            self._parent._handle_device_lost()
+            return True
         if now - self._last_presence_probe < _PRESENCE_PROBE_INTERVAL_S:
             return False
         self._last_presence_probe = now
