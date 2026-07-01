@@ -34,6 +34,7 @@ def bare_pylon_camera():
 
     cam = pyloncamera.PylonCamera.__new__(pyloncamera.PylonCamera)
     cam._state_lock = threading.Lock()
+    cam._array_lock = threading.Lock()
     cam._lifecycle_lock = threading.RLock()
     cam._update_config_depth = 0
     cam._grab_gate_open = False

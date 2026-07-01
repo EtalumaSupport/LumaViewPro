@@ -370,12 +370,20 @@ class PylonCamera(Camera):
                 # the next connect re-runs the StreamGrabber NodeMap
                 # walk against whatever camera attaches.
                 self._pylon_self_validation_done = False
+                # Clear the start gate + last-frame buffer so a same-instance
+                # reconnect starts clean (re-grabs, no stale image).
+                self._reset_lifecycle_state()
                 _log_cam('info', '[CAM Class ] Disconnected from Pylon camera')
                 return True
             else:
                 _log_cam('info', '[CAM Class ] Pylon camera not connected')
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Pylon camera disconnect failed: {e}')
+        # Not-connected / error paths also clear the gate + last-frame buffer: a
+        # FAILED recovery can null active while the gate is still OPEN, so a
+        # same-instance reconnect must not inherit a stranded-open gate (blank
+        # live view) or a stale image.
+        self._reset_lifecycle_state()
         return False
 
     # __del__() inherited from Camera base class

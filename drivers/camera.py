@@ -235,18 +235,10 @@ class Camera(ABC):
         self._grab_gate_open = False
 
         self.connect()
-        # Registry contract: drivers signal "I couldn't find my hardware"
-        # via `found=False`, and `drivers/registry.py::create('auto')` skips
-        # such instances and tries the next candidate. PylonCamera and
-        # IDSCamera both catch their connect-failure exception internally
-        # and set `self.active = None` without raising -- without this line,
-        # the registry sees no exception and `getattr(instance, 'found', True)`
-        # defaults to True, so the broken Pylon instance is returned and
-        # FX2 (priority 80) never gets a turn. Discovered 2026-04-15 trying
-        # to bring up an LS620 through LVP for the first time. The
-        # `_active not in (False, None)` check matches `Camera.active`'s
-        # three-state semantics (False=initial, <obj>=connected, None=disconnected).
-        self.found = self._active not in (False, None)
+        # `found` is a derived property (below) that reads `active`, so it
+        # reflects connect()'s outcome here AND stays correct across a later
+        # disconnect / same-instance reconnect -- no stale one-time snapshot to
+        # refresh (it used to be assigned once here and never recomputed).
 
     @property
     def active(self):
@@ -268,6 +260,42 @@ class Camera(ABC):
         """Set the active-state value under the state lock."""
         with self._state_lock:
             self._active = value
+
+    @property
+    def found(self) -> bool:
+        """Whether the driver found its hardware -- derived from `active`.
+
+        Registry contract: drivers signal "I couldn't find my hardware" via
+        `found=False`, and `drivers/registry.py::create('auto')` skips such
+        instances and tries the next candidate (PylonCamera / IDSCamera catch
+        their connect-failure internally and set `active = None` without raising,
+        so without this the registry would return the broken instance and FX2
+        never gets a turn -- the LS620 first-bring-up failure). Deriving it from
+        `active`'s three-state semantics (False=initial, <obj>=connected,
+        None=disconnected) keeps it current after a disconnect / reconnect
+        instead of the old once-in-__init__ snapshot that went stale.
+        """
+        return self._active not in (False, None)
+
+    def _reset_lifecycle_state(self) -> None:
+        """Return per-instance lifecycle state to its just-constructed baseline.
+
+        Called by each driver's disconnect() so a reconnect that REUSES the same
+        instance starts clean. Resets only the genuine mutable state that would
+        otherwise persist: the start gate (else open_and_start() sees it already
+        OPEN and never restarts grabbing) and the last-frame buffer (else
+        get_array() returns the pre-disconnect image until the first new grab).
+        `found` needs no reset -- it is a property derived from `active`, which
+        the driver has already nulled by disconnect time. Each field is written
+        under its own documented lock (the gate under _lifecycle_lock, coherent
+        with open_and_start's stop/start; the buffer under _array_lock). Callers
+        must NOT hold a lock that either of these is ever acquired-after, to keep
+        the acquisition order consistent.
+        """
+        with self._lifecycle_lock:
+            self._grab_gate_open = False
+        with self._array_lock:
+            self.array = np.array([])
 
     def __del__(self):
         # Subclass __init__ may raise before super().__init__() runs (e.g.

@@ -232,15 +232,21 @@ class SimulatedCamera(Camera):
                 False when it was already disconnected.
         """
         with self._lock:
-            if self.active:
-                self._grabbing = False
-                self.active = None
-                if _cam_log is not None:
-                    _cam_log.info('sim Disconnected')
-                logger.info('[CAM Sim   ] Disconnected')
-                self._stop_callback_pump()
-                return True
-            return False
+            if not self.active:
+                return False
+            self._grabbing = False
+            self.active = None
+            if _cam_log is not None:
+                _cam_log.info('sim Disconnected')
+            logger.info('[CAM Sim   ] Disconnected')
+            self._stop_callback_pump()
+        # Reset base lifecycle state OUTSIDE self._lock: _reset_lifecycle_state
+        # takes _lifecycle_lock, and holding sim's _lock across it would create a
+        # _lock -> _lifecycle_lock acquisition order (the base config path takes
+        # them the other way). The pump is stopped above, so nothing writes the
+        # frame buffer concurrently once _lock is released.
+        self._reset_lifecycle_state()
+        return True
 
     def is_connected(self) -> bool:
         """Whether the simulated camera is currently connected.

@@ -451,6 +451,11 @@ class IDSCamera(Camera):
             # threads were already quiesced above; a partial-connect handler was
             # never started, so dropping the reference is the only teardown needed.
             self.cam_image_handler = None
+            # Clear the start gate + last-frame buffer on EVERY path (happy,
+            # not-connected, or error): a FAILED recovery can null active while
+            # the gate is still OPEN, so a same-instance reconnect must not
+            # inherit a stranded-open gate (blank live view) or a stale image.
+            self._reset_lifecycle_state()
         return False
 
     def _register_device_callbacks(self) -> None:

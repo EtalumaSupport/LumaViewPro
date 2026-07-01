@@ -1301,6 +1301,9 @@ class FX2Camera(Camera):
     def disconnect(self) -> bool:
         self.stop_grabbing()
         self._active = None
+        # Clear the start gate + last-frame buffer so a same-instance reconnect
+        # starts clean (re-grabs, no stale image).
+        self._reset_lifecycle_state()
         logger.info('[FX2 Cam   ] disconnected')
         return True
 
