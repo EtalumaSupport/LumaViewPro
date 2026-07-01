@@ -460,6 +460,7 @@ def _ids_handler(data_stream):
     handler._stall_started = None
     handler._last_presence_probe = 0.0
     handler._absence_confirmations = 0
+    handler._bad_frames_since_complete = 0
     return handler
 
 
@@ -817,6 +818,116 @@ class TestWedgedBufferBreaksLoop:
         assert should_stop is False
         h._parent._mark_disconnected.assert_not_called()
         h._parent._handle_device_lost.assert_not_called()
+
+
+class TestIncompleteFrameEscalation:
+    """A frame that arrives but yields no usable image (incomplete OR an
+    unreadable handle) is absorbed -- logged, re-queued, keep streaming. But a
+    stream delivering ONLY bad frames never times out, so the presence probe never
+    fires and it would freeze forever; a SUSTAINED run escalates to the Category-2
+    drop path (_handle_device_lost), and a complete frame resets the run."""
+
+    @staticmethod
+    def _incomplete():
+        b = MagicMock()
+        b.IsIncomplete.return_value = True
+        return b
+
+    @staticmethod
+    def _unreadable():
+        # Arrives, but the handle raises a NON-removal, non-wedge fault on access
+        # (classified keep-polling by _handle_buffer_error) -- also a bad frame.
+        b = MagicMock()
+        b.IsIncomplete.side_effect = RuntimeError('some transient fault')
+        return b
+
+    @staticmethod
+    def _complete():
+        b = MagicMock()
+        b.IsIncomplete.return_value = False
+        return b
+
+    def test_sustained_incompletes_escalate_to_category2_drop(self, monkeypatch):
+        from drivers import idscamera
+
+        monkeypatch.setattr(idscamera, '_MAX_BAD_FRAMES_BEFORE_WEDGE', 3)
+        ds = _FakeDataStream([self._incomplete(), self._incomplete(), self._incomplete()])
+        h = _ids_handler(ds)
+        h._slot = MagicMock()
+        h._poll_loop()  # breaks when it escalates on the 3rd consecutive
+        h._parent._handle_device_lost.assert_called_once()
+
+    def test_sustained_unreadable_handles_also_escalate(self, monkeypatch):
+        # The buffer-access keep-polling path must accrue toward the ceiling too,
+        # or a stream whose handles keep raising freezes forever.
+        from drivers import idscamera
+
+        monkeypatch.setattr(idscamera, '_MAX_BAD_FRAMES_BEFORE_WEDGE', 3)
+        ds = _FakeDataStream([self._unreadable(), self._unreadable(), self._unreadable()])
+        h = _ids_handler(ds)
+        h._slot = MagicMock()
+        h._poll_loop()
+        h._parent._handle_device_lost.assert_called_once()
+
+    def test_a_single_incomplete_below_threshold_keeps_streaming(self, monkeypatch):
+        from drivers import idscamera
+
+        monkeypatch.setattr(idscamera, '_MAX_BAD_FRAMES_BEFORE_WEDGE', 3)
+        good = self._complete()
+        seq = [self._incomplete(), good]
+        ds = MagicMock()
+        h = _ids_handler(ds)
+        h._slot = MagicMock()
+
+        def _next(*a):
+            if seq:
+                return seq.pop(0)
+            h._stop_event.set()
+            return good
+
+        ds.WaitForFinishedBuffer.side_effect = _next
+        h._poll_loop()
+        h._parent._handle_device_lost.assert_not_called()  # one blip is absorbed
+        h._slot.put.assert_called_once_with(good)  # the complete frame reached the worker
+
+    def test_a_complete_frame_resets_the_bad_frame_run(self, monkeypatch):
+        from drivers import idscamera
+
+        monkeypatch.setattr(idscamera, '_MAX_BAD_FRAMES_BEFORE_WEDGE', 3)
+        good = self._complete()
+        # bad, bad, GOOD (reset), bad, bad -> never 3 consecutive, so no escalation.
+        seq = [
+            self._incomplete(),
+            self._incomplete(),
+            good,
+            self._incomplete(),
+            self._incomplete(),
+        ]
+        ds = MagicMock()
+        h = _ids_handler(ds)
+        h._slot = MagicMock()
+
+        def _next(*a):
+            if seq:
+                return seq.pop(0)
+            h._stop_event.set()
+            return good
+
+        ds.WaitForFinishedBuffer.side_effect = _next
+        h._poll_loop()
+        h._parent._handle_device_lost.assert_not_called()  # reset kept it under the ceiling
+
+    def test_stop_racing_the_ceiling_breaks_without_teardown(self, monkeypatch):
+        # A stop() set just as the ceiling frame arrives must break the loop, not
+        # tear the camera down -- a plain stop/reconfigure is not a disconnect.
+        from drivers import idscamera
+
+        monkeypatch.setattr(idscamera, '_MAX_BAD_FRAMES_BEFORE_WEDGE', 3)
+        h = _ids_handler(MagicMock())
+        h._bad_frames_since_complete = 2  # next bad frame crosses the ceiling
+        h._stop_event.set()  # ...but a stop is already requested
+        assert h._note_bad_frame() is True  # break
+        h._parent._handle_device_lost.assert_not_called()  # no spurious teardown
 
 
 class TestStartGrabbingRollback:

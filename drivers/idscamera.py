@@ -68,6 +68,19 @@ _PRESENCE_PROBE_UPDATE_TIMEOUT_MS = 500
 # reading resets the count.
 _PRESENCE_PROBE_CONFIRMATIONS = 2
 
+# A single frame that arrives but yields no usable image -- incomplete (USB
+# packet loss / bandwidth saturation) OR its handle raises a non-removal fault --
+# is an absorbed blip: the poll loop logs it and keeps streaming. But a stream
+# delivering ONLY such bad frames keeps ARRIVING, so it never times out and the
+# sustained-stall presence probe never fires; without a ceiling it freezes
+# forever on garbage. On this many bad frames since the last COMPLETE one the
+# stream is treated as wedged and escalated to the Category-2 drop (the same
+# uniform teardown an unplug takes). Bench-informed: high enough that a transient
+# saturation burst is absorbed, low enough that a genuine wedge does not hang the
+# live view indefinitely (~2-4 s of only-bad frames at typical frame rates). A
+# complete frame resets the count.
+_MAX_BAD_FRAMES_BEFORE_WEDGE = 120
+
 
 def _ids_library_cleanup():
     global _ids_library_initialized
@@ -3169,6 +3182,13 @@ class ImageHandler(ImageHandlerBase):
         self._stall_started = None
         self._last_presence_probe = 0.0
         self._absence_confirmations = 0
+        # Bad-frame run toward the wedge-escalation ceiling: frames that ARRIVED
+        # but yielded no usable image (incomplete, or an unreadable handle).
+        # Distinct from the presence-probe stall above: a bad frame still arrives
+        # (the device is delivering), so it never times out and never accrues
+        # toward the presence probe -- a stream of only-bad frames needs its own
+        # ceiling or it freezes forever. Reset by a complete frame.
+        self._bad_frames_since_complete = 0
 
     def start(self):
         # Never launch a second consumer while EITHER grab thread is still alive
@@ -3192,6 +3212,7 @@ class ImageHandler(ImageHandlerBase):
         self._stall_started = None
         self._last_presence_probe = 0.0
         self._absence_confirmations = 0
+        self._bad_frames_since_complete = 0
         self._slot = _LatestBufferSlot(self._requeue)
         # Clear any KillWait left pending by a previous stop() so the first
         # WaitForFinishedBuffer of this session is not aborted on arrival.
@@ -3298,22 +3319,59 @@ class ImageHandler(ImageHandlerBase):
                     break
                 # Non-removal, non-wedge fault: return the buffer to the pool and
                 # keep polling (removal is owned solely by DeviceLost), mirroring
-                # the keep-polling path of _handle_wait_error.
+                # the keep-polling path of _handle_wait_error. This buffer ARRIVED
+                # but yielded no usable image, so it counts toward the wedge
+                # ceiling too -- a stream whose handles keep raising would
+                # otherwise freeze forever the same way an all-incomplete one does.
                 self._requeue(buffer)
+                if self._note_bad_frame():
+                    break
                 continue
 
             if incomplete:
                 # Incomplete = USB packet loss / bandwidth saturation: a degraded
-                # stream, not a removal. Log and re-queue; never mark disconnected
-                # (removal is owned by the DeviceLost callback). A sustained
-                # no-frame stall is surfaced to the user by the display watchdog.
+                # frame, not a removal. ABSORB an isolated blip -- log, re-queue,
+                # keep streaming; never mark disconnected (removal is owned by the
+                # DeviceLost callback). But COUNT it toward the wedge ceiling.
                 self._log_incomplete(buffer)
                 self._requeue(buffer)
+                if self._note_bad_frame():
+                    break
                 continue
+
+            # A COMPLETE frame: the stream produced a usable image -- reset the
+            # bad-frame run so earlier blips do not accrue toward escalation across
+            # a good frame.
+            self._bad_frames_since_complete = 0
 
             # Hand the buffer to the worker. A buffer this displaces is re-queued
             # by the slot; the worker re-queues this one once it has unpacked it.
             self._slot.put(buffer)
+
+    def _note_bad_frame(self) -> bool:
+        """Count a frame that arrived but yielded no usable image (incomplete, or
+        an unreadable handle). Returns True when the run since the last complete
+        frame has crossed the wedge ceiling and the caller must stop the loop.
+
+        A stream delivering only bad frames never times out, so the sustained-
+        stall presence probe never fires -- this ceiling is the only net that
+        keeps it from freezing forever. On crossing it, escalate to the Category-2
+        drop path (the same uniform teardown an unplug takes). Re-checks the stop
+        event first: a stop()/reconfigure racing the ceiling frame must just break,
+        never trigger a spurious teardown of a camera that is only being stopped.
+        """
+        self._bad_frames_since_complete += 1
+        if self._bad_frames_since_complete < _MAX_BAD_FRAMES_BEFORE_WEDGE:
+            return False
+        if self._stop_event.is_set():
+            return True
+        _cam_log.error(
+            f'[CAM Class ] {self._bad_frames_since_complete} frames since the last '
+            'complete frame -- stream wedged (delivering only unusable frames); '
+            'escalating to teardown (Category-2 drop)'
+        )
+        self._parent._handle_device_lost()
+        return True
 
     def _handle_wait_error(self, e: Exception) -> bool:
         """Classify a WaitForFinishedBuffer error; return True to stop the loop.
