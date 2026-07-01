@@ -1482,24 +1482,127 @@ class IDSCamera(Camera):
             # Revoke ONLY once the poll + worker threads are provably dead.
             # Revoking under a live consumer leaves it holding an invalid buffer
             # handle (the IDSPoll InvalidInstanceException). If the threads could
-            # not be quiesced, leave the buffers announced -- they are reclaimed
-            # at the next clean stop or at disconnect -- rather than pull them
-            # out from under a running thread.
+            # not be quiesced, leave the buffers announced rather than pull them
+            # out from under a running thread -- the next start_grabbing() reclaims
+            # the stale pool once the threads have quiesced (it must, or a fresh
+            # pool announced on top grows the announced count every cycle until the
+            # stream wedges).
             if threads_quiesced:
-                self.data_stream.Flush(ids_peak.DataStreamFlushMode_DiscardAll)
-                for buffer in self.data_stream.AnnouncedBuffers():
-                    self.data_stream.RevokeBuffer(buffer)
+                self._flush_and_revoke_pool()
+            else:
+                self._breadcrumb_unrevoked_pool()
         except Exception as e:
             _cam_log.warning(f'[CAM Class ] stop_grabbing ignored error: {e}')
+
+    def _breadcrumb_unrevoked_pool(self) -> None:
+        """Log the count of buffers left announced when a stop skipped revoke
+        (threads not quiesced), so a bench run can watch that the next clean start
+        reclaims them rather than the count climbing cycle over cycle. The count
+        query is self-guarded so the breadcrumb still emits even if AnnouncedBuffers()
+        raises -- the whole point is that this warning is visible in the log.
+        """
+        try:
+            count = len(self.data_stream.AnnouncedBuffers())
+        except Exception as e:
+            count = -1
+            logger.debug(f'[CAM Class ] AnnouncedBuffers query for breadcrumb failed: {e}')
+        _cam_log.warning(
+            f'[CAM Class ] stop_grabbing left {count if count >= 0 else "?"} buffers '
+            'announced (grab threads not quiesced, revoke skipped); the next clean '
+            'start_grabbing() reclaims them'
+        )
+
+    def _flush_and_revoke_pool(self) -> int:
+        """Flush the data stream and revoke every announced buffer; return the
+        count revoked. The single owner of the flush-then-revoke idiom, so its
+        two safety properties hold everywhere it is used (stop_grabbing, rollback,
+        stale-pool reclaim):
+
+          - Snapshots AnnouncedBuffers() with list() BEFORE revoking, so revoking
+            cannot mutate the collection mid-iteration and skip buffers.
+          - Guards each RevokeBuffer independently, so one failure does not strand
+            the rest of the pool.
+
+        Touches only the LOCAL data-stream handle (never the remote nodemap), so
+        it is safe on any valid stream even after a removed-device path. The
+        caller MUST hold the contract that no grab thread is live (a revoke under
+        a live consumer strands it with an invalid handle). Propagates a failure
+        of the initial AnnouncedBuffers() query -- the caller decides whether that
+        is fatal (start_grabbing aborts rather than stack a fresh pool on top).
+        """
+        announced = list(self.data_stream.AnnouncedBuffers())
+        try:
+            self.data_stream.Flush(ids_peak.DataStreamFlushMode_DiscardAll)
+        except Exception as e:
+            logger.debug(f'[CAM Class ] Flush during pool revoke ignored: {e}')
+        for buffer in announced:
+            try:
+                self.data_stream.RevokeBuffer(buffer)
+            except Exception as e:
+                logger.debug(f'[CAM Class ] RevokeBuffer ignored: {e}')
+        return len(announced)
+
+    def _reclaim_stale_pool(self) -> bool:
+        """Flush + revoke any buffers a prior stop left announced, before a fresh
+        pool is allocated. Called from start_grabbing only after the grab threads
+        are confirmed quiesced, so no live consumer holds a buffer. Touches only
+        the local data-stream handle (never the remote nodemap), so it is safe on
+        any valid stream even after a removed-device path. No-op when the pool is
+        already empty (the clean-stop case, where stop_grabbing already revoked).
+
+        Returns True when the pool is confirmed clear (empty or revoked), False
+        when it could not be queried/reclaimed. The caller MUST NOT announce a
+        fresh pool on a False -- doing so stacks it on the un-reclaimed stale pool,
+        which is the leak that grows the announced count until the stream wedges.
+        """
+        if self.data_stream is None:
+            return True
+        try:
+            count = self._flush_and_revoke_pool()
+        except Exception as e:
+            logger.debug(f'[CAM Class ] stale-pool reclaim query failed: {e}')
+            return False
+        if count:
+            _cam_log.warning(
+                f'[CAM Class ] Reclaimed {count} buffers left announced by a prior '
+                'stop that skipped revoke, before announcing a fresh pool'
+            )
+        return True
 
     def start_grabbing(self):
         if self.is_grabbing():
             if _cam_log is not None:
                 _cam_log.info('ids start_grabbing SKIPPED: already grabbing')
             return
+        # A prior stop() whose grab threads never quiesced leaves the stream
+        # wedged: its buffer pool is un-revoked AND its threads still hold the data
+        # stream. Announcing a fresh pool on top is the leak that grows the
+        # announced count every cycle, and a fresh consumer cannot start under the
+        # live one. Abort cleanly instead of stacking; the wedge/escalation path
+        # owns recovery. (Not hit in normal reconfigure: stop_grabbing blocks on
+        # the join ceiling, so a returning stop means threads already died.)
+        if self.cam_image_handler is not None and not self.cam_image_handler.threads_quiesced():
+            _cam_log.error(
+                '[CAM Class ] start_grabbing aborted: prior grab threads have not '
+                'quiesced (stream wedged); not stacking a fresh buffer pool'
+            )
+            return
         if _cam_log is not None:
             _cam_log.info('ids start_grabbing: alloc buffers + StartAcquisition + AcquisitionStart')
         try:
+            # Reclaim any pool a prior unclean-but-now-quiesced stop left announced
+            # BEFORE allocating fresh, so the announced count cannot grow cycle over
+            # cycle (the mid-suite wedge). Safe: threads are confirmed dead above.
+            # If the stale pool could NOT be reclaimed (its state is unknowable),
+            # do not announce a fresh pool on top of it -- abort like the
+            # not-quiesced case rather than stack and leak.
+            if not self._reclaim_stale_pool():
+                _cam_log.error(
+                    '[CAM Class ] start_grabbing aborted: could not reclaim the prior '
+                    'buffer pool (data stream unhappy); not stacking a fresh pool'
+                )
+                return
+
             # Allocate buffers -- minimum + extra so the pool never starves while
             # the unpack worker holds a buffer through ConvertTo. In flight at
             # once: the worker's buffer, the newest-wins slot's buffer, and the
@@ -1545,14 +1648,20 @@ class IDSCamera(Camera):
         announces a fresh pool on top of the orphaned one. Best-effort undo each
         step, independently guarded so one failure does not strand the rest, and
         in teardown order: quiesce the handler FIRST (so no live thread holds a
-        buffer), then stop acquisition, release the lock, and revoke the pool.
+        buffer), then stop acquisition, release the lock, and revoke the pool --
+        but revoke ONLY if the handler confirmed its grab threads died, mirroring
+        stop_grabbing: revoking under a thread that could not be joined strands it
+        with an invalid handle. If they did not quiesce, leave the pool announced
+        for the next clean start_grabbing() to reclaim.
         """
         handler = self.cam_image_handler
+        quiesced = True
         if handler is not None:
             try:
-                handler.stop()
+                quiesced = handler.stop()
             except Exception as e:
                 logger.debug(f'[CAM Class ] rollback handler.stop ignored: {e}')
+                quiesced = False  # could not confirm the threads died -- do not revoke
         try:
             self.data_stream.StopAcquisition()
         except Exception as e:
@@ -1561,12 +1670,13 @@ class IDSCamera(Camera):
             self.remote_nodemap.FindNode('TLParamsLocked').SetValue(0)
         except Exception as e:
             logger.debug(f'[CAM Class ] rollback TLParamsLocked=0 ignored: {e}')
-        try:
-            self.data_stream.Flush(ids_peak.DataStreamFlushMode_DiscardAll)
-            for buffer in self.data_stream.AnnouncedBuffers():
-                self.data_stream.RevokeBuffer(buffer)
-        except Exception as e:
-            logger.debug(f'[CAM Class ] rollback buffer revoke ignored: {e}')
+        if quiesced:
+            try:
+                self._flush_and_revoke_pool()
+            except Exception as e:
+                logger.debug(f'[CAM Class ] rollback buffer revoke ignored: {e}')
+        else:
+            self._breadcrumb_unrevoked_pool()
 
     def _configure_free_run(self):
         """Remove the throttles that cap the IDS frame rate so the camera runs
@@ -3061,8 +3171,18 @@ class ImageHandler(ImageHandlerBase):
         self._absence_confirmations = 0
 
     def start(self):
-        if self._poll_thread is not None:
+        # Never launch a second consumer while EITHER grab thread is still alive
+        # -- a live thread racing a fresh one on the same data stream / slot
+        # corrupts the pipeline. A non-None ref whose thread has already EXITED is
+        # a prior stop() that could not join within its ceiling (the ref is left
+        # set); once the thread is actually dead, clear the stale refs and start
+        # fresh rather than stay permanently wedged on a dead reference.
+        poll_alive = self._poll_thread is not None and self._poll_thread.is_alive()
+        worker_alive = self._worker_thread is not None and self._worker_thread.is_alive()
+        if poll_alive or worker_alive:
             return
+        self._poll_thread = None
+        self._worker_thread = None
         self._stop_event.clear()
         # This handler is reused across stop/start (binning/exposure changes), so
         # clear the stall clock: a stale _stall_started from an earlier no-frame
@@ -3127,6 +3247,21 @@ class ImageHandler(ImageHandlerBase):
                 f'worker_alive={worker_alive}); skipping buffer revoke this stop'
             )
         return quiesced
+
+    def threads_quiesced(self) -> bool:
+        """True when neither grab thread is alive -- the buffer pool is safe to
+        revoke and a fresh start will not race a live consumer.
+
+        Re-evaluates aliveness live rather than trusting stop()'s return: a stop()
+        that could not join within its ceiling leaves the ref set (returning
+        False), but the thread may have exited since, and the next start_grabbing()
+        must be able to see that it is now safe to reclaim the pool and restart.
+        """
+        poll = self._poll_thread
+        worker = self._worker_thread
+        poll_dead = poll is None or not poll.is_alive()
+        worker_dead = worker is None or not worker.is_alive()
+        return poll_dead and worker_dead
 
     def _poll_loop(self):
         """Stage A: drain finished buffers and hand each to the unpack worker."""

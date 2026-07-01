@@ -837,7 +837,9 @@ class TestStartGrabbingRollback:
     def test_acquisition_failure_rolls_back_lock_and_buffers(self):
         cam = self._cam()
         announced = [MagicMock(), MagicMock()]
-        cam.data_stream.AnnouncedBuffers.return_value = announced
+        # Entry reclaim sees an empty pool (no prior stale pool); the rollback
+        # after the failure sees the pool this start announced.
+        cam.data_stream.AnnouncedBuffers.side_effect = [[], announced]
         cam.data_stream.StartAcquisition.side_effect = RuntimeError('start failed')
         cam.start_grabbing()
         # Transport lock released after it was taken (SetValue(1) then SetValue(0)).
@@ -852,10 +854,154 @@ class TestStartGrabbingRollback:
     def test_alloc_failure_revokes_announced_pool(self):
         cam = self._cam()
         announced = [MagicMock()]
-        cam.data_stream.AnnouncedBuffers.return_value = announced
+        # Entry reclaim sees an empty pool; rollback sees the announced pool.
+        cam.data_stream.AnnouncedBuffers.side_effect = [[], announced]
         cam.data_stream.AllocAndAnnounceBuffer.side_effect = RuntimeError('alloc failed')
         cam.start_grabbing()
         assert cam.data_stream.RevokeBuffer.call_count == len(announced)
+
+
+class TestBufferPoolReclaim:
+    """The announced buffer pool must not grow across stop/start cycles. A stop
+    that could not quiesce its grab threads leaves its pool announced (revoking
+    under a live consumer is unsafe); the next start reclaims that stale pool
+    BEFORE announcing a fresh one, and never restarts on top of a live consumer
+    -- the leak that grows the pool every cycle until the stream wedges."""
+
+    def _cam(self):
+        cam = bare_ids_camera()
+        cam.is_grabbing = MagicMock(return_value=False)
+        cam._configure_free_run = MagicMock()
+        cam.cam_image_handler = MagicMock()
+        cam.cam_image_handler.threads_quiesced.return_value = True
+        cam.data_stream.NumBuffersAnnouncedMinRequired.return_value = 1
+        return cam
+
+    def test_start_reclaims_stale_pool_before_announcing_fresh(self):
+        cam = self._cam()
+        stale = [MagicMock(), MagicMock(), MagicMock()]
+        cam.data_stream.AnnouncedBuffers.return_value = stale  # left by a prior unclean stop
+        cam.start_grabbing()
+        # Stale pool flushed + revoked before the fresh pool was announced...
+        cam.data_stream.Flush.assert_called()
+        assert cam.data_stream.RevokeBuffer.call_count == len(stale)
+        # ...and a fresh pool (min+5) was still announced afterward.
+        assert cam.data_stream.AllocAndAnnounceBuffer.call_count == 1 + 5
+
+    def test_start_aborts_without_stacking_when_threads_not_quiesced(self):
+        cam = self._cam()
+        cam.cam_image_handler.threads_quiesced.return_value = False  # prior threads still live
+        cam.start_grabbing()
+        # Nothing stacked: no fresh pool announced, no acquisition started.
+        cam.data_stream.AllocAndAnnounceBuffer.assert_not_called()
+        cam.data_stream.StartAcquisition.assert_not_called()
+
+    def test_stop_skips_revoke_and_breadcrumbs_when_not_quiesced(self):
+        cam = bare_ids_camera()
+        cam.cam_image_handler = MagicMock()
+        cam.cam_image_handler.stop.return_value = False  # threads did not quiesce
+        cam.data_stream.AnnouncedBuffers.return_value = [MagicMock(), MagicMock()]
+        cam.stop_grabbing()
+        # Revoke skipped (would strand a live consumer); pool left announced for
+        # the next clean start to reclaim.
+        cam.data_stream.RevokeBuffer.assert_not_called()
+        cam.data_stream.Flush.assert_not_called()
+
+    def test_stop_revokes_the_pool_when_quiesced(self):
+        cam = bare_ids_camera()
+        cam.cam_image_handler = MagicMock()
+        cam.cam_image_handler.stop.return_value = True
+        cam.data_stream.AnnouncedBuffers.return_value = [MagicMock(), MagicMock()]
+        cam.stop_grabbing()
+        assert cam.data_stream.RevokeBuffer.call_count == 2
+
+    def test_threads_quiesced_true_when_no_threads(self):
+        h = _ids_handler(MagicMock())
+        assert h.threads_quiesced() is True  # both refs None
+
+    def test_threads_quiesced_false_when_a_thread_is_alive(self):
+        h = _ids_handler(MagicMock())
+        alive = MagicMock()
+        alive.is_alive.return_value = True
+        h._poll_thread = alive
+        assert h.threads_quiesced() is False
+
+    def test_threads_quiesced_true_when_ref_set_but_dead(self):
+        # A stop() that could not join leaves the ref set; once the thread has
+        # actually exited, the next start must see it as safe to reclaim/restart.
+        h = _ids_handler(MagicMock())
+        dead = MagicMock()
+        dead.is_alive.return_value = False
+        h._poll_thread = dead
+        assert h.threads_quiesced() is True
+
+    def test_start_restarts_after_a_stale_dead_ref(self):
+        # A prior stop() left a non-None but DEAD poll-thread ref; start() must
+        # clear it and spawn fresh threads rather than early-return forever.
+        h = _ids_handler(MagicMock())
+        dead = MagicMock()
+        dead.is_alive.return_value = False
+        h._poll_thread = dead
+        with patch('drivers.idscamera.threading.Thread') as Thread:
+            h.start()
+        assert Thread.call_count == 2  # worker + poll spawned
+        assert h._poll_thread is not dead  # stale dead ref replaced
+
+    def test_start_is_a_noop_while_a_thread_is_alive(self):
+        h = _ids_handler(MagicMock())
+        alive = MagicMock()
+        alive.is_alive.return_value = True
+        h._poll_thread = alive
+        with patch('drivers.idscamera.threading.Thread') as Thread:
+            h.start()
+        Thread.assert_not_called()  # no second consumer launched
+        assert h._poll_thread is alive  # unchanged
+
+    def test_rollback_skips_revoke_when_threads_not_quiesced(self):
+        # Mirror stop_grabbing: rollback must NOT revoke the pool if handler.stop()
+        # could not join the grab threads -- revoking under a live consumer strands
+        # it with an invalid handle. Leave the pool for the next clean reclaim.
+        cam = self._cam()
+        cam.cam_image_handler.stop.return_value = False  # threads did not quiesce
+        cam.data_stream.AnnouncedBuffers.return_value = [MagicMock(), MagicMock()]
+        cam._rollback_failed_start()
+        cam.data_stream.RevokeBuffer.assert_not_called()
+
+    def test_rollback_revokes_when_threads_quiesced(self):
+        cam = self._cam()
+        cam.cam_image_handler.stop.return_value = True
+        cam.data_stream.AnnouncedBuffers.return_value = [MagicMock(), MagicMock()]
+        cam._rollback_failed_start()
+        assert cam.data_stream.RevokeBuffer.call_count == 2
+
+    def test_start_aborts_when_stale_pool_query_fails(self):
+        # If the stale pool cannot be queried, _reclaim_stale_pool returns False;
+        # start_grabbing must abort rather than announce a fresh pool on top of an
+        # unknown/un-reclaimed one (the swallowed-error stacking leak).
+        cam = self._cam()
+        cam.data_stream.AnnouncedBuffers.side_effect = RuntimeError('stream unhappy')
+        cam.start_grabbing()
+        cam.data_stream.AllocAndAnnounceBuffer.assert_not_called()
+        cam.data_stream.StartAcquisition.assert_not_called()
+
+    def test_breadcrumb_survives_a_query_failure(self):
+        # The un-revoked-pool breadcrumb must still emit even if AnnouncedBuffers()
+        # raises -- its whole purpose is to be visible in a bench log.
+        cam = bare_ids_camera()
+        cam.data_stream.AnnouncedBuffers.side_effect = RuntimeError('stream unhappy')
+        cam._breadcrumb_unrevoked_pool()  # must not raise
+
+    def test_flush_and_revoke_snapshots_before_revoking(self):
+        # Snapshot with list() so revoking cannot mutate the announced collection
+        # mid-iteration and skip buffers. Simulate a live view: revoke removes from
+        # the same list AnnouncedBuffers returns; every buffer must still be revoked.
+        cam = bare_ids_camera()
+        announced = [MagicMock(), MagicMock(), MagicMock()]
+        cam.data_stream.AnnouncedBuffers.return_value = announced
+        cam.data_stream.RevokeBuffer.side_effect = lambda buf: announced.remove(buf)
+        revoked = cam._flush_and_revoke_pool()
+        assert revoked == 3
+        assert cam.data_stream.RevokeBuffer.call_count == 3
 
 
 def _ids_cam_for_recovery():
