@@ -359,6 +359,10 @@ class IDSCamera(Camera):
             self._query_dynamic_capabilities()
 
             self.cam_image_handler = ImageHandler(self.data_stream, parent_cam=self)
+            # Fresh handler starts with an empty dispatch list; re-push any
+            # durable listeners (manual record / plugins) so a reconnect on the
+            # same instance does not silently stop delivering frames to them.
+            self._reapply_frame_callbacks()
 
             self.init_camera_config()
             # connect() returns CONFIGURED but NOT grabbing; the single
@@ -794,6 +798,9 @@ class IDSCamera(Camera):
         self._async_teardown_started = False
         self._register_device_callbacks()
         self.cam_image_handler = ImageHandler(self.data_stream, parent_cam=self)
+        # Rebuilt handler starts empty; re-push durable listeners so recording /
+        # plugins keep receiving frames after the reopen.
+        self._reapply_frame_callbacks()
 
         self.init_camera_config()
         self._restore_settings(settings)

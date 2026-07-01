@@ -213,6 +213,18 @@ class Camera(ABC):
         # toggles the grab loop.
         self._update_config_depth = 0
 
+        # Durable per-frame callback registry, owned by the Camera rather than
+        # the ephemeral image handler. The handler's own callback list is a
+        # working copy the SDK thread dispatches from; it starts empty on every
+        # freshly-built handler (connect / recovery), so a driver that rebuilds
+        # its handler would silently drop every listener registered before the
+        # rebuild. Recording it here and re-pushing it via
+        # _reapply_frame_callbacks() after each handler build keeps manual-record
+        # and per-frame plugin listeners alive across a reconnect. Initialized
+        # before connect() below, which re-applies it on the first handler.
+        self._frame_callback_lock = threading.Lock()
+        self._registered_frame_callbacks: list = []
+
         # Start gate: the camera-lifecycle split. connect() returns the
         # camera CONFIGURED but NOT grabbing; streaming begins exactly once
         # via open_and_start() (the configure-complete -> start transition).
@@ -814,24 +826,50 @@ class Camera(ABC):
             return False, None, None, None
 
     def register_frame_callback(self, cb) -> None:
-        """Register a per-frame callback on the driver's image handler.
+        """Register a per-frame callback.
 
-        Default implementation delegates to ``cam_image_handler``;
-        drivers without a handler (SimulatedCamera) override.
+        Records the callback in the Camera's durable registry (so it survives a
+        handler rebuild) AND applies it to the current handler for immediate
+        dispatch. Idempotent for the same callable. SimulatedCamera extends this
+        to also drive its host-side pump.
         """
-        if not self.cam_image_handler:
-            return
-        self.cam_image_handler.register_frame_callback(cb)
+        with self._frame_callback_lock:
+            if cb not in self._registered_frame_callbacks:
+                self._registered_frame_callbacks.append(cb)
+        # Apply to the live handler OUTSIDE _frame_callback_lock: the handler
+        # takes its own _frame_lock, so nesting the two would couple the locks.
+        if self.cam_image_handler:
+            self.cam_image_handler.register_frame_callback(cb)
 
     def unregister_frame_callback(self, cb) -> None:
-        """Unregister a callback registered via ``register_frame_callback``.
+        """Unregister a callback from the durable registry and the current handler."""
+        with self._frame_callback_lock, contextlib.suppress(ValueError):
+            self._registered_frame_callbacks.remove(cb)
+        if self.cam_image_handler:
+            self.cam_image_handler.unregister_frame_callback(cb)
 
-        Default implementation delegates to ``cam_image_handler``;
-        drivers without a handler (SimulatedCamera) override.
+    def _reapply_frame_callbacks(self) -> None:
+        """Re-register the durable callback set onto the current handler.
+
+        A driver calls this immediately after building a new cam_image_handler
+        (connect / recovery). The handler owns the dispatch list and starts
+        empty, so without this every listener registered before the rebuild
+        stops receiving frames. No-op when the driver has no handler
+        (SimulatedCamera, which delivers via its own pump reading the registry).
         """
-        if not self.cam_image_handler:
+        handler = self.cam_image_handler
+        if handler is None:
             return
-        self.cam_image_handler.unregister_frame_callback(cb)
+        # Hold the registry lock ACROSS the re-push, not just the snapshot: an
+        # unregister interleaving here (e.g. a per-frame plugin auto-dropped on
+        # the SDK callback thread mid-reconnect) must not lose to a stale
+        # snapshot and get resurrected onto the fresh handler. Deadlock-safe --
+        # the lock order is always _frame_callback_lock -> handler._frame_lock
+        # (here and in register/unregister); frame dispatch runs OUTSIDE
+        # _frame_lock, so nothing acquires the two in the reverse order.
+        with self._frame_callback_lock:
+            for cb in self._registered_frame_callbacks:
+                handler.register_frame_callback(cb)
 
     @abstractmethod
     def grab_new_capture(self, timeout_s: float) -> tuple:

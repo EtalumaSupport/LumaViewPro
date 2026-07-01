@@ -920,6 +920,10 @@ class PylonCamera(Camera):
                 logger.debug(f'[CAM Class ] Camera removal handler registration not supported: {e}')
 
             self.cam_image_handler = ImageHandler(self)
+            # Fresh handler starts with an empty dispatch list; re-push any
+            # durable listeners so a reconnect on the same instance does not
+            # silently stop delivering frames to recording / plugins.
+            self._reapply_frame_callbacks()
             # Cleanup_Delete: SDK takes ownership of the handler and
             # deletes it when the InstantCamera is destroyed. No
             # explicit DeregisterImageEventHandler / Deregister-

@@ -37,6 +37,10 @@ def bare_pylon_camera():
     cam._lifecycle_lock = threading.RLock()
     cam._update_config_depth = 0
     cam._grab_gate_open = False
+    # Durable frame-callback registry (base Camera.__init__ seeds these; connect
+    # re-applies the registry onto a rebuilt handler).
+    cam._frame_callback_lock = threading.Lock()
+    cam._registered_frame_callbacks = []
     cam.active = MagicMock()
     cam.active.IsGrabbing.return_value = False
     cam._mark_disconnected = MagicMock()
@@ -337,6 +341,10 @@ def bare_ids_camera():
     cam._lifecycle_lock = threading.RLock()
     cam._update_config_depth = 0
     cam._grab_gate_open = False
+    # Durable frame-callback registry (base Camera.__init__ seeds these; the
+    # recovery/connect paths re-apply the registry onto a rebuilt handler).
+    cam._frame_callback_lock = threading.Lock()
+    cam._registered_frame_callbacks = []
     cam.active = True
     cam.remote_nodemap = MagicMock()
     cam.data_stream = MagicMock()

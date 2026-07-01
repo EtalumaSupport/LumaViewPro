@@ -7,7 +7,6 @@ camera state (exposure, gain, binning, frame size, pixel format), and
 supports the full Camera ABC interface.
 """
 
-import contextlib
 import datetime
 import pathlib
 import threading
@@ -84,8 +83,11 @@ class SimulatedCamera(Camera):
         # whenever any are registered AND grabbing is active. Tests that
         # exercise the production callback path use this; the display
         # pull-pipeline (grab/grab_latest) keeps working as before.
-        self._frame_callbacks: list = []
-        self._frame_callback_lock = threading.Lock()
+        # Per-frame callbacks live in the base Camera's durable registry
+        # (_registered_frame_callbacks + _frame_callback_lock, created by
+        # super().__init__() below); the pump reads that registry, so a
+        # reconnect keeps the same source of truth as the handler-based drivers.
+        # Only the pump-thread lifecycle state is sim-specific.
         self._pump_thread: threading.Thread | None = None
         self._pump_stop = threading.Event()
 
@@ -283,7 +285,7 @@ class SimulatedCamera(Camera):
             logger.info('[CAM Sim   ] start_grabbing')
         # Re-spawn the pump if callbacks were registered while not grabbing.
         with self._frame_callback_lock:
-            need_pump = bool(self._frame_callbacks)
+            need_pump = bool(self._registered_frame_callbacks)
         if need_pump:
             self._start_callback_pump()
 
@@ -306,19 +308,18 @@ class SimulatedCamera(Camera):
         while ``_grabbing`` is True, so callers (manual record) see the
         same push-driven semantics they get from real cameras.
         """
-        with self._frame_callback_lock:
-            if cb not in self._frame_callbacks:
-                self._frame_callbacks.append(cb)
-            need_pump = bool(self._frame_callbacks) and self._grabbing
-        if need_pump:
+        super().register_frame_callback(cb)  # durable storage; sim has no handler
+        # We just appended cb, so the registry is non-empty; the pump only needs
+        # to run while grabbing. Avoids re-taking _frame_callback_lock that
+        # super() already released.
+        if self._grabbing:
             self._start_callback_pump()
 
     def unregister_frame_callback(self, cb) -> None:
         """Remove a registered callback; stops the pump when none remain."""
+        super().unregister_frame_callback(cb)
         with self._frame_callback_lock:
-            with contextlib.suppress(ValueError):
-                self._frame_callbacks.remove(cb)
-            still_active = bool(self._frame_callbacks)
+            still_active = bool(self._registered_frame_callbacks)
         if not still_active:
             self._stop_callback_pump()
 
@@ -357,7 +358,7 @@ class SimulatedCamera(Camera):
                     return
                 continue
             with self._frame_callback_lock:
-                cbs = list(self._frame_callbacks)
+                cbs = list(self._registered_frame_callbacks)
             if not cbs:
                 return
             with self._lock:
