@@ -111,14 +111,31 @@ def ids_significant_bits(wire_format_name: str) -> int:
     unpack benchmark oracle); use the delivery helper for the depth stamp on a
     live/still frame.
     """
+    # Empty/None is a failed-read sentinel from get_pixel_format(), not a format:
+    # default to 8 QUIETLY (a warning here would misreport a transient read glitch
+    # as a color/packed camera). Also keeps the startswith calls below None-safe.
+    if not wire_format_name:
+        return 8
     if wire_format_name.startswith('Mono12'):
         return 12
     if wire_format_name.startswith('Mono10'):
         return 10
     if wire_format_name.startswith('Mono8'):
         return 8
-    match = re.search(r'Mono(\d+)', wire_format_name or '')
-    return int(match.group(1)) if match else 8
+    match = re.search(r'Mono(\d+)', wire_format_name)
+    if match:
+        return int(match.group(1))
+    # A non-empty, non-Mono name. This driver's cameras are mono-only, so a
+    # color / packed name is unexpected -- and its trailing bit count does not map
+    # to significant bits the way Mono<N> does (IDS's own Mono12g24IDS packs 12
+    # significant bits into a 24-bit wire), so a naive "last digits" read would
+    # mislabel it. Default to 8 but WARN, so a color camera ever reaching here is
+    # loud rather than silently stamped 8-bit.
+    _cam_log.warning(
+        f'[CAM Class ] Unrecognized wire format {wire_format_name!r} for '
+        'significant-bits derivation; defaulting to 8 (mono formats expected)'
+    )
+    return 8
 
 
 def _ids_ipl_target(wire_format_name: str):
@@ -2464,13 +2481,32 @@ class IDSCamera(Camera):
             return None
 
     def get_supported_pixel_formats(self):
+        # Guard on _device_removed, not just active: _mark_disconnected() sets the
+        # removed flag but deliberately leaves active set (the handle release is
+        # deferred to disconnect()), so a live AvailableEntries() read on a removed
+        # remote nodemap can hang. This early-return keeps a removal-window query
+        # off the dead nodemap.
+        if not self.active or self._device_removed:
+            return ()
         try:
             return tuple(
                 pf.SymbolicValue()
                 for pf in self.remote_nodemap.FindNode('PixelFormat').AvailableEntries()
             )
         except Exception as e:
-            _cam_log.error(f'[CAM Class ] get_supported_pixel_formats failed: {e}')
+            # An empty tuple is indistinguishable from "no formats" at the call
+            # site -- a caller doing formats[0] then raises IndexError far from the
+            # real cause. Name a removal or a wedged nodemap distinctly so the log
+            # carries the reason, but still return () (removal stays owned by the
+            # DeviceLost callback, so this query never marks disconnected itself).
+            if _exc_is(e, 'DeviceLostException', 'removed'):
+                _cam_log.error(f'[CAM Class ] get_supported_pixel_formats: device removed ({e})')
+            elif _exc_is(e, 'InvalidInstanceException', 'invalid', 'nodemap', 'bufferhandle'):
+                _cam_log.error(
+                    f'[CAM Class ] get_supported_pixel_formats: nodemap/stream wedged ({e})'
+                )
+            else:
+                _cam_log.error(f'[CAM Class ] get_supported_pixel_formats failed: {e}')
             return ()
 
     def exposure_t(self, exposure_ms) -> bool:

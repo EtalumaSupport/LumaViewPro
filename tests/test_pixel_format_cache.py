@@ -73,3 +73,29 @@ class TestIdsPixelFormatCache:
         assert cam.set_pixel_format('Mono12') is True
         assert seen['cache_at_restart'] == 'Mono12'  # already updated pre-restart
         assert cam._pixel_format_cache == 'Mono12'
+
+
+class TestIdsSupportedPixelFormats:
+    def test_empty_tuple_when_inactive(self):
+        cam = bare_ids_camera()
+        cam.active = None
+        assert cam.get_supported_pixel_formats() == ()
+
+    def test_empty_tuple_when_removed_even_though_active_is_set(self):
+        # _mark_disconnected() sets _device_removed but leaves active set, so the
+        # guard must key off _device_removed to keep the query off a dead nodemap.
+        cam = bare_ids_camera()
+        cam._device_removed = True  # active is still True (release deferred)
+        assert cam.get_supported_pixel_formats() == ()
+        cam.remote_nodemap.FindNode.assert_not_called()  # never touched the nodemap
+
+    def test_wedge_returns_empty_and_does_not_mark_disconnected(self):
+        # A wedged nodemap must NOT be masked as "no formats" silently, but this
+        # query never owns removal -- it returns () and leaves _mark_disconnected
+        # to the DeviceLost callback (unlike the Pylon driver).
+        cam = bare_ids_camera()
+        cam.remote_nodemap.FindNode.side_effect = RuntimeError(
+            'InvalidInstanceException: nodemap invalid'
+        )
+        assert cam.get_supported_pixel_formats() == ()
+        cam._mark_disconnected.assert_not_called()

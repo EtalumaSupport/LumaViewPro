@@ -91,6 +91,35 @@ class TestSignificantBitsFromFormat:
     def test_significant_bits(self, wire, expected):
         assert ids_significant_bits(wire) == expected
 
+    def test_unrecognized_format_warns_but_defaults_8(self):
+        # A non-Mono (color/packed) name is unexpected on this mono-only driver:
+        # still default to 8, but WARN so it is loud rather than silently stamped.
+        from drivers import idscamera
+
+        log = MagicMock()
+        with patch.object(idscamera, '_cam_log', log):
+            assert ids_significant_bits('BayerRG12') == 8
+        log.warning.assert_called_once()
+
+    def test_recognized_mono_format_does_not_warn(self):
+        from drivers import idscamera
+
+        log = MagicMock()
+        with patch.object(idscamera, '_cam_log', log):
+            assert ids_significant_bits('Mono12') == 12
+        log.warning.assert_not_called()
+
+    def test_empty_format_defaults_8_quietly(self):
+        # An empty/None format is a failed-read sentinel, not a color camera --
+        # default to 8 without the misleading "unrecognized color format" warning.
+        from drivers import idscamera
+
+        log = MagicMock()
+        with patch.object(idscamera, '_cam_log', log):
+            assert ids_significant_bits('') == 8
+            assert ids_significant_bits(None) == 8
+        log.warning.assert_not_called()
+
 
 class TestIplTarget:
     def test_mono12_unpacks_to_mono12(self):
