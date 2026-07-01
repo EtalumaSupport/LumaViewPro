@@ -358,6 +358,7 @@ def bare_ids_camera():
     cam._recovery_started = False
     cam._recovery_abort = threading.Event()
     cam._disconnect_requested = False
+    cam._async_teardown_started = False
     cam._recovery_thread = None
     cam._pixel_format_cache = None
     # Capability values __init__ resolves from the nodemap at connect: the

@@ -1020,6 +1020,35 @@ class TestStartGrabbingRollback:
         cam.start_grabbing()
         assert cam.data_stream.RevokeBuffer.call_count == len(announced)
 
+    def test_start_grabbing_declines_on_a_camera_that_never_connected(self):
+        # The bring-up start gate (and the API streaming restart) fire
+        # start_grabbing even when connect() failed; with no device bound there
+        # is no start to attempt and no rollback to run -- entering the body
+        # would dress the None handles up as a failed start + rollback.
+        cam = self._cam()
+        cam.active = None
+        cam._rollback_failed_start = MagicMock()
+        cam.start_grabbing()
+        cam.data_stream.AllocAndAnnounceBuffer.assert_not_called()
+        cam._rollback_failed_start.assert_not_called()
+
+    def test_stop_grabbing_declines_on_a_camera_that_never_connected(self):
+        cam = self._cam()
+        cam.active = None
+        cam.stop_grabbing()
+        cam.cam_image_handler.stop.assert_not_called()
+        cam.data_stream.StopAcquisition.assert_not_called()
+
+    def test_rollback_with_no_bound_handles_undoes_nothing(self):
+        # A rollback reached with no device bound (torn-down camera) has no
+        # acquisition to stop, no lock to release, and no pool to revoke; each
+        # undo step keys off its own handle existing.
+        cam = self._cam()
+        cam.data_stream = None
+        cam.remote_nodemap = None
+        cam.cam_image_handler = None
+        cam._rollback_failed_start()  # must not raise
+
 
 class TestBufferPoolReclaim:
     """The announced buffer pool must not grow across stop/start cycles. A stop
@@ -1295,6 +1324,26 @@ class TestDeviceResetRecovery:
         with pytest.raises(HardwareError):
             cam._recover_wedged_stream()
 
+    def test_recovery_reopen_retry_aborts_on_disconnect(self, monkeypatch):
+        # A user disconnect landing during the reopen's retry backoff must
+        # abort the recovery like the pre-reset checkpoints do -- not let the
+        # retry reopen a camera the user is closing.
+        from drivers import idscamera
+        from drivers.exceptions import HardwareError
+
+        monkeypatch.setattr(idscamera.time, 'sleep', lambda _s: None)
+        cam = self._recoverable_cam()
+        desc = _descriptor('SN-OURS')
+
+        def _deny(_access):
+            cam._recovery_abort.set()  # the disconnect lands mid-retry
+            raise RuntimeError('PEAK_RETURN_CODE_BAD_ACCESS: control access denied')
+
+        desc.OpenDevice.side_effect = _deny
+        cam._rediscover_by_serial = MagicMock(return_value=desc)
+        with pytest.raises(HardwareError):
+            cam._recover_wedged_stream()
+
     def test_recover_wedged_stream_bails_when_aborted(self):
         # A disconnect requested before recovery runs must abort it BEFORE the
         # irreversible DeviceReset -- never reboot a camera the user is closing.
@@ -1335,16 +1384,40 @@ class TestDeviceResetRecovery:
         assert cam.active is None
 
     def test_recovery_reopen_with_pending_disconnect_tears_back_down(self):
-        # If a recovery reopens the camera despite a disconnect requested mid-flight
+        # If a recovery reopens the camera despite a disconnect landing mid-flight
         # (it slipped past the abort checks), the finally latch tears the freshly
-        # reopened camera back down so the disconnect is honored.
+        # reopened camera back down so the disconnect is honored. The disconnect
+        # arrives AFTER the recovery is scheduled -- one requested before it would
+        # decline the recovery outright.
         cam = self._recoverable_cam()
-        cam._recover_wedged_stream = MagicMock()  # succeeds -> recovered=True
+
+        def _recover_then_disconnect_lands():
+            cam._disconnect_requested = True  # user disconnects mid-recovery
+
+        cam._recover_wedged_stream = _recover_then_disconnect_lands
         cam.disconnect = MagicMock()
-        cam._disconnect_requested = True  # user asked to disconnect mid-recovery
         cam._schedule_async_recovery()
         self._wait_until(lambda: cam.disconnect.call_count >= 1)
         cam.disconnect.assert_called_once()
+
+    def test_schedule_declines_when_teardown_owns_lifecycle(self):
+        # A wedge escalation arriving once a disconnect or removal teardown owns
+        # the lifecycle must not start a recovery at all: the recovery's reopen
+        # would hold the camera's exclusive Control access against the user's
+        # next connect() -- the reconnect-collision shape.
+        for owner_flag in (
+            '_disconnect_requested',
+            '_device_removed',
+            '_async_teardown_started',
+        ):
+            cam = _ids_cam_for_recovery()
+            cam._recover_wedged_stream = MagicMock()
+            setattr(cam, owner_flag, True)
+            cam._schedule_async_recovery()
+            time.sleep(0.05)  # would be enough for a wrongly-spawned recovery thread
+            cam._recover_wedged_stream.assert_not_called()
+            assert cam._recovery_started is False, owner_flag
+            assert cam._in_recovery is False, owner_flag
 
     def test_snapshot_and_restore_round_trip(self):
         cam = _ids_cam_for_recovery()
@@ -1529,8 +1602,31 @@ class TestDeviceLostCallback:
         cam._device_removed = False
         cam.stop_grabbing = MagicMock()
         cam.is_grabbing = MagicMock(return_value=True)
+        handler = cam.cam_image_handler
         cam.disconnect()
         cam.stop_grabbing.assert_called_once()
+        # stop_grabbing() joins the grab threads itself; disconnect must not
+        # stack a second join ceiling on top (a wedged stream that cannot be
+        # joined would stall the disconnect for two full ceilings).
+        handler.stop.assert_not_called()
+
+    def test_disconnect_quiesces_handler_even_when_not_grabbing(self):
+        # is_grabbing() reads the ACQUISITION state, which a failed-start
+        # rollback can leave False while the grab threads are still alive. A
+        # disconnect that skips the handler stop on that reading drops live
+        # threads that pin the data stream -- the device's exclusive Control
+        # claim then outlives the disconnect and the next OpenDevice(Control)
+        # collides with our own zombie hold.
+        cam = _ids_cam_for_recovery()
+        cam.device_manager = MagicMock()
+        cam.active = MagicMock()
+        cam._device_removed = False
+        cam.stop_grabbing = MagicMock()
+        cam.is_grabbing = MagicMock(return_value=False)  # threads may still live
+        handler = cam.cam_image_handler  # captured before disconnect nulls it
+        cam.disconnect()
+        cam.stop_grabbing.assert_not_called()
+        handler.stop.assert_called_once()  # quiesced anyway
 
     def test_disconnect_nulls_handler_to_release_stream(self):
         # disconnect() must drop cam_image_handler: it was constructed with the
@@ -1576,6 +1672,10 @@ class TestConnectFailureUnregistersCallback:
         cam._device_lost_callback = None
         cam._device_lost_callback_handle = None
         cam._async_teardown_started = False
+        # bare_ids_camera() seeds a live camera; these tests drive a REAL
+        # connect(), which is idempotent on an already-connected instance and
+        # would short-circuit before the paths under test.
+        cam.active = None
         return cam
 
     def test_failure_after_register_unregisters_callback(self, monkeypatch):
@@ -1614,6 +1714,145 @@ class TestConnectFailureUnregistersCallback:
         assert cam._device_lost_callback_handle is None
         assert cam.active is None
         assert cam.data_stream is None
+
+
+class TestOpenControlRetry:
+    """Control access is exclusive on the camera and stays claimed for a short
+    window after a prior holder lets go (our own just-released handle on a rapid
+    reconnect, a vendor tool, the re-enumeration after a DeviceReset). Both
+    connect() and the recovery reopen must ride out that window with a bounded
+    retry instead of failing the whole bring-up on the first denial -- while any
+    NON-denial open fault still propagates immediately."""
+
+    _DENIAL = 'Error-Code: 4 (PEAK_RETURN_CODE_BAD_ACCESS): control access denied'
+
+    def _no_sleep(self, monkeypatch):
+        from drivers import idscamera
+
+        monkeypatch.setattr(idscamera.time, 'sleep', lambda _s: None)
+
+    def test_denial_then_success_retries(self, monkeypatch):
+        self._no_sleep(monkeypatch)
+        cam = bare_ids_camera()
+        device = MagicMock()
+        descriptor = MagicMock()
+        descriptor.OpenDevice.side_effect = [RuntimeError(self._DENIAL), device]
+        opened, used = cam._open_device_with_retry(descriptor)
+        assert opened is device
+        assert used is descriptor
+        assert descriptor.OpenDevice.call_count == 2
+
+    def test_open_already_variant_also_retries(self, monkeypatch):
+        self._no_sleep(monkeypatch)
+        cam = bare_ids_camera()
+        device = MagicMock()
+        descriptor = MagicMock()
+        descriptor.OpenDevice.side_effect = [
+            RuntimeError('Module 1409...U3-34LxXLS-M-0 is open already!'),
+            device,
+        ]
+        opened, _used = cam._open_device_with_retry(descriptor)
+        assert opened is device
+
+    def test_non_denial_fault_propagates_without_retry(self, monkeypatch):
+        self._no_sleep(monkeypatch)
+        cam = bare_ids_camera()
+        descriptor = MagicMock()
+        descriptor.OpenDevice.side_effect = RuntimeError('no GenTL producer found')
+        with pytest.raises(RuntimeError):
+            cam._open_device_with_retry(descriptor)
+        assert descriptor.OpenDevice.call_count == 1
+
+    def test_exhausted_budget_raises_the_denial(self, monkeypatch):
+        from drivers import idscamera
+
+        self._no_sleep(monkeypatch)
+        cam = bare_ids_camera()
+        descriptor = MagicMock()
+        descriptor.OpenDevice.side_effect = RuntimeError(self._DENIAL)
+        with pytest.raises(RuntimeError):
+            cam._open_device_with_retry(descriptor)
+        assert descriptor.OpenDevice.call_count == 1 + idscamera._OPEN_CONTROL_RETRIES
+
+    def test_refresh_swaps_in_a_fresh_descriptor_and_returns_it(self, monkeypatch):
+        # A denied open can mean the prior holder's release re-enumerated the
+        # device; each retry gets the chance to re-resolve the descriptor, and
+        # the descriptor actually opened must travel back to the caller -- the
+        # serial/key reads that follow must come from the LIVE descriptor, not
+        # the stale one passed in (a stale read leaves _device_serial unset,
+        # silently disabling unplug detection and wedge recovery re-matching).
+        self._no_sleep(monkeypatch)
+        cam = bare_ids_camera()
+        device = MagicMock()
+        stale = MagicMock()
+        stale.OpenDevice.side_effect = RuntimeError(self._DENIAL)
+        fresh = MagicMock()
+        fresh.OpenDevice.return_value = device
+        opened, used = cam._open_device_with_retry(stale, refresh=lambda: fresh)
+        assert opened is device
+        assert used is fresh
+        fresh.OpenDevice.assert_called_once()
+
+    def test_refresh_raise_propagates_and_stops_the_retry(self, monkeypatch):
+        # The recovery reopen's refresh raises when a user disconnect lands
+        # mid-retry; the helper must let that escape rather than eat it as
+        # one more retry round.
+        self._no_sleep(monkeypatch)
+        cam = bare_ids_camera()
+        descriptor = MagicMock()
+        descriptor.OpenDevice.side_effect = RuntimeError(self._DENIAL)
+
+        def _abort():
+            raise RuntimeError('aborted by disconnect')
+
+        with pytest.raises(RuntimeError, match='aborted by disconnect'):
+            cam._open_device_with_retry(descriptor, refresh=_abort)
+        assert descriptor.OpenDevice.call_count == 1
+
+    def test_connect_on_a_live_camera_is_idempotent(self):
+        # A second connect() would collide with our own exclusive Control
+        # handle, and its failure path would then tear down healthy state --
+        # so it must decline as an already-connected success, touching nothing.
+        cam = bare_ids_camera()
+        nodemap_before = cam.remote_nodemap
+        assert cam.connect() is True
+        assert cam.remote_nodemap is nodemap_before
+        assert cam.active is not None
+
+    def _bringup_cam(self, monkeypatch, dm):
+        from drivers import idscamera
+
+        monkeypatch.setattr(idscamera.ids_peak.DeviceManager, 'Instance', lambda: dm, raising=False)
+        cam = bare_ids_camera()
+        cam._device_lost_callback = None
+        cam._device_lost_callback_handle = None
+        cam._async_teardown_started = False
+        return cam
+
+    def test_first_connect_with_initial_active_false_runs_bringup(self, monkeypatch):
+        # Before the first connect the base class holds active = False (its
+        # documented not-connected initial state), NOT None and NOT a handle.
+        # The idempotence guard must read that as not-connected -- otherwise
+        # the very first connect() of every session is a silent no-op that
+        # reports success while no device was ever opened.
+        dm = MagicMock()
+        dm.Devices.return_value.empty.return_value = True  # no camera found
+        cam = self._bringup_cam(monkeypatch, dm)
+        cam.active = False
+        assert cam.connect() is False  # ran the bring-up and honestly failed
+
+    def test_connect_during_teardown_window_runs_bringup(self, monkeypatch):
+        # Between a removal being latched and the async teardown nulling the
+        # handles, active is still a (dead) handle. connect() in that window
+        # must run the full bring-up -- short-circuiting would report success
+        # on the dead handle and leave the stale teardown flags set, which
+        # would then permanently decline every future wedge recovery.
+        dm = MagicMock()
+        dm.Devices.return_value.empty.return_value = True
+        cam = self._bringup_cam(monkeypatch, dm)
+        cam.active = MagicMock()  # dead-but-not-yet-nulled handle
+        cam._async_teardown_started = True
+        assert cam.connect() is False  # fell through the guard into bring-up
 
 
 class TestPipelineLifecycle:

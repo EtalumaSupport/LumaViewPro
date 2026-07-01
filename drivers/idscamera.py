@@ -49,6 +49,17 @@ _RECOVERY_POLL_INTERVAL_S = 0.25
 _RECOVERY_MAX_ATTEMPTS = 3
 _RECOVERY_ATTEMPT_RESET_S = 30.0
 
+# OpenDevice(Control) retry on a transient access denial. Control access is
+# exclusive on the camera: it stays claimed for a short window after a prior
+# holder lets go -- our own just-released handle on a rapid reconnect, a
+# just-closed vendor tool (Cockpit / firmware updater), or the re-enumeration
+# right after a DeviceReset. A single-shot open turns that whole window into a
+# hard connect failure, so retry briefly with a growing backoff before giving
+# up (a device genuinely held by another application still fails, just ~2s
+# slower and with the holder named in the log).
+_OPEN_CONTROL_RETRIES = 3
+_OPEN_CONTROL_BACKOFF_S = 0.4
+
 # Active device-presence probe on a SUSTAINED poll stall. DeviceLost never
 # fires on a USB unplug for the U3-34L, so a real removal otherwise looks
 # identical to a wedged-but-present stall -- both just time out forever. After
@@ -338,6 +349,23 @@ class IDSCamera(Camera):
 
     def connect(self) -> bool:
         global _ids_library_initialized
+        # Idempotent: a second connect on a live camera would collide with our
+        # own exclusive Control handle (BAD_ACCESS "open already"), and the
+        # failure path would then tear down a perfectly healthy connection.
+        # "Live" is a truthiness test -- active is False before the first
+        # connect and None after a teardown; only an open device handle is
+        # truthy -- AND requires that no removal/disconnect teardown owns the
+        # lifecycle: during that window the handle is dead-but-not-yet-nulled,
+        # and the right move is the full bring-up below (which starts by
+        # clearing the stale lifecycle flags). _active read directly: the
+        # `active` property takes _state_lock itself.
+        with self._state_lock:
+            already_connected = bool(self._active) and not (
+                self._device_removed or self._async_teardown_started or self._disconnect_requested
+            )
+        if already_connected:
+            _cam_log.info('[CAM Class ] connect skipped: already connected')
+            return True
         try:
             # Initialize device manager
             ids_peak.Library.Initialize()
@@ -349,12 +377,16 @@ class IDSCamera(Camera):
             if self.device_manager.Devices().empty():
                 raise ConnectionError('Could not find IDS camera')
 
-            # Capture the device descriptor's key before opening: DeviceLost is
-            # delivered for EVERY device in the system, so the callback filters on
-            # this key to act only on our camera's removal.
             descriptor = self.device_manager.Devices()[0]
+            self.active, descriptor = self._open_device_with_retry(
+                descriptor,
+                refresh=lambda: self._refresh_descriptor_matching(descriptor),
+            )
+            # The key comes from the descriptor the device was ACTUALLY opened
+            # from (a retry may have swapped in a re-enumerated one): DeviceLost
+            # is delivered for EVERY device in the system, so the callback
+            # filters on this key to act only on our camera's removal.
             self._device_key = descriptor.Key()
-            self.active = descriptor.OpenDevice(ids_peak.DeviceAccessType_Control)
             self.data_stream = self.active.DataStreams()[0].OpenDataStream()
             self.remote_nodemap = self.active.RemoteDevice().NodeMaps()[0]
             self._device_removed = False
@@ -432,6 +464,65 @@ class IDSCamera(Camera):
         self._pixel_format_cache = None
         self.cam_image_handler = None
 
+    def _open_device_with_retry(self, descriptor, refresh=None):
+        """OpenDevice(Control) with a short bounded retry on an access denial.
+
+        Control access is exclusive and can be transiently unavailable (see the
+        _OPEN_CONTROL_* constants). Only an access-denial fault retries; any
+        other open failure propagates immediately, as does the last denial once
+        the retry budget is spent -- the caller's failure handling is unchanged.
+
+        Returns ``(device, descriptor)``: the opened device AND the descriptor
+        it was actually opened from, because `refresh` (called before each
+        retry) may swap in a re-enumerated descriptor and the caller must read
+        the serial/key from the descriptor that is live, not the stale one it
+        passed in. `refresh` returning None keeps the current descriptor; a
+        raise from `refresh` propagates (the recovery path uses that to abort
+        the retry on a user disconnect).
+        """
+        attempt = 0
+        while True:
+            try:
+                return descriptor.OpenDevice(ids_peak.DeviceAccessType_Control), descriptor
+            except Exception as e:
+                is_denial = _exc_is(
+                    e, 'BadAccessException', 'bad_access', 'access denied', 'open already'
+                )
+                if not is_denial or attempt >= _OPEN_CONTROL_RETRIES:
+                    raise
+                attempt += 1
+                delay = _OPEN_CONTROL_BACKOFF_S * attempt
+                _cam_log.warning(
+                    f'[CAM Class ] OpenDevice(Control) denied (device held; attempt '
+                    f'{attempt}/{_OPEN_CONTROL_RETRIES}), retrying in {delay:.1f}s: {e}'
+                )
+                time.sleep(delay)
+                if refresh is not None:
+                    fresh = refresh()
+                    if fresh is not None:
+                        descriptor = fresh
+
+    def _refresh_descriptor_matching(self, original):
+        """Re-enumerate and return the fresh descriptor for the SAME physical
+        device `original` points at, or None to keep retrying the one in hand.
+
+        Retry companion for a denied open: the denial can mean the prior
+        holder's release re-enumerated the device, invalidating the descriptor
+        in hand. The re-match is by serial -- never a blind first-device pick,
+        which could bind a different camera on a multi-device system. When the
+        serial cannot be read or the walk faults, the answer is None (retry
+        the current descriptor); a refresh is an opportunistic improvement,
+        never a new failure mode, so it does not raise.
+        """
+        try:
+            serial = original.SerialNumber()
+            self.device_manager.Update()
+            descriptor, _read_faulted = self._find_descriptor_by_serial(serial)
+            return descriptor
+        except Exception as e:
+            logger.debug(f'[CAM Class ] descriptor refresh for open retry failed: {e}')
+            return None
+
     def disconnect(self) -> bool:
         try:
             # Unregister the DeviceLost callback first, while device_manager is
@@ -467,11 +558,27 @@ class IDSCamera(Camera):
                     except Exception as e:
                         logger.debug(f'[CAM Class ] handler stop on removed device ignored: {e}')
                 else:
+                    grab_stop_ran = False
                     try:
                         if self.is_grabbing():
                             self.stop_grabbing()
+                            grab_stop_ran = True
                     except Exception as e:
                         logger.debug(f'[CAM Class ] stop_grabbing during disconnect ignored: {e}')
+                    # Grab-thread quiescence is disconnect's own obligation,
+                    # not a side effect of stop_grabbing(): is_grabbing()
+                    # reads the ACQUISITION state, which a failed-start
+                    # rollback can leave False while the grab threads are
+                    # still alive -- and a live thread pins the data stream,
+                    # keeping the device's exclusive Control claim held past
+                    # this disconnect so the next OpenDevice(Control) collides
+                    # with our own zombie hold. Quiesce directly whenever
+                    # stop_grabbing() (which joins the threads itself) did not
+                    # run, so the worst case stays ONE join ceiling, never two.
+                    # stop() is idempotent and non-raising (its SDK touches
+                    # are self-guarded).
+                    if not grab_stop_ran and self.cam_image_handler is not None:
+                        self.cam_image_handler.stop()
                 self.active = None
                 self.remote_nodemap = None
                 self.data_stream = None
@@ -726,16 +833,30 @@ class IDSCamera(Camera):
         with self._state_lock:
             if self._recovery_started:
                 return
-            # A long healthy gap since the last attempt resets the budget; rapid
-            # repeated wedges accumulate toward the cap.
-            if now - self._last_recovery_time > _RECOVERY_ATTEMPT_RESET_S:
-                self._recovery_attempts = 0
-            self._last_recovery_time = now
-            exhausted = self._recovery_attempts >= _RECOVERY_MAX_ATTEMPTS
-            if not exhausted:
-                self._recovery_attempts += 1
-                self._recovery_started = True
-                self._in_recovery = True
+            # A disconnect or removal teardown already owns the lifecycle. A
+            # wedge escalation arriving now (a poll thread dying on the stream
+            # that teardown revoked under it) must not REOPEN the device
+            # against that teardown -- the reopen would hold the exclusive
+            # Control access the user's next connect() needs, turning a clean
+            # disconnect into a reconnect collision.
+            declined = (
+                self._disconnect_requested or self._device_removed or self._async_teardown_started
+            )
+            exhausted = False
+            if not declined:
+                # A long healthy gap since the last attempt resets the budget;
+                # rapid repeated wedges accumulate toward the cap.
+                if now - self._last_recovery_time > _RECOVERY_ATTEMPT_RESET_S:
+                    self._recovery_attempts = 0
+                self._last_recovery_time = now
+                exhausted = self._recovery_attempts >= _RECOVERY_MAX_ATTEMPTS
+                if not exhausted:
+                    self._recovery_attempts += 1
+                    self._recovery_started = True
+                    self._in_recovery = True
+        if declined:
+            _cam_log.info('[CAM Class ] wedge recovery declined: disconnect/teardown in progress')
+            return
         if exhausted:
             _cam_log.error(
                 f'[CAM Class ] IDS recovery exhausted ({_RECOVERY_MAX_ATTEMPTS} resets); '
@@ -838,8 +959,22 @@ class IDSCamera(Camera):
         if self._recovery_abort.is_set():
             raise HardwareError('recover: aborted by disconnect before reopen')
         self._unregister_device_callbacks()
+
+        def _refresh_or_abort():
+            # A user disconnect landing during the retry backoff wins, exactly
+            # like the two abort checkpoints above; and the just-reset device
+            # can re-enumerate again between attempts, so re-match it by
+            # serial rather than retrying a possibly-invalidated descriptor.
+            if self._recovery_abort.is_set():
+                raise HardwareError('recover: aborted by disconnect during reopen retry')
+            return self._refresh_descriptor_matching(descriptor)
+
+        # Retry a denied open: right after the reset's re-enumeration the
+        # control channel can lag the device's reappearance by a beat.
+        self.active, descriptor = self._open_device_with_retry(
+            descriptor, refresh=_refresh_or_abort
+        )
         self._device_key = descriptor.Key()
-        self.active = descriptor.OpenDevice(ids_peak.DeviceAccessType_Control)
         self.data_stream = self.active.DataStreams()[0].OpenDataStream()
         self.remote_nodemap = self.active.RemoteDevice().NodeMaps()[0]
         self._device_removed = False
@@ -1490,6 +1625,15 @@ class IDSCamera(Camera):
         return self.data_stream.IsGrabbing()
 
     def stop_grabbing(self):
+        # Same owner-side connected-device precondition as start_grabbing:
+        # multiple independent callers may stop a camera whose connect failed,
+        # and the None handles below would otherwise surface as a spurious
+        # "stop_grabbing ignored error" implying an SDK fault that never was.
+        # Logged at info, not warning like the start-side twin: a skipped stop
+        # leaves nothing running, while a skipped start costs the live view.
+        if self.active is None or self.remote_nodemap is None or self.data_stream is None:
+            _cam_log.info('[CAM Class ] stop_grabbing skipped: camera not connected')
+            return
         if _cam_log is not None:
             _cam_log.info('ids AcquisitionStop + StopAcquisition + Flush + RevokeBuffers')
         try:
@@ -1600,6 +1744,17 @@ class IDSCamera(Camera):
         return True
 
     def start_grabbing(self):
+        # Connected-device precondition, owned HERE because this is a public
+        # restartable primitive with several independent call sites (the
+        # bring-up start gate, the API-layer streaming restart, diagnostics,
+        # recovery) -- gating each caller would re-scatter the same check. The
+        # pylon driver's start_grabbing carries the identical owner-side guard;
+        # both drivers share the base contract that start_grabbing is safe to
+        # fire on a camera whose connect failed, declining loudly rather than
+        # dressing the None handles up as a failed start + rollback.
+        if self.active is None or self.remote_nodemap is None or self.data_stream is None:
+            _cam_log.warning('[CAM Class ] start_grabbing skipped: camera not connected')
+            return
         if self.is_grabbing():
             if _cam_log is not None:
                 _cam_log.info('ids start_grabbing SKIPPED: already grabbing')
@@ -1692,21 +1847,27 @@ class IDSCamera(Camera):
             except Exception as e:
                 logger.debug(f'[CAM Class ] rollback handler.stop ignored: {e}')
                 quiesced = False  # could not confirm the threads died -- do not revoke
-        try:
-            self.data_stream.StopAcquisition()
-        except Exception as e:
-            logger.debug(f'[CAM Class ] rollback StopAcquisition ignored: {e}')
-        try:
-            self.remote_nodemap.FindNode('TLParamsLocked').SetValue(0)
-        except Exception as e:
-            logger.debug(f'[CAM Class ] rollback TLParamsLocked=0 ignored: {e}')
-        if quiesced:
+        # Each undo step runs only when its handle exists: a start that failed
+        # before a handle was bound (or on a torn-down camera) has nothing to
+        # undo there, and attempting it would log a spurious SDK-fault line.
+        if self.data_stream is not None:
             try:
-                self._flush_and_revoke_pool()
+                self.data_stream.StopAcquisition()
             except Exception as e:
-                logger.debug(f'[CAM Class ] rollback buffer revoke ignored: {e}')
-        else:
-            self._breadcrumb_unrevoked_pool()
+                logger.debug(f'[CAM Class ] rollback StopAcquisition ignored: {e}')
+        if self.remote_nodemap is not None:
+            try:
+                self.remote_nodemap.FindNode('TLParamsLocked').SetValue(0)
+            except Exception as e:
+                logger.debug(f'[CAM Class ] rollback TLParamsLocked=0 ignored: {e}')
+        if self.data_stream is not None:
+            if quiesced:
+                try:
+                    self._flush_and_revoke_pool()
+                except Exception as e:
+                    logger.debug(f'[CAM Class ] rollback buffer revoke ignored: {e}')
+            else:
+                self._breadcrumb_unrevoked_pool()
 
     def _configure_free_run(self):
         """Remove the throttles that cap the IDS frame rate so the camera runs
