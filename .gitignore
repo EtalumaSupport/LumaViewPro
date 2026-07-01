@@ -29,3 +29,9 @@ scripts/appBuild/.build_config
 .claude/settings.local.json
 .venv/
 data/
+generated_tiles_current_compare/
+results_current_compare/
+grids/
+reports_current_10x10/
+generated_tiles_current_10x10/
+results_current_10x10/
