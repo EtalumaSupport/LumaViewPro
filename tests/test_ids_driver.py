@@ -828,6 +828,26 @@ class TestWedgedBufferBreaksLoop:
         h._parent._mark_disconnected.assert_not_called()
         h._parent._handle_device_lost.assert_not_called()
 
+    def test_handle_wait_error_invalid_stream_handle_breaks_and_escalates(self):
+        # The SAME invalid-handle fault can surface from WaitForFinishedBuffer
+        # itself (the data stream revoked during the wait), not only from buffer
+        # access. The wait-path classifier must stop the loop and escalate the
+        # wedge -- NOT fall through to keep-polling, which hot-spins on the dead
+        # stream (a single wedge produced tens of thousands of identical warnings
+        # on the bench before this case existed).
+        from drivers import idscamera
+
+        ds = MagicMock()
+        h = _ids_handler(ds)
+        log = MagicMock()
+        with patch.object(idscamera, '_cam_log', log):
+            should_stop = h._handle_wait_error(RuntimeError('dataStreamHandle is invalid!'))
+        assert should_stop is True  # stop the loop -- do NOT keep polling (no hot-spin)
+        log.error.assert_called_once()  # routed through the camera log as a wedge
+        h._parent._schedule_async_recovery.assert_called_once()  # escalate like buffer path
+        h._parent._mark_disconnected.assert_not_called()
+        h._parent._handle_device_lost.assert_not_called()
+
     def test_buffer_device_lost_routes_to_single_owner(self):
         # A removal surfacing as a buffer-access raise (the DeviceLost callback was
         # missed) must route to the single removal owner -- mirrors the typed

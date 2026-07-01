@@ -2079,6 +2079,17 @@ class IDSCamera(Camera):
                     afl.Library.Exit()
                 except Exception as e:
                     logger.debug(f'[CAM Class ] afl-probe: Library.Exit unavailable: {e}')
+        # Emit the verdict through the driver log so it is captured by --driver-log
+        # (the returned dict is print()ed by the test, which the log bundle drops).
+        packed = result.get('packed') or {}
+        unpacked = result.get('unpacked') or {}
+        _cam_log.info(
+            '[CAM Class ] afl-probe RESULT: '
+            f'importable={result.get("afl_importable")} wire={result.get("wire_format")!r} '
+            f'PACKED_accepted={packed.get("accepted")} (exc={packed.get("exception")} '
+            f'status={packed.get("status")}) UNPACKED_accepted={unpacked.get("accepted")} '
+            f'reason={result.get("error") or result.get("manager_setup_error") or result.get("lib_init_error")}'
+        )
         return result
 
     def benchmark_unpack(self, n_frames: int = 200) -> dict:
@@ -3644,6 +3655,21 @@ class ImageHandler(ImageHandlerBase):
             # callback ever misses. Routes to the same single removal owner.
             _cam_log.warning(f'[CAM Class ] Device removal detected in grab loop: {e}')
             self._parent._handle_device_lost()
+            return True
+        if _exc_is(e, 'InvalidInstanceException', 'invalid', 'bufferhandle'):
+            # The data stream was revoked/reset out from under the live wait, so
+            # WaitForFinishedBuffer itself raises an invalid-handle fault. Without
+            # this case the fault fell through to keep-polling below and the poll
+            # thread HOT-SPUN on it thousands of times a second against a dead
+            # stream (observed on the bench: a single wedge produced tens of
+            # thousands of identical warnings and never stopped). Treat it exactly
+            # like the same fault on buffer access: stop the loop and escalate the
+            # wedge rather than spin. Mirrors _handle_buffer_error.
+            _cam_log.error(
+                '[CAM Class ] IDS data-stream handle invalid in wait (stream wedged): '
+                f'{type(e).__name__}: {e!r} -- escalating to in-software recovery'
+            )
+            self._parent._schedule_async_recovery()
             return True
         # Any other wait error: log and keep polling. Removal is owned solely by
         # DeviceLost (callback + typed fallback above), so a transient SDK fault

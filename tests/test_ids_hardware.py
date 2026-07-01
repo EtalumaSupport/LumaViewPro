@@ -508,6 +508,15 @@ class TestIDS(unittest.TestCase):
                 pass
             return ' '.join(parts)
 
+        from lvp_logger import logger as _cap_log
+
+        def _emit(line):
+            # Print for the -s terminal AND log through the driver logger so the
+            # result is captured by --driver-log (a bare print() is dropped from
+            # the collected log bundle).
+            print(line)
+            _cap_log.info(f'[CAM Class ] capability-probe: {line.strip()}')
+
         remote = self.camera.remote_nodemap
         remote_nodes = [
             # hardware auto (expect ABSENT on this body)
@@ -533,14 +542,14 @@ class TestIDS(unittest.TestCase):
             'DeviceLinkThroughputLimit',
             'DeviceLinkThroughputLimitComponent',
         ]
-        print('\n[capability probe -- remote (SFNC) nodemap]')
+        _emit('[capability probe -- remote (SFNC) nodemap]')
         for name in remote_nodes:
-            print(f'  {_probe_node(remote, name)}')
+            _emit(f'  {_probe_node(remote, name)}')
 
         try:
             ds_nm = self.camera.data_stream.NodeMaps()[0]
         except Exception as e:
-            print(f'  <data-stream nodemap unavailable: {type(e).__name__}: {e}>')
+            _emit(f'  <data-stream nodemap unavailable: {type(e).__name__}: {e}>')
             ds_nm = None
         if ds_nm is not None:
             ds_nodes = [
@@ -552,9 +561,9 @@ class TestIDS(unittest.TestCase):
                 'StreamIncompleteFrameCount',
                 'BufferStatusMonitoringEnabled',
             ]
-            print('[capability probe -- data-stream nodemap]')
+            _emit('[capability probe -- data-stream nodemap]')
             for name in ds_nodes:
-                print(f'  {_probe_node(ds_nm, name)}')
+                _emit(f'  {_probe_node(ds_nm, name)}')
 
         # Sanity: the remote nodemap read path works (PixelFormat is always there).
         self.assertTrue(remote.HasNode('PixelFormat'))
