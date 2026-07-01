@@ -373,21 +373,34 @@ class IDSCamera(Camera):
 
         except ConnectionError as er:
             _cam_log.warning(f'[CAM Class ] IDS camera connect failed: {er}')
+            self._cleanup_partial_connect()
         except Exception as ex:
             # No-device / no-GenTL-path is the common case here and is an
             # expected probe outcome; log the type + message, not the stack.
             _cam_log.error(f'[CAM Class ] IDS camera connect failed: {type(ex).__name__}: {ex}')
-            # Clean up partial state on failure
-            self.active = None
-            self.remote_nodemap = None
-            self.data_stream = None
-            self._pixel_format_cache = None
-            # Drop the handler if it was already built (line above the raise):
-            # it pins the just-opened data stream, so leaving it set keeps the
-            # USB3 endpoint bound and a retry rebinds the same stream.
-            self.cam_image_handler = None
+            self._cleanup_partial_connect()
 
         return False
+
+    def _cleanup_partial_connect(self) -> None:
+        """Undo a failed/partial connect(): both failure branches route here so a
+        removal signal or a stream binding never survives an aborted bring-up.
+
+        Unregisters the DeviceLost callback FIRST, while device_manager is still
+        valid: if registration succeeded before a later step threw, the self-bound
+        callback would otherwise outlive this aborted connect and fire a spurious
+        teardown on the next removal event of any device. Then drops the opened
+        handles -- including cam_image_handler, which pins the just-opened data
+        stream (leaving it set keeps the USB3 endpoint bound so a retry rebinds
+        the same stream). Idempotent: safe when nothing was opened or registered
+        (the no-device ConnectionError path runs it before any handle exists).
+        """
+        self._unregister_device_callbacks()
+        self.active = None
+        self.remote_nodemap = None
+        self.data_stream = None
+        self._pixel_format_cache = None
+        self.cam_image_handler = None
 
     def disconnect(self) -> bool:
         try:
@@ -2294,7 +2307,12 @@ class IDSCamera(Camera):
         try:
             with self.update_camera_config():
                 self.remote_nodemap.FindNode('PixelFormat').SetCurrentEntry(resolved)
-            self._pixel_format_cache = resolved
+                # Update the cache INSIDE the config guard, while the grab loop
+                # is still paused. update_camera_config()'s __exit__ restarts
+                # grabbing; caching after it would leave a window where frames
+                # flow under the new format but get_pixel_format()/
+                # get_camera_info() still report the old cached value.
+                self._pixel_format_cache = resolved
             return True
         except Exception as e:
             # A transient PixelFormat write failure is not a removal: raise

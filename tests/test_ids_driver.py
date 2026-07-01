@@ -1249,6 +1249,67 @@ class TestDeviceLostCallback:
         assert cam.cam_image_handler is None
 
 
+class TestConnectFailureUnregistersCallback:
+    """connect() registers the DeviceLost callback partway through, before the
+    profile load / handler build. If a later step fails, the failure-cleanup
+    path must unregister that callback -- otherwise the self-bound callback
+    outlives the aborted connect and can fire a spurious teardown on the next
+    removal event of any device in the system."""
+
+    def _drive_connect(self, monkeypatch, dm):
+        from drivers import idscamera
+
+        devices = dm.Devices.return_value
+        devices.empty.return_value = False
+        devices.__getitem__.return_value = _descriptor('SN-OURS')
+        monkeypatch.setattr(idscamera.ids_peak.DeviceManager, 'Instance', lambda: dm, raising=False)
+
+        cam = bare_ids_camera()
+        # Only the attrs bare_ids_camera() does NOT seed: the DeviceLost
+        # registration refs and the teardown latch that connect() would set.
+        cam._device_lost_callback = None
+        cam._device_lost_callback_handle = None
+        cam._async_teardown_started = False
+        return cam
+
+    def test_failure_after_register_unregisters_callback(self, monkeypatch):
+        dm = MagicMock()
+        cam = self._drive_connect(monkeypatch, dm)
+        # _load_profile runs AFTER _register_device_callbacks(): force it to fail
+        # so the connect aborts with a live registration in place.
+        cam._load_profile = MagicMock(side_effect=RuntimeError('profile load boom'))
+
+        assert cam.connect() is False
+        # The callback registered during the aborted connect was torn down.
+        dm.UnregisterDeviceLostCallback.assert_called_once()
+        assert cam._device_lost_callback is None
+        assert cam._device_lost_callback_handle is None
+
+    def test_connection_error_after_register_also_unregisters(self, monkeypatch):
+        # Both failure branches must clean up: a ConnectionError raised AFTER
+        # registration goes through `except ConnectionError`, which must also
+        # unregister -- otherwise the live callback leaks past the aborted connect.
+        dm = MagicMock()
+        cam = self._drive_connect(monkeypatch, dm)
+        cam._load_profile = MagicMock(side_effect=ConnectionError('late connection error'))
+
+        assert cam.connect() is False
+        dm.UnregisterDeviceLostCallback.assert_called_once()
+        assert cam._device_lost_callback_handle is None
+
+    def test_no_device_returns_false_and_clears_handles(self, monkeypatch):
+        # No device present -> ConnectionError before registration. Cleanup runs
+        # (idempotent, nothing to unregister) and leaves no opened handles behind.
+        dm = MagicMock()
+        cam = self._drive_connect(monkeypatch, dm)
+        dm.Devices.return_value.empty.return_value = True  # no camera found
+
+        assert cam.connect() is False
+        assert cam._device_lost_callback_handle is None
+        assert cam.active is None
+        assert cam.data_stream is None
+
+
 class TestPipelineLifecycle:
     """Stage A (poll -> slot) / Stage B (unpack -> store -> re-queue) wiring, with
     the key invariant: EVERY finished buffer is re-queued exactly once -- the
