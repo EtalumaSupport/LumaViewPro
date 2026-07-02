@@ -4020,8 +4020,10 @@
 				rgba: 0,0,0,0
 		Image:
 			id: cell_count_image_id
-			allow_stretch: True
-			keep_ratio: True
+			# 'contain' = scale to fit while preserving aspect ratio; the
+			# replacement for the deprecated allow_stretch + keep_ratio pair,
+			# which warned on every startup.
+			fit_mode: 'contain'
 			# Hide the empty widget until a preview is actually loaded; an
 			# untextured Image otherwise renders a stray white box.
 			opacity: 1 if self.texture else 0
