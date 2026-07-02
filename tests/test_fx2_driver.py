@@ -587,6 +587,26 @@ class TestFX2CameraProfile:
         cam = fx2driver.FX2Camera()
         assert cam.get_frame_size() == {'width': 1900, 'height': 1900}
 
+    def test_set_frame_size_returns_delivered_geometry(self, fake_fx2_conn):
+        cam = fx2driver.FX2Camera()
+        # 1000 is already a multiple of 4; 999 rounds down to 996.
+        delivered = cam.set_frame_size(1000, 999)
+        assert delivered == {'width': 1000, 'height': 996}
+        assert cam.get_frame_size() == {'width': 1000, 'height': 996}
+
+    def test_set_frame_size_register_failure_returns_false_keeps_geometry(self, fake_fx2_conn):
+        cam = fx2driver.FX2Camera()
+        cam.set_frame_size(1000, 996)
+        fake_fx2_conn.sensor_reg_write.side_effect = OSError('usb gone')
+        try:
+            result = cam.set_frame_size(500, 500)
+        finally:
+            fake_fx2_conn.sensor_reg_write.side_effect = None
+        # A failed apply reports the base contract's False and leaves
+        # get_frame_size() at the geometry the sensor is still running with.
+        assert result is False
+        assert cam.get_frame_size() == {'width': 1000, 'height': 996}
+
     def test_max_frame_size_is_1900x1900(self, fake_fx2_conn):
         cam = fx2driver.FX2Camera()
         assert cam.get_max_frame_size() == {'width': 1900, 'height': 1900}

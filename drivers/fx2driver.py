@@ -1431,7 +1431,13 @@ class FX2Camera(Camera):
 
         # Set default window to full 1900x1900 -- also configures the
         # col_size/row_size registers correctly with centering.
-        self.set_frame_size(IMG_WIDTH, IMG_HEIGHT)
+        if self.set_frame_size(IMG_WIDTH, IMG_HEIGHT) is False:
+            # The neighboring init register writes raise on a USB failure and
+            # abort connect(); the window apply must not be quieter. Swallowed
+            # here, connect() would report success with the sensor still at
+            # its power-on window and the ISO frame parser desynced on the
+            # mismatched byte count -- garbage live view with no error.
+            raise RuntimeError('MT9P031 initial window apply failed during sensor init')
 
         logger.info('[FX2 Cam   ] MT9P031 sensor initialized (PLL + BLC)')
 
@@ -1930,15 +1936,20 @@ class FX2Camera(Camera):
 
         Returns the delivered size ``{'width': int, 'height': int}`` after
         rounding and clamping, so the caller knows what was actually applied
-        without a read-back.
+        without a read-back; ``False`` when a sensor-register write fails --
+        the same failure contract the Camera base class documents and the
+        pylon / IDS drivers implement, so the camera-write authority
+        upstream sees one rejection signal from every driver. There is no
+        up-front active-flag guard: connect() configures the initial window
+        through this method BEFORE the active flag is set, and with no SDK
+        to consult, a failing USB register write IS the disconnected signal
+        (routed to False by the handler below).
         """
         step = self.FRAME_SIZE_STEP
         w = max(self.FRAME_SIZE_MIN, min(IMG_WIDTH, int(w)))
         h = max(self.FRAME_SIZE_MIN, min(IMG_HEIGHT, int(h)))
         w = (w // step) * step
         h = (h // step) * step
-        self._width = w
-        self._height = h
 
         # Sensor registers want (display + 1) per LVC reference.
         sensor_w = w + 1
@@ -1948,11 +1959,38 @@ class FX2Camera(Camera):
         col_start = max(0, (2592 - sensor_w) // 2 + 16) & ~1
         row_start = max(0, (1944 - sensor_h) // 2 + 54) & ~1
 
-        # Individual 3-byte writes -- firmware truncates multi-byte I2C.
-        self._fx2.sensor_reg_write(REG_ROW_START, row_start)
-        self._fx2.sensor_reg_write(REG_COL_START, col_start)
-        self._fx2.sensor_reg_write(REG_ROW_SIZE, sensor_h)
-        self._fx2.sensor_reg_write(REG_COL_SIZE, sensor_w)
+        try:
+            # Individual 3-byte writes -- firmware truncates multi-byte I2C.
+            self._fx2.sensor_reg_write(REG_ROW_START, row_start)
+            self._fx2.sensor_reg_write(REG_COL_START, col_start)
+            self._fx2.sensor_reg_write(REG_ROW_SIZE, sensor_h)
+            self._fx2.sensor_reg_write(REG_COL_SIZE, sensor_w)
+        except Exception as e:
+            # Translate a USB write failure into the base contract's explicit
+            # False -- the rejection signal the pylon and IDS set_frame_size
+            # already return, which the camera-write authority upstream turns
+            # into its keep-prior-cache branch. The window fields mutate only
+            # after all four writes land, so a failed apply never lets
+            # get_frame_size() report geometry the sensor never took.
+            logger.error(
+                '[FX2 Cam   ] set_frame_size(%dx%d) register write failed: %s: %s '
+                '(sensor window may be partially applied until the next '
+                'successful set_frame_size)',
+                w,
+                h,
+                type(e).__name__,
+                e,
+            )
+            # A partial apply (some of the four registers landed) leaves the
+            # sensor window indeterminate; buffered stream data may match no
+            # known geometry and would desync the frame parser, so drop it on
+            # the failure path too.
+            with self._iso_buf_lock:
+                self._iso_buf = bytearray()
+            return False
+
+        self._width = w
+        self._height = h
 
         # Flush the ISO buffer -- data captured with the old window is
         # now misaligned and would desync the frame parser.
