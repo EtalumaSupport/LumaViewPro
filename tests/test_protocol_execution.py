@@ -2478,15 +2478,33 @@ class TestRunReturnValueContract:
         assert executor.run_trigger_source() is None
         assert executor.current_step_color() is None
 
-    def test_init_for_new_scan_failure_returns_false(self, executor, tmp_path, monkeypatch):
+    def test_init_for_new_scan_failure_returns_false(self, executor, scope, tmp_path, monkeypatch):
+        import modules.notification_center as notification_center
+
         protocol = _make_single_step_protocol(color='BF')
 
         def vanished_capture_location(self, *args, **kwargs):
             raise FileNotFoundError(str(self))
 
+        notified = []
+        monkeypatch.setattr(
+            notification_center.notifications,
+            'error',
+            lambda *args, **kwargs: notified.append(args),
+        )
         monkeypatch.setattr(pathlib.Path, 'mkdir', vanished_capture_location)
         started = self._start_run(executor, protocol, tmp_path)
         assert started is False
         assert not executor._run_in_progress_event.is_set(), (
             'A run refused at directory setup must not mark a run as in progress'
         )
+        assert notified, (
+            'A run refused at directory setup must notify the user, not '
+            'just log; the operation visibly did not do what was asked'
+        )
+        # Refusal must not leak hardware setup: the protocol LED lease is
+        # only acquired for a run that actually starts, so a fresh
+        # top-level acquire must succeed after the refusal.
+        lease = scope.illumination.acquire_led_lease('leak probe')
+        assert lease is not None, 'Refused run leaked the protocol LED lease'
+        lease.release()

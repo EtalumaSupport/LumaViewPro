@@ -644,21 +644,6 @@ class SequencedCaptureRunner:
         # transforms partway through a multi-day soak.
         self._snapshot_run_state()
 
-        # Acquire the LED lease for the whole scan so live UI illumination
-        # changes cannot disturb a running protocol's channels. AF steps nest a
-        # child under it. A refused acquire recovers a stranded lease from a
-        # hard-killed prior run, so the run always ends up owning illumination
-        # (else every STEP_LIGHT apply no-ops and the run captures dark).
-        self._led_lease = self._acquire_led_lease_for_run()
-
-        # Snapshot hardware state for restoration after protocol
-        self._original_led_states = self._scope.illumination.get_led_states()
-        self._saved_camera_state = self._scope.imaging.save_camera_state('protocol')
-        if initial_autofocus_states is not None:
-            self._original_autofocus_states = initial_autofocus_states
-        else:
-            self._original_autofocus_states = self.get_initial_autofocus_states()
-
         # Lightweight copy -- shares read-only loaders, copies only the mutable
         # steps DataFrame (which AF modifies via modify_step_z_height). Much
         # cheaper than deepcopy for large protocols (M14).
@@ -704,7 +689,31 @@ class SequencedCaptureRunner:
         result = self._init_for_new_scan(max_scans=max_scans)
         if not result['status']:
             logger.error(f'[{self.LOGGER_NAME} ] {result["error"]}')
+            from modules.notification_center import notifications
+
+            notifications.error('Protocol', 'Cannot Start Run', result['error'])
             return False
+
+        # Hardware-touching setup runs only after the LAST refusal point
+        # above, so a refused run cannot leak a held LED lease or a
+        # saved-but-never-restored camera state; only a started run has
+        # anything to clean up.
+        #
+        # The LED lease covers the whole scan so live UI illumination
+        # changes cannot disturb a running protocol's channels. AF steps
+        # nest a child under it. A refused acquire recovers a stranded
+        # lease from a hard-killed prior run, so the run always ends up
+        # owning illumination (else every STEP_LIGHT apply no-ops and
+        # the whole acquisition captures dark).
+        self._led_lease = self._acquire_led_lease_for_run()
+
+        # Snapshot hardware state for restoration after protocol
+        self._original_led_states = self._scope.illumination.get_led_states()
+        self._saved_camera_state = self._scope.imaging.save_camera_state('protocol')
+        if initial_autofocus_states is not None:
+            self._original_autofocus_states = initial_autofocus_states
+        else:
+            self._original_autofocus_states = self.get_initial_autofocus_states()
 
         ctx = _app_ctx.ctx
         stim_profiling = (
