@@ -61,6 +61,12 @@ _HARDWARE_FLAG_MOCKS = {
         'pypylon.pylon',
         'pypylon.genicam',
     ],
+    '--run-fx2-hardware': [
+        'usb',
+        'usb.core',
+        'usb.util',
+        'usb1',
+    ],
 }
 _skip_mocks = set()
 for _flag, _mods in _HARDWARE_FLAG_MOCKS.items():
@@ -106,7 +112,7 @@ def install_mock_deps():
         'kivy': MagicMock(),
         'kivy.clock': MagicMock(),
         'kivy.base': MagicMock(),
-        # FX2 / libusb (no hardware-test gate yet -- always mocked)
+        # FX2 / libusb -- skipped when --run-fx2-hardware is set.
         'usb': MagicMock(),
         'usb.core': MagicMock(),
         'usb.util': MagicMock(),
@@ -167,6 +173,12 @@ def pytest_addoption(parser):
         help='Run Pylon hardware tests (real SDK + connected camera)',
     )
     _safe(
+        '--run-fx2-hardware',
+        action='store_true',
+        default=False,
+        help='Run FX2 hardware tests (pyusb/libusb1 + connected LS620/LS560)',
+    )
+    _safe(
         '--run-timing-sensitive',
         action='store_true',
         default=False,
@@ -195,6 +207,11 @@ def pytest_configure(config):
         'markers',
         'pylon_hardware: requires real Pylon SDK + connected camera '
         '(only runs with --run-pylon-hardware)',
+    )
+    config.addinivalue_line(
+        'markers',
+        'fx2_hardware: requires pyusb/libusb1 + connected FX2 scope '
+        '(only runs with --run-fx2-hardware)',
     )
     config.addinivalue_line(
         'markers',
@@ -261,6 +278,7 @@ def pytest_collection_modifyitems(config, items):
     gates = [
         ('ids_hardware', '--run-ids-hardware'),
         ('pylon_hardware', '--run-pylon-hardware'),
+        ('fx2_hardware', '--run-fx2-hardware'),
         ('timing_sensitive', '--run-timing-sensitive'),
     ]
     for marker, flag in gates:
