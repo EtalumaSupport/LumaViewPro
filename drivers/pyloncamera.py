@@ -2950,7 +2950,7 @@ class PylonCamera(Camera):
             # and the next poll re-queries. The definitive signals (the
             # removal callback, a clean True from this query) still
             # latch via their own paths.
-            logger.warning(
+            _cam_log.warning(
                 f'[CAM Class ] IsCameraDeviceRemoved query raised; '
                 f'reporting disconnected without latching removal: {e}'
             )
