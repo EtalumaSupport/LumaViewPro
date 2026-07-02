@@ -2239,7 +2239,7 @@ class ProtocolSettings(FloatLayout):
             layer: settings[layer]['autofocus'] for layer in common_utils.get_layers()
         }
 
-        sequenced_capture_runner.run(
+        started = sequenced_capture_runner.run(
             protocol=self._protocol,
             run_mode=run_mode,
             run_trigger_source=run_trigger_source,
@@ -2256,6 +2256,12 @@ class ProtocolSettings(FloatLayout):
             initial_autofocus_states=initial_autofocus_states,
             **config_helpers.get_sequenced_run_settings(settings),
         )
+        if not started:
+            # The runner refused (hardware missing, files writing, empty or
+            # invalid protocol) and already notified the user. No protocol
+            # was loaded and no run directory exists, so the started-run
+            # follow-ups below would crash or answer for the PREVIOUS run.
+            return
 
         set_last_save_folder(dir=sequenced_capture_runner.run_dir())
 

@@ -253,7 +253,7 @@ class ZStack(FloatLayout):
             initial_position = get_current_plate_position()
             image_capture_config = get_image_capture_config_from_ui()
 
-            ctx.sequenced_capture_runner.run(
+            started = ctx.sequenced_capture_runner.run(
                 protocol=zstack_sequence,
                 run_mode=SequencedCaptureRunMode.SINGLE_ZSTACK,
                 run_trigger_source=trigger_source,
@@ -268,8 +268,11 @@ class ZStack(FloatLayout):
                 leds_state_at_end='return_to_original',
                 **config_helpers.get_sequenced_run_settings(settings),
             )
-
-            set_last_save_folder(dir=ctx.sequenced_capture_runner.run_dir())
+            if started:
+                # Only a started run has a run directory; on a refusal,
+                # run_dir() answers for the PREVIOUS run and would silently
+                # point the save folder at stale data.
+                set_last_save_folder(dir=ctx.sequenced_capture_runner.run_dir())
         except Exception as e:
             logger.error(f'[UI] run_zstack_acquire_from_ui failed: {e}', exc_info=True)
             from ui.notification_popup import show_notification_popup

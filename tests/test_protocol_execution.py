@@ -2404,3 +2404,89 @@ class TestSaveFailureRecordsRow:
             'the save_failed row must be written when the disk write '
             'raises.'
         )
+
+
+class TestRunReturnValueContract:
+    """run() reports whether the run actually started.
+
+    A refused run loads no protocol and creates no run directory, so a
+    caller that treats run() as fire-and-forget follows up against the
+    PREVIOUS run's state (stale save folder) or a runner that never
+    loaded a protocol (AttributeError inside a UI handler). The bool
+    return plus the None-seeded getters are the contract the UI call
+    sites gate on.
+    """
+
+    def _start_run(self, executor, protocol, tmp_path, callbacks=None):
+        cbs = {
+            'go_to_step': lambda **kw: None,
+            'move_position': lambda axis: None,
+        }
+        if callbacks:
+            cbs.update(callbacks)
+        return executor.run(
+            protocol=protocol,
+            run_trigger_source='test',
+            run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
+            sequence_name='run_contract_test',
+            image_capture_config=_make_image_capture_config(),
+            autogain_settings=_make_autogain_settings(),
+            parent_dir=tmp_path / 'output',
+            max_scans=1,
+            callbacks=cbs,
+            leds_state_at_end='off',
+            initial_autofocus_states={
+                'BF': False,
+                'PC': False,
+                'DF': False,
+                'Red': False,
+                'Green': False,
+                'Blue': False,
+                'Lumi': False,
+            },
+        )
+
+    def test_refused_run_returns_false_and_leaves_runner_idle(self, executor, tmp_path):
+        empty_protocol = _build_real_protocol([])
+        started = self._start_run(executor, empty_protocol, tmp_path)
+        assert started is False
+        assert executor.run_dir() is None, (
+            'A refused run must not leave a run directory for callers to save into'
+        )
+        assert not executor._run_in_progress_event.is_set(), (
+            'A refused run must not mark a run as in progress'
+        )
+
+    def test_started_run_returns_true(self, executor, tmp_path):
+        done = threading.Event()
+        protocol = _make_single_step_protocol(color='BF')
+        started = self._start_run(
+            executor,
+            protocol,
+            tmp_path,
+            callbacks={'run_complete': lambda **kwargs: done.set()},
+        )
+        assert started is True
+        assert done.wait(timeout=COMPLETION_TIMEOUT), 'Started run did not complete'
+
+    def test_fresh_runner_getters_answer_none_not_attributeerror(self, executor):
+        assert executor._protocol is None, (
+            '_protocol must exist (as None) from construction so getters '
+            'can answer instead of raising AttributeError'
+        )
+        assert executor.run_dir() is None
+        assert executor.run_trigger_source() is None
+        assert executor.current_step_color() is None
+
+    def test_init_for_new_scan_failure_returns_false(self, executor, tmp_path, monkeypatch):
+        protocol = _make_single_step_protocol(color='BF')
+
+        def vanished_capture_location(self, *args, **kwargs):
+            raise FileNotFoundError(str(self))
+
+        monkeypatch.setattr(pathlib.Path, 'mkdir', vanished_capture_location)
+        started = self._start_run(executor, protocol, tmp_path)
+        assert started is False
+        assert not executor._run_in_progress_event.is_set(), (
+            'A run refused at directory setup must not mark a run as in progress'
+        )

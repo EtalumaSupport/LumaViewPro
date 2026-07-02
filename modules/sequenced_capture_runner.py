@@ -110,6 +110,11 @@ class SequencedCaptureRunner:
         self._run_in_progress_event = (
             threading.Event()
         )  # GIL-free safe replacement for _run_in_progress bool
+        # The loaded protocol exists from construction so a runner that has
+        # never started (or refused to start) answers getters with None
+        # instead of raising AttributeError from inside a UI handler.
+        # (_run_dir gets the same treatment via _reset_vars below.)
+        self._protocol = None
         self._cleanup_lock = threading.Lock()
         self._run_lock = threading.Lock()
         self._grease_redistribution_event = threading.Event()
@@ -507,7 +512,20 @@ class SequencedCaptureRunner:
         video_as_frames: bool = False,
         initial_autofocus_states: dict | None = None,
         keep_led_between_steps: bool = False,
-    ):
+    ) -> bool:
+        """Start a sequenced run; return whether it actually started.
+
+        Returns:
+            bool: True when the run was dispatched to the protocol
+                thread. False when the run was REFUSED (already running,
+                files still writing, empty protocol, validation errors,
+                hardware not connected) -- each refusal notifies the user
+                itself. Callers must gate any started-run follow-up
+                (run_dir(), remaining_scans(), protocol_interval()) on
+                this result: a refused run loads no protocol and creates
+                no run directory, so those getters answer for the
+                PREVIOUS run or return None.
+        """
         with self._run_lock:
             if self._run_in_progress_event.is_set():
                 logger.error(f'[{self.LOGGER_NAME} ] Cannot start new run, run already in progress')
@@ -516,7 +534,7 @@ class SequencedCaptureRunner:
                 notifications.warning(
                     'Protocol', 'Already Running', 'A protocol run is already in progress.'
                 )
-                return
+                return False
 
         # Check if file_io_executor still has pending writes
         if self.file_io_executor.is_protocol_queue_active():
@@ -530,7 +548,7 @@ class SequencedCaptureRunner:
                 'Files Still Writing',
                 "Previous run's files are still being written. Please wait.",
             )
-            return
+            return False
 
         if leds_state_at_end not in (
             'off',
@@ -547,7 +565,7 @@ class SequencedCaptureRunner:
                 'No Steps',
                 'Protocol has no steps. Add at least one step before running.',
             )
-            return
+            return False
 
         # Pre-run validation: check positions within axis limits
         try:
@@ -579,7 +597,7 @@ class SequencedCaptureRunner:
                     'Validation failed',
                     f'Protocol has {len(validation_errors)} validation error(s):\n{err_summary}',
                 )
-                return
+                return False
         except Exception as ex:
             # validate_for_run raised before producing a validation_errors
             # list -- e.g. labware loader OS error, missing objectives.json,
@@ -596,7 +614,7 @@ class SequencedCaptureRunner:
                 f'Pre-run validation could not run: {type(ex).__name__}: {ex}. '
                 f'Check the labware + objectives configuration and try again.',
             )
-            return
+            return False
 
         try:
             if not self._scope.are_all_connected():
@@ -608,7 +626,7 @@ class SequencedCaptureRunner:
                     'Hardware Disconnected',
                     'Not all hardware components are connected. Check connections and try again.',
                 )
-                return
+                return False
         except Exception as ex:
             logger.error(f'[PROTOCOL] Error checking scope connection: {ex}')
             from modules.notification_center import notifications
@@ -619,7 +637,7 @@ class SequencedCaptureRunner:
                 f'Could not check hardware connection status: {type(ex).__name__}: {ex}. '
                 f'Reconnect the scope and try again.',
             )
-            return
+            return False
 
         # Snapshot stage_offset so mid-run mutations to
         # ctx.settings['stage_offset'] don't change the in-flight coordinate
@@ -686,7 +704,7 @@ class SequencedCaptureRunner:
         result = self._init_for_new_scan(max_scans=max_scans)
         if not result['status']:
             logger.error(f'[{self.LOGGER_NAME} ] {result["error"]}')
-            return
+            return False
 
         ctx = _app_ctx.ctx
         stim_profiling = (
@@ -756,6 +774,7 @@ class SequencedCaptureRunner:
         # also clears _aborted under its state lock atomically with
         # publishing the new Future, mirroring the AutofocusThread fix.
         self.protocol_thread.run_protocol(self._run_loop_executor.run_loop)
+        return True
 
     def run_in_progress(self) -> bool:
         with self._run_lock:
