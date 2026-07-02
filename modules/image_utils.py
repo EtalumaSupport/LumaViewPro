@@ -702,8 +702,6 @@ def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
             },
             'z_pos_um': plane['PositionZ'],
             'objective': plane.get('Objective', {}),
-            'exposure_time_ms': plane['ExposureTime'],
-            'gain_db': plane['Gain'],
             'illumination_ma': plane['Illumination'],
             'pixel_size_um': structured['PhysicalSizeX'],
             'channel': structured['Channel']['Name'][0],
@@ -714,6 +712,16 @@ def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
         # frame type); fall back to defaults rather than crashing the
         # post-processing job, per this function's documented contract.
         return None
+    # Exposure and gain are the writer's optional fields: the producer
+    # omits the key when the value was genuinely unknown at capture.
+    # Mirror that here -- reconstruct them only when present -- so a
+    # frame saved with an unreadable gain still forwards its positions
+    # and pixel size, and no fabricated stand-in value is invented on
+    # the way back out to a derived output.
+    if 'ExposureTime' in plane:
+        flat['exposure_time_ms'] = plane['ExposureTime']
+    if 'Gain' in plane:
+        flat['gain_db'] = plane['Gain']
     if datetime_value is not None:
         flat['datetime'] = datetime_value
 

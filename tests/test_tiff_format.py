@@ -930,6 +930,59 @@ class TestOmeMetadataReadback:
         assert recovered['objective'] == {}
 
 
+class TestStructuredReadbackOptionalGainExposure:
+    """A structured TIFF whose writer omitted the optional ExposureTime /
+    Gain plane fields (value genuinely unknown at capture) must still
+    recover positions and pixel size on read-back, and must not invent
+    stand-in values for the omitted fields on the way to a derived
+    output."""
+
+    def _write(self, img, md, path):
+        # 8-bit non-OME is the shaped-metadata path (16-bit non-OME writes
+        # ImageJ format, which carries no shaped metadata to read back).
+        image_utils.write_tiff(
+            data=img,
+            file_loc=path,
+            metadata=md,
+            ome=False,
+            color='BF',
+            significant_bits=8,
+            save_encoding='8bit',
+        )
+
+    def test_missing_gain_exposure_still_recovers_positions(self, img_8bit, metadata, tmp_tiff):
+        path = tmp_tiff()
+        md = dict(metadata)
+        del md['exposure_time_ms']
+        del md['gain_db']
+        self._write(img_8bit, md, path)
+
+        recovered = image_utils.read_postproc_input_metadata(path)
+        assert recovered is not None, (
+            'A plane missing only the optional gain/exposure fields must '
+            'not be discarded wholesale (positions + pixel size lost)'
+        )
+        assert recovered['plate_pos_mm']['x'] == pytest.approx(md['plate_pos_mm']['x'])
+        assert recovered['plate_pos_mm']['y'] == pytest.approx(md['plate_pos_mm']['y'])
+        assert recovered['z_pos_um'] == pytest.approx(md['z_pos_um'])
+        assert recovered['pixel_size_um'] == pytest.approx(md['pixel_size_um'])
+        assert 'exposure_time_ms' not in recovered, (
+            'An omitted (unknown) exposure must stay omitted, not be fabricated on read-back'
+        )
+        assert 'gain_db' not in recovered, (
+            'An omitted (unknown) gain must stay omitted, not be fabricated on read-back'
+        )
+
+    def test_present_gain_exposure_round_trip(self, img_8bit, metadata, tmp_tiff):
+        path = tmp_tiff()
+        self._write(img_8bit, metadata, path)
+
+        recovered = image_utils.read_postproc_input_metadata(path)
+        assert recovered is not None
+        assert recovered['exposure_time_ms'] == pytest.approx(metadata['exposure_time_ms'])
+        assert recovered['gain_db'] == pytest.approx(metadata['gain_db'])
+
+
 # Largest value a signed-32-bit reader (Bioformats) treats as positive. A TIFF
 # RATIONAL stores unsigned uint32, but Bioformats reads the numerator as int32,
 # so a numerator above this would surface as a negative PhysicalSize.
