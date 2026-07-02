@@ -8,7 +8,7 @@ Covers the Mac-authorable pieces of the native-depth rebuild:
   - the frame-rate crash-stop cap (soft AcquisitionFrameRateTarget), which
     replaced the USB-saturating maximize path
 
-The live grab loop, recovery, and real conversion are bench-gated.
+The live grab loop and real conversion are bench-gated.
 """
 
 from __future__ import annotations
@@ -812,19 +812,12 @@ class TestProbeDevicePresence:
         cam = self._cam(serial='SN123')
         cam.device_manager.Devices.return_value = [self._descriptor('SN123')]
         cam._probe_device_presence()
-        # Last SetDeviceUpdateTimeout call restores the generous recovery value,
-        # so a later connect()/recovery Update() does not inherit the 500ms probe
-        # timeout and miss a present-but-slow camera.
+        # Last SetDeviceUpdateTimeout call restores the generous default, so a
+        # later connect() Update() does not inherit the 500ms probe timeout and
+        # miss a present-but-slow camera.
         cam.device_manager.SetDeviceUpdateTimeout.assert_called_with(
-            idscamera._RECOVERY_UPDATE_TIMEOUT_MS
+            idscamera._DEVICE_UPDATE_TIMEOUT_MS
         )
-
-    def test_skipped_during_recovery(self):
-        cam = self._cam()
-        cam._in_recovery = True
-        cam.device_manager.Devices.return_value = []
-        assert cam._probe_device_presence() is None
-        cam.device_manager.Update.assert_not_called()
 
     def test_skipped_when_disconnect_requested(self):
         cam = self._cam()
@@ -852,9 +845,9 @@ class TestWedgedBufferBreaksLoop:
     NOT inside the WaitForFinishedBuffer try, so the raise used to escape
     _poll_loop and kill the IDSPoll thread with a traceback. The handler must
     classify the invalid handle as a wedge: break the loop (no hot-spin on a dead
-    stream), route the log through the camera log, and escalate to in-software
-    recovery -- never mark disconnected (a wedge is recoverable; removal is owned
-    solely by DeviceLost)."""
+    stream), route the log through the camera log, and route to the uniform
+    removal drop -- the wedge exits as a clean disconnect the user recovers by
+    reconnecting."""
 
     def test_invalid_buffer_access_breaks_poll_loop_without_propagating(self):
         bad = MagicMock()
@@ -865,11 +858,9 @@ class TestWedgedBufferBreaksLoop:
         # break the loop, so the call RETURNS instead of propagating the error.
         h._poll_loop()
         assert ds.requeued == []  # never touch an invalid handle to re-queue it
-        h._parent._schedule_async_recovery.assert_called_once()  # escalate to recovery
-        h._parent._mark_disconnected.assert_not_called()
-        h._parent._handle_device_lost.assert_not_called()
+        h._parent._handle_device_lost.assert_called_once()  # the uniform removal drop
 
-    def test_handle_buffer_error_breaks_logs_and_escalates_to_recovery(self):
+    def test_handle_buffer_error_breaks_logs_and_routes_to_removal(self):
         from drivers import idscamera
 
         ds = MagicMock()
@@ -879,11 +870,9 @@ class TestWedgedBufferBreaksLoop:
             should_stop = h._handle_buffer_error(RuntimeError('bufferHandle is invalid'))
         assert should_stop is True  # break the loop -- do NOT catch-and-continue
         log.error.assert_called_once()  # routed through the camera log
-        h._parent._schedule_async_recovery.assert_called_once()  # in-software recovery
-        h._parent._mark_disconnected.assert_not_called()
-        h._parent._handle_device_lost.assert_not_called()
+        h._parent._handle_device_lost.assert_called_once()  # the uniform removal drop
 
-    def test_handle_wait_error_invalid_stream_handle_breaks_and_escalates(self):
+    def test_handle_wait_error_invalid_stream_handle_breaks_and_routes(self):
         # The SAME invalid-handle fault can surface from WaitForFinishedBuffer
         # itself (the data stream revoked during the wait), not only from buffer
         # access. The wait-path classifier must stop the loop and escalate the
@@ -899,9 +888,7 @@ class TestWedgedBufferBreaksLoop:
             should_stop = h._handle_wait_error(RuntimeError('dataStreamHandle is invalid!'))
         assert should_stop is True  # stop the loop -- do NOT keep polling (no hot-spin)
         log.error.assert_called_once()  # routed through the camera log as a wedge
-        h._parent._schedule_async_recovery.assert_called_once()  # escalate like buffer path
-        h._parent._mark_disconnected.assert_not_called()
-        h._parent._handle_device_lost.assert_not_called()
+        h._parent._handle_device_lost.assert_called_once()  # same drop as the buffer path
 
     def test_buffer_device_lost_routes_to_single_owner(self):
         # A removal surfacing as a buffer-access raise (the DeviceLost callback was
@@ -1305,20 +1292,12 @@ class TestBufferPoolReclaim:
         assert cam.data_stream.RevokeBuffer.call_count == 3
 
 
-def _ids_cam_for_recovery():
+def _ids_lifecycle_cam():
     cam = bare_ids_camera()
     cam._device_key = 'KEY-OURS'
     cam._device_serial = 'SN-OURS'
     cam._device_lost_callback = None
     cam._device_lost_callback_handle = None
-    cam._async_teardown_started = False
-    cam._in_recovery = False
-    cam._recovery_started = False
-    cam._recovery_attempts = 0
-    cam._last_recovery_time = 0.0
-    cam._recovery_abort = threading.Event()
-    cam._disconnect_requested = False
-    cam._recovery_thread = None
     cam.cam_image_handler = MagicMock()
     return cam
 
@@ -1330,332 +1309,15 @@ def _descriptor(serial, key='KEY-NEW'):
     return d
 
 
-class TestDeviceResetRecovery:
-    """In-software recovery from a wedged data stream: the poll-loop wedge break
-    escalates to _schedule_async_recovery (one-shot, daemon thread), which issues
-    the SFNC DeviceReset, re-discovers the camera by serial, reopens, and restarts
-    grabbing. A deliberate reset must NOT be torn down as a removal (the
-    _in_recovery latch suppresses _handle_device_lost), and a recovery that fails
-    falls back to the permanent teardown so the user sees a clean removal."""
-
-    @staticmethod
-    def _wait_until(pred, timeout=2.0):
-        deadline = time.time() + timeout
-        while not pred() and time.time() < deadline:
-            time.sleep(0.01)
-
-    def test_schedule_async_recovery_is_one_shot(self):
-        cam = _ids_cam_for_recovery()
-        gate = threading.Event()
-        calls = []
-
-        def _recover():
-            calls.append(1)
-            gate.wait(2.0)  # hold the first recovery in-flight across the 2nd schedule
-
-        cam._recover_wedged_stream = _recover
-        cam._schedule_async_recovery()
-        self._wait_until(lambda: len(calls) >= 1)  # first recovery is now in-flight
-        cam._schedule_async_recovery()  # latch still set -> no second recovery
-        gate.set()
-        time.sleep(0.05)
-        assert len(calls) == 1
-
-    def test_recovery_failure_falls_back_to_permanent_teardown(self):
-        cam = _ids_cam_for_recovery()
-        cam._recover_wedged_stream = MagicMock(side_effect=RuntimeError('reset failed'))
-        cam._handle_device_lost = MagicMock()
-        cam._schedule_async_recovery()
-        self._wait_until(lambda: cam._handle_device_lost.call_count >= 1)
-        cam._handle_device_lost.assert_called_once()  # clean removal on failed recovery
-        assert cam._in_recovery is False  # latch cleared
-        assert cam._recovery_started is False
-
-    def test_in_recovery_suppresses_device_lost_teardown(self):
-        cam = _ids_cam_for_recovery()
-        cam._schedule_async_teardown = MagicMock()
-        cam._in_recovery = True
-        cam._handle_device_lost()
-        # A DeviceLost firing during a deliberate reset must NOT tear the device
-        # down -- recovery owns the reopen.
-        cam._mark_disconnected.assert_not_called()
-        cam._schedule_async_teardown.assert_not_called()
-
-    def _recoverable_cam(self):
-        cam = _ids_cam_for_recovery()
-        cam.remote_nodemap.FindNode.return_value = MagicMock()
-        cam.device_manager = MagicMock()
-        cam._rediscover_by_serial = MagicMock(return_value=_descriptor('SN-OURS'))
-        cam._unregister_device_callbacks = MagicMock()
-        cam._register_device_callbacks = MagicMock()
-        cam.init_camera_config = MagicMock()
-        cam.start_grabbing = MagicMock()
-        cam.is_grabbing = MagicMock(return_value=True)
-        cam._snapshot_settings = MagicMock(return_value={'exposure_ms': 5})
-        cam._restore_settings = MagicMock()
-        return cam
-
-    def test_recover_wedged_stream_resets_rediscovers_and_restarts(self):
-        cam = self._recoverable_cam()
-        reset_node = MagicMock()
-        cam.remote_nodemap.FindNode.return_value = reset_node
-        cam._recover_wedged_stream()
-        # DeviceReset executed (Execute + WaitUntilDone) on the live control channel.
-        reset_node.Execute.assert_called_once()
-        reset_node.WaitUntilDone.assert_called_once()
-        cam._rediscover_by_serial.assert_called_once_with('SN-OURS')
-        cam._unregister_device_callbacks.assert_called_once()  # no callback leak
-        cam._restore_settings.assert_called_once_with({'exposure_ms': 5})  # settings re-applied
-        # Reopened against the re-discovered descriptor + restarted grabbing.
-        assert cam.active is not None
-        assert cam._device_key == 'KEY-NEW'  # key refreshed from the new descriptor
-        cam.init_camera_config.assert_called_once()
-        cam.start_grabbing.assert_called_once()
-
-    def test_recover_wedged_stream_raises_when_rediscovery_fails(self):
-        cam = self._recoverable_cam()
-        cam._rediscover_by_serial = MagicMock(return_value=None)
-        from drivers.exceptions import HardwareError
-
-        with pytest.raises(HardwareError):
-            cam._recover_wedged_stream()
-
-    def test_recover_raises_without_captured_serial(self):
-        cam = self._recoverable_cam()
-        cam._device_serial = None  # connect() never read the serial
-        from drivers.exceptions import HardwareError
-
-        with pytest.raises(HardwareError):
-            cam._recover_wedged_stream()
-
-    def test_recover_raises_when_not_grabbing_after_reopen(self):
-        cam = self._recoverable_cam()
-        cam.is_grabbing = MagicMock(return_value=False)  # reconfiguration failed
-        from drivers.exceptions import HardwareError
-
-        with pytest.raises(HardwareError):
-            cam._recover_wedged_stream()
-
-    def test_rediscovery_abort_is_reported_as_abort_not_timeout(self):
-        # Two failure shapes share this exit (rediscovery returned None) but
-        # must not share a message: the abort returns in milliseconds and is
-        # the user's own disconnect winning the race, not a camera that failed
-        # to re-enumerate -- a shared timeout message misdirects diagnosis.
-        from drivers.exceptions import HardwareError
-
-        cam = self._recoverable_cam()
-
-        def _rediscover_then_abort(_serial):
-            cam._recovery_abort.set()  # disconnect lands during re-discovery
-            return None
-
-        cam._rediscover_by_serial = _rediscover_then_abort
-        with pytest.raises(HardwareError, match='aborted by disconnect during re-discovery'):
-            cam._recover_wedged_stream()
-
-    def test_rediscovery_timeout_is_still_reported_as_timeout(self):
-        from drivers.exceptions import HardwareError
-
-        cam = self._recoverable_cam()
-        cam._rediscover_by_serial = MagicMock(return_value=None)  # genuine timeout
-        with pytest.raises(HardwareError, match='did not re-enumerate'):
-            cam._recover_wedged_stream()
-
-    def test_recovery_reopen_retry_aborts_on_disconnect(self, monkeypatch):
-        # A user disconnect landing during the reopen's retry backoff must
-        # abort the recovery like the pre-reset checkpoints do -- not let the
-        # retry reopen a camera the user is closing.
-        from drivers import idscamera
-        from drivers.exceptions import HardwareError
-
-        monkeypatch.setattr(idscamera.time, 'sleep', lambda _s: None)
-        cam = self._recoverable_cam()
-        desc = _descriptor('SN-OURS')
-
-        def _deny(_access):
-            cam._recovery_abort.set()  # the disconnect lands mid-retry
-            raise RuntimeError('PEAK_RETURN_CODE_BAD_ACCESS: control access denied')
-
-        desc.OpenDevice.side_effect = _deny
-        cam._rediscover_by_serial = MagicMock(return_value=desc)
-        with pytest.raises(HardwareError):
-            cam._recover_wedged_stream()
-
-    def test_recover_wedged_stream_bails_when_aborted(self):
-        # A disconnect requested before recovery runs must abort it BEFORE the
-        # irreversible DeviceReset -- never reboot a camera the user is closing.
-        cam = self._recoverable_cam()
-        reset_node = MagicMock()
-        cam.remote_nodemap.FindNode.return_value = reset_node
-        cam._recovery_abort.set()
-        from drivers.exceptions import HardwareError
-
-        with pytest.raises(HardwareError):
-            cam._recover_wedged_stream()
-        reset_node.Execute.assert_not_called()  # bailed before the reset
-        cam._rediscover_by_serial.assert_not_called()
-
-    def test_disconnect_signals_abort_and_joins_recovery(self):
-        # disconnect() during an in-flight recovery signals the abort, joins the
-        # recovery thread, and the camera ends torn down -- the user's disconnect
-        # wins regardless of timing.
-        cam = self._recoverable_cam()
-        started = threading.Event()
-
-        def _recover():
-            started.set()
-            for _ in range(300):
-                if cam._recovery_abort.is_set():
-                    raise RuntimeError('aborted by disconnect')
-                time.sleep(0.01)
-
-        cam._recover_wedged_stream = _recover
-        cam._handle_device_lost = MagicMock()
-        cam._schedule_async_recovery()
-        self._wait_until(started.is_set)
-        rec = cam._recovery_thread
-        cam.disconnect()
-        assert cam._disconnect_requested is True
-        assert cam._recovery_abort.is_set()
-        assert not rec.is_alive()  # disconnect joined the recovery thread
-        assert cam.active is None
-
-    def test_recovery_reopen_with_pending_disconnect_tears_back_down(self):
-        # If a recovery reopens the camera despite a disconnect landing mid-flight
-        # (it slipped past the abort checks), the finally latch tears the freshly
-        # reopened camera back down so the disconnect is honored. The disconnect
-        # arrives AFTER the recovery is scheduled -- one requested before it would
-        # decline the recovery outright.
-        cam = self._recoverable_cam()
-
-        def _recover_then_disconnect_lands():
-            cam._disconnect_requested = True  # user disconnects mid-recovery
-
-        cam._recover_wedged_stream = _recover_then_disconnect_lands
-        cam.disconnect = MagicMock()
-        cam._schedule_async_recovery()
-        self._wait_until(lambda: cam.disconnect.call_count >= 1)
-        cam.disconnect.assert_called_once()
-
-    def test_schedule_declines_when_teardown_owns_lifecycle(self):
-        # A wedge escalation arriving once a disconnect or removal teardown owns
-        # the lifecycle must not start a recovery at all: the recovery's reopen
-        # would hold the camera's exclusive Control access against the user's
-        # next connect() -- the reconnect-collision shape.
-        for owner_flag in (
-            '_disconnect_requested',
-            '_device_removed',
-            '_async_teardown_started',
-        ):
-            cam = _ids_cam_for_recovery()
-            cam._recover_wedged_stream = MagicMock()
-            setattr(cam, owner_flag, True)
-            cam._schedule_async_recovery()
-            time.sleep(0.05)  # would be enough for a wrongly-spawned recovery thread
-            cam._recover_wedged_stream.assert_not_called()
-            assert cam._recovery_started is False, owner_flag
-            assert cam._in_recovery is False, owner_flag
-
-    def test_snapshot_and_restore_round_trip(self):
-        cam = _ids_cam_for_recovery()
-        cam.get_pixel_format = MagicMock(return_value='Mono12g24IDS')
-        cam.get_binning_size = MagicMock(return_value=2)
-        cam.get_frame_size = MagicMock(return_value={'width': 800, 'height': 600})
-        cam.get_exposure_t = MagicMock(return_value=42.0)
-        cam.get_gain = MagicMock(return_value=3.5)
-        snap = cam._snapshot_settings()
-        assert snap == {
-            'pixel_format': 'Mono12g24IDS',
-            'binning': 2,
-            'frame_size': {'width': 800, 'height': 600},
-            'exposure_ms': 42.0,
-            'gain': 3.5,
-        }
-        cam.set_pixel_format = MagicMock()
-        cam.set_binning_size = MagicMock()
-        cam.set_frame_size = MagicMock()
-        cam.exposure_t = MagicMock()
-        cam.gain = MagicMock()
-        cam._restore_settings(snap)
-        cam.set_pixel_format.assert_called_once_with('Mono12g24IDS')
-        cam.set_binning_size.assert_called_once_with(2)
-        cam.set_frame_size.assert_called_once_with(800, 600)
-        cam.exposure_t.assert_called_once_with(42.0)
-        cam.gain.assert_called_once_with(3.5)
-
-    def test_snapshot_drops_sentinel_reads(self):
-        # The driver getters return sentinels (None / -1) on a failed read rather
-        # than raising; those must be DROPPED, not captured and later re-applied
-        # as a bad write that de-bins or zeroes the operator's settings.
-        cam = _ids_cam_for_recovery()
-        cam.get_pixel_format = MagicMock(return_value=None)  # sentinel
-        cam.get_binning_size = MagicMock(return_value=2)  # valid
-        cam.get_frame_size = MagicMock(return_value={'width': 800, 'height': 600})
-        cam.get_exposure_t = MagicMock(return_value=-1)  # sentinel
-        cam.get_gain = MagicMock(return_value=-1)  # sentinel
-        snap = cam._snapshot_settings()
-        assert snap == {'binning': 2, 'frame_size': {'width': 800, 'height': 600}}
-
+class TestBinningReadSentinel:
     def test_get_binning_size_returns_minus_one_on_read_failure(self):
         # 1 is a LEGAL binning factor, so it cannot double as the failure
         # sentinel: an active read that throws must return the out-of-band -1
-        # (rejected by the snapshot validator), not 1 (which would survive
-        # validation and silently de-bin a 2x camera on restore).
+        # (a value-validating caller rejects it), not 1 (which would read as a
+        # real 1x camera and silently de-bin a 2x body downstream).
         cam = bare_ids_camera()
         cam.remote_nodemap.FindNode.side_effect = Exception('node read failed')
         assert cam.get_binning_size() == -1
-
-    def test_snapshot_drops_binning_read_failure(self):
-        # A failed binning read (-1) during the recovery snapshot must be
-        # DROPPED, not captured as 1 and re-applied by _restore_settings.
-        cam = _ids_cam_for_recovery()
-        cam.get_pixel_format = MagicMock(return_value='Mono8')
-        cam.get_binning_size = MagicMock(return_value=-1)  # read failure
-        cam.get_frame_size = MagicMock(return_value={'width': 800, 'height': 600})
-        cam.get_exposure_t = MagicMock(return_value=10.0)
-        cam.get_gain = MagicMock(return_value=0.0)
-        snap = cam._snapshot_settings()
-        assert 'binning' not in snap
-
-    def test_is_connected_true_during_recovery_despite_null_active(self):
-        # The reset transiently nulls active; is_connected must not report a
-        # removal (or latch _device_removed) mid-recovery.
-        cam = _ids_cam_for_recovery()
-        cam.active = None
-        cam._device_removed = False
-        cam._in_recovery = True
-        assert cam.is_connected() is True
-        assert cam._device_removed is False
-
-    def test_recovery_gives_up_after_max_attempts(self):
-        from drivers import idscamera
-
-        cam = _ids_cam_for_recovery()
-        cam._recover_wedged_stream = MagicMock(side_effect=RuntimeError('still wedged'))
-        cam._handle_device_lost = MagicMock()
-        for _ in range(idscamera._RECOVERY_MAX_ATTEMPTS + 3):
-            cam._schedule_async_recovery()
-            self._wait_until(lambda: not cam._recovery_started)
-        # Capped: only _RECOVERY_MAX_ATTEMPTS real resets; the rest go straight to
-        # permanent teardown rather than loop forever.
-        assert cam._recover_wedged_stream.call_count == idscamera._RECOVERY_MAX_ATTEMPTS
-
-    def test_rediscover_by_serial_matches_the_right_camera(self):
-        cam = _ids_cam_for_recovery()
-        cam.device_manager = MagicMock()
-        cam.device_manager.Devices.return_value = [
-            _descriptor('SN-OTHER', key='K1'),
-            _descriptor('SN-OURS', key='K2'),
-        ]
-        found = cam._rediscover_by_serial('SN-OURS', timeout_s=0.0)
-        assert found is not None
-        assert found.SerialNumber() == 'SN-OURS'
-
-    def test_rediscover_by_serial_returns_none_when_absent(self):
-        cam = _ids_cam_for_recovery()
-        cam.device_manager = MagicMock()
-        cam.device_manager.Devices.return_value = [_descriptor('SN-OTHER')]
-        assert cam._rediscover_by_serial('SN-OURS', timeout_s=0.0) is None
 
 
 class TestDeviceLostCallback:
@@ -1664,7 +1326,7 @@ class TestDeviceLostCallback:
     disconnected inline and deferring close/destroy to a daemon thread."""
 
     def test_register_stores_wrapper_and_handle(self):
-        cam = _ids_cam_for_recovery()
+        cam = _ids_lifecycle_cam()
         cam.device_manager = MagicMock()
         cam._register_device_callbacks()
         cam.device_manager.DeviceLostCallback.assert_called_once_with(cam._on_device_lost)
@@ -1675,7 +1337,7 @@ class TestDeviceLostCallback:
         assert cam._device_lost_callback_handle is not None  # handle kept alive
 
     def test_unregister_uses_handle_and_clears_refs(self):
-        cam = _ids_cam_for_recovery()
+        cam = _ids_lifecycle_cam()
         cam.device_manager = MagicMock()
         handle = object()
         cam._device_lost_callback = object()
@@ -1686,32 +1348,32 @@ class TestDeviceLostCallback:
         assert cam._device_lost_callback_handle is None
 
     def test_unregister_is_idempotent_with_nothing_registered(self):
-        cam = _ids_cam_for_recovery()
+        cam = _ids_lifecycle_cam()
         cam.device_manager = MagicMock()
         cam._unregister_device_callbacks()  # no handle -> no SDK call, no raise
         cam.device_manager.UnregisterDeviceLostCallback.assert_not_called()
 
     def test_device_lost_for_our_key_triggers_removal(self):
-        cam = _ids_cam_for_recovery()
+        cam = _ids_lifecycle_cam()
         cam._handle_device_lost = MagicMock()
         cam._on_device_lost('KEY-OURS')
         cam._handle_device_lost.assert_called_once()
 
     def test_device_lost_for_other_key_is_ignored(self):
-        cam = _ids_cam_for_recovery()
+        cam = _ids_lifecycle_cam()
         cam._handle_device_lost = MagicMock()
         cam._on_device_lost('SOME-OTHER-CAMERA')
         cam._handle_device_lost.assert_not_called()
 
     def test_handle_device_lost_marks_and_schedules_teardown(self):
-        cam = _ids_cam_for_recovery()
+        cam = _ids_lifecycle_cam()
         cam._schedule_async_teardown = MagicMock()
         cam._handle_device_lost()
         cam._mark_disconnected.assert_called_once()
         cam._schedule_async_teardown.assert_called_once()
 
     def test_async_teardown_is_one_shot(self):
-        cam = _ids_cam_for_recovery()
+        cam = _ids_lifecycle_cam()
         cam.disconnect = MagicMock()
         cam._schedule_async_teardown()
         cam._schedule_async_teardown()  # second is a no-op via the latch
@@ -1721,7 +1383,7 @@ class TestDeviceLostCallback:
         assert cam.disconnect.call_count == 1  # exactly once despite two schedules
 
     def test_disconnect_on_removed_device_skips_nodemap_stop(self):
-        cam = _ids_cam_for_recovery()
+        cam = _ids_lifecycle_cam()
         cam.device_manager = MagicMock()
         cam.active = MagicMock()
         cam._device_removed = True
@@ -1733,7 +1395,7 @@ class TestDeviceLostCallback:
         handler.stop.assert_called_once()  # safe teardown still runs before release
 
     def test_disconnect_on_live_device_uses_stop_grabbing(self):
-        cam = _ids_cam_for_recovery()
+        cam = _ids_lifecycle_cam()
         cam.device_manager = MagicMock()
         cam.active = MagicMock()
         cam._device_removed = False
@@ -1754,7 +1416,7 @@ class TestDeviceLostCallback:
         # threads that pin the data stream -- the device's exclusive Control
         # claim then outlives the disconnect and the next OpenDevice(Control)
         # collides with our own zombie hold.
-        cam = _ids_cam_for_recovery()
+        cam = _ids_lifecycle_cam()
         cam.device_manager = MagicMock()
         cam.active = MagicMock()
         cam._device_removed = False
@@ -1770,7 +1432,7 @@ class TestDeviceLostCallback:
         # data stream and ids_peak has no explicit Close() -- release happens by
         # dropping the last Python ref. Leaving the handler pinned keeps the USB3
         # endpoint bound, so a reconnect rebinds the same (possibly wedged) stream.
-        cam = _ids_cam_for_recovery()
+        cam = _ids_lifecycle_cam()
         cam.device_manager = MagicMock()
         cam.active = MagicMock()
         cam._device_removed = False
@@ -1780,7 +1442,7 @@ class TestDeviceLostCallback:
         assert cam.cam_image_handler is None
 
     def test_disconnect_on_removed_device_also_nulls_handler(self):
-        cam = _ids_cam_for_recovery()
+        cam = _ids_lifecycle_cam()
         cam.device_manager = MagicMock()
         cam.active = MagicMock()
         cam._device_removed = True
@@ -1856,10 +1518,10 @@ class TestConnectFailureUnregistersCallback:
 class TestOpenControlRetry:
     """Control access is exclusive on the camera and stays claimed for a short
     window after a prior holder lets go (our own just-released handle on a rapid
-    reconnect, a vendor tool, the re-enumeration after a DeviceReset). Both
-    connect() and the recovery reopen must ride out that window with a bounded
-    retry instead of failing the whole bring-up on the first denial -- while any
-    NON-denial open fault still propagates immediately."""
+    reconnect, a vendor tool, a device re-enumerating). connect() must ride
+    out that window with a bounded retry instead of failing the whole bring-up
+    on the first denial -- while any NON-denial open fault still propagates
+    immediately."""
 
     _DENIAL = 'Error-Code: 4 (PEAK_RETURN_CODE_BAD_ACCESS): control access denied'
 
@@ -1935,7 +1597,7 @@ class TestOpenControlRetry:
         # the descriptor actually opened must travel back to the caller -- the
         # serial/key reads that follow must come from the LIVE descriptor, not
         # the stale one passed in (a stale read leaves _device_serial unset,
-        # silently disabling unplug detection and wedge recovery re-matching).
+        # silently disabling unplug detection, which re-matches by serial).
         self._no_sleep(monkeypatch)
         cam = bare_ids_camera()
         device = MagicMock()
@@ -1949,9 +1611,9 @@ class TestOpenControlRetry:
         fresh.OpenDevice.assert_called_once()
 
     def test_refresh_raise_propagates_and_stops_the_retry(self, monkeypatch):
-        # The recovery reopen's refresh raises when a user disconnect lands
-        # mid-retry; the helper must let that escape rather than eat it as
-        # one more retry round.
+        # A refresh callback may raise to abort the retry ladder (e.g. a
+        # caller bailing on a user disconnect); the helper must let that
+        # escape rather than eat it as one more retry round.
         self._no_sleep(monkeypatch)
         cam = bare_ids_camera()
         descriptor = MagicMock()
@@ -2013,8 +1675,7 @@ class TestOpenControlRetry:
         # Between a removal being latched and the async teardown nulling the
         # handles, active is still a (dead) handle. connect() in that window
         # must run the full bring-up -- short-circuiting would report success
-        # on the dead handle and leave the stale teardown flags set, which
-        # would then permanently decline every future wedge recovery.
+        # on the dead handle and leave the stale teardown flags set.
         dm = MagicMock()
         dm.Devices.return_value.empty.return_value = True
         cam = self._bringup_cam(monkeypatch, dm)

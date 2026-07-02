@@ -161,13 +161,6 @@ def pytest_addoption(parser):
         help='Run IDS Peak hardware tests (real SDK + connected camera)',
     )
     _safe(
-        '--run-ids-reset',
-        action='store_true',
-        default=False,
-        help='Run the IDS DeviceReset recovery test (REBOOTS the camera; '
-        'isolated from --run-ids-hardware so it does not perturb the shared suite)',
-    )
-    _safe(
         '--run-pylon-hardware',
         action='store_true',
         default=False,
@@ -185,7 +178,7 @@ def pytest_addoption(parser):
         default=False,
         help='Route the (normally mocked) driver loggers to a REAL DEBUG log '
         'file + stdout, so a test run records the driver internals (poll / '
-        'DeviceReset recovery / DeviceLost / grab detail) instead of discarding '
+        'DeviceLost / wedge classification / grab detail) instead of discarding '
         'them into the MagicMock. Works on any test; essential for diagnosing a '
         '--run-ids-hardware bench-test failure.',
     )
@@ -202,12 +195,6 @@ def pytest_configure(config):
         'markers',
         'pylon_hardware: requires real Pylon SDK + connected camera '
         '(only runs with --run-pylon-hardware)',
-    )
-    config.addinivalue_line(
-        'markers',
-        'ids_reset: REBOOTS the IDS camera via DeviceReset (only runs with '
-        'BOTH --run-ids-hardware for the SDK AND --run-ids-reset; isolated so '
-        'the mid-suite reboot does not perturb the shared hardware tests)',
     )
     config.addinivalue_line(
         'markers',
@@ -273,7 +260,6 @@ def pytest_collection_modifyitems(config, items):
     """Skip hardware-marked tests unless the matching opt-in flag is set."""
     gates = [
         ('ids_hardware', '--run-ids-hardware'),
-        ('ids_reset', '--run-ids-reset'),
         ('pylon_hardware', '--run-pylon-hardware'),
         ('timing_sensitive', '--run-timing-sensitive'),
     ]

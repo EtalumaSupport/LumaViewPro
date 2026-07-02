@@ -342,8 +342,8 @@ def bare_ids_camera():
     cam._lifecycle_lock = threading.RLock()
     cam._update_config_depth = 0
     cam._grab_gate_open = False
-    # Durable frame-callback registry (base Camera.__init__ seeds these; the
-    # recovery/connect paths re-apply the registry onto a rebuilt handler).
+    # Durable frame-callback registry (base Camera.__init__ seeds these;
+    # connect() re-applies the registry onto each freshly built handler).
     cam._frame_callback_lock = threading.Lock()
     cam._registered_frame_callbacks = []
     cam.active = True
@@ -351,15 +351,11 @@ def bare_ids_camera():
     cam.data_stream = MagicMock()
     cam.data_stream.IsGrabbing.return_value = False
     cam._mark_disconnected = MagicMock()
-    # Recovery-coordination state read by disconnect()/recovery (seeded so a
-    # fake camera can exercise the disconnect-vs-recovery path).
+    # Removal/teardown lifecycle state read by disconnect()/connect() (seeded
+    # so a fake camera can exercise the teardown-ownership paths).
     cam._device_removed = False
-    cam._in_recovery = False
-    cam._recovery_started = False
-    cam._recovery_abort = threading.Event()
     cam._disconnect_requested = False
     cam._async_teardown_started = False
-    cam._recovery_thread = None
     cam._pixel_format_cache = None
     # Capability values __init__ resolves from the nodemap at connect: the
     # analog gain selector entry and the max binning factor. Seeded so gain() /

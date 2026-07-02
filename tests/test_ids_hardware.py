@@ -44,49 +44,6 @@ class TestIDS(unittest.TestCase):
         self.camera.stop_grabbing()
         self.assertFalse(self.camera.is_grabbing())
 
-    @pytest.mark.ids_reset
-    def test_device_reset_recovers_stream(self):
-        """Bench validation of in-software wedge recovery (the keystone): issue a
-        REAL DeviceReset on the live camera and confirm the driver re-discovers
-        by serial, reopens, and grabs again -- and capture the two facts the SDK
-        docs do not answer (does DeviceReset fire DeviceLost? does the GenTL key
-        change?). Exercises the recovery body directly; the async dispatch + latch
-        are covered in test_ids_driver. NOTE: this reboots the camera.
-        """
-        cam = self.camera
-        key_before = cam._device_key
-        serial = cam._device_serial
-        self.assertIsNotNone(serial, 'serial must be captured for serial re-match')
-
-        # _on_device_lost looks up self._handle_device_lost at call time, so a
-        # spy on the attribute observes whether DeviceReset fired DeviceLost (the
-        # _in_recovery latch below suppresses its teardown effect either way).
-        lost_calls = []
-        orig_handle_lost = cam._handle_device_lost
-        cam._handle_device_lost = lambda: lost_calls.append(1)
-
-        cam._in_recovery = True  # what _schedule_async_recovery sets; run sync to observe
-        t0 = time.time()
-        try:
-            cam._recover_wedged_stream()
-            time.sleep(0.3)  # let any late DeviceLost callback land
-        finally:
-            cam._in_recovery = False
-            cam._handle_device_lost = orig_handle_lost
-
-        key_after = cam._device_key
-        print(
-            f'[device-reset] recovery_s={time.time() - t0:.2f} '
-            f'device_lost_fired={bool(lost_calls)} '
-            f'key_changed={key_after != key_before} '
-            f'key_before={key_before!r} key_after={key_after!r}'
-        )
-
-        # The recovery must leave the camera live and grabbing again.
-        self.assertTrue(cam.is_grabbing(), 'stream must be grabbing after DeviceReset recovery')
-        ok, _ts = cam.grab_new_capture(2.0)
-        self.assertTrue(ok, 'must grab a frame after DeviceReset recovery')
-
     def test_frame_size(self):
         # On-grid request: delivered exactly (no surplus to crop).
         self.camera.set_frame_size(1920, 1528)

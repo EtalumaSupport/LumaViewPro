@@ -404,10 +404,10 @@ class TestFeatureNodeProbe:
         assert feat['stream']['U3vStreamChannelTransferRequestCount']['present'] is False
 
     def test_snapshot_probes_device_reset_command_node(self):
-        # DeviceReset gates the deferred in-software stream-wedge recovery: the
-        # probe must report its presence + access on a normal-startup snapshot
-        # even though a command node has no readable value, so a bench bundle
-        # answers 'can we reset in software instead of replug?'.
+        # DeviceReset is a command node with no readable value; the probe
+        # must still report its presence + access on a normal-startup snapshot
+        # so a bench bundle answers 'could a reset be issued in software at
+        # all, rather than by physical replug?'.
         cam = bare_ids_camera()
         cam.remote_nodemap = _Nodemap(
             special={'DeviceReset': _AccessCommandNode(access='ReadWrite')},
