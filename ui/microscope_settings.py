@@ -51,21 +51,35 @@ class _CoalescingApplier:
     Pattern:
       - submit(value) stashes value in a single pending slot and
         returns True only when the caller should enqueue the worker
-        task (i.e. no task already in flight).
+        task (i.e. no task already in flight and the value is not a
+        repeat of what the hardware already holds).
       - apply_pending(fn) drains the pending slot and calls fn(value)
         for each value. Loops until pending is empty so late-arriving
         updates during an apply() are picked up in the SAME task
         rather than spawning a new one.
+
+    Exact repeats of the last successfully applied value are absorbed.
+    One user edit fires the bound handler up to four times (each text
+    field binds both on_text_validate and on_focus loss, and the
+    handler reads BOTH fields every call, so all four calls compute
+    the identical value). On a slow camera the in-flight gate folds
+    them; on a fast camera (FX2 applies in milliseconds) the gate
+    closes between events and every repeat became a real hardware
+    apply. A failed apply does not update the last-applied record, so
+    a retry with the same value still goes through.
     """
 
     def __init__(self, name='coalescing_applier'):
         self._name = name
         self._pending = None
         self._in_flight = False
+        self._last_applied = None
         self._lock = threading.Lock()
 
     def submit(self, value):
         with self._lock:
+            if not self._in_flight and self._pending is None and value == self._last_applied:
+                return False
             self._pending = value
             if self._in_flight:
                 return False
@@ -80,10 +94,17 @@ class _CoalescingApplier:
                 if val is None:
                     self._in_flight = False
                     return
+                if val == self._last_applied:
+                    # A repeat of what the hardware already holds arrived
+                    # while an apply was in flight; nothing new to send.
+                    continue
             try:
                 fn(val)
             except Exception as e:
                 logger.error(f'[{self._name}] apply failed for {val!r}: {e}', exc_info=True)
+            else:
+                with self._lock:
+                    self._last_applied = val
 
 
 class MicroscopeSettings(BoxLayout):

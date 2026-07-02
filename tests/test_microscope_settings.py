@@ -184,3 +184,62 @@ class TestCoalescingApplier:
         fn = MagicMock()
         applier.apply_pending(fn)
         fn.assert_not_called()
+
+    def test_duplicate_of_applied_value_absorbed(self):
+        """One user edit fires the bound handler up to FOUR times with
+        the identical (width, height) pair (on_text_validate + on_focus
+        loss per field, and the handler reads both fields every call).
+        On a fast camera (FX2, millisecond applies) the in-flight gate
+        closes between events, so each repeat became a real hardware
+        apply. Exact repeats of the applied value must be absorbed."""
+        applier = self._make()
+        fn = MagicMock()
+        assert applier.submit((1896, 1896)) is True
+        applier.apply_pending(fn)
+        # The three trailing duplicate events of the same user edit.
+        assert applier.submit((1896, 1896)) is False
+        assert applier.submit((1896, 1896)) is False
+        assert applier.submit((1896, 1896)) is False
+        applier.apply_pending(fn)
+        fn.assert_called_once_with((1896, 1896))
+
+    def test_distinct_value_still_applies(self):
+        """Absorption only drops exact repeats; a genuinely new pair
+        (resolution edit, binning-driven halving) must still fire."""
+        applier = self._make()
+        calls = []
+        applier.submit((1900, 1900))
+        applier.apply_pending(calls.append)
+        assert applier.submit((1896, 1896)) is True
+        applier.apply_pending(calls.append)
+        assert calls == [(1900, 1900), (1896, 1896)]
+
+    def test_inflight_duplicate_not_reapplied(self):
+        """A repeat equal to the value being applied that folds into an
+        in-flight task is dropped at drain time, not re-sent."""
+        applier = self._make()
+        calls = []
+
+        def _fn(val):
+            calls.append(val)
+            if len(calls) == 1:
+                applier.submit(val)
+
+        applier.submit((1900, 2100))
+        applier.apply_pending(_fn)
+        assert calls == [(1900, 2100)]
+
+    def test_failed_apply_allows_same_value_retry(self):
+        """A failed apply must not record the value as applied; the
+        user retrying the same size still reaches the hardware."""
+        applier = self._make()
+
+        def _boom(val):
+            raise RuntimeError('camera sulked')
+
+        applier.submit((1900, 2100))
+        applier.apply_pending(_boom)
+        assert applier.submit((1900, 2100)) is True
+        fn = MagicMock()
+        applier.apply_pending(fn)
+        fn.assert_called_once_with((1900, 2100))
