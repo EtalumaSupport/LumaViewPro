@@ -12,10 +12,16 @@ scipy==1.17.1
 tifffile==2026.5.15
 platformdirs==4.9.6
 # IDS peak Python bindings. ipl provides ConvertTo; icv is the IPL successor
-# probed at runtime by drivers/idscamera.py. Pinned to the current PyPI latest.
+# probed at runtime by drivers/idscamera.py; afl is the host auto-exposure/
+# auto-gain engine (the U3-34L has no camera-side auto) -- probed at runtime
+# today, the base of the planned host AE/AG routine, and its absence from a
+# bench venv already cost a probe run. Pinned to the current PyPI latest.
+# All four ship Windows + Linux wheels only; macOS dev envs run the tests
+# against stubs.
 ids-peak==1.15.0.0.8
 ids-peak-ipl==1.17.2.0.7
 ids-peak-icv==1.3.0.9744
+ids-peak-afl==2.0.1.0.6
 psutil==7.2.2
 av==17.0.1
 # Kivy's kivy.core.spelling provider tries to import this on every import.
