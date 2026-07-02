@@ -239,6 +239,26 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
 
         frame_size = self.scope.imaging.camera_frame_size
         exposure = self.scope.imaging.camera_exposure_ms
+        # The exposure cache seeds 0.0 and keeps the prior value when a
+        # read fails, so a camera whose exposure was never successfully
+        # read reports 0 here. The frame rate derived from it sizes the
+        # recording memmap; a fabricated fallback would misallocate the
+        # buffer, so refuse the record attempt loudly instead.
+        if exposure is None or exposure <= 0:
+            logger.error(
+                f'[LVP Main  ] record_init refused: camera exposure unknown '
+                f'({exposure}); cannot size the recording buffer'
+            )
+            from modules.notification_center import notifications
+
+            notifications.error(
+                'Recording',
+                'Camera exposure unavailable',
+                'The camera has not reported its exposure time, so the '
+                'recording cannot be sized. Reconnect the camera and try again.',
+            )
+            self.recording.clear()
+            return
         exposure_freq = 1.0 / (exposure / 1000)
         # Pre-flight: warn if the user requested an FPS limit that
         # exposure can't hit. Accept the achievable rate either way.
