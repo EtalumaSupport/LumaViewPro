@@ -4359,10 +4359,34 @@ class TestRecordInitFpsPreflightAndToggle:
             'user-requested FPS limit binds against the exposure budget '
             "(issue #633 Stage 2C, Eric's 'warn + accept' choice)."
         )
-        # Warn-and-accept: do NOT block recording on this path.
-        assert 'self.recording.clear()' not in body.split('FPS budget exceeded')[0][-500:], (
-            'FPS-budget warning path must not clear self.recording -- '
-            'Eric chose warn-and-accept, not abort.'
+        # Warn-and-accept: the budget-warning branch itself must not
+        # block recording. Asserted on the AST branch (not source
+        # proximity) so unrelated refusal guards earlier in the
+        # preflight -- e.g. the unknown-exposure refusal, which
+        # legitimately clears the claim -- don't false-positive.
+        import ast
+        import pathlib
+
+        tree = ast.parse(pathlib.Path('ui/main_display.py').read_text())
+        method = None
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef) and node.name == 'MainDisplay':
+                for child in node.body:
+                    if isinstance(child, ast.FunctionDef) and child.name == 'record_init':
+                        method = child
+        assert method is not None, 'MainDisplay.record_init not found'
+        budget_ifs = [
+            s
+            for s in ast.walk(method)
+            if isinstance(s, ast.If) and 'FPS budget exceeded' in ast.unparse(s)
+        ]
+        assert budget_ifs, 'FPS-budget warning must sit inside the limit-binds check'
+        innermost = min(budget_ifs, key=lambda s: len(ast.unparse(s)))
+        assert 'recording.clear' not in ast.unparse(innermost) and not any(
+            isinstance(n, ast.Return) for n in ast.walk(innermost)
+        ), (
+            'FPS-budget warning path must not clear self.recording or '
+            'abort -- Eric chose warn-and-accept, not abort.'
         )
 
     def test_disk_space_preflight_aborts_with_notify(self):
@@ -6419,6 +6443,20 @@ class TestPylonIsConnectedCallsSdkQuery:
         cam._device_removed = False
         cam.active.IsCameraDeviceRemoved.return_value = False
         assert cam.is_connected() is True
+        cam._mark_disconnected.assert_not_called()
+
+    def test_is_connected_returns_false_when_removal_query_raises(self):
+        """A removal query that RAISES must read as disconnected, not
+        stale-alive: a query failure means the camera's liveness cannot
+        be confirmed, and reporting True hands consumers (camera_connected,
+        health aggregation) a lie. It must also NOT latch teardown -- a
+        failed query is not proof of physical removal, and the next poll
+        re-queries; the definitive signals (removal callback, a clean
+        IsCameraDeviceRemoved()==True) still latch via their own paths."""
+        cam = _bare_pylon_camera()
+        cam._device_removed = False
+        cam.active.IsCameraDeviceRemoved.side_effect = RuntimeError('transport error')
+        assert cam.is_connected() is False
         cam._mark_disconnected.assert_not_called()
 
 

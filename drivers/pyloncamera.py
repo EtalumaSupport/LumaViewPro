@@ -2944,7 +2944,17 @@ class PylonCamera(Camera):
                 self._mark_disconnected()
                 return False
         except Exception as e:
-            logger.debug(f'[CAM Class ] IsCameraDeviceRemoved query raised: {e}')
+            # A query that raises cannot confirm liveness, so report
+            # disconnected rather than stale-alive -- but do NOT latch
+            # removal: a failed read is not proof the device is gone,
+            # and the next poll re-queries. The definitive signals (the
+            # removal callback, a clean True from this query) still
+            # latch via their own paths.
+            logger.warning(
+                f'[CAM Class ] IsCameraDeviceRemoved query raised; '
+                f'reporting disconnected without latching removal: {e}'
+            )
+            return False
         return True
 
     def gain(self, value) -> None:
