@@ -121,7 +121,7 @@ class ProtocolImageWriter:
         except Exception as ex:
             logger.error(f'[Protocol-Writer] Failed to record dropped capture: {ex}')
 
-    def _capture_evidence(self, image) -> str:
+    def _capture_evidence(self, image, significant_bits: int) -> str:
         """One-line provenance for a captured frame: brightness statistics
         plus the chunk-verified exposure / gain and capture-hold timing.
 
@@ -129,14 +129,17 @@ class ProtocolImageWriter:
         settings saturates or mis-exposes) previously left no log trace at
         all; this line makes every protocol capture auditable from a
         support bundle. Brightness is computed on a strided sample so the
-        cost stays negligible at full frame rate.
+        cost stays negligible at full frame rate. ``significant_bits`` is
+        the frame's true bit depth, required because the container dtype
+        can be wider than the data (12-bit frames ride in uint16); a
+        container-derived full scale reads a saturated frame as sat=0%.
         """
         try:
             parts = []
             if image is not None and getattr(image, 'size', 0) > 0:
                 sample = image[::8, ::8]
-                max_value = np.iinfo(image.dtype).max
-                sat_fraction = float(np.count_nonzero(sample >= 0.99 * max_value)) / sample.size
+                full_scale = (1 << significant_bits) - 1
+                sat_fraction = float(np.count_nonzero(sample >= 0.99 * full_scale)) / sample.size
                 parts.append(f'mean={float(sample.mean()):.1f}')
                 parts.append(f'sat={sat_fraction * 100.0:.1f}%')
             info = self._scope.imaging.last_capture_info or {}
@@ -495,8 +498,19 @@ class ProtocolImageWriter:
                         return False
 
                     self._consecutive_capture_failures = 0  # Reset on success
+
+                    # Depth travels with the frame so both the evidence line's
+                    # saturation threshold and the hold-display downconvert
+                    # scale against the real range (summed -> 16-bit).
+                    if captured_image.dtype == np.uint8:
+                        frame_significant_bits = 8
+                    elif sum_count > 1:
+                        frame_significant_bits = 16
+                    else:
+                        frame_significant_bits = self._scope.imaging.significant_bits
                     logger.info(
-                        f'Protocol Image Captured: {name} {self._capture_evidence(captured_image)}'
+                        f'Protocol Image Captured: {name} '
+                        f'{self._capture_evidence(captured_image, frame_significant_bits)}'
                     )
 
                     # Hold the captured image on screen for at least 500 ms so
@@ -505,21 +519,13 @@ class ProtocolImageWriter:
                     # the hold deadline forward, so display tracks the
                     # most-recent saved frame in real time. Best-effort; missing
                     # scope_display (early init / standalone tools) is fine.
-                    # Depth travels with the frame so the hold-display downconvert
-                    # scales against the real range (summed -> 16-bit).
-                    if captured_image.dtype == np.uint8:
-                        hold_significant_bits = 8
-                    elif sum_count > 1:
-                        hold_significant_bits = 16
-                    else:
-                        hold_significant_bits = self._scope.imaging.significant_bits
                     try:
                         import modules.app_context as _app_ctx
 
                         ctx = _app_ctx.ctx
                         if ctx is not None and getattr(ctx, 'scope_display', None) is not None:
                             ctx.scope_display.hold_protocol_saved_image(
-                                captured_image, hold_significant_bits
+                                captured_image, frame_significant_bits
                             )
                     except Exception as _e:
                         logger.debug(f'[PROTOCOL] hold_protocol_saved_image failed: {_e}')
