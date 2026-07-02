@@ -1484,7 +1484,11 @@ class FX2Camera(Camera):
         except Exception:
             pass
 
-        self._iso_ctx = usb1.USBContext()
+        # Explicit open: usb1's lazy auto-open on first use is deprecated
+        # (warns at every stream start) and skips the library's shutdown
+        # cleanup registration. open() returns the context; the paired
+        # explicit close() lives in the stop path.
+        self._iso_ctx = usb1.USBContext().open()
         self._iso_handle = self._iso_ctx.openByVendorIDAndProductID(VID, PID_APP)
         if self._iso_handle is None:
             raise RuntimeError('FX2 USB device disappeared before ISO streaming could start')
@@ -1668,6 +1672,11 @@ class FX2Camera(Camera):
         except Exception:
             pass
         self._iso_transfers = []
+        # Paired with the explicit open() at stream start: dropping the
+        # reference without close() leaks the libusb context until GC. The
+        # transfers are cancelled and the handle closed above, so close()
+        # is safe here.
+        self._iso_ctx.close()
         self._iso_ctx = None
         self._iso_handle = None
         self._fx2._iso_handle_for_ctrl = None
