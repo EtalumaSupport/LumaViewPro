@@ -320,6 +320,27 @@ def convert_zstack_reference_position_setting_to_config(text_label: str) -> str:
     raise Exception(f'Unknown Z-stack position reference: {text_label}')
 
 
+def is_valid_gain_db(value) -> bool:
+    """True when a camera gain reading is usable (a number >= 0 dB).
+
+    Negative is the drivers' failed-read / inactive sentinel; 0 dB is a
+    legal gain. One shared predicate so every consumer of the sentinel
+    contract validates the same way.
+    """
+    return value is not None and value >= 0
+
+
+def is_valid_exposure_ms(value) -> bool:
+    """True when a camera exposure reading is usable (a positive number).
+
+    Negative is the drivers' failed-read sentinel and 0 is the API's
+    inactive-camera return -- neither is a physical exposure. One shared
+    predicate so every consumer of the sentinel contract validates the
+    same way.
+    """
+    return value is not None and value > 0
+
+
 def raw_bytes_per_pixel(pixel_format: str, is_color_native: bool = False) -> int:
     """Bytes per pixel of the RAW camera buffer (for data-rate readouts).
 

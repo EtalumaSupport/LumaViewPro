@@ -21,6 +21,7 @@ import numpy as np
 
 from lib import profile_trace
 from lvp_logger import logger
+import modules.common_utils as common_utils
 import modules.image_utils as image_utils
 from modules.frame_validity import FrameValidity
 from modules.notification_center import notifications
@@ -294,8 +295,6 @@ class ImagingAPI:
 
             cache = {
                 'active': True,
-                'gain_db': self._driver.get_gain() or 0.0,
-                'exposure_ms': self._driver.get_exposure_t() or 0.0,
                 'frame_size': self._driver.get_frame_size() or {'width': 0, 'height': 0},
                 'max_frame_size': self._driver.get_max_frame_size() or {'width': 0, 'height': 0},
                 'min_frame_size': self._driver.get_min_frame_size() or {'width': 0, 'height': 0},
@@ -308,6 +307,19 @@ class ImagingAPI:
                 else None,
                 'binning': self._binning_size,
             }
+            # Gain / exposure follow the binning refresh's validate-before-store
+            # shape: the drivers return a negative value as the failed-read
+            # sentinel, and the previous `or 0.0` idiom passed it through
+            # (-1.0 is truthy), latching the sentinel into the UI readout. A
+            # failed read now leaves the last-known cached value in place --
+            # the merge below simply never sees the key -- rather than caching
+            # a value the hardware never reported.
+            live_gain = self._driver.get_gain()
+            if common_utils.is_valid_gain_db(live_gain):
+                cache['gain_db'] = float(live_gain)
+            live_exposure = self._driver.get_exposure_t()
+            if common_utils.is_valid_exposure_ms(live_exposure):
+                cache['exposure_ms'] = float(live_exposure)
             with self._camera_cache_lock:
                 self._camera_cache.update(cache)
             logger.info('[SCOPE API ] Camera cache populated')
@@ -348,10 +360,19 @@ class ImagingAPI:
             )
             return
         with self._camera_cache_lock:
+            # A non-physical reading (the drivers' negative failed-read
+            # sentinel) routes to the SAME -1.0 invalidation the exception
+            # path above writes -- NOT keep-prior: the pre-auto cached value
+            # is known-stale here (hardware moved during the auto cycle), and
+            # keeping it would let the setter equality check short-circuit.
             if gain is not None:
-                self._camera_cache['gain_db'] = float(gain)
+                self._camera_cache['gain_db'] = (
+                    float(gain) if common_utils.is_valid_gain_db(gain) else -1.0
+                )
             if exp is not None:
-                self._camera_cache['exposure_ms'] = float(exp)
+                self._camera_cache['exposure_ms'] = (
+                    float(exp) if common_utils.is_valid_exposure_ms(exp) else -1.0
+                )
         # Diagnostic: record where hardware auto-gain/exposure actually
         # converged when the cycle ended. A converged gain that stayed near
         # the floor on a dim scene means the settle window ended before AG

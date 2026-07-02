@@ -351,6 +351,32 @@ def generate_image_metadata(scope: Lumascope, color, x, y, z) -> dict:
     _chunk_gain_db = chunks.get('Gain')
     gain_db_value = _chunk_gain_db if _chunk_gain_db is not None else scope.imaging.get_gain()
 
+    # A non-physical gain / exposure (negative failed-read sentinel, or the
+    # zero exposure an inactive camera reports) is not a real setting.
+    # Unknown stays unknown: omit the key from the saved metadata rather
+    # than record a value the hardware never had -- a -1.0 or 0.0 in
+    # OME/TIFF metadata reads downstream as a real acquisition setting.
+    _frame_settings = {}
+    if common_utils.is_valid_exposure_ms(exposure_ms_value):
+        _frame_settings['exposure_time_ms'] = round(
+            exposure_ms_value, common_utils.max_decimal_precision('exposure')
+        )
+    else:
+        logger.warning(
+            'Exposure time for this frame is unknown (no chunk data and the '
+            'live camera read failed or the camera is inactive); omitting '
+            'exposure_time_ms from saved metadata'
+        )
+    if common_utils.is_valid_gain_db(gain_db_value):
+        _frame_settings['gain_db'] = round(
+            gain_db_value, common_utils.max_decimal_precision('gain')
+        )
+    else:
+        logger.warning(
+            'Gain for this frame is unknown (no chunk data and the live '
+            'camera read failed); omitting gain_db from saved metadata'
+        )
+
     metadata = {
         'camera_make': 'Etaluma',
         'microscope': microscope_model,
@@ -365,10 +391,7 @@ def generate_image_metadata(scope: Lumascope, color, x, y, z) -> dict:
         'x_pos': px,
         'y_pos': py,
         'z_pos_um': z,
-        'exposure_time_ms': round(
-            exposure_ms_value, common_utils.max_decimal_precision('exposure')
-        ),
-        'gain_db': round(gain_db_value, common_utils.max_decimal_precision('gain')),
+        **_frame_settings,
         'illumination_ma': (
             round(_ma, common_utils.max_decimal_precision('illumination'))
             if (_ma := scope.illumination.get_led_ma(color=color)) is not None

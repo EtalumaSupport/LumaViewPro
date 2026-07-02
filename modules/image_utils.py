@@ -1850,13 +1850,21 @@ def generate_tiff_data(
         'PositionYUnit': 'mm',
         'PositionZUnit': 'um',
         'Objective': metadata['objective'],
-        'ExposureTime': metadata['exposure_time_ms'],
-        'ExposureTimeUnit': 'ms',
-        'Gain': metadata['gain_db'],
-        'GainUnit': 'dB',
         'Illumination': metadata['illumination_ma'],
         'IlluminationUnit': 'mA',
     }
+    # Exposure and gain join the same optional-fields contract as the
+    # per-frame timestamps below: the producer omits the key when the value
+    # is genuinely unknown (no chunk data AND the live read failed), because
+    # a fabricated stand-in written here would masquerade downstream as a
+    # real acquisition setting. Present -> written with its unit; absent ->
+    # the TIFF field is omitted, and the frame still saves.
+    if 'exposure_time_ms' in metadata:
+        plane['ExposureTime'] = metadata['exposure_time_ms']
+        plane['ExposureTimeUnit'] = 'ms'
+    if 'gain_db' in metadata:
+        plane['Gain'] = metadata['gain_db']
+        plane['GainUnit'] = 'dB'
 
     # Per-frame timestamps. Each is optional -- callers that don't capture
     # them (older static metadata builders, Stage 2-pending paths) simply

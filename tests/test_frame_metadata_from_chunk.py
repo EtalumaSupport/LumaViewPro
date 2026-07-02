@@ -81,6 +81,56 @@ def test_gain_metadata_prefers_chunk_with_live_fallback():
     assert no_chunk['gain_db'] == LIVE_GAIN_DB
 
 
+def test_failed_live_read_omits_gain_exposure_keys():
+    """A negative gain/exposure is the drivers' failed-read sentinel; it must
+    never be written into saved metadata as if it were a real acquisition
+    setting. Unknown -> the key is omitted."""
+    scope = _metadata_scope(None)
+    scope.imaging.get_exposure_time = lambda: -1.0
+    scope.imaging.get_gain = lambda: -1.0
+    metadata = generate_image_metadata(scope, color='BF', x=0, y=0, z=0)
+    assert 'exposure_time_ms' not in metadata, (
+        f'failed exposure read must omit the key, not record {metadata.get("exposure_time_ms")}'
+    )
+    assert 'gain_db' not in metadata, (
+        f'failed gain read must omit the key, not record {metadata.get("gain_db")}'
+    )
+
+
+def test_inactive_camera_zero_exposure_omitted():
+    """An inactive camera reports exposure 0 -- a value the hardware never
+    had, not a physical exposure. It must be omitted like the negative
+    failed-read sentinel, so a save racing a disconnect does not fabricate
+    exposure_time_ms=0.0 in the frame metadata."""
+    scope = _metadata_scope(None)
+    scope.imaging.get_exposure_time = lambda: 0.0
+    scope.imaging.get_gain = lambda: -1.0
+    metadata = generate_image_metadata(scope, color='BF', x=0, y=0, z=0)
+    assert 'exposure_time_ms' not in metadata
+    assert 'gain_db' not in metadata
+
+
+def test_tiff_write_path_tolerates_omitted_gain_exposure():
+    """The structured TIFF writer must treat the omitted keys as optional
+    fields (same contract as the per-frame timestamps): a frame whose
+    exposure/gain is unknown still SAVES, with those TIFF fields absent --
+    one unreadable value must never become a lost frame."""
+    import numpy as np
+
+    from modules.image_utils import generate_tiff_data
+
+    scope = _metadata_scope(None)
+    scope.imaging.get_exposure_time = lambda: -1.0
+    scope.imaging.get_gain = lambda: -1.0
+    metadata = generate_image_metadata(scope, color='BF', x=0, y=0, z=0)
+    metadata['significant_bits'] = 8  # write_tiff supplies this in production
+    data = np.zeros((4, 4), dtype=np.uint8)
+    tiff = generate_tiff_data(data, metadata=metadata, image_type='ome', color='BF')
+    plane = tiff['metadata']['Plane']
+    assert 'ExposureTime' not in plane
+    assert 'Gain' not in plane
+
+
 def test_chunk_provenance_fields_recorded():
     scope = _metadata_scope({'ExposureTime': 5000.0, 'Gain': 3.0, 'Timestamp': 42, 'FrameID': 7})
     metadata = generate_image_metadata(scope, color='BF', x=0, y=0, z=0)

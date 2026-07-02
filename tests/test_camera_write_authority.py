@@ -266,6 +266,26 @@ class TestGeometrySetterSequences:
         # silently de-bin the scale-bar / FOV math for a 2x camera.
         assert imaging_capable._binning_size == 2
 
+    def test_gain_exposure_read_failure_not_cached(self, imaging_capable):
+        prior_gain = imaging_capable.camera_gain
+        prior_exposure = imaging_capable.camera_exposure_ms
+        cam = imaging_capable._driver
+        orig_gain, orig_exp = cam.get_gain, cam.get_exposure_t
+        cam.get_gain = lambda: -1.0
+        cam.get_exposure_t = lambda: -1.0
+        try:
+            imaging_capable._populate_camera_cache()
+        finally:
+            cam.get_gain, cam.get_exposure_t = orig_gain, orig_exp
+        # A negative return is the drivers' failed-read sentinel. The old
+        # `or 0.0` idiom passed it through (-1.0 is truthy) and latched -1
+        # into the UI gain/exposure readout; a failed read must leave the
+        # last-known values in place.
+        assert imaging_capable.camera_gain == prior_gain
+        assert imaging_capable.camera_exposure_ms == prior_exposure
+        assert imaging_capable.camera_gain >= 0
+        assert imaging_capable.camera_exposure_ms >= 0
+
     def test_rejected_binning_write_keeps_prior_factor(self, imaging_capable):
         imaging_capable.set_binning_size(2)
         cam = imaging_capable._driver

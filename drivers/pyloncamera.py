@@ -887,7 +887,12 @@ class PylonCamera(Camera):
             # mode can be distinguished from "found but Open() failed".
             # The list also surfaces multi-camera-bench cases (wrong
             # serial selected) and transient enumeration races (device
-            # visible but Pylon hasn't claimed it yet).
+            # visible but Pylon hasn't claimed it yet). The connect-failure
+            # handler below keys its log severity off this list, plus the
+            # opened flag (set right after Open() succeeds) so a post-open
+            # configuration failure is never misreported as "not openable."
+            _devs = ()
+            _opened = False
             try:
                 _devs = pylon.TlFactory.GetInstance().EnumerateDevices()
                 _log_cam(
@@ -967,6 +972,7 @@ class PylonCamera(Camera):
             # InstantCamera methods present on every transport (unlike the
             # optional nodes below), so no node-availability guard is needed;
             # a genuine SDK failure propagates to connect()'s own handler.
+            _opened = True
             if camera.IsGrabbing():
                 camera.StopGrabbing()
                 _log_cam('info', '[CAM Class ] post-Open: stopped SDK auto-start grab (start gate)')
@@ -1146,13 +1152,33 @@ class PylonCamera(Camera):
             return True
 
         except genicam.RuntimeException as ex:
-            # Expected when no Basler is present (e.g. the registry probing
-            # Pylon on an IDS-only bench) or the device is busy -- the registry
-            # recovers by trying the next driver, so WARNING not ERROR.
-            _cam_log.warning(
-                '[CAM Class ] Pylon camera connect failed (no device, or open in '
-                f'another application): {ex}'
-            )
+            if _opened:
+                # Open() itself succeeded; the failure is a post-open
+                # configuration step (grab-stop, stream-node writes, initial
+                # camera config). Calling this "not openable" would send
+                # bench debugging at the wrong layer.
+                _cam_log.error(
+                    f'[CAM Class ] Pylon camera connect failed AFTER a '
+                    f'successful open, during post-open configuration: {ex}'
+                )
+            elif _devs:
+                # A Basler IS visible but could not be opened -- typically
+                # held open by another application (e.g. pylon Viewer), or a
+                # claim race. That is the actionable bench failure, and it
+                # must survive an error-level log sweep.
+                _cam_log.error(
+                    f'[CAM Class ] Pylon camera connect failed with '
+                    f'{len(_devs)} device(s) enumerated -- device present '
+                    f'but not openable (possibly held by another '
+                    f'application): {ex}'
+                )
+            else:
+                # Expected when no Basler is present (e.g. the registry
+                # probing Pylon on an IDS-only bench) -- the registry recovers
+                # by trying the next driver, so WARNING not ERROR.
+                _cam_log.warning(
+                    f'[CAM Class ] Pylon camera connect failed (no device enumerated): {ex}'
+                )
             self.active = None
             self._stop_image_grab_worker()
         except Exception:
@@ -1214,8 +1240,15 @@ class PylonCamera(Camera):
 
             return temps
         except genicam.RuntimeException as e:
+            # Intentionally NO disconnect teardown here: this getter used to
+            # latch the device-removed flag (no reset short of a full
+            # reconnect) on a single possibly-transient node read, which
+            # silently killed the live stream. Removal detection is owned by
+            # the SDK removal callback and the grab loop's definitive
+            # DEVICE_NOT_FOUND / consecutive-failure paths, which still fire
+            # on a real unplug; a read failure here only means this VALUE is
+            # unavailable right now.
             _cam_log.error(f'[CAM Class ] Failed to read camera temperatures: {e}')
-            self._mark_disconnected()
             return {}
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error reading temperatures: {e}')
@@ -2073,10 +2106,13 @@ class PylonCamera(Camera):
             self._pixel_format_cache = value
             return value
         except genicam.RuntimeException as e:
-            _cam_log.error(
-                f'[CAM Class ] Failed to read pixel format: Camera may be disconnected - {e}'
-            )
-            self._mark_disconnected()
+            # Intentionally NO disconnect teardown: latching device-removed
+            # from a possibly-transient node read silently killed the live
+            # stream until a manual reconnect. Removal stays owned by the SDK
+            # removal callback + the grab loop's definitive paths (still fire
+            # on a real unplug); this failure only means the format is
+            # unreadable right now, which the None sentinel already says.
+            _cam_log.error(f'[CAM Class ] Failed to read pixel format: {e}')
             return None
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error reading pixel format: {e}')
@@ -2087,8 +2123,10 @@ class PylonCamera(Camera):
         try:
             return self.active.PixelFormat.GetSymbolics()
         except genicam.RuntimeException as e:
+            # Intentionally NO disconnect teardown (latching device-removed on
+            # a transient node read killed the stream); removal is owned by
+            # the SDK removal callback + the grab loop's definitive paths.
             _cam_log.error(f'[CAM Class ] Failed to read pixel formats: {e}')
-            self._mark_disconnected()
             return ()
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error reading pixel formats: {e}')
@@ -2180,14 +2218,14 @@ class PylonCamera(Camera):
 
             return vert_bin
         except genicam.RuntimeException as e:
-            _cam_log.error(
-                f'[CAM Class ] Failed to read binning size: Camera may be disconnected - {e}'
-            )
-            self._mark_disconnected()
+            # Intentionally NO disconnect teardown (latching device-removed on
+            # a transient node read killed the stream); removal is owned by
+            # the SDK removal callback + the grab loop's definitive paths.
             # -1 is out-of-band (binning must be >= 1) so validate-before-store
             # callers REJECT a failed read instead of committing an in-band 1
             # that silently de-bins a 2x camera. Same contract as the IDS
-            # driver; these handlers pre-date this change and already log.
+            # driver.
+            _cam_log.error(f'[CAM Class ] Failed to read binning size: {e}')
             return -1
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error reading binning size: {e}')
@@ -2304,8 +2342,10 @@ class PylonCamera(Camera):
         try:
             return self._has_node(self.active.GetNodeMap(), 'BslConversionGainMode')
         except genicam.RuntimeException as e:
+            # Intentionally NO disconnect teardown (latching device-removed on
+            # a transient probe read killed the stream); removal is owned by
+            # the SDK removal callback + the grab loop's definitive paths.
             _cam_log.error(f'[CAM Class ] Failed to probe conversion gain mode support: {e}')
-            self._mark_disconnected()
             return False
         except Exception as e:
             _cam_log.exception(
@@ -2323,8 +2363,10 @@ class PylonCamera(Camera):
                 node_map, 'BslLineNoiseReduction'
             )
         except genicam.RuntimeException as e:
+            # Intentionally NO disconnect teardown (latching device-removed on
+            # a transient probe read killed the stream); removal is owned by
+            # the SDK removal callback + the grab loop's definitive paths.
             _cam_log.error(f'[CAM Class ] Failed to probe line noise reduction support: {e}')
-            self._mark_disconnected()
             return False
         except Exception as e:
             _cam_log.exception(
@@ -2801,8 +2843,10 @@ class PylonCamera(Camera):
                 'height': camera.Height.GetMin(),
             }
         except genicam.RuntimeException as e:
+            # Intentionally NO disconnect teardown (latching device-removed on
+            # a transient node read killed the stream); removal is owned by
+            # the SDK removal callback + the grab loop's definitive paths.
             _cam_log.error(f'[CAM Class ] Failed to read min frame size: {e}')
-            self._mark_disconnected()
             return {}
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error reading min frame size: {e}')
@@ -2823,8 +2867,10 @@ class PylonCamera(Camera):
                 'height': camera.Height.GetMax(),
             }
         except genicam.RuntimeException as e:
+            # Intentionally NO disconnect teardown (latching device-removed on
+            # a transient node read killed the stream); removal is owned by
+            # the SDK removal callback + the grab loop's definitive paths.
             _cam_log.error(f'[CAM Class ] Failed to read max frame size: {e}')
-            self._mark_disconnected()
             return {}
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error reading max frame size: {e}')
@@ -2845,10 +2891,16 @@ class PylonCamera(Camera):
                 'height': height,
             }
         except genicam.RuntimeException as e:
-            _cam_log.error(
-                f'[CAM Class ] Failed to read frame size: Camera may be disconnected - {e}'
-            )
-            self._mark_disconnected()
+            # Driver-wide policy (every pure getter): NO disconnect teardown
+            # from a caught node-read error. A RuntimeException here is
+            # ambiguous -- the teardown helper has no signal to tell transient
+            # from fatal, so the distinction lives with the callers that DO
+            # have definitive evidence (the SDK removal callback, the
+            # DEVICE_NOT_FOUND grab path, the consecutive-failure cascade),
+            # which keep sole disconnect authority and still fire on a real
+            # unplug. Tearing down from here latched device-removed (no reset
+            # short of reconnect) and killed the live stream on one flaky read.
+            _cam_log.error(f'[CAM Class ] Failed to read frame size: {e}')
             return None
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error reading frame size: {e}')
@@ -2867,10 +2919,12 @@ class PylonCamera(Camera):
             _cam_log.warning(f'[CAM Class ] get_gain timed out: {e}')
             return -1
         except genicam.RuntimeException as e:
-            _cam_log.error(
-                f'[CAM Class ] Failed to read gain value: Camera may be disconnected - {e}'
-            )
-            self._mark_disconnected()
+            # Intentionally NO disconnect teardown (latching device-removed on
+            # a transient node read killed the stream); removal is owned by
+            # the SDK removal callback + the grab loop's definitive paths.
+            # Same transient treatment the TimeoutException branch above
+            # always had -- the two error classes are equally retryable here.
+            _cam_log.error(f'[CAM Class ] Failed to read gain value: {e}')
             return -1
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error reading gain: {e}')
@@ -3132,6 +3186,15 @@ class PylonCamera(Camera):
         set value) on legacy ace cameras that do not expose the
         Bsl-prefixed node.
 
+        Pure getter: a failed read reports failure via the documented
+        sentinel and never mutates connection state. Disconnect
+        authority lives solely with the callers holding definitive
+        evidence (the SDK removal callback, the DEVICE_NOT_FOUND grab
+        path, the consecutive-failure cascade), which still fire on a
+        real unplug; tearing down from a read latched device-removed
+        (no reset short of reconnect) and killed the live stream on
+        one flaky node read.
+
         Returns:
             float: Exposure time in milliseconds. Returns ``-1.0`` on
                 any error path (inactive camera, both nodes
@@ -3158,25 +3221,26 @@ class PylonCamera(Camera):
                 'ExposureTime',
             )
             if microsec is None:
-                # Both nodes unreadable -- camera is unusable for any
-                # acquisition; treat as disconnected.
+                # Both nodes unreadable is still only a READ failure:
+                # intentionally no disconnect teardown (latching
+                # device-removed on a transient read killed the stream). If
+                # the camera is really gone, the SDK removal callback + the
+                # grab loop's definitive paths fire within frames.
                 _cam_log.error(
                     '[CAM Class ] Failed to read exposure time: both '
                     'BslEffectiveExposureTime and ExposureTime nodes '
-                    'unavailable. Camera may be disconnected.'
+                    'unavailable.'
                 )
-                self._mark_disconnected()
                 return -1
             return microsec / 1000  # microseconds -> milliseconds
-        except genicam.TimeoutException as e:
-            # USB roundtrip timed out (transient). Don't mark disconnected; caller can retry.
-            _cam_log.warning(f'[CAM Class ] get_exposure_t timed out: {e}')
-            return -1
-        except genicam.RuntimeException as e:
-            _cam_log.error(
-                f'[CAM Class ] Failed to read exposure time: Camera may be disconnected - {e}'
-            )
-            self._mark_disconnected()
+        except (genicam.TimeoutException, genicam.RuntimeException) as e:
+            # Both error classes are transient at a single node read: return
+            # the documented sentinel, don't mark disconnected (the caller
+            # can retry). Removal detection belongs to the SDK removal
+            # callback + the grab loop's definitive paths, which still fire
+            # on a real unplug -- tearing down from here latched
+            # device-removed and killed the live stream on one flaky read.
+            _cam_log.error(f'[CAM Class ] Failed to read exposure time: {e}')
             return -1
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error reading exposure time: {e}')
