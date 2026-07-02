@@ -255,9 +255,9 @@ def scope():
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
     # Camera must be grabbing for get_image to work
-    s._camera_driver.start_grabbing()
+    s.imaging.start_streaming()
     yield s
-    s._camera_driver.stop_grabbing()
+    s.imaging.stop_streaming()
     s.disconnect()
 
 
@@ -701,7 +701,7 @@ class TestIntegrationStateAssertions:
         assert completed
 
         # Camera grabbing state is managed externally, should still be active
-        assert scope._camera_driver.is_grabbing()
+        assert scope.imaging.is_streaming()
 
     def test_second_run_after_first(self, executor, scope, tmp_path):
         """A second protocol run completes after the first finishes."""
@@ -1089,6 +1089,7 @@ class TestRestAPIPrep:
 
         session = ScopeSession.create_headless()
         session.start_executors()
+        session.scope.imaging.start_streaming()
         try:
             runner = session.create_protocol_runner()
             af = runner.sequenced_capture_runner._autofocus_runner
@@ -1114,6 +1115,7 @@ class TestRestAPIPrep:
 
         session = ScopeSession.create_headless()
         session.start_executors()
+        session.scope.imaging.start_streaming()
         try:
             runner = session.create_protocol_runner()
             af = runner.sequenced_capture_runner._autofocus_runner

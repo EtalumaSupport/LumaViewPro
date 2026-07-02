@@ -17,8 +17,8 @@ import modules.binning as binning
 import modules.common_utils as common_utils
 from modules import gui_logger
 from modules.config_helpers import (
-    DEFAULT_MAX_EXPOSURE_MS,
-    DEFAULT_MAX_GAIN_DB,
+    camera_max_exposure_for_ui,
+    camera_max_gain_for_ui,
 )
 from modules.config_ui_getters import (
     firmware_stim_supported,
@@ -172,6 +172,10 @@ class MicroscopeSettings(BoxLayout):
         scope_config = self.scopes.get(settings.get('microscope'))
         config = ScopeInitConfig.from_settings(settings, labware, scope_config=scope_config)
         lumaview.scope.initialize(config)
+        # Start gate release: configuration is applied, so open the gate and
+        # fire the single grab (the camera-lifecycle split -- connect() left
+        # it configured but not grabbing).
+        lumaview.scope.imaging.start_streaming()
 
         ctx.sequenced_capture_runner.set_scope(lumaview.scope)
         ctx.autofocus_runner.set_scope(lumaview.scope)
@@ -186,8 +190,18 @@ class MicroscopeSettings(BoxLayout):
         # on_start uses. Pre-LVP-A-5 this block was open-coded here and
         # had subtly drifted from the App's version.
         ctx.session.start_application_session(disable_homing=ctx.disable_homing)
-        ctx.image_settings.set_layer_exposure_ranges()
-        layer_obj = ctx.image_settings.layer_lookup(layer='BF')
+        # Resync the whole per-camera UI surface from the NEW camera: refresh
+        # the slider caps first (reconnect previously left the gain cap stale,
+        # a blackout risk on a lower-cap camera), then the per-layer ranges +
+        # gates through the single grouping.
+        ctx.max_exposure = camera_max_exposure_for_ui(lumaview.scope.imaging)
+        ctx.max_gain = camera_max_gain_for_ui(lumaview.scope.imaging)
+        ctx.image_settings.sync_camera_capability_ranges()
+        # Re-apply the VISIBLE layer (not a hardcoded channel) so its controls
+        # reflect the new camera -- e.g. a non-BF open layer's gain/exposure
+        # sliders get re-enabled when the new camera lacks hardware auto-gain.
+        visible_layer = ctx.image_settings.open_or_default_layer()
+        layer_obj = ctx.image_settings.layer_lookup(layer=visible_layer)
         layer_obj.apply_settings()
 
         scope_leds_off()
@@ -321,18 +335,13 @@ class MicroscopeSettings(BoxLayout):
             self.ids['sequenced_image_output_format_spinner'].text = sequenced_fmt
             self.select_sequenced_image_output_format()
 
-            # camera_max_exposure returns None when no camera is connected;
-            # fall back to the default slider upper bound. See #616.
-            max_exposure = lumaview.scope.imaging.camera_max_exposure or DEFAULT_MAX_EXPOSURE_MS
-
+            # The exposure/gain slider caps from the live camera (the resolver
+            # applies the documented no-camera fallback; #616). The gain cap
+            # keeps the slider honest per-camera -- a universal 48 dB let LS620
+            # users overdrive past the usable range and black out the image.
+            max_exposure = camera_max_exposure_for_ui(lumaview.scope.imaging)
             ctx.max_exposure = max_exposure
-
-            # Parallel treatment for gain -- see #gain-slider-clamp note.
-            # Pre-fix, the gain slider was hardcoded 0-48 dB in the kv,
-            # which let users overdrive LS620 past its usable range (the
-            # image went black at high gain). Pulling the cap from the
-            # camera profile keeps the slider honest per-camera.
-            max_gain = lumaview.scope.imaging.camera_max_gain or DEFAULT_MAX_GAIN_DB
+            max_gain = camera_max_gain_for_ui(lumaview.scope.imaging)
             ctx.max_gain = max_gain
 
             if not settings['video_as_frames']:
@@ -428,6 +437,9 @@ class MicroscopeSettings(BoxLayout):
             scope_config = self.scopes.get(settings.get('microscope'))
             config = ScopeInitConfig.from_settings(settings, labware, scope_config=scope_config)
             lumaview.scope.initialize(config)
+            # Start gate release (primary startup site): configuration is
+            # applied, so open the gate and fire the single grab.
+            lumaview.scope.imaging.start_streaming()
 
             protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
             protocol_settings.ids['capture_period'].text = str(settings['protocol']['period'])
@@ -489,21 +501,15 @@ class MicroscopeSettings(BoxLayout):
                 if 'ill_ma' in settings[layer]:
                     layer_obj.ids['ill_slider'].value = settings[layer]['ill_ma']
 
+                # Size the sliders to the camera caps BEFORE setting the value
+                # (the Kivy slider clamps the displayed value to its max). The
+                # over-cap STORED value is reconciled + persisted by the single
+                # clamp_layer_settings_to_caps pass after the loop, not a
+                # duplicate inline clamp here.
                 layer_obj.ids['gain_slider'].max = max_gain
-
-                if settings[layer]['gain_db'] <= max_gain:
-                    layer_obj.ids['gain_slider'].value = settings[layer]['gain_db']
-                else:
-                    layer_obj.ids['gain_slider'].value = max_gain
-                    settings[layer]['gain_db'] = max_gain
-
+                layer_obj.ids['gain_slider'].value = settings[layer]['gain_db']
                 layer_obj.ids['exp_slider'].max = max_exposure
-
-                if settings[layer]['exp_ms'] <= max_exposure:
-                    layer_obj.ids['exp_slider'].value = settings[layer]['exp_ms']
-                else:
-                    layer_obj.ids['exp_slider'].value = max_exposure
-                    settings[layer]['exp_ms'] = max_exposure
+                layer_obj.ids['exp_slider'].value = settings[layer]['exp_ms']
 
                 layer_obj.ids['false_color'].active = settings[layer]['false_color']
 
@@ -574,6 +580,12 @@ class MicroscopeSettings(BoxLayout):
                     layer_obj.ids['stim_pulse_width_box'].opacity = 0
 
                     layer_obj.update_stim_controls_visibility()
+
+            # Reconcile any layer whose stored gain/exposure exceeds the new
+            # camera's cap down to it -- the single clamp owner, shared with the
+            # reconnect resync, instead of the per-layer inline clamp this loop
+            # used to carry.
+            ctx.image_settings.clamp_layer_settings_to_caps()
 
         except json.JSONDecodeError as e:
             # Real "incompatible JSON" -- file content can't be parsed.
@@ -672,19 +684,20 @@ class MicroscopeSettings(BoxLayout):
 
         self._refresh_binning_depth_hint()
 
-        # Apply the capture depth to the camera: Mono12 for any 12-bit mode,
-        # Mono8 for 8-bit. Route through the camera executor to avoid racing
-        # the live-view grab loop; fall back to a supported format if the
-        # requested one is rejected.
+        # Apply the capture depth to the camera. Resolve to a format the
+        # sensor actually supports BEFORE pushing, so we never request a
+        # format it lacks (e.g. Mono8 on an IDS sensor that exposes only
+        # Mono10/12 -- that logs a spurious 'Unsupported' warning). Route
+        # through the camera executor to avoid racing the live-view grab loop.
         capture_depth = image_mode.resolve_image_mode(mode)['capture_depth']
-        pixel_format = 'Mono12' if capture_depth == 12 else 'Mono8'
 
         def _set_pixel_format():
             imaging = ctx.lumaview.scope.imaging
-            if not imaging.set_pixel_format(pixel_format):
-                formats = imaging.get_supported_pixel_formats()
-                if formats:
-                    imaging.set_pixel_format(formats[0])
+            target = image_mode.select_capture_pixel_format(
+                capture_depth, imaging.get_supported_pixel_formats()
+            )
+            if target is not None:
+                imaging.set_pixel_format(target)
 
         ctx.camera_executor.put(IOTask(action=_set_pixel_format))
 
@@ -869,13 +882,29 @@ class MicroscopeSettings(BoxLayout):
             sizes = [1, 2, 4]
         spinner.values = [f'{s}x{s}' for s in sizes]
 
+    def _ui_binning_size(self) -> int:
+        """The binning factor the UI currently shows (the settings SSOT).
+
+        Native-ROI reconstruction multiplies the displayed frame size by the
+        binning it was entered at, so it must read the SYNCHRONOUS UI binning
+        (``settings['binning']['size']``), NOT ``imaging.get_binning_size()``.
+        The hardware binning is applied asynchronously through the camera
+        executor, so right after a binning change the driver still reports the
+        previous factor; reconstructing displayed * that stale factor rebuilds
+        a wrong (and, when only one axis was previously off-square, non-square)
+        native ROI -- the 1056x950-instead-of-950x950 bench bug.
+        """
+        settings = _app_ctx.ctx.settings
+        return binning.binning_size_str_to_int(settings['binning']['size'])
+
     def _native_roi(self) -> dict:
         """Return the unbinned ROI -- the source of truth for frame sizing.
 
         Persisted as ``settings['frame']['native_width']/['native_height']``.
-        When absent (older settings files that stored only the displayed
-        size), reconstruct it from the displayed frame size times the current
-        binning, capped at the sensor native resolution.
+        The stored pair is the unconditional source of truth (binning never
+        changes it). Only when absent (older settings files that stored just
+        the displayed size) is it reconstructed from the displayed frame size
+        times the UI binning, capped at the sensor native resolution.
         """
         ctx = _app_ctx.ctx
         frame = ctx.settings['frame']
@@ -886,17 +915,32 @@ class MicroscopeSettings(BoxLayout):
                 'width': int(frame['native_width']),
                 'height': int(frame['native_height']),
             }
+            src = 'stored'
         else:
-            cur_binning = imaging.get_binning_size()
+            cur_binning = self._ui_binning_size()
             displayed = {'width': int(frame['width']), 'height': int(frame['height'])}
             cap = native_max or {
                 'width': displayed['width'] * cur_binning,
                 'height': displayed['height'] * cur_binning,
             }
+            # displayed_to_native already caps the reconstruction at the cap
+            # (native_max when known), so no separate clamp is needed here.
             native = binning.displayed_to_native(displayed, cur_binning, cap)
-        if native_max:
-            native['width'] = min(native['width'], native_max['width'])
-            native['height'] = min(native['height'], native_max['height'])
+            src = (
+                f'reconstructed displayed={displayed["width"]}x{displayed["height"]} '
+                f'ui_binning={cur_binning}'
+            )
+        # The stored pair is returned verbatim -- the unconditional source of
+        # truth. It is deliberately NOT re-capped against the live native_max: a
+        # transient small reading (a camera reconnect / init race) would
+        # otherwise shrink the persisted native_* permanently when a binning
+        # toggle re-stores it. The driver's set_frame_size is the real clamp to
+        # the current sensor max.
+        # Forensic line: whether the native ROI came from the stored source of
+        # truth or was rebuilt from displayed*binning, and at which binning.
+        # A reconstruction against a stale binning is how the native size
+        # silently drifted, so the src + inputs stay visible in the log.
+        logger.info(f'[LVP Main  ] native_roi: src={src} -> {native["width"]}x{native["height"]}')
         return native
 
     def _store_native_roi(self, native: dict) -> None:
@@ -929,25 +973,29 @@ class MicroscopeSettings(BoxLayout):
             )
             return
 
-        settings['binning']['size'] = new_binning_size_str
-
-        self._refresh_binning_depth_hint()
-
-        # Native ROI is the source of truth; the displayed/captured size is
-        # native / binning. Deriving from the fixed native ROI (not the prior
-        # displayed value) is what makes binning round-trip: iterating on the
-        # already-floored displayed value lost pixels that never came back.
-        #
-        # Persist the native ROI here too, not just on a frame-field edit.
-        # Without this, settings that never had native_* stored fall through
-        # _native_roi's reconstruction (displayed * binning) on every binning
-        # change -- and at a coarse binning the displayed value is already
-        # floored, so reconstruction shrinks native a little each step and the
-        # cycle drifts (1x1 -> 4x4 -> 1x1 came back smaller). Storing the
-        # native ROI on the first change locks the source of truth so later
-        # changes read a fixed value and round-trip exactly.
+        # Capture the native ROI BEFORE overwriting the binning setting.
+        # _native_roi reconstruction multiplies the displayed value by the UI
+        # binning (settings['binning']['size']), so it must read the OLD binning
+        # the current displayed value corresponds to; reading it after the
+        # overwrite would rebuild native against the new factor and skew it (the
+        # non-square frame at 2x). Storing it locks the source of truth so this
+        # and every later binning change round-trips exactly -- without it,
+        # settings that never had native_* fall through reconstruction
+        # (displayed * binning) on every change, and at a coarse binning the
+        # already-floored displayed value shrinks native a little each step so
+        # the cycle drifts (1x1 -> 4x4 -> 1x1 came back smaller).
         native = self._native_roi()
         self._store_native_roi(native)
+
+        settings['binning']['size'] = new_binning_size_str
+        gui_logger.select('BINNING', new_binning_size_str)
+        self._refresh_binning_depth_hint()
+
+        # The displayed/captured size is native / binning, floored to the active
+        # driver's DELIVERABLE granularity: get_pixel_alignment reports the
+        # camera grid for floor-only drivers (Pylon/FX2/sim) and just 'even' for
+        # the IDS driver, which crops back to the exact request -- so a 1900
+        # frame stays 1900 on IDS but floors to the real grid elsewhere.
         new_frame = binning.native_to_displayed(
             native, new_binning_size, imaging.get_pixel_alignment()
         )
@@ -1076,7 +1124,10 @@ class MicroscopeSettings(BoxLayout):
             frame = ctx.settings['frame']
             typed = {'width': frame['width'], 'height': frame['height']}
 
-        cur_binning = imaging.get_binning_size()
+        # The typed value is a displayed size at the UI binning, so reconstruct
+        # native against the synchronous UI binning, not the async hardware
+        # binning (see _ui_binning_size).
+        cur_binning = self._ui_binning_size()
         native_max = imaging.get_native_resolution() or {
             'width': int(typed['width']) * cur_binning,
             'height': int(typed['height']) * cur_binning,
@@ -1084,6 +1135,9 @@ class MicroscopeSettings(BoxLayout):
         native = binning.displayed_to_native(typed, cur_binning, native_max)
         self._store_native_roi(native)
 
+        # Floor to the active driver's deliverable granularity (see
+        # select_binning_size): the IDS driver crops to the exact request, so
+        # get_pixel_alignment reports 'even' for it and the real grid elsewhere.
         displayed = binning.native_to_displayed(native, cur_binning, imaging.get_pixel_alignment())
         self._apply_displayed_frame(displayed)
 
@@ -1116,6 +1170,12 @@ class MicroscopeSettings(BoxLayout):
 
         settings['frame']['width'] = width
         settings['frame']['height'] = height
+
+        # The single framing chokepoint: both the frame-field edit and the
+        # binning toggle reach the camera through here, so one log call records
+        # every framing change the user makes (the prior gap that left the
+        # frame-box resize invisible in the GUI log).
+        gui_logger.frame_size(width, height, get_binning_from_ui())
 
         self.ids['frame_width_id'].text = str(width)
         self.ids['frame_height_id'].text = str(height)

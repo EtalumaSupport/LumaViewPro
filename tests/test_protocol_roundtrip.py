@@ -193,9 +193,9 @@ def scope():
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
-    s._camera_driver.start_grabbing()
+    s.imaging.start_streaming()
     yield s
-    s._camera_driver.stop_grabbing()
+    s.imaging.stop_streaming()
     s.disconnect()
 
 

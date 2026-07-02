@@ -193,16 +193,17 @@ class ImagingAPI:
         self._camera_temp_event = None
         self._camera_temp_unschedule_fn = None
 
-        # Binning size cache -- read live from driver if camera is
-        # connected, otherwise default to 1. Defensive against fake/test
-        # cameras that may not implement get_binning_size.
+        # Binning size cache. get_binning_size() (the wrapper) is the single read
+        # accessor. Seed the last-known value, then commit only a VALID live read:
+        # a failed read (driver returns -1, since 1 is a legal factor and cannot
+        # double as the failure sentinel) leaves the last-known value in place
+        # rather than caching -1, which would corrupt native_to_displayed's
+        # frame-size division.
+        self._binning_size = 1
         if self._driver and hasattr(self._driver, 'get_binning_size'):
-            try:
-                self._binning_size = self._driver.get_binning_size()
-            except Exception:
-                self._binning_size = 1
-        else:
-            self._binning_size = 1
+            live = self.get_binning_size()
+            if live >= 1:
+                self._binning_size = live
 
         # Scale-bar overlay config -- defaults disabled; users opt in via
         # set_scale_bar(...). Reads/writes under self._state_lock.
@@ -279,6 +280,18 @@ class ImagingAPI:
             return
 
         try:
+            # Refresh the last-known binning from a valid live read; a failed
+            # read (driver returns -1) leaves it unchanged
+            # (validate-before-store, mirroring __init__) so the cache never
+            # holds the failure sentinel. Inside the shared shield so a driver
+            # or test double whose getter raises degrades to the same
+            # "Failed to populate camera cache" warning as every other read
+            # here, instead of aborting cache population entirely.
+            if hasattr(self._driver, 'get_binning_size'):
+                live_binning = self.get_binning_size()
+                if live_binning >= 1:
+                    self._binning_size = live_binning
+
             cache = {
                 'active': True,
                 'gain_db': self._driver.get_gain() or 0.0,
@@ -293,9 +306,7 @@ class ImagingAPI:
                 'pixel_format': self._driver.get_pixel_format()
                 if hasattr(self._driver, 'get_pixel_format')
                 else None,
-                'binning': self._driver.get_binning_size()
-                if hasattr(self._driver, 'get_binning_size')
-                else 1,
+                'binning': self._binning_size,
             }
             with self._camera_cache_lock:
                 self._camera_cache.update(cache)
@@ -661,12 +672,25 @@ class ImagingAPI:
             self._notify_camera_absent('frame size')
             return
         # A frame-size change reallocates buffers; the pipeline must flush, so
-        # invalidate unconditionally and snapshot the new geometry.
-        self._camera_write(
+        # invalidate unconditionally. Cache the DELIVERED size, not the request:
+        # a driver may clamp or snap the request to its legal grid
+        # (oversize-then-crop, alignment multiples), and FOV / pixel-size math
+        # reads this cache, so it must reflect what the camera actually
+        # delivers. The delivered geometry comes from the write's own return
+        # value -- a separate get_frame_size() read-back is deliberately
+        # avoided because a transient read error there can spuriously drop the
+        # camera. A falsy result means the WRITE failed, so the prior cache
+        # entry (still describing the hardware) is left in place.
+        delivered = self._camera_write(
             lambda: self._driver.set_frame_size(w, h),
             force_invalidate=('frame_size',),
-            cache_update={'frame_size': {'width': int(w), 'height': int(h)}},
         )
+        if delivered:
+            with self._camera_cache_lock:
+                self._camera_cache['frame_size'] = {
+                    'width': int(delivered['width']),
+                    'height': int(delivered['height']),
+                }
 
     def _notify_camera_absent(self, op_label: str) -> None:
         """Fire a deduped notification when a camera-required operation
@@ -705,8 +729,6 @@ class ImagingAPI:
                 proceed with operations that depend on the new binning.
         """
         try:
-            self._binning_size = size
-
             if self._driver:
                 # Binning realloc only takes effect when the driver applied it,
                 # so the invalidate is gated on the driver result.
@@ -717,6 +739,33 @@ class ImagingAPI:
             else:
                 ok = False
                 self._notify_camera_absent('binning')
+            if ok:
+                # Validate-before-store: the factor is committed only when the
+                # driver applied it. A rejected write must not leave the
+                # requested value where scale-bar / FOV math reads it -- the
+                # hardware is still at the previous binning.
+                self._binning_size = size
+                # Both cached geometries are binning-dependent: the sensor
+                # minimum halves at 2x, and the delivered frame size halves
+                # with it. Left stale, the UI's frame-size clamp reads the 1x
+                # minimum and FOV math reads the 1x frame size until the next
+                # full hardware refresh. set_binning_size returns no geometry,
+                # so this refresh reads the getters -- a deliberate exception
+                # to the no-read-back preference, accepted because binning
+                # changes are rare user actions, not per-frame traffic.
+                fresh_min = self._driver.get_min_frame_size()
+                fresh_size = self._driver.get_frame_size()
+                with self._camera_cache_lock:
+                    if fresh_min:
+                        self._camera_cache['min_frame_size'] = {
+                            'width': int(fresh_min['width']),
+                            'height': int(fresh_min['height']),
+                        }
+                    if fresh_size:
+                        self._camera_cache['frame_size'] = {
+                            'width': int(fresh_size['width']),
+                            'height': int(fresh_size['height']),
+                        }
             _api_log.info(f'set_binning {size}x{size} -> {ok}')
             return ok
         except Exception as ex:
@@ -1418,7 +1467,9 @@ class ImagingAPI:
         """Get the current camera pixel format.
 
         Returns:
-            str | None: Pixel format string (e.g. 'Mono8'), or None if inactive.
+            str | None: Pixel format string (e.g. 'Mono8'), or None when the
+                camera is inactive or the driver could not read the format
+                (the shared failed-read sentinel across drivers).
         """
         if not self._driver or not self._driver.active:
             return None
@@ -1518,10 +1569,15 @@ class ImagingAPI:
             return {}
 
     def get_pixel_alignment(self) -> dict:
-        """Return the camera's frame-size pixel alignment.
+        """Return the camera's deliverable frame-size granularity.
 
-        Frame width/height must be a multiple of these values (a Pylon
-        constraint on most current models). Defaults to 4x4 when unknown.
+        The frame width/height a caller can request, floored to these values, is
+        what the camera will actually deliver. For a floor-only driver (Pylon,
+        FX2, simulator) this is the hardware AOI grid -- a request off the grid
+        is floored down (e.g. multiple-of-4 on most Pylon models). The IDS
+        driver instead delivers any even size exactly via oversize-then-crop, so
+        it reports ``{2, 2}`` -- the only constraint is even dimensions (H.264).
+        Defaults to 4x4 when unknown.
 
         Returns:
             dict: ``{'width': int, 'height': int}``.
@@ -2100,6 +2156,53 @@ class ImagingAPI:
         """
         return self._driver.significant_bits if self._driver is not None else 16
 
+    # --- Streaming control ---
+    def start_streaming(self) -> None:
+        """Begin camera streaming -- the public way to start the live feed.
+
+        After ``connect()`` the camera is configured but NOT grabbing (the
+        camera-lifecycle split); this is the sanctioned release. Opens the
+        start gate (idempotent) and ensures the grab is running, so it both
+        performs the one-time bring-up start and restarts a feed that was
+        deliberately stopped. No-op when no camera is attached.
+
+        The UI bring-up calls this in load_settings / reconnect; headless
+        callers (scripts, tests) call it after constructing the scope
+        instead of reaching into the private camera driver.
+        """
+        driver = self._driver
+        if driver is None:
+            return
+        # open_and_start reports whether it just fired the one-time start;
+        # the restart poll runs only when the gate was ALREADY open (a feed
+        # deliberately stopped earlier). This keeps the two ensure-running
+        # mechanisms from stacking: a just-attempted start that failed is
+        # not immediately retried against the same failed device.
+        if not driver.open_and_start() and not driver.is_grabbing():
+            driver.start_grabbing()
+
+    def stop_streaming(self) -> None:
+        """Stop camera streaming.
+
+        After this, ``get_image()`` / ``capture_and_wait()`` time out until
+        streaming resumes. No-op when no camera is attached.
+        """
+        driver = self._driver
+        if driver is None:
+            return
+        driver.stop_grabbing()
+
+    def is_streaming(self) -> bool:
+        """Whether the camera is currently acquiring frames.
+
+        Queries the driver directly (unlike ``camera_active``, which reads
+        the cached connected-state). False when no camera is attached.
+        """
+        driver = self._driver
+        if driver is None:
+            return False
+        return driver.is_grabbing()
+
     # --- State / lifecycle properties ---
     @property
     def camera_active(self) -> bool:
@@ -2186,11 +2289,13 @@ class ImagingAPI:
         return float(value)
 
     @property
-    def camera_pixel_format(self) -> str:
+    def camera_pixel_format(self) -> str | None:
         """Current camera pixel format (e.g. 'Mono8', 'Mono12') (reads cache).
 
         Returns:
-            str: Cached pixel format string.
+            str | None: Cached pixel format string, or None when no camera
+                has populated the cache or the driver could not read the
+                format (the shared failed-read sentinel).
         """
         with self._camera_cache_lock:
             return self._camera_cache.get('pixel_format', 'Mono8')

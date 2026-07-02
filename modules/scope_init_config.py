@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 
 import modules.binning as binning
+import modules.image_mode as image_mode
 
 
 @dataclass
@@ -30,6 +31,7 @@ class ScopeInitConfig:
     acceleration_pct: int
     stage_offset: dict
     scale_bar_enabled: bool
+    capture_depth: int
     expects_motion: bool = True
     expects_led: bool = True
     high_conversion_gain: bool = False
@@ -49,6 +51,9 @@ class ScopeInitConfig:
         binning_size = binning.binning_size_str_to_int(
             text=settings.get('binning', {}).get('size', '1x1')
         )
+        capture_depth = image_mode.resolve_image_mode(
+            image_mode.resolve_settings_image_mode(settings)
+        )['capture_depth']
         if scope_config is None:
             expects_motion = True
             expects_led = True
@@ -70,6 +75,7 @@ class ScopeInitConfig:
             acceleration_pct=settings.get('motion', {}).get('acceleration_max_pct', 100),
             stage_offset=settings.get('stage_offset', {'x': 0, 'y': 0}),
             scale_bar_enabled=settings.get('scale_bar', {}).get('enabled', False),
+            capture_depth=capture_depth,
             expects_motion=expects_motion,
             expects_led=expects_led,
             high_conversion_gain=settings.get('camera', {}).get('high_conversion_gain', False),

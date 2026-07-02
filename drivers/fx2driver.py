@@ -1276,31 +1276,34 @@ class FX2Camera(Camera):
         """Called by Camera base class during construction.
 
         Initializes the MT9P031 sensor, creates the frame handler, loads
-        the camera profile, applies default exposure/gain via
-        ``init_camera_config()``, and **starts ISO streaming**. The
-        start-grabbing-in-connect convention matches PylonCamera
-        (drivers/pyloncamera.py:191), IDSCamera (drivers/idscamera.py:76),
-        and SimulatedCamera (drivers/simulated_camera.py:176). LVP's
-        ScopeDisplay polls the camera assuming it's already grabbing; if
-        connect() returns without starting streaming, the live view stays
-        blank. This bug bit on the first LS620 GUI launch (2026-04-15) --
-        manual Stage 3.5 scripts didn't notice because they all called
-        cam.start_grabbing() explicitly.
+        the camera profile, and applies default exposure/gain via
+        ``init_camera_config()``. Returns the camera CONFIGURED but NOT
+        grabbing -- the camera-lifecycle split: streaming begins exactly
+        once via ``open_and_start()`` (the start gate). ScopeDisplay polls
+        assuming the camera is grabbing, so the live view stays blank until
+        the gate is released; the bring-up sites release it via
+        ``scope.imaging.start_streaming()`` after configuration (the
+        blank-view failure that bit the first LS620 GUI launch 2026-04-15).
         """
         self.model_name = 'MT9P031-LS620'
         self._init_sensor()
         self.cam_image_handler = _FX2ImageHandler()
+        # Fresh handler starts with an empty dispatch list; re-push any durable
+        # listeners so a reconnect keeps delivering frames to recording / plugins.
+        self._reapply_frame_callbacks()
         self._active = True
         self._load_profile()
         self._query_dynamic_capabilities()
         self.init_camera_config()
-        self.start_grabbing()
         logger.info('[FX2 Cam   ] connected: %s', self.model_name)
         return True
 
     def disconnect(self) -> bool:
         self.stop_grabbing()
         self._active = None
+        # Clear the start gate + last-frame buffer so a same-instance reconnect
+        # starts clean (re-grabs, no stale image).
+        self._reset_lifecycle_state()
         logger.info('[FX2 Cam   ] disconnected')
         return True
 
@@ -1924,6 +1927,10 @@ class FX2Camera(Camera):
         after GPIF processing; the extra row is discarded by the grab
         loop (``skip_first_row``). Dimensions are rounded down to
         multiples of FRAME_SIZE_STEP (4) and clamped to [100, 1900].
+
+        Returns the delivered size ``{'width': int, 'height': int}`` after
+        rounding and clamping, so the caller knows what was actually applied
+        without a read-back.
         """
         step = self.FRAME_SIZE_STEP
         w = max(self.FRAME_SIZE_MIN, min(IMG_WIDTH, int(w)))
@@ -1961,6 +1968,7 @@ class FX2Camera(Camera):
             row_start,
             col_start,
         )
+        return {'width': w, 'height': h}
 
     def get_frame_size(self):
         return {'width': self._width, 'height': self._height}

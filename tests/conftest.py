@@ -172,6 +172,16 @@ def pytest_addoption(parser):
         default=False,
         help='Run wall-clock timing-sensitive tests (can be flaky under load)',
     )
+    _safe(
+        '--driver-log',
+        action='store_true',
+        default=False,
+        help='Route the (normally mocked) driver loggers to a REAL DEBUG log '
+        'file + stdout, so a test run records the driver internals (poll / '
+        'DeviceLost / wedge classification / grab detail) instead of discarding '
+        'them into the MagicMock. Works on any test; essential for diagnosing a '
+        '--run-ids-hardware bench-test failure.',
+    )
 
 
 def pytest_configure(config):
@@ -191,6 +201,59 @@ def pytest_configure(config):
         'timing_sensitive: measures wall-clock timing and can be flaky '
         'under CI/load (only runs with --run-timing-sensitive)',
     )
+
+    if config.getoption('--driver-log', default=False):
+        _enable_driver_logging(config)
+
+
+def _enable_driver_logging(config):
+    """Point the mocked lvp_logger's `logger`/`camera_logger` at a REAL DEBUG
+    logger writing to a timestamped file + stdout.
+
+    The suite mocks lvp_logger, so every driver `logger.*` / `_cam_log.*` call is
+    normally swallowed by the MagicMock -- worthless when a --run-ids-hardware
+    bench test fails and the driver's internal narrative is exactly what's
+    needed. Runs in pytest_configure, before collection imports the drivers, so
+    their module-level `from lvp_logger import logger` binds to the real logger.
+    Off by default (flag-gated), so the normal mocked suite is unchanged.
+    """
+    import logging
+    import time
+
+    real = logging.getLogger('lvp_driver_test')
+    real.setLevel(logging.DEBUG)
+    real.propagate = False
+    real.handlers.clear()
+
+    log_path = os.path.abspath(f'driver_test_{time.strftime("%Y-%m-%d_%H-%M-%S")}.log')
+    file_handler = logging.FileHandler(log_path, mode='w')
+    file_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
+    real.addHandler(file_handler)
+    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.setFormatter(logging.Formatter('[driver] %(message)s'))
+    real.addHandler(stream_handler)
+
+    lvp = sys.modules.get('lvp_logger')
+    if lvp is not None:
+        lvp.logger = real
+        lvp.camera_logger = real
+
+    config._driver_log_path = log_path
+    config._driver_log_handlers = (file_handler, stream_handler)
+    config._driver_logger = real
+    print(f'\n[--driver-log] driver logging -> {log_path}')
+
+
+def pytest_unconfigure(config):
+    """Close the --driver-log handlers and restate the file path."""
+    handlers = getattr(config, '_driver_log_handlers', None)
+    if not handlers:
+        return
+    logger = config._driver_logger
+    for handler in handlers:
+        handler.close()
+        logger.removeHandler(handler)
+    print(f'\n[--driver-log] driver log written to {config._driver_log_path}')
 
 
 def pytest_collection_modifyitems(config, items):
@@ -224,7 +287,7 @@ def sim_scope():
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
     s._camera_driver.load_cycle_images()
-    s._camera_driver.start_grabbing()
+    s.imaging.start_streaming()
     yield s
-    s._camera_driver.stop_grabbing()
+    s.imaging.stop_streaming()
     s.disconnect()

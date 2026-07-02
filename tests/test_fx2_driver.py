@@ -524,6 +524,26 @@ class TestSharedConnectionInvariant:
 # ---------------------------------------------------------------------------
 
 
+class TestFX2FrameCallbackAdoption:
+    """FX2 adopts the durable frame-callback contract: a callback registered
+    before a reconnect survives the handler rebuild in connect()."""
+
+    def test_reconnect_preserves_frame_callback(self, fake_fx2_conn):
+        cam = fx2driver.FX2Camera()
+
+        def _cb(image, ts, chunks):
+            pass
+
+        cam.register_frame_callback(_cb)
+        assert _cb in cam.cam_image_handler._frame_callbacks
+
+        # connect() rebuilds the handler (the reconnect path); the durable
+        # registry must be re-applied onto the fresh _FX2ImageHandler.
+        cam.connect()
+        assert _cb in cam._registered_frame_callbacks
+        assert _cb in cam.cam_image_handler._frame_callbacks
+
+
 class TestFX2CameraProfile:
     """FX2Camera should load the MT9P031-LS620 profile and populate
     dynamic gain / exposure fields in ``_query_dynamic_capabilities``.

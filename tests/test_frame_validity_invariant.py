@@ -34,6 +34,7 @@ def sim_imaging():
     holding the locks the setters acquire."""
     cam = SimulatedCamera()
     cam.active = True
+    cam.open_and_start()
     scope = Lumascope.__new__(Lumascope)
     scope._camera_driver = cam
     scope._cam_lock = threading.RLock()

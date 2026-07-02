@@ -1849,9 +1849,11 @@ class TestSetBinningSizeReturnsBool:
         with pytest.raises(HardwareError):
             cam.set_binning_size(2)
 
-    def test_idscamera_set_pixel_format_raises_and_annotated(self):
-        """Tier 3a / C3 + Tier 1-A: annotation declared, raises
-        HardwareError and marks disconnected on SDK failure."""
+    def test_idscamera_set_pixel_format_raises_without_disconnect(self):
+        """Tier 3a / C3 + Tier 1-A: annotation declared, raises HardwareError on
+        SDK failure but does NOT mark the camera disconnected -- a transient
+        PixelFormat write fault is recoverable, not a removal, so it must not
+        drop the camera mid-resize (matches set_binning_size, same machinery)."""
         from tests.ast_seams import assert_def
 
         from drivers.exceptions import HardwareError
@@ -1868,7 +1870,7 @@ class TestSetBinningSizeReturnsBool:
         cam.remote_nodemap.FindNode.return_value.SetCurrentEntry.side_effect = RuntimeError('sdk')
         with pytest.raises(HardwareError):
             cam.set_pixel_format('Mono8')
-        cam._mark_disconnected.assert_called_once()
+        cam._mark_disconnected.assert_not_called()
 
 
 class TestHomeReturnsBool:
@@ -4085,6 +4087,7 @@ def _sim_backed_imaging():
 
     cam = SimulatedCamera()
     cam.connect()
+    cam.open_and_start()
     scope = Lumascope.__new__(Lumascope)
     scope._camera_driver = cam
     scope.runtime_state = RuntimeState(scope)
@@ -4650,14 +4653,30 @@ class TestPylonPayloadDiscardedClassification:
         return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
 
     def test_payload_discarded_constant_value(self):
-        """The constant must match the bench-witnessed err_code from
-        Firmware DAILY_LOG (0xE2050012). If Basler renames or splits
-        the code in a future SDK rev, bump this and update the comment."""
+        """The constant must match the bench-witnessed err_code, pinned by
+        the DECIMAL the hardware actually emits: 3791651346 (= 0xE2000212).
+        The decimal was witnessed many times, but was once converted to hex
+        wrong (0xE2050012 = 3791978514) and the constant stored in that bad
+        hex -- so the classifier compared the real 3791651346 against
+        3791978514 and never matched, leaving every discard counted as a
+        failure. Pin by the decimal so a hex slip cannot silently recur. If
+        Basler renames or splits the code in a future SDK rev, bump this."""
         from drivers.pyloncamera import _PYLON_ERR_PAYLOAD_DISCARDED
 
-        assert _PYLON_ERR_PAYLOAD_DISCARDED == 0xE2050012, (
+        assert _PYLON_ERR_PAYLOAD_DISCARDED == 3791651346, (
             'Payload-discarded constant must match the bench-witnessed '
-            'err_code 0xE2050012 from Firmware DAILY_LOG.md.'
+            'err_code decimal 3791651346 (= 0xE2000212). If you found '
+            "3791978514 = 0xE2050012, that's the prior bad hex conversion."
+        )
+
+    def test_payload_discarded_comment_hex_matches_constant(self):
+        """The source comment must show the corrected hex (0xE2000212), the
+        true hex form of the bench decimal 3791651346 -- not the prior
+        miscalculation 0xE2050012 stored as the live value."""
+        src = self._pyloncamera_source()
+        assert '0xE2000212' in src, (
+            'Source comment near _PYLON_ERR_PAYLOAD_DISCARDED must reference '
+            '0xE2000212 (the true hex of decimal 3791651346).'
         )
 
     def test_payload_discarded_comment_explains_disposition(self):
@@ -4911,7 +4930,7 @@ class TestPylonDisconnectDestroyDevice:
 class TestPylonDiagnosticProbe:
     """DiagnosticsAPI.run_pylon_diagnostic_probe captures a one-shot
     cross-host / cross-camera / cross-firmware diagnostic snapshot
-    and writes it to data/pylon_probe/<...>.json. Designed for
+    and writes it to data/camera_probe/<...>.json. Designed for
     bench-wave comparison; replaces /tmp/probe.py-style bespoke
     scripts (Rule 22).
 
@@ -5003,6 +5022,30 @@ class TestPylonDiagnosticProbe:
         assert result['connected'] is False
         assert result.get('supported') is False
 
+    def test_supported_snapshot_stamps_driver_sdk_and_neutral_folder(self, tmp_path, monkeypatch):
+        """A supported=True snapshot is stamped with the active driver's SDK
+        (not a hardcoded Pylon assumption) and written to the driver-neutral
+        camera_probe/ folder."""
+        import modules.lumascope_api.diagnostics as diag
+
+        monkeypatch.setattr(diag, 'log_dir', str(tmp_path))
+
+        class _Driver:
+            active = True
+
+            def read_diagnostic_snapshot(self, duration_s, drain_camera_side_errors):
+                return {'connected': True, 'supported': True, 'camera': {}, 'config': {}}
+
+            def get_sdk_info(self):
+                return {'name': 'IDS peak', 'version': '2.21'}
+
+        result = self._make_scope_with_fake_camera(
+            _Driver()
+        ).diagnostics.run_pylon_diagnostic_probe(duration_s=0.0)
+        assert result['host']['camera_sdk'] == {'name': 'IDS peak', 'version': '2.21'}
+        assert 'pypylon_version' not in result['host']
+        assert 'camera_probe' in result.get('output_path', '')
+
     def test_dltl_filename_token_off(self):
         """Mode=Off -> 'dltloff'."""
         from modules.lumascope_api.diagnostics import DiagnosticsAPI
@@ -5077,10 +5120,10 @@ class TestPylonDiagnosticProbe:
             'DiagnosticsAPI.run_pylon_diagnostic_probe to function.',
         )
 
-    def test_ids_camera_has_read_diagnostic_snapshot_stub(self):
-        """Source-shape lock: IDSCamera must have a stub returning
-        supported=False so the API can report the gap rather than
-        raising AttributeError when an IDS camera is connected."""
+    def test_ids_camera_implements_read_diagnostic_snapshot(self):
+        """IDSCamera must implement read_diagnostic_snapshot (no longer a
+        supported=False stub): it reports supported=True and the parity
+        shape so the API can surface real IDS camera + stream state."""
         from pathlib import Path
 
         from tests.ast_seams import assert_def
@@ -5088,13 +5131,13 @@ class TestPylonDiagnosticProbe:
         assert_def(
             'drivers/idscamera.py',
             'read_diagnostic_snapshot',
-            msg='IDSCamera must have a read_diagnostic_snapshot stub '
-            'returning supported=False until the IDS implementation lands.',
+            msg='IDSCamera must define read_diagnostic_snapshot.',
         )
         src = (Path(__file__).resolve().parent.parent / 'drivers' / 'idscamera.py').read_text()
         body = _function_source(src, 'read_diagnostic_snapshot')
-        assert "'supported': False" in body or '"supported": False' in body, (
-            'IDS read_diagnostic_snapshot stub must return supported=False'
+        assert "'supported': True" in body or '"supported": True' in body, (
+            'IDS read_diagnostic_snapshot is now implemented and must report '
+            'supported=True (the supported=False stub was replaced).'
         )
 
 
@@ -7731,10 +7774,17 @@ class TestGigeSetters:
             with pytest.raises(HardwareError):
                 call(cam)
 
-    def test_ids_stubs_return_false(self):
-        from drivers.idscamera import IDSCamera
-
-        camera = IDSCamera.__new__(IDSCamera)
+    def test_ids_gev_setters_return_false_when_unwritable(self):
+        # The IDS GEV setters are now guarded live writes (GigE-ready), not
+        # hardcoded stubs: they return False when they can't apply -- inactive
+        # camera, or the node absent on a USB3 body -- so the bench sweep can
+        # still call them unconditionally per cell. BandwidthReserveMode stays a
+        # stub (no IDS equivalent node).
+        camera = _bare_ids_camera()
+        # USB3 body: the GEV transport nodes are absent, so FindNode returns
+        # None and the guarded write returns False (a GigE body would resolve
+        # the node and write it).
+        camera.remote_nodemap.FindNode.return_value = None
         assert camera.set_bandwidth_reserve_mode('Performance') is False
         assert camera.set_gev_packet_size(9000) is False
         assert camera.set_gev_inter_packet_delay(0) is False
@@ -7811,7 +7861,10 @@ class TestStreamGrabberSetters:
     NumMaxQueuedUrbs is the lever for "insufficient system memory"
     symptoms (USB3 only). The Pylon driver raises HardwareError on SDK
     RuntimeException and on missing-node (GigE / non-USB3); the API
-    layer notifies + re-raises. IDS stubs return False.
+    layer notifies + re-raises. The IDS driver writes the bench-confirmed
+    equivalent nodes (TestPattern, U3vStreamChannelBulkTransferSize,
+    U3vStreamChannelTransferRequestCount), returning False when inactive
+    or the node is absent.
 
     A6 / B16 closure (AUDIT_PYLONCAMERA_2026-05-07.md).
     """
@@ -7901,10 +7954,16 @@ class TestStreamGrabberSetters:
         assert_def('drivers/pyloncamera.py', 'set_max_transfer_size')
         assert_def('drivers/pyloncamera.py', 'set_num_max_queued_urbs')
 
-    def test_ids_driver_stubs_return_false(self):
-        from drivers.idscamera import IDSCamera
+    def test_ids_driver_setters_return_false_when_inactive(self):
+        # These were stubs; they now perform real node writes (TestPattern and
+        # the U3vStreamChannel* transfer-tuning nodes are bench-confirmed
+        # ReadWrite on the U3-34L0XCP-M) but still return False when the camera
+        # is inactive, so the API layer can call them unconditionally. Full
+        # write coverage lives in tests/test_ids_transport_setters.py.
+        from tests.camera_fakes import bare_ids_camera
 
-        camera = IDSCamera.__new__(IDSCamera)
+        camera = bare_ids_camera()
+        camera.active = False
         assert camera.set_max_transfer_size(262144) is False
         assert camera.set_num_max_queued_urbs(64) is False
 

@@ -618,6 +618,14 @@ class TestSimulatedCamera:
         assert size['width'] % 48 == 0
         assert size['height'] % 4 == 0
 
+    def test_set_frame_size_returns_delivered_geometry(self):
+        cam = SimulatedCamera()
+        delivered = cam.set_frame_size(640, 482)
+        # Snapped to the 48/4 grid; the return must equal what get_frame_size
+        # then reports, so callers can cache it without a read-back.
+        assert delivered == {'width': 624, 'height': 480}
+        assert delivered == cam.get_frame_size()
+
     def test_min_max_frame_size(self):
         cam = SimulatedCamera()
         mins = cam.get_min_frame_size()
@@ -708,6 +716,7 @@ class TestSimulatedCamera:
 
     def test_grab_returns_image(self):
         cam = SimulatedCamera()
+        cam.open_and_start()
         result, ts = cam.grab()
         assert result is True
         assert ts is not None
@@ -720,6 +729,7 @@ class TestSimulatedCamera:
         # Driver contract is float seconds (verified across all five camera
         # drivers). `timeout=1000` here would have been 1000 seconds and
         # passed only because the simulator doesn't honor the timeout.
+        cam.open_and_start()
         result, ts = cam.grab_new_capture(timeout_s=5.0)
         assert result is True
         assert ts is not None
@@ -727,12 +737,14 @@ class TestSimulatedCamera:
 
     def test_grab_respects_binning(self):
         cam = SimulatedCamera()
+        cam.open_and_start()
         cam.set_binning_size(2)
         cam.grab()
         assert cam.array.shape == (600, 960)
 
     def test_grab_mono12_dtype(self):
         cam = SimulatedCamera()
+        cam.open_and_start()
         cam.set_pixel_format('Mono12')
         cam.grab()
         assert cam.array.dtype == np.uint16
@@ -745,6 +757,7 @@ class TestSimulatedCamera:
 
     def test_image_brightness_varies_with_exposure(self):
         cam = SimulatedCamera()
+        cam.open_and_start()
         cam.exposure_t(1.0)  # 1ms -- dim
         cam.grab()
         dim = cam.array.mean()
@@ -757,6 +770,7 @@ class TestSimulatedCamera:
 
     def test_image_brightness_varies_with_gain(self):
         cam = SimulatedCamera()
+        cam.open_and_start()
         cam.gain(0.1)
         cam.grab()
         low = cam.array.mean()
@@ -771,18 +785,21 @@ class TestSimulatedCamera:
 
     def test_black_pattern(self):
         cam = SimulatedCamera()
+        cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='Black')
         cam.grab()
         assert cam.array.max() == 0
 
     def test_white_pattern(self):
         cam = SimulatedCamera()
+        cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='White')
         cam.grab()
         assert cam.array.max() == 255
 
     def test_noise_pattern(self):
         cam = SimulatedCamera()
+        cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='Noise')
         cam.grab()
         # Noise should have some variance
@@ -790,6 +807,7 @@ class TestSimulatedCamera:
 
     def test_disable_pattern_returns_gradient(self):
         cam = SimulatedCamera()
+        cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='Black')
         cam.set_test_pattern(enabled=False)
         cam.grab()
@@ -800,16 +818,19 @@ class TestSimulatedCamera:
 
     def test_start_stop_grabbing(self):
         cam = SimulatedCamera()
-        assert cam.is_grabbing() is True
+        assert cam.is_grabbing() is False  # connect() no longer eager-starts
+        cam.open_and_start()
+        assert cam.is_grabbing() is True  # gate released
         cam.stop_grabbing()
         assert cam.is_grabbing() is False
-        cam.start_grabbing()
+        cam.start_grabbing()  # restart primitive (gate already open)
         assert cam.is_grabbing() is True
 
     # -- update_camera_config context manager --
 
     def test_update_camera_config_stops_restarts_grabbing(self):
         cam = SimulatedCamera()
+        cam.open_and_start()
         assert cam.is_grabbing() is True
         with cam.update_camera_config():
             assert cam.is_grabbing() is False
@@ -866,6 +887,7 @@ class TestSimulatedCamera:
 
     def test_focus_target_pattern(self):
         cam = SimulatedCamera(width=480, height=300, grab_delay=0)
+        cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='focus_target')
         cam.grab()
         # Focus target should have features -- not uniform
@@ -886,6 +908,7 @@ class TestSimulatedCamera:
         from modules.autofocus_functions import focus_vollath4_original
 
         cam = SimulatedCamera(width=480, height=300, grab_delay=0)
+        cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='focus_target')
         cam.set_focal_z(5000.0)
         cam.set_blur_per_um(0.01)
@@ -905,6 +928,7 @@ class TestSimulatedCamera:
         from modules.autofocus_functions import focus_vollath4_original
 
         cam = SimulatedCamera(width=480, height=300, grab_delay=0)
+        cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='focus_target')
         cam.set_focal_z(5000.0)
         cam.set_blur_per_um(0.01)
@@ -931,6 +955,7 @@ class TestSimulatedCamera:
         from modules.autofocus_functions import focus_vollath4_original
 
         cam = SimulatedCamera(width=480, height=300, grab_delay=0)
+        cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='focus_target')
         cam.set_focal_z(5000.0)
         cam.set_blur_per_um(0.01)
@@ -951,6 +976,7 @@ class TestSimulatedCamera:
         """Camera auto-queries Z from callback when generating focus_target."""
         z_val = [5000.0]
         cam = SimulatedCamera(width=480, height=300, grab_delay=0, z_position_func=lambda: z_val[0])
+        cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='focus_target')
         cam.set_focal_z(5000.0)
 
@@ -966,6 +992,7 @@ class TestSimulatedCamera:
     def test_no_blur_at_focal_point(self):
         """Image at focal point should be identical to unblurred target."""
         cam = SimulatedCamera(width=480, height=300, grab_delay=0)
+        cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='focus_target')
         cam.set_focal_z(5000.0)
 
@@ -1049,6 +1076,7 @@ class TestSimulatedCamera:
     def test_update_camera_config_restarts_after_exception(self):
         """Grabbing must restart even if config change throws."""
         cam = SimulatedCamera()
+        cam.open_and_start()
         assert cam.is_grabbing() is True
         with pytest.raises(ValueError), cam.update_camera_config():
             assert cam.is_grabbing() is False
@@ -1068,6 +1096,7 @@ class TestSimulatedCamera:
         invocation toggles the grab loop.
         """
         cam = SimulatedCamera()
+        cam.open_and_start()
         stop_calls = []
         start_calls = []
         orig_stop = cam.stop_grabbing
@@ -1102,6 +1131,7 @@ class TestSimulatedCamera:
     def test_update_camera_config_reentrant_inner_exception(self):
         """If an inner level raises, the outer level still restarts."""
         cam = SimulatedCamera()
+        cam.open_and_start()
         assert cam.is_grabbing() is True
         with pytest.raises(ValueError), cam.update_camera_config():
             assert cam.is_grabbing() is False

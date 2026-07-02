@@ -1,4 +1,4 @@
 4.0.0-beta20
-2026-06-28 13:50
-sd1-camera-write-authority
-70591682
+2026-07-02 10:57
+integration/sd1-ids
+51595d27

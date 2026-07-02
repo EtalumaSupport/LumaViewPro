@@ -92,7 +92,13 @@ _PYLON_ERR_BUFFER_CANCELED = 3791651074
 # side FIFO can overflow during the stall. The next frame is invalidated
 # via frame_validity, so consumers already wait for a clean frame -- the
 # dropped frame is one the AF runner would have rejected anyway.
-_PYLON_ERR_PAYLOAD_DISCARDED = 0xE2050012
+# Value 0xE2000212 (decimal 3791651346) -- the USB3-Vision payload-discard
+# code per Basler's stream-grabber-parameters.html, bench-confirmed on a
+# daA3840 dart. (Earlier this read 0xE2050012, a value no hardware emits,
+# so the benign branch below never matched and every camera-side discard
+# fell through to the generic path: logged as a WARNING and counted toward
+# MAX_CONSECUTIVE_FAILURES.)
+_PYLON_ERR_PAYLOAD_DISCARDED = 0xE2000212
 
 # Device-not-found: USB-Vision transport returns this when the device
 # handle no longer resolves on the bus (cable unplug, USB hub power
@@ -364,12 +370,20 @@ class PylonCamera(Camera):
                 # the next connect re-runs the StreamGrabber NodeMap
                 # walk against whatever camera attaches.
                 self._pylon_self_validation_done = False
+                # Clear the start gate + last-frame buffer so a same-instance
+                # reconnect starts clean (re-grabs, no stale image).
+                self._reset_lifecycle_state()
                 _log_cam('info', '[CAM Class ] Disconnected from Pylon camera')
                 return True
             else:
                 _log_cam('info', '[CAM Class ] Pylon camera not connected')
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Pylon camera disconnect failed: {e}')
+        # Not-connected / error paths also clear the gate + last-frame buffer: a
+        # FAILED recovery can null active while the gate is still OPEN, so a
+        # same-instance reconnect must not inherit a stranded-open gate (blank
+        # live view) or a stale image.
+        self._reset_lifecycle_state()
         return False
 
     # __del__() inherited from Camera base class
@@ -821,6 +835,30 @@ class PylonCamera(Camera):
             if _cam_log is not None:
                 _cam_log.info(f'pylon StartGrabbing({_strategy_name}, ProvidedByInstantCamera)')
             camera.StartGrabbing(_strategy, pylon.GrabLoop_ProvidedByInstantCamera)
+            # Mirror the IDS free-run delivered-depth line so an 8-bit run on
+            # either camera prints the same "delivers=" fact: Pylon Mono8 is
+            # delivered as uint8, Mono10/Mono12 as uint16 (the GetArray dtype).
+            # A bundle then states the delivered dtype, not just the wire format.
+            if _cam_log is not None:
+                _fmt = self.get_pixel_format()
+                if _fmt is None:
+                    _cam_log.warning(
+                        '[CAM Class ] Grabbing: pixel format unreadable; delivered depth unknown'
+                    )
+                else:
+                    if _fmt.startswith('Mono8'):
+                        _bits = 8
+                    elif 'Mono12' in _fmt:
+                        _bits = 12
+                    elif 'Mono10' in _fmt:
+                        _bits = 10
+                    else:
+                        _bits = 8
+                    _dtype = 'uint8' if _bits <= 8 else 'uint16'
+                    _cam_log.info(
+                        f'[CAM Class ] Grabbing: pixel_format={_fmt} '
+                        f'delivers={_bits}-bit ({_dtype})'
+                    )
             # Start the periodic Pylon stats + thread-count poller.
             # No-op when profile_trace_enabled is false.
             self._start_stats_poller()
@@ -896,6 +934,10 @@ class PylonCamera(Camera):
                 logger.debug(f'[CAM Class ] Camera removal handler registration not supported: {e}')
 
             self.cam_image_handler = ImageHandler(self)
+            # Fresh handler starts with an empty dispatch list; re-push any
+            # durable listeners so a reconnect on the same instance does not
+            # silently stop delivering frames to recording / plugins.
+            self._reapply_frame_callbacks()
             # Cleanup_Delete: SDK takes ownership of the handler and
             # deletes it when the InstantCamera is destroyed. No
             # explicit DeregisterImageEventHandler / Deregister-
@@ -914,6 +956,20 @@ class PylonCamera(Camera):
             self.cam_image_handler._worker.start()
 
             camera.Open()
+
+            # Start gate, SDK-side enforcement: pypylon 26.4.x's
+            # AcquireContinuousConfiguration can auto-StartGrabbing from
+            # inside Open(). connect() must return NOT grabbing, so stop it
+            # immediately -- one rule, every SDK. Doing it here (before the
+            # MaxNumBuffer / MaxTransferSize block below) also means those
+            # StreamGrabber node writes land while stopped, which is where
+            # the SDK wants them. IsGrabbing/StopGrabbing are core
+            # InstantCamera methods present on every transport (unlike the
+            # optional nodes below), so no node-availability guard is needed;
+            # a genuine SDK failure propagates to connect()'s own handler.
+            if camera.IsGrabbing():
+                camera.StopGrabbing()
+                _log_cam('info', '[CAM Class ] post-Open: stopped SDK auto-start grab (start gate)')
 
             # MaxNumBuffer cap. Applied post-Open() -- earliest window
             # before pypylon 26.4.x's AcquireContinuousConfiguration
@@ -1083,15 +1139,19 @@ class PylonCamera(Camera):
                 self.cam_image_handler.reset()
 
             self.init_camera_config()
-            self.start_grabbing()
+            # connect() returns CONFIGURED but NOT grabbing; the single
+            # start fires later via open_and_start() (the start gate).
 
             _log_cam('info', '[CAM Class ] Connected to Pylon camera')
             return True
 
         except genicam.RuntimeException as ex:
-            _cam_log.error(
-                '[CAM Class ] Pylon camera connect failed (may be open in another '
-                f'application): {ex}'
+            # Expected when no Basler is present (e.g. the registry probing
+            # Pylon on an IDS-only bench) or the device is busy -- the registry
+            # recovers by trying the next driver, so WARNING not ERROR.
+            _cam_log.warning(
+                '[CAM Class ] Pylon camera connect failed (no device, or open in '
+                f'another application): {ex}'
             )
             self.active = None
             self._stop_image_grab_worker()
@@ -1160,6 +1220,35 @@ class PylonCamera(Camera):
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error reading temperatures: {e}')
             return {}
+
+    def get_sdk_info(self) -> dict:
+        """Basler pylon SDK provenance (name + versions) for diagnostics.
+
+        Both reads are best-effort: pypylon may be absent and the SDK version
+        helper has been renamed across releases.
+        """
+        version = None
+        try:
+            from pypylon import pylon as _pylon
+
+            for fn_name in ('GetPylonVersion', 'GetVersionString'):
+                fn = getattr(_pylon, fn_name, None)
+                if callable(fn):
+                    try:
+                        version = str(fn())
+                        break
+                    except Exception:
+                        continue
+        except Exception as e:
+            _cam_log.debug(f'[CAM Class ] pylon SDK version unavailable: {e}')
+        pypylon_version = None
+        try:
+            import pypylon as _pyp
+
+            pypylon_version = getattr(_pyp, '__version__', None)
+        except Exception as e:
+            _cam_log.debug(f'[CAM Class ] pypylon module version unavailable: {e}')
+        return {'name': 'Basler pylon', 'version': version, 'pypylon_version': pypylon_version}
 
     def init_camera_config(self) -> None:
         """Apply Etaluma's canonical camera configuration once on connect.
@@ -1961,17 +2050,20 @@ class PylonCamera(Camera):
                 f'set_pixel_format({pixel_format}) failed: {type(e).__name__}: {e}'
             ) from e
 
-    def get_pixel_format(self) -> str:
-        """Return active PixelFormat (e.g. 'Mono8'); '' on inactive / read failure.
+    def get_pixel_format(self) -> str | None:
+        """Return active PixelFormat (e.g. 'Mono8'); None on inactive / read failure.
 
-        Served from the cache populated on first read and on every
-        set_pixel_format(); PixelFormat only changes through that setter,
-        so the cache stays valid. get_camera_info() reads this once per
-        saved frame, so a live GenICam node read here would touch the SDK
-        on every capture.
+        None is the failed-read sentinel shared by all camera drivers --
+        distinct from every real format name, so a consumer that forgets to
+        handle it fails loudly instead of silently treating the failure as
+        a legal format. Served from the cache populated on first read and
+        on every set_pixel_format(); PixelFormat only changes through that
+        setter, so the cache stays valid. get_camera_info() reads this once
+        per saved frame, so a live GenICam node read here would touch the
+        SDK on every capture.
         """
         if not self.active:
-            return ''
+            return None
 
         if self._pixel_format_cache is not None:
             return self._pixel_format_cache
@@ -1985,10 +2077,10 @@ class PylonCamera(Camera):
                 f'[CAM Class ] Failed to read pixel format: Camera may be disconnected - {e}'
             )
             self._mark_disconnected()
-            return ''
+            return None
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error reading pixel format: {e}')
-            return ''
+            return None
 
     def get_supported_pixel_formats(self) -> tuple:
         """Return every PixelFormat the camera advertises; () on inactive / read failure."""
@@ -2063,8 +2155,14 @@ class PylonCamera(Camera):
             raise HardwareError(f'set_binning_size({size}) failed: {type(e).__name__}: {e}') from e
 
     def get_binning_size(self) -> int:
-        """Return current binning factor; 1 on inactive / read failure.
+        """Return current binning factor; 1 on inactive, -1 on read failure.
 
+        The read-failure sentinel is -1, not 1: 1 is a legal binning factor
+        (1x = no binning), so returning 1 on a failed read would be
+        indistinguishable from a real 1x camera -- a value-validating caller
+        would accept the in-band 1 and silently de-bin a 2x camera, whereas
+        -1 is rejected (binning must be >= 1). Inactive stays 1: no camera
+        means no binning, and callers treat inactive as the 1x default.
         Vertical wins on asymmetric mismatch (operator misconfig).
         """
         if not self.active:
@@ -2086,10 +2184,14 @@ class PylonCamera(Camera):
                 f'[CAM Class ] Failed to read binning size: Camera may be disconnected - {e}'
             )
             self._mark_disconnected()
-            return 1
+            # -1 is out-of-band (binning must be >= 1) so validate-before-store
+            # callers REJECT a failed read instead of committing an in-band 1
+            # that silently de-bins a 2x camera. Same contract as the IDS
+            # driver; these handlers pre-date this change and already log.
+            return -1
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error reading binning size: {e}')
-            return 1
+            return -1
 
     def set_conversion_gain_mode(self, mode: str) -> bool:
         """Set the sensor conversion gain mode.
@@ -2623,11 +2725,18 @@ class PylonCamera(Camera):
         Args:
             w: Requested frame width in pixels.
             h: Requested frame height in pixels.
+
+        Returns:
+            The delivered size ``{'width': int, 'height': int}`` (the
+            clamped/rounded geometry just applied, or already in place) on
+            success, so the caller knows what was actually applied without
+            a read-back; ``False`` when the camera is inactive or the
+            apply fails.
         """
         camera = self.active
         if camera is None:
             _cam_log.warning(f'[CAM Class ] Cannot set frame size {w}x{h}: camera inactive')
-            return
+            return False
 
         try:
             width = int(min(int(w), camera.Width.Max) / 4) * 4
@@ -2646,7 +2755,7 @@ class PylonCamera(Camera):
                             'short-circuited'
                         )
                     _log_cam('info', f'[CAM Class ] Frame size already at {width}x{height}')
-                    return
+                    return {'width': width, 'height': height}
             except (genicam.RuntimeException, genicam.TimeoutException) as e:
                 logger.debug(
                     f'[CAM Class ] Frame-size short-circuit read failed; '
@@ -2665,13 +2774,21 @@ class PylonCamera(Camera):
                 camera.BslCenterY.Execute()
 
             _log_cam('info', f'[CAM Class ] Frame size set to {width}x{height}')
+            return {'width': width, 'height': height}
         except genicam.RuntimeException as e:
             _cam_log.error(
                 f'[CAM Class ] Camera communication error during set_frame_size({w}x{h}): {e}'
             )
             self._mark_disconnected()
+            # These handlers pre-date the return contract and already log +
+            # mark the disconnect; the explicit False (instead of an implicit
+            # None) is load-bearing: the camera-write authority upstream reads
+            # False as the rejection signal, while None counts as applied and
+            # would cache geometry the hardware never took.
+            return False
         except Exception as e:
             _cam_log.exception(f'[CAM Class ] Unexpected error in set_frame_size: {e}')
+            return False
 
     def get_min_frame_size(self) -> dict:
         """Return min frame dims as {'width': int, 'height': int}; {} on inactive / read failure."""

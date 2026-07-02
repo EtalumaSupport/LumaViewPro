@@ -60,6 +60,167 @@ def fit_frame_to_shape(image: np.ndarray, target_shape: tuple[int, ...]) -> np.n
     return fitted
 
 
+def decimate_for_preview(
+    image: np.ndarray, target_wh: tuple[int, int] | None, *, categorical: bool = False
+) -> np.ndarray:
+    """Downscale a live-preview frame to roughly the on-screen widget size so
+    the main-thread Kivy ``blit_buffer`` uploads far fewer bytes.
+
+    Handles both the 2-D ``uint8`` luminance preview and the 3-D ``(H, W, 3)``
+    RGB bullseye preview -- both blit paths share the identical
+    downscale-to-widget-size need, so they share one helper (``cv2.resize``
+    preserves the channel axis). Only the channel count and the resampling
+    differ; the contain-fit math is the same.
+
+    ``categorical`` picks the resampling to match the data's meaning:
+
+    - ``False`` (default, continuous-tone): area-averaging (``INTER_AREA``),
+      the correct antialiased downscale for a grayscale intensity image.
+    - ``True`` (false-color / label image, e.g. the bullseye contour map):
+      nearest-neighbor. The bullseye LUT is a topographic map -- mostly black
+      with thin pure-color iso-intensity bands -- so area-averaging would blend
+      those one-pixel contour lines toward black and erase the focus aid.
+      Nearest-neighbor keeps each sampled label's exact color (what the GPU's
+      texture minification did before the host-side downscale existed).
+
+    Live-view frame rate is bounded by the per-frame texture upload on the main
+    (Kivy) thread, which serializes against the capture and convert threads on
+    the GIL -- not by the camera or the packed-format converter. A large-sensor
+    frame (e.g. 1900x1900, ~3.6 MB) blitted at full resolution every frame
+    starves the main thread; a frame already near the displayed size does not.
+    The displayed pixels are unchanged because the GPU was downscaling the
+    oversized texture to the widget anyway.
+
+    Preview only. Capture, save, autofocus, histogram, and raw frame-listener
+    paths take the full-resolution image through other code and are untouched.
+
+    Args:
+        image: 2-D ``uint8`` grayscale or 3-D ``(H, W, C)`` ``uint8`` RGB
+            preview frame (already downconverted).
+        target_wh: ``(width, height)`` of the display widget in pixels, or None
+            when the widget has not been laid out yet -- in which case the
+            image is returned unchanged (full-resolution blit, the prior
+            behavior), so a missing target never degrades correctness.
+
+    Returns:
+        The image unchanged when no downscale applies (target unknown, a frame
+        that is neither 2-D luminance nor 3-D with 3/4 channels, or a frame
+        already at/below the target); otherwise a copy scaled to the frame's
+        on-screen size (channels preserved). The widget shows the frame
+        contain-fit (aspect preserved, letterboxed), so the displayed size is the
+        frame scaled by ``min(tw/w, th/h)``; downscaling to exactly that uploads
+        no more pixels than the screen shows and stays as sharp as the widget can
+        display.
+
+    A single contain-fit ratio (not an integer decimation step) is used so the
+    downscale engages for frames only slightly larger than the widget. An
+    integer step rounds down to 1 -- i.e. no downscale -- for any frame under
+    2x the widget on both axes, leaving e.g. a ~2100x2100 sensor frame blitted
+    at full resolution on a normal display and capping live view at ~5-6 fps.
+    """
+    if target_wh is None or image is None:
+        return image
+    # Accept 2-D luminance, or 3-D with a real color channel count (3=RGB,
+    # 4=RGBA). Reject anything else -- notably (H, W, 1), which cv2.resize would
+    # squeeze to a 2-D result, dropping the channel axis the RGB blit assumes.
+    is_luma = image.ndim == 2
+    is_color = image.ndim == 3 and image.shape[2] in (3, 4)
+    if not (is_luma or is_color):
+        return image
+    tw, th = target_wh
+    if tw < 1 or th < 1:
+        return image
+    h, w = image.shape[:2]
+    factor = min(tw / w, th / h)
+    if factor >= 1.0:
+        return image  # frame already <= widget on the limiting axis; never upscale
+    interpolation = cv2.INTER_NEAREST if categorical else cv2.INTER_AREA
+    new_w = max(1, round(w * factor))
+    new_h = max(1, round(h * factor))
+    return cv2.resize(image, (new_w, new_h), interpolation=interpolation)
+
+
+def scaled_preview_target(base_wh: tuple[int, int] | None, scale: float) -> tuple[int, int] | None:
+    """Scale a widget's pixel box up by a zoom (Scatter) factor to get the
+    on-screen size of a digitally-zoomed live image, for ``decimate_for_preview``.
+
+    Zoom-in magnifies each texel, so the displayed image needs more resolution,
+    not less: at a 1:1 zoom the scale equals sensor/widget, so the target reaches
+    sensor size and the decimation factor falls to 1 (full-resolution blit).
+    Zoom-out is clamped to 1.0 -- keep widget-size detail rather than
+    over-shrinking a view that is already small on screen.
+
+    Returns None when ``base_wh`` is None (widget not laid out yet), so the
+    caller leaves the frame at full resolution.
+
+    Rounds to the nearest displayed pixel (not truncates): at 1:1 the scale is
+    ``sensor/widget``, and ``widget * sensor/widget`` lands a sub-LSB below the
+    sensor size for ~6% of widget/sensor pairs. Truncating would make the target
+    one pixel short of the sensor, so the exact-ratio downscale would do a
+    pointless 1-pixel shrink instead of leaving the 1:1 view at true full
+    resolution. Rounding keeps the target on the sensor size, so the factor is
+    exactly 1.0 and the frame is blitted untouched.
+    """
+    if base_wh is None:
+        return None
+    try:
+        s = float(scale)
+    except (TypeError, ValueError):
+        s = 1.0
+    if not s or s < 1.0:
+        s = 1.0
+    return (round(base_wh[0] * s), round(base_wh[1] * s))
+
+
+def click_offset_to_um(
+    norm_offset: float, norm_extent: float, frame_extent: float, pixel_size_um: float
+) -> float:
+    """Physical (micron) distance from the frame center for a click landing
+    ``norm_offset`` widget-pixels from the displayed image's edge, where the
+    displayed image spans ``norm_extent`` widget-pixels and the full-resolution
+    sensor frame is ``frame_extent`` pixels. Used by click-to-center to drive
+    the stage so the clicked feature moves to the optical axis.
+
+    ``frame_extent`` MUST be the full-resolution sensor frame, never the
+    preview-display texture: the live preview is downscaled to ~widget size
+    before the blit, but ``pixel_size_um`` is the size of one SENSOR pixel, so
+    feeding the downscaled texture size under-reports the distance by the
+    downscale factor and the stage stops short of the clicked point. Returns
+    0.0 when the displayed extent is degenerate (no division possible).
+    """
+    if norm_extent <= 0:
+        return 0.0
+    frame_pos = norm_offset * frame_extent / norm_extent
+    return (frame_pos - frame_extent / 2.0) * pixel_size_um
+
+
+def center_crop(image: np.ndarray, x0: int, y0: int, width: int, height: int) -> np.ndarray:
+    """Return the ``[y0:y0+height, x0:x0+width]`` sub-rectangle of ``image``.
+
+    The oversize-then-crop framing path acquires a slightly larger AOI than the
+    caller requested and removes the surplus here so the delivered frame is
+    exactly the requested size. Unlike ``fit_frame_to_shape`` (which keeps the
+    top-left corner), this keeps a caller-chosen window, so the kept region can
+    stay centered on the sensor's optical axis. The leading two axes are sliced,
+    so any channel axis passes through untouched.
+
+    Raises ValueError if the window does not fully fit the image -- a window that
+    ran off the array would otherwise be silently truncated by numpy, delivering
+    a wrong-sized frame instead of failing loudly.
+
+    Returns a VIEW into the larger acquisition buffer, so the surplus rows/cols
+    stay resident as long as the result is held. A caller that retains the frame
+    beyond the current grab (a cache, history ring, async queue) MUST copy it
+    (e.g. np.ascontiguousarray) so the oversized source can be freed.
+    """
+    if x0 < 0 or y0 < 0 or x0 + width > image.shape[1] or y0 + height > image.shape[0]:
+        raise ValueError(
+            f'crop window x0={x0} y0={y0} {width}x{height} does not fit '
+            f'image {image.shape[1]}x{image.shape[0]}'
+        )
+    return image[y0 : y0 + height, x0 : x0 + width]
+
+
 def mono_to_rgb_falsecolor(mono: np.ndarray, layer: str) -> np.ndarray:
     """Map a 2D mono array to a 3-channel RGB array via the layer's false color.
 

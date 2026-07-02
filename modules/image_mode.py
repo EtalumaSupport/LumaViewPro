@@ -185,10 +185,12 @@ IMAGE_MODE_LABELS = {
 
 LABEL_TO_IMAGE_MODE = {label: mode for mode, label in IMAGE_MODE_LABELS.items()}
 
-# Pixel formats that mean the camera can deliver a 12-bit payload. A camera
-# offering neither (the FX2/MT9P031 in the LS560/620/720 streams only the top
-# 8 bits) can capture 8-bit only, so it must not be offered the 12-bit modes.
-_TWELVE_BIT_PIXEL_FORMATS = ('Mono12', 'Mono12p')
+# Pixel formats that mean the camera can deliver a 12-bit payload. Match is
+# format-exact: Mono12 / Mono12p (Pylon wire names) and Mono12g24IDS (the IDS
+# packed 12-bit format) all qualify; Mono10g40IDS (10-bit packed) does NOT. A
+# camera offering none (the FX2/MT9P031 in the LS560/620/720 streams only the
+# top 8 bits) can capture 8-bit only, so it must not be offered the 12-bit modes.
+_TWELVE_BIT_PIXEL_FORMATS = ('Mono12', 'Mono12p', 'Mono12g24IDS')
 
 
 def camera_supports_12bit(supported_pixel_formats) -> bool:
@@ -218,6 +220,33 @@ def available_modes(supported_pixel_formats) -> list:
 def available_mode_labels(supported_pixel_formats) -> list:
     """The user-facing labels for available_modes, in selector order."""
     return [IMAGE_MODE_LABELS[mode] for mode in available_modes(supported_pixel_formats)]
+
+
+def select_capture_pixel_format(capture_depth: int, supported_pixel_formats) -> str | None:
+    """Choose a camera-native pixel format for a requested capture depth.
+
+    Capability-based selection from the camera's actually-supported formats,
+    so a caller never asks for a format the sensor lacks (the IMX676 exposes
+    only Mono10/12 -- requesting bare 'Mono8' there logs a spurious
+    'Unsupported pixel format' warning). 12-bit returns a supported 12-bit
+    native; 8-bit prefers a native 8-bit format, else the lowest-bandwidth
+    native the sensor offers (10-bit before 12-bit), with the 8-bit reduction
+    done downstream. Returns None only when the camera reports no formats.
+    """
+    formats = tuple(supported_pixel_formats or ())
+    if not formats:
+        return None
+    if capture_depth >= 12:
+        for fmt in formats:
+            if fmt in _TWELVE_BIT_PIXEL_FORMATS:
+                return fmt
+        # No 12-bit native present (12-bit modes are only offered when
+        # camera_supports_12bit, so this is a defensive fall-through).
+    for prefix in ('Mono8', 'Mono10', 'Mono12'):
+        for fmt in formats:
+            if fmt.startswith(prefix):
+                return fmt
+    return formats[0]
 
 
 def resolve_settings_image_mode(settings) -> str:

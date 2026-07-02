@@ -247,12 +247,14 @@ void main (void) {
         img_y_max = scope_display.center_y + norm_h / 2
 
         if img_x_min <= local_x <= img_x_max and img_y_min <= local_y <= img_y_max:
-            tex_w, tex_h = scope_display.texture_size
-            self._mouse_pixel_x = int((local_x - img_x_min) * tex_w / norm_w)
+            # Full-resolution sensor frame, not the downscaled preview texture,
+            # so the reported pixel coordinate is in sensor pixels.
+            frame_w, frame_h = scope_display.full_resolution_frame_size()
+            self._mouse_pixel_x = int((local_x - img_x_min) * frame_w / norm_w)
             # Kivy Y is bottom-up, image Y is top-down
-            self._mouse_pixel_y = tex_h - 1 - int((local_y - img_y_min) * tex_h / norm_h)
-            self._mouse_pixel_x = max(0, min(self._mouse_pixel_x, tex_w - 1))
-            self._mouse_pixel_y = max(0, min(self._mouse_pixel_y, tex_h - 1))
+            self._mouse_pixel_y = frame_h - 1 - int((local_y - img_y_min) * frame_h / norm_h)
+            self._mouse_pixel_x = max(0, min(self._mouse_pixel_x, frame_w - 1))
+            self._mouse_pixel_y = max(0, min(self._mouse_pixel_y, frame_h - 1))
             self._mouse_over_image = True
         else:
             self._mouse_over_image = False
@@ -300,9 +302,12 @@ void main (void) {
                             focal_length=objective['focal_length'],
                             binning_size=get_binning_from_ui(),
                         )
-                        tex_w, tex_h = scope_display.texture_size
-                        dx_um = (self._mouse_pixel_x - tex_w / 2) * pixel_size_um
-                        dy_um = (self._mouse_pixel_y - tex_h / 2) * pixel_size_um
+                        # _mouse_pixel_* are sensor-pixel coords (full frame);
+                        # center on the full-resolution frame, not the
+                        # downscaled preview texture.
+                        frame_w, frame_h = scope_display.full_resolution_frame_size()
+                        dx_um = (self._mouse_pixel_x - frame_w / 2) * pixel_size_um
+                        dy_um = (self._mouse_pixel_y - frame_h / 2) * pixel_size_um
                         if ctx.lumaview.scope.motor_connected:
                             pos = ctx.lumaview.scope.motion.get_current_position(axis=None)
                             _, labware = get_selected_labware()

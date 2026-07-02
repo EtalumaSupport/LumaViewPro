@@ -218,15 +218,82 @@ class TestGeometrySetterSequences:
 
     def test_set_frame_size_sequence(self, imaging_capable):
         events = _record_validity_events(imaging_capable)
-        imaging_capable.set_frame_size(640, 480)
+        imaging_capable.set_frame_size(640, 482)
         assert events == [('invalidate', 'frame_size')]
-        assert imaging_capable.camera_frame_size == {'width': 640, 'height': 480}
+        # The cache holds the DELIVERED size, not the request: the sim snaps
+        # 640 -> 624 (48 grid) and 482 -> 480 (4 grid).
+        assert imaging_capable.camera_frame_size == {'width': 624, 'height': 480}
+
+    def test_set_frame_size_caches_delivered_geometry(self, imaging_capable):
+        # The sim snaps width to a 48 grid and height to a 4 grid, so the
+        # cache must hold the snapped size the driver delivered (via the
+        # write's own return value), not the request.
+        imaging_capable.set_frame_size(640, 482)
+        assert imaging_capable.camera_frame_size == {'width': 624, 'height': 480}
+
+    def test_set_frame_size_rejected_write_keeps_prior_cache(self, imaging_capable):
+        imaging_capable.set_frame_size(624, 480)
+        events = _record_validity_events(imaging_capable)
+        cam = imaging_capable._driver
+        orig = cam.set_frame_size
+        cam.set_frame_size = lambda w, h: False
+        try:
+            imaging_capable.set_frame_size(1200, 800)
+        finally:
+            cam.set_frame_size = orig
+        # A rejected write still expires validity (force-invalidate), but the
+        # cache keeps the geometry the hardware still has.
+        assert events == [('invalidate', 'frame_size')]
+        assert imaging_capable.camera_frame_size == {'width': 624, 'height': 480}
 
     def test_set_binning_size_success_sequence(self, imaging_capable):
         events = _record_validity_events(imaging_capable)
         result = imaging_capable.set_binning_size(2)
         assert result is True
         assert events == [('invalidate', 'binning')]
+
+    def test_binning_read_failure_sentinel_not_committed(self, imaging_capable):
+        imaging_capable.set_binning_size(2)
+        cam = imaging_capable._driver
+        orig = cam.get_binning_size
+        cam.get_binning_size = lambda: -1
+        try:
+            imaging_capable._populate_camera_cache()
+        finally:
+            cam.get_binning_size = orig
+        # A failed read returns the out-of-band -1 sentinel and must leave the
+        # last-known factor in place -- committing it (or an in-band 1) would
+        # silently de-bin the scale-bar / FOV math for a 2x camera.
+        assert imaging_capable._binning_size == 2
+
+    def test_rejected_binning_write_keeps_prior_factor(self, imaging_capable):
+        imaging_capable.set_binning_size(2)
+        cam = imaging_capable._driver
+        orig = cam.set_binning_size
+        cam.set_binning_size = lambda size: False
+        try:
+            result = imaging_capable.set_binning_size(4)
+        finally:
+            cam.set_binning_size = orig
+        # A rejected write must not commit the requested factor: the hardware
+        # is still at the previous binning and scale-bar math reads this value.
+        assert result is False
+        assert imaging_capable._binning_size == 2
+
+    def test_set_binning_size_refreshes_geometry_caches(self, imaging_capable):
+        imaging_capable.set_frame_size(1920, 1200)
+        events = _record_validity_events(imaging_capable)
+        result = imaging_capable.set_binning_size(2)
+        assert result is True
+        assert events == [('invalidate', 'binning')]
+        # Binning 2x halves the sim's post-binning ceiling (1920x1200 native)
+        # and the driver clamps the current frame down to it; both
+        # binning-dependent geometry caches must reflect the driver's
+        # post-binning reality, not the 1x values.
+        assert imaging_capable.camera_frame_size == {'width': 960, 'height': 600}
+        assert imaging_capable.camera_min_frame_size == (
+            imaging_capable._driver.get_min_frame_size()
+        )
 
     def test_set_pixel_format_success_sequence(self, imaging_capable):
         events = _record_validity_events(imaging_capable)

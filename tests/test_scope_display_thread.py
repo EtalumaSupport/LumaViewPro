@@ -13,8 +13,10 @@ from collections import deque
 from modules import app_context as _app_ctx
 from modules.scope_display_thread import (
     ScopeDisplayThread,
+    IDLE_BACKOFF_SECONDS,
     STATUS_OK,
     STATUS_EMPTY,
+    STATUS_DUPLICATE,
 )
 
 
@@ -247,6 +249,51 @@ def test_status_not_ok_does_not_fan_out_to_listeners():
     t.stop()
     assert received == [], (
         f'listeners must only fire on STATUS_OK; got {len(received)} calls on STATUS_EMPTY'
+    )
+
+
+def test_uncapped_no_fresh_frame_backs_off_instead_of_busy_spinning():
+    """Uncapped (fps=0) the FPS cap imposes no pacing wait, so a stream that
+    delivers no fresh frame -- empty buffer or a duplicate timestamp -- would
+    re-poll with zero delay and pin a full core. The idle back-off floors the
+    pacing wait on every non-OK iteration, bounding the poll rate to
+    ~1/IDLE_BACKOFF_SECONDS. Covers both the dead/empty stream and the healthy
+    uncapped between-genuine-frames (duplicate) case."""
+    window = 0.2
+    ceiling = (window / IDLE_BACKOFF_SECONDS) * 5
+    for status in (STATUS_EMPTY, STATUS_DUPLICATE):
+        t, _, widget = _make_thread(status_sequence=[status])
+        t.start(fps=0)
+        time.sleep(window)
+        t.stop()
+        n = len(widget.calls)
+        # An unbounded busy-loop would run many thousands of iterations in this
+        # window; the floor caps it near window/IDLE_BACKOFF_SECONDS.
+        assert 1 < n < ceiling, (
+            f'{status}: idle loop ran {n} iterations in {window}s; expected '
+            f'back-off near {window / IDLE_BACKOFF_SECONDS:.0f}, not a busy-spin'
+        )
+
+
+def test_uncapped_delivering_stream_not_throttled_by_idle_floor():
+    """The idle back-off must never cap a live stream: STATUS_OK iterations
+    skip the floor, so a delivering loop runs far more iterations than a
+    backed-off idle loop in the same window. Relative check so absolute
+    machine speed does not matter."""
+    window = 0.15
+
+    def _count_iterations(status):
+        t, _, widget = _make_thread(status_sequence=[status])
+        t.start(fps=0)
+        time.sleep(window)
+        t.stop()
+        return len(widget.calls)
+
+    idle_iters = _count_iterations(STATUS_EMPTY)
+    ok_iters = _count_iterations(STATUS_OK)
+    assert ok_iters > idle_iters * 5, (
+        f'OK loop ran {ok_iters} iters vs idle loop {idle_iters} in '
+        f'{window}s: the idle back-off must not throttle a delivering stream'
     )
 
 

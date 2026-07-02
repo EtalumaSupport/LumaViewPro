@@ -444,6 +444,17 @@ namespace. The methods below are the L2-stable surface; the underlying
 driver is `scope.imaging._driver` (private; reach through the API).
 
 ```python
+# Streaming control. connect() returns the camera CONFIGURED but NOT
+# grabbing; capture/get_image need a live feed, so start it first. In the
+# GUI this happens automatically at startup; headless callers do it
+# explicitly after constructing the scope.
+scope.imaging.start_streaming()   # begin the live feed (idempotent; also
+                                  # restarts a feed stopped via stop_streaming)
+scope.imaging.stop_streaming()    # stop the feed (get_image then times out)
+scope.imaging.is_streaming()      # True while acquiring (queries the driver)
+```
+
+```python
 # Raw frame grab (no validity wait — use capture_and_wait instead in most cases)
 image = scope.imaging.get_image()
 image = scope.imaging.get_image(force_to_8bit=False)   # keep native 12/16-bit
@@ -500,7 +511,7 @@ scope.imaging.get_frame_size()                     # {'width': ..., 'height': ..
 scope.imaging.get_max_width()                      # max at the current binning
 scope.imaging.get_max_height()
 scope.imaging.get_native_resolution()              # {'width','height'} unbinned sensor ceiling
-scope.imaging.get_pixel_alignment()                # {'width','height'} frame-size multiple
+scope.imaging.get_pixel_alignment()                # {'width','height'} deliverable frame-size granularity (even on IDS; camera grid on floor-only drivers)
 
 # Binning
 scope.imaging.set_binning_size(2)
@@ -678,11 +689,12 @@ gc = scope.diagnostics.run_grab_lifecycle_benchmark(
     num_cycles=100, inter_cycle_delay_ms=200, vary_settings=False,
 )
 
-# Pylon-specific cross-host / cross-camera / cross-firmware probe.
-# Captures camera identity, current config, stream-grabber stats
-# deltas over duration_s. Writes JSON to data/pylon_probe/. Returns
-# the driver's {'supported': False, ...} shape unchanged for IDS or
-# other non-Pylon drivers. Does NOT change grab state.
+# Cross-host / cross-camera / cross-firmware diagnostic probe.
+# Captures camera identity, current config, temperatures, and stream
+# stats deltas over duration_s, stamped with the active camera SDK
+# (Basler pylon, IDS peak, ...). Writes JSON to data/camera_probe/.
+# A driver that does not implement the probe returns the driver's
+# {'supported': False, ...} shape unchanged. Does NOT change grab state.
 probe = scope.diagnostics.run_pylon_diagnostic_probe(
     duration_s=3.0, drain_camera_side_errors=True,
 )

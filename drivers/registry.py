@@ -45,18 +45,18 @@ considered.
 
 **Composite hardware -- FX2 / Lumaview Classic pattern:** The FX2 chip
 exposes both a camera and an LED controller over a single shared USB
-connection. Stage 3 will register `FX2Camera` in the camera registry and
-`FX2LEDController` in the LED registry as two independent drivers that
-internally share a module-level `_FX2Connection` singleton. From the
-registry's point of view they're separate entries; the shared connection
-is an implementation detail inside the fx2driver module. Note: this
-pattern applies to camera+LED only -- LS720 motion uses a standalone
-USB-to-serial motor controller, not the FX2, and will register as its
-own independent motor driver.
+connection. `FX2Camera` (camera registry) and `FX2LEDController` (LED
+registry) register as two independent drivers -- conditionally, gated on
+the pyusb / libusb prerequisites being importable -- that internally share
+a module-level `_FX2Connection` singleton. From the registry's point of
+view they're separate entries; the shared connection is an implementation
+detail inside the fx2driver module. Note: this pattern applies to
+camera+LED only -- LS720 motion uses a standalone USB-to-serial motor
+controller, not the FX2, and registers as its own independent motor driver.
 
 See `tests/test_driver_registry.py::TestRegistryAccommodatesCompositeHardware`
-for a test double that proves this pattern works before the real FX2
-driver lands.
+for the composite-hardware registry pattern and `tests/test_fx2_driver.py`
+for the FX2 driver's own coverage.
 """
 
 from __future__ import annotations
