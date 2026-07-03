@@ -315,7 +315,7 @@ def _run_protocol(
 
     callbacks = {'run_complete': on_complete}
 
-    runner.run(
+    plan = runner.prepare(
         keep_led_between_steps=keep_led_between_steps,
         protocol=protocol,
         run_trigger_source='test',
@@ -346,6 +346,7 @@ def _run_protocol(
             'Lumi': False,
         },
     )
+    runner.start(plan)
 
     completed = done.wait(timeout=30)
     return completed, result_holder

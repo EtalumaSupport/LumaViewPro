@@ -23,6 +23,7 @@ import threading
 import pandas as pd
 import pytest
 
+from modules.exceptions import ProtocolRunRefusedError
 from modules.protocol import Protocol
 from modules.sequenced_capture_runner import SequencedCaptureRunner, SequencedCaptureRunMode
 from modules.sequential_io_executor import SequentialIOExecutor
@@ -301,7 +302,7 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
     callbacks.setdefault('go_to_step', lambda **kw: None)
     callbacks.setdefault('move_position', lambda axis: None)
 
-    executor.run(
+    plan = executor.prepare(
         protocol=protocol,
         run_trigger_source='test',
         run_mode=run_kwargs.pop('run_mode', SequencedCaptureRunMode.SINGLE_SCAN),
@@ -323,6 +324,7 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
         },
         **run_kwargs,
     )
+    executor.start(plan)
     completed = done.wait(timeout=COMPLETION_TIMEOUT)
     return completed, result_holder
 
@@ -1452,7 +1454,7 @@ class TestExecuteCancellation:
             'move_position': lambda axis: None,
         }
 
-        executor.run(
+        plan = executor.prepare(
             protocol=proto,
             run_trigger_source='test',
             run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
@@ -1473,6 +1475,7 @@ class TestExecuteCancellation:
                 'Lumi': False,
             },
         )
+        executor.start(plan)
 
         # Let it run for a moment then cancel via the protocol_thread
         # abort path (B3: _protocol_ended Event retired; abort signal
@@ -1912,33 +1915,31 @@ class TestExecutorEdgeCases:
     def test_empty_protocol_rejected(self, real_executor, scope, tmp_path):
         """Empty protocol (0 steps) should not start."""
         proto = _build_protocol([])
-        # run() should return without starting (no steps to execute)
+        # prepare() refuses an empty protocol before committing any state
         done = threading.Event()
-        real_executor.run(
-            protocol=proto,
-            run_trigger_source='test',
-            run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
-            sequence_name='empty_test',
-            image_capture_config=_make_image_capture_config(),
-            autogain_settings=_make_autogain_settings(),
-            parent_dir=tmp_path / 'output',
-            max_scans=1,
-            callbacks={'run_complete': lambda **kw: done.set()},
-            leds_state_at_end='off',
-            initial_autofocus_states={
-                'BF': False,
-                'PC': False,
-                'DF': False,
-                'Red': False,
-                'Green': False,
-                'Blue': False,
-                'Lumi': False,
-            },
-        )
-        # Should complete quickly (nothing to do)
-        import time
-
-        time.sleep(2.0)
+        with pytest.raises(ProtocolRunRefusedError):
+            real_executor.prepare(
+                protocol=proto,
+                run_trigger_source='test',
+                run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
+                sequence_name='empty_test',
+                image_capture_config=_make_image_capture_config(),
+                autogain_settings=_make_autogain_settings(),
+                parent_dir=tmp_path / 'output',
+                max_scans=1,
+                callbacks={'run_complete': lambda **kw: done.set()},
+                leds_state_at_end='off',
+                initial_autofocus_states={
+                    'BF': False,
+                    'PC': False,
+                    'DF': False,
+                    'Red': False,
+                    'Green': False,
+                    'Blue': False,
+                    'Lumi': False,
+                },
+            )
+        assert not done.is_set(), 'run_complete must not fire for a refused run'
         assert not real_executor.run_in_progress(), (
             'Executor should not be running for empty protocol'
         )

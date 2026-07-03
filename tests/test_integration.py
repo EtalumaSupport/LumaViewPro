@@ -213,7 +213,7 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
     # Don't provide go_to_step -- let the executor use _default_move for real motor movement
     callbacks.setdefault('move_position', lambda axis: None)
 
-    executor.run(
+    plan = executor.prepare(
         protocol=protocol,
         run_trigger_source='test',
         run_mode=run_kwargs.pop('run_mode', SequencedCaptureRunMode.SINGLE_SCAN),
@@ -236,6 +236,7 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
         },
         **run_kwargs,
     )
+    executor.start(plan)
 
     completed = done.wait(timeout=COMPLETION_TIMEOUT)
     return completed, result_holder

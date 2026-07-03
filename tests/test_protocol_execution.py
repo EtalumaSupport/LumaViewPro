@@ -35,9 +35,10 @@ _mock_settings_init.settings = {
 }
 sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
+from modules.exceptions import ProtocolRunRefusedError
 from modules.lumascope_api import Lumascope
 from modules.sequential_io_executor import SequentialIOExecutor
-from modules.sequenced_capture_runner import SequencedCaptureRunner
+from modules.sequenced_capture_runner import RunPlan, SequencedCaptureRunner
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.protocol import Protocol
 
@@ -261,7 +262,7 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
     callbacks.setdefault('go_to_step', lambda **kw: None)
     callbacks.setdefault('move_position', lambda axis: None)
 
-    executor.run(
+    plan = executor.prepare(
         protocol=protocol,
         run_trigger_source='test',
         run_mode=run_kwargs.pop('run_mode', SequencedCaptureRunMode.SINGLE_SCAN),
@@ -283,6 +284,7 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
         },
         **run_kwargs,
     )
+    executor.start(plan)
 
     completed = done.wait(timeout=COMPLETION_TIMEOUT)
     return completed, result_holder
@@ -1361,7 +1363,7 @@ class TestCancellationMidRun:
             'move_position': lambda axis: None,
         }
 
-        executor.run(
+        plan = executor.prepare(
             protocol=protocol,
             run_trigger_source='test',
             run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
@@ -1382,6 +1384,7 @@ class TestCancellationMidRun:
                 'Lumi': False,
             },
         )
+        executor.start(plan)
 
         # Let it run briefly then cancel
         time.sleep(1.0)
@@ -1406,7 +1409,7 @@ class TestCancellationMidRun:
             'move_position': lambda axis: None,
         }
 
-        executor.run(
+        plan = executor.prepare(
             protocol=protocol,
             run_trigger_source='test',
             run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
@@ -1427,6 +1430,7 @@ class TestCancellationMidRun:
                 'Lumi': False,
             },
         )
+        executor.start(plan)
 
         # Cancel almost immediately
         time.sleep(0.2)
@@ -1515,31 +1519,31 @@ class TestDisconnectedScope:
             'move_position': lambda axis: None,
         }
 
-        executor.run(
-            protocol=protocol,
-            run_trigger_source='test',
-            run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
-            sequence_name='test_disconnected',
-            image_capture_config=_make_image_capture_config(),
-            autogain_settings=_make_autogain_settings(),
-            parent_dir=tmp_path / 'output',
-            max_scans=1,
-            callbacks=callbacks,
-            leds_state_at_end='off',
-            initial_autofocus_states={
-                'BF': False,
-                'PC': False,
-                'DF': False,
-                'Red': False,
-                'Green': False,
-                'Blue': False,
-                'Lumi': False,
-            },
-        )
+        with pytest.raises(ProtocolRunRefusedError):
+            executor.prepare(
+                protocol=protocol,
+                run_trigger_source='test',
+                run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
+                sequence_name='test_disconnected',
+                image_capture_config=_make_image_capture_config(),
+                autogain_settings=_make_autogain_settings(),
+                parent_dir=tmp_path / 'output',
+                max_scans=1,
+                callbacks=callbacks,
+                leds_state_at_end='off',
+                initial_autofocus_states={
+                    'BF': False,
+                    'PC': False,
+                    'DF': False,
+                    'Red': False,
+                    'Green': False,
+                    'Blue': False,
+                    'Lumi': False,
+                },
+            )
 
         # Should NOT have started -- run_complete should NOT fire
-        started = done.wait(timeout=2.0)
-        assert not started, 'Protocol should not have started with disconnected scope'
+        assert not done.is_set(), 'Protocol should not have started with disconnected scope'
         assert not executor.run_in_progress()
 
 
@@ -1698,7 +1702,7 @@ class TestSavingWithNoneParentDir:
             'move_position': lambda axis: None,
         }
 
-        executor.run(
+        plan = executor.prepare(
             protocol=protocol,
             run_trigger_source='test',
             run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
@@ -1719,6 +1723,7 @@ class TestSavingWithNoneParentDir:
                 'Lumi': False,
             },
         )
+        executor.start(plan)
 
         completed = done.wait(timeout=COMPLETION_TIMEOUT)
         assert completed
@@ -1757,7 +1762,7 @@ class TestMinimalCallbacks:
 
         # Only provide run_complete -- no go_to_step or move_position.
         # This forces _go_to_step to use _default_move (which we've mocked).
-        executor.run(
+        plan = executor.prepare(
             protocol=protocol,
             run_trigger_source='test',
             run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
@@ -1778,6 +1783,7 @@ class TestMinimalCallbacks:
                 'Lumi': False,
             },
         )
+        executor.start(plan)
 
         completed = done.wait(timeout=COMPLETION_TIMEOUT)
         assert completed
@@ -1834,7 +1840,7 @@ class TestCleanupConcurrency:
             ]
         )
         done = threading.Event()
-        executor.run(
+        plan = executor.prepare(
             protocol=protocol,
             run_trigger_source='test',
             run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
@@ -1858,6 +1864,7 @@ class TestCleanupConcurrency:
                 'Lumi': False,
             },
         )
+        executor.start(plan)
         # Let protocol start
         time.sleep(0.1)
         # Fire reset from multiple threads simultaneously
@@ -2121,7 +2128,7 @@ class TestCameraStateRestoration:
         )
 
         done = threading.Event()
-        executor.run(
+        plan = executor.prepare(
             protocol=protocol,
             run_trigger_source='test',
             run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
@@ -2145,6 +2152,7 @@ class TestCameraStateRestoration:
                 'Lumi': False,
             },
         )
+        executor.start(plan)
         time.sleep(0.2)
         executor.reset()
         done.wait(timeout=COMPLETION_TIMEOUT)
@@ -2187,7 +2195,7 @@ class TestCleanupCorrectness:
             [{'color': c, 'illumination_ma': 100.0} for c in ['BF', 'Red', 'Green', 'Blue', 'BF']]
         )
         done = threading.Event()
-        executor.run(
+        plan = executor.prepare(
             protocol=protocol,
             run_trigger_source='test',
             run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
@@ -2211,6 +2219,7 @@ class TestCleanupCorrectness:
                 'Lumi': False,
             },
         )
+        executor.start(plan)
         time.sleep(0.2)
         executor.reset()
         done.wait(timeout=COMPLETION_TIMEOUT)
@@ -2407,24 +2416,25 @@ class TestSaveFailureRecordsRow:
 
 
 class TestRunReturnValueContract:
-    """run() reports whether the run actually started.
+    """prepare()/start() report whether the run can and did start.
 
     A refused run loads no protocol and creates no run directory, so a
-    caller that treats run() as fire-and-forget follows up against the
-    PREVIOUS run's state (stale save folder) or a runner that never
-    loaded a protocol (AttributeError inside a UI handler). The bool
-    return plus the None-seeded getters are the contract the UI call
-    sites gate on.
+    caller that treats the start sequence as fire-and-forget follows up
+    against the PREVIOUS run's state (stale save folder) or a runner
+    that never loaded a protocol (AttributeError inside a UI handler).
+    The typed refusal raised by prepare() plus the None-seeded getters
+    are the contract the UI call sites rely on; a failure after start()
+    commits unwinds as a failed run whose terminal callback fires.
     """
 
-    def _start_run(self, executor, protocol, tmp_path, callbacks=None):
+    def _prepare_run(self, executor, protocol, tmp_path, callbacks=None):
         cbs = {
             'go_to_step': lambda **kw: None,
             'move_position': lambda axis: None,
         }
         if callbacks:
             cbs.update(callbacks)
-        return executor.run(
+        return executor.prepare(
             protocol=protocol,
             run_trigger_source='test',
             run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
@@ -2446,10 +2456,10 @@ class TestRunReturnValueContract:
             },
         )
 
-    def test_refused_run_returns_false_and_leaves_runner_idle(self, executor, tmp_path):
+    def test_refused_run_raises_and_leaves_runner_idle(self, executor, tmp_path):
         empty_protocol = _build_real_protocol([])
-        started = self._start_run(executor, empty_protocol, tmp_path)
-        assert started is False
+        with pytest.raises(ProtocolRunRefusedError):
+            self._prepare_run(executor, empty_protocol, tmp_path)
         assert executor.run_dir() is None, (
             'A refused run must not leave a run directory for callers to save into'
         )
@@ -2457,16 +2467,17 @@ class TestRunReturnValueContract:
             'A refused run must not mark a run as in progress'
         )
 
-    def test_started_run_returns_true(self, executor, tmp_path):
+    def test_started_run_completes(self, executor, tmp_path):
         done = threading.Event()
         protocol = _make_single_step_protocol(color='BF')
-        started = self._start_run(
+        plan = self._prepare_run(
             executor,
             protocol,
             tmp_path,
             callbacks={'run_complete': lambda **kwargs: done.set()},
         )
-        assert started is True
+        assert isinstance(plan, RunPlan), 'prepare() must return the validated RunPlan'
+        executor.start(plan)
         assert done.wait(timeout=COMPLETION_TIMEOUT), 'Started run did not complete'
 
     def test_fresh_runner_getters_answer_none_not_attributeerror(self, executor):
@@ -2478,13 +2489,16 @@ class TestRunReturnValueContract:
         assert executor.run_trigger_source() is None
         assert executor.current_step_color() is None
 
-    def test_init_for_new_scan_failure_returns_false(self, executor, scope, tmp_path, monkeypatch):
+    def test_dir_setup_failure_fails_at_start_and_recovers(
+        self, executor, scope, tmp_path, monkeypatch
+    ):
+        """A run-directory setup failure is a failed-at-start run, not a
+        wedge: exactly one user notification, the terminal run_complete
+        callback fires with the failed-at-start status, the runner is
+        idle afterwards, and a subsequent prepare() succeeds."""
         import modules.notification_center as notification_center
 
         protocol = _make_single_step_protocol(color='BF')
-
-        def vanished_capture_location(self, *args, **kwargs):
-            raise FileNotFoundError(str(self))
 
         notified = []
         monkeypatch.setattr(
@@ -2492,19 +2506,42 @@ class TestRunReturnValueContract:
             'error',
             lambda *args, **kwargs: notified.append(args),
         )
-        monkeypatch.setattr(pathlib.Path, 'mkdir', vanished_capture_location)
-        started = self._start_run(executor, protocol, tmp_path)
-        assert started is False
-        assert not executor._run_in_progress_event.is_set(), (
-            'A run refused at directory setup must not mark a run as in progress'
+        monkeypatch.setattr(
+            executor,
+            '_create_run_dir',
+            lambda: {'status': False, 'data': None, 'error': 'capture location vanished'},
         )
-        assert notified, (
-            'A run refused at directory setup must notify the user, not '
-            'just log; the operation visibly did not do what was asked'
+        completions = []
+        plan = self._prepare_run(
+            executor,
+            protocol,
+            tmp_path,
+            callbacks={'run_complete': lambda **kwargs: completions.append(kwargs)},
         )
-        # Refusal must not leak hardware setup: the protocol LED lease is
-        # only acquired for a run that actually starts, so a fresh
-        # top-level acquire must succeed after the refusal.
+        executor.start(plan)
+        assert len(notified) == 1, (
+            'A run that fails at directory setup must notify the user exactly '
+            f'once; got {len(notified)}: {notified}'
+        )
+        assert len(completions) == 1, (
+            'The terminal run_complete callback must fire exactly once for a '
+            f'failed-at-start run; got {completions}'
+        )
+        assert completions[0].get('status') == 'failed_at_start', (
+            f'run_complete must report the failed-at-start status; got {completions[0]}'
+        )
+        assert not executor.run_in_progress(), (
+            'A run that failed at directory setup must not stay marked in progress'
+        )
+        # A failed start must not leak hardware setup: the protocol LED
+        # lease is only held by a run in flight, so a fresh top-level
+        # acquire must succeed after the failure.
         lease = scope.illumination.acquire_led_lease('leak probe')
-        assert lease is not None, 'Refused run leaked the protocol LED lease'
+        assert lease is not None, 'Failed-at-start run leaked the protocol LED lease'
         lease.release()
+        # The runner is reusable: the next prepare() passes every gate.
+        monkeypatch.undo()
+        plan2 = self._prepare_run(executor, protocol, tmp_path)
+        assert isinstance(plan2, RunPlan), (
+            'A failed-at-start run must not wedge the runner; the next prepare() must succeed'
+        )

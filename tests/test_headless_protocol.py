@@ -263,7 +263,7 @@ class TestHeadlessProtocolExecution:
                 'capture_depth': 8,
             }
 
-            executor.run(
+            plan = executor.prepare(
                 protocol=protocol,
                 run_trigger_source='test',
                 run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
@@ -285,6 +285,7 @@ class TestHeadlessProtocolExecution:
                     'Lumi': False,
                 },
             )
+            executor.start(plan)
 
             assert done.wait(timeout=30), 'Protocol did not complete within timeout'
 

@@ -1,6 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
 import copy
+import dataclasses
 import datetime
 import pathlib
 import time
@@ -26,6 +27,7 @@ import modules.image_mode as image_mode
 
 import modules.labware_loader as labware_loader
 from modules.autofocus_runner import AutofocusRunner
+from modules.exceptions import ProtocolRunRefusedError
 from modules.protocol import Protocol
 from modules.protocol_execution_record import ProtocolExecutionRecord
 
@@ -64,6 +66,41 @@ step_dict = {
 """
 
 
+@dataclasses.dataclass(frozen=True)
+class RunPlan:
+    """Everything a sequenced run needs, validated and computed up front.
+
+    Built exclusively by SequencedCaptureRunner.prepare(), which performs
+    every refusal check before constructing the plan. Because the plan is
+    the only way to call start(), a caller physically cannot commit
+    run-is-underway state (events, buttons, motion locks) before the run
+    has passed every gate. The held protocol is prepare()'s private
+    execution copy and the dicts are snapshots, so mid-run UI mutations
+    cannot leak into an in-flight run.
+    """
+
+    protocol: Protocol
+    run_mode: SequencedCaptureRunMode
+    run_trigger_source: str
+    sequence_name: str
+    image_capture_config: dict
+    autogain_settings: dict
+    callbacks: ProtocolCallbacks
+    n_scans: int | None
+    parent_dir: pathlib.Path | None
+    enable_image_saving: bool
+    separate_folder_per_channel: bool
+    disable_saving_artifacts: bool
+    save_autofocus_data: bool
+    update_z_pos_from_autofocus: bool
+    leds_state_at_end: str
+    video_as_frames: bool
+    initial_autofocus_states: dict | None
+    keep_led_between_steps: bool
+    return_to_position: dict | None
+    stage_offset: dict
+
+
 class SequencedCaptureRunner:
     LOGGER_NAME = 'SeqCapExec'
     # Max time for ONE continuous stage motion to complete. The timer
@@ -90,9 +127,9 @@ class SequencedCaptureRunner:
         self._coordinate_transformer = coord_transformations.CoordinateTransformer()
         self._wellplate_loader = labware_loader.WellPlateLoader()
         # Hold stage_offset by reference so UI edits between runs are visible
-        # to the next run; _snapshot_run_state takes a deepcopy at run() start
-        # so an in-flight protocol's coordinate transforms are immune to
-        # mid-run mutations of ctx.settings['stage_offset'].
+        # to the next run; prepare() takes a deepcopy into the RunPlan so an
+        # in-flight protocol's coordinate transforms are immune to mid-run
+        # mutations of ctx.settings['stage_offset'].
         self._stage_offset_source = stage_offset
         self._stage_offset = stage_offset
         self._io_executor = io_executor
@@ -103,9 +140,9 @@ class SequencedCaptureRunner:
         self._z_ui_update_func = z_ui_update_func
         self._scan_in_progress = threading.Event()
         # Abort signal. Owned by protocol_thread; SCE holds a reference
-        # assigned in run() from protocol_thread.aborted. Tests that
+        # assigned in start() from protocol_thread.aborted. Tests that
         # construct SCE without a real protocol_thread can still read
-        # this Event because it defaults to a local Event before run().
+        # this Event because it defaults to a local Event before start().
         self._aborted: threading.Event = threading.Event()
         self._run_in_progress_event = (
             threading.Event()
@@ -141,7 +178,7 @@ class SequencedCaptureRunner:
         self._led_lease = None
         self._protocol_state_lock = threading.Lock()
         self._state = ProtocolState.IDLE
-        # Defensive default so attribute access before the first run()
+        # Defensive default so attribute access before the first start()
         # (e.g. from a test that drives scan_iterate directly) returns
         # a no-op callbacks object instead of AttributeError.
         self._callbacks = ProtocolCallbacks()
@@ -284,47 +321,6 @@ class SequencedCaptureRunner:
             self._scan_count += 1
             return self._scan_count
 
-    def _init_for_new_scan(self, max_scans: int) -> bool:
-        self._reset_vars()
-        n_scans = self._calculate_num_scans(
-            protocol=self._protocol,
-            run_mode=self._run_mode,
-            max_scans=max_scans,
-        )
-        with self._protocol_state_lock:
-            self._n_scans = n_scans
-
-        # Scan-interval pacing uses a monotonic clock, not wall time: a DST
-        # change, an NTP step, or a backward clock adjustment must not stretch,
-        # shrink, or stall a multi-day timelapse's inter-scan wait. Wall-clock
-        # timestamps for filenames and records are taken separately where needed.
-        self._start_t = time.monotonic()
-
-        if self._disable_saving_artifacts:
-            return {'status': True, 'data': None, 'error': None}
-
-        try:
-            self._parent_dir.mkdir(parents=True, exist_ok=True)
-        except FileNotFoundError:
-            err_str = f'Unable to save data to {self._parent_dir!s}. Please select an accessible capture location.'
-            return {
-                'status': False,
-                'data': None,
-                'error': err_str,
-            }
-
-        result = self._create_run_dir()
-        if not result['status']:
-            return result
-
-        try:
-            self._initialize_run_dir()
-        except Exception as ex:
-            err_str = f'Unable to initialize sequenced run directory: {ex}'
-            return {'status': False, 'data': None, 'error': err_str}
-
-        return {'status': True, 'data': None, 'error': None}
-
     def run_dir(self):
         return self._run_dir
 
@@ -417,7 +413,7 @@ class SequencedCaptureRunner:
             'protocol thread is not running -- running cleanup inline on the '
             'calling thread as a fallback'
         )
-        self._cleanup()
+        self._cleanup(run_status='aborted')
 
     def wait_for_run_idle(self, timeout_s: float) -> bool:
         """Block until the run (including its cleanup) has fully unwound.
@@ -442,17 +438,6 @@ class SequencedCaptureRunner:
 
     def protocol_interval(self):
         return self._protocol.period()
-
-    def _snapshot_run_state(self) -> None:
-        """Snapshot mutable settings dicts into private copies for this run.
-
-        The live ctx.settings['stage_offset'] dict is shared by reference; a
-        deepcopy here gives each run a private value so a UI mutation (or
-        future programmatic edit) mid-protocol doesn't change coordinate
-        transforms partway through. The next run() re-snapshots from the
-        source so between-run edits are still picked up.
-        """
-        self._stage_offset = copy.deepcopy(self._stage_offset_source)
 
     def get_initial_autofocus_states(self, layer_configs: dict | None = None):
         states = {}
@@ -491,7 +476,23 @@ class SequencedCaptureRunner:
                 )
         return lease
 
-    def run(
+    def _refuse(
+        self, reason: str, title: str, message: str, severity: str = 'warning'
+    ) -> typing.NoReturn:
+        """Log, notify once, and raise the typed refusal.
+
+        The single funnel every refusal gate routes through, so a refusal
+        is always exactly one log line + one user notification + one typed
+        exception -- callers reconcile their own state without re-notifying.
+        """
+        logger.error(f'[{self.LOGGER_NAME} ] Run refused ({reason}): {message}')
+        from modules.notification_center import notifications
+
+        notify = notifications.error if severity == 'error' else notifications.warning
+        notify('Protocol', title, message)
+        raise ProtocolRunRefusedError(reason=reason, title=title, message=message)
+
+    def prepare(
         self,
         protocol: Protocol,
         run_trigger_source: str,
@@ -512,43 +513,41 @@ class SequencedCaptureRunner:
         video_as_frames: bool = False,
         initial_autofocus_states: dict | None = None,
         keep_led_between_steps: bool = False,
-    ) -> bool:
-        """Start a sequenced run; return whether it actually started.
+    ) -> RunPlan:
+        """Validate a run request and build its immutable RunPlan.
+
+        Mutates no runner state, touches no hardware, and writes nothing
+        to disk: a refused prepare is observationally a no-op, and every
+        getter (run_dir(), num_scans(), run_trigger_source()) still
+        answers for the previous run. Callers commit their own
+        "a run is now underway" state (events, buttons, motion locks)
+        only between a successful prepare() and start().
 
         Returns:
-            bool: True when the run was dispatched to the protocol
-                thread. False when the run was REFUSED (already running,
-                files still writing, empty protocol, validation errors,
-                hardware not connected) -- each refusal notifies the user
-                itself. Callers must gate any started-run follow-up
-                (run_dir(), remaining_scans(), protocol_interval()) on
-                this result: a refused run loads no protocol and creates
-                no run directory, so those getters answer for the
-                PREVIOUS run or return None.
+            RunPlan: The validated plan to pass to start().
+
+        Raises:
+            ProtocolRunRefusedError: The run cannot start (already
+                running, files still writing, empty protocol, validation
+                errors, hardware not connected). The user has already
+                been notified once when this raises.
+            ValueError: leds_state_at_end is not a supported literal --
+                a programming error at the call site, not a refusal.
         """
         with self._run_lock:
             if self._run_in_progress_event.is_set():
-                logger.error(f'[{self.LOGGER_NAME} ] Cannot start new run, run already in progress')
-                from modules.notification_center import notifications
-
-                notifications.warning(
-                    'Protocol', 'Already Running', 'A protocol run is already in progress.'
+                self._refuse(
+                    reason='already_running',
+                    title='Already Running',
+                    message='A protocol run is already in progress.',
                 )
-                return False
 
-        # Check if file_io_executor still has pending writes
         if self.file_io_executor.is_protocol_queue_active():
-            logger.error(
-                f'[{self.LOGGER_NAME} ] Cannot start new run, file writing still in progress'
+            self._refuse(
+                reason='files_writing',
+                title='Files Still Writing',
+                message="Previous run's files are still being written. Please wait.",
             )
-            from modules.notification_center import notifications
-
-            notifications.warning(
-                'Protocol',
-                'Files Still Writing',
-                "Previous run's files are still being written. Please wait.",
-            )
-            return False
 
         if leds_state_at_end not in (
             'off',
@@ -557,15 +556,20 @@ class SequencedCaptureRunner:
             raise ValueError(f'Unsupported value for leds_state_at_end: {leds_state_at_end}')
 
         if protocol.num_steps() == 0:
-            logger.error('[PROTOCOL] Protocol has no steps. Cannot start run.')
-            from modules.notification_center import notifications
-
-            notifications.warning(
-                'Protocol',
-                'No Steps',
-                'Protocol has no steps. Add at least one step before running.',
+            self._refuse(
+                reason='empty_protocol',
+                title='No Steps',
+                message='Protocol has no steps. Add at least one step before running.',
             )
-            return False
+
+        # Snapshot stage_offset BEFORE validation so the pre-run travel
+        # check and the run's coordinate transforms use the same offset.
+        # Validating against a stale prior-run snapshot could pass a step
+        # the fresh offset places beyond the axis limit (or refuse one
+        # that would actually run fine). The deepcopy also makes the run
+        # immune to mid-run mutations of ctx.settings['stage_offset']
+        # partway through a multi-day soak.
+        stage_offset = copy.deepcopy(self._stage_offset_source)
 
         # Pre-run validation: check positions within axis limits
         try:
@@ -579,211 +583,343 @@ class SequencedCaptureRunner:
                 if limits is not None:
                     axis_limits[axis] = limits
             validation_errors = protocol.validate_for_run(
-                axis_limits=axis_limits, stage_offset=self._stage_offset
+                axis_limits=axis_limits, stage_offset=stage_offset
             )
-            if validation_errors:
-                for err in validation_errors:
-                    logger.error(f'[PROTOCOL] Validation: {err}')
-                logger.error(
-                    f'[PROTOCOL] Protocol has {len(validation_errors)} validation error(s). Cannot start run.'
-                )
-                from modules.notification_center import notifications
-
-                err_summary = '\n'.join(f'  - {err}' for err in validation_errors[:5])
-                if len(validation_errors) > 5:
-                    err_summary += f'\n  ... and {len(validation_errors) - 5} more (see log)'
-                notifications.error(
-                    'Protocol',
-                    'Validation failed',
-                    f'Protocol has {len(validation_errors)} validation error(s):\n{err_summary}',
-                )
-                return False
         except Exception as ex:
             # validate_for_run raised before producing a validation_errors
             # list -- e.g. labware loader OS error, missing objectives.json,
-            # pandas exception inside the steps DataFrame. Without the
-            # popup + return the run proceeded past validation and hit
-            # hardware mid-run with bad coordinates. Mirrors the
-            # are_all_connected exception handling below.
+            # pandas exception inside the steps DataFrame. Without a
+            # refusal the run would proceed past validation and hit
+            # hardware mid-run with bad coordinates.
             logger.error(f'[PROTOCOL] Pre-run validation could not run: {ex}')
-            from modules.notification_center import notifications
-
-            notifications.error(
-                'Protocol',
-                'Cannot validate protocol',
-                f'Pre-run validation could not run: {type(ex).__name__}: {ex}. '
-                f'Check the labware + objectives configuration and try again.',
+            self._refuse(
+                reason='validation_crashed',
+                title='Cannot validate protocol',
+                message=(
+                    f'Pre-run validation could not run: {type(ex).__name__}: {ex}. '
+                    f'Check the labware + objectives configuration and try again.'
+                ),
+                severity='error',
             )
-            return False
+        if validation_errors:
+            for err in validation_errors:
+                logger.error(f'[PROTOCOL] Validation: {err}')
+            err_summary = '\n'.join(f'  - {err}' for err in validation_errors[:5])
+            if len(validation_errors) > 5:
+                err_summary += f'\n  ... and {len(validation_errors) - 5} more (see log)'
+            self._refuse(
+                reason='validation_failed',
+                title='Validation failed',
+                message=(
+                    f'Protocol has {len(validation_errors)} validation error(s):\n{err_summary}'
+                ),
+                severity='error',
+            )
 
         try:
-            if not self._scope.are_all_connected():
-                logger.error('[PROTOCOL] Not all scope components connected. Cannot start run.')
-                from modules.notification_center import notifications
-
-                notifications.error(
-                    'Protocol',
-                    'Hardware Disconnected',
-                    'Not all hardware components are connected. Check connections and try again.',
-                )
-                return False
+            all_connected = self._scope.are_all_connected()
         except Exception as ex:
             logger.error(f'[PROTOCOL] Error checking scope connection: {ex}')
-            from modules.notification_center import notifications
-
-            notifications.error(
-                'Protocol',
-                'Cannot verify hardware state',
-                f'Could not check hardware connection status: {type(ex).__name__}: {ex}. '
-                f'Reconnect the scope and try again.',
+            self._refuse(
+                reason='hardware_state_unknown',
+                title='Cannot verify hardware state',
+                message=(
+                    f'Could not check hardware connection status: {type(ex).__name__}: {ex}. '
+                    f'Reconnect the scope and try again.'
+                ),
+                severity='error',
             )
-            return False
+        if not all_connected:
+            self._refuse(
+                reason='hardware_disconnected',
+                title='Hardware Disconnected',
+                message=(
+                    'Not all hardware components are connected. Check connections and try again.'
+                ),
+                severity='error',
+            )
 
-        # Snapshot stage_offset so mid-run mutations to
-        # ctx.settings['stage_offset'] don't change the in-flight coordinate
-        # transforms partway through a multi-day soak.
-        self._snapshot_run_state()
+        # Lightweight copy -- shares read-only loaders, copies only the
+        # mutable steps DataFrame (which AF modifies via
+        # modify_step_z_height). Much cheaper than deepcopy for large
+        # protocols.
+        execution_protocol = protocol.copy_for_execution()
 
-        # Lightweight copy -- shares read-only loaders, copies only the mutable
-        # steps DataFrame (which AF modifies via modify_step_z_height). Much
-        # cheaper than deepcopy for large protocols (M14).
-        self._protocol = protocol.copy_for_execution()
-        self._run_mode = run_mode
-        self._sequence_name = sequence_name
-        self._parent_dir = parent_dir
-        self._image_capture_config = image_capture_config
-        self._enable_image_saving = enable_image_saving
-        self._separate_folder_per_channel = separate_folder_per_channel
-        # Snapshot at run() entry so mid-run UI mutations of the autogain
-        # settings dict (target_brightness, max_duration, min/max_gain_db)
-        # do not leak into the in-flight scan. Mirrors the save-encoding
-        # snapshot pattern below.
-        self._autogain_settings = (
-            copy.deepcopy(autogain_settings) if autogain_settings is not None else {}
-        )
-        self._callbacks = (
-            ProtocolCallbacks.from_dict(callbacks)
-            if isinstance(callbacks, dict)
-            else (callbacks or ProtocolCallbacks())
-        )
-        self._return_to_position = return_to_position
-        self._disable_saving_artifacts = disable_saving_artifacts
-        self._save_autofocus_data = save_autofocus_data
-        self._update_z_pos_from_autofocus = update_z_pos_from_autofocus
-        self._leds_state_at_end = leds_state_at_end
-        self._keep_led_between_steps = keep_led_between_steps
-        self._video_as_frames = video_as_frames
-        # No AFE.reset() here -- AFE.run()'s own _reset_state() on
-        # entry handles stale state, and self._af_future is reset at
-        # scan start in protocol_run_loop. An external reset() here
-        # would race with AFE.run() on the AF thread.
+        if parent_dir is None:
+            disable_saving_artifacts = True
 
-        self._scan_iterate_running = False
-        self._protocol_iterator = None
-        self._scan_iterator = None
-
-        if self._parent_dir is None:
-            self._disable_saving_artifacts = True
-
-        self._cancel_all_scheduled_events()
-        result = self._init_for_new_scan(max_scans=max_scans)
-        if not result['status']:
-            logger.error(f'[{self.LOGGER_NAME} ] {result["error"]}')
-            from modules.notification_center import notifications
-
-            notifications.error('Protocol', 'Cannot Start Run', result['error'])
-            return False
-
-        # Hardware-touching setup runs only after the LAST refusal point
-        # above, so a refused run cannot leak a held LED lease or a
-        # saved-but-never-restored camera state; only a started run has
-        # anything to clean up.
-        #
-        # The LED lease covers the whole scan so live UI illumination
-        # changes cannot disturb a running protocol's channels. AF steps
-        # nest a child under it. A refused acquire recovers a stranded
-        # lease from a hard-killed prior run, so the run always ends up
-        # owning illumination (else every STEP_LIGHT apply no-ops and
-        # the whole acquisition captures dark).
-        self._led_lease = self._acquire_led_lease_for_run()
-
-        # Snapshot hardware state for restoration after protocol
-        self._original_led_states = self._scope.illumination.get_led_states()
-        self._saved_camera_state = self._scope.imaging.save_camera_state('protocol')
-        if initial_autofocus_states is not None:
-            self._original_autofocus_states = initial_autofocus_states
-        else:
-            self._original_autofocus_states = self.get_initial_autofocus_states()
-
-        ctx = _app_ctx.ctx
-        stim_profiling = (
-            ctx.settings.get('profiling', {}).get('stim_profiling', False)
-            if ctx is not None
-            else False
-        )
-        # PIW-3: read once per run under settings_lock to avoid per-save lock acquires
-        # in image_utils.write_tiff. Mid-run UI changes intentionally do not retro-affect
-        # an in-flight protocol -- saves use the value as of run-start.
-        # bf_af_for_fluorescence shares the same snapshot lane so mid-run
-        # toggles do not produce inconsistent AF behavior across steps
-        # within one scan; protocol_step_runner reads p._bf_af_for_fluorescence.
-        if ctx is not None:
-            with ctx.settings_lock:
-                save_encoding = config_helpers.get_image_capture_config_from_settings(ctx.settings)[
-                    'save_encoding'
-                ]
-                self._bf_af_for_fluorescence = ctx.settings.get('protocol', {}).get(
-                    'bf_af_for_fluorescence', False
-                )
-        else:
-            save_encoding = image_mode.SAVE_ENCODING_8BIT
-            self._bf_af_for_fluorescence = False
-
-        # Borrow protocol_thread's abort Event as SCE's _aborted reference.
-        # Cross-thread readers (protocol_step_runner, protocol_run_loop)
-        # consult self._aborted.is_set() each tick. PIW receives a callable
-        # bound to protocol_thread.abort so its capture-failure / disk-fail
-        # paths abort the run.
-        self._aborted = self.protocol_thread.aborted
-        self._image_writer = ProtocolImageWriter(
-            scope=self._scope,
-            callbacks=self._callbacks,
-            aborted=self._aborted,
-            file_io_executor=self.file_io_executor,
-            abort_fn=self.protocol_thread.abort,
-            execution_record=self._protocol_execution_record,
-            leds_off_fn=self._step_executor.leds_off,
-            is_run_in_progress_fn=lambda: self._run_in_progress_event.is_set(),
-            stim_profiling=stim_profiling,
-            run_dir=self._run_dir,
-            save_encoding=save_encoding,
+        return RunPlan(
+            protocol=execution_protocol,
+            run_mode=run_mode,
+            run_trigger_source=run_trigger_source,
+            sequence_name=sequence_name,
+            # Deepcopied so the plan's dicts are true snapshots: a caller
+            # (or the GUI) mutating its config dict after prepare() must
+            # not retro-affect the in-flight run.
+            image_capture_config=copy.deepcopy(image_capture_config),
+            # Snapshot so mid-run UI mutations of the autogain settings
+            # dict (target_brightness, max_duration, min/max_gain_db) do
+            # not leak into the in-flight scan.
+            autogain_settings=(
+                copy.deepcopy(autogain_settings) if autogain_settings is not None else {}
+            ),
+            callbacks=(
+                ProtocolCallbacks.from_dict(callbacks)
+                if isinstance(callbacks, dict)
+                else (callbacks or ProtocolCallbacks())
+            ),
+            n_scans=self._calculate_num_scans(
+                protocol=execution_protocol,
+                run_mode=run_mode,
+                max_scans=max_scans,
+            ),
+            parent_dir=parent_dir,
+            enable_image_saving=enable_image_saving,
+            separate_folder_per_channel=separate_folder_per_channel,
+            disable_saving_artifacts=disable_saving_artifacts,
+            save_autofocus_data=save_autofocus_data,
+            update_z_pos_from_autofocus=update_z_pos_from_autofocus,
+            leds_state_at_end=leds_state_at_end,
+            video_as_frames=video_as_frames,
+            initial_autofocus_states=copy.deepcopy(initial_autofocus_states),
+            keep_led_between_steps=keep_led_between_steps,
+            return_to_position=return_to_position,
+            stage_offset=stage_offset,
         )
 
-        self._run_trigger_source = run_trigger_source
+    def start(self, plan: RunPlan) -> None:
+        """Commit to the prepared run and dispatch it.
+
+        The commitment point: once entered, the run's terminal callback
+        (run_complete) fires exactly once on every path -- normal
+        completion, abort, or a setup failure, which unwinds through the
+        same cleanup as a mid-run failure (with status 'failed_at_start').
+        There is no path on which a caller waits forever.
+
+        The single exception is the prepare-to-start race: when another
+        run started between this plan's prepare() and its start(), the
+        typed refusal raises here BEFORE any commitment. Treating that
+        race as a failed run instead would fire this plan's completion
+        callbacks while the other, live run is mid-flight -- clearing
+        running-state the live run still owns.
+
+        Raises:
+            ProtocolRunRefusedError: reason 'already_running', only for
+                the prepare-to-start race described above.
+        """
+        # Gate and commit under ONE lock hold: releasing between the
+        # already-running check and the event set would let two
+        # concurrently-prepared plans both pass the gate and interleave
+        # their field writes onto the same runner.
         with self._run_lock:
+            if self._run_in_progress_event.is_set():
+                self._refuse(
+                    reason='already_running',
+                    title='Already Running',
+                    message='A protocol run is already in progress.',
+                )
+
+            self._reset_vars()
+            self._protocol = plan.protocol
+            self._run_mode = plan.run_mode
+            self._sequence_name = plan.sequence_name
+            self._parent_dir = plan.parent_dir
+            self._image_capture_config = plan.image_capture_config
+            self._enable_image_saving = plan.enable_image_saving
+            self._separate_folder_per_channel = plan.separate_folder_per_channel
+            self._autogain_settings = plan.autogain_settings
+            self._callbacks = plan.callbacks
+            self._return_to_position = plan.return_to_position
+            self._disable_saving_artifacts = plan.disable_saving_artifacts
+            self._save_autofocus_data = plan.save_autofocus_data
+            self._update_z_pos_from_autofocus = plan.update_z_pos_from_autofocus
+            self._leds_state_at_end = plan.leds_state_at_end
+            self._keep_led_between_steps = plan.keep_led_between_steps
+            self._video_as_frames = plan.video_as_frames
+            self._stage_offset = plan.stage_offset
+            self._run_trigger_source = plan.run_trigger_source
+            # Failure-safe defaults: a setup failure below unwinds through
+            # the normal run cleanup, which reads these; a prior run's stale
+            # snapshots must not leak into that unwind.
+            self._original_led_states = None
+            self._saved_camera_state = None
+            self._original_autofocus_states = plan.initial_autofocus_states
+            # No AFE.reset() here -- AFE.run()'s own _reset_state() on
+            # entry handles stale state, and self._af_future is reset at
+            # scan start in protocol_run_loop. An external reset() here
+            # would race with AFE.run() on the AF thread.
+
+            self._scan_iterate_running = False
+            self._protocol_iterator = None
+            self._scan_iterator = None
+            self._cancel_all_scheduled_events()
+
+            with self._protocol_state_lock:
+                self._n_scans = plan.n_scans
+            # Scan-interval pacing uses a monotonic clock, not wall time: a
+            # DST change, an NTP step, or a backward clock adjustment must
+            # not stretch, shrink, or stall a multi-day timelapse's
+            # inter-scan wait. Wall-clock timestamps for filenames and
+            # records are taken separately where needed.
+            self._start_t = time.monotonic()
+
             self._set_state(ProtocolState.RUNNING)
             self._run_in_progress_event.set()
-        # The unattended scan starts here: suppress non-fatal popups (no one is
-        # watching a running protocol); fatal faults still surface. Cleared on
-        # every cleanup path in _cleanup_inner.
+
+        try:
+            # The unattended scan starts here: suppress non-fatal popups
+            # (no one is watching a running protocol); fatal faults still
+            # surface. Cleared on every cleanup path in _cleanup_inner.
+            from modules.notification_center import notifications
+
+            notifications.set_protocol_running(True)
+
+            self._setup_run_dir()
+
+            # The LED lease covers the whole scan so live UI illumination
+            # changes cannot disturb a running protocol's channels. AF steps
+            # nest a child under it. A refused acquire recovers a stranded
+            # lease from a hard-killed prior run, so the run always ends up
+            # owning illumination (else every STEP_LIGHT apply no-ops and
+            # the whole acquisition captures dark).
+            self._led_lease = self._acquire_led_lease_for_run()
+
+            # Snapshot hardware state for restoration after protocol
+            self._original_led_states = self._scope.illumination.get_led_states()
+            self._saved_camera_state = self._scope.imaging.save_camera_state('protocol')
+            if self._original_autofocus_states is None:
+                self._original_autofocus_states = self.get_initial_autofocus_states()
+
+            ctx = _app_ctx.ctx
+            stim_profiling = (
+                ctx.settings.get('profiling', {}).get('stim_profiling', False)
+                if ctx is not None
+                else False
+            )
+            # PIW-3: read once per run under settings_lock to avoid per-save lock acquires
+            # in image_utils.write_tiff. Mid-run UI changes intentionally do not retro-affect
+            # an in-flight protocol -- saves use the value as of run-start.
+            # bf_af_for_fluorescence shares the same snapshot lane so mid-run
+            # toggles do not produce inconsistent AF behavior across steps
+            # within one scan; protocol_step_runner reads p._bf_af_for_fluorescence.
+            if ctx is not None:
+                with ctx.settings_lock:
+                    save_encoding = config_helpers.get_image_capture_config_from_settings(
+                        ctx.settings
+                    )['save_encoding']
+                    self._bf_af_for_fluorescence = ctx.settings.get('protocol', {}).get(
+                        'bf_af_for_fluorescence', False
+                    )
+            else:
+                save_encoding = image_mode.SAVE_ENCODING_8BIT
+                self._bf_af_for_fluorescence = False
+
+            # Borrow protocol_thread's abort Event as SCE's _aborted reference.
+            # Cross-thread readers (protocol_step_runner, protocol_run_loop)
+            # consult self._aborted.is_set() each tick. PIW receives a callable
+            # bound to protocol_thread.abort so its capture-failure / disk-fail
+            # paths abort the run.
+            self._aborted = self.protocol_thread.aborted
+            self._image_writer = ProtocolImageWriter(
+                scope=self._scope,
+                callbacks=self._callbacks,
+                aborted=self._aborted,
+                file_io_executor=self.file_io_executor,
+                abort_fn=self.protocol_thread.abort,
+                execution_record=self._protocol_execution_record,
+                leds_off_fn=self._step_executor.leds_off,
+                is_run_in_progress_fn=lambda: self._run_in_progress_event.is_set(),
+                stim_profiling=stim_profiling,
+                run_dir=self._run_dir,
+                save_encoding=save_encoding,
+            )
+
+            self.camera_executor.disable()
+            self._io_executor.protocol_start()
+            self.file_io_executor.protocol_start()
+            # Not IO
+            self._scope.imaging.update_auto_gain_target_brightness(
+                self._autogain_settings['target_brightness']
+            )
+
+            # Dispatch the main run loop onto protocol_thread. Completion is
+            # signalled via _run_in_progress_event clearing inside _cleanup.
+            # run_protocol also clears _aborted under its state lock
+            # atomically with publishing the new Future, mirroring the
+            # AutofocusThread fix.
+            dispatch_future = self.protocol_thread.run_protocol(self._run_loop_executor.run_loop)
+            # A dispatch refusal is synchronous: run_protocol seals the
+            # returned Future with its error BEFORE returning, while a
+            # genuinely dispatched run loop leaves it unresolved for the
+            # run's whole duration. A done Future here therefore means the
+            # loop will never execute -- raise so the failed-at-start unwind
+            # runs instead of the runner sitting committed forever.
+            if dispatch_future.done() and dispatch_future.exception() is not None:
+                raise dispatch_future.exception()
+        except Exception as exc:
+            self._fail_run_at_start(exc)
+
+    def _setup_run_dir(self) -> None:
+        """Create and initialize the run directory; raise on failure.
+
+        Runs inside start()'s committed phase: a failure here unwinds as
+        an immediately-failed run (terminal callback fires), never as a
+        refusal -- the same class of event as the capture disk vanishing
+        mid-scan.
+        """
+        if self._disable_saving_artifacts:
+            return
+
+        try:
+            self._parent_dir.mkdir(parents=True, exist_ok=True)
+        except FileNotFoundError:
+            raise RuntimeError(
+                f'Unable to save data to {self._parent_dir!s}. '
+                'Please select an accessible capture location.'
+            ) from None
+
+        result = self._create_run_dir()
+        if not result['status']:
+            raise RuntimeError(result['error'])
+
+        try:
+            self._initialize_run_dir()
+        except Exception as ex:
+            raise RuntimeError(f'Unable to initialize sequenced run directory: {ex}') from ex
+
+    def _fail_run_at_start(self, exc: Exception) -> None:
+        """Unwind a run that failed during start()'s setup phase.
+
+        Routes the failure through the normal run cleanup so the terminal
+        run_complete callback fires (status 'failed_at_start') and the
+        executors leave protocol-mode.
+        """
+        logger.error(f'[{self.LOGGER_NAME} ] Run failed during start: {exc}', exc_info=True)
+        run_dir = self._run_dir
+        if run_dir is not None:
+            # A just-created EMPTY directory is noise from a run that never
+            # produced anything and is removed; a non-empty one holds
+            # forensic evidence of a real failed run and is kept, like any
+            # mid-run abort's.
+            try:
+                run_dir.rmdir()
+            except OSError as rm_ex:
+                logger.debug(f'[{self.LOGGER_NAME} ] Failed-start run dir kept: {rm_ex}')
+        # A failed start has no usable run directory; answering with the
+        # (possibly just-deleted) path would send callers' started-run
+        # follow-ups (last-save-folder shortcuts) to a dead location.
+        self._run_dir = None
+        self._cleanup(run_status='failed_at_start')
+        # Notify AFTER cleanup: start() enabled the protocol-running popup
+        # suppression, which drops this non-fatal error until cleanup's
+        # set_protocol_running(False) restores popups.
         from modules.notification_center import notifications
 
-        notifications.set_protocol_running(True)
-        self.camera_executor.disable()
-        self._io_executor.protocol_start()
-        self.file_io_executor.protocol_start()
-        # Not IO
-        self._scope.imaging.update_auto_gain_target_brightness(
-            self._autogain_settings['target_brightness']
+        notifications.error(
+            'Protocol',
+            'Run failed to start',
+            f'The run could not start: {exc}',
         )
-
-        # Dispatch the main run loop onto protocol_thread. The returned
-        # Future is fire-and-forget here -- completion is signalled via
-        # _run_in_progress_event clearing inside _cleanup. run_protocol
-        # also clears _aborted under its state lock atomically with
-        # publishing the new Future, mirroring the AutofocusThread fix.
-        self.protocol_thread.run_protocol(self._run_loop_executor.run_loop)
-        return True
 
     def run_in_progress(self) -> bool:
         with self._run_lock:
@@ -821,11 +957,18 @@ class SequencedCaptureRunner:
         self._protocol_iterator = None
         self._scan_iterator = None
 
-    def _cleanup(self):
+    def _cleanup(self, run_status: str):
+        """Unwind the run; run_status names the terminal outcome.
+
+        run_status ('completed', 'aborted', 'failed', 'failed_at_start')
+        is REQUIRED so every cleanup site states the truth it knows --
+        a defaulted value would let an abort or failure silently report
+        itself as a normal completion to run_complete subscribers.
+        """
         if not self._cleanup_lock.acquire(blocking=False):
             return  # Another thread is already cleaning up
         try:
-            self._cleanup_inner()
+            self._cleanup_inner(run_status=run_status)
         finally:
             self._cleanup_lock.release()
 
@@ -844,7 +987,7 @@ class SequencedCaptureRunner:
             led_lease.release(leave_on=True)
             self._led_lease = None
 
-    def _cleanup_inner(self):
+    def _cleanup_inner(self, run_status: str):
         from modules.notification_center import notifications
 
         try:
@@ -890,6 +1033,7 @@ class SequencedCaptureRunner:
                     self._run_in_progress_event.set() if v else self._run_in_progress_event.clear()
                 ),
                 logger_name=self.LOGGER_NAME,
+                run_status=run_status,
             )
         finally:
             # Release on every path -- early-return, normal end, or an

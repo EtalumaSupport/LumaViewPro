@@ -33,6 +33,7 @@ from ui.ui_helpers import (
     live_histo_off,
     live_histo_reverse,
     reset_title,
+    run_with_refusal_boundary,
     set_last_save_folder,
     set_recording_title,
     set_writing_title,
@@ -253,26 +254,29 @@ class ZStack(FloatLayout):
             initial_position = get_current_plate_position()
             image_capture_config = get_image_capture_config_from_ui()
 
-            started = ctx.sequenced_capture_runner.run(
-                protocol=zstack_sequence,
-                run_mode=SequencedCaptureRunMode.SINGLE_ZSTACK,
-                run_trigger_source=trigger_source,
-                max_scans=1,
-                sequence_name='zstack',
-                parent_dir=parent_dir,
-                image_capture_config=image_capture_config,
-                enable_image_saving=is_image_saving_enabled(),
-                autogain_settings=autogain_settings,
-                callbacks=callbacks,
-                return_to_position=initial_position,
-                leds_state_at_end='return_to_original',
-                **config_helpers.get_sequenced_run_settings(settings),
-            )
-            if started:
-                # Only a started run has a run directory; on a refusal,
-                # run_dir() answers for the PREVIOUS run and would silently
-                # point the save folder at stale data.
+            def prepare_and_start():
+                plan = ctx.sequenced_capture_runner.prepare(
+                    protocol=zstack_sequence,
+                    run_mode=SequencedCaptureRunMode.SINGLE_ZSTACK,
+                    run_trigger_source=trigger_source,
+                    max_scans=1,
+                    sequence_name='zstack',
+                    parent_dir=parent_dir,
+                    image_capture_config=image_capture_config,
+                    enable_image_saving=is_image_saving_enabled(),
+                    autogain_settings=autogain_settings,
+                    callbacks=callbacks,
+                    return_to_position=initial_position,
+                    leds_state_at_end='return_to_original',
+                    **config_helpers.get_sequenced_run_settings(settings),
+                )
+                ctx.sequenced_capture_runner.start(plan)
+                # A refusal raises out of prepare before this line, so the
+                # save folder can only ever point at THIS run's directory,
+                # never a previous run's stale data.
                 set_last_save_folder(dir=ctx.sequenced_capture_runner.run_dir())
+
+            run_with_refusal_boundary(prepare_and_start, on_refused=run_not_started_func)
         except Exception as e:
             logger.error(f'[UI] run_zstack_acquire_from_ui failed: {e}', exc_info=True)
             from ui.notification_popup import show_notification_popup

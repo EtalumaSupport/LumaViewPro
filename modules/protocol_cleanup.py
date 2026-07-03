@@ -63,10 +63,15 @@ def run_cleanup(
     # Mutable flag -- set to False when done
     set_run_in_progress_fn,
     logger_name: str = 'SequencedCaptureRunner',
+    # Terminal outcome the run_complete subscribers receive
+    run_status: str,
 ):
     """Core cleanup logic -- restores state, fires callbacks, ends executors.
 
-    Called from ``SequencedCaptureRunner._cleanup_inner()``.
+    Called from ``SequencedCaptureRunner._cleanup_inner()``. run_status
+    ('completed', 'aborted', 'failed', 'failed_at_start') is required so
+    the cleanup site states the run's true terminal outcome; it reaches
+    every run_complete subscriber as the ``status`` kwarg.
     """
     # Capture the abort state BEFORE the COMPLETING transition below. Only a
     # hardware-error abort (ERROR state) clears file_io_executor's pending queue:
@@ -360,7 +365,7 @@ def run_cleanup(
     )
     if _file_queue_active:
         if callbacks.run_complete:
-            _schedule_ui(lambda dt: callbacks.run_complete(protocol=protocol), 0)
+            _schedule_ui(lambda dt: callbacks.run_complete(protocol=protocol, status=run_status), 0)
         if callbacks.files_complete:
             file_io_executor.set_protocol_complete_callback(
                 callback=lambda: _schedule_ui(
@@ -373,7 +378,7 @@ def run_cleanup(
         )
     else:
         if callbacks.run_complete:
-            _schedule_ui(lambda dt: callbacks.run_complete(protocol=protocol), 0)
+            _schedule_ui(lambda dt: callbacks.run_complete(protocol=protocol, status=run_status), 0)
         if callbacks.files_complete:
             _schedule_ui(lambda dt: callbacks.files_complete(protocol=protocol), 0)
         file_io_executor.protocol_finish_then_end()

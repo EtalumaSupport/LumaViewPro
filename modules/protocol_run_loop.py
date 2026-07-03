@@ -57,8 +57,10 @@ class ProtocolRunLoop:
             # protocol state is reset, and resources are released even if an
             # unhandled exception occurs.  _cleanup() is idempotent (guarded
             # by _cleanup_lock and _run_in_progress check) so duplicate calls
-            # from the normal path are harmless.
-            self._p._cleanup()
+            # from the normal path are harmless -- the inner loop's own
+            # cleanup already ran with its true status and this no-ops, so
+            # 'failed' only ever reaches subscribers for a crashed loop.
+            self._p._cleanup(run_status='failed')
 
     def _return_to_first_step_between_scans(self):
         """Pre-position the stage at the first step during the inter-scan wait.
@@ -118,7 +120,7 @@ class ProtocolRunLoop:
                         'failure. Review the log for the cause, then restart '
                         'the scan.',
                     )
-                    p._cleanup()
+                    p._cleanup(run_status='failed')
                     break
 
                 # Periodic hardware connection check (every 30 seconds)
@@ -139,7 +141,7 @@ class ProtocolRunLoop:
                             )
                             if p._state not in (ProtocolState.COMPLETING, ProtocolState.IDLE):
                                 p._set_state(ProtocolState.ERROR)
-                            p._cleanup()
+                            p._cleanup(run_status='failed')
                             break
                     except Exception as ex:
                         logger.warning(f'[PROTOCOL] Connection check failed: {ex}')
@@ -147,7 +149,7 @@ class ProtocolRunLoop:
                 # Check if we've completed all scans
                 remaining_scans = p.remaining_scans()
                 if remaining_scans <= 0:
-                    p._cleanup()
+                    p._cleanup(run_status='completed')
                     break
 
                 # Check if enough time has elapsed for the next scan
@@ -298,7 +300,10 @@ class ProtocolRunLoop:
                             p._set_state(ProtocolState.ERROR)
                         except ValueError:
                             pass
-                    p._cleanup()
+                    # run_status is a required argument of _cleanup; this
+                    # site is the mid-scan hardware-disconnect abort, so the
+                    # terminal outcome it reports is a failure.
+                    p._cleanup(run_status='failed')
                     break
 
                 # Transient: log warning, do NOT increment scan_count,
@@ -333,8 +338,10 @@ class ProtocolRunLoop:
                         'in a row. Check hardware connections and the log '
                         'for the cause, then restart the scan.',
                     )
-                    p._cleanup()
+                    p._cleanup(run_status='failed')
                     break
 
-        # Ensure cleanup runs when exiting the while loop
-        p._cleanup()
+        # Ensure cleanup runs when exiting the while loop. The while
+        # condition goes false on an abort (aborted set) or when the run
+        # flag cleared; name which one so subscribers see the truth.
+        p._cleanup(run_status='aborted' if p._aborted.is_set() else 'completed')

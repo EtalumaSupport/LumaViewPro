@@ -352,6 +352,7 @@ class TestRunCleanup:
             'file_io_executor': file_exec,
             'camera_executor': camera_exec,
             'set_run_in_progress_fn': lambda v: run_in_progress.__setitem__(0, v),
+            'run_status': 'completed',
         }
         defaults.update(overrides)
         return defaults, state, run_in_progress
@@ -374,7 +375,7 @@ class TestRunCleanup:
         from modules.protocol_cleanup import run_cleanup
 
         completed = []
-        cb = ProtocolCallbacks(run_complete=lambda protocol=None: completed.append(True))
+        cb = ProtocolCallbacks(run_complete=lambda protocol=None, **kwargs: completed.append(True))
         args, _, _ = self._make_cleanup_args(callbacks=cb)
         run_cleanup(**args)
         assert len(completed) == 1
@@ -384,7 +385,7 @@ class TestRunCleanup:
 
         files_done = []
         cb = ProtocolCallbacks(
-            run_complete=lambda protocol=None: None,
+            run_complete=lambda protocol=None, **kwargs: None,
             files_complete=lambda protocol=None: files_done.append(True),
         )
         args, _, _ = self._make_cleanup_args(callbacks=cb)

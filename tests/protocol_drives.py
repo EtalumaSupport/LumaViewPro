@@ -3,10 +3,10 @@
 SequencedCaptureRunner with MagicMock deps.
 
 Three layers of readiness:
-- bare_capture_runner(): a constructed runner; enough for run()'s
-  pre-run gates and snapshot phase.
-- scan_ready_runner(): the scan-ready state run() normally establishes,
-  with a single-step protocol mock -- drive
+- bare_capture_runner(): a constructed runner; enough for prepare()'s
+  refusal gates and start()'s snapshot phase.
+- scan_ready_runner(): the scan-ready state prepare()+start() normally
+  establish, with a single-step protocol mock -- drive
   runner._step_executor.scan_iterate() / scan_loop() directly.
 - run_loop_ready_runner(): additionally RUNNING state, zero period,
   go_to_step callback, and a mocked _cleanup -- drive
@@ -61,9 +61,9 @@ def bare_capture_runner(**overrides):
 
 
 def scr_run_kwargs(**overrides):
-    """Keyword args for SequencedCaptureRunner.run() with a protocol mock
-    that passes every pre-run gate; tests override the gate or snapshot
-    under test."""
+    """Keyword args for SequencedCaptureRunner.prepare() with a protocol
+    mock that passes every refusal gate; tests override the gate or
+    snapshot under test."""
     from modules.sequenced_capture_runner import SequencedCaptureRunMode
 
     protocol = MagicMock()
@@ -87,8 +87,8 @@ def scr_run_kwargs(**overrides):
 
 
 def scan_ready_runner(step, **state):
-    """Runner advanced to the scan-ready state run() normally
-    establishes, with a single-step protocol mock returning *step*.
+    """Runner advanced to the scan-ready state prepare()+start()
+    normally establish, with a single-step protocol mock returning *step*.
     Keyword args land as runner attributes (e.g. _n_scans=2)."""
     runner = bare_capture_runner()
     runner._scope.motion.is_moving.return_value = False

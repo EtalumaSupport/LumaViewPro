@@ -52,6 +52,7 @@ from ui.ui_helpers import (
     reset_acquire_ui,
     reset_stim_ui,
     reset_title,
+    run_with_refusal_boundary,
     set_last_save_folder,
     set_recording_title,
     set_title_event_text,
@@ -1441,6 +1442,40 @@ class ProtocolSettings(FloatLayout):
         ].background_down = 'atlas://data/images/defaulttheme/button_pressed'
         ctx.stage.set_motion_capability(True)
 
+    def _commit_running_ui_state(
+        self, button_id: str, text: str, background_down: str | None = None
+    ):
+        """Commit the shared "a run is now underway" UI state.
+
+        Runs between the runner's prepare and start, so running-state
+        commits only once the run can no longer be refused -- a refusal
+        never leaves the event set or motion locked. One implementation
+        for every starter so the commit set cannot drift between them.
+        """
+        ctx = _app_ctx.ctx
+        ctx.protocol_running.set()
+        self._publish_protocol_running(True)
+        ctx.stage.set_motion_capability(False)
+        self.ids[button_id].text = text
+        if background_down is not None:
+            self.ids[button_id].background_down = background_down
+
+    def _reset_run_button_cosmetics(
+        self, button_id: str, text: str, background_down: str | None = None
+    ):
+        """Undo a starter's pre-gate button cosmetics after a run did NOT start.
+
+        Deliberately does NOT touch protocol_running or motion capability:
+        a refused start never committed them, and when the refusal is due
+        to a rival LIVE run, that run still owns them -- the full reset
+        primitives above would unlock stage motion under a running scan.
+        """
+        self.ids[button_id].state = 'normal'
+        self.ids[button_id].text = text
+        self.ids[button_id].disabled = False
+        if background_down is not None:
+            self.ids[button_id].background_down = background_down
+
     def _is_protocol_valid(self) -> bool:
         from ui.notification_popup import show_notification_popup
 
@@ -1598,16 +1633,21 @@ class ProtocolSettings(FloatLayout):
             run_trigger_source = sequenced_capture_runner.run_trigger_source()
 
             live_histo_off()
-            ctx.stage.set_motion_capability(False)
-            self._publish_protocol_running(True)
+
+            # Not-started paths undo cosmetics only: no running-state was
+            # committed, and a rival live run may own protocol_running /
+            # motion capability -- the full reset would unlock the stage
+            # under that run's scan.
+            def run_refused_func():
+                self._reset_run_button_cosmetics('run_autofocus_btn', 'Autofocus All Steps')
+                live_histo_reverse()
 
             # Only block if starting NEW autofocus scan (button is 'down'), not if aborting (button is 'normal')
             if (
                 self.ids['run_autofocus_btn'].state == 'down'
                 and file_io_executor.is_protocol_queue_active()
             ):
-                run_not_started_func()
-                live_histo_reverse()
+                run_refused_func()
                 logger.warning('Cannot start autofocus scan - files still being written to disk')
                 show_notification_popup(
                     title='Operation Blocked',
@@ -1624,19 +1664,25 @@ class ProtocolSettings(FloatLayout):
             if sequenced_capture_runner.run_in_progress() and (
                 run_trigger_source != trigger_source
             ):
-                run_not_started_func()
-                live_histo_reverse()
+                run_refused_func()
                 logger.warning(
                     f'Cannot start autofocus scan. Run already in progress from {run_trigger_source}'
                 )
                 return
 
             if not self._is_protocol_valid():
-                run_not_started_func()
-                live_histo_reverse()
+                run_refused_func()
                 return
 
-            self.ids['run_autofocus_btn'].text = 'Running Autofocus Scan'
+            def commit_ui_state():
+                # Runs between the runner's prepare and start: running-state
+                # commits only once the run can no longer be refused. The AF
+                # scan deliberately does NOT set ctx.protocol_running (its
+                # completion path never owned that flag), so it keeps its
+                # own commit set instead of _commit_running_ui_state.
+                ctx.stage.set_motion_capability(False)
+                self._publish_protocol_running(True)
+                self.ids['run_autofocus_btn'].text = 'Running Autofocus Scan'
 
             settings = _app_ctx.ctx.settings
 
@@ -1674,27 +1720,32 @@ class ProtocolSettings(FloatLayout):
             sequence = copy.deepcopy(self._protocol)
             sequence.modify_autofocus_all_steps(enabled=True)
 
-            sequenced_capture_runner.run(
-                protocol=sequence,
-                run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
-                run_trigger_source=trigger_source,
-                max_scans=1,
-                sequence_name='af_scan',
-                parent_dir=None,
-                image_capture_config=get_image_capture_config_from_ui(),
-                enable_image_saving=False,
-                # The autofocus scan deliberately does NOT hold the LED across
-                # moves (no get_sequenced_run_settings here): keeping the
-                # excitation LED on during inter-step focus motion would
-                # photobleach the sample. It also saves nothing, so the
-                # folder/video params are irrelevant.
-                separate_folder_per_channel=False,
-                autogain_settings=autogain_settings,
-                callbacks=callbacks,
-                update_z_pos_from_autofocus=True,
-                leds_state_at_end='off',
-                video_as_frames=settings['video_as_frames'],
-            )
+            def prepare_and_start():
+                plan = sequenced_capture_runner.prepare(
+                    protocol=sequence,
+                    run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
+                    run_trigger_source=trigger_source,
+                    max_scans=1,
+                    sequence_name='af_scan',
+                    parent_dir=None,
+                    image_capture_config=get_image_capture_config_from_ui(),
+                    enable_image_saving=False,
+                    # The autofocus scan deliberately does NOT hold the LED across
+                    # moves (no get_sequenced_run_settings here): keeping the
+                    # excitation LED on during inter-step focus motion would
+                    # photobleach the sample. It also saves nothing, so the
+                    # folder/video params are irrelevant.
+                    separate_folder_per_channel=False,
+                    autogain_settings=autogain_settings,
+                    callbacks=callbacks,
+                    update_z_pos_from_autofocus=True,
+                    leds_state_at_end='off',
+                    video_as_frames=settings['video_as_frames'],
+                )
+                commit_ui_state()
+                sequenced_capture_runner.start(plan)
+
+            run_with_refusal_boundary(prepare_and_start, on_refused=run_refused_func)
         except Exception as e:
             logger.error(f'[UI] run_autofocus_scan_from_ui failed: {e}', exc_info=True)
             from ui.notification_popup import show_notification_popup
@@ -1810,13 +1861,20 @@ class ProtocolSettings(FloatLayout):
         run_complete_func = self._scan_run_complete
         run_not_started_func = self._reset_run_scan_button
 
+        # Not-started paths undo cosmetics only: no running-state was
+        # committed, and a rival live run may own protocol_running /
+        # motion capability -- the full reset would unlock the stage
+        # under that run's scan.
+        def run_refused_func():
+            self._reset_run_button_cosmetics('run_scan_btn', 'Run One Scan')
+
         ctx = _app_ctx.ctx
         sequenced_capture_runner = ctx.sequenced_capture_runner
         file_io_executor = ctx.file_io_executor
 
         # Only block if starting NEW scan (button is 'down'), not if aborting (button is 'normal')
         if self.ids['run_scan_btn'].state == 'down' and file_io_executor.is_protocol_queue_active():
-            run_not_started_func()
+            run_refused_func()
             logger.warning('Cannot start scan - files still being written to disk')
             show_notification_popup(
                 title='Operation Blocked',
@@ -1826,18 +1884,18 @@ class ProtocolSettings(FloatLayout):
 
         # State of button immediately changed upon press, so we are checking if the button was previously not pressed, and if autofocus is happening
         if self.ids['run_scan_btn'].state == 'down' and ctx.autofocus_thread.is_running:
-            run_not_started_func()
+            run_refused_func()
             logger.warning('Cannot start scan. Autofocus still in progress.')
             return
 
         run_trigger_source = sequenced_capture_runner.run_trigger_source()
         if sequenced_capture_runner.run_in_progress() and (run_trigger_source != trigger_source):
-            run_not_started_func()
+            run_refused_func()
             logger.warning(f'Cannot start scan. Run already in progress from {run_trigger_source}')
             return
 
         if not self._is_protocol_valid():
-            run_not_started_func()
+            run_refused_func()
             return
 
         if self.ids['run_scan_btn'].state == 'normal':
@@ -1848,15 +1906,6 @@ class ProtocolSettings(FloatLayout):
             self.ids['run_scan_btn'].text = 'Stopping...'
             self._cleanup_at_end_of_protocol(autofocus_scan=False)
             return
-
-        # All validation passed -- now commit to running
-        protocol_running_global = ctx.protocol_running
-        protocol_running_global.set()
-        self._publish_protocol_running(True)
-        ctx.stage.set_motion_capability(False)
-
-        self.ids['run_scan_btn'].text = 'Abort One Scan'
-        self.ids['run_scan_btn'].background_down = './data/icons/abort_protocol_background.png'
 
         callbacks = {
             'run_scan_pre': self._run_scan_pre_callback,
@@ -1877,11 +1926,19 @@ class ProtocolSettings(FloatLayout):
             ),
         }
 
-        self.run_sequenced_capture(
-            run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
-            run_trigger_source=trigger_source,
-            max_scans=1,
-            callbacks=callbacks,
+        run_with_refusal_boundary(
+            lambda: self.run_sequenced_capture(
+                run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
+                run_trigger_source=trigger_source,
+                max_scans=1,
+                callbacks=callbacks,
+                commit_ui_state=lambda: self._commit_running_ui_state(
+                    'run_scan_btn',
+                    'Abort One Scan',
+                    './data/icons/abort_protocol_background.png',
+                ),
+            ),
+            on_refused=run_refused_func,
         )
 
     def _protocol_run_complete(self, **kwargs):
@@ -2025,18 +2082,28 @@ class ProtocolSettings(FloatLayout):
             logger.info('[LVP Main  ] ProtocolSettings.run_protocol_from_ui()')
             trigger_source = 'protocol'
             run_complete_func = self._protocol_run_complete
-            run_not_started_func = self._reset_run_protocol_button
 
             ctx = _app_ctx.ctx
             sequenced_capture_runner = ctx.sequenced_capture_runner
             file_io_executor = ctx.file_io_executor
+
+            # Not-started paths undo cosmetics only: no running-state was
+            # committed, and a rival live run may own protocol_running /
+            # motion capability -- the full reset would unlock the stage
+            # under that run's scan.
+            def run_refused_func():
+                self._reset_run_button_cosmetics(
+                    'run_protocol_btn',
+                    'Run Full Protocol',
+                    'atlas://data/images/defaulttheme/button_pressed',
+                )
 
             # Only block if starting NEW protocol run (button is 'down'), not if aborting (button is 'normal')
             if (
                 self.ids['run_protocol_btn'].state == 'down'
                 and file_io_executor.is_protocol_queue_active()
             ):
-                run_not_started_func()
+                run_refused_func()
                 logger.warning('Cannot start protocol run - files still being written to disk')
                 show_notification_popup(
                     title='Operation Blocked',
@@ -2048,21 +2115,21 @@ class ProtocolSettings(FloatLayout):
 
             # State of button immediately changed upon press, so we are checking if the button was previously not pressed, and if autofocus is happening
             if self.ids['run_protocol_btn'].state == 'down' and ctx.autofocus_thread.is_running:
-                run_not_started_func()
+                run_refused_func()
                 logger.warning('Cannot start protocol run. Autofocus still in progress.')
                 return
 
             if sequenced_capture_runner.run_in_progress() and (
                 run_trigger_source != trigger_source
             ):
-                run_not_started_func()
+                run_refused_func()
                 logger.warning(
                     f'Cannot start protocol run. Run already in progress from {run_trigger_source}'
                 )
                 return
 
             if not self._is_protocol_valid():
-                run_not_started_func()
+                run_refused_func()
                 return
 
             if self.ids['run_protocol_btn'].state == 'normal':
@@ -2072,15 +2139,6 @@ class ProtocolSettings(FloatLayout):
                 self.ids['run_protocol_btn'].text = 'Stopping...'
                 self._cleanup_at_end_of_protocol(autofocus_scan=False)
                 return
-
-            # All validation passed -- now commit to running
-            protocol_running_global = ctx.protocol_running
-            protocol_running_global.set()
-            self._publish_protocol_running(True)
-            ctx.stage.set_motion_capability(False)
-
-            # Note: This will be quickly overwritten by the remaining number of scans
-            self.ids['run_protocol_btn'].text = 'Running Protocol'
 
             callbacks = {
                 'protocol_iterate_pre': self._update_protocol_run_button_status,
@@ -2107,11 +2165,18 @@ class ProtocolSettings(FloatLayout):
                 duration=time_params['duration'],
             )
 
-            self.run_sequenced_capture(
-                run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
-                run_trigger_source=trigger_source,
-                max_scans=None,
-                callbacks=callbacks,
+            run_with_refusal_boundary(
+                lambda: self.run_sequenced_capture(
+                    run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
+                    run_trigger_source=trigger_source,
+                    max_scans=None,
+                    callbacks=callbacks,
+                    # Text is quickly overwritten by the remaining-scans status
+                    commit_ui_state=lambda: self._commit_running_ui_state(
+                        'run_protocol_btn', 'Running Protocol'
+                    ),
+                ),
+                on_refused=run_refused_func,
             )
         except Exception as e:
             logger.error(f'[UI] run_protocol_from_ui failed: {e}', exc_info=True)
@@ -2182,7 +2247,19 @@ class ProtocolSettings(FloatLayout):
         callbacks: dict[str, typing.Callable],
         disable_saving_artifacts: bool = False,
         return_to_position: dict | None = None,
+        commit_ui_state: typing.Callable[[], None] | None = None,
     ):
+        """Prepare, commit UI running-state, and start a sequenced run.
+
+        commit_ui_state runs between a successful prepare() and start(),
+        so callers commit their "a run is now underway" state (events,
+        buttons, motion locks) only once the run can no longer be
+        refused -- a refusal raises out of prepare() before it runs.
+
+        Raises:
+            ProtocolRunRefusedError: The runner refused the request; the
+                user was already notified and commit_ui_state never ran.
+        """
         live_histo_off()
 
         logger.info('[LVP Main  ] ProtocolSettings.run_sequenced_capture()')
@@ -2239,7 +2316,7 @@ class ProtocolSettings(FloatLayout):
             layer: settings[layer]['autofocus'] for layer in common_utils.get_layers()
         }
 
-        started = sequenced_capture_runner.run(
+        plan = sequenced_capture_runner.prepare(
             protocol=self._protocol,
             run_mode=run_mode,
             run_trigger_source=run_trigger_source,
@@ -2256,16 +2333,19 @@ class ProtocolSettings(FloatLayout):
             initial_autofocus_states=initial_autofocus_states,
             **config_helpers.get_sequenced_run_settings(settings),
         )
-        if not started:
-            # The runner refused (hardware missing, files writing, empty or
-            # invalid protocol) and already notified the user. No protocol
-            # was loaded and no run directory exists, so the started-run
-            # follow-ups below would crash or answer for the PREVIOUS run.
-            return
+        if commit_ui_state is not None:
+            commit_ui_state()
+        sequenced_capture_runner.start(plan)
 
+        # A start() that failed during setup unwound as a failed run: it
+        # nulled run_dir (set_last_save_folder no-ops on None) and cleared
+        # run-in-progress, so neither follow-up acts on the dead run.
         set_last_save_folder(dir=sequenced_capture_runner.run_dir())
 
-        if run_mode == SequencedCaptureRunMode.FULL_PROTOCOL:
+        if (
+            run_mode == SequencedCaptureRunMode.FULL_PROTOCOL
+            and sequenced_capture_runner.run_in_progress()
+        ):
             self._update_protocol_run_button_status(
                 remaining_scans=sequenced_capture_runner.remaining_scans(),
                 interval=sequenced_capture_runner.protocol_interval(),

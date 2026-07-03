@@ -83,7 +83,7 @@ class TestProtocolRunLoopNoCacheClearingLedsOffAtScanStart:
         step 0 or blink a same-color step (exclusivity itself is pinned by the
         end-to-end lifecycle test's one-lit-at-a-time scenarios)."""
         runner = bare_capture_runner()
-        runner.run(**scr_run_kwargs())
+        runner.start(runner.prepare(**scr_run_kwargs()))
         assert not hasattr(runner._image_writer, '_led_on'), (
             'the capture leaf must not drive the LED; the STEP_LIGHT illuminate '
             'lives on the authority via the runner'

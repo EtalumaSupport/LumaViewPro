@@ -275,7 +275,7 @@ def _run_protocol(executor, protocol, tmp_path):
         # through to default_move(), which fires real move_abs calls.
     }
 
-    executor.run(
+    plan = executor.prepare(
         protocol=protocol,
         run_trigger_source='test',
         run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
@@ -305,6 +305,7 @@ def _run_protocol(executor, protocol, tmp_path):
             'Lumi': False,
         },
     )
+    executor.start(plan)
 
     completed = done.wait(timeout=30)
     return completed, result_holder

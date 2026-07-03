@@ -1412,6 +1412,7 @@ class TestRule14_A4_PreRunValidationNotify:
     """A4: Pre-run validation errors must surface a user notification (Rule 14)."""
 
     def _run_with_validation_errors(self, monkeypatch, errors):
+        from modules.exceptions import ProtocolRunRefusedError
         from modules.notification_center import notifications
 
         captured = []
@@ -1419,7 +1420,8 @@ class TestRule14_A4_PreRunValidationNotify:
         runner = _bare_capture_runner()
         kwargs = _scr_run_kwargs()
         kwargs['protocol'].validate_for_run.return_value = errors
-        runner.run(**kwargs)
+        with pytest.raises(ProtocolRunRefusedError):
+            runner.prepare(**kwargs)
         return runner, kwargs['protocol'], captured
 
     def test_validation_errors_branch_notifies(self, monkeypatch):
@@ -1459,13 +1461,15 @@ class TestRule14_A5_AreAllConnectedExceptionNotify:
 
     def test_are_all_connected_exception_branch_notifies(self, monkeypatch):
         """A raising connectivity check must notify the user and abort the run."""
+        from modules.exceptions import ProtocolRunRefusedError
         from modules.notification_center import notifications
 
         captured = []
         monkeypatch.setattr(notifications, 'error', lambda *a, **k: captured.append(a))
         runner = _bare_capture_runner()
         runner._scope.are_all_connected.side_effect = RuntimeError('usb tree gone')
-        runner.run(**_scr_run_kwargs())
+        with pytest.raises(ProtocolRunRefusedError):
+            runner.prepare(**_scr_run_kwargs())
         assert captured, (
             'are_all_connected exception path must call notifications.error (A5 -- Rule 14)'
         )
@@ -1614,6 +1618,7 @@ def _run_cleanup_kwargs(**overrides):
         'file_io_executor': MagicMock(),
         'camera_executor': MagicMock(),
         'set_run_in_progress_fn': MagicMock(),
+        'run_status': 'completed',
     }
     kwargs.update(overrides)
     return kwargs
@@ -3213,7 +3218,7 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
         )
 
     def test_sequenced_capture_runner_reads_once_at_run_start(self, monkeypatch):
-        """run() must read false_color_16bit exactly once, under
+        """start() must read false_color_16bit exactly once, under
         settings_lock, and thread the value to the writer it constructs."""
         from types import SimpleNamespace
 
@@ -3228,7 +3233,7 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
             app_context, 'ctx', SimpleNamespace(settings=settings, settings_lock=lock)
         )
         runner = _bare_capture_runner()
-        runner.run(**_scr_run_kwargs())
+        runner.start(runner.prepare(**_scr_run_kwargs()))
         assert settings.watched_reads == [True], (
             'PIW-3: false_color_16bit must be read exactly once per run, under '
             f'settings_lock; reads (lock-held flags): {settings.watched_reads}'
@@ -3532,7 +3537,7 @@ class TestProtocolCleanupRestoresLayerShader_ShaderHygiene:
         assert "'restore_layer_shader'" in src or '"restore_layer_shader"' in src, (
             'ui/protocol_settings.py must wire the restore_layer_shader '
             'callback into the callbacks dict it passes to '
-            'sequenced_capture_runner.run(). Without this wire, '
+            'sequenced_capture_runner.prepare(). Without this wire, '
             'protocol_cleanup invokes None and the shader-tint bug '
             'recurs.'
         )
@@ -8934,23 +8939,21 @@ class TestFx2DriverLibusbBackendProbe:
 
 
 class TestStageOffsetSnapshot:
-    """SequencedCaptureRunner must snapshot stage_offset at run() start so
-    mid-protocol UI mutations don't change the in-flight coordinate
-    transforms. UI edits between runs must still be visible to the next run.
+    """SequencedCaptureRunner must snapshot stage_offset at run start
+    (prepare() deepcopies the live source into the plan; start() adopts
+    the plan's copy) so mid-protocol UI mutations don't change the
+    in-flight coordinate transforms. UI edits between runs must still be
+    visible to the next run.
     """
 
     def _make_executor(self, stage_offset):
-        from modules.sequenced_capture_runner import SequencedCaptureRunner
+        return _bare_capture_runner(stage_offset=stage_offset)
 
-        return SequencedCaptureRunner(
-            scope=MagicMock(),
-            stage_offset=stage_offset,
-            io_executor=MagicMock(),
-            protocol_thread=MagicMock(),
-            file_io_executor=MagicMock(),
-            camera_executor=MagicMock(),
-            autofocus_thread=MagicMock(),
-        )
+    def _snapshot_via_run_start(self, exc):
+        """Drive the snapshot the way a run takes it: prepare deepcopies
+        the live source, start adopts the plan's copy."""
+        exc._run_in_progress_event.clear()
+        exc.start(exc.prepare(**_scr_run_kwargs()))
 
     def test_constructor_holds_live_reference(self):
         src = {'x': 100.0, 'y': 50.0, 'z': 0.0}
@@ -8963,9 +8966,9 @@ class TestStageOffsetSnapshot:
     def test_snapshot_deepcopies_stage_offset(self):
         src = {'x': 100.0, 'y': 50.0, 'z': 0.0}
         exc = self._make_executor(src)
-        exc._snapshot_run_state()
+        self._snapshot_via_run_start(exc)
         assert exc._stage_offset is not src, (
-            '_snapshot_run_state must produce a new dict, not share the ref.'
+            'the run-start snapshot must produce a new dict, not share the ref.'
         )
         assert exc._stage_offset == src
 
@@ -8973,7 +8976,7 @@ class TestStageOffsetSnapshot:
         """Core race: source mutated mid-protocol must not leak in."""
         src = {'x': 100.0, 'y': 50.0, 'z': 0.0}
         exc = self._make_executor(src)
-        exc._snapshot_run_state()
+        self._snapshot_via_run_start(exc)
         src['x'] = 999.0
         src['y'] = -50.0
         assert exc._stage_offset['x'] == 100.0
@@ -8983,17 +8986,17 @@ class TestStageOffsetSnapshot:
         """Between runs, the next snapshot reflects source updates."""
         src = {'x': 100.0, 'y': 50.0, 'z': 0.0}
         exc = self._make_executor(src)
-        exc._snapshot_run_state()
+        self._snapshot_via_run_start(exc)
         assert exc._stage_offset['x'] == 100.0
         src['x'] = 200.0
-        exc._snapshot_run_state()
+        self._snapshot_via_run_start(exc)
         assert exc._stage_offset['x'] == 200.0
 
     def test_nested_dict_mutation_does_not_affect_snapshot(self):
         """Deep copy: nested dicts must also be private to the run."""
         src = {'x': 100.0, 'y': {'sub': 1.0}, 'z': 0.0}
         exc = self._make_executor(src)
-        exc._snapshot_run_state()
+        self._snapshot_via_run_start(exc)
         src['y']['sub'] = 99.0
         assert exc._stage_offset['y']['sub'] == 1.0
 
@@ -9216,7 +9219,7 @@ class TestSCEResetSignalsAbort:
 
         order: list[str] = []
         runner.protocol_thread.abort.side_effect = lambda: order.append('abort')
-        runner._cleanup = MagicMock(side_effect=lambda: order.append('cleanup'))
+        runner._cleanup = MagicMock(side_effect=lambda **kwargs: order.append('cleanup'))
 
         runner.reset()
 
@@ -11180,10 +11183,26 @@ class TestHeadlessSettingsResolutionMatchesGui:
         """With no settings loaded, create_headless must resolve the same
         file the GUI reads -- current.json first -- so headless state
         matches the running app."""
+        import importlib.util
         import json
 
         import modules.settings_init as settings_init
         from modules.scope_session import ScopeSession
+        from unittest import mock as _mock
+
+        if isinstance(settings_init, _mock.MagicMock):
+            # Several test modules install a MagicMock as
+            # modules.settings_init at import time (sys.modules.setdefault),
+            # and whichever test module the session collects first decides
+            # who wins -- an order lottery. This test exists to exercise the
+            # REAL resolver, so load the real module explicitly and install
+            # it for this test's duration (monkeypatch restores the mock).
+            spec = importlib.util.spec_from_file_location(
+                'modules.settings_init', 'modules/settings_init.py'
+            )
+            settings_init = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(settings_init)
+            monkeypatch.setitem(sys.modules, 'modules.settings_init', settings_init)
 
         monkeypatch.setattr(settings_init, 'settings', None)
         (tmp_path / 'data').mkdir()
@@ -11210,26 +11229,26 @@ class TestAutogainSettingsSnapshottedAtRunStart:
     The comment claimed "Immutable after assignment" but no deepcopy
     enforced the immutability.
 
-    The fix deepcopies autogain_settings at run() entry, matching the
-    false_color_16bit + stage_offset snapshot pattern already used in
-    the runner.
+    The fix deepcopies autogain_settings at prepare() entry, matching
+    the false_color_16bit + stage_offset snapshot pattern already used
+    in the runner.
     """
 
     def _run_halted_at_artifact_init(self, monkeypatch, autogain_settings):
-        """Drive run() through the autogain snapshot, halting at the
-        artifact-init stage so no run loop is dispatched."""
+        """Drive prepare()+start() through the autogain snapshot, halting
+        at the run-dir setup stage so no run loop is dispatched."""
         runner = _bare_capture_runner()
-        monkeypatch.setattr(
-            runner,
-            '_init_for_new_scan',
-            lambda max_scans: {'status': False, 'data': None, 'error': 'test halt'},
-        )
-        runner.run(**_scr_run_kwargs(autogain_settings=autogain_settings))
+
+        def _halt():
+            raise RuntimeError('test halt')
+
+        monkeypatch.setattr(runner, '_setup_run_dir', _halt)
+        runner.start(runner.prepare(**_scr_run_kwargs(autogain_settings=autogain_settings)))
         return runner
 
     def test_autogain_settings_deepcopied_in_run(self, monkeypatch):
-        """Mutating the caller's dict after run() snapshots it must not
-        leak into the in-flight scan (audit F15)."""
+        """Mutating the caller's dict after prepare() snapshots it must
+        not leak into the in-flight scan (audit F15)."""
         src = {'target_brightness': 0.3, 'limits': {'max_gain_db': 10}}
         runner = self._run_halted_at_artifact_init(monkeypatch, src)
         src['target_brightness'] = 0.9
@@ -11329,14 +11348,14 @@ class TestBfAfForFluorescenceSnapshottedAtRunStart:
     through a scan -- producing inconsistent AF behavior across steps
     within one protocol run.
 
-    The fix snapshots the setting in SequencedCaptureRunner.run()
+    The fix snapshots the setting in SequencedCaptureRunner.start()
     (alongside false_color_16bit, under the same settings_lock take)
     onto self._bf_af_for_fluorescence; protocol_step_runner reads from
     the snapshot via getattr(p, '_bf_af_for_fluorescence', False).
     """
 
     def test_runner_snapshots_bf_af_for_fluorescence_attr(self, monkeypatch):
-        """run() must snapshot bf_af_for_fluorescence onto the runner,
+        """start() must snapshot bf_af_for_fluorescence onto the runner,
         under settings_lock, immune to mid-run toggles."""
         from types import SimpleNamespace
 
@@ -11350,9 +11369,9 @@ class TestBfAfForFluorescenceSnapshottedAtRunStart:
             app_context, 'ctx', SimpleNamespace(settings=settings, settings_lock=lock)
         )
         runner = _bare_capture_runner()
-        runner.run(**_scr_run_kwargs())
+        runner.start(runner.prepare(**_scr_run_kwargs()))
         assert runner._bf_af_for_fluorescence is True, (
-            'run() must snapshot bf_af_for_fluorescence onto self for per-tick reads'
+            'start() must snapshot bf_af_for_fluorescence onto self for per-tick reads'
         )
         assert settings.watched_reads == [True], (
             'the protocol-settings read must happen exactly once, under settings_lock; '
@@ -11427,6 +11446,7 @@ class TestRunPreValidationFiresNotificationOnException:
     def test_validate_for_run_exception_fires_notification_and_returns(self, monkeypatch):
         """A raising validate_for_run must pop a user-facing error and
         abort the run -- not log a warning and proceed anyway."""
+        from modules.exceptions import ProtocolRunRefusedError
         from modules.notification_center import notifications
 
         captured = []
@@ -11434,7 +11454,8 @@ class TestRunPreValidationFiresNotificationOnException:
         runner = _bare_capture_runner()
         kwargs = _scr_run_kwargs()
         kwargs['protocol'].validate_for_run.side_effect = OSError('labware load failed')
-        runner.run(**kwargs)
+        with pytest.raises(ProtocolRunRefusedError):
+            runner.prepare(**kwargs)
         assert captured, (
             'validate_for_run exception path must fire notifications.error '
             '(not just log warning) so the user sees the failure popup.'

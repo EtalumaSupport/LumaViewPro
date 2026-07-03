@@ -142,6 +142,11 @@ class ProtocolRunner:
             enable_image_saving: Whether to save captured images
             callbacks: Optional dict of callback functions
             return_to_position: Optional position to return to after scan
+
+        Raises:
+            ProtocolRunRefusedError: The run was refused before any state
+                was committed; is_running() stays False and
+                wait_for_completion() is not armed.
         """
         self._run(
             protocol=protocol,
@@ -174,6 +179,11 @@ class ProtocolRunner:
             image_capture_config: Image format config (defaults to TIFF)
             enable_image_saving: Whether to save captured images
             callbacks: Optional dict of callback functions
+
+        Raises:
+            ProtocolRunRefusedError: The run was refused before any state
+                was committed; is_running() stays False and
+                wait_for_completion() is not armed.
         """
         self._run(
             protocol=protocol,
@@ -200,9 +210,15 @@ class ProtocolRunner:
         callbacks: dict[str, typing.Callable] | None = None,
         return_to_position: dict | None = None,
     ):
-        """Internal: configure and launch the sequenced capture executor."""
+        """Internal: configure and launch the sequenced capture executor.
+
+        Raises:
+            ProtocolRunRefusedError: The runner refused the request (already
+                running, files still writing, empty/invalid protocol,
+                hardware not connected); no state was committed and the
+                user was already notified once.
+        """
         self._ensure_executors_started()
-        self._completion_event.clear()
 
         if parent_dir is None:
             parent_dir = (
@@ -257,9 +273,7 @@ class ProtocolRunner:
             if layer in settings
         }
 
-        self.session.protocol_running.set()
-
-        self._executor.run(
+        plan = self._executor.prepare(
             protocol=protocol,
             run_mode=run_mode,
             run_trigger_source=run_trigger_source,
@@ -275,6 +289,19 @@ class ProtocolRunner:
             initial_autofocus_states=initial_autofocus_states,
             **config_helpers.get_sequenced_run_settings(self.session.settings),
         )
+
+        # Commit caller-side running state only between a successful
+        # prepare and start: a refusal above raises before anything here
+        # is set, so there is no refusal-rollback path and
+        # wait_for_completion() can never wait on a run that was refused.
+        self._completion_event.clear()
+        self.session.protocol_running.set()
+        # No rollback on a start()-race refusal: the refusal means another
+        # run is LIVE, so protocol_running=True stays truthful, and the
+        # completion event resolves when that live run's run_complete fires
+        # (each _run wires the same shared event). Clearing here would
+        # falsely signal the live run's completion to its own waiters.
+        self._executor.start(plan)
 
     # ------------------------------------------------------------------
     # Status

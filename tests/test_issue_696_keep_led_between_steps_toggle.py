@@ -12,8 +12,9 @@ opt-in is on); that pure function is tested directly in
 test_led_authority_skeleton. What stays AST-pinned here is the flag's
 plumbing and the step runner's WIRING into that decision -- the step-capture
 method that builds the ctx needs a full Lumascope + executors to exec:
-1. SequencedCaptureRunner.run accepts keep_led_between_steps, default False.
-2. run stores it on self for the step runner to read.
+1. SequencedCaptureRunner.prepare accepts keep_led_between_steps, default
+   False.
+2. start stores the plan's value on self for the step runner to read.
 3. protocol_step_runner feeds the flag into the STEP_BOUNDARY decision as
    keep_led_across_moves, and consults Z-Stack Group ID for same_zstack_group.
 4. protocol_runner passes the value from settings, defaulting False.
@@ -57,10 +58,10 @@ def _default_for(method: ast.FunctionDef, arg_name: str):
 
 
 def test_run_accepts_keep_led_between_steps_default_false():
-    method = _method_node(_tree(RUNNER_SRC), 'SequencedCaptureRunner', 'run')
+    method = _method_node(_tree(RUNNER_SRC), 'SequencedCaptureRunner', 'prepare')
     names = [a.arg for a in method.args.args] + [a.arg for a in method.args.kwonlyargs]
     assert 'keep_led_between_steps' in names, (
-        'SequencedCaptureRunner.run must accept keep_led_between_steps'
+        'SequencedCaptureRunner.prepare must accept keep_led_between_steps'
     )
     default = _default_for(method, 'keep_led_between_steps')
     assert isinstance(default, ast.Constant) and default.value is False, (
@@ -70,8 +71,8 @@ def test_run_accepts_keep_led_between_steps_default_false():
 
 
 def test_run_stores_flag_on_self():
-    method = _method_node(_tree(RUNNER_SRC), 'SequencedCaptureRunner', 'run')
-    assert 'self._keep_led_between_steps = keep_led_between_steps' in ast.unparse(method)
+    method = _method_node(_tree(RUNNER_SRC), 'SequencedCaptureRunner', 'start')
+    assert 'self._keep_led_between_steps = plan.keep_led_between_steps' in ast.unparse(method)
 
 
 def test_step_runner_gates_same_color_hold_on_flag():
@@ -120,20 +121,20 @@ def test_step_runner_consults_zstack_group_for_boundary_decision():
 
 def test_protocol_runner_forwards_run_params_via_helper():
     # protocol_runner forwards the settings-derived run params (including
-    # keep_led_between_steps) into run() through the single-source helper, not a
-    # hand-passed kwarg, so the GUI and API paths cannot drift over which
+    # keep_led_between_steps) into prepare() through the single-source helper,
+    # not a hand-passed kwarg, so the GUI and API paths cannot drift over which
     # settings they forward. The helper's False default is pinned in
     # test_sequenced_run_settings_single_source.py.
     for node in ast.walk(_tree(PROTO_RUNNER_SRC)):
         if (
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
-            and node.func.attr == 'run'
+            and node.func.attr == 'prepare'
         ):
             for kw in node.keywords:
                 if kw.arg is None and 'get_sequenced_run_settings' in ast.unparse(kw.value):
                     return
     raise AssertionError(
         'protocol_runner must spread get_sequenced_run_settings(settings) into '
-        'the runner.run() call (the single source for keep_led_between_steps)'
+        'the runner.prepare() call (the single source for keep_led_between_steps)'
     )
