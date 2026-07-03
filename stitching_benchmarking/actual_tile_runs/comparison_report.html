@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Actual Tile Hybrid Stitch Comparison</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; }
+    table { border-collapse: collapse; width: 100%; font-size: 13px; }
+    th, td { border: 1px solid #ddd; padding: 6px; vertical-align: top; }
+    th { background: #f5f5f5; }
+  </style>
+</head>
+<body>
+  <h1>Actual Tile Hybrid Stitch Comparison</h1>
+  <p>Error metrics are image difference vs current LVP because real tile folders do not include ground truth.</p>
+  <table>
+    <thead>
+      <tr>
+        <th>Input</th><th>Group</th><th>Tiles</th><th>Current ms</th><th>Hybrid ms</th>
+        <th>Speedup</th><th>FFT edges</th><th>LVP fallback edges</th><th>NRMSE vs current</th><th>Visual</th>
+      </tr>
+    </thead>
+    <tbody><tr><td>20260611_074617</td><td>Scan_Count-0__Z-Slice--1__Well-A1__Color-BF__Objective-10x_Oly__Tile_Group_ID-0__Custom_Step-False</td><td>16</td><td>6590.6</td><td>406.3</td><td>16.2</td><td>15/15</td><td>0</td><td>0.1531</td><td><a href='stitching_benchmarking/actual_tile_runs/20260611_074617/Scan_Count-0__Z-Slice--1__Well-A1__Color-BF__Objective-10x_Oly__Tile_Group_ID-0__Custom_Step-False/comparison.png'>comparison</a></td></tr><tr><td>20260611_074617</td><td>Scan_Count-0__Z-Slice--1__Well-A2__Color-BF__Objective-10x_Oly__Tile_Group_ID-1__Custom_Step-False</td><td>16</td><td>6688.2</td><td>415.4</td><td>16.1</td><td>15/15</td><td>0</td><td>0.1377</td><td><a href='stitching_benchmarking/actual_tile_runs/20260611_074617/Scan_Count-0__Z-Slice--1__Well-A2__Color-BF__Objective-10x_Oly__Tile_Group_ID-1__Custom_Step-False/comparison.png'>comparison</a></td></tr><tr><td>20260611_075609</td><td>Scan_Count-0__Z-Slice--1__Well-A1__Color-Green__Objective-40x_w_collar__Tile_Group_ID-0__Custom_Step-False</td><td>16</td><td>7165.2</td><td>819.6</td><td>8.74</td><td>15/15</td><td>0</td><td>0.7597</td><td><a href='stitching_benchmarking/actual_tile_runs/20260611_075609/Scan_Count-0__Z-Slice--1__Well-A1__Color-Green__Objective-40x_w_collar__Tile_Group_ID-0__Custom_Step-False/comparison.png'>comparison</a></td></tr><tr><td>20260611_075609</td><td>Scan_Count-0__Z-Slice--1__Well-A2__Color-Green__Objective-40x_w_collar__Tile_Group_ID-1__Custom_Step-False</td><td>16</td><td>7230.1</td><td>802.4</td><td>9.01</td><td>15/15</td><td>0</td><td>0.7519</td><td><a href='stitching_benchmarking/actual_tile_runs/20260611_075609/Scan_Count-0__Z-Slice--1__Well-A2__Color-Green__Objective-40x_w_collar__Tile_Group_ID-1__Custom_Step-False/comparison.png'>comparison</a></td></tr><tr><td>20260611_075609</td><td>Scan_Count-0__Z-Slice--1__Well-A3__Color-Green__Objective-40x_w_collar__Tile_Group_ID-2__Custom_Step-False</td><td>16</td><td>7151.3</td><td>806.0</td><td>8.87</td><td>15/15</td><td>0</td><td>0.6915</td><td><a href='stitching_benchmarking/actual_tile_runs/20260611_075609/Scan_Count-0__Z-Slice--1__Well-A3__Color-Green__Objective-40x_w_collar__Tile_Group_ID-2__Custom_Step-False/comparison.png'>comparison</a></td></tr><tr><td>20260611_075609</td><td>Scan_Count-0__Z-Slice--1__Well-A4__Color-Green__Objective-40x_w_collar__Tile_Group_ID-3__Custom_Step-False</td><td>2</td><td>540.5</td><td>96.4</td><td>5.61</td><td>1/1</td><td>0</td><td>0.4007</td><td><a href='stitching_benchmarking/actual_tile_runs/20260611_075609/Scan_Count-0__Z-Slice--1__Well-A4__Color-Green__Objective-40x_w_collar__Tile_Group_ID-3__Custom_Step-False/comparison.png'>comparison</a></td></tr></tbody>
+  </table>
+</body>
+</html>

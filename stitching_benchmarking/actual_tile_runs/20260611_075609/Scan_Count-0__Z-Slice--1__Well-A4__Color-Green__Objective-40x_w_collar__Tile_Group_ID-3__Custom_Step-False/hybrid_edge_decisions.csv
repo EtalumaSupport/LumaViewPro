@@ -1,0 +1,2 @@
+from_tile_index,to_tile_index,from_x_px,from_y_px,to_x_px,to_y_px,method,fft_response,fft_corr_x_px,fft_corr_y_px,used_corr_x_px,used_corr_y_px,fallback_reason,fft_ms,lvp_fallback_ms
+1,0,0,0,1609,0,fft,0.8028999994066026,-29,0,-29,0,,22.194250021129847,0.0

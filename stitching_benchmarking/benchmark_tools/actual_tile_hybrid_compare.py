@@ -195,6 +195,7 @@ def align_hybrid_fft_lvp(
     max_correction_px: int,
     min_overlap_px: int,
     consistency_px: int,
+    force_fft: bool = False,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     if not tiles:
         return [], {}
@@ -248,11 +249,16 @@ def align_hybrid_fft_lvp(
             )
             fft_ms = (time.perf_counter() - edge_t0) * 1000.0
 
-            use_fft = fft_basic_ok and response >= fft_response_threshold
+            force_usable_fft = force_fft and reason not in {
+                "no_overlap",
+                "overlap_too_small",
+                "overlap_low_signal",
+            }
+            use_fft = (fft_basic_ok and response >= fft_response_threshold) or force_usable_fft
             if fft_basic_ok and response < fft_response_threshold:
                 reason = "fft_response_low"
 
-            if use_fft and edge_corrections:
+            if use_fft and edge_corrections and not force_fft:
                 med_x = float(np.median([item[0] for item in edge_corrections]))
                 med_y = float(np.median([item[1] for item in edge_corrections]))
                 if abs(fft_x - med_x) > consistency_px or abs(fft_y - med_y) > consistency_px:
@@ -263,6 +269,8 @@ def align_hybrid_fft_lvp(
                 corr_x, corr_y, score = fft_x, fft_y, response
                 method = "fft"
                 lvp_ms = 0.0
+                if force_fft and reason:
+                    reasons[f"forced_{reason}"] += 1
             else:
                 lvp_t0 = time.perf_counter()
                 corr_x, corr_y, score = estimate_overlap_offset(
@@ -314,6 +322,7 @@ def align_hybrid_fft_lvp(
         tile.setdefault("registration_method", "anchor" if idx == anchor else "unregistered")
 
     metadata = {
+        "mode": "forced_fft" if force_fft else "hybrid_fft_lvp",
         "edge_count": len(edge_records),
         "fft_edges": int(used["fft"]),
         "lvp_fallback_edges": int(used["lvp_fallback"]),
@@ -506,13 +515,14 @@ def run_hybrid(tiles: list[dict[str, Any]], args: argparse.Namespace) -> StitchR
         max_correction_px=args.max_correction_px,
         min_overlap_px=args.min_overlap_px,
         consistency_px=args.consistency_px,
+        force_fft=args.force_fft,
     )
     registration_ms = (time.perf_counter() - reg_t0) * 1000.0
     blend_t0 = time.perf_counter()
     image = _blend_registered_tiles(registered)
     blend_ms = (time.perf_counter() - blend_t0) * 1000.0
     total_ms = (time.perf_counter() - t0) * 1000.0
-    metadata["algorithm"] = "hybrid_fft_lvp"
+    metadata["algorithm"] = "forced_fft" if args.force_fft else "hybrid_fft_lvp"
     return StitchRun(
         image=image,
         registered_tiles=registered,
@@ -607,7 +617,7 @@ def write_visual_comparison(
         ),
         panel(
             hybrid.image,
-            "Hybrid FFT -> LVP fallback",
+            "Forced FFT" if hybrid_meta.get("mode") == "forced_fft" else "Hybrid FFT -> LVP fallback",
             [
                 f"time {hybrid.timings['total_ms']:.1f} ms",
                 f"FFT edges {hybrid_meta.get('fft_edges', 0)} / {hybrid_meta.get('edge_count', 0)}",
@@ -741,6 +751,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-correction-px", type=int, default=24)
     parser.add_argument("--min-overlap-px", type=int, default=16)
     parser.add_argument("--consistency-px", type=int, default=10)
+    parser.add_argument(
+        "--force-fft",
+        action="store_true",
+        help=(
+            "Use FFT results even when response, correction-size, or consistency checks fail. "
+            "Only no-overlap/too-small/low-signal edges still fall back."
+        ),
+    )
     return parser
 
 
