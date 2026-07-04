@@ -425,6 +425,44 @@ def is_valid_exposure_ms(value) -> bool:
     return value is not None and value > 0
 
 
+def is_valid_frame_size(value) -> bool:
+    """True when a frame-size reading is usable (positive width and height).
+
+    The drivers return None (or an empty dict for the max/min variants) as
+    the failed-read / inactive sentinel, and a zero dimension is never a
+    deliverable frame. One shared predicate so every consumer of the
+    sentinel contract validates the same way.
+    """
+    if not isinstance(value, dict):
+        return False
+    width = value.get('width')
+    height = value.get('height')
+    return (
+        isinstance(width, (int, float))
+        and isinstance(height, (int, float))
+        and width > 0
+        and height > 0
+    )
+
+
+def is_valid_pixel_format(value) -> bool:
+    """True when a pixel-format reading is usable (a non-empty string).
+
+    None is the drivers' shared failed-read / inactive sentinel -- distinct
+    from every real format name so it cannot be mistaken for one.
+    """
+    return isinstance(value, str) and value != ''
+
+
+def is_valid_binning_size(value) -> bool:
+    """True when a binning reading is usable (a whole factor >= 1).
+
+    Negative is the drivers' failed-read sentinel; binning is always at
+    least 1x1 on real hardware.
+    """
+    return isinstance(value, (int, float)) and value >= 1
+
+
 def raw_bytes_per_pixel(pixel_format: str, is_color_native: bool = False) -> int:
     """Bytes per pixel of the RAW camera buffer (for data-rate readouts).
 

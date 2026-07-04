@@ -369,7 +369,7 @@ class Lumascope:
         # Camera state slots (_camera_listeners + lock, _frame_buffer,
         # _capturing_event, _focusing_event, _capture_return,
         # _autofocus_return, _suppress_value_warnings, _scale_bar,
-        # _camera_cache + lock, _binning_size, _camera_temp_event,
+        # _camera_cache + lock, _camera_temp_event,
         # _camera_temp_unschedule_fn, frame_validity) live on ImagingAPI.
 
         # ----- Motion Control Board -----
@@ -505,7 +505,7 @@ class Lumascope:
         # turret_config / stage_offset). Lumascope holds driver slots,
         # executor handles, source_path, and metrics_logger.
 
-        # Frame validity, camera_cache, scale_bar, _binning_size, +
+        # Frame validity, camera_cache, scale_bar, +
         # _camera_listeners/_frame_buffer/_capturing_event/_focusing_event/
         # _capture_return/_autofocus_return/_suppress_value_warnings/
         # _camera_temp_event init live on ImagingAPI.__init__.

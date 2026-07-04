@@ -483,6 +483,12 @@ class LayerControl(BoxLayout):
             # print(f"Gain: {gain}    Exp: {exp}")
 
             if (not init) and (not state):
+                # A non-physical reading (no gain/exposure was ever
+                # successfully read) must not overwrite the layer's stored
+                # settings or push a below-minimum slider value -- keep
+                # the previous settings for that field instead.
+                gain_known = common_utils.is_valid_gain_db(gain)
+                exp_known = common_utils.is_valid_exposure_ms(exp)
                 # Clamp exposure to a per-class minimum before writing back
                 # to settings. AG can drive the camera to its physical
                 # minimum (Pylon ~30us on bright samples); writing those
@@ -493,21 +499,24 @@ class LayerControl(BoxLayout):
                 # floor at 1ms (sub-ms never realistic in those modes);
                 # transmitted (BF/PC/DF) floor at 0.1ms (the warning
                 # threshold). Live AG output to the camera is untouched.
-                exp_min = self.ids['exp_slider'].min
-                exp_max = self.ids['exp_slider'].max
-                if self.layer in common_utils.get_image_layers():
-                    exp_min = max(exp_min, FLUORESCENCE_MIN_EXPOSURE_MS)
-                else:
-                    exp_min = max(exp_min, TRANSMITTED_MIN_EXPOSURE_MS)
-                exp = float(np.clip(exp, exp_min, exp_max))
+                if exp_known:
+                    exp_min = self.ids['exp_slider'].min
+                    exp_max = self.ids['exp_slider'].max
+                    if self.layer in common_utils.get_image_layers():
+                        exp_min = max(exp_min, FLUORESCENCE_MIN_EXPOSURE_MS)
+                    else:
+                        exp_min = max(exp_min, TRANSMITTED_MIN_EXPOSURE_MS)
+                    exp = float(np.clip(exp, exp_min, exp_max))
 
-                settings[self.layer]['gain_db'] = gain
-                settings[self.layer]['exp_ms'] = exp
-                # Update sliders/text to show the auto-adjusted values
-                self.ids['gain_slider'].value = gain
-                self.ids['gain_text'].text = str(round(gain, 1))
-                self.ids['exp_slider'].value = exp
-                self.ids['exp_text'].text = str(round(exp, 2))
+                if gain_known:
+                    settings[self.layer]['gain_db'] = gain
+                    # Update sliders/text to show the auto-adjusted values
+                    self.ids['gain_slider'].value = gain
+                    self.ids['gain_text'].text = str(round(gain, 1))
+                if exp_known:
+                    settings[self.layer]['exp_ms'] = exp
+                    self.ids['exp_slider'].value = exp
+                    self.ids['exp_text'].text = str(round(exp, 2))
 
             settings[self.layer]['auto_gain'] = state
             self.apply_settings()

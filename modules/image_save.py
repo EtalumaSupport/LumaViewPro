@@ -344,11 +344,20 @@ def generate_image_metadata(scope: Lumascope, color, x, y, z) -> dict:
     chunks = chunks or {}
 
     _chunk_exp_us = chunks.get('ExposureTime')
-    exposure_ms_value = (
-        _chunk_exp_us / 1000.0 if _chunk_exp_us is not None else scope.imaging.get_exposure_time()
-    )
     _chunk_gain_db = chunks.get('Gain')
-    gain_db_value = _chunk_gain_db if _chunk_gain_db is not None else scope.imaging.get_gain()
+    # The live-confirmed surface, not get_gain()/get_exposure_time(): the
+    # value getters answer last-known-good on a failed read, which is
+    # right for control flow but would record a gain/exposure this frame
+    # was not captured at. get_live_camera_settings omits a field whose
+    # read did not just succeed, so unknown stays unknown here.
+    if _chunk_exp_us is None or _chunk_gain_db is None:
+        _live_settings = scope.imaging.get_live_camera_settings()
+    else:
+        _live_settings = {}
+    exposure_ms_value = (
+        _chunk_exp_us / 1000.0 if _chunk_exp_us is not None else _live_settings.get('exposure_ms')
+    )
+    gain_db_value = _chunk_gain_db if _chunk_gain_db is not None else _live_settings.get('gain_db')
 
     # A non-physical gain / exposure (negative failed-read sentinel, or the
     # zero exposure an inactive camera reports) is not a real setting.

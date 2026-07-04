@@ -1190,8 +1190,16 @@ class ScopeDisplay(Image):
     def update_auto_gain_ui(self, layer, actual_gain, actual_exp):
         ctx = _app_ctx.ctx
         layer_obj = ctx.image_settings.layer_lookup(layer=layer)
+        # A non-physical reading (the cache's never-read seed or its
+        # deliberate post-auto invalidation) has no honest slider position
+        # -- skip the field rather than push a below-minimum value that
+        # would persist into layer settings on the next slider write.
         # Only update if values changed to prevent unnecessary ScrollView layout recalculation
-        if abs(layer_obj.ids['gain_slider'].value - actual_gain) > 0.01:
+        if common_utils.is_valid_gain_db(actual_gain) and (
+            abs(layer_obj.ids['gain_slider'].value - actual_gain) > 0.01
+        ):
             layer_obj.ids['gain_slider'].value = actual_gain
-        if abs(layer_obj.ids['exp_slider'].value - actual_exp) > 0.01:
+        if common_utils.is_valid_exposure_ms(actual_exp) and (
+            abs(layer_obj.ids['exp_slider'].value - actual_exp) > 0.01
+        ):
             layer_obj.ids['exp_slider'].value = actual_exp
