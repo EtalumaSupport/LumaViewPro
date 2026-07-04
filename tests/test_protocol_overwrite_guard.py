@@ -3,22 +3,23 @@
 
 Defense-in-depth, two layers:
 
-1. Load-time validation in ``Protocol.from_file`` -- reject protocols
-   where multiple rows share ``(Name, Well, Tile, Z-Slice, Tile Group
-   ID)``. Tile Group ID is included so legitimate tiled protocols
-   (same Name across different tile groups) are NOT rejected.
+1. Load-time WARNING in ``Protocol.from_file`` -- any steps whose
+   captures would render the same filename (keyed on the RENDERED base
+   + Objective) fire one notifications.warning saying the RUN will be
+   refused. The file always loads: a load-time rejection would block
+   the in-app rename that is the remedy. The data-loss gate is
+   ``validate_for_run`` at run start.
 
 2. Write-time defense in ``Lumascope.generate_image_save_path`` -- a
-   new ``tail_id_mode="if_collision"`` mode that uses the plain
-   filename when no file exists and only adds a numeric suffix on
-   actual collision. ``protocol_image_writer.py`` passes this mode
-   so a broken protocol that slips past validation cannot lose data.
+   ``tail_id_mode="if_collision"`` mode that uses the plain filename
+   when no file exists and only adds a numeric suffix on actual
+   collision. ``protocol_image_writer.py`` passes this mode so a
+   collision that reaches write time (e.g. re-capturing into a used
+   folder) cannot lose data.
 """
 
 import pathlib
 import textwrap
-
-import pytest
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -158,12 +159,23 @@ def _step_row(name, well, tile, z_slice, tile_group, x, y, z):
     return '\t'.join(cells) + '\n'
 
 
-def test_load_rejects_duplicate_filename_keys(tmp_path):
-    """Two rows with the same (Name, Well, Tile, Z-Slice, Tile Group ID)
-    must be rejected. This is the user-reported #636 case where the
-    second image silently overwrote the first.
+def test_load_warns_on_duplicate_filename_keys_and_loads(tmp_path, monkeypatch):
+    """Two rows whose captures render the same filename (the user-reported
+    #636 case where the second image silently overwrote the first) load
+    WITH one warning saying the run will be refused. The load never
+    rejects: that would block the in-app rename which is the remedy; the
+    data-loss gate is validate_for_run at run start.
     """
+    from modules import protocol as protocol_mod
     from modules.protocol import Protocol
+
+    captured: list = []
+
+    class _RecordingNotifier:
+        def warning(self, category, title, message, **kw):
+            captured.append(message)
+
+    monkeypatch.setattr(protocol_mod, 'notifications', _RecordingNotifier())
 
     rows = ''
     rows += _step_row('_PC_TA1', 'A1', '', -1, 0, 46.5, 34.6, 4972.9)
@@ -171,17 +183,20 @@ def test_load_rejects_duplicate_filename_keys(tmp_path):
     tsv = tmp_path / 'dup.tsv'
     tsv.write_text(_build_tsv(rows))
 
-    with pytest.raises(ValueError, match=r'duplicate'):
-        Protocol.from_file(
-            file_path=tsv,
-            tiling_configs_file_loc=TILING_CONFIGS,
-        )
+    proto = Protocol.from_file(
+        file_path=tsv,
+        tiling_configs_file_loc=TILING_CONFIGS,
+    )
+    assert proto.num_steps() == 2, 'the colliding file must load so the steps can be renamed'
+    assert len(captured) == 1, captured
+    assert 'refused' in captured[0].lower()
+    assert 'rename' in captured[0].lower()
 
 
 def test_load_accepts_same_name_in_different_tile_groups(tmp_path):
     """Same Name + Well + Tile + Z-Slice across DIFFERENT Tile Group
-    IDs is the legitimate tiled-acquisition pattern and must NOT be
-    rejected. Tile Group ID is the disambiguator.
+    IDs still loads (nothing is rejected at load anymore; the collision
+    warning fires and the run gate handles the rest).
     """
     from modules.protocol import Protocol
 
@@ -200,12 +215,12 @@ def test_load_accepts_same_name_in_different_tile_groups(tmp_path):
 
 
 def test_load_warns_on_cross_tgid_filename_collision(tmp_path, monkeypatch):
-    """The customer's #636 case: 4 rows share (Name, Well, Tile, Z-Slice)
-    across DIFFERENT Tile Group IDs. Strict dedup PASSES (TGID is part
-    of the key, so all 4 tuples are unique). The softer check must
+    """The customer's #636 case: 4 rows render one capture filename
+    across DIFFERENT Tile Group IDs. The hard check PASSES (TGID is part
+    of its key, so all 4 tuples are unique). The softer check must
     detect the cross-TGID collision and fire a user-facing notification
-    upfront so the user can fix their Name format BEFORE running the
-    scan, not discover renamed files afterward.
+    telling the user the RUN will be refused until the steps are renamed
+    -- the file still loads so the names can be edited.
     """
     from modules import protocol as protocol_mod
     from modules.protocol import Protocol
@@ -239,12 +254,14 @@ def test_load_warns_on_cross_tgid_filename_collision(tmp_path, monkeypatch):
         f'notifications.warning at load time. Captured: {captured_notifications}'
     )
     _category, _title, message = captured_notifications[0]
-    assert 'Tile Group ID' in message, (
-        'Notification message must point the user at Tile Group ID as '
-        'the actionable fix (per Rule 28 -- direct + action-focused).'
+    assert 'refused' in message.lower(), (
+        'Notification must say the RUN will be refused (the approved '
+        'refuse-at-run-start policy) -- no more "we will add a suffix" '
+        'framing that normalized colliding names.'
     )
-    assert 'preserve' in message.lower() or 'no' in message.lower(), (
-        'Notification must reassure the user that data is intact (the rename is data-preserving).'
+    assert 'rename' in message.lower(), (
+        'Notification must give the actionable fix: rename the colliding '
+        'steps (per Rule 28 -- direct + action-focused).'
     )
 
 
@@ -357,11 +374,13 @@ def test_if_collision_emits_warning_on_rename(tmp_path, monkeypatch):
         f'if_collision should append _000001 on first collision; got {path.name}'
     )
     assert any(
-        level == 'WARNING' and 'filename collision' in msg and 'Tile Group ID' in msg
+        level == 'WARNING'
+        and 'filename collision' in msg
+        and ('fresh folder' in msg or 'rename' in msg)
         for level, msg in captured
     ), (
-        'if_collision must emit a WARNING naming the rename and pointing '
-        'the user at Tile Group ID as the likely cause. (#636 follow-up). '
+        'if_collision must emit a WARNING naming the rename and giving the '
+        'actionable remedies (fresh capture folder / rename the steps). '
         f'Captured: {captured}'
     )
 

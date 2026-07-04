@@ -209,9 +209,6 @@ class Protocol:
         'Sum',
         'Stim_Enabled',
     ]
-    STEP_NAME_PATTERN = re.compile(
-        r'^(?P<well_label>[A-Z][0-9]+)(_(?P<color>(Blue|Green|Red|BF|DF|PC|Lumi)))(_T(?P<tile_label>[A-Z]+[0-9]+))?(_Z(?P<z_slice>[0-9]+))?(_([0-9]*))?(.tif[f])?$'
-    )
 
     def __init__(self, tiling_configs_file_loc: pathlib.Path, config: dict | None = None):
 
@@ -526,6 +523,45 @@ class Protocol:
     VALID_COLORS: ClassVar[set] = {c.name for c in color_channels.ColorChannel}
     VALID_ACQUIRE_MODES: ClassVar[set] = {'image', 'video'}
 
+    @staticmethod
+    def _capture_base_names(steps_df: pd.DataFrame) -> pd.Series:
+        """The filename base each step's captures render, one per step.
+
+        A video step renders with its 'video' suffix, so an image step and a
+        video step may legitimately share a Name without their files
+        colliding. The Objective column is deliberately NOT part of the
+        base: the writer stamps the objective short name per step, but only
+        on turret builds -- collision checks pair this base with the
+        Objective column (see _capture_collision_key) instead of baking a
+        token into the base that non-turret filenames never carry.
+        """
+        return steps_df.apply(
+            lambda row: common_utils.build_step_name(
+                common_utils.step_components(
+                    row, post=('video',) if row.get('Acquire') == 'video' else ()
+                )
+            ),
+            axis=1,
+        )
+
+    @classmethod
+    def _capture_collision_key(cls, steps_df: pd.DataFrame) -> pd.DataFrame:
+        """The per-step key on which capture filenames collide.
+
+        Pairs the rendered base with the Objective column: the writer stamps
+        the objective short name per step on turret builds, so steps
+        differing only in objective save distinct files there. On a
+        non-turret scope that pair genuinely collides on disk -- that
+        residual case falls to the write-time rename suffix (with a warning)
+        rather than refusing turret protocols that are legitimate.
+        """
+        return pd.DataFrame(
+            {
+                'base': cls._capture_base_names(steps_df),
+                'objective': steps_df['Objective'] if 'Objective' in steps_df.columns else '',
+            }
+        )
+
     def validate_steps(self, objectives_file: str | None = None) -> list:
         """Validate all step fields and return a list of error strings.
 
@@ -660,6 +696,22 @@ class Protocol:
 
         # Validate step field values first
         errors.extend(self.validate_steps())
+
+        # Refuse a run whose steps would write identical files. Collisions
+        # are caught here, loudly, before any hardware moves -- never left
+        # to the write-time rename suffix, which preserves pixels but makes
+        # which file belongs to which step undeterminable afterwards.
+        if len(steps) > 1:
+            collision_key = self._capture_collision_key(steps)
+            dup_mask = collision_key.duplicated(keep=False)
+            if dup_mask.any():
+                groups = collision_key.loc[dup_mask].groupby(['base', 'objective']).groups
+                for (base, _objective), indices in sorted(groups.items()):
+                    rows = ', '.join(str(idx + 1) for idx in indices)
+                    errors.append(
+                        f"Steps {rows}: each would save captures as '{base}_...'. "
+                        f'Rename these steps so each produces a unique filename.'
+                    )
 
         # Load labware once: it backs both the known-plate check and the
         # plate-mm -> stage-um conversion the position check needs. Use
@@ -2053,8 +2105,8 @@ class Protocol:
             tc = TilingConfig(tiling_configs_file_loc=tiling_configs_file_loc)
 
             if len(protocol_df) > 0:
-                config['tiling'] = tc.determine_tiling_label_from_names(
-                    names=protocol_df['Name'].to_list()
+                config['tiling'] = tc.determine_tiling_label_from_tiles(
+                    tiles=protocol_df['Tile'].to_list()
                 )
             else:
                 config['tiling'] = tc.no_tiling_label()
@@ -2069,6 +2121,23 @@ class Protocol:
             protocol_df['Label'] = [label for label, _ in recovered]
             if 'Auto_Named' not in protocol_df.columns:
                 protocol_df['Auto_Named'] = [is_auto for _, is_auto in recovered]
+
+        # The rename entry points store labels sanitized, but a file edited
+        # outside the app may carry characters the writer strips at save
+        # time -- letting two labels that differ only in stripped characters
+        # pass the collision checks yet collide on disk. Normalize at the
+        # read boundary, loudly: a silently different filename would read as
+        # a lost rename.
+        sanitized_labels = protocol_df['Label'].map(cls.sanitize_step_name)
+        changed_labels = sanitized_labels != protocol_df['Label']
+        if changed_labels.any():
+            originals = ', '.join(repr(v) for v in protocol_df.loc[changed_labels, 'Label'].head(5))
+            logger.warning(
+                f'Protocol load: removed unsupported characters from '
+                f'{int(changed_labels.sum())} step label(s); letters, digits, '
+                f'dash, and underscore are kept. Affected: {originals}'
+            )
+        protocol_df['Label'] = sanitized_labels
 
         # Name is a derived rendering of the structured columns; re-render it
         # so a stale or hand-edited Name cannot disagree with the fields it
@@ -2085,7 +2154,14 @@ class Protocol:
         config['version'] = cls.CURRENT_VERSION
 
         config['steps'] = protocol_df
-        config['custom_step_count'] = 0
+        # Resume the custom-step counter past the highest machine label
+        # already in the file; restarting at zero would hand a newly added
+        # step a 'custom<NNNN>' label an existing step already owns, and
+        # their captures would collide.
+        custom_indices = protocol_df['Label'].str.extract(r'^custom(\d+)$', expand=False).dropna()
+        config['custom_step_count'] = (
+            int(custom_indices.astype(int).max()) + 1 if len(custom_indices) else 0
+        )
 
         if len(protocol_df) > MAX_STEP_COUNT:
             raise ValueError(
@@ -2093,70 +2169,30 @@ class Protocol:
                 f'{MAX_STEP_COUNT:,}. File may be corrupt.'
             )
 
-        # Reject protocols where multiple steps share the same
-        # filename-determining tuple (Name, Well, Tile, Z-Slice,
-        # Tile Group ID). When this happens at runtime the image
-        # writer collapses the colliding rows into one filename and
-        # the later writes silently overwrite the earlier ones (#636).
-        # Tile Group ID is included so legitimately-tiled protocols
-        # are not rejected.
+        # Warn -- do not reject -- when steps would render the same capture
+        # filename (#636's harm class). The file must stay loadable so the
+        # user can rename the colliding steps IN the app; the run itself is
+        # refused at start (validate_for_run), which is where the data-loss
+        # gate lives. A load-time rejection would block its own remedy.
         if len(protocol_df) > 1:
-            key_cols = [
-                c
-                for c in ('Name', 'Well', 'Tile', 'Z-Slice', 'Tile Group ID')
-                if c in protocol_df.columns
-            ]
-            if len(key_cols) >= 2:
-                dup_mask = protocol_df.duplicated(subset=key_cols, keep=False)
-                if dup_mask.any():
-                    dups = protocol_df.loc[dup_mask, key_cols].copy()
-                    dups['Row'] = dups.index + 1  # 1-based for user
-                    sample = dups.head(6).to_string(index=False)
-                    extra = f'\n  ... and {len(dups) - 6} more rows' if len(dups) > 6 else ''
-                    raise ValueError(
-                        f'Protocol has {len(dups)} steps with duplicate '
-                        f'({", ".join(key_cols)}) -- image writes would '
-                        f'overwrite each other. Edit the protocol so each '
-                        f'step has a unique combination, then reload.\n'
-                        f'\nDuplicates:\n{sample}{extra}'
-                    )
-
-        # Softer check (#636 follow-up): rows with the same
-        # (Name, Well, Tile, Z-Slice) but DIFFERENT Tile Group IDs
-        # produce the same filename at write time (TGID isn't in the
-        # filename pattern). The write-time if_collision defense
-        # preserves data with a rename suffix, but the user has no
-        # signal that their Name format is producing collisions. Warn
-        # them upfront so they can fix the Name field BEFORE running
-        # the scan instead of discovering renamed files afterward.
-        if len(protocol_df) > 1:
-            filename_key_cols = [
-                c for c in ('Name', 'Well', 'Tile', 'Z-Slice') if c in protocol_df.columns
-            ]
-            if filename_key_cols:
-                filename_dup_mask = protocol_df.duplicated(subset=filename_key_cols, keep=False)
-                if filename_dup_mask.any():
-                    n_collisions = int(filename_dup_mask.sum())
-                    n_unique = (
-                        protocol_df.loc[filename_dup_mask, filename_key_cols]
-                        .drop_duplicates()
-                        .shape[0]
-                    )
-                    warn_msg = (
-                        f'Protocol has {n_collisions} steps sharing '
-                        f'{n_unique} distinct filenames across different '
-                        f'Tile Group IDs. LumaViewPro will preserve all '
-                        f'images by appending a collision suffix (e.g. '
-                        f'_000001, _000002) but the filenames will not '
-                        f'match the default pattern. To avoid renaming, '
-                        f'include the Tile Group ID in your step Name field.'
-                    )
-                    logger.warning(f'Protocol load: {warn_msg}')
-                    notifications.warning(
-                        category='Protocol',
-                        title='Duplicate filenames in protocol',
-                        message=warn_msg,
-                    )
+            collision_key = cls._capture_collision_key(protocol_df)
+            dup_mask = collision_key.duplicated(keep=False)
+            if dup_mask.any():
+                n_collisions = int(dup_mask.sum())
+                n_unique = len(collision_key.loc[dup_mask].drop_duplicates())
+                warn_msg = (
+                    f'Protocol has {n_collisions} steps sharing '
+                    f'{n_unique} capture filenames. The protocol can be '
+                    f'edited, but running it will be refused until each '
+                    f'step produces a unique filename -- rename the '
+                    f'colliding steps first.'
+                )
+                logger.warning(f'Protocol load: {warn_msg}')
+                notifications.warning(
+                    category='Protocol',
+                    title='Duplicate filenames in protocol',
+                    message=warn_msg,
+                )
 
         return cls(tiling_configs_file_loc=tiling_configs_file_loc, config=config)
 
@@ -2179,27 +2215,6 @@ class Protocol:
     def has_zstacks(self) -> bool:
         max_group_id = self.steps()['Z-Stack Group ID'].max()
         return max_group_id > -1
-
-    @classmethod
-    def extract_data_from_step_name(cls, s):
-        result = cls.STEP_NAME_PATTERN.match(string=s['name'])
-        if result is None:
-            return s
-
-        details = result.groupdict()
-
-        if 'well_label' in details:
-            s['well'] = details['well_label']
-
-        if ('z_slice' in details) and (details['z_slice'] is not None):
-            s['z_slice'] = details['z_slice']
-        else:
-            s['z_slice'] = None
-
-        if 'tile_label' in details:
-            s['tile'] = details['tile_label']
-
-        return s
 
 
 if __name__ == '__main__':

@@ -491,6 +491,10 @@ def write_video(
             video_writer.close()
             # Encode failures inside add_frame are counted by the writer.
             lost_in_write += video_writer.dropped_frames
+            # The writer is the authority on where the file landed (a
+            # collision suffix or the cv2 .avi fallback may have moved it
+            # from the requested path); record its path, not the request.
+            output_file_loc = video_writer.output_path
             del video_writer
 
         _drain_queue(video_images)

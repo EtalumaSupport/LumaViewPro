@@ -80,7 +80,7 @@ CHANNEL_EXPOSURE = {'BF': 0.1, 'Blue': 1.0, 'Green': 6.76, 'Red': 600.0}
 CHANNEL_GAIN = {'BF': 14.4, 'Blue': 20.0, 'Green': 20.0, 'Red': 20.0}
 
 
-def _step_dict(name, x, y, z, color, idx, *, auto_focus=False, zstack_group=-1):
+def _step_dict(name, x, y, z, color, idx, *, auto_focus=False, zstack_group=-1, z_slice=-1):
     return {
         'Name': name,
         'X': x,
@@ -97,7 +97,7 @@ def _step_dict(name, x, y, z, color, idx, *, auto_focus=False, zstack_group=-1):
         'Objective': '4x Oly',
         'Well': name.split('_')[0] if '_' in name else 'A1',
         'Tile': '',
-        'Z-Slice': -1,
+        'Z-Slice': z_slice,
         'Custom Step': False,
         'Tile Group ID': -1,
         'Z-Stack Group ID': zstack_group,
@@ -473,9 +473,12 @@ def test_s3_zstack_holds_across_slices_regardless_of_flag(scope, runner, tmp_pat
         runner,
         tmp_path,
         [
-            ('A1', 'Green', {'zstack_group': 5}),
-            ('A1', 'Green', {'zstack_group': 5}),
-            ('A1', 'Green', {'zstack_group': 5}),
+            # Distinct Z-Slice indices, as a real z-stack expansion assigns
+            # them -- identical slices would render one capture filename and
+            # the run would be refused at validation.
+            ('A1', 'Green', {'zstack_group': 5, 'z_slice': 0}),
+            ('A1', 'Green', {'zstack_group': 5, 'z_slice': 1}),
+            ('A1', 'Green', {'zstack_group': 5, 'z_slice': 2}),
         ],
         keep_led_between_steps=False,
     )

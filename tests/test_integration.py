@@ -165,6 +165,10 @@ def _make_protocol(steps_config):
                 'Video Config': merged['video_config'],
                 'Stim_Config': merged['stim_config'],
                 'Step Index': i,
+                # Unique per-step label: steps that differ only in exposure /
+                # gain / position must still derive distinct capture
+                # filenames or validate_for_run refuses the run.
+                'Label': name,
             }
         )
 

@@ -16,8 +16,10 @@ apply_tiling APPENDS tile groups with no un-tile path, trusting the wrong
 Fix
 ---
 - ProtocolSettings.load_protocol infers the tiling label back from the
-  step names (TilingConfig.determine_tiling_label_from_names) and sets
-  the spinner.
+  steps' Tile column values (TilingConfig.determine_tiling_label_from_tiles
+  -- the authoritative per-step tile assignment; step NAMES are never
+  parsed, so tile-shaped user text cannot fake a tiling) and sets the
+  spinner.
 - ProtocolSettings.apply_tiling refuses when the protocol is already
   tiled, directing the user to reload the untiled base first.
 
@@ -33,7 +35,7 @@ import ast
 import json
 import pathlib
 
-from modules.common_utils import build_step_name, parse_step_name
+from modules.common_utils import build_step_name, parse_legacy_step_name
 from modules.tiling_config import TilingConfig, _row_label, _split_row_col
 
 
@@ -49,50 +51,32 @@ def _tiling_config() -> TilingConfig:
     return TilingConfig(tiling_configs_file_loc=TILING_JSON)
 
 
-def test_infers_2x2_from_tiled_step_names():
+def test_infers_2x2_from_tile_column_values():
     tc = _tiling_config()
-    names = [
-        'A1_BF_TA1',
-        'A1_BF_TA2',
-        'A1_BF_TB1',
-        'A1_BF_TB2',
-        'A1_Green_TA1',
-        'A1_Green_TA2',
-        'A1_Green_TB1',
-        'A1_Green_TB2',
-    ]
-    assert tc.determine_tiling_label_from_names(names) == '2x2'
+    # Two channels' worth of a 2x2 expansion -- one Tile value per step row.
+    tiles = ['A1', 'A2', 'B1', 'B2', 'A1', 'A2', 'B1', 'B2']
+    assert tc.determine_tiling_label_from_tiles(tiles) == '2x2'
 
 
-def test_infers_3x3_from_tiled_step_names():
+def test_infers_3x3_from_tile_column_values():
     tc = _tiling_config()
-    names = [f'A1_BF_T{row}{col}' for row in ('A', 'B', 'C') for col in (1, 2, 3)]
-    assert tc.determine_tiling_label_from_names(names) == '3x3'
+    tiles = [f'{row}{col}' for row in ('A', 'B', 'C') for col in (1, 2, 3)]
+    assert tc.determine_tiling_label_from_tiles(tiles) == '3x3'
 
 
-def test_turret_token_does_not_raise_and_infers_tiling():
-    # A turret token ('Turret<n>') shares its leading 'T' with the tile token.
-    # When the parser misclassified it as a tile ('urret<n>'), this site did
-    # int(label[1:]) -> int('rret<n>') and raised ValueError, taking down the
-    # tiling inference for any protocol whose step names carry a turret token.
+def test_mixed_tiled_and_untiled_steps_infer_from_tiled_ones():
+    # Untiled steps carry an empty Tile cell; they contribute nothing and
+    # must not raise while the tiled rows still determine the grid.
     tc = _tiling_config()
-    names = [f'A1_BF_T{row}{col}_Turret3' for row in ('A', 'B') for col in (1, 2)]
-    assert tc.determine_tiling_label_from_names(names) == '2x2'
-
-
-def test_turret_only_names_have_no_tile():
-    # Turret tokens with no tile must not be mistaken for tiles (which would
-    # raise on the trailing-number parse); they simply contribute no tile.
-    tc = _tiling_config()
-    names = ['A1_BF_Turret1', 'A1_Green_Turret2']
-    assert (tc.determine_tiling_label_from_names(names) or tc.no_tiling_label()) == '1x1'
+    tiles = ['', 'A1', 'A2', 'B1', 'B2', '', None]
+    assert tc.determine_tiling_label_from_tiles(tiles) == '2x2'
 
 
 def test_untiled_protocol_falls_back_to_no_tiling():
     tc = _tiling_config()
-    # Untiled step names have no _T<gridlabel> segment.
-    names = ['A1_BF', 'A2_BF', 'A3_Green']
-    inferred = tc.determine_tiling_label_from_names(names)
+    # Untiled steps have an empty Tile column.
+    tiles = ['', '', '']
+    inferred = tc.determine_tiling_label_from_tiles(tiles)
     # The restore site uses `inferred or no_tiling_label()`, so either a
     # falsy result or the explicit no-tiling label is acceptable -- both
     # land the spinner on 1x1.
@@ -116,7 +100,7 @@ def _calls_determine_tiling(method: ast.FunctionDef) -> bool:
     return any(
         isinstance(n, ast.Call)
         and isinstance(n.func, ast.Attribute)
-        and n.func.attr == 'determine_tiling_label_from_names'
+        and n.func.attr == 'determine_tiling_label_from_tiles'
         for n in ast.walk(method)
     )
 
@@ -124,8 +108,8 @@ def _calls_determine_tiling(method: ast.FunctionDef) -> bool:
 def test_load_protocol_restores_tiling_spinner():
     load = _method('load_protocol')
     assert _calls_determine_tiling(load), (
-        'load_protocol must infer the tiling label from the loaded steps '
-        'so the spinner reflects an already-tiled protocol.'
+        "load_protocol must infer the tiling label from the loaded steps' "
+        'Tile column so the spinner reflects an already-tiled protocol.'
     )
     src = ast.get_source_segment(PROTOCOL_SETTINGS_SRC.read_text(), load)
     assert 'tiling_size_spinner' in src, (
@@ -136,8 +120,8 @@ def test_load_protocol_restores_tiling_spinner():
 def test_apply_tiling_guards_against_recompounding():
     apply = _method('apply_tiling')
     assert _calls_determine_tiling(apply), (
-        'apply_tiling must detect an already-tiled protocol (via the step '
-        'names) and refuse, since it appends tile groups with no un-tile path.'
+        'apply_tiling must detect an already-tiled protocol (via the Tile '
+        'column) and refuse, since it appends tile groups with no un-tile path.'
     )
 
 
@@ -191,9 +175,8 @@ def test_large_mosaic_tile_labels_round_trip_through_step_names(tmp_path):
     )
     assert len(tiles) == 32 * 32
     for tile_label in tiles:
-        name = build_step_name(parse_step_name(f'A1_BF_T{tile_label}'))
+        name = build_step_name(parse_legacy_step_name(f'A1_BF_T{tile_label}'))
         assert name == f'A1_BF_T{tile_label}'
-        assert parse_step_name(name).tile == tile_label
-    # The inference workhorse recovers the same MxN from those names.
-    names = [f'A1_BF_T{t}' for t in tiles]
-    assert tc.determine_tiling_label_from_names(names) == label
+        assert parse_legacy_step_name(name).tile == tile_label
+    # The inference workhorse recovers the same MxN from the tile labels.
+    assert tc.determine_tiling_label_from_tiles(list(tiles)) == label

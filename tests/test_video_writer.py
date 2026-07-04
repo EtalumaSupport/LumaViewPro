@@ -415,7 +415,9 @@ class TestBuildVideoSignificantBits:
             dropped_frames = 0
 
             def __init__(self, *args, **kwargs):
-                pass
+                # Production reads back writer.output_path as the record
+                # authority after close.
+                self.output_path = kwargs.get('output_path') or (args[0] if args else None)
 
             def add_frame(self, image=None, timestamp=None, significant_bits=None):
                 captured.append(significant_bits)

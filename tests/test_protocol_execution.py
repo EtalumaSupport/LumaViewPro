@@ -234,7 +234,10 @@ def _make_multi_step_protocol(steps_config):
                 'Video Config': merged['video_config'],
                 'Stim_Config': merged['stim_config'],
                 'Step Index': i,
-                'Label': '',
+                # Unique per-step label: steps that differ only in position
+                # or camera settings must still derive distinct capture
+                # filenames or validate_for_run refuses the run.
+                'Label': name,
             }
         )
     return _build_real_protocol(rows)

@@ -103,6 +103,7 @@ def _valid_step(**overrides) -> dict:
         'Acquire': 'image',
         'Video Config': {},
         'Stim_Config': {},
+        'Label': '',
     }
     step.update(overrides)
     return step
@@ -370,10 +371,12 @@ class TestValidateForRunPositionBounds:
         assert len(position_errors) == 3
 
     def test_multiple_steps_one_out_of_range(self):
+        # Wells match the names so the two steps derive distinct capture
+        # bases (identical bases would add a collision error to the list).
         p = _make_protocol(
             [
-                _valid_step(Name='A1_BF', X=60.0, Y=40.0, Z=5000.0),
-                _valid_step(Name='B1_BF', X=0.0, Y=0.0, Z=5000.0),
+                _valid_step(Name='A1_BF', Well='A1', X=60.0, Y=40.0, Z=5000.0),
+                _valid_step(Name='B1_BF', Well='B1', X=0.0, Y=0.0, Z=5000.0),
             ]
         )
         errors = p.validate_for_run(axis_limits=_DEFAULT_AXIS_LIMITS, stage_offset=_STAGE_OFFSET)

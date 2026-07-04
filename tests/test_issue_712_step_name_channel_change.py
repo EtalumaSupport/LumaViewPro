@@ -33,16 +33,19 @@ def test_regenerated_name_replaces_channel_not_appends():
     from modules.common_utils import (
         StepNameComponents,
         build_step_name,
-        parse_step_name,
+        parse_legacy_step_name,
     )
 
     old = build_step_name(StepNameComponents(well='A2', channel='BF', objective='2xOly'))
     assert old == 'A2_BF_2xOly'
-    # Regenerate for a new channel the way the UI does: parse the stored name,
-    # replace the channel component, rebuild. The bug appended (A2_BF_Blue_...);
-    # rebuilding from components replaces, carrying ONLY the new channel.
+    # Regenerate for a new channel by components: replace the channel field,
+    # rebuild. The bug appended (A2_BF_Blue_...); rebuilding from components
+    # replaces, carrying ONLY the new channel. (The parse leg lives at the
+    # legacy load boundary now; the runtime pipeline carries columns.)
     new = build_step_name(
-        dataclasses.replace(parse_step_name(old, known_layers=['BF', 'Blue']), channel='Blue')
+        dataclasses.replace(
+            parse_legacy_step_name(old, known_layers=['BF', 'Blue']), channel='Blue'
+        )
     )
     assert new == 'A2_Blue_2xOly'
     assert 'BF' not in new

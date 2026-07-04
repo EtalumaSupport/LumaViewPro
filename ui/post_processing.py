@@ -150,8 +150,9 @@ class ZProjectionControls(BoxLayout):
         if result['status'] is False:
             # Same single-surface contract as the no-result branch above.
             Clock.schedule_once(lambda dt: popup.dismiss(), 0)
-            if result.get('reason') == 'error':
-                # The projection itself failed (not a bad-folder case);
+            if result.get('reason') in ('error', 'collision'):
+                # The projection failed or its output names collide (not a
+                # bad-folder case); the message carries the real remedy, so
                 # don't send the user off to pick a different folder.
                 notifications.warning(
                     'Z-Projection',

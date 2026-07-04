@@ -78,8 +78,8 @@ class StepNameComponents:
     """The semantic fields a step name encodes -- the single source of truth.
 
     A step name is RENDERED from these fields by build_step_name and (only at
-    boundaries where the fields were not persisted) RECOVERED by
-    parse_step_name. Holding the fields, not the rendered string, is what makes
+    load boundaries for files that predate the Label column) RECOVERED by
+    parse_legacy_step_name. Holding the fields, not the rendered string, is what makes
     renaming idempotent: changing one field and rebuilding always yields exactly
     one token for it. The legacy builder appended a token only if the rendered
     string did not already contain it, so feeding a built name back in as the
@@ -139,7 +139,7 @@ def _token_kind(seg: str, layers: set, objectives: set) -> str | None:
     """Classify one step-name segment into the component it fills, or None.
 
     The single definition of "what is a step-name token", shared by
-    parse_step_name's custom-prefix accretion (which only needs to know
+    parse_legacy_step_name's custom-prefix accretion (which only needs to know
     whether a segment classifies), its field-assignment loop (which needs
     which field it fills), and the load-boundary machine-shape test in
     recover_step_label. One table means they cannot disagree, and adding a
@@ -193,19 +193,24 @@ def _machine_tokens_only(segs: list[str], layers: set, objectives: set) -> bool:
     return True
 
 
-def parse_step_name(name, known_layers=None, known_objectives=()) -> StepNameComponents:
+def parse_legacy_step_name(name, known_layers=None, known_objectives=()) -> StepNameComponents:
     """Recover the components from a rendered step name, by SHAPE not position.
 
-    The single place a lossy name string is decoded. Each '_'-separated segment
-    is classified by its shape (plus the known-layer / known-objective
-    vocabularies), so a token never depends on a hard-coded segment index that
-    silently breaks when the token set shifts. Round-trips every name
-    build_step_name produces: build_step_name(parse_step_name(s)) == s.
+    LEGACY LOAD BOUNDARY ONLY: the run-time pipeline never decodes a name --
+    fields travel as columns (Label et al.) -- so the only remaining caller
+    is the one-shot migration of files that predate the Label column
+    (recover_step_label). Each '_'-separated segment is classified by its
+    shape (plus the known-layer / known-objective vocabularies), so a token
+    never depends on a hard-coded segment index that silently breaks when
+    the token set shifts. Round-trips every name build_step_name produces:
+    build_step_name(parse_legacy_step_name(s)) == s.
 
     A custom prefix may itself contain underscores, so leading segments that do
     not classify as a known token accrete into custom_prefix; a custom prefix
     that embeds a token-shaped segment is inherently ambiguous and is not
     guaranteed to round-trip -- only auto-generated 'custom<N>' prefixes are.
+    That ambiguity is exactly why the parse is quarantined to the legacy
+    boundary and never trusted with user-typed text.
     """
     if known_layers is None:
         known_layers = get_layers()
@@ -336,7 +341,7 @@ def recover_step_label(step) -> tuple[str, bool]:
     name = str(step['Name'])
     well = step['Well']
     well = '' if well in (None, '') else str(well)
-    candidate_prefix = '' if well else parse_step_name(name).custom_prefix
+    candidate_prefix = '' if well else parse_legacy_step_name(name).custom_prefix
     rendered = build_step_name(
         step_components(
             {

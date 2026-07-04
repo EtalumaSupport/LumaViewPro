@@ -101,6 +101,43 @@ class VideoWriter:
             else:
                 self._init_cv2(width, height, True)
 
+    @property
+    def output_path(self) -> pathlib.Path:
+        """The authoritative save location -- read this back when recording.
+
+        May differ from the path the caller requested: a collision adds a
+        numeric suffix, and the cv2 fallback rewrites the container suffix to
+        .avi. A record built from the requested path would attribute the
+        wrong file to the capture whenever either applies.
+        """
+        return self._output_path
+
+    def _resolve_collision_free_output(self):
+        """Never silently overwrite an existing output.
+
+        Runs at encoder init -- after the backend (and therefore the real
+        container suffix) is known -- because an existence check against the
+        requested .mp4 path cannot see the .avi the cv2 fallback actually
+        opens. The plain name is kept when free; a numeric suffix is added
+        only on actual collision, so happy-path filenames are unchanged.
+        """
+        if not self._output_path.exists():
+            return
+        requested_path = self._output_path
+        n = 1
+        while True:
+            candidate = requested_path.with_name(
+                f'{requested_path.stem}_{n:06d}{requested_path.suffix}'
+            )
+            if not candidate.exists():
+                break
+            n += 1
+        logger.warning(
+            f'Video filename collision: {requested_path.name} already '
+            f'exists; saving as {candidate.name} instead.'
+        )
+        self._output_path = candidate
+
     @staticmethod
     def _get_timestamp_str(timestamp=None):
         if timestamp is not None:
@@ -126,6 +163,7 @@ class VideoWriter:
     def _init_pyav(self, width, height, is_color):
         """Initialize PyAV H.264 encoder."""
         try:
+            self._resolve_collision_free_output()
             self._container = av.open(str(self._output_path), mode='w')
             # libx264 honors the fractional rate, so a true sub-1 fps recording
             # (timelapse / long-exposure) keeps its real duration -- see
@@ -173,8 +211,9 @@ class VideoWriter:
         """Initialize cv2 VideoWriter fallback (XVID/AVI)."""
         # Use XVID -- bundled with OpenCV, works on all platforms
         fourcc = cv2.VideoWriter_fourcc(*'XVID')
-        fallback_path = self._output_path.with_suffix('.avi')
-        self._output_path = fallback_path
+        self._output_path = self._output_path.with_suffix('.avi')
+        self._resolve_collision_free_output()
+        fallback_path = self._output_path
         # cv2.VideoWriter takes a double fps. The FFMPEG-backed AVI encoder
         # honors a true sub-1 rate (timelapse / long-exposure), so pass the real
         # rate rather than an int that would floor 0.3 to 0 and lose the file.

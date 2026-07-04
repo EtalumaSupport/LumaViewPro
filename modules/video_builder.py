@@ -297,6 +297,11 @@ class VideoBuilder(ProtocolPostProcessor):
         return {
             'status': True,
             'error': None,
+            # The writer is the authority on where the file landed (a
+            # collision suffix or the cv2 .avi fallback may have moved it
+            # from the requested path); the record must point at the real
+            # file, not the request.
+            'actual_output_file_loc': video.output_path,
             'metadata': {'dropped_frames': total_dropped},
         }
 
@@ -392,6 +397,9 @@ class VideoBuilder(ProtocolPostProcessor):
             'error': error,
             'frame_count': frame_count,
             'dropped_frames': dropped,
+            # Where the file actually landed (collision suffix / cv2 .avi
+            # fallback may have moved it from output_file).
+            'output_file': writer.output_path,
         }
 
     def build_from_folder(

@@ -156,10 +156,32 @@ class ProtocolPostProcessor(abc.ABC):
 
         group_count = len(groups)
 
+        # When two DIFFERENT groups would render one output filename,
+        # generating them would produce only the first group's artifact (the
+        # second is skipped as already-recorded) -- a silent data loss.
+        # Refuse exactly those groups, loudly, and still process the
+        # unambiguous ones: an already-captured folder with baked-in
+        # colliding names (which renaming protocol steps cannot repair)
+        # stays post-processable for everything else.
+        planned_names = {}
+        for _, group in groups:
+            if len(group) <= 1:
+                continue
+            name = self._generate_filename(df=group, **kwargs)
+            planned_names[name] = planned_names.get(name, 0) + 1
+        colliding_names = {name for name, count in planned_names.items() if count > 1}
+        for name in sorted(colliding_names):
+            logger.error(
+                f'[{self._name} ] Refusing to generate {name}: more than one '
+                f'image group derives this output filename, so the artifacts '
+                f'would be indistinguishable.'
+            )
+
         logger.info(f'{self._name}: Generating {self._post_function.value.lower()} images')
 
         new_count = 0
         existing_count = 0
+        refused_count = 0
         current_group = 1
         last_error = None
         output_significant_bits = None
@@ -175,6 +197,9 @@ class ProtocolPostProcessor(abc.ABC):
                 continue
 
             output_filename = self._generate_filename(df=group, **kwargs)
+            if output_filename in colliding_names:
+                refused_count += 1
+                continue
             row0 = group.iloc[0]
             record_data_post_functions = row0[PostFunction.list_values()]
             record_data_post_functions[self._post_function.value] = True
@@ -209,6 +234,13 @@ class ProtocolPostProcessor(abc.ABC):
                 last_error = alg_results.get('error')
                 logger.error(f'Failed to generate {output_file_loc_rel}: {alg_results["error"]}')
                 continue
+
+            # A subclass whose writer relocated the output (collision suffix,
+            # container-format fallback) reports where the file really landed;
+            # the record must point at that file, not the request.
+            actual_output_file_loc = alg_results.get('actual_output_file_loc')
+            if actual_output_file_loc is not None:
+                output_file_loc_rel = pathlib.Path(actual_output_file_loc).relative_to(root_path)
 
             # Each ProtocolPostProcessor subclass owns its own file
             # write via tifffile (RGB-native; auto-detects photometric).
@@ -246,8 +278,32 @@ class ProtocolPostProcessor(abc.ABC):
         if popup is not None:
             popup.progress = 100
 
+        collision_note = ''
+        if refused_count > 0:
+            collision_note = (
+                f' {refused_count} group(s) were refused because more than '
+                f'one group derives the same output filename '
+                f'({", ".join(sorted(colliding_names)[:3])}'
+                f'{", ..." if len(colliding_names) > 3 else ""}); their '
+                f'artifacts were not generated.'
+            )
+
         if (new_count == 0) and (existing_count == 0):
             fname = self._post_function.value
+            if refused_count > 0:
+                # Every eligible group collided; nothing could be generated.
+                msg = (
+                    f'No {fname} was generated: every image group derives an '
+                    f'output filename shared with another group, so their '
+                    f'artifacts would be indistinguishable. See '
+                    f'lumaviewpro.log for the colliding names.'
+                )
+                logger.info(f'[{self._name} ] {msg}')
+                return {
+                    'status': False,
+                    'reason': 'collision',
+                    'message': msg,
+                }
             needed = _MULTI_FRAME_REQUIREMENT.get(
                 self._post_function, 'multiple frames per scan position'
             )
@@ -285,5 +341,6 @@ class ProtocolPostProcessor(abc.ABC):
         logger.info(
             f'{self._name}: Complete - Created {new_count} {self._post_function.value.lower()} '
             f'artifacts (significant_bits={output_significant_bits}) in {elapsed_time}.'
+            f'{collision_note}'
         )
-        return {'status': True, 'message': 'Success'}
+        return {'status': True, 'message': f'Success.{collision_note}'}

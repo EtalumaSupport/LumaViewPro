@@ -3,6 +3,7 @@
 import itertools
 import json
 import pathlib
+import re
 from typing import ClassVar
 
 from lvp_logger import logger
@@ -94,18 +95,39 @@ class TilingConfig:
 
         return None
 
-    def determine_tiling_label_from_names(self, names: list):
+    def determine_tiling_label_from_tiles(self, tiles: list):
+        """Infer the m x n tiling label from the steps' Tile column values.
+
+        The Tile column is the authoritative per-step tile assignment
+        (empty for untiled steps); reading it directly means a step name
+        containing tile-shaped user text can never fake a tiling.
+        """
         label_letters = set()
         label_numbers = set()
-        for name in names:
-            label = common_utils.parse_step_name(name).tile
-            if label is None:
+        malformed = set()
+        for tile in tiles:
+            if tile in (None, ''):
                 continue
 
-            label_letter, label_number = _split_row_col(label)
+            tile = str(tile)
+            if not re.fullmatch(r'[A-Z]+\d+', tile):
+                # A malformed cell (hand-edited or corrupt TSV) contributes
+                # no tile -- _split_row_col would raise on it -- matching
+                # the old regex-gated name parse, which simply never matched
+                # such content.
+                malformed.add(tile)
+                continue
+
+            label_letter, label_number = _split_row_col(tile)
 
             label_letters.add(label_letter)
             label_numbers.add(label_number)
+
+        if malformed:
+            logger.warning(
+                f'[Tiling    ] Ignored malformed Tile value(s) during tiling '
+                f'inference: {", ".join(repr(v) for v in sorted(malformed)[:5])}'
+            )
 
         m = len(label_letters)
         n = len(label_numbers)

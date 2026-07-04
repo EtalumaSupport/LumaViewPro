@@ -88,6 +88,7 @@ def test_sub_one_fps_recording_keeps_nonzero_rate(tmp_path, monkeypatch):
         def __init__(self, **kwargs):
             captured_fps['fps'] = kwargs['fps']
             self.dropped_frames = 0
+            self.output_path = kwargs.get('output_path')
 
         def add_frame(self, **kwargs):
             pass
@@ -230,6 +231,7 @@ def test_mp4_add_frame_failure_is_counted_and_notified(tmp_path, monkeypatch):
     class _RaisingWriter:
         def __init__(self, **kwargs):
             self.dropped_frames = 0
+            self.output_path = kwargs.get('output_path')
 
         def add_frame(self, **kwargs):
             raise RuntimeError('encoder gone')
@@ -253,6 +255,7 @@ def test_mp4_encoder_dropped_frames_are_notified(tmp_path, monkeypatch):
     class _DroppingWriter:
         def __init__(self, **kwargs):
             self.dropped_frames = 2  # accepted but lost inside the encoder
+            self.output_path = kwargs.get('output_path')
 
         def add_frame(self, **kwargs):
             pass

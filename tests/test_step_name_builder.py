@@ -14,7 +14,11 @@ Three guarantees:
    back as the seed; this is the structural fix for the channel-change and
    stitch-filename corruption.
 
-3. ROUND-TRIP -- build_step_name(parse_step_name(s)) == s for any canonical s.
+3. ROUND-TRIP -- build_step_name(parse_legacy_step_name(s)) == s for any
+   canonical s. The parse is the LEGACY LOAD-BOUNDARY helper (the run-time
+   pipeline never decodes a name -- fields travel as columns); the round-trip
+   contract still holds for every name the builder produces because the
+   legacy migration relies on it.
 """
 
 import dataclasses
@@ -24,7 +28,7 @@ import pytest
 from modules.common_utils import (
     StepNameComponents,
     build_step_name,
-    parse_step_name,
+    parse_legacy_step_name,
 )
 
 _KNOWN_LAYERS = ['Blue', 'Green', 'Red', 'BF', 'PC', 'DF', 'Lumi']
@@ -93,7 +97,7 @@ class TestRoundTrip:
     @pytest.mark.parametrize('c', _FRESH_CASES)
     def test_build_parse_build_is_identity(self, c):
         name = build_step_name(c)
-        reparsed = parse_step_name(
+        reparsed = parse_legacy_step_name(
             name, known_layers=_KNOWN_LAYERS, known_objectives=_KNOWN_OBJECTIVES
         )
         assert build_step_name(reparsed) == name, (
@@ -101,7 +105,7 @@ class TestRoundTrip:
         )
 
     def test_parse_classifies_a_full_name(self):
-        c = parse_step_name(
+        c = parse_legacy_step_name(
             'A1_Green_TB2_10x_Z3_0005',
             known_layers=_KNOWN_LAYERS,
             known_objectives=_KNOWN_OBJECTIVES,
@@ -116,18 +120,18 @@ class TestRoundTrip:
     def test_parse_recovers_chained_post_suffixes(self):
         # A z-projection of a stitched output carries both suffixes; parse must
         # recover the ordered tuple, not just the last token.
-        c = parse_step_name('A1_BF_0003_stitched_zproj_median', known_layers=_KNOWN_LAYERS)
+        c = parse_legacy_step_name('A1_BF_0003_stitched_zproj_median', known_layers=_KNOWN_LAYERS)
         assert c.post == ('stitched', 'zproj_median')
         assert c.scan_count == 3
 
     def test_parse_recovers_custom_prefix(self):
-        c = parse_step_name('custom0001_BF', known_layers=_KNOWN_LAYERS)
+        c = parse_legacy_step_name('custom0001_BF', known_layers=_KNOWN_LAYERS)
         assert c.custom_prefix == 'custom0001'
         assert c.well == ''
         assert c.channel == 'BF'
 
     def test_parse_strips_parent_folder(self):
-        c = parse_step_name('Green/A1_Green_TB2', known_layers=_KNOWN_LAYERS)
+        c = parse_legacy_step_name('Green/A1_Green_TB2', known_layers=_KNOWN_LAYERS)
         assert c.well == 'A1'
         assert c.channel == 'Green'
         assert c.tile == 'B2'
@@ -139,18 +143,18 @@ class TestIdempotentChannelChange:
     Rebuilding from components must yield exactly one channel token."""
 
     def test_well_step_channel_change(self):
-        c = parse_step_name('A2_BF', known_layers=_KNOWN_LAYERS)
+        c = parse_legacy_step_name('A2_BF', known_layers=_KNOWN_LAYERS)
         c = dataclasses.replace(c, channel='Green')
         assert build_step_name(c) == 'A2_Green'
 
     def test_custom_step_channel_change(self):
         # The custom step took the same corruption via the Well != '' gate.
-        c = parse_step_name('custom0001_BF', known_layers=_KNOWN_LAYERS)
+        c = parse_legacy_step_name('custom0001_BF', known_layers=_KNOWN_LAYERS)
         c = dataclasses.replace(c, channel='Red')
         assert build_step_name(c) == 'custom0001_Red'
 
     def test_channel_change_preserves_other_tokens(self):
-        c = parse_step_name('A1_BF_TB2_Z3', known_layers=_KNOWN_LAYERS)
+        c = parse_legacy_step_name('A1_BF_TB2_Z3', known_layers=_KNOWN_LAYERS)
         c = dataclasses.replace(c, channel='Green')
         assert build_step_name(c) == 'A1_Green_TB2_Z3'
 
@@ -162,12 +166,12 @@ class TestTileOmittedNotStripped:
     no external column consulted."""
 
     def test_stitch_omits_tile_regardless_of_origin(self):
-        c = parse_step_name('A1_BF_TA1', known_layers=_KNOWN_LAYERS)
+        c = parse_legacy_step_name('A1_BF_TA1', known_layers=_KNOWN_LAYERS)
         c = dataclasses.replace(c, tile=None, post=('stitched',))
         assert build_step_name(c) == 'A1_BF_stitched'
 
     def test_composite_collapses_channel_and_tile(self):
-        c = parse_step_name('A1_Green_TA1', known_layers=_KNOWN_LAYERS)
+        c = parse_legacy_step_name('A1_Green_TA1', known_layers=_KNOWN_LAYERS)
         c = dataclasses.replace(c, channel='Composite', tile=None, post=('stitched',))
         assert build_step_name(c) == 'A1_Composite_stitched'
 
@@ -181,7 +185,9 @@ class TestTurretToken:
     def test_turret_only_round_trips(self):
         name = build_step_name(StepNameComponents(well='A1', channel='BF', turret_position=3))
         assert name == 'A1_BF_Turret3'
-        c = parse_step_name(name, known_layers=_KNOWN_LAYERS, known_objectives=_KNOWN_OBJECTIVES)
+        c = parse_legacy_step_name(
+            name, known_layers=_KNOWN_LAYERS, known_objectives=_KNOWN_OBJECTIVES
+        )
         assert c.turret_position == 3
         assert c.tile is None
         assert build_step_name(c) == name
@@ -195,7 +201,9 @@ class TestTurretToken:
             )
         )
         assert name == 'A1_BF_10x_Turret3_Z0'
-        c = parse_step_name(name, known_layers=_KNOWN_LAYERS, known_objectives=_KNOWN_OBJECTIVES)
+        c = parse_legacy_step_name(
+            name, known_layers=_KNOWN_LAYERS, known_objectives=_KNOWN_OBJECTIVES
+        )
         assert c.objective == '10x'
         assert c.turret_position == 3
         assert c.tile is None
@@ -206,7 +214,9 @@ class TestTurretToken:
             StepNameComponents(well='A1', channel='BF', tile='B2', turret_position=4, z_index=1)
         )
         assert name == 'A1_BF_TB2_Turret4_Z1'
-        c = parse_step_name(name, known_layers=_KNOWN_LAYERS, known_objectives=_KNOWN_OBJECTIVES)
+        c = parse_legacy_step_name(
+            name, known_layers=_KNOWN_LAYERS, known_objectives=_KNOWN_OBJECTIVES
+        )
         assert c.tile == 'B2'
         assert c.turret_position == 4
         assert build_step_name(c) == name
@@ -223,7 +233,9 @@ class TestTurretToken:
                 scan_count=7,
             )
         )
-        c = parse_step_name(name, known_layers=_KNOWN_LAYERS, known_objectives=_KNOWN_OBJECTIVES)
+        c = parse_legacy_step_name(
+            name, known_layers=_KNOWN_LAYERS, known_objectives=_KNOWN_OBJECTIVES
+        )
         assert build_step_name(c) == name
         assert c.tile == 'C3'
         assert c.turret_position == 2
@@ -240,12 +252,14 @@ class TestLargeMosaicTile:
     def test_multiletter_tile_round_trips(self, tile):
         name = build_step_name(StepNameComponents(well='A1', channel='BF', tile=tile))
         assert name == f'A1_BF_T{tile}'
-        c = parse_step_name(name, known_layers=_KNOWN_LAYERS, known_objectives=_KNOWN_OBJECTIVES)
+        c = parse_legacy_step_name(
+            name, known_layers=_KNOWN_LAYERS, known_objectives=_KNOWN_OBJECTIVES
+        )
         assert c.tile == tile
         assert build_step_name(c) == name
 
     def test_turret_not_swallowed_by_multiletter_tile(self):
-        c = parse_step_name(
+        c = parse_legacy_step_name(
             'A1_BF_Turret7', known_layers=_KNOWN_LAYERS, known_objectives=_KNOWN_OBJECTIVES
         )
         assert c.turret_position == 7
@@ -268,4 +282,4 @@ class TestBuildEdgeCases:
         # so a long timelapse (>= 10000 scans) must still parse back.
         name = build_step_name(StepNameComponents(well='A1', channel='BF', scan_count=12345))
         assert name == 'A1_BF_12345'
-        assert parse_step_name(name, known_layers=_KNOWN_LAYERS).scan_count == 12345
+        assert parse_legacy_step_name(name, known_layers=_KNOWN_LAYERS).scan_count == 12345

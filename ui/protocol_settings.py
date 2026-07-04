@@ -376,12 +376,12 @@ class ProtocolSettings(FloatLayout):
             # Guard against compounding. apply_tiling appends new tile groups
             # to the existing steps, and there is no un-tile path yet, so
             # applying tiling to an already-tiled protocol multiplies the tiles
-            # (e.g. 2x2 on a 2x2 -> 16). Detect the current tiling from the step
-            # names; if already tiled, refuse and tell the user to reload the
-            # untiled base first.
+            # (e.g. 2x2 on a 2x2 -> 16). Detect the current tiling from the
+            # steps' Tile column; if already tiled, refuse and tell the user
+            # to reload the untiled base first.
             no_tiling = self.tiling_config.no_tiling_label()
-            current_tiling = self.tiling_config.determine_tiling_label_from_names(
-                self._protocol.steps()['Name'].tolist()
+            current_tiling = self.tiling_config.determine_tiling_label_from_tiles(
+                self._protocol.steps()['Tile'].tolist()
             )
             if current_tiling not in (None, no_tiling):
                 from ui.notification_popup import show_notification_popup
@@ -805,14 +805,14 @@ class ProtocolSettings(FloatLayout):
         ctx.stage.set_protocol_steps(df=self._protocol.steps())
 
         # Restore the tiling selection. Tiling is baked into the steps as
-        # expanded tile positions (one row per tile, named ..._T<gridlabel>),
-        # not stored as a scalar, so the spinner otherwise stays at its 1x1
-        # default and misrepresents an already-tiled protocol. Infer the NxN
-        # label back from the tile names; fall back to no-tiling when the
+        # expanded tile positions (one row per tile), not stored as a
+        # scalar, so the spinner otherwise stays at its 1x1 default and
+        # misrepresents an already-tiled protocol. Infer the NxN label back
+        # from the steps' Tile column; fall back to no-tiling when the
         # protocol isn't tiled (or the layout isn't square).
         try:
-            inferred_tiling = self.tiling_config.determine_tiling_label_from_names(
-                self._protocol.steps()['Name'].tolist()
+            inferred_tiling = self.tiling_config.determine_tiling_label_from_tiles(
+                self._protocol.steps()['Tile'].tolist()
             )
         except Exception as e:
             logger.warning(f'[LVP Main  ] Could not infer tiling from protocol: {e}')

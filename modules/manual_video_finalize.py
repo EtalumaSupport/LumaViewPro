@@ -314,7 +314,11 @@ def finalize_manual_video(
             # Encode failures inside add_frame that did not raise are counted
             # by the writer; fold them in so the total reflects every loss.
             dropped_frames += video_writer.dropped_frames
-            logger.info(f'Manual-Video] Mp4 written to {output_file_loc}')
+            # The writer is the authority on where the file landed (a
+            # collision suffix or the cv2 .avi fallback may have moved it
+            # from the requested path).
+            output_file_loc = video_writer.output_path
+            logger.info(f'Manual-Video] Video written to {output_file_loc}')
 
         if dropped_frames > 0:
             notifications.warning(

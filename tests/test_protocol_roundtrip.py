@@ -713,15 +713,27 @@ class TestRoundTripEdgeCases:
         assert reloaded.step(idx=0)['False_Color'] == True  # noqa: E712 -- exact bool check
 
     def test_special_chars_in_name(self, tmp_path):
-        # The user's text lives in Label and survives verbatim; Name is a
-        # derived rendering of (Label, Color, Tile, Z-Slice), so it carries
-        # the channel/z tokens after the preserved special-char base.
+        # The user's text lives in Label; Name is a derived rendering of
+        # (Label, Color, Tile, Z-Slice). Labels round-trip in their
+        # WRITER-SAFE form: every rename entry point sanitizes to
+        # [a-zA-Z0-9-_], and the loader re-applies the same sanitize
+        # (loudly) so a hand-edited file cannot smuggle in characters the
+        # filename writer would strip anyway.
         proto = _build_protocol(
-            [_make_step(name='test step (1) - BF', label='test step (1) - BF', auto_named=False)]
+            [
+                _make_step(name='test_step-1_BF', label='test_step-1', auto_named=False),
+                _make_step(
+                    name='test step (2)', label='test step (2)', auto_named=False, well='A2'
+                ),
+            ]
         )
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.step(idx=0)['Label'] == 'test step (1) - BF'
-        assert reloaded.step(idx=0)['Name'] == 'test step (1) - BF_BF_Z0'
+        # Allowed specials (dash, underscore) survive byte-exact.
+        assert reloaded.step(idx=0)['Label'] == 'test_step-1'
+        assert reloaded.step(idx=0)['Name'] == 'test_step-1_BF_Z0'
+        # Characters the writer strips normalize at the load boundary.
+        assert reloaded.step(idx=1)['Label'] == 'teststep2'
+        assert reloaded.step(idx=1)['Name'] == 'teststep2_BF_Z0'
 
 
 # ===========================================================================
@@ -1389,7 +1401,12 @@ class TestExecuteCombinations:
 
     def test_large_protocol_50_steps(self, executor, scope, tmp_path):
         """Stress test: 50 steps should complete without timeout."""
-        steps = [_make_step(name=f'step_{i}', color='BF') for i in range(50)]
+        # Distinct labels: 50 same-well BF steps must derive distinct capture
+        # filenames or validate_for_run refuses the run at start.
+        steps = [
+            _make_step(name=f'step_{i}', label=f'step_{i}', auto_named=False, color='BF')
+            for i in range(50)
+        ]
         proto = _build_protocol(steps)
         completed, _ = _run_and_wait(executor, proto, tmp_path)
         assert completed, '50-step protocol did not complete'
@@ -1451,7 +1468,12 @@ class TestExecuteCancellation:
         """Cancel a long protocol after it starts -- should clean up gracefully."""
         import time
 
-        steps = [_make_step(name=f'step_{i}', color='BF') for i in range(20)]
+        # Distinct labels so the same-well BF steps derive distinct capture
+        # filenames (validate_for_run refuses duplicates at run start).
+        steps = [
+            _make_step(name=f'step_{i}', label=f'step_{i}', auto_named=False, color='BF')
+            for i in range(20)
+        ]
         proto = _build_protocol(steps)
 
         done = threading.Event()
