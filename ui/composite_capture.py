@@ -159,10 +159,13 @@ class CompositeCapture(FloatLayout):
 
             # If not in 8-bit mode, generate an 8-bit copy of the image for
             # visualization. image_orig is a single native-depth capture here,
-            # so its depth is the camera's payload depth (read at the capture
-            # point so the downconvert scales against the real range).
+            # so its depth is the per-frame delivery stamp (not a live format
+            # query, which can fail or already describe a newer format) so
+            # the downconvert scales against the real range.
             if not force_to_8bit_pixel_depth:
-                image = image_utils.convert_to_8bit(image_orig, ctx.scope.imaging.significant_bits)
+                image = image_utils.convert_to_8bit(
+                    image_orig, ctx.scope.imaging.last_significant_bits
+                )
             else:
                 image = image_orig
 

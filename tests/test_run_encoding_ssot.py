@@ -300,11 +300,15 @@ class TestOneRunOneEncoding:
             lambda **kwargs: video_writes.update(kwargs) or (tmp_path / 'vid'),
         )
 
+        from modules.protocol_image_writer import CapturedFrame
+
         step = {'Name': 'A1_BF', 'Color': 'BF', 'X': 0.0, 'Y': 0.0, 'Z': 0.0}
         writer.write_capture(
             enable_image_saving=True,
             is_video=False,
-            captured_image=np.zeros((4, 4), dtype=np.uint16),
+            captured_image=CapturedFrame(
+                image=np.zeros((4, 4), dtype=np.uint16), significant_bits=12
+            ),
             step=step,
             name='A1_BF',
             save_folder=str(tmp_path),

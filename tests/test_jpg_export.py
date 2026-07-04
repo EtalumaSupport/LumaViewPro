@@ -92,12 +92,10 @@ def test_quality_affects_file_size():
 def test_save_image_routes_jpg_to_encoder(tmp_path):
     # The save path must route the JPG format to the display encoder and
     # resolve a .jpg extension -- proven by saving and decoding the file.
-    from types import SimpleNamespace
-
     from modules import image_save
 
     path = image_save.save_image(
-        SimpleNamespace(),
+        _scope_with_depth(),
         _bright_mono(),
         save_folder=str(tmp_path),
         file_root='snap_',
@@ -141,10 +139,19 @@ def _wide_frame() -> np.ndarray:
 def _scope_with_depth(significant_bits: int = _CAMERA_DEPTH, frame=None):
     from types import SimpleNamespace
 
+    from modules.lumascope_api.imaging import ImagingAPI
+
     imaging = SimpleNamespace(
         significant_bits=significant_bits,
+        last_significant_bits=significant_bits,
         _binning_size=1,
         capture_and_wait=lambda **kwargs: frame,
+    )
+    # The REAL shared depth rule, bound to this stub -- the tests pin that
+    # every save path resolves through one rule, so the stub must not
+    # re-implement it.
+    imaging.capture_frame_depth = lambda array, sum_count=1: ImagingAPI.capture_frame_depth(
+        imaging, array, sum_count
     )
     return SimpleNamespace(imaging=imaging)
 

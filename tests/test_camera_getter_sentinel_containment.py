@@ -31,11 +31,13 @@ import inspect
 import threading
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 import modules.common_utils as common_utils
+from drivers.camera import Camera
 from modules.binning import binning_size_int_to_str
-from modules.image_save import generate_image_metadata
+from modules.image_save import generate_image_metadata, prepare_image_for_saving
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.imaging import ImagingAPI
 
@@ -56,16 +58,43 @@ GOOD_ROUND = {
 }
 
 
+class _StampedFrameHandler:
+    """Image-handler stub for the per-frame depth stamp: get_last_image
+    reports a stored frame stamped with significant_bits, or no-frame when
+    the stamp is None (nothing grabbed yet)."""
+
+    def __init__(self, significant_bits: int | None):
+        self._significant_bits = significant_bits
+
+    def get_last_image(self):
+        if self._significant_bits is None:
+            return False, None, None, None
+        return True, 'frame', None, self._significant_bits
+
+
 class ScriptedCameraDriver:
     """Driver double whose every value read follows a per-method script.
 
     Each script is a list of per-call results; calls pop from the front and
     the final entry repeats forever. A RAISE entry raises RuntimeError (the
     raising-driver failure class the API boundary must contain).
+
+    The depth surface reuses the REAL base-class rule and properties
+    (Camera.format_significant_bits / significant_bits /
+    last_significant_bits descriptors), so the tests exercise the one
+    canonical format-name-to-depth path, not a re-implementation.
     """
+
+    native_bit_depth = 16
+    format_significant_bits = staticmethod(Camera.format_significant_bits)
+    significant_bits_for_format = Camera.significant_bits_for_format
+    last_stamped_significant_bits = Camera.last_stamped_significant_bits
+    significant_bits = Camera.significant_bits
+    last_significant_bits = Camera.last_significant_bits
 
     def __init__(self, scripts: dict, active: bool = True):
         self.active = active
+        self.cam_image_handler = None  # tests attach a _StampedFrameHandler
         self._scripts = {name: list(values) for name, values in scripts.items()}
 
     def _next(self, name):
@@ -216,8 +245,9 @@ EXCLUDED = {
         '(omits unknown rather than answering last-known-good)'
     ),
 }
-# significant_bits / last_significant_bits are properties, out of this file's
-# scope -- the depth contract lands separately.
+# significant_bits / last_significant_bits are properties (not reachable by
+# the zero-arg get_* introspection below); their depth contract is covered by
+# the depth-property tests in this file.
 
 
 def _public_zero_arg_getters() -> set:
@@ -507,3 +537,146 @@ def test_chunkless_metadata_omits_keys_when_live_reads_fail():
     # Same state, control-flow surface: the value getters still answer LKG.
     assert imaging.get_gain() == 12.5
     assert imaging.get_exposure_time() == 50.0
+
+
+# --- Depth properties (significant_bits / last_significant_bits) ----------------
+
+
+def test_significant_bits_holds_12_when_format_reads_fail():
+    # THE Seams-1 regression: the camera is configured Mono12 (the cache
+    # knows the format), then format reads fail transiently. The depth must
+    # stay 12 -- the old live-derived code fell back to 16, so a fully blown
+    # frame passed the saturation evidence check at 0.0% and files were
+    # stamped at the wrong depth.
+    driver = steady_good_driver({'get_pixel_format': ['Mono12', RAISE]})
+    imaging = _build_imaging(driver)  # populate consumes the one good read
+    for _ in range(2):
+        assert imaging.significant_bits == 12
+
+
+def test_depth_properties_report_16_with_no_camera():
+    imaging = _build_imaging(None)
+    assert imaging.significant_bits == 16
+    assert imaging.last_significant_bits == 16
+
+
+def test_significant_bits_native_fallback_when_format_never_known():
+    # Active driver, every read fails, format never known: falls back to the
+    # driver's container width (native_bit_depth), not a crash.
+    imaging = _build_imaging(all_reads_fail_driver())
+    assert imaging.significant_bits == 16
+
+
+def test_last_significant_bits_prefers_per_frame_stamp():
+    # A stored frame carries its own depth stamp; it wins over the
+    # format-derived value (Mono12 -> 12) because the buffered frame may
+    # have been captured under an older format than the camera is at now.
+    driver = steady_good_driver()
+    driver.cam_image_handler = _StampedFrameHandler(10)
+    imaging = _build_imaging(driver)
+    assert imaging.significant_bits == 12
+    assert imaging.last_significant_bits == 10
+
+
+def test_last_significant_bits_falls_back_to_format_derived_without_stamp():
+    # No frame stored yet -> the per-frame surface answers the format-derived
+    # depth (steady Mono12 -> 12), not the container width.
+    driver = steady_good_driver()
+    driver.cam_image_handler = _StampedFrameHandler(None)
+    imaging = _build_imaging(driver)
+    assert imaging.last_significant_bits == 12
+
+
+def test_last_significant_bits_no_frame_fallback_survives_failed_format_read():
+    # No stored frame AND the live format read now fails: the fallback must
+    # route through the validated cached format (Mono12 known from populate
+    # -> 12), never the driver's live-read fallback chain, which a transient
+    # format failure turns into the container width (16) -- the wrong-depth
+    # answer on exactly the property callers are told to prefer.
+    driver = steady_good_driver({'get_pixel_format': ['Mono12', RAISE]})
+    driver.cam_image_handler = _StampedFrameHandler(None)
+    imaging = _build_imaging(driver)  # populate consumes the one good read
+    assert imaging.last_significant_bits == 12
+
+
+# --- Depth travels with the frame (protocol writer) -----------------------------
+
+
+def test_writer_saves_capture_time_depth_not_save_time_rederivation(monkeypatch, tmp_path):
+    # The CapturedFrame couples the frame with the depth it was captured at.
+    # By save time the camera reports a DIFFERENT depth (format changed /
+    # unreadable); save_image must receive the capture-time stamp. The old
+    # writer re-derived depth at save time from current camera state.
+    import threading as _threading
+    from unittest.mock import MagicMock
+
+    from modules.image_mode import ImageCaptureConfig
+    from modules.protocol_callbacks import ProtocolCallbacks
+    from modules.protocol_image_writer import CapturedFrame, ProtocolImageWriter
+
+    scope = MagicMock()
+    scope.imaging.last_significant_bits = 16  # save-time state disagrees
+    scope.imaging.significant_bits = 16
+    writer = ProtocolImageWriter(
+        scope=scope,
+        callbacks=ProtocolCallbacks(),
+        aborted=_threading.Event(),
+        file_io_executor=MagicMock(),
+        abort_fn=lambda: None,
+        execution_record=None,
+        leds_off_fn=lambda: None,
+        is_run_in_progress_fn=lambda: True,
+        image_capture_config=ImageCaptureConfig.from_image_mode('12bit_scientific'),
+    )
+    recorded = []
+    monkeypatch.setattr(
+        'modules.protocol_image_writer.save_image',
+        lambda scope, **kwargs: recorded.append(kwargs) or (tmp_path / 'x.tiff'),
+    )
+    writer.write_capture(
+        enable_image_saving=True,
+        is_video=False,
+        captured_image=CapturedFrame(image=np.zeros((4, 4), dtype=np.uint16), significant_bits=12),
+        step={'Name': 's', 'Color': 'BF', 'X': 0.0, 'Y': 0.0, 'Z': 0.0},
+        name='s_BF',
+        save_folder=str(tmp_path),
+        use_color='BF',
+        output_format='TIFF',
+    )
+    assert recorded, 'write_capture must reach save_image'
+    assert recorded[0]['significant_bits'] == 12, (
+        f'save_image must receive the CapturedFrame depth (12), not a '
+        f'save-time re-derivation; got {recorded[0]["significant_bits"]}'
+    )
+
+
+# --- image_save default depth ----------------------------------------------------
+
+
+def test_default_depth_uses_frame_stamp_not_format_derived(tmp_path):
+    # A uint16 array with no caller-stated depth: the recorded metadata depth
+    # must be the per-frame stamp (12), not the format-derived value (Mono16
+    # -> 16) -- the two deliberately disagree here so the winner is provable.
+    driver = steady_good_driver({'get_pixel_format': ['Mono16']})
+    driver.cam_image_handler = _StampedFrameHandler(12)
+    imaging = _build_imaging(driver)
+    assert imaging.significant_bits == 16  # format-derived, the loser
+    assert imaging.last_significant_bits == 12  # per-frame stamp, the winner
+    scope = _metadata_scope_with_real_imaging(imaging, driver)
+
+    result = prepare_image_for_saving(
+        scope,
+        array=np.zeros((4, 4), dtype=np.uint16),
+        save_folder=tmp_path,
+        file_root='img_',
+        append='BF',
+        color='BF',
+        tail_id_mode=None,
+        output_format='TIFF',
+        true_color='BF',
+        x=0,
+        y=0,
+        z=0,
+        significant_bits=None,
+    )
+    assert result['metadata']['significant_bits'] == 12

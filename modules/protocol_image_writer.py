@@ -14,7 +14,7 @@ import pathlib
 import logging
 import threading
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
 
@@ -44,6 +44,20 @@ if TYPE_CHECKING:
 # must have at least this much headroom beyond its own estimated size before it
 # is allowed to write, so one write cannot fill the last sliver of a disk.
 MIN_PER_WRITE_DISK_MB = 500
+
+
+class CapturedFrame(NamedTuple):
+    """A captured frame coupled with the payload depth it was captured at.
+
+    The save runs asynchronously on the file-IO thread; a bare array would
+    force the writer to re-derive depth at save time, when the camera may
+    be at a different pixel format or unreadable. Coupling the depth to
+    the frame at capture makes handing over a frame without its depth
+    unrepresentable.
+    """
+
+    image: np.ndarray
+    significant_bits: int
 
 
 class ProtocolImageWriter:
@@ -493,15 +507,15 @@ class ProtocolImageWriter:
 
                     self._consecutive_capture_failures = 0  # Reset on success
 
-                    # Depth travels with the frame so both the evidence line's
-                    # saturation threshold and the hold-display downconvert
-                    # scale against the real range (summed -> 16-bit).
-                    if captured_image.dtype == np.uint8:
-                        frame_significant_bits = 8
-                    elif sum_count > 1:
-                        frame_significant_bits = 16
-                    else:
-                        frame_significant_bits = self._scope.imaging.significant_bits
+                    # Depth travels with the frame so the evidence line's
+                    # saturation threshold, the hold-display downconvert, AND
+                    # the eventual file save all scale against the real range
+                    # (summed -> 16-bit). Resolved here at capture time -- the
+                    # async save must not re-derive it later, when the camera
+                    # may be at a different format or unreadable.
+                    frame_significant_bits = self._scope.imaging.capture_frame_depth(
+                        captured_image, sum_count
+                    )
                     logger.info(
                         f'Protocol Image Captured: {name} '
                         f'{self._capture_evidence(captured_image, frame_significant_bits)}'
@@ -534,7 +548,10 @@ class ProtocolImageWriter:
                                 'name': name,
                                 'output_format': output_format,
                                 'step': step,
-                                'captured_image': captured_image,
+                                'captured_image': CapturedFrame(
+                                    image=captured_image,
+                                    significant_bits=frame_significant_bits,
+                                ),
                                 'step_index': curr_step,
                                 'scan_count': scan_count,
                                 'capture_time': _success_capture_time,
@@ -636,6 +653,14 @@ class ProtocolImageWriter:
         from the writer's held run config -- the one carrier for the run's
         capture/save intent -- so the video and image legs cannot receive
         different values for one run.
+
+        Args:
+            captured_image: ``CapturedFrame`` (frame + the payload depth it
+                was captured at) for the still-image leg, or None. The depth
+                travels with the frame because this save is asynchronous --
+                deriving depth here would read the camera's state at save
+                time, when the format may have changed or the camera may be
+                unreadable.
         """
         # Count the attempt up front so end-of-run reconciliation can detect a
         # capture that returns without leaving a row in the execution record.
@@ -718,29 +743,18 @@ class ProtocolImageWriter:
                         )
                     return
 
-                # A summed 2D uint16 frame fills the 16-bit container, so its
-                # stored depth is 16; a single uint16 frame keeps the camera's
-                # native depth. uint8 frames never sum to a wider container.
-                is_uint16_2d = (
-                    hasattr(captured_image, 'dtype')
-                    and captured_image.dtype == np.uint16
-                    and getattr(captured_image, 'ndim', 0) == 2
-                )
-                # A summed full-depth frame lives in a 16-bit container; declare
-                # that depth so SignificantBits matches the stored values. The
-                # step's Sum column carries the count on this save thread.
-                # Single uint16 frames fall through to the camera-native default.
-                # step may be a pandas Series; test `is None` rather than
-                # truthiness (bool() on a Series raises).
-                step_sum = step.get('Sum', 1) if step is not None else 1
-                summed_significant_bits = 16 if (is_uint16_2d and step_sum > 1) else None
+                # The frame arrives coupled with the payload depth it was
+                # captured at (uint8 -> 8, summed -> 16, else the per-frame
+                # delivery stamp) -- recorded at capture time on the executor
+                # thread, because by the time this save runs the camera may
+                # be at a different format or unreadable.
                 # Same failure-row contract as the video leg above: a
                 # raise from save_image must not leave the record without
                 # a row for this step.
                 try:
                     capture_result = save_image(
                         self._scope,
-                        array=captured_image,
+                        array=captured_image.image,
                         save_folder=save_folder,
                         file_root=None,
                         append=name,
@@ -757,7 +771,7 @@ class ProtocolImageWriter:
                         y=step['Y'],
                         z=step['Z'],
                         save_encoding=self._config.save_encoding,
-                        significant_bits=summed_significant_bits,
+                        significant_bits=captured_image.significant_bits,
                     )
                 except Exception:
                     self._record_dropped_capture(

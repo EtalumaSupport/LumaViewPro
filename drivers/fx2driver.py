@@ -1166,6 +1166,10 @@ class FX2Camera(Camera):
     native_bit_depth = 8
     significant_bits = 8
 
+    def significant_bits_for_format(self, pixel_format: str | None) -> int:
+        """FX2 delivers 8-bit payloads regardless of any format string."""
+        return 8
+
     # How often to log streaming stats (seconds). Set to 0 to disable.
     STATS_LOG_INTERVAL = 10.0
 

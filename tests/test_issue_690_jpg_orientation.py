@@ -73,7 +73,9 @@ def test_tiff_and_jpg_save_identical_orientation(tmp_path, monkeypatch):
     )
     from types import SimpleNamespace
 
-    scope = SimpleNamespace()
+    scope = SimpleNamespace(
+        imaging=SimpleNamespace(capture_frame_depth=lambda array, sum_count=1: 8)
+    )
     tiff_path = image_save.save_image(
         scope,
         arr.copy(),

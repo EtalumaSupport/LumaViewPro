@@ -574,6 +574,61 @@ class Camera(ABC):
         """
         pass
 
+    @staticmethod
+    def format_significant_bits(pixel_format: str | None, fallback: int) -> int:
+        """Payload bit count named by a Mono-style GenICam format string.
+
+        ``Mono12`` -> 12, ``Mono10`` -> 10, ``Mono8`` -> 8 (the FIRST digit
+        run in the format name). Returns ``fallback`` when the format is
+        None (failed read / inactive) or carries no digits. Scope: the
+        base-class depth rule for the shipping mono fleet -- drivers whose
+        format vocabulary breaks the first-digits-are-depth assumption
+        (IDS packed wire names like Mono12g24IDS, any future color
+        vocabulary like YCbCr422_8) keep their own parsers and override
+        ``significant_bits_for_format`` instead of feeding names here.
+        """
+        match = re.search(r'(\d+)', pixel_format or '')
+        return int(match.group(1)) if match else fallback
+
+    def significant_bits_for_format(self, pixel_format: str | None) -> int:
+        """Payload depth this driver DELIVERS for a given pixel-format name.
+
+        The override hook for the depth rule: the base implementation
+        derives from the format name; drivers whose delivered depth does
+        not follow the format string (FX2 delivers Mono8 regardless; a
+        converting driver could deliver a fixed depth) override this so
+        every depth consumer -- including the API layer, which calls this
+        with its validated last-known-good format so a transient format
+        read cannot change the answer -- honors the driver's word.
+        """
+        return self.format_significant_bits(pixel_format, self.native_bit_depth)
+
+    def last_stamped_significant_bits(self) -> int | None:
+        """Per-frame delivery stamp of the most recently buffered frame.
+
+        Returns None when no frame has been stored (or the handler recorded
+        no stamp) -- deliberately NO fallback, so callers choose their own
+        no-frame depth source: the driver property below falls back to its
+        live format read; the API layer falls back to its validated
+        last-known-good format instead, keeping a transient format-read
+        failure from turning into a wrong depth.
+
+        Read through the handler's get_last_image() method, not the raw
+        last_img_significant_bits attribute: the Pylon handler composes
+        ImageHandlerBase (to avoid a metaclass conflict with the SDK event
+        handler) and exposes only the method surface, so reaching the
+        attribute directly raises AttributeError on a Pylon camera. The
+        4-tuple read is atomic under the handler's frame lock, so the
+        stamp cannot describe a different frame than the one returned
+        beside it.
+        """
+        handler = self.cam_image_handler
+        if handler is not None:
+            success, _image, _ts, significant_bits = handler.get_last_image()
+            if success and significant_bits is not None:
+                return significant_bits
+        return None
+
     @property
     def significant_bits(self) -> int:
         """Meaningful low bits of a delivered frame (payload, not container).
@@ -589,8 +644,7 @@ class Camera(ABC):
         SDK boundary, FX2 is Mono8-only -- override with a constant. Falls back
         to the container width when the format name carries no bit count.
         """
-        match = re.search(r'(\d+)', self.get_pixel_format() or '')
-        return int(match.group(1)) if match else self.native_bit_depth
+        return self.significant_bits_for_format(self.get_pixel_format())
 
     @property
     def last_significant_bits(self):
@@ -603,18 +657,11 @@ class Camera(ABC):
         the buffered frame was captured under. Falls back to the live depth when
         no frame has been stored yet.
 
-        Read through the handler's get_last_image() method, not the raw
-        last_img_significant_bits attribute: the Pylon handler composes
-        ImageHandlerBase (to avoid a metaclass conflict with the SDK event
-        handler) and exposes only the method surface, so reaching the attribute
-        directly raises AttributeError on a Pylon camera.
+        Reads the stamp via ``last_stamped_significant_bits`` (see its
+        docstring for the handler-method contract).
         """
-        handler = self.cam_image_handler
-        if handler is not None:
-            success, _image, _ts, significant_bits = handler.get_last_image()
-            if success and significant_bits is not None:
-                return significant_bits
-        return self.significant_bits
+        stamped = self.last_stamped_significant_bits()
+        return stamped if stamped is not None else self.significant_bits
 
     @abstractmethod
     def exposure_t(self, exposure_ms: float) -> None:

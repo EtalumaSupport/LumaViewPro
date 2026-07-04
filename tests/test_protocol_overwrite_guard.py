@@ -65,7 +65,7 @@ def test_protocol_image_writer_uses_if_collision(monkeypatch, tmp_path):
 
     from modules.image_mode import ImageCaptureConfig
     from modules.protocol_callbacks import ProtocolCallbacks
-    from modules.protocol_image_writer import ProtocolImageWriter
+    from modules.protocol_image_writer import CapturedFrame, ProtocolImageWriter
 
     writer = ProtocolImageWriter(
         scope=MagicMock(),
@@ -86,7 +86,7 @@ def test_protocol_image_writer_uses_if_collision(monkeypatch, tmp_path):
     writer.write_capture(
         enable_image_saving=True,
         is_video=False,
-        captured_image=np.zeros((4, 4), dtype=np.uint8),
+        captured_image=CapturedFrame(image=np.zeros((4, 4), dtype=np.uint8), significant_bits=8),
         step={'Name': 's', 'Color': 'BF', 'X': 0.0, 'Y': 0.0, 'Z': 0.0},
         name='s_BF',
         save_folder=str(tmp_path),

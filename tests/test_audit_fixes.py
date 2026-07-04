@@ -2980,7 +2980,7 @@ class TestAOC2_RetrySaturationCheckOutsideCamLock:
         orig_fraction = ImagingAPI._saturated_fraction
         lock_was_free = []
 
-        def probing_fraction(frame):
+        def probing_fraction(frame, significant_bits):
             seen = {}
 
             def try_acquire():
@@ -2993,7 +2993,7 @@ class TestAOC2_RetrySaturationCheckOutsideCamLock:
             probe.start()
             probe.join()
             lock_was_free.append(seen['free'])
-            return orig_fraction(frame)
+            return orig_fraction(frame, significant_bits)
 
         monkeypatch.setattr(ImagingAPI, '_saturated_fraction', staticmethod(probing_fraction))
         out = imaging.get_image(all_ones_check=True)
@@ -3180,7 +3180,9 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
         )
         monkeypatch.setattr(image_save, 'generate_image_metadata', lambda scope, color, x, y, z: {})
         image_save.save_image(
-            SimpleNamespace(),
+            SimpleNamespace(
+                imaging=SimpleNamespace(capture_frame_depth=lambda array, sum_count=1: 8)
+            ),
             np.zeros((4, 4), dtype=np.uint8),
             save_folder=str(tmp_path),
             file_root='fc_',
@@ -3201,6 +3203,7 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
 
         from modules import image_mode
         from modules.image_mode import ImageCaptureConfig
+        from modules.protocol_image_writer import CapturedFrame
 
         writer = _bare_protocol_writer(
             image_capture_config=ImageCaptureConfig.from_image_mode('12bit_false_color_rgb')
@@ -3213,7 +3216,9 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
         writer.write_capture(
             enable_image_saving=True,
             is_video=False,
-            captured_image=np.zeros((4, 4), dtype=np.uint8),
+            captured_image=CapturedFrame(
+                image=np.zeros((4, 4), dtype=np.uint8), significant_bits=8
+            ),
             step=_protocol_step(),
             name='stepA_BF',
             save_folder=str(tmp_path),
@@ -3415,6 +3420,7 @@ class TestPIW2_DisksUsageDeduped:
         import numpy as np
 
         from modules.notification_center import notifications
+        from modules.protocol_image_writer import CapturedFrame
 
         aborts = []
         writer = _bare_protocol_writer(abort_fn=lambda: aborts.append(1))
@@ -3432,7 +3438,9 @@ class TestPIW2_DisksUsageDeduped:
         writer.write_capture(
             enable_image_saving=True,
             is_video=False,
-            captured_image=np.zeros((4, 4), dtype=np.uint8),
+            captured_image=CapturedFrame(
+                image=np.zeros((4, 4), dtype=np.uint8), significant_bits=8
+            ),
             step=_protocol_step(),
             name='stepA_BF',
             save_folder=str(tmp_path),
@@ -3950,6 +3958,7 @@ class TestFrameValidity_SaveLiveImageDrainsBeforeGrab:
             imaging=SimpleNamespace(
                 capture_and_wait=lambda **kw: calls.append('capture_and_wait') or frame,
                 get_image=lambda **kw: calls.append('get_image') or frame,
+                capture_frame_depth=lambda array, sum_count=1: 8,
             ),
             illumination=SimpleNamespace(leds_off=lambda: None),
         )

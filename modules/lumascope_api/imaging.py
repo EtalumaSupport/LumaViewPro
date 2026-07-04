@@ -2037,11 +2037,18 @@ class ImagingAPI:
     _SATURATION_BLOWN_FRACTION = 0.98  # >= 98% of pixels saturated = blown frame
 
     @staticmethod
-    def _saturated_fraction(arr: np.ndarray | None) -> float:
-        """Fraction of pixels at or above the near-full-scale threshold."""
+    def _saturated_fraction(arr: np.ndarray | None, significant_bits: int) -> float:
+        """Fraction of pixels at or above the near-full-scale threshold.
+
+        Full scale comes from the frame's payload depth, not the container
+        dtype: a 12-bit frame in a uint16 container tops out at 4095, so
+        measuring against 65535 would report a fully blown frame as 0%
+        saturated and let it slip past the evidence check.
+        """
         if arr is None or arr.size == 0:
             return 0.0
-        near_max = np.iinfo(arr.dtype).max * ImagingAPI._SATURATION_NEAR_MAX_FRACTION
+        full_scale = (1 << significant_bits) - 1
+        near_max = full_scale * ImagingAPI._SATURATION_NEAR_MAX_FRACTION
         return float(np.count_nonzero(arr >= near_max)) / arr.size
 
     def get_image(
@@ -2158,9 +2165,18 @@ class ImagingAPI:
                     time.sleep(0.05)
                     continue
 
+                # Saturation measures against the just-grabbed frame's own
+                # payload depth (the delivery stamp), never the container
+                # dtype -- a 12-bit frame in a uint16 container is blown at
+                # 4095, not 65535. Read only on the checking path: the stamp
+                # read takes the handler's frame lock, which the streaming
+                # thread contends on every delivery.
+                if all_ones_check:
+                    frame_depth = self.last_significant_bits
                 if (
                     all_ones_check
-                    and self._saturated_fraction(tmp) >= self._SATURATION_BLOWN_FRACTION
+                    and self._saturated_fraction(tmp, frame_depth)
+                    >= self._SATURATION_BLOWN_FRACTION
                 ):
                     # Near-fully-saturated frame -- retry once in case it was a
                     # transient blip, then surface it. A blown frame is usually
@@ -2180,16 +2196,16 @@ class ImagingAPI:
                             retry_frame = self._driver.get_array()
                     # Saturation walk is outside cam_lock -- no camera state needed,
                     # and the walk would otherwise block concurrent set_gain/set_exposure.
-                    if (
-                        retry_frame is not None
-                        and self._saturated_fraction(retry_frame) < self._SATURATION_BLOWN_FRACTION
+                    if retry_frame is not None and (
+                        self._saturated_fraction(retry_frame, self.last_significant_bits)
+                        < self._SATURATION_BLOWN_FRACTION
                     ):
                         tmp = retry_frame  # retry was clean, use it
                     else:
                         # Log (not notify): a blown frame is self-evident on
                         # screen and in the saved file, so a popup adds nothing.
                         # The log line is for the post-mortem / log-analysis pass.
-                        sat_pct = self._saturated_fraction(tmp) * 100.0
+                        sat_pct = self._saturated_fraction(tmp, frame_depth) * 100.0
                         logger.warning(
                             f'[SCOPE API ] get_image: captured frame is {sat_pct:.0f}% '
                             f'saturated -- likely over-exposure or a stale camera gain; '
@@ -2292,12 +2308,7 @@ class ImagingAPI:
         # Query the driver only when a consumer needs it -- a raw passthrough
         # frame returns without touching the driver's depth.
         if use_scale_bar or need_8bit:
-            # A summed capture is promoted to a 16-bit container by the loop
-            # above (the sum transform declares the new depth). A single frame
-            # carries the depth it was captured under, read from the frame just
-            # grabbed -- not a fresh format query that a mid-capture switch could
-            # have moved ahead of this frame.
-            significant_bits = 16 if sum_count > 1 else self._driver.last_significant_bits
+            significant_bits = self.capture_frame_depth(image, sum_count)
 
         if use_scale_bar:
             image = image_utils.add_scale_bar(
@@ -2390,8 +2401,59 @@ class ImagingAPI:
         16-bit container by get_image and is not described by this -- summed
         callers declare 16 themselves. Falls back to the container width when no
         camera is attached.
+
+        Derived from the CACHED pixel format (the validated last-known-good)
+        via the driver's own depth rule (``significant_bits_for_format``, so
+        a constant-depth driver like FX2 stays authoritative), not a live
+        driver read: a transient format-read failure once made a 12-bit
+        camera report depth 16 here, so a fully blown frame passed the
+        saturation evidence check at 0.0% and files were stamped at the
+        wrong depth. For the depth of a frame you are HOLDING, prefer
+        ``last_significant_bits`` -- the per-frame stamp.
         """
-        return self._driver.significant_bits if self._driver is not None else 16
+        driver = self._driver
+        if driver is None:
+            return 16
+        return driver.significant_bits_for_format(self.get_pixel_format())
+
+    @property
+    def last_significant_bits(self) -> int:
+        """Payload depth of the most recently delivered frame (per-frame stamp).
+
+        The depth to save, evidence-check, or downconvert a just-captured
+        frame at: every driver stamps the depth WITH the frame at delivery,
+        so it cannot fail a live read and always describes a frame the
+        camera actually produced. Read it as closely as possible to the
+        grab that produced the frame you hold -- a later read can describe
+        a newer frame. The stamp is an in-memory read (no SDK node touch),
+        so it has no transient-failure mode. Falls back to
+        ``significant_bits`` (the validated cached-format depth -- NOT the
+        driver's live-read fallback, which a transient format failure
+        could turn into a wrong container-width answer) when no frame has
+        been stored yet; 16 when no camera is attached.
+        """
+        driver = self._driver
+        if driver is None:
+            return 16
+        stamped = driver.last_stamped_significant_bits()
+        return int(stamped) if stamped is not None else self.significant_bits
+
+    def capture_frame_depth(self, array: np.ndarray | None, sum_count: int = 1) -> int:
+        """Payload depth of a frame just produced by a capture call.
+
+        The one depth-classification rule every save / evidence / display
+        consumer shares: an 8-bit container carries 8 significant bits, a
+        summed capture fills its promoted 16-bit container, and a single
+        wider frame carries the per-frame delivery stamp. Read it at
+        capture time, next to the grab that produced ``array``, and hand
+        it DOWN with the frame -- re-deriving depth later reads the
+        camera's state at that later moment, not the frame's.
+        """
+        if array is not None and getattr(array, 'dtype', None) == np.uint8:
+            return 8
+        if sum_count > 1:
+            return 16
+        return self.last_significant_bits
 
     # --- Streaming control ---
     def start_streaming(self) -> None:

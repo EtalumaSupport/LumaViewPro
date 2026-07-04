@@ -45,13 +45,15 @@ _NUM_SEQ_DIGITS = 6
 def _default_significant_bits(scope, array) -> int:
     """Resolve the payload depth to record when no caller states one.
 
-    An already-8-bit frame carries 8 significant bits; any wider frame
-    carries the camera's current native payload depth. This single rule
-    is shared by every save path -- the TIFF metadata, the JPG
-    downconversion, and the post-save log line -- so they can never
-    disagree about how deep a frame is when the depth rule changes.
+    Delegates to the shared capture-time depth rule
+    (``scope.imaging.capture_frame_depth``) so the TIFF metadata, the
+    JPG downconversion, and the post-save log line can never disagree
+    about how deep a frame is when the rule changes. Callers that
+    captured the frame themselves should pass the depth they recorded
+    at capture time instead of relying on this default -- resolving it
+    here reads the camera's state at save time, not the frame's.
     """
-    return 8 if array.dtype == np.uint8 else scope.imaging.significant_bits
+    return scope.imaging.capture_frame_depth(array)
 
 
 def write_video_frame(
@@ -745,10 +747,14 @@ def save_live_image(
     if array is False:
         return None
 
-    # A summed full-depth capture lives in a 16-bit container; declare that so
-    # the SignificantBits tag matches. Single frames fall through to the
-    # camera-native default; 8-bit captures derive 8 from the dtype.
-    significant_bits = 16 if (sum_count > 1 and not force_to_8bit) else None
+    # Depth resolved here, right after the capture that produced the frame
+    # (uint8 -> 8, summed -> 16, else the per-frame delivery stamp), and
+    # handed down with it -- the shared capture-time depth rule.
+    significant_bits = (
+        scope.imaging.capture_frame_depth(array, sum_count)
+        if isinstance(array, np.ndarray)
+        else None
+    )
 
     path = save_image(
         scope,
@@ -769,14 +775,9 @@ def save_live_image(
     # self-describing: the mode / encoding / depth that produced each file can be
     # read from the log instead of inferred from the file's tags afterward.
     if isinstance(array, np.ndarray):
-        logged_bits = (
-            significant_bits
-            if significant_bits is not None
-            else _default_significant_bits(scope, array)
-        )
         logger.info(
             f'[ImageSave] manual capture encoding={save_encoding} '
-            f'significant_bits={logged_bits} dtype={array.dtype} '
+            f'significant_bits={significant_bits} dtype={array.dtype} '
             f'shape={array.shape} -> {pathlib.Path(path).name}'
         )
     return path

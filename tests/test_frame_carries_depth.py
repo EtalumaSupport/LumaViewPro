@@ -128,7 +128,10 @@ class TestLastSignificantBitsViaMethodContract:
         handler = SimpleNamespace(get_last_image=lambda: (True, None, None, 12))
         assert not hasattr(handler, 'last_img_significant_bits')
 
+        # The property reads the stamp via last_stamped_significant_bits;
+        # wire the real base-class method so the whole chain is exercised.
         cam = SimpleNamespace(cam_image_handler=handler, significant_bits=16)
+        cam.last_stamped_significant_bits = lambda: Camera.last_stamped_significant_bits(cam)
         # Reaching the raw attribute (the bug) would raise AttributeError here.
         assert Camera.last_significant_bits.fget(cam) == 12
 
@@ -140,4 +143,5 @@ class TestLastSignificantBitsViaMethodContract:
         # No frame stored yet -> get_last_image reports failure -> live depth.
         handler = SimpleNamespace(get_last_image=lambda: (False, None, None, None))
         cam = SimpleNamespace(cam_image_handler=handler, significant_bits=16)
+        cam.last_stamped_significant_bits = lambda: Camera.last_stamped_significant_bits(cam)
         assert Camera.last_significant_bits.fget(cam) == 16

@@ -476,6 +476,13 @@ image = scope.imaging.get_image(force_to_8bit=False)   # keep native 12/16-bit
 # Dtype is uint8 with force_to_8bit=True (default) or for 8-bit
 # cameras; uint16 with force_to_8bit=False for 12/16-bit cameras
 # (see scope.capabilities.native_bit_depth).
+#
+# Payload depth of a frame you just captured (for scaling / saving a
+# uint16 frame): scope.imaging.last_significant_bits -- the per-frame
+# delivery stamp (e.g. 12 for Mono12 in a uint16 container). Prefer it
+# over scope.imaging.significant_bits (derived from the current pixel
+# format) when you are holding the frame -- the stamp cannot describe a
+# newer format than the frame was captured under.
 
 # Frame-validity capture — PREFERRED for all real captures.
 # Waits for all pending changes (LED, gain, exposure, motion) to settle,

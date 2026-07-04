@@ -251,13 +251,20 @@ class TestSaturationGuard:
     def test_saturated_fraction_math(self):
         full8 = np.full((4, 4), 255, dtype=np.uint8)
         empty8 = np.zeros((4, 4), dtype=np.uint8)
-        assert ImagingAPI._saturated_fraction(full8) == pytest.approx(1.0)
-        assert ImagingAPI._saturated_fraction(empty8) == pytest.approx(0.0)
-        # A 12-bit-in-uint16 frame just below full scale still reads as
-        # saturated (the near-max threshold, not exact-max).
+        assert ImagingAPI._saturated_fraction(full8, 8) == pytest.approx(1.0)
+        assert ImagingAPI._saturated_fraction(empty8, 8) == pytest.approx(0.0)
+        # A 16-bit frame just below full scale still reads as saturated
+        # (the near-max threshold, not exact-max).
         near16 = np.full((2, 2), int(65535 * 0.995), dtype=np.uint16)
-        assert ImagingAPI._saturated_fraction(near16) == pytest.approx(1.0)
-        assert ImagingAPI._saturated_fraction(None) == 0.0
+        assert ImagingAPI._saturated_fraction(near16, 16) == pytest.approx(1.0)
+        # Full scale follows the frame's PAYLOAD depth, not the container
+        # dtype: a blown 12-bit frame (4095 in a uint16 container) reads
+        # saturated at depth 12; against the container max it would
+        # misread as 0% and slip past the evidence check.
+        blown12 = np.full((2, 2), 4095, dtype=np.uint16)
+        assert ImagingAPI._saturated_fraction(blown12, 12) == pytest.approx(1.0)
+        assert ImagingAPI._saturated_fraction(blown12, 16) == pytest.approx(0.0)
+        assert ImagingAPI._saturated_fraction(None, 8) == 0.0
 
     def test_blown_frame_logged_not_silent(self, sim_imaging, monkeypatch):
         # A blown frame that stays blown on retry must be logged as a
