@@ -803,12 +803,11 @@ def test_build_image_capture_config_couples_save_encoding_to_image_mode():
     assert cfg.capture_depth == 12
     assert cfg.save_encoding == 'msb_aligned'
 
-    # Default mode is 8-bit, and capture_depth stays coupled to it (no raw
-    # capture_depth int that can drift from the encoding).
-    default_cfg = runner.build_image_capture_config()
-    assert default_cfg.image_mode == '8bit'
-    assert default_cfg.capture_depth == 8
-    assert default_cfg.save_encoding == '8bit'
+    # No silent default mode: a headless caller must state the bit depth
+    # explicitly, so a no-arg build fails loudly instead of quietly
+    # producing 8-bit data.
+    with pytest.raises(TypeError):
+        runner.build_image_capture_config()
 
 
 def test_write_tiff_requires_save_encoding(tmp_path):

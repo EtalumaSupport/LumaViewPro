@@ -247,14 +247,20 @@ save_image(
 runner = session.create_protocol_runner()
 protocol = session.scope.load_protocol('my_protocol.tsv')
 
-runner.run_single_scan(protocol)
+# image_capture_config is REQUIRED: the caller states the run's image mode
+# (bit depth + on-disk encoding) explicitly -- there is no silent default.
+# Modes: '8bit', '12bit_scientific', '12bit_scaled', '12bit_false_color_rgb'.
+runner.run_single_scan(
+    protocol,
+    image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
+)
 runner.wait_for_completion()
 
 # Or abort at any time:
 runner.abort()
 ```
 
-`run_single_scan()` runs one scan; `run_protocol()` runs the full multi-scan protocol. See the `ProtocolRunner` source for optional callbacks, image-output config, etc.
+`run_single_scan()` runs one scan; `run_protocol()` runs the full multi-scan protocol. Both raise `ConfigError` if `image_capture_config` is omitted. See the `ProtocolRunner` source for optional callbacks, image-output config, etc.
 
 **Canonical entry points.** Build the runner with `session.create_protocol_runner()`. Build the `Protocol` it runs with one of the two scope-level constructors -- `scope.load_protocol(file_path)` (from a `.tsv` on disk) or `scope.create_protocol(config=... | input_config=... | empty_config=...)` (in-memory). Both resolve `data/tiling.json` from the session's registered `source_path`, so prefer them over calling `Protocol.from_file(...)` directly (which makes you pass `tiling_configs_file_loc` by hand).
 
@@ -1126,7 +1132,10 @@ protocol = Protocol.from_file(
 )
 
 runner = session.create_protocol_runner()
-runner.run_single_scan(protocol)
+runner.run_single_scan(
+    protocol,
+    image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
+)
 runner.wait_for_completion()
 
 session.shutdown_executors()

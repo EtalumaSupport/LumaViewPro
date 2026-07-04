@@ -62,14 +62,16 @@ def test_quality_row_shared_across_live_and_sequenced():
 
 def test_build_image_capture_config_carries_jpg_quality_default():
     runner = ProtocolRunner.__new__(ProtocolRunner)
-    cfg = runner.build_image_capture_config(sequenced_format='JPG')
+    cfg = runner.build_image_capture_config(image_mode='8bit', sequenced_format='JPG')
     assert cfg.output_format_sequenced == 'JPG'
     assert cfg.jpg_quality == 90
 
 
 def test_build_image_capture_config_carries_custom_jpg_quality():
     runner = ProtocolRunner.__new__(ProtocolRunner)
-    cfg = runner.build_image_capture_config(sequenced_format='JPG', jpg_quality=55)
+    cfg = runner.build_image_capture_config(
+        image_mode='8bit', sequenced_format='JPG', jpg_quality=55
+    )
     assert cfg.jpg_quality == 55
 
 

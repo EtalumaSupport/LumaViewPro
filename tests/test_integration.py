@@ -840,6 +840,7 @@ class TestHeadlessSession:
                 protocol=protocol,
                 sequence_name='headless_test',
                 parent_dir=str(tmp_path),
+                image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
                 callbacks={'run_complete': on_complete, 'files_complete': lambda **kw: None},
             )
 
