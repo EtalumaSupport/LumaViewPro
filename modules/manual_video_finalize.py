@@ -111,7 +111,7 @@ def finalize_manual_video(
             capture_config = ui_snapshot.get('image_capture_config')
             if (
                 capture_config is not None
-                and capture_config['output_format']['sequenced'] == 'OME-TIFF Hyperstack'
+                and capture_config.output_format_sequenced == 'OME-TIFF Hyperstack'
             ):
                 required_fields.append('objective_info')
         missing = [field for field in required_fields if ui_snapshot.get(field) is None]
@@ -142,7 +142,7 @@ def finalize_manual_video(
         if video_as_frames:
             image_capture_config = ui_snapshot['image_capture_config']
 
-            if image_capture_config['output_format']['sequenced'] == 'OME-TIFF Hyperstack':
+            if image_capture_config.output_format_sequenced == 'OME-TIFF Hyperstack':
                 include_hyperstack_generation = True
                 _, objective = ui_snapshot['objective_info']
                 stack_builder = StackBuilder(
@@ -218,8 +218,8 @@ def finalize_manual_video(
                         metadata=metadata,
                         layer_color=color,
                         false_color_on=video_false_color is not None,
-                        save_encoding=image_capture_config['save_encoding'],
-                        capture_depth=image_capture_config['capture_depth'],
+                        save_encoding=image_capture_config.save_encoding,
+                        capture_depth=image_capture_config.capture_depth,
                     )
                 except Exception as e:
                     logger.exception(f'Manual-Video] Failed to write frame {frame_num}: {e}')

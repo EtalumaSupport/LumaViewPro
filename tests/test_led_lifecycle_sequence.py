@@ -56,6 +56,7 @@ _mock_settings_init.settings = {
 }
 sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
+from modules.image_mode import ImageCaptureConfig
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
 from modules.protocol import Protocol
@@ -322,11 +323,7 @@ def _run_protocol(
         run_trigger_source='test',
         run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
         sequence_name='led_lifecycle',
-        image_capture_config={
-            'output_format': {'live': 'TIFF', 'sequenced': 'TIFF'},
-            'capture_depth': 8,
-            'save_encoding': '8bit',
-        },
+        image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
         autogain_settings={
             'target_brightness': 0.3,
             'min_gain_db': 0.0,
@@ -808,11 +805,7 @@ def test_run_start_refused_by_live_lease_holder_fails_itself(scope, runner, tmp_
         run_trigger_source='test',
         run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
         sequence_name='led_lease_live_holder',
-        image_capture_config={
-            'output_format': {'live': 'TIFF', 'sequenced': 'TIFF'},
-            'capture_depth': 8,
-            'save_encoding': '8bit',
-        },
+        image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
         autogain_settings={
             'target_brightness': 0.3,
             'min_gain_db': 0.0,

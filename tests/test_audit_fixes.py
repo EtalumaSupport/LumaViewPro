@@ -1540,6 +1540,7 @@ class TestRule14_A7_HyperstackBuildNotify:
         -- without the popup the user only ever sees the optimistic
         'Saving Hyperstacks' info."""
         import modules.config_ui_getters as config_ui_getters
+        from modules.image_mode import ImageCaptureConfig
         from modules.notification_center import notifications
 
         popped = threading.Event()
@@ -1556,7 +1557,9 @@ class TestRule14_A7_HyperstackBuildNotify:
         monkeypatch.setattr(
             config_ui_getters,
             'get_image_capture_config_from_ui',
-            lambda: {'output_format': {'sequenced': 'OME-TIFF Hyperstack'}},
+            lambda: ImageCaptureConfig.from_image_mode(
+                '8bit', output_format_sequenced='OME-TIFF Hyperstack'
+            ),
         )
         monkeypatch.setattr(
             config_ui_getters,
@@ -3024,6 +3027,7 @@ def _bare_protocol_writer(**overrides):
     """ProtocolImageWriter on stub collaborators; kwargs override any slot."""
     from unittest.mock import MagicMock
 
+    from modules.image_mode import ImageCaptureConfig
     from modules.protocol_callbacks import ProtocolCallbacks
     from modules.protocol_image_writer import ProtocolImageWriter
 
@@ -3036,7 +3040,7 @@ def _bare_protocol_writer(**overrides):
         'execution_record': None,
         'leds_off_fn': lambda: None,
         'is_run_in_progress_fn': lambda: True,
-        'save_encoding': '8bit',
+        'image_capture_config': ImageCaptureConfig.from_image_mode('8bit'),
     }
     kwargs.update(overrides)
     return ProtocolImageWriter(**kwargs)
@@ -3110,26 +3114,29 @@ def test_not_saving_capture_builds_record_task_without_crash():
         step=_protocol_step(),
         output_format='TIFF',
         protocol=protocol,
-        image_capture_config={'capture_depth': 8, 'save_encoding': '8bit'},
         enable_image_saving=False,
     )
     assert writer._file_io_executor.protocol_put.called
 
 
 def test_write_capture_threads_save_encoding_to_write_video(monkeypatch, tmp_path):
-    """write_capture resolves nothing itself -- save_encoding + capture_depth are
-    resolved in capture() (where the image_capture_config lives) and threaded
-    through to write_video so protocol video frames honor the image mode."""
+    """write_capture resolves nothing itself -- save_encoding + capture_depth
+    come from the writer's held run config (the one carrier for the run's
+    capture/save intent) and reach write_video so protocol video frames honor
+    the image mode."""
     from types import SimpleNamespace
 
     import modules.protocol_image_writer as piw
+    from modules.image_mode import ImageCaptureConfig
 
     recorded = {}
     monkeypatch.setattr(
         piw, 'write_video', lambda **kwargs: recorded.update(kwargs) or (tmp_path / 'vid')
     )
 
-    writer = _bare_protocol_writer()
+    writer = _bare_protocol_writer(
+        image_capture_config=ImageCaptureConfig.from_image_mode('12bit_false_color_rgb')
+    )
     writer.write_capture(
         is_video=True,
         video_as_frames=True,
@@ -3137,12 +3144,11 @@ def test_write_capture_threads_save_encoding_to_write_video(monkeypatch, tmp_pat
         save_folder=tmp_path,
         name='vid',
         step=_protocol_step(),
-        save_encoding='rgb',
-        capture_depth=12,
         enable_image_saving=True,
     )
     assert recorded.get('save_encoding') == 'rgb', (
-        f'write_capture must thread save_encoding to write_video; saw {sorted(recorded)}'
+        f'write_capture must hand the run config save_encoding to write_video; '
+        f'saw {sorted(recorded)}'
     )
     assert recorded.get('capture_depth') == 12
 
@@ -3188,13 +3194,16 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
         )
 
     def test_protocol_image_writer_caches_at_init(self, monkeypatch, tmp_path):
-        """The writer must hand save_image the value it was CONSTRUCTED
-        with -- the run-start read, not a per-save settings read."""
+        """The writer must hand save_image the config it was CONSTRUCTED
+        with -- the run-start value, not a per-save settings read."""
         import numpy as np
 
         from modules import image_mode
+        from modules.image_mode import ImageCaptureConfig
 
-        writer = _bare_protocol_writer(save_encoding=image_mode.SAVE_ENCODING_RGB)
+        writer = _bare_protocol_writer(
+            image_capture_config=ImageCaptureConfig.from_image_mode('12bit_false_color_rgb')
+        )
         recorded = []
         monkeypatch.setattr(
             'modules.protocol_image_writer.save_image',
@@ -3209,37 +3218,38 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
             save_folder=str(tmp_path),
             use_color='BF',
             output_format='TIFF',
-            save_encoding='8bit',
-            capture_depth=8,
         )
         assert recorded, 'write_capture must reach save_image'
         assert recorded[0]['save_encoding'] == image_mode.SAVE_ENCODING_RGB, (
-            'the constructor-cached save_encoding must arrive at save_image'
+            'the constructor-held run config save_encoding must arrive at save_image'
         )
 
-    def test_sequenced_capture_runner_reads_once_at_run_start(self, monkeypatch):
-        """start() must read false_color_16bit exactly once, under
-        settings_lock, and thread the value to the writer it constructs."""
+    def test_sequenced_capture_runner_start_does_not_read_encoding_settings(self, monkeypatch):
+        """start() must not read encoding settings at all: the run's one
+        ImageCaptureConfig (fixed at prepare()) is threaded to the writer,
+        and ctx.settings has no say over the in-flight run's encoding."""
         from types import SimpleNamespace
 
         import modules.app_context as app_context
         from modules import image_mode
+        from modules.image_mode import ImageCaptureConfig
 
         lock = threading.Lock()
         settings = _LockWatchingSettings(
-            {'use_full_pixel_depth': True, 'false_color_16bit': True}, lock, 'false_color_16bit'
+            {'use_full_pixel_depth': False, 'false_color_16bit': False}, lock, 'false_color_16bit'
         )
         monkeypatch.setattr(
             app_context, 'ctx', SimpleNamespace(settings=settings, settings_lock=lock)
         )
         runner = _bare_capture_runner()
-        runner.start(runner.prepare(**_scr_run_kwargs()))
-        assert settings.watched_reads == [True], (
-            'PIW-3: false_color_16bit must be read exactly once per run, under '
-            f'settings_lock; reads (lock-held flags): {settings.watched_reads}'
+        config = ImageCaptureConfig.from_image_mode('12bit_false_color_rgb')
+        runner.start(runner.prepare(**_scr_run_kwargs(image_capture_config=config)))
+        assert settings.watched_reads == [], (
+            'the run encoding must come from the run config, never from a '
+            f'settings re-read at start(); reads: {settings.watched_reads}'
         )
-        assert runner._image_writer._save_encoding == image_mode.SAVE_ENCODING_RGB, (
-            'PIW-3: the run-start value must be threaded to ProtocolImageWriter'
+        assert runner._image_writer._config.save_encoding == image_mode.SAVE_ENCODING_RGB, (
+            'the prepared run config must be threaded to ProtocolImageWriter'
         )
 
 
@@ -3427,8 +3437,6 @@ class TestPIW2_DisksUsageDeduped:
             save_folder=str(tmp_path),
             use_color='BF',
             output_format='TIFF',
-            save_encoding='8bit',
-            capture_depth=8,
         )
         assert aborts == [1], 'low disk must abort the protocol'
         assert not saves, 'no write may happen after a failed disk check'
@@ -10700,7 +10708,6 @@ class TestAutoGainArmedInScanIterate:
             step=_protocol_step(Auto_Gain=auto_gain),
             output_format='TIFF',
             protocol=protocol,
-            image_capture_config={'capture_depth': 8, 'save_encoding': '8bit'},
             enable_image_saving=True,
         )
         return scope.imaging
@@ -12870,7 +12877,6 @@ class TestPS11VideoCancelledRecordsRow:
             protocol=protocol,
             scan_count=0,
             curr_step=0,
-            image_capture_config={'capture_depth': 8},
         )
 
         assert record.add_step.called, 'cancelled video must leave a record row'
@@ -13008,7 +13014,6 @@ class TestCaptureFailureAbortNotificationOrdering:
             step=_protocol_step(),
             output_format='TIFF',
             protocol=protocol,
-            image_capture_config={'capture_depth': 8, 'save_encoding': '8bit'},
             enable_image_saving=True,
             curr_step=0,
             scan_count=0,

@@ -21,7 +21,6 @@ from modules.protocol_run_loop import ProtocolRunLoop
 from modules.lumascope_api import Lumascope
 
 import modules.common_utils as common_utils
-import modules.config_helpers as config_helpers
 import modules.coord_transformations as coord_transformations
 import modules.image_mode as image_mode
 
@@ -83,7 +82,7 @@ class RunPlan:
     run_mode: SequencedCaptureRunMode
     run_trigger_source: str
     sequence_name: str
-    image_capture_config: dict
+    image_capture_config: image_mode.ImageCaptureConfig
     autogain_settings: dict
     callbacks: ProtocolCallbacks
     n_scans: int | None
@@ -518,7 +517,7 @@ class SequencedCaptureRunner:
         run_trigger_source: str,
         run_mode: SequencedCaptureRunMode,
         sequence_name: str,
-        image_capture_config: dict,
+        image_capture_config: image_mode.ImageCaptureConfig,
         autogain_settings: dict,
         parent_dir: pathlib.Path | None = None,
         enable_image_saving: bool = True,
@@ -553,6 +552,8 @@ class SequencedCaptureRunner:
                 been notified once when this raises.
             ValueError: leds_state_at_end is not a supported literal --
                 a programming error at the call site, not a refusal.
+            TypeError: image_capture_config is not an ImageCaptureConfig
+                -- same class of call-site programming error.
         """
         with self._run_lock:
             if self._run_in_progress_event.is_set():
@@ -591,6 +592,16 @@ class SequencedCaptureRunner:
             'return_to_original',
         ):
             raise ValueError(f'Unsupported value for leds_state_at_end: {leds_state_at_end}')
+
+        # A wrong-shaped config (e.g. a legacy dict) must fail at this
+        # boundary, not as an AttributeError on the protocol thread after
+        # hardware has already moved to the first step.
+        if not isinstance(image_capture_config, image_mode.ImageCaptureConfig):
+            raise TypeError(
+                'image_capture_config must be an ImageCaptureConfig (build one '
+                'with ImageCaptureConfig.from_image_mode); got '
+                f'{type(image_capture_config).__name__}'
+            )
 
         if protocol.num_steps() == 0:
             self._refuse(
@@ -690,10 +701,9 @@ class SequencedCaptureRunner:
             run_mode=run_mode,
             run_trigger_source=run_trigger_source,
             sequence_name=sequence_name,
-            # Deepcopied so the plan's dicts are true snapshots: a caller
-            # (or the GUI) mutating its config dict after prepare() must
-            # not retro-affect the in-flight run.
-            image_capture_config=copy.deepcopy(image_capture_config),
+            # Frozen value object -- immutable by construction, so the plan
+            # holds a true snapshot without copying.
+            image_capture_config=image_capture_config,
             # Snapshot so mid-run UI mutations of the autogain settings
             # dict (target_brightness, max_duration, min/max_gain_db) do
             # not leak into the in-flight scan.
@@ -835,22 +845,16 @@ class SequencedCaptureRunner:
                 if ctx is not None
                 else False
             )
-            # PIW-3: read once per run under settings_lock to avoid per-save lock acquires
-            # in image_utils.write_tiff. Mid-run UI changes intentionally do not retro-affect
-            # an in-flight protocol -- saves use the value as of run-start.
-            # bf_af_for_fluorescence shares the same snapshot lane so mid-run
-            # toggles do not produce inconsistent AF behavior across steps
-            # within one scan; protocol_step_runner reads p._bf_af_for_fluorescence.
+            # bf_af_for_fluorescence is snapshotted once per run under
+            # settings_lock so mid-run toggles do not produce inconsistent AF
+            # behavior across steps within one scan; protocol_step_runner
+            # reads p._bf_af_for_fluorescence.
             if ctx is not None:
                 with ctx.settings_lock:
-                    save_encoding = config_helpers.get_image_capture_config_from_settings(
-                        ctx.settings
-                    )['save_encoding']
                     self._bf_af_for_fluorescence = ctx.settings.get('protocol', {}).get(
                         'bf_af_for_fluorescence', False
                     )
             else:
-                save_encoding = image_mode.SAVE_ENCODING_8BIT
                 self._bf_af_for_fluorescence = False
 
             # Borrow protocol_thread's abort Event as SCE's _aborted reference.
@@ -870,7 +874,7 @@ class SequencedCaptureRunner:
                 is_run_in_progress_fn=lambda: self._run_in_progress_event.is_set(),
                 stim_profiling=stim_profiling,
                 run_dir=self._run_dir,
-                save_encoding=save_encoding,
+                image_capture_config=self._image_capture_config,
             )
 
             self.camera_executor.disable()

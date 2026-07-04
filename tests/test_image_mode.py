@@ -105,19 +105,19 @@ def test_config_helper_derives_image_mode_from_settings():
     from modules.config_helpers import get_image_capture_config_from_settings
 
     cfg = get_image_capture_config_from_settings({})  # defaults: 8-bit
-    assert cfg['image_mode'] == '8bit'
-    assert cfg['capture_depth'] == 8
-    assert cfg['save_encoding'] == '8bit'
+    assert cfg.image_mode == '8bit'
+    assert cfg.capture_depth == 8
+    assert cfg.save_encoding == '8bit'
 
     cfg = get_image_capture_config_from_settings(
         {'use_full_pixel_depth': True, 'false_color_16bit': True}
     )
-    assert cfg['image_mode'] == '12bit_false_color_rgb'
-    assert cfg['capture_depth'] == 12
-    assert cfg['save_encoding'] == 'rgb'
+    assert cfg.image_mode == '12bit_false_color_rgb'
+    assert cfg.capture_depth == 12
+    assert cfg.save_encoding == 'rgb'
     # The retired keys are not re-emitted by the getter.
-    assert 'use_full_pixel_depth' not in cfg
-    assert 'false_color_16bit' not in cfg
+    assert not hasattr(cfg, 'use_full_pixel_depth')
+    assert not hasattr(cfg, 'false_color_16bit')
 
 
 # ---------------------------------------------------------------------------
@@ -292,9 +292,9 @@ def test_config_helper_prefers_image_mode_key():
     from modules.config_helpers import get_image_capture_config_from_settings
 
     cfg = get_image_capture_config_from_settings({'image_mode': '12bit_scaled'})
-    assert cfg['image_mode'] == '12bit_scaled'
-    assert cfg['capture_depth'] == 12
-    assert cfg['save_encoding'] == 'msb_aligned'
+    assert cfg.image_mode == '12bit_scaled'
+    assert cfg.capture_depth == 12
+    assert cfg.save_encoding == 'msb_aligned'
 
 
 # ---------------------------------------------------------------------------
@@ -799,16 +799,16 @@ def test_build_image_capture_config_couples_save_encoding_to_image_mode():
     runner = ProtocolRunner.__new__(ProtocolRunner)
 
     cfg = runner.build_image_capture_config(image_mode='12bit_scaled')
-    assert cfg['image_mode'] == '12bit_scaled'
-    assert cfg['capture_depth'] == 12
-    assert cfg['save_encoding'] == 'msb_aligned'
+    assert cfg.image_mode == '12bit_scaled'
+    assert cfg.capture_depth == 12
+    assert cfg.save_encoding == 'msb_aligned'
 
     # Default mode is 8-bit, and capture_depth stays coupled to it (no raw
     # capture_depth int that can drift from the encoding).
     default_cfg = runner.build_image_capture_config()
-    assert default_cfg['image_mode'] == '8bit'
-    assert default_cfg['capture_depth'] == 8
-    assert default_cfg['save_encoding'] == '8bit'
+    assert default_cfg.image_mode == '8bit'
+    assert default_cfg.capture_depth == 8
+    assert default_cfg.save_encoding == '8bit'
 
 
 def test_write_tiff_requires_save_encoding(tmp_path):

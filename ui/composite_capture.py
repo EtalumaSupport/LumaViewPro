@@ -79,8 +79,8 @@ class CompositeCapture(FloatLayout):
         well_label = ctx.scope.runtime_state.get_well_label()
 
         image_capture_config = get_image_capture_config_from_ui()
-        force_to_8bit_pixel_depth = image_capture_config['capture_depth'] == 8
-        save_encoding = image_capture_config['save_encoding']
+        force_to_8bit_pixel_depth = image_capture_config.capture_depth == 8
+        save_encoding = image_capture_config.save_encoding
 
         for layer in common_utils.get_layers():
             layer_obj = ctx.image_settings.layer_lookup(layer=layer)
@@ -268,8 +268,8 @@ class CompositeCapture(FloatLayout):
         from modules.config_ui_getters import get_image_capture_config_from_ui
 
         image_capture_config = get_image_capture_config_from_ui()
-        capture_depth = image_capture_config['capture_depth']
-        save_encoding = image_capture_config['save_encoding']
+        capture_depth = image_capture_config.capture_depth
+        save_encoding = image_capture_config.save_encoding
 
         # Run hardware-blocking work on worker_pool at MED priority so it
         # doesn't freeze the UI or contend with io_executor. HIGH-priority

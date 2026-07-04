@@ -97,24 +97,20 @@ class ProtocolRunner:
         sequenced_format: str = 'TIFF',
         image_mode: str = image_mode_module.DEFAULT_IMAGE_MODE,
         jpg_quality: int = 90,
-    ) -> dict:
-        """Build an image capture config dict without reading from GUI.
+    ) -> image_mode_module.ImageCaptureConfig:
+        """Build an image capture config without reading from GUI.
 
         capture_depth and save_encoding are derived together from the one
         image_mode value rather than carried independently, so the config that
         drives capture also drives the save: a 12-bit-scaled capture cannot be
         paired with an 8-bit save that stores it right-aligned (dark). This is
         the GUI-less mirror of get_image_capture_config_from_ui; both route
-        through the same shared builder so the two paths cannot drift.
+        through the same one constructor so the two paths cannot drift.
         """
-        import modules.config_helpers as config_helpers
-
-        return config_helpers.build_image_capture_config(
-            output_format={
-                'live': live_format,
-                'sequenced': sequenced_format,
-            },
-            mode=image_mode,
+        return image_mode_module.ImageCaptureConfig.from_image_mode(
+            image_mode,
+            output_format_live=live_format,
+            output_format_sequenced=sequenced_format,
             jpg_quality=jpg_quality,
         )
 
@@ -127,7 +123,7 @@ class ProtocolRunner:
         protocol: Protocol,
         sequence_name: str = 'scan',
         parent_dir: pathlib.Path | str | None = None,
-        image_capture_config: dict | None = None,
+        image_capture_config: image_mode_module.ImageCaptureConfig | None = None,
         enable_image_saving: bool = True,
         callbacks: dict[str, typing.Callable] | None = None,
         return_to_position: dict | None = None,
@@ -166,7 +162,7 @@ class ProtocolRunner:
         protocol: Protocol,
         sequence_name: str = 'protocol',
         parent_dir: pathlib.Path | str | None = None,
-        image_capture_config: dict | None = None,
+        image_capture_config: image_mode_module.ImageCaptureConfig | None = None,
         enable_image_saving: bool = True,
         callbacks: dict[str, typing.Callable] | None = None,
     ):
@@ -205,7 +201,7 @@ class ProtocolRunner:
         max_scans: int | None,
         sequence_name: str,
         parent_dir: pathlib.Path | str | None = None,
-        image_capture_config: dict | None = None,
+        image_capture_config: image_mode_module.ImageCaptureConfig | None = None,
         enable_image_saving: bool = True,
         callbacks: dict[str, typing.Callable] | None = None,
         return_to_position: dict | None = None,
@@ -238,9 +234,9 @@ class ProtocolRunner:
         # line lets a support bundle state the mode the scan ran in.
         logger.info(
             f'[Protocol] scan "{sequence_name}" '
-            f'image_mode={image_capture_config["image_mode"]} '
-            f'capture_depth={image_capture_config["capture_depth"]} '
-            f'save_encoding={image_capture_config["save_encoding"]}'
+            f'image_mode={image_capture_config.image_mode} '
+            f'capture_depth={image_capture_config.capture_depth} '
+            f'save_encoding={image_capture_config.save_encoding}'
         )
 
         import modules.config_helpers as config_helpers

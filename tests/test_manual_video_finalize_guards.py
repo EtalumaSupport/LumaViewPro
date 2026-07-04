@@ -28,6 +28,7 @@ import pytest
 REPO = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
+from modules.image_mode import ImageCaptureConfig
 from modules.manual_video_finalize import finalize_manual_video
 from modules.notification_center import Severity, notifications
 
@@ -41,11 +42,7 @@ def _capture_notifications():
 
 
 def _valid_image_capture_config():
-    return {
-        'output_format': {'sequenced': 'TIFF'},
-        'save_encoding': 'png',
-        'capture_depth': 8,
-    }
+    return ImageCaptureConfig.from_image_mode('8bit')
 
 
 def _kwargs(tmp_path, **overrides):
@@ -185,11 +182,9 @@ def test_missing_objective_for_hyperstack_notifies_and_returns(tmp_path):
             video_as_frames=True,
             ui_snapshot={
                 'active_layer_config': ('Green', {}),
-                'image_capture_config': {
-                    'output_format': {'sequenced': 'OME-TIFF Hyperstack'},
-                    'save_encoding': 'png',
-                    'capture_depth': 8,
-                },
+                'image_capture_config': ImageCaptureConfig.from_image_mode(
+                    '8bit', output_format_sequenced='OME-TIFF Hyperstack'
+                ),
                 'objective_info': None,  # snapshot failed
                 'binning': 1,
             },
@@ -290,11 +285,14 @@ def test_no_drops_emits_no_drop_warning(tmp_path):
 
 
 def test_unexpected_error_notifies_recording_not_saved(tmp_path):
-    """A failure PAST the snapshot precondition must surface 'Recording Not
-    Saved' and re-raise, not vanish behind a log line. Here the config dict is
-    present (precondition passes) but missing 'output_format', so the hyperstack
-    probe subscripts a missing key -- the class of error the top-level guard
-    converts from a silent discard into a loud notification."""
+    """An unexpected failure while consuming the snapshot must surface
+    'Recording Not Saved' and re-raise, not vanish behind a log line. Here the
+    config object is present (the None precondition passes) but is a stub
+    missing output_format_sequenced, so the hyperstack probe raises -- the
+    class of error the top-level guard converts from a silent discard into a
+    loud notification."""
+    from types import SimpleNamespace
+
     captured = _capture_notifications()
 
     kwargs = _kwargs(
@@ -302,13 +300,13 @@ def test_unexpected_error_notifies_recording_not_saved(tmp_path):
         video_as_frames=True,
         ui_snapshot={
             'active_layer_config': ('Green', {}),
-            'image_capture_config': {'save_encoding': '8bit', 'capture_depth': 8},
+            'image_capture_config': SimpleNamespace(save_encoding='8bit', capture_depth=8),
             'objective_info': (None, {'focal_length': 1.0}),
             'binning': 1,
         },
     )
 
-    with pytest.raises(KeyError):
+    with pytest.raises(AttributeError):
         finalize_manual_video(**kwargs)
 
     assert any(n.severity >= Severity.ERROR and n.title == 'Recording Not Saved' for n in captured)

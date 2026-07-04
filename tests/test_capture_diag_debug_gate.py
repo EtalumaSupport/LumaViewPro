@@ -17,6 +17,7 @@ from unittest.mock import MagicMock
 
 import numpy as np
 
+from modules.image_mode import ImageCaptureConfig
 from modules.protocol_callbacks import ProtocolCallbacks
 from modules.protocol_image_writer import ProtocolImageWriter
 
@@ -31,7 +32,7 @@ def _drive_capture(monkeypatch, debug_enabled):
         execution_record=None,
         leds_off_fn=lambda: None,
         is_run_in_progress_fn=lambda: True,
-        save_encoding='8bit',
+        image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
     )
     scope = writer._scope
     scope.motion.has_turret.return_value = False
@@ -73,7 +74,6 @@ def _drive_capture(monkeypatch, debug_enabled):
         },
         output_format='TIFF',
         protocol=protocol,
-        image_capture_config={'capture_depth': 8, 'save_encoding': '8bit'},
         enable_image_saving=True,
     )
     return scope.imaging

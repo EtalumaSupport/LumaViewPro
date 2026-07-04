@@ -42,6 +42,7 @@ _mock_settings_init.settings = {
 }
 sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
+from modules.image_mode import ImageCaptureConfig
 from modules.lumascope_api import Lumascope
 from modules.sequential_io_executor import SequentialIOExecutor
 from modules.sequenced_capture_runner import SequencedCaptureRunner
@@ -95,13 +96,7 @@ def _make_autogain_settings():
 
 
 def _make_image_capture_config():
-    return {
-        'output_format': {
-            'live': 'TIFF',
-            'sequenced': 'TIFF',
-        },
-        'capture_depth': 8,
-    }
+    return ImageCaptureConfig.from_image_mode('8bit')
 
 
 TILING_CONFIGS = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'

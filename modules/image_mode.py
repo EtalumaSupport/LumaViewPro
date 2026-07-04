@@ -19,6 +19,8 @@ The 8-bit default preserves the shipped behavior: the retiring
 
 from __future__ import annotations
 
+import dataclasses
+
 import numpy as np
 
 from lvp_logger import logger
@@ -77,6 +79,72 @@ def resolve_image_mode(mode: str) -> dict:
         return dict(_MODE_TABLE[mode])
     except KeyError:
         raise ConfigError(f'unknown image_mode: {mode!r}') from None
+
+
+@dataclasses.dataclass(frozen=True)
+class ImageCaptureConfig:
+    """A run's image-capture intent: one image_mode plus its derived facts.
+
+    The value object every capture and save decision inside a run reads.
+    capture_depth and save_encoding exist only as derived facts of the one
+    image_mode -- build instances with from_image_mode(), which derives the
+    pair; a directly-constructed instance whose pair disagrees with its mode
+    is refused at construction, so a config whose save disagrees with its
+    capture is unrepresentable. Frozen, so the intent fixed at run start
+    cannot drift mid-run.
+    """
+
+    image_mode: str
+    capture_depth: int
+    save_encoding: str
+    output_format_live: str = 'TIFF'
+    output_format_sequenced: str = 'TIFF'
+    jpg_quality: int = 90
+
+    def __post_init__(self) -> None:
+        derived = resolve_image_mode(self.image_mode)
+        if (
+            self.capture_depth != derived['capture_depth']
+            or self.save_encoding != derived['save_encoding']
+        ):
+            raise ConfigError(
+                f'ImageCaptureConfig pair (capture_depth={self.capture_depth}, '
+                f'save_encoding={self.save_encoding!r}) does not match '
+                f'image_mode {self.image_mode!r}; build via from_image_mode()'
+            )
+        # Coerce here, not in from_image_mode, so a directly-constructed
+        # config (JSON/UI text riding in as '85') fails or normalizes at
+        # construction rather than at the JPG save on the file-IO thread.
+        object.__setattr__(self, 'jpg_quality', int(self.jpg_quality))
+
+    @classmethod
+    def from_image_mode(
+        cls,
+        mode: str,
+        *,
+        output_format_live: str = 'TIFF',
+        output_format_sequenced: str = 'TIFF',
+        jpg_quality: int = 90,
+    ) -> ImageCaptureConfig:
+        """Build a config from one image_mode, deriving its coupled pair.
+
+        The documented constructor: capture_depth and save_encoding are
+        derived together from the mode, so the config that drives capture
+        also drives the matching save (a 12-bit-scaled capture cannot be
+        paired with an 8-bit save that stores it right-aligned and dark).
+
+        Raises:
+            ConfigError: mode is not a recognized IMAGE_MODE_* value.
+        """
+        derived = resolve_image_mode(mode)
+        return cls(
+            image_mode=mode,
+            capture_depth=derived['capture_depth'],
+            save_encoding=derived['save_encoding'],
+            output_format_live=output_format_live,
+            output_format_sequenced=output_format_sequenced,
+            jpg_quality=jpg_quality,
+        )
 
 
 def depth_truncation_warning_active(feature_count: int, image_mode_value: str) -> bool:

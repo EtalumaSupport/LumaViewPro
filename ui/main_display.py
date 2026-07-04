@@ -220,9 +220,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         self.video_as_frames = settings['video_as_frames']
         # Snapshot capture depth at record start so the per-frame record_helper
         # reuses it without re-deriving the image mode on every frame.
-        self._record_capture_depth = get_image_capture_config_from_settings(settings)[
-            'capture_depth'
-        ]
+        self._record_capture_depth = get_image_capture_config_from_settings(settings).capture_depth
 
         # false_color was snapshotted on main thread by record_button()
         color = false_color

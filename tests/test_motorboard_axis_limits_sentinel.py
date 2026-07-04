@@ -164,6 +164,7 @@ class TestSequencedCaptureRunnerHandlesNoneFromGetAxisLimits:
         from unittest.mock import MagicMock
 
         from modules.exceptions import ProtocolRunRefusedError
+        from modules.image_mode import ImageCaptureConfig
         from modules.notification_center import notifications
         from modules.sequenced_capture_runner import (
             SequencedCaptureRunMode,
@@ -202,7 +203,7 @@ class TestSequencedCaptureRunnerHandlesNoneFromGetAxisLimits:
                 run_trigger_source='test',
                 run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
                 sequence_name='seq',
-                image_capture_config={},
+                image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
                 autogain_settings={},
             )
         passed = protocol.validate_for_run.call_args.kwargs['axis_limits']

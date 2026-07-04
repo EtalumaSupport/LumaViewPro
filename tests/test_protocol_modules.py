@@ -542,6 +542,7 @@ class TestProtocolImageWriterWriteCapture:
 
     def _make_writer(self, execution_record=None):
         """Create a ProtocolImageWriter with minimal stubs."""
+        from modules.image_mode import ImageCaptureConfig
         from modules.protocol_image_writer import ProtocolImageWriter
 
         writer = ProtocolImageWriter(
@@ -553,7 +554,7 @@ class TestProtocolImageWriterWriteCapture:
             execution_record=execution_record,
             leds_off_fn=lambda: None,
             is_run_in_progress_fn=lambda: True,
-            save_encoding='8bit',
+            image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
         )
         return writer
 
@@ -563,8 +564,6 @@ class TestProtocolImageWriterWriteCapture:
         writer.write_capture(
             enable_image_saving=False,
             step={'Name': 'test'},
-            save_encoding='8bit',
-            capture_depth=8,
         )
         record.add_step.assert_called_once()
         call_kwargs = record.add_step.call_args
@@ -583,8 +582,6 @@ class TestProtocolImageWriterWriteCapture:
             step={'Name': 'test'},
             step_index=0,
             scan_count=1,
-            save_encoding='8bit',
-            capture_depth=8,
         )
         record.add_step.assert_called_once()
         # Check the keyword arguments
@@ -597,8 +594,6 @@ class TestProtocolImageWriterWriteCapture:
         writer.write_capture(
             enable_image_saving=False,
             step={'Name': 'test'},
-            save_encoding='8bit',
-            capture_depth=8,
         )
 
     def test_write_capture_failed_image_records_failure(self):
@@ -615,8 +610,6 @@ class TestProtocolImageWriterWriteCapture:
             name='test_name',
             step_index=3,
             scan_count=2,
-            save_encoding='8bit',
-            capture_depth=8,
         )
         record.add_step.assert_called_once()
         _, kwargs = record.add_step.call_args
@@ -630,8 +623,6 @@ class TestProtocolImageWriterWriteCapture:
             is_video=False,
             captured_image=None,
             step={'Name': 'test'},
-            save_encoding='8bit',
-            capture_depth=8,
         )
         # Should not crash -- just returns
 

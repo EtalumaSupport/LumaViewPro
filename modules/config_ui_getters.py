@@ -17,6 +17,7 @@ import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 import modules.config_helpers as config_helpers
 import modules.labware as labware
+from modules.image_mode import ImageCaptureConfig
 from modules.stack_builder import StackBuilder
 from modules.zstack_config import ZStackConfig
 
@@ -238,16 +239,15 @@ def get_selected_labware() -> tuple[str | None, labware.WellPlate | None]:
 # ---------------------------------------------------------------------------
 
 
-def get_image_capture_config_from_ui() -> dict:
+def get_image_capture_config_from_ui() -> ImageCaptureConfig:
     microscope_settings = _app_ctx.ctx.motion_settings.ids['microscope_settings_id']
-    output_format = {
-        'live': microscope_settings.ids['live_image_output_format_spinner'].text,
-        'sequenced': microscope_settings.ids['sequenced_image_output_format_spinner'].text,
-    }
     mode = _app_ctx.ctx.scope_display.image_mode
-    return config_helpers.build_image_capture_config(
-        output_format=output_format,
-        mode=mode,
+    return ImageCaptureConfig.from_image_mode(
+        mode,
+        output_format_live=microscope_settings.ids['live_image_output_format_spinner'].text,
+        output_format_sequenced=microscope_settings.ids[
+            'sequenced_image_output_format_spinner'
+        ].text,
         jpg_quality=_app_ctx.ctx.settings.get('jpg_quality', 90),
     )
 
@@ -354,7 +354,7 @@ def get_protocol_time_params() -> dict:
 def create_hyperstacks_if_needed():
     ctx = _app_ctx.ctx
     image_capture_config = get_image_capture_config_from_ui()
-    if image_capture_config['output_format']['sequenced'] == 'OME-TIFF Hyperstack':
+    if image_capture_config.output_format_sequenced == 'OME-TIFF Hyperstack':
         import threading
 
         from modules.notification_center import notifications

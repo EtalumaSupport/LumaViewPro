@@ -20,6 +20,8 @@ import datetime
 import time
 from unittest.mock import MagicMock
 
+from modules.image_mode import ImageCaptureConfig
+
 
 def protocol_step(**overrides):
     """A scan_iterate-shaped step dict (plain dict, not pandas Series)."""
@@ -76,7 +78,7 @@ def scr_run_kwargs(**overrides):
         'run_trigger_source': 'test',
         'run_mode': SequencedCaptureRunMode.FULL_PROTOCOL,
         'sequence_name': 'seq',
-        'image_capture_config': {},
+        'image_capture_config': ImageCaptureConfig.from_image_mode('8bit'),
         'autogain_settings': {'target_brightness': 0.3},
         'parent_dir': None,
         'disable_saving_artifacts': True,
@@ -104,7 +106,7 @@ def scan_ready_runner(step, **state):
     runner._image_writer = MagicMock()
     runner._disable_saving_artifacts = True
     runner._enable_image_saving = False
-    runner._image_capture_config = {'output_format': {'sequenced': 'TIFF'}}
+    runner._image_capture_config = ImageCaptureConfig.from_image_mode('8bit')
     runner._separate_folder_per_channel = False
     runner._video_as_frames = False
     runner._leds_state_at_end = 'off'

@@ -334,7 +334,7 @@ class ProtocolStepRunner:
                 else:
                     save_folder = p._run_dir
 
-                output_format = p._image_capture_config['output_format']['sequenced']
+                output_format = p._image_capture_config.output_format_sequenced
                 if output_format == 'OME-TIFF Hyperstack':
                     output_format = 'TIFF'
 
@@ -418,7 +418,6 @@ class ProtocolStepRunner:
                     scan_count=p._scan_count,
                     sum_count=step['Sum'],
                     enable_image_saving=p._enable_image_saving,
-                    image_capture_config=p._image_capture_config,
                     autogain_settings=p._autogain_settings,
                     video_as_frames=p._video_as_frames,
                     separate_folder_per_channel=p._separate_folder_per_channel,

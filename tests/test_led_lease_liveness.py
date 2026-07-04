@@ -5,8 +5,8 @@ Every lease carries its owner's authoritative in-flight probe plus the
 acquiring thread, so "the holder is stranded" is a provable fact instead of
 an assumption a contender has to make. Contention is decided on the resource:
 
-- A holder whose probe answers False, or whose acquiring thread died, is
-  reclaimed inside the next acquire with the evidence logged.
+- A holder whose probe answers False is reclaimed inside the next acquire
+  with the evidence logged.
 - A LIVE holder refuses the contender, and the refused operation must refuse
   itself (autofocus aborts its own run) rather than proceed without
   illumination authority.

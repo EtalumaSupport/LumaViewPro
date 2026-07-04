@@ -58,6 +58,7 @@ _purge_kivy_from_sys_modules()
 
 
 # Now import the protocol execution chain -- these MUST not require Kivy
+from modules.image_mode import ImageCaptureConfig
 from modules.lumascope_api import Lumascope
 from modules.sequential_io_executor import SequentialIOExecutor
 from modules.sequenced_capture_runner import (
@@ -258,10 +259,7 @@ class TestHeadlessProtocolExecution:
                 'max_duration': datetime.timedelta(seconds=2),
             }
 
-            image_capture_config = {
-                'output_format': {'live': 'TIFF', 'sequenced': 'TIFF'},
-                'capture_depth': 8,
-            }
+            image_capture_config = ImageCaptureConfig.from_image_mode('8bit')
 
             plan = executor.prepare(
                 protocol=protocol,

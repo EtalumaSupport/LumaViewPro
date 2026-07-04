@@ -1181,7 +1181,7 @@ class IlluminationAPI:
         While a lease is held, only its owner may drive the LEDs.
         Contention is arbitrated HERE, on the resource, not at call
         sites: a holder whose owner is provably dead (its liveness probe
-        answers False, or its acquiring thread died) is reclaimed with
+        answers False) is reclaimed with
         the evidence logged; a LIVE holder refuses the requester, and a
         refused requester must refuse its own operation -- no caller may
         reset the stack out from under a live owner. It never raises on

@@ -62,6 +62,7 @@ def test_protocol_image_writer_uses_if_collision(monkeypatch, tmp_path):
 
     import numpy as np
 
+    from modules.image_mode import ImageCaptureConfig
     from modules.protocol_callbacks import ProtocolCallbacks
     from modules.protocol_image_writer import ProtocolImageWriter
 
@@ -74,7 +75,7 @@ def test_protocol_image_writer_uses_if_collision(monkeypatch, tmp_path):
         execution_record=None,
         leds_off_fn=lambda: None,
         is_run_in_progress_fn=lambda: True,
-        save_encoding='8bit',
+        image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
     )
     recorded = []
     monkeypatch.setattr(
@@ -90,8 +91,6 @@ def test_protocol_image_writer_uses_if_collision(monkeypatch, tmp_path):
         save_folder=str(tmp_path),
         use_color='BF',
         output_format='TIFF',
-        save_encoding='8bit',
-        capture_depth=8,
     )
     assert recorded, 'write_capture must reach save_image'
     assert recorded[0]['tail_id_mode'] == 'if_collision', (

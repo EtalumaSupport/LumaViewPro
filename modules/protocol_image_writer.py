@@ -32,6 +32,7 @@ except ImportError:
     profile_trace = None
 
 if TYPE_CHECKING:
+    from modules.image_mode import ImageCaptureConfig
     from modules.lumascope_api import Lumascope
     from modules.protocol_callbacks import ProtocolCallbacks
     from modules.protocol_execution_record import ProtocolExecutionRecord
@@ -69,11 +70,11 @@ class ProtocolImageWriter:
         is_run_in_progress_fn,
         stim_profiling: bool = False,
         run_dir: pathlib.Path | None = None,
-        # Resolved once at run start; per-save writes reuse it instead of
-        # re-reading settings under lock. Required so a run cannot be built
-        # without its image mode and silently default to 8-bit (saving a
-        # 12-bit-scaled run right-aligned / dark).
-        save_encoding: str,
+        # The run's one immutable capture/save intent. Required so a run
+        # cannot be built without its image mode; holding the whole frozen
+        # config (rather than a loose save_encoding) leaves no second
+        # channel for the capture depth and the save encoding to diverge.
+        image_capture_config: ImageCaptureConfig,
     ):
         self._scope = scope
         self._callbacks = callbacks
@@ -85,7 +86,7 @@ class ProtocolImageWriter:
         self._is_run_in_progress = is_run_in_progress_fn
         self._stim_profiling = stim_profiling
         self._run_dir = run_dir
-        self._save_encoding = save_encoding
+        self._config = image_capture_config
         self._consecutive_capture_failures = 0
         self._MAX_CONSECUTIVE_CAPTURE_FAILURES = 3
 
@@ -167,7 +168,6 @@ class ProtocolImageWriter:
         scan_count=None,
         sum_count: int = 1,
         enable_image_saving: bool = True,
-        image_capture_config: dict | None = None,
         autogain_settings: dict | None = None,
         video_as_frames: bool = False,
         separate_folder_per_channel: bool = False,
@@ -175,7 +175,11 @@ class ProtocolImageWriter:
     ) -> bool:
         """Orchestrate image/video acquisition for a single protocol step.
 
-        Runs on the protocol-executor thread.
+        Runs on the protocol-executor thread. Capture depth and save
+        encoding come from the writer's held run config (self._config) --
+        the one carrier for the run's capture/save intent -- so the values
+        the camera captures with and the values the file-IO thread saves
+        with cannot diverge for one run.
 
         Returns:
             True if the capture completed normally and left the step channel
@@ -347,17 +351,9 @@ class ProtocolImageWriter:
             sum_iteration_callback = None
             use_color = step['Color'] if step['False_Color'] else 'BF'
 
-            # capture_depth and save_encoding are a coupled pair from the
-            # image_mode config; read required (not .get-with-default) so a
-            # config that somehow lost one fails loudly here instead of saving a
-            # 12-bit-scaled frame right-aligned (dark). Read before the
-            # save/not-save split so every write_capture dispatch -- including
-            # the not-saving record row -- carries the run's depth in scope.
-            capture_depth = image_capture_config['capture_depth']
+            capture_depth = self._config.capture_depth
 
             if enable_image_saving:
-                jpeg_quality = image_capture_config.get('jpg_quality', 90)
-
                 if is_video:
                     session = VideoCaptureSession(
                         scope=self._scope,
@@ -405,8 +401,6 @@ class ProtocolImageWriter:
                                 'use_color': use_color,
                                 'name': name,
                                 'output_format': output_format,
-                                'save_encoding': image_capture_config['save_encoding'],
-                                'capture_depth': capture_depth,
                                 'step': step,
                                 'captured_image': None,
                                 'step_index': curr_step,
@@ -477,8 +471,6 @@ class ProtocolImageWriter:
                                     'capture_time': _failed_capture_time,
                                     'enable_image_saving': enable_image_saving,
                                     'separate_folder_per_channel': separate_folder_per_channel,
-                                    'save_encoding': image_capture_config['save_encoding'],
-                                    'capture_depth': capture_depth,
                                 },
                                 silent_on_failure=True,
                             )
@@ -539,7 +531,6 @@ class ProtocolImageWriter:
                                 'use_color': use_color,
                                 'name': name,
                                 'output_format': output_format,
-                                'jpeg_quality': jpeg_quality,
                                 'step': step,
                                 'captured_image': captured_image,
                                 'step_index': curr_step,
@@ -547,8 +538,6 @@ class ProtocolImageWriter:
                                 'capture_time': _success_capture_time,
                                 'enable_image_saving': enable_image_saving,
                                 'separate_folder_per_channel': separate_folder_per_channel,
-                                'save_encoding': image_capture_config['save_encoding'],
-                                'capture_depth': capture_depth,
                             },
                             silent_on_failure=True,
                         )
@@ -574,8 +563,6 @@ class ProtocolImageWriter:
                             'step': step,
                             'enable_image_saving': enable_image_saving,
                             'separate_folder_per_channel': separate_folder_per_channel,
-                            'save_encoding': image_capture_config['save_encoding'],
-                            'capture_depth': capture_depth,
                         },
                         silent_on_failure=True,
                     )
@@ -632,13 +619,7 @@ class ProtocolImageWriter:
         use_color=None,
         name=None,
         output_format=None,
-        jpeg_quality=90,
-        # save_encoding / capture_depth feed only the video leg (write_video);
-        # the image leg saves via self._save_encoding. Required (no silent
-        # 8-bit fallback) and keyword-only so every caller states them.
         *,
-        save_encoding,
-        capture_depth,
         step=None,
         captured_image=None,
         step_index=None,
@@ -649,7 +630,10 @@ class ProtocolImageWriter:
     ):
         """Write captured image/video to disk and record in execution log.
 
-        Runs on the file-IO thread.
+        Runs on the file-IO thread. Encoding, depth, and JPEG quality come
+        from the writer's held run config -- the one carrier for the run's
+        capture/save intent -- so the video and image legs cannot receive
+        different values for one run.
         """
         # Count the attempt up front so end-of-run reconciliation can detect a
         # capture that returns without leaving a row in the execution record.
@@ -698,8 +682,8 @@ class ProtocolImageWriter:
                         video_as_frames=video_as_frames,
                         step=step,
                         callbacks=self._callbacks.to_dict(),
-                        save_encoding=save_encoding,
-                        capture_depth=capture_depth,
+                        save_encoding=self._config.save_encoding,
+                        capture_depth=self._config.capture_depth,
                     )
                 except Exception:
                     self._record_dropped_capture(
@@ -765,12 +749,12 @@ class ProtocolImageWriter:
                         # on actual collision.
                         tail_id_mode='if_collision',
                         output_format=output_format,
-                        jpeg_quality=jpeg_quality,
+                        jpeg_quality=self._config.jpg_quality,
                         true_color=step['Color'],
                         x=step['X'],
                         y=step['Y'],
                         z=step['Z'],
-                        save_encoding=self._save_encoding,
+                        save_encoding=self._config.save_encoding,
                         significant_bits=summed_significant_bits,
                     )
                 except Exception:

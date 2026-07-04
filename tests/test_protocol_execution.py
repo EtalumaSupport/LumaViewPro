@@ -36,6 +36,7 @@ _mock_settings_init.settings = {
 sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
 from modules.exceptions import ProtocolRunRefusedError
+from modules.image_mode import ImageCaptureConfig
 from modules.lumascope_api import Lumascope
 from modules.sequential_io_executor import SequentialIOExecutor
 from modules.sequenced_capture_runner import RunPlan, SequencedCaptureRunner
@@ -103,14 +104,7 @@ def _make_autogain_settings():
 
 
 def _make_image_capture_config():
-    return {
-        'output_format': {
-            'live': 'TIFF',
-            'sequenced': 'TIFF',
-        },
-        'capture_depth': 8,
-        'save_encoding': '8bit',
-    }
+    return ImageCaptureConfig.from_image_mode('8bit')
 
 
 TILING_CONFIGS = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
@@ -793,15 +787,13 @@ class TestPixelDepth:
 
     def test_full_pixel_depth(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(color='BF')
-        config = _make_image_capture_config()
-        config['capture_depth'] = 12
+        config = ImageCaptureConfig.from_image_mode('12bit_scientific')
         completed, _ = _run_and_wait(executor, protocol, tmp_path, image_capture_config=config)
         assert completed
 
     def test_8bit_pixel_depth(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(color='BF')
-        config = _make_image_capture_config()
-        config['capture_depth'] = 8
+        config = ImageCaptureConfig.from_image_mode('8bit')
         completed, _ = _run_and_wait(executor, protocol, tmp_path, image_capture_config=config)
         assert completed
 
@@ -1324,8 +1316,9 @@ class TestOmeTiffHyperstackFormat:
 
     def test_completes_with_hyperstack_format(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(color='BF')
-        config = _make_image_capture_config()
-        config['output_format']['sequenced'] = 'OME-TIFF Hyperstack'
+        config = ImageCaptureConfig.from_image_mode(
+            '8bit', output_format_sequenced='OME-TIFF Hyperstack'
+        )
         completed, _ = _run_and_wait(executor, protocol, tmp_path, image_capture_config=config)
         assert completed
 

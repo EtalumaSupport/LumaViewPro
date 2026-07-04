@@ -48,6 +48,7 @@ _mock_settings_init.settings = {
 }
 sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
+from modules.image_mode import ImageCaptureConfig
 from modules.lumascope_api import Lumascope
 from modules.protocol import Protocol
 from modules.sequenced_capture_runner import (
@@ -209,10 +210,7 @@ def _run_protocol(executor, protocol, tmp_path):
         run_trigger_source='test',
         run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
         sequence_name='issue_673_repro',
-        image_capture_config={
-            'output_format': {'live': 'TIFF', 'sequenced': 'TIFF'},
-            'capture_depth': 8,
-        },
+        image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
         autogain_settings={
             'target_brightness': 0.3,
             'min_gain_db': 0.0,

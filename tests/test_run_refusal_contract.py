@@ -56,6 +56,7 @@ _mock_settings_init.settings = {
 sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
 from modules.exceptions import ProtocolRunRefusedError
+from modules.image_mode import ImageCaptureConfig
 from modules.lumascope_api import Lumascope
 from modules.protocol import Protocol
 from modules.sequenced_capture_runner import SequencedCaptureRunner
@@ -119,14 +120,7 @@ def _make_autogain_settings():
 
 
 def _make_image_capture_config():
-    return {
-        'output_format': {
-            'live': 'TIFF',
-            'sequenced': 'TIFF',
-        },
-        'capture_depth': 8,
-        'save_encoding': '8bit',
-    }
+    return ImageCaptureConfig.from_image_mode('8bit')
 
 
 def _build_real_protocol(rows, period_min=1.0, duration_hrs=1.0):

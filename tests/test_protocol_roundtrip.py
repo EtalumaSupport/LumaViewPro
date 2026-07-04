@@ -24,6 +24,7 @@ import pandas as pd
 import pytest
 
 from modules.exceptions import ProtocolRunRefusedError
+from modules.image_mode import ImageCaptureConfig
 from modules.protocol import Protocol
 from modules.sequenced_capture_runner import SequencedCaptureRunner, SequencedCaptureRunMode
 from modules.sequential_io_executor import SequentialIOExecutor
@@ -50,10 +51,7 @@ def _make_autogain_settings():
 
 
 def _make_image_capture_config():
-    return {
-        'output_format': {'live': 'TIFF', 'sequenced': 'TIFF'},
-        'capture_depth': 8,
-    }
+    return ImageCaptureConfig.from_image_mode('8bit')
 
 
 def _default_stim_config():
@@ -1292,8 +1290,7 @@ class TestExecutePixelDepth:
     def test_full_pixel_depth(self, executor, scope, tmp_path):
         steps = [_make_step(color='BF')]
         proto = _build_protocol(steps)
-        icc = _make_image_capture_config()
-        icc['capture_depth'] = 12
+        icc = ImageCaptureConfig.from_image_mode('12bit_scientific')
         completed, _ = _run_and_wait(executor, proto, tmp_path, image_capture_config=icc)
         assert completed, '12-bit capture protocol did not complete'
 

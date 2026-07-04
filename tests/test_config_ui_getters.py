@@ -243,9 +243,9 @@ class TestTimingAndBinningParseNotifies:
 class TestImageCaptureConfigSharedBuilder:
     """The UI lane (get_image_capture_config_from_ui) and the settings/headless
     lane (get_image_capture_config_from_settings) must forward an IDENTICAL
-    capture-config dict for the same image mode + inputs. They differ only in
-    where the mode / output_format / jpg_quality come from; the dict shape and
-    the capture_depth / save_encoding derivation are folded into one shared
+    ImageCaptureConfig for the same image mode + inputs. They differ only in
+    where the mode / output formats / jpg_quality come from; the config shape
+    and the capture_depth / save_encoding derivation are folded into one shared
     builder so the two paths cannot drift.
     """
 
@@ -277,10 +277,8 @@ class TestImageCaptureConfigSharedBuilder:
         )
 
         from modules.config_ui_getters import get_image_capture_config_from_ui
-        from modules.config_helpers import (
-            build_image_capture_config,
-            get_image_capture_config_from_settings,
-        )
+        from modules.config_helpers import get_image_capture_config_from_settings
+        from modules.image_mode import ImageCaptureConfig
 
         ui_cfg = get_image_capture_config_from_ui()
         settings_cfg = get_image_capture_config_from_settings(
@@ -290,13 +288,14 @@ class TestImageCaptureConfigSharedBuilder:
                 'jpg_quality': jpg_quality,
             }
         )
-        shared = build_image_capture_config(
-            output_format={'live': live, 'sequenced': sequenced},
-            mode=mode,
+        shared = ImageCaptureConfig.from_image_mode(
+            mode,
+            output_format_live=live,
+            output_format_sequenced=sequenced,
             jpg_quality=jpg_quality,
         )
 
-        # All three are the SAME dict for the same inputs.
+        # All three are the SAME config value for the same inputs.
         assert ui_cfg == settings_cfg == shared
 
     def test_derived_keys_come_only_from_the_shared_builder(self, monkeypatch):
@@ -316,8 +315,8 @@ class TestImageCaptureConfigSharedBuilder:
         ui_cfg = get_image_capture_config_from_ui()
         settings_cfg = config_helpers.get_image_capture_config_from_settings({'image_mode': mode})
 
-        assert ui_cfg['capture_depth'] == settings_cfg['capture_depth'] == 999
-        assert ui_cfg['save_encoding'] == settings_cfg['save_encoding'] == 'SENTINEL'
+        assert ui_cfg.capture_depth == settings_cfg.capture_depth == 999
+        assert ui_cfg.save_encoding == settings_cfg.save_encoding == 'SENTINEL'
 
 
 def test_protocol_time_clamped_detects_subsecond_per_unit():
