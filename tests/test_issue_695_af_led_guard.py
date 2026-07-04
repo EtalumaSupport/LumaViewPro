@@ -46,7 +46,7 @@ def _lit(scope, ch):
 
 def test_live_ui_off_cannot_dark_an_af_owned_channel(scope):
     """An unleased UI led_off must not turn off the channel autofocus owns."""
-    scope.illumination.acquire_led_lease('autofocus')
+    scope.illumination.acquire_led_lease('autofocus', alive=lambda: True)
     scope.illumination.led_on(channel=3, mA=200, owner='autofocus')
     assert _lit(scope, 3)
 

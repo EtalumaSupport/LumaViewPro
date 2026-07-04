@@ -35,6 +35,7 @@ here -- it stays pinned by test_issue_671_added_location_led_ordering.py.
 from __future__ import annotations
 
 import datetime
+import logging
 import sys
 import threading
 from unittest.mock import MagicMock
@@ -294,7 +295,7 @@ def runner(scope, executors):
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
         camera_executor=executors['camera'],
-        autofocus_thread=MagicMock(),
+        autofocus_thread=MagicMock(is_running=False),
         autofocus_runner=_mock_af_runner(),
     )
     exc._wellplate_loader = WellPlateLoader()
@@ -519,7 +520,7 @@ def test_s8_live_write_refused_while_run_holds_lease(scope):
     sub = LedSubstream()
     ill.add_led_listener(sub)
 
-    lease = ill.acquire_led_lease('protocol')
+    lease = ill.acquire_led_lease('protocol', alive=lambda: True)
     assert lease is not None
     ill.led_on(channel=ill.color2ch('Green'), mA=250.0, owner='protocol')
 
@@ -657,7 +658,7 @@ def test_s5_protocol_af_same_channel_holds_to_capture(scope):
     sub = LedSubstream()
     ill.add_led_listener(sub)
 
-    lease = ill.acquire_led_lease('protocol')
+    lease = ill.acquire_led_lease('protocol', alive=lambda: True)
     _drive_af(
         _af_runner(scope),
         led_color='Green',
@@ -683,7 +684,7 @@ def test_s6_protocol_af_then_different_color_no_stale_channel(scope):
     sub = LedSubstream()
     ill.add_led_listener(sub)
 
-    lease = ill.acquire_led_lease('protocol')
+    lease = ill.acquire_led_lease('protocol', alive=lambda: True)
     _drive_af(
         _af_runner(scope),
         led_color='Green',
@@ -732,23 +733,124 @@ def test_s7_interactive_af_restores_prerun_live_channel(scope):
 
 
 # ---------------------------------------------------------------------------
-# Run-start LED-lease recovery. A prior run that died without releasing strands
-# the 'protocol' lease; a fresh run must reset and re-acquire so it owns
-# illumination -- else every STEP_LIGHT apply no-ops and the run captures dark.
+# Run-start LED-lease arbitration. Contention is decided on the resource by
+# holder liveness: a lease stranded by a provably-dead owner is reclaimed with
+# the evidence logged and the run proceeds; a LIVE holder refuses the run,
+# which must fail itself instead of stealing illumination mid-operation.
 # ---------------------------------------------------------------------------
 
 
-def test_run_recovers_a_stranded_led_lease(runner):
+def test_run_recovers_a_stranded_led_lease(scope, runner, tmp_path, caplog):
+    """A lease whose owner is provably dead (its liveness probe answers False)
+    must not lock out the next run: the run's acquire reclaims the stack,
+    logging the dead owner and the evidence, and the run completes normally."""
     ill = runner._scope.illumination
-    # Simulate a hard-killed prior run: a 'protocol' lease left on the stack.
-    stranded = ill.acquire_led_lease('protocol')
+    # Simulate a hard-killed prior run: a 'protocol' lease left on the stack
+    # whose in-flight probe still answers True at acquire time...
+    holder_alive = {'value': True}
+    stranded = ill.acquire_led_lease('protocol', alive=lambda: holder_alive['value'])
     assert stranded is not None
-    assert ill.acquire_led_lease('protocol') is None, 'precondition: second acquire is refused'
+    assert ill.acquire_led_lease('other', alive=lambda: True) is None, (
+        'precondition: a live holder refuses a second acquire'
+    )
+    # ...and then the owning run dies without releasing.
+    holder_alive['value'] = False
 
-    lease = runner._acquire_led_lease_for_run()
+    with caplog.at_level(logging.WARNING, logger='LVP.api'):
+        completed, result = _run_protocol(runner, _build_protocol([('A1', 'Green', {})]), tmp_path)
 
-    assert lease is not None, 'the run must recover a lease despite the stranded one'
-    assert lease.held
-    assert ill.led_lease_owner == 'protocol'
-    assert not stranded.held, 'the stranded lease must be dropped by the reset'
-    lease.release(leave_on=False)
+    assert completed, 'the run must complete after reclaiming the stranded lease'
+    assert result.get('status') == 'completed', f'run must complete normally; got {result}'
+    assert not stranded.held, 'the stranded lease must be dropped by the reclaim'
+    assert ill.led_lease_owner is None, 'the completed run must have released its lease'
+    reclaims = [
+        r.getMessage() for r in caplog.records if 'reclaimed from stranded owner' in r.getMessage()
+    ]
+    assert reclaims, 'the reclaim must be logged as a warning'
+    assert any("'protocol'" in m and 'liveness probe returned False' in m for m in reclaims), (
+        f'the warning must name the dead owner and the evidence; got {reclaims}'
+    )
+
+
+def test_run_start_refused_by_live_lease_holder_fails_itself(scope, runner, tmp_path, monkeypatch):
+    """A run started while a LIVE owner holds the LED lease must fail itself
+    (run_complete fires exactly once with status 'failed_at_start', the user is
+    notified) instead of stealing the lease: the holder keeps illumination
+    authority and its applies still drive the LEDs."""
+    import modules.notification_center as notification_center
+
+    notified = []
+    monkeypatch.setattr(
+        notification_center.notifications,
+        'error',
+        lambda *args, **kwargs: notified.append(('error', args)),
+    )
+    monkeypatch.setattr(
+        notification_center.notifications,
+        'warning',
+        lambda *args, **kwargs: notified.append(('warning', args)),
+    )
+
+    ill = scope.illumination
+    af_lease = ill.acquire_led_lease('autofocus', alive=lambda: True)
+    assert af_lease is not None
+
+    completions = []
+    done = threading.Event()
+
+    def on_complete(**kwargs):
+        completions.append(kwargs)
+        done.set()
+
+    plan = runner.prepare(
+        keep_led_between_steps=False,
+        protocol=_build_protocol([('A1', 'Green', {})]),
+        run_trigger_source='test',
+        run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
+        sequence_name='led_lease_live_holder',
+        image_capture_config={
+            'output_format': {'live': 'TIFF', 'sequenced': 'TIFF'},
+            'capture_depth': 8,
+            'save_encoding': '8bit',
+        },
+        autogain_settings={
+            'target_brightness': 0.3,
+            'min_gain_db': 0.0,
+            'max_gain_db': 20.0,
+            'max_duration': datetime.timedelta(seconds=1),
+        },
+        parent_dir=tmp_path / 'output',
+        max_scans=1,
+        callbacks={'run_complete': on_complete},
+        leds_state_at_end='off',
+        initial_autofocus_states={
+            'BF': False,
+            'PC': False,
+            'DF': False,
+            'Red': False,
+            'Green': False,
+            'Blue': False,
+            'Lumi': False,
+        },
+    )
+    runner.start(plan)
+
+    assert done.wait(timeout=30), 'the refused run must still terminate'
+    assert len(completions) == 1, (
+        f'run_complete must fire exactly once for the refused run; got {completions}'
+    )
+    assert completions[0].get('status') == 'failed_at_start', (
+        f'the lease refusal must fail the run at start; got {completions[0]}'
+    )
+    assert notified, 'the failed start must notify the user'
+    assert not runner.run_in_progress()
+
+    # The live holder was not disturbed: its lease is held and still drives LEDs.
+    assert af_lease.held, 'the live holder lease must survive the refused run'
+    assert ill.led_lease_owner == 'autofocus'
+    af_lease.apply(
+        LedTransition.AF_ENTER,
+        LedTransitionCtx(channel=ill.color2ch('Green'), mA=250.0),
+    )
+    assert ill.led_enabled('Green'), "the holder's apply must still drive the LEDs"
+    af_lease.release(leave_on=False)

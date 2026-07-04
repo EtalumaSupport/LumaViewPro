@@ -442,7 +442,7 @@ def test_stim_edge_not_refused_while_protocol_owns_lease():
 
     scope = Lumascope(simulate=True)
     scope._led_driver.set_timing_mode('fast')
-    scope.illumination.acquire_led_lease('protocol')
+    scope.illumination.acquire_led_lease('protocol', alive=lambda: True)
 
     stim_configs = {
         'Blue': {

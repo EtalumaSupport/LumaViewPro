@@ -51,7 +51,7 @@ def bare_capture_runner(**overrides):
         'protocol_thread': MagicMock(),
         'file_io_executor': MagicMock(),
         'camera_executor': MagicMock(),
-        'autofocus_thread': MagicMock(),
+        'autofocus_thread': MagicMock(is_running=False),
         'autofocus_runner': MagicMock(),
     }
     kwargs.update(overrides)

@@ -295,7 +295,7 @@ def executor(scope, executors):
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
         camera_executor=executors['camera'],
-        autofocus_thread=MagicMock(),
+        autofocus_thread=MagicMock(is_running=False),
         autofocus_runner=mock_af,
     )
     exc._wellplate_loader = WellPlateLoader()
@@ -320,7 +320,7 @@ def af_executor(scope, executors):
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
         camera_executor=executors['camera'],
-        autofocus_thread=MagicMock(),
+        autofocus_thread=MagicMock(is_running=False),
         autofocus_runner=af,
     )
     return exc

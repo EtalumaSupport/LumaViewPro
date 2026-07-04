@@ -337,7 +337,7 @@ def executor(scope, executors):
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
         camera_executor=executors['camera'],
-        autofocus_thread=MagicMock(),
+        autofocus_thread=MagicMock(is_running=False),
         autofocus_runner=mock_af,
     )
     exc._wellplate_loader = WellPlateLoader()
@@ -2536,7 +2536,7 @@ class TestRunReturnValueContract:
         # A failed start must not leak hardware setup: the protocol LED
         # lease is only held by a run in flight, so a fresh top-level
         # acquire must succeed after the failure.
-        lease = scope.illumination.acquire_led_lease('leak probe')
+        lease = scope.illumination.acquire_led_lease('leak probe', alive=lambda: True)
         assert lease is not None, 'Failed-at-start run leaked the protocol LED lease'
         lease.release()
         # The runner is reusable: the next prepare() passes every gate.

@@ -233,7 +233,7 @@ class TestHeadlessProtocolExecution:
                 protocol_thread=execs['protocol'],
                 file_io_executor=execs['file_io'],
                 camera_executor=execs['camera'],
-                autofocus_thread=MagicMock(),
+                autofocus_thread=MagicMock(is_running=False),
                 autofocus_runner=mock_af,
             )
             executor._wellplate_loader = WellPlateLoader()

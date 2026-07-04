@@ -147,6 +147,11 @@ class SequencedCaptureRunner:
         self._run_in_progress_event = (
             threading.Event()
         )  # GIL-free safe replacement for _run_in_progress bool
+        # Monotonic per-start() counter that scopes each run's LED-lease
+        # liveness probe to ITS run: the Event above is shared across
+        # runs, so without the generation a stale lease would probe live
+        # again the moment the next run sets it.
+        self._run_generation = 0
         # The loaded protocol exists from construction so a runner that has
         # never started (or refused to start) answers getters with None
         # instead of raising AttributeError from inside a UI handler.
@@ -451,29 +456,44 @@ class SequencedCaptureRunner:
         return states
 
     def _acquire_led_lease_for_run(self):
-        """Acquire the run's LED lease, recovering from a stranded one.
+        """Acquire the run's LED lease; a live holder fails the run.
 
-        A refused acquire means a prior run's lease was never released -- its
-        thread died mid-run without cleanup. Nothing legitimately owns the LEDs
-        when a fresh run begins (live-UI control is unleased; autofocus only
-        nests under a running protocol), so the stranded lease is dropped and the
-        lease re-acquired. Without this the run holds no lease, every STEP_LIGHT
-        apply no-ops, and the whole acquisition saves dark frames.
+        The illumination API arbitrates contention on the resource: a
+        provably-dead holder (a hard-killed prior run) is reclaimed with
+        evidence logged and the acquire succeeds, so a fresh run still
+        recovers from a stranded lease. A LIVE holder (an interactive
+        autofocus sweep, a future standalone recording) refuses us -- and
+        a refused run must refuse itself rather than steal authority
+        mid-sweep and leave the holder scanning dark. Runs inside
+        start()'s committed phase, so the raise unwinds as an
+        immediately-failed run with a notification naming the holder.
         """
-        lease = self._scope.illumination.acquire_led_lease('protocol')
-        if lease is None:
-            logger.warning(
-                f'[{self.LOGGER_NAME} ] LED lease refused at run start (a prior '
-                'run stranded it); resetting leases and re-acquiring so the run '
-                'owns illumination'
+        # Generation-scoped probe: the runner's in-progress Event is shared
+        # across runs, so a stale lease from a hard-killed prior run would
+        # probe True the moment the RETRYING run sets the event -- the stale
+        # holder would vouch for itself with the new run's own liveness.
+        # Binding the probe to this run's generation makes the prior run's
+        # lease provably dead as soon as a newer run starts.
+        generation = self._run_generation
+        try:
+            lease = self._scope.illumination.acquire_led_lease(
+                'protocol',
+                alive=lambda: (
+                    self._run_in_progress_event.is_set() and self._run_generation == generation
+                ),
             )
-            self._scope.illumination.reset_led_leases()
-            lease = self._scope.illumination.acquire_led_lease('protocol')
-            if lease is None:
-                logger.error(
-                    f'[{self.LOGGER_NAME} ] LED lease still refused after reset; '
-                    'the run will not illuminate'
-                )
+        except ValueError as ex:
+            # The probe answered False at acquire time: an abort cleared the
+            # in-progress event between start()'s commit and this acquire.
+            # Surface it in user language, not probe mechanics.
+            raise RuntimeError('The run was stopped while it was starting.') from ex
+        if lease is None:
+            holder = self._scope.illumination.led_lease_owner
+            holder_desc = f'Another operation ({holder})' if holder else 'Another operation'
+            raise RuntimeError(
+                f'{holder_desc} is controlling the microscope illumination. '
+                'Stop it or let it finish, then start the run.'
+            )
         return lease
 
     def _refuse(
@@ -547,6 +567,23 @@ class SequencedCaptureRunner:
                 reason='files_writing',
                 title='Files Still Writing',
                 message="Previous run's files are still being written. Please wait.",
+            )
+
+        # A live interactive autofocus owns the Z axis and the LED lease;
+        # starting a run under it would contest Z motion and steal
+        # illumination mid-sweep (dark AF frames, garbage focus). An AF
+        # enqueued AFTER this check but before start()'s lease acquire
+        # still loses the lease race and aborts itself loudly -- the
+        # inversion (run wins over an earlier-clicked AF) is a
+        # milliseconds-wide window that closes for good when AF acquires
+        # its lease at enqueue time instead of on the worker.
+        if self.autofocus_thread is not None and bool(self.autofocus_thread.is_running):
+            self._refuse(
+                reason='autofocus_running',
+                title='Autofocus Running',
+                message=(
+                    'Autofocus is still running. Stop it or let it finish, then start the run.'
+                ),
             )
 
         if leds_state_at_end not in (
@@ -720,6 +757,7 @@ class SequencedCaptureRunner:
                 )
 
             self._reset_vars()
+            self._run_generation += 1
             self._protocol = plan.protocol
             self._run_mode = plan.run_mode
             self._sequence_name = plan.sequence_name
@@ -778,10 +816,11 @@ class SequencedCaptureRunner:
 
             # The LED lease covers the whole scan so live UI illumination
             # changes cannot disturb a running protocol's channels. AF steps
-            # nest a child under it. A refused acquire recovers a stranded
-            # lease from a hard-killed prior run, so the run always ends up
-            # owning illumination (else every STEP_LIGHT apply no-ops and
-            # the whole acquisition captures dark).
+            # nest a child under it. The illumination API reclaims a
+            # provably-dead prior holder at acquire; a LIVE holder refuses
+            # us and this run fails itself rather than steal authority
+            # (else the holder scans dark, or every STEP_LIGHT apply
+            # no-ops and the whole acquisition captures dark).
             self._led_lease = self._acquire_led_lease_for_run()
 
             # Snapshot hardware state for restoration after protocol

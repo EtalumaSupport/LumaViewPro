@@ -210,7 +210,7 @@ def executor(scope, executors):
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
         camera_executor=executors['camera'],
-        autofocus_thread=MagicMock(),
+        autofocus_thread=MagicMock(is_running=False),
         autofocus_runner=mock_af,
     )
     exc._wellplate_loader = WellPlateLoader()
@@ -568,9 +568,16 @@ class TestRefusalNotifyOnceFunnel:
             mp.setattr(scope, 'are_all_connected', lambda: False)
             return _make_single_step_protocol()
 
+        def autofocus_running(mp):
+            # A live interactive autofocus owns Z and the LED lease; a run
+            # prepared under it must be refused before any commitment.
+            mp.setattr(executor.autofocus_thread, 'is_running', True)
+            return _make_single_step_protocol()
+
         return [
             ('already_running', already_running),
             ('files_writing', files_writing),
+            ('autofocus_running', autofocus_running),
             ('empty_protocol', empty_protocol),
             ('validation_failed', validation_failed),
             ('validation_crashed', validation_crashed),

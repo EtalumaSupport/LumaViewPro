@@ -15,6 +15,7 @@ import enum
 import logging as _logging
 import os
 import threading
+import typing
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -153,10 +154,18 @@ class LedLease:
         self,
         api: IlluminationAPI,
         owner_name: str,
+        alive: typing.Callable[[], bool],
         parent: LedLease | None = None,
     ) -> None:
         self._api = api
         self.owner_name = owner_name
+        # The owner's authoritative in-flight fact (a run's generation-
+        # scoped in-progress probe, AF's in-progress flag). This is the
+        # ONLY stranded-holder evidence: thread identity was rejected as
+        # an anchor because leases are acquired on caller threads (UI,
+        # scripts) while the work executes on persistent worker threads,
+        # so thread death proves nothing about the operation either way.
+        self._alive = alive
         self._parent = parent
         self._released = False
 
@@ -169,14 +178,20 @@ class LedLease:
         """
         self._api._release_led_lease(self, leave_on=leave_on)
 
-    def acquire_child(self, owner_name: str) -> LedLease | None:
+    def acquire_child(
+        self, owner_name: str, *, alive: typing.Callable[[], bool]
+    ) -> LedLease | None:
         """Take a nested lease under this one.
 
         The one nesting case is autofocus running inside a protocol step:
         the step holds the lease and lets autofocus drive the LED through a
         child it must outlive. Returns None if this lease is no longer held.
+
+        Args:
+            alive: The child owner's own in-flight probe (see
+                acquire_led_lease).
         """
-        return self._api.acquire_led_lease(owner_name, parent=self)
+        return self._api.acquire_led_lease(owner_name, alive=alive, parent=self)
 
     @property
     def held(self) -> bool:
@@ -1137,37 +1152,105 @@ class IlluminationAPI:
                 self._fire_led_listeners(color, False, 0.0, owner=owner)
 
     # --- Ownership lease ---
+    def _holder_is_stranded(self, lease: LedLease) -> str | None:
+        """The evidence that *lease*'s owner is dead, or None if it is live.
+
+        A holder is stranded only when that is PROVABLE: its own liveness
+        probe answers False (the run/AF that acquired it is no longer in
+        flight). Anything else is a live holder, however inconvenient for
+        the contender. The probe is the sole evidence -- thread identity
+        was rejected as an anchor (acquiring threads are callers, not the
+        executing workers, so thread death proves nothing).
+        """
+        try:
+            if not lease._alive():
+                return 'liveness probe returned False'
+        except Exception as ex:
+            return f'liveness probe raised {type(ex).__name__}: {ex}'
+        return None
+
     def acquire_led_lease(
-        self, owner_name: str, *, parent: LedLease | None = None
+        self,
+        owner_name: str,
+        *,
+        alive: typing.Callable[[], bool],
+        parent: LedLease | None = None,
     ) -> LedLease | None:
         """Acquire the exclusive LED-ownership lease.
 
-        While a lease is held, only its owner may drive the LEDs. A second
-        owner's request is refused and returns None -- the caller must cope.
-        It never raises, so a contended acquire cannot crash a protocol or
+        While a lease is held, only its owner may drive the LEDs.
+        Contention is arbitrated HERE, on the resource, not at call
+        sites: a holder whose owner is provably dead (its liveness probe
+        answers False, or its acquiring thread died) is reclaimed with
+        the evidence logged; a LIVE holder refuses the requester, and a
+        refused requester must refuse its own operation -- no caller may
+        reset the stack out from under a live owner. It never raises on
+        contention, so a contended acquire cannot crash a protocol or
         autofocus run.
 
         Args:
             owner_name: Human-readable owner for logs ('protocol',
                 'autofocus').
+            alive: The owner's authoritative in-flight fact (e.g. the
+                run's in-progress event's is_set, AF's in-progress flag).
+                Must already answer True at acquire time; this is what
+                lets a LATER contender distinguish this holder's death
+                from its mere inconvenience.
             parent: The caller's own lease when requesting a nested child;
                 only the current holder may spawn a child.
 
         Returns:
-            A LedLease token, or None if another owner already holds the
+            A LedLease token, or None if a live owner already holds the
             lease (or a stale parent was supplied).
+
+        Raises:
+            ValueError: alive() did not answer True at acquire time -- a
+                misordered probe would silently create a window in which
+                this holder looks stranded and can be reclaimed.
         """
+        if not alive():
+            raise ValueError(
+                f'LED lease acquire for {owner_name!r}: the alive probe must '
+                'answer True at acquire time (set the in-flight fact before '
+                'acquiring)'
+            )
         with self._led_lease_lock:
             active = self._led_lease_stack[-1] if self._led_lease_stack else None
-            if active is not None:
-                if parent is not active:
+            if active is not None and parent is not active:
+                # Arbitrate against the stack ROOT: descendants stand and
+                # fall with the top-level owner that spawned them.
+                root = self._led_lease_stack[0]
+                evidence = self._holder_is_stranded(root)
+                if evidence is None:
                     _api_log.warning(
-                        'LED lease acquire refused: %r requested but %r holds it',
+                        'LED lease acquire refused: %r requested but %r holds it and is live',
                         owner_name,
                         active.owner_name,
                     )
                     return None
-            elif parent is not None:
+                dropped = [held.owner_name for held in self._led_lease_stack]
+                for held in self._led_lease_stack:
+                    held._released = True
+                self._led_lease_stack.clear()
+                _api_log.warning(
+                    'LED lease stack reclaimed from stranded owner %r (%s); '
+                    'dropped: %s; granting to %r',
+                    root.owner_name,
+                    evidence,
+                    dropped,
+                    owner_name,
+                )
+                if parent is not None:
+                    # The requester wanted a child of a lease that just fell
+                    # with the reclaimed stack; a child cannot outlive its
+                    # parent, so the grant below would dangle.
+                    _api_log.warning(
+                        'LED lease child acquire refused for %r: parent fell '
+                        'with the reclaimed stack',
+                        owner_name,
+                    )
+                    return None
+            elif active is None and parent is not None:
                 # A parent was supplied but nothing is held -- the parent
                 # already released. Refuse rather than silently promote the
                 # child to a top-level lease.
@@ -1176,7 +1259,7 @@ class IlluminationAPI:
                     owner_name,
                 )
                 return None
-            lease = LedLease(self, owner_name, parent=parent)
+            lease = LedLease(self, owner_name, alive=alive, parent=parent)
             self._led_lease_stack.append(lease)
             _api_log.info(
                 'LED lease acquired by %r (depth=%d)', owner_name, len(self._led_lease_stack)
@@ -1364,23 +1447,6 @@ class IlluminationAPI:
         if held is not None:
             _api_log.warning('force_off bypassing held LED lease owned by %r', held)
         self.leds_off()
-
-    def reset_led_leases(self) -> None:
-        """Drop all held leases without touching the LEDs.
-
-        The teardown path for an aborted run: free the lease so the next
-        run can acquire, regardless of which (possibly dead) thread held
-        it. Turning the LEDs off is the caller's separate decision via
-        force_off; this only clears the ownership bookkeeping.
-        """
-        with self._led_lease_lock:
-            if not self._led_lease_stack:
-                return
-            owners = [held.owner_name for held in self._led_lease_stack]
-            for held in self._led_lease_stack:
-                held._released = True
-            self._led_lease_stack.clear()
-        _api_log.warning('LED leases reset (teardown), dropped: %s', owners)
 
     # --- Enable / disable ---
     def leds_enable(self) -> None:

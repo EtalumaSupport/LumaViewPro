@@ -117,7 +117,11 @@ def run_cleanup(
     # The AF Future resolves only after that finally chain finishes,
     # so waiting on it (bounded, so a wedged AF run cannot block
     # cleanup) guarantees the LED restore below runs last.
-    if autofocus_thread is not None:
+    # A run that failed during start() never dispatched anything, so a live
+    # AF future here belongs to SOMEONE ELSE -- most likely the very holder
+    # whose lease refusal failed this run. Aborting it would steal the
+    # operation the refusal deferred to.
+    if autofocus_thread is not None and run_status != 'failed_at_start':
         _af_future = autofocus_thread.current_future
         if _af_future is not None and not _af_future.done():
             autofocus_thread.abort()
