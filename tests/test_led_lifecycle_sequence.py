@@ -241,16 +241,24 @@ def scope():
     s.disconnect()
 
 
-@pytest.fixture
-def executors():
+def _make_executors(file_queue_maxsize=0):
+    """Set up + tear down the executor set (a generator: ``yield from`` it).
+
+    No 'autofocus' executor: the AF-off protocol path uses a mocked AF runner
+    (autofocus_thread / autofocus_runner below), so a real AF worker would be
+    dead state. The AF-on lifecycle tests (s5-s7) build their own runner.
+
+    file_queue_maxsize=0 keeps the file worker's protocol queue unbounded
+    (the historical default); the scan-boundary drop test (s11) passes 1 so
+    the queue can be filled to force a real PROTOCOL_QUEUE_FULL.
+    """
     from modules.protocol_thread import ProtocolThread
 
-    # No 'autofocus' executor: the AF-off protocol path uses a mocked AF runner
-    # (autofocus_thread / autofocus_runner below), so a real AF worker would be
-    # dead state. The AF-on lifecycle tests (s5-s7) build their own runner.
     execs = {
         'io': SequentialIOExecutor(name='TEST_IO'),
-        'file_io': SequentialIOExecutor(name='TEST_FILE'),
+        'file_io': SequentialIOExecutor(
+            name='TEST_FILE', protocol_queue_maxsize=file_queue_maxsize
+        ),
         'camera': SequentialIOExecutor(name='TEST_CAMERA'),
     }
     for e in execs.values():
@@ -258,15 +266,22 @@ def executors():
     pt = ProtocolThread()
     pt.start()
     execs['protocol'] = pt
-    yield execs
-    for name, e in execs.items():
-        try:
-            if name == 'protocol':
-                e.stop(timeout=2.0)
-            else:
-                e.shutdown()
-        except Exception:
-            pass
+    try:
+        yield execs
+    finally:
+        for name, e in execs.items():
+            try:
+                if name == 'protocol':
+                    e.stop(timeout=2.0)
+                else:
+                    e.shutdown()
+            except Exception:
+                pass
+
+
+@pytest.fixture
+def executors():
+    yield from _make_executors()
 
 
 def _mock_af_runner():
@@ -281,21 +296,21 @@ def _mock_af_runner():
     return mock_af
 
 
-@pytest.fixture
-def runner(scope, executors):
+def _make_runner(scope, execs):
     """A real SequencedCaptureRunner with real executors and a mocked AF
     runner -- faithful for AF-off scenarios (production does not invoke the AF
-    runner when Auto_Focus is False)."""
+    runner when Auto_Focus is False). Takes the executor set as an argument so
+    a test can substitute e.g. a bounded file-IO executor (s11)."""
     from modules.coord_transformations import CoordinateTransformer
     from modules.labware_loader import WellPlateLoader
 
     exc = SequencedCaptureRunner(
         scope=scope,
         stage_offset={'x': 0.0, 'y': 0.0},
-        io_executor=executors['io'],
-        protocol_thread=executors['protocol'],
-        file_io_executor=executors['file_io'],
-        camera_executor=executors['camera'],
+        io_executor=execs['io'],
+        protocol_thread=execs['protocol'],
+        file_io_executor=execs['file_io'],
+        camera_executor=execs['camera'],
         autofocus_thread=MagicMock(is_running=False),
         autofocus_runner=_mock_af_runner(),
     )
@@ -304,10 +319,26 @@ def runner(scope, executors):
     return exc
 
 
+@pytest.fixture
+def runner(scope, executors):
+    return _make_runner(scope, executors)
+
+
 def _run_protocol(
-    runner, protocol, tmp_path, *, leds_state_at_end='off', keep_led_between_steps=False
+    runner,
+    protocol,
+    tmp_path,
+    *,
+    leds_state_at_end='off',
+    keep_led_between_steps=False,
+    max_scans=1,
+    timeout=30,
 ):
-    """Run a protocol to completion (SINGLE_SCAN) and block on the done Event."""
+    """Run a protocol to completion (SINGLE_SCAN) and block on the done Event.
+
+    max_scans > 1 runs a multi-scan (timelapse-shaped) session; pair it with
+    _build_two_scan_protocol's near-zero period so it finishes in test time.
+    """
     done = threading.Event()
     result_holder: dict = {}
 
@@ -331,7 +362,7 @@ def _run_protocol(
             'max_duration': datetime.timedelta(seconds=1),
         },
         parent_dir=tmp_path / 'output',
-        max_scans=1,
+        max_scans=max_scans,
         callbacks=callbacks,
         leds_state_at_end=leds_state_at_end,
         initial_autofocus_states={
@@ -346,7 +377,7 @@ def _run_protocol(
     )
     runner.start(plan)
 
-    completed = done.wait(timeout=30)
+    completed = done.wait(timeout=timeout)
     return completed, result_holder
 
 
@@ -847,3 +878,169 @@ def test_run_start_refused_by_live_lease_holder_fails_itself(scope, runner, tmp_
     )
     assert ill.led_enabled('Green'), "the holder's apply must still drive the LEDs"
     af_lease.release(leave_on=False)
+
+
+# ---------------------------------------------------------------------------
+# Scan-boundary dark idle (SCAN_IDLE). The run loop's inter-scan epilogue must
+# leave the sample dark before every inter-scan period wait, even when the
+# step machinery's own boundary decision was skipped: a queue-full dropped
+# write on the last step of a non-final scan (capture() returns False, so the
+# caller's completed gate skips STEP_BOUNDARY), or a mid-scan exception the
+# run loop classifies as transient and retries a full period later. Without
+# the epilogue the channel stays lit on the sample for the whole inter-scan
+# period -- or up to three periods across the consecutive-failure window.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def bounded_file_executors():
+    """Executor set whose file-IO worker has a 1-slot bounded protocol queue.
+
+    Production bounds the file queue too (the registry passes 32); maxsize=1
+    makes the queue-full drop reachable with one wedge task plus one filler
+    instead of 32 in-flight writes.
+    """
+    yield from _make_executors(file_queue_maxsize=1)
+
+
+@pytest.fixture
+def bounded_runner(scope, bounded_file_executors):
+    return _make_runner(scope, bounded_file_executors)
+
+
+def _build_two_scan_protocol(specs):
+    """A protocol whose period is near zero, so the next scan starts as soon
+    as the run loop's pacing check passes -- multi-scan runs finish in test
+    time instead of waiting the builder's default 20-minute period."""
+    protocol = _build_protocol(specs)
+    protocol.modify_time_params(
+        period=datetime.timedelta(milliseconds=10),
+        duration=datetime.timedelta(hours=48.0),
+    )
+    return protocol
+
+
+def test_s11_queue_full_drop_at_scan_boundary_still_goes_dark(
+    scope, bounded_runner, tmp_path, monkeypatch
+):
+    """A queue-full dropped write on the LAST step of a non-final scan makes
+    capture() return False, so the caller's completed gate skips the
+    STEP_BOUNDARY off -- only the run loop's SCAN_IDLE epilogue darkens the
+    sample before the inter-scan wait. Assert the channel goes OFF after
+    scan 1's capture and BEFORE scan 2's first ON.
+
+    Drives the REAL drop path: a bounded file queue (maxsize=1) with the
+    worker parked on a wedge task and the single slot occupied by a filler,
+    so the write's own protocol_put genuinely returns PROTOCOL_QUEUE_FULL.
+    Fails without the epilogue: the channel then stays lit across the whole
+    inter-scan period (no off event exists between the scans, and scan 2's
+    idempotent re-light emits nothing)."""
+    from modules.sequential_io_executor import IOTask, PROTOCOL_ENQUEUED
+
+    ill = scope.illumination
+    sub = LedSubstream()
+    ill.add_led_listener(sub)
+
+    file_io = bounded_runner.file_io_executor
+    wedge_started = threading.Event()
+    wedge_release = threading.Event()
+    installed = threading.Event()
+    install_results = []
+
+    def _wedge_task():
+        wedge_started.set()
+        wedge_release.wait(timeout=60)
+
+    real_capture_and_wait = scope.imaging.capture_and_wait
+
+    def _capture_and_wait_with_wedge(*args, **kwargs):
+        # Runs on the protocol worker right before the grab -- i.e. before
+        # this step's write is enqueued, and only once the run is in session
+        # (protocol_put drops tasks outside one). First call installs the
+        # wedge: the worker parks on _wedge_task and a no-op filler occupies
+        # the single queue slot, so the write's protocol_put returns
+        # PROTOCOL_QUEUE_FULL. Event-gated, no sleeps; results are recorded
+        # (not asserted) here because a raise on this thread would be
+        # classified as a transient scan failure, not a test failure.
+        if not installed.is_set():
+            install_results.append(file_io.protocol_put(IOTask(action=_wedge_task)))
+            install_results.append(wedge_started.wait(timeout=10))
+            install_results.append(file_io.protocol_put(IOTask(action=lambda: None)))
+            installed.set()
+        return real_capture_and_wait(*args, **kwargs)
+
+    monkeypatch.setattr(scope.imaging, 'capture_and_wait', _capture_and_wait_with_wedge)
+
+    try:
+        completed, _ = _run_protocol(
+            bounded_runner,
+            _build_two_scan_protocol([('A1', 'Green', {})]),
+            tmp_path,
+            max_scans=2,
+            timeout=60,
+        )
+    finally:
+        # Unpark the file worker so fixture teardown can drain and shut down.
+        wedge_release.set()
+
+    assert completed, f'protocol did not complete in time\n{sub.render()}'
+    assert install_results == [PROTOCOL_ENQUEUED, True, PROTOCOL_ENQUEUED], (
+        f'wedge install did not follow the expected sequence: {install_results}'
+    )
+    # Prove the drop actually happened -- otherwise a successful write's own
+    # scan-boundary off would make these substream assertions pass vacuously.
+    assert file_io._protocol_queue_dropped_count >= 1, (
+        'the bounded file queue never rejected a write; the drop path was not exercised'
+    )
+
+    # Scan 1 ON -> SCAN_IDLE OFF (the epilogue; the drop skipped the
+    # boundary) -> scan 2 ON (a real re-light, so the OFF between the scans
+    # is proven by the second on-event existing at all) -> run-end OFF.
+    assert sub.on_events() == [('Green', 250.0), ('Green', 250.0)], sub.render()
+    assert sub.lit_transitions('Green') == [True, False, True, False], sub.render()
+    _assert_only_lit(sub, 'Green')
+    assert sub.lit_at_most_one(), f'double illumination\n{sub.render()}'
+    assert sub.final_lit() == set(), sub.render()
+
+
+def test_s12_transient_scan_failure_goes_dark_before_retry(scope, runner, tmp_path, monkeypatch):
+    """An exception from the grab mid-scan propagates to the run loop, which
+    classifies it transient and retries a full period later; the failed scan
+    died between the step's illuminate and its boundary decision, so only the
+    SCAN_IDLE epilogue on the transient branch darkens the sample for that
+    wait. Assert the channel goes OFF after the raise and BEFORE the retry's
+    ON. Fails without the epilogue: the channel then rides the retry wait
+    lit, and the retry's idempotent re-light emits nothing."""
+    ill = scope.illumination
+    sub = LedSubstream()
+    ill.add_led_listener(sub)
+
+    real_capture_and_wait = scope.imaging.capture_and_wait
+    raised = threading.Event()
+
+    def _raise_once_then_real(*args, **kwargs):
+        if not raised.is_set():
+            raised.set()
+            raise RuntimeError('injected transient grab failure')
+        return real_capture_and_wait(*args, **kwargs)
+
+    monkeypatch.setattr(scope.imaging, 'capture_and_wait', _raise_once_then_real)
+
+    completed, _ = _run_protocol(
+        runner,
+        _build_two_scan_protocol([('A1', 'Green', {})]),
+        tmp_path,
+        max_scans=2,
+        timeout=60,
+    )
+    assert completed, f'protocol did not complete in time\n{sub.render()}'
+    assert raised.is_set(), 'failure injection never fired'
+
+    # Failed attempt ON -> SCAN_IDLE OFF (the transient-branch epilogue) ->
+    # retry ON (a real re-light proving the off landed before the retry) ->
+    # scan-boundary OFF -> scan 2 ON -> run-end OFF.
+    assert sub.on_events() == [('Green', 250.0)] * 3, sub.render()
+    assert sub.lit_transitions('Green') == [True, False, True, False, True, False], sub.render()
+    _assert_only_lit(sub, 'Green')
+    assert sub.lit_at_most_one(), f'double illumination\n{sub.render()}'
+    assert sub.final_lit() == set(), sub.render()

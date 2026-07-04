@@ -187,8 +187,10 @@ class ProtocolImageWriter:
             through the authority. False if the capture returned early
             (aborted, failed, cancelled, or a dropped write); the caller must
             not apply a boundary hold in that case -- the failure paths have
-            already turned the LED off, and a dropped write leaves the frame's
-            LED for the next step's illuminate to resolve, as before.
+            already turned the LED off, and a dropped write's still-lit
+            channel is resolved by the next step's exclusive illuminate
+            mid-scan, or by the run loop's scan-idle darkening at a scan
+            boundary.
         """
         if self._aborted.is_set():
             return False

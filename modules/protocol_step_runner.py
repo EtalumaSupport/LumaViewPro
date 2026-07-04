@@ -23,6 +23,7 @@ from lvp_logger import logger
 import modules.config_helpers as config_helpers
 from modules.exceptions import AutofocusAborted
 from modules.lumascope_api.illumination import (
+    FIRE_AND_FORGET_TRANSITIONS,
     LedEndPolicy,
     LedTransition,
     LedTransitionCtx,
@@ -671,6 +672,12 @@ class ProtocolStepRunner:
         Submitted on the protocol IO queue so the transition's LED commands
         serialize with the run's moves and captures -- a move must not race the
         LEDs off at a well boundary. No-op when the run holds no lease.
+
+        Whether the submitter waits for completion is a property of the
+        transition (FIRE_AND_FORGET_TRANSITIONS): the scan-idle darkening is
+        enqueued without waiting, because on the failure-retry path the
+        executor carrying it may be the very thing that wedged the scan and
+        FIFO ordering already places the off before anything later.
         """
         p = self._p
         lease = getattr(p, '_led_lease', None)
@@ -680,7 +687,8 @@ class ProtocolStepRunner:
             IOTask(action=lease.apply, args=(transition, ctx)), return_future=True
         )
         if fut:
-            fut.result(timeout=30)
+            if transition not in FIRE_AND_FORGET_TRANSITIONS:
+                fut.result(timeout=30)
         else:
             lease.apply(transition, ctx)
 

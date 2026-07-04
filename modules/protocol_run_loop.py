@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 from lvp_logger import logger
 
 from modules.common_utils import check_disk_space_ok, estimate_step_write_mb
+from modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
 from modules.protocol_state_machine import ProtocolState
 
 if TYPE_CHECKING:
@@ -62,6 +63,48 @@ class ProtocolRunLoop:
             # 'failed' only ever reaches subscribers for a crashed loop.
             self._p._cleanup(run_status='failed')
 
+    def _inter_scan_wait_follows(self) -> bool:
+        """Whether the run is about to enter an inter-scan period wait.
+
+        The shared skip condition for the idle-entry actions (LED darkening,
+        stage pre-positioning): false after the final scan (no idle follows;
+        the run-end transition owns that end state) and on abort (teardown
+        owns it). One predicate so the two idle-entry behaviors cannot
+        diverge.
+        """
+        p = self._p
+        return p.remaining_scans() > 0 and not p._aborted.is_set()
+
+    def _enter_inter_scan_idle(self):
+        """Guarantee the sample is dark before the inter-scan period wait.
+
+        The dark-idle guarantee lives HERE, at the one owner of the idle,
+        rather than on the step machinery's success path: any path into the
+        wait -- a normal scan end, a final-step write drop that skipped the
+        step-boundary decision, or a mid-scan exception riding the
+        transient retry -- passes through this epilogue, so no new early
+        return or exception path in the step flow can leave a channel lit
+        on the sample for a full period. The authority's diff makes it a
+        no-op on a scan that already went dark (no blink, no extra serial
+        traffic).
+
+        A raise from the apply is contained here by design, not propagated:
+        one call site is the transient-retry branch, where a propagated
+        raise would escalate a single failed off-command into aborting a
+        healthy multi-day timelapse -- the opposite of the ride-out-a-blip
+        contract that branch implements. The failure is not silent: it is
+        logged at error level, the LED driver's own command-failure path
+        fires the user-facing sample-safety notification, and the channel
+        is re-asserted exclusive by the next scan's step illumination.
+        """
+        p = self._p
+        if not self._inter_scan_wait_follows():
+            return
+        try:
+            p._step_executor.apply_led_transition(LedTransition.SCAN_IDLE, LedTransitionCtx())
+        except Exception as ex:
+            logger.error(f'[PROTOCOL] Scan-idle LED-off failed entering the idle wait: {ex}')
+
     def _return_to_first_step_between_scans(self):
         """Pre-position the stage at the first step during the inter-scan wait.
 
@@ -73,7 +116,7 @@ class ProtocolRunLoop:
         is left where the last scan ended.
         """
         p = self._p
-        if p.remaining_scans() <= 0 or p._aborted.is_set():
+        if not self._inter_scan_wait_follows():
             return
         try:
             first_step = p._protocol.step(idx=0)
@@ -249,6 +292,9 @@ class ProtocolRunLoop:
                 if p._state == ProtocolState.SCANNING:
                     p._set_state(ProtocolState.RUNNING)
 
+                # Dark before (and during) the pre-positioning move and the
+                # period wait -- one of the two entries into the idle.
+                self._enter_inter_scan_idle()
                 self._return_to_first_step_between_scans()
                 consecutive_scan_failures = 0
 
@@ -340,6 +386,16 @@ class ProtocolRunLoop:
                     )
                     p._cleanup(run_status='failed')
                     break
+
+                # The failed scan may have died with a channel lit (an
+                # exception between the step's illuminate and its boundary
+                # decision) -- the other entry into the idle. Dark before
+                # the period wait, or the sample stays lit for the full
+                # period per retry. After the strike escalation above, so
+                # the final strike goes straight to cleanup's run-end
+                # decision without an extra darken that the restore-original
+                # end state would immediately reverse (an off-then-on blink).
+                self._enter_inter_scan_idle()
 
         # Ensure cleanup runs when exiting the while loop. The while
         # condition goes false on an abort (aborted set) or when the run

@@ -62,6 +62,7 @@ class LedTransition(enum.Enum):
     AF_ENTER = enum.auto()
     AF_TO_CAPTURE = enum.auto()
     STEP_BOUNDARY = enum.auto()
+    SCAN_IDLE = enum.auto()
     RUN_END = enum.auto()
     MANUAL_STEP = enum.auto()
 
@@ -73,6 +74,17 @@ class LedTransition(enum.Enum):
 # for these so the confirm-before-acquire is a property of the transition, not a
 # flag each caller must remember to pass.
 _CONFIRM_ON_TRANSITIONS = frozenset({LedTransition.STEP_LIGHT, LedTransition.AF_ENTER})
+
+# Transitions the submitter must NOT wait on: SCAN_IDLE is applied by the run
+# loop on the failure-retry path, where the executor carrying the LED command
+# may be the very thing that wedged the scan -- waiting there stalls the
+# run-loop thread (delaying a user Stop and the consecutive-failure abort) for
+# the full result timeout while the off cannot execute anyway until the queue
+# drains. FIFO ordering on the protocol IO queue already places the off before
+# any later move or step light, so nothing downstream needs the completion.
+# Same idiom as _CONFIRM_ON_TRANSITIONS: waiting semantics are a property of
+# the transition, not a flag each caller must remember.
+FIRE_AND_FORGET_TRANSITIONS = frozenset({LedTransition.SCAN_IDLE})
 
 
 class LedEndPolicy(enum.Enum):
@@ -253,6 +265,14 @@ class LedLease:
             # extinguish, so the default never leaves a channel lit across a move.
             hold = ctx.same_zstack_group or (ctx.same_color and ctx.keep_led_across_moves)
             return primary if hold else frozenset()
+        if transition is LedTransition.SCAN_IDLE:
+            # The run is between scans: everything dark, unconditionally. The
+            # sample must not be lit through an inter-scan idle (an hour in an
+            # hourly timelapse), whatever path the scan took to get here --
+            # including a dropped final write or a transient scan failure that
+            # skipped the last step's boundary decision. No ctx field is read,
+            # so no caller can parameterize this wrong.
+            return frozenset()
         if transition is LedTransition.RUN_END:
             return (
                 ctx.snapshot_lit
