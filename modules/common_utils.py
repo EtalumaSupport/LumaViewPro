@@ -5,6 +5,7 @@ import dataclasses
 import enum
 import gc
 import json
+import numbers
 import os
 import pathlib
 import platform
@@ -408,21 +409,25 @@ def is_valid_gain_db(value) -> bool:
     """True when a camera gain reading is usable (a number >= 0 dB).
 
     Negative is the drivers' failed-read / inactive sentinel; 0 dB is a
-    legal gain. One shared predicate so every consumer of the sentinel
-    contract validates the same way.
+    legal gain. A non-number (e.g. a stringified value from a hand-built
+    snapshot) is invalid rather than a comparison TypeError, so every
+    consumer can branch on the predicate without its own type guard.
+    One shared predicate so every consumer of the sentinel contract
+    validates the same way.
     """
-    return value is not None and value >= 0
+    return isinstance(value, numbers.Real) and value >= 0
 
 
 def is_valid_exposure_ms(value) -> bool:
     """True when a camera exposure reading is usable (a positive number).
 
     Negative is the drivers' failed-read sentinel and 0 is the API's
-    inactive-camera return -- neither is a physical exposure. One shared
+    inactive-camera return -- neither is a physical exposure. A
+    non-number is invalid rather than a comparison TypeError. One shared
     predicate so every consumer of the sentinel contract validates the
     same way.
     """
-    return value is not None and value > 0
+    return isinstance(value, numbers.Real) and value > 0
 
 
 def is_valid_frame_size(value) -> bool:
@@ -438,8 +443,8 @@ def is_valid_frame_size(value) -> bool:
     width = value.get('width')
     height = value.get('height')
     return (
-        isinstance(width, (int, float))
-        and isinstance(height, (int, float))
+        isinstance(width, numbers.Real)
+        and isinstance(height, numbers.Real)
         and width > 0
         and height > 0
     )
@@ -460,7 +465,13 @@ def is_valid_binning_size(value) -> bool:
     Negative is the drivers' failed-read sentinel; binning is always at
     least 1x1 on real hardware.
     """
-    return isinstance(value, (int, float)) and value >= 1
+    return isinstance(value, numbers.Real) and value >= 1
+
+
+# Distinct non-format inputs raw_bytes_per_pixel has already warned about;
+# the caller cadence is per-stats-tick, so an unknown format warns once per
+# distinct value instead of flooding the log every second.
+_RAW_BPP_WARNED: set[str] = set()
 
 
 def raw_bytes_per_pixel(pixel_format: str, is_color_native: bool = False) -> int:
@@ -471,6 +482,11 @@ def raw_bytes_per_pixel(pixel_format: str, is_color_native: bool = False) -> int
     container, so two bytes. Color-native cameras (none in the shipping fleet)
     carry three channels.
 
+    A non-string input (the pixel-format cache before any format was ever
+    read) is warned about and treated as a 2-byte container: the camera value
+    getters answer last-known-good, so a sentinel reaching this math means a
+    consumer bypassed that containment -- loud, not silently classified.
+
     Args:
         pixel_format: SDK pixel-format name (e.g. 'Mono8', 'Mono12', 'Mono16').
         is_color_native: Whether the camera delivers 3-channel color frames.
@@ -478,7 +494,17 @@ def raw_bytes_per_pixel(pixel_format: str, is_color_native: bool = False) -> int
     Returns:
         Bytes occupied by one pixel of the raw camera frame.
     """
-    bytes_per_channel = 1 if pixel_format == 'Mono8' else 2
+    if not is_valid_pixel_format(pixel_format):
+        marker = repr(pixel_format)
+        if marker not in _RAW_BPP_WARNED:
+            _RAW_BPP_WARNED.add(marker)
+            logger.warning(
+                f'raw_bytes_per_pixel: no pixel format known ({marker}); '
+                f'assuming a 2-byte container for the data-rate readout'
+            )
+        bytes_per_channel = 2
+    else:
+        bytes_per_channel = 1 if pixel_format == 'Mono8' else 2
     channels = 3 if is_color_native else 1
     return bytes_per_channel * channels
 

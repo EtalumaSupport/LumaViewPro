@@ -2605,20 +2605,57 @@ class ImagingAPI:
     def save_camera_state(self, tag: str) -> dict:
         """Snapshot the current camera gain and exposure for later restoration.
 
+        Omit-if-unknown: a field enters the snapshot only when a usable
+        value exists (the getters answer last-known-good, so a missing
+        field means the value was NEVER successfully read). Restore can
+        therefore trust every field it finds, and name the ones it
+        cannot restore.
+
         Args:
             tag: Descriptive name for the snapshot (for logging).
 
         Returns:
             dict: Snapshot suitable for passing to ``restore_camera_state``.
         """
+        snapshot = {'tag': tag}
         gain_db = self.get_gain()
+        if common_utils.is_valid_gain_db(gain_db):
+            snapshot['gain_db'] = gain_db
+        else:
+            # The warning belongs HERE, not at restore: an absent field at
+            # restore time can be a deliberate caller trim (autofocus keeps
+            # the fields its run explicitly targeted), but at save time a
+            # missing value has exactly one meaning -- the camera never
+            # reported it -- and a later partial restore would otherwise be
+            # untraceable.
+            logger.warning(
+                f'[SCOPE API ] save_camera_state tag={tag}: gain has never '
+                f'been successfully read; snapshot omits it and the restore '
+                f'will leave gain unchanged'
+            )
         exposure_ms = self.get_exposure_time()
-        snapshot = {'tag': tag, 'gain_db': gain_db, 'exposure_ms': exposure_ms}
-        _api_log.info(f'save_camera_state tag={tag}: gain={gain_db} exp={exposure_ms}')
+        if common_utils.is_valid_exposure_ms(exposure_ms):
+            snapshot['exposure_ms'] = exposure_ms
+        else:
+            logger.warning(
+                f'[SCOPE API ] save_camera_state tag={tag}: exposure has '
+                f'never been successfully read; snapshot omits it and the '
+                f'restore will leave exposure unchanged'
+            )
+        _api_log.info(
+            f'save_camera_state tag={tag}: '
+            f'gain={snapshot.get("gain_db", "never-read")} '
+            f'exp={snapshot.get("exposure_ms", "never-read")}'
+        )
         return snapshot
 
     def restore_camera_state(self, snapshot: dict) -> None:
         """Restore camera gain and exposure from a previously saved state.
+
+        Fields absent from the snapshot are skipped and named in the log:
+        either the caller deliberately trimmed them (autofocus keeps the
+        values its run explicitly targeted) or they were never readable at
+        save time -- save_camera_state already WARNed about the latter.
 
         Args:
             snapshot: Return value from ``save_camera_state``.
@@ -2626,12 +2663,37 @@ class ImagingAPI:
         if not snapshot:
             return
         tag = snapshot.get('tag', '?')
-        _api_log.info(f'restore_camera_state tag={tag}')
-        gain_db = snapshot.get('gain_db', -1)
-        exposure_ms = snapshot.get('exposure_ms', 0)
-        if gain_db >= 0:
+        # An ABSENT field is a legitimate trim (skip quietly); a PRESENT
+        # field that fails validation is a caller bug -- the sanctioned
+        # producer only ever emits valid fields -- so that case warns.
+        gain_db = snapshot.get('gain_db')
+        gain_known = common_utils.is_valid_gain_db(gain_db)
+        if not gain_known and 'gain_db' in snapshot:
+            logger.warning(
+                f'[SCOPE API ] restore_camera_state tag={tag}: snapshot '
+                f'carries a non-physical gain ({gain_db!r}); gain left as-is'
+            )
+        exposure_ms = snapshot.get('exposure_ms')
+        exposure_known = common_utils.is_valid_exposure_ms(exposure_ms)
+        if not exposure_known and 'exposure_ms' in snapshot:
+            logger.warning(
+                f'[SCOPE API ] restore_camera_state tag={tag}: snapshot '
+                f'carries a non-physical exposure ({exposure_ms!r}); '
+                f'exposure left as-is'
+            )
+        # The log of record goes BEFORE the hardware writes: a setter may
+        # raise a typed exception mid-restore, and the post-mortem then
+        # needs the line stating what this restore was about to do (a
+        # partial restore with no record once misattributed wrong-
+        # brightness images to protocol settings).
+        _api_log.info(
+            f'restore_camera_state tag={tag}: '
+            f'gain={gain_db if gain_known else "skipped"} '
+            f'exp={exposure_ms if exposure_known else "skipped"}'
+        )
+        if gain_known:
             self.set_gain(gain_db)
-        if exposure_ms > 0:
+        if exposure_known:
             self.set_exposure_time(exposure_ms)
 
     # --- Camera config orchestration ---
@@ -2951,24 +3013,29 @@ class ImagingAPI:
             schedule_interval_fn: Callable matching ``Clock.schedule_interval(func, interval)``.
                 Passed in so this module stays GUI-agnostic.
             unschedule_fn: Callable matching ``Clock.unschedule(event)``,
-                used by ``stop_camera_temp_logging`` and on
-                disconnect-while-logging.
+                used by ``stop_camera_temp_logging``.
             interval_s: Seconds between log emissions; default 4 hours.
         """
         # Defensive: if a previous logger is already running, stop it
         # before starting a new one (idempotent -- safe to call repeatedly).
+        # No unschedule_fn arg: the OLD event must be cancelled with the
+        # scheduler it was registered on (the stored fn), not the one
+        # being handed in for the new schedule.
         if getattr(self, '_camera_temp_event', None) is not None:
-            self.stop_camera_temp_logging(unschedule_fn)
+            self.stop_camera_temp_logging()
 
         self._camera_temp_unschedule_fn = unschedule_fn
         self.log_camera_temps()  # one immediate sample
 
         def _tick(_dt=0):
-            # Self-unschedule when the camera disconnects so a stale
-            # event doesn't survive scope switches.
-            if not self._scope.camera_connected:
-                self.stop_camera_temp_logging(unschedule_fn)
-                return
+            # camera_connected is an instantaneous poll and a False can be
+            # transient (a single flaky connectivity query), so the tick
+            # skips the sample (log_camera_temps guards internally) but
+            # STAYS SCHEDULED -- self-unscheduling here permanently ended
+            # temperature logging for the rest of a multi-day soak on one
+            # transient False. Teardown belongs to the explicit owners:
+            # stop_camera_temp_logging via the metrics logger stop and the
+            # scope-swap path.
             self.log_camera_temps()
 
         self._camera_temp_event = schedule_interval_fn(_tick, interval_s)

@@ -468,14 +468,7 @@ def test_failed_read_warns_once_per_window(monkeypatch):
     imaging = _build_imaging(driver)
 
     warnings = []
-    recorder = SimpleNamespace(
-        warning=lambda msg, *a, **kw: warnings.append(str(msg)),
-        info=lambda *a, **kw: None,
-        debug=lambda *a, **kw: None,
-        error=lambda *a, **kw: None,
-        exception=lambda *a, **kw: None,
-    )
-    monkeypatch.setattr('modules.lumascope_api.imaging.logger', recorder)
+    monkeypatch.setattr('modules.lumascope_api.imaging.logger', _recording_logger(warnings))
 
     driver._scripts['get_gain'] = [RAISE]
     imaging.get_gain()
@@ -680,3 +673,179 @@ def test_default_depth_uses_frame_stamp_not_format_derived(tmp_path):
         significant_bits=None,
     )
     assert result['metadata']['significant_bits'] == 12
+
+
+# --- Temp-logger un-latch (Seams-4) ----------------------------------------------
+
+
+def _recording_logger(sink: list) -> SimpleNamespace:
+    """Recorder standing in for the conftest-mocked lvp_logger logger."""
+    return SimpleNamespace(
+        warning=lambda msg, *a, **kw: sink.append(str(msg)),
+        info=lambda *a, **kw: None,
+        debug=lambda *a, **kw: None,
+        error=lambda *a, **kw: None,
+        exception=lambda *a, **kw: None,
+    )
+
+
+def test_temp_logger_survives_transient_disconnect_and_resumes():
+    # Seams-4 regression: a single transient camera_connected False during a
+    # tick must NOT unschedule the temp logger. The old tick self-unscheduled
+    # on the first False, permanently ending temperature logging for the rest
+    # of a multi-day soak. The tick skips the sample but stays scheduled;
+    # teardown belongs solely to stop_camera_temp_logging.
+    driver = steady_good_driver()
+    connected = {'value': True}
+    driver.is_connected = lambda: connected['value']  # camera_connected reads this
+    imaging = _build_imaging(driver)
+
+    probes = []
+    imaging._scope.diagnostics = SimpleNamespace(
+        get_camera_temperatures=lambda: probes.append(1) or {'coreboard': 42.0}
+    )
+
+    scheduled = {}
+    unschedule_calls = []
+
+    def schedule_interval_fn(fn, interval):
+        scheduled['tick'] = fn
+        return 'event-token'
+
+    imaging.start_camera_temp_logging(schedule_interval_fn, unschedule_calls.append, interval_s=1.0)
+    assert len(probes) == 1  # the one immediate sample at start
+
+    connected['value'] = False  # transient disconnect for one tick
+    scheduled['tick']()
+    assert unschedule_calls == [], (
+        'a transient disconnected tick must not unschedule the temp logger '
+        '(the old behavior self-unscheduled forever on the first False)'
+    )
+    assert imaging._camera_temp_event == 'event-token', 'the event must survive the tick'
+    assert len(probes) == 1  # sample skipped while disconnected
+
+    connected['value'] = True  # camera back -> next tick samples again
+    scheduled['tick']()
+    assert len(probes) == 2, 'logging must resume after the transient disconnect'
+
+    # Explicit owner still tears down.
+    imaging.stop_camera_temp_logging()
+    assert unschedule_calls == ['event-token']
+    assert imaging._camera_temp_event is None
+
+
+def test_disconnect_tears_down_temp_logging_schedule():
+    # A scope swap (the reconnect path) discards the whole Lumascope. The
+    # temp tick deliberately never self-cancels, so Lumascope.disconnect()
+    # must be the teardown owner -- without it the orphaned schedule keeps
+    # sampling the discarded scope and pins its object graph for the rest
+    # of the session.
+    driver = steady_good_driver()
+    imaging = _build_imaging(driver)
+    scope = imaging._scope
+    scope.motion = SimpleNamespace(stop_motion=lambda: None, disconnect=lambda: None)
+    scope._led_driver = SimpleNamespace(disconnect=lambda: None)
+    scope._motion_driver = SimpleNamespace(disconnect=lambda: None)
+
+    unschedule_calls = []
+    imaging.start_camera_temp_logging(
+        lambda fn, interval: 'event-token', unschedule_calls.append, interval_s=1.0
+    )
+    assert imaging._camera_temp_event == 'event-token'
+
+    scope.disconnect()
+
+    assert unschedule_calls == ['event-token'], (
+        'disconnect() must cancel the temp-log schedule it owns; an '
+        'orphaned event outlives the scope swap otherwise'
+    )
+    assert imaging._camera_temp_event is None
+
+
+# --- Snapshot omit-if-unknown (Seams-9, restore side) ------------------------------
+
+
+def test_save_camera_state_omits_never_read_fields_and_warns(monkeypatch):
+    # Cold cache, every read fails: the snapshot must carry NO gain/exposure
+    # keys (omit-if-unknown -- the old shape stored gain -1 and a later
+    # restore drove the sentinel back toward the camera), and a WARNING
+    # names each omitted field at SAVE time.
+    imaging = _build_imaging(all_reads_fail_driver())
+    warnings = []
+    monkeypatch.setattr('modules.lumascope_api.imaging.logger', _recording_logger(warnings))
+
+    snapshot = imaging.save_camera_state('t')
+
+    assert snapshot == {'tag': 't'}
+    save_warnings = [w for w in warnings if 'save_camera_state' in w]
+    assert len(save_warnings) == 2, save_warnings
+    assert any('gain' in w for w in save_warnings)
+    assert any('exposure' in w for w in save_warnings)
+
+
+def test_save_camera_state_carries_both_fields_without_warning(monkeypatch):
+    imaging = _build_imaging(steady_good_driver())
+    warnings = []
+    monkeypatch.setattr('modules.lumascope_api.imaging.logger', _recording_logger(warnings))
+
+    snapshot = imaging.save_camera_state('t')
+
+    assert snapshot == {'tag': 't', 'gain_db': 12.5, 'exposure_ms': 50.0}
+    assert warnings == []
+
+
+def test_restore_camera_state_trimmed_snapshot_restores_only_present_fields(monkeypatch):
+    # A caller-trimmed snapshot (autofocus keeps only the fields its run
+    # targeted) is legitimate: restore the present field, skip the absent one,
+    # and log NO warning -- save_camera_state already warned if the omission
+    # was a never-read.
+    imaging = _build_imaging(steady_good_driver())
+    warnings = []
+    monkeypatch.setattr('modules.lumascope_api.imaging.logger', _recording_logger(warnings))
+    calls = []
+    monkeypatch.setattr(imaging, 'set_gain', lambda g: calls.append(('gain', g)))
+    monkeypatch.setattr(imaging, 'set_exposure_time', lambda e: calls.append(('exposure', e)))
+
+    imaging.restore_camera_state({'tag': 't', 'exposure_ms': 50.0})
+
+    assert calls == [('exposure', 50.0)], (
+        f'only the present field may be restored; set_gain must not run: {calls}'
+    )
+    assert warnings == []
+
+
+def test_restore_camera_state_empty_snapshot_is_noop(monkeypatch):
+    imaging = _build_imaging(steady_good_driver())
+    calls = []
+    monkeypatch.setattr(imaging, 'set_gain', lambda g: calls.append(('gain', g)))
+    monkeypatch.setattr(imaging, 'set_exposure_time', lambda e: calls.append(('exposure', e)))
+
+    imaging.restore_camera_state({})
+
+    assert calls == []
+
+
+# --- raw_bytes_per_pixel loud-input ------------------------------------------------
+
+
+def test_raw_bytes_per_pixel_unknown_input_warns_once_per_distinct_value(monkeypatch):
+    # A sentinel pixel format reaching the data-rate math means a consumer
+    # bypassed the getter containment: classify as the 2-byte container but
+    # say so -- exactly one WARNING per distinct bad value, not per call.
+    # _RAW_BPP_WARNED is module state; reset it so test order cannot mask
+    # the warning.
+    monkeypatch.setattr(common_utils, '_RAW_BPP_WARNED', set())
+    warnings = []
+    monkeypatch.setattr(common_utils, 'logger', _recording_logger(warnings))
+
+    assert common_utils.raw_bytes_per_pixel(None) == 2
+    assert common_utils.raw_bytes_per_pixel(None) == 2
+    hits = [w for w in warnings if 'raw_bytes_per_pixel' in w]
+    assert len(hits) == 1, (
+        f'two calls with the same unknown input must warn exactly once; got {hits}'
+    )
+
+    # Valid strings behave as before, silently.
+    assert common_utils.raw_bytes_per_pixel('Mono8') == 1
+    assert common_utils.raw_bytes_per_pixel('Mono12') == 2
+    assert len([w for w in warnings if 'raw_bytes_per_pixel' in w]) == 1

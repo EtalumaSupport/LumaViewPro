@@ -957,6 +957,13 @@ class Lumascope:
             # clear the slot but don't claim success on a real teardown.
             self._camera_driver = None
         self.imaging._invalidate_camera_cache()
+        # This scope's periodic camera-temp schedule dies WITH the scope:
+        # the tick deliberately never self-cancels (a transient
+        # connectivity False must not end logging), so the lifecycle edge
+        # here is the owner that keeps a scope swap (reconnect) from
+        # leaving an orphaned schedule sampling a discarded scope -- and
+        # pinning its whole object graph -- for the rest of the session.
+        self.imaging.stop_camera_temp_logging()
 
         all_ok = led_ok and motion_ok and camera_ok
         if all_ok:
