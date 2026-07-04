@@ -105,6 +105,7 @@ def _step_dict(name, x, y, z, color, idx, *, auto_focus=False, zstack_group=-1):
         'Video Config': {'duration': 5, 'fps': 30},
         'Stim_Config': {},
         'Step Index': idx,
+        'Label': '',
     }
 
 

@@ -87,8 +87,8 @@ class StepNameComponents:
     'A2_BF_Green'); rebuilding from components cannot do that.
     """
 
-    well: str = ''  # 'A2'; mutually exclusive with custom_prefix
-    custom_prefix: str = ''  # 'custom0001' for an added step (well == '')
+    well: str = ''  # 'A2'; the base when no custom_prefix is set
+    custom_prefix: str = ''  # step label (user text or 'custom0001'); renders as the base when set
     channel: str | None = None  # 'BF' | 'Green' | 'Composite' | None
     tile: str | None = None  # tile label, rendered '_T<tile>'
     objective: str | None = None  # short objective name (turret builds)
@@ -135,6 +135,64 @@ def build_step_name(c: StepNameComponents) -> str:
     return '_'.join(p for p in parts if p != '')
 
 
+def _token_kind(seg: str, layers: set, objectives: set) -> str | None:
+    """Classify one step-name segment into the component it fills, or None.
+
+    The single definition of "what is a step-name token", shared by
+    parse_step_name's custom-prefix accretion (which only needs to know
+    whether a segment classifies), its field-assignment loop (which needs
+    which field it fills), and the load-boundary machine-shape test in
+    recover_step_label. One table means they cannot disagree, and adding a
+    token type is a single edit.
+
+    Order is the disambiguation: a turret token ('Turret<n>') is tested
+    before the tile token, whose prefix is the same 'T' letter. The tile
+    shape is 'T<row-letters><col-number>', where the row label is one OR
+    MORE uppercase letters (a mosaic past 26 rows carries 'AA', 'AB', ...).
+    Requiring uppercase letters then digits means it cannot swallow
+    'Turret<n>' (whose 'urret' is lowercase) and lose the turret position,
+    which would otherwise surface as a bogus tile that broke callers
+    parsing the tile's trailing number.
+    """
+    if seg in layers or seg == 'Composite':
+        return 'channel'
+    if re.fullmatch(r'Turret\d+', seg):
+        return 'turret_position'
+    if re.fullmatch(r'T[A-Z]+\d+', seg):
+        return 'tile'
+    if seg in objectives or re.fullmatch(r'\d+x.*', seg):
+        return 'objective'
+    if re.fullmatch(r'Z\d+', seg):
+        return 'z_index'
+    if re.fullmatch(r'\d{4,}', seg):
+        return 'scan_count'
+    if seg in _POST_SUFFIX_TOKENS:
+        return 'post'
+    if seg == 'zproj':
+        return 'zproj'
+    return None
+
+
+def _machine_tokens_only(segs: list[str], layers: set, objectives: set) -> bool:
+    """True when every segment classifies as a known step-name token.
+
+    A machine-generated name -- even one carrying stale tokens from old
+    channel-change bugs, or one whose row columns were later output-adjusted
+    by a post processor -- consists only of vocabulary tokens after its
+    anchor. User-typed text always contains at least one segment the
+    vocabulary cannot classify.
+    """
+    i = 0
+    while i < len(segs):
+        kind = _token_kind(segs[i], layers, objectives)
+        if kind is None:
+            return False
+        if kind == 'zproj':
+            i += 1  # the method segment rides with its zproj token
+        i += 1
+    return True
+
+
 def parse_step_name(name, known_layers=None, known_objectives=()) -> StepNameComponents:
     """Recover the components from a rendered step name, by SHAPE not position.
 
@@ -160,40 +218,7 @@ def parse_step_name(name, known_layers=None, known_objectives=()) -> StepNameCom
         return StepNameComponents()
 
     def token_kind(seg):
-        """Classify one segment into the component it fills, or None.
-
-        The single definition of "what is a step-name token", shared by the
-        custom-prefix accretion below (which only needs to know whether a
-        segment classifies) and the field-assignment loop (which needs which
-        field it fills). One table means the two cannot disagree, and adding a
-        token type is a single edit.
-
-        Order is the disambiguation: a turret token ('Turret<n>') is tested
-        before the tile token, whose prefix is the same 'T' letter. The tile
-        shape is 'T<row-letters><col-number>', where the row label is one OR
-        MORE uppercase letters (a mosaic past 26 rows carries 'AA', 'AB', ...).
-        Requiring uppercase letters then digits means it cannot swallow
-        'Turret<n>' (whose 'urret' is lowercase) and lose the turret position,
-        which would otherwise surface as a bogus tile that broke callers
-        parsing the tile's trailing number.
-        """
-        if seg in layers or seg == 'Composite':
-            return 'channel'
-        if re.fullmatch(r'Turret\d+', seg):
-            return 'turret_position'
-        if re.fullmatch(r'T[A-Z]+\d+', seg):
-            return 'tile'
-        if seg in objectives or re.fullmatch(r'\d+x.*', seg):
-            return 'objective'
-        if re.fullmatch(r'Z\d+', seg):
-            return 'z_index'
-        if re.fullmatch(r'\d{4,}', seg):
-            return 'scan_count'
-        if seg in _POST_SUFFIX_TOKENS:
-            return 'post'
-        if seg == 'zproj':
-            return 'zproj'
-        return None
+        return _token_kind(seg, layers, objectives)
 
     def classifies(seg):
         return token_kind(seg) is not None
@@ -254,35 +279,89 @@ def _blank_to_none(value):
     return None if value in (None, '', -1) else value
 
 
-def step_components(step, known_layers=None, **overrides) -> StepNameComponents:
+def step_components(step, **overrides) -> StepNameComponents:
     """Map a protocol step / post-record row to its canonical name components.
 
     The single place that reads a step's columns into StepNameComponents, so
     every name-building site renders one identity from one source. Well, Color,
-    Tile and Z-Slice are the authoritative columns; a custom step's prefix is the
-    only field not stored as a column, so it is recovered from the stored Name
-    (parse drops any stale channel/tile tokens baked into it, which is what makes
-    a re-channelled step land exactly one token). The objective is deliberately
-    not part of a step's identity: it is a capture-time turret detail the writer
-    stamps onto the saved filename, never the Name. Pass overrides (channel=,
-    tile=, z_index=, scan_count=, objective=, turret_position=, post=) to set the
+    Tile, Z-Slice and Label are the authoritative columns. Label is the step's
+    base text -- a user-typed name kept verbatim, or the machine-assigned
+    'custom<NNNN>' prefix of an added step; empty means the base is the Well.
+    A label is never parsed back out of the rendered Name, so user text that
+    happens to embed a token-shaped segment ('Treatment_10x') can never be
+    truncated by the token vocabulary. The objective is deliberately not part
+    of a step's identity: it is a capture-time turret detail the writer stamps
+    onto the saved filename, never the Name. Pass overrides (channel=, tile=,
+    z_index=, scan_count=, objective=, turret_position=, post=) to set the
     capture- or output-specific fields a given site adds.
     """
     well = step['Well']
-    if well in (None, ''):
-        well = ''
-        custom_prefix = parse_step_name(step['Name'], known_layers).custom_prefix
-    else:
-        well = str(well)
-        custom_prefix = ''
+    well = '' if well in (None, '') else str(well)
+    label = step['Label']
+    label = '' if label in (None, '') else str(label)
     base = StepNameComponents(
         well=well,
-        custom_prefix=custom_prefix,
+        custom_prefix=label,
         channel=_blank_to_none(step['Color']),
         tile=_blank_to_none(step['Tile']),
         z_index=_blank_to_none(step['Z-Slice']),
     )
     return dataclasses.replace(base, **overrides) if overrides else base
+
+
+def recover_step_label(step) -> tuple[str, bool]:
+    """Recover (label, is_auto) for a legacy row that predates the Label column.
+
+    Load-boundary classification, run once per row when migrating a pre-Label
+    protocol or post-record file. Two machine shapes are recognized:
+
+    1. A Name byte-equal to the render of the row's structured columns -- the
+       ordinary auto-generated name.
+    2. A Name that is its own anchor (the row's Well, or a 'custom<NNNN>'
+       prefix) followed only by vocabulary tokens. This is the shape of names
+       written by old releases whose channel change appended a token instead
+       of replacing it ('A2_BF_Green'), and of post-record rows whose columns
+       were output-adjusted (a stitch blanks the tile, a composite rewrites
+       the color) while Name kept the source step's text.
+
+    Both recover the machine base ('' for a well anchor, the prefix for a
+    custom step), so the re-render cleans stale tokens exactly as the old
+    run-time parse did. Anything else is user text kept verbatim -- the lossy
+    token-shape parse is never trusted with it, so a label like
+    'Treatment_10x' survives whole. Comparing shapes (rather than trusting a
+    stored auto/user flag) also absorbs legacy rows whose flag says
+    user-named but whose Name is really machine-shaped; taking such a Name as
+    a verbatim label would re-suffix it on the next render ('A2_BF_BF').
+    """
+    name = str(step['Name'])
+    well = step['Well']
+    well = '' if well in (None, '') else str(well)
+    candidate_prefix = '' if well else parse_step_name(name).custom_prefix
+    rendered = build_step_name(
+        step_components(
+            {
+                'Well': well,
+                'Label': candidate_prefix,
+                'Color': step['Color'],
+                'Tile': step['Tile'],
+                'Z-Slice': step['Z-Slice'],
+            }
+        )
+    )
+    if rendered == name:
+        return candidate_prefix, True
+
+    segs = name.split('_')
+    if well:
+        anchored = segs[0] == well
+        machine_base = ''
+    else:
+        anchored = re.fullmatch(r'custom\d+', segs[0]) is not None
+        machine_base = segs[0]
+    if anchored and _machine_tokens_only(segs[1:], set(get_layers()), set()):
+        return machine_base, True
+
+    return name, False
 
 
 def resolve_step_rename(raw_text: str, sanitize) -> str | None:

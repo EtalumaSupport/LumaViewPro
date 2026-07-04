@@ -120,6 +120,7 @@ class Stitcher(ProtocolPostProcessor):
             file_path=file_path,
             timestamp=row0['Timestamp'],
             name=row0['Name'],
+            label=row0['Label'],
             scan_count=row0['Scan Count'],
             x=alg_metadata['center']['x'],
             y=alg_metadata['center']['y'],

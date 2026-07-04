@@ -35,8 +35,6 @@ from modules.common_utils import build_step_name, step_components
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 
-_LAYERS = ['Blue', 'Green', 'Red', 'BF', 'PC', 'DF', 'Lumi']
-
 POST_PROCESSORS = {
     'CompositeGeneration': REPO / 'modules' / 'composite_generation.py',
     'Stitcher': REPO / 'modules' / 'stitcher.py',
@@ -144,12 +142,19 @@ def test_capture_root_helper_reads_required_kwarg():
 
 
 def _build(row: dict, **overrides) -> str:
-    return build_step_name(step_components(row, known_layers=_LAYERS, **overrides))
+    return build_step_name(step_components(row, **overrides))
 
 
 def test_single_channel_stitch_drops_tile_keeps_channel():
     # Stitch spans all tiles: drop the tile token, keep the channel.
-    row = {'Well': 'A1', 'Color': 'BF', 'Tile': 'A1', 'Z-Slice': '', 'Name': 'A1_BF_TA1'}
+    row = {
+        'Well': 'A1',
+        'Label': '',
+        'Color': 'BF',
+        'Tile': 'A1',
+        'Z-Slice': '',
+        'Name': 'A1_BF_TA1',
+    }
     name = _build(row, tile=None, scan_count=0, objective='4xOly', post=('stitched',))
     assert name == 'A1_BF_4xOly_0000_stitched'
     assert '_TA1' not in name
@@ -159,7 +164,14 @@ def test_composite_stitch_drops_tile_and_channel():
     # A composite-stitch spans all channels: its Color column is 'Composite',
     # so the channel is 'Composite' by construction -- the stale per-channel
     # token baked into the Name string is never consulted (Well is set).
-    row = {'Well': 'A1', 'Color': 'Composite', 'Tile': 'A1', 'Z-Slice': '', 'Name': 'A1_BF_TA1'}
+    row = {
+        'Well': 'A1',
+        'Label': '',
+        'Color': 'Composite',
+        'Tile': 'A1',
+        'Z-Slice': '',
+        'Name': 'A1_BF_TA1',
+    }
     name = _build(row, tile=None, scan_count=0, objective='4xOly', post=('stitched',))
     assert name == 'A1_Composite_4xOly_0000_stitched'
     assert '_TA1' not in name and '_BF' not in name
@@ -170,7 +182,7 @@ def test_stitch_drops_tile_even_when_tile_column_empty():
     # still carries 'TA1'. The old strip helper keyed on the empty column and
     # no-op'd, leaking the token. Setting tile=None omits it by construction,
     # and the stale Name token is never re-parsed (Well is set).
-    row = {'Well': 'A1', 'Color': 'BF', 'Tile': '', 'Z-Slice': '', 'Name': 'A1_BF_TA1'}
+    row = {'Well': 'A1', 'Label': '', 'Color': 'BF', 'Tile': '', 'Z-Slice': '', 'Name': 'A1_BF_TA1'}
     name = _build(row, tile=None, scan_count=0, post=('stitched',))
     assert name == 'A1_BF_0000_stitched'
     assert '_TA1' not in name
@@ -180,7 +192,14 @@ def test_hyperstack_drops_channel_and_z_keeps_tile():
     # A hyperstack collapses all channels (channel=None) AND all z-slices
     # (z_index=None) but keeps the tile -- a single slice index would mislabel
     # the whole stack.
-    row = {'Well': 'A1', 'Color': 'BF', 'Tile': 'A1', 'Z-Slice': 3, 'Name': 'A1_BF_TA1_Z3'}
+    row = {
+        'Well': 'A1',
+        'Label': '',
+        'Color': 'BF',
+        'Tile': 'A1',
+        'Z-Slice': 3,
+        'Name': 'A1_BF_TA1_Z3',
+    }
     name = _build(row, channel=None, z_index=None, objective='4xOly', post=('hyperstack',))
     assert name == 'A1_TA1_4xOly_hyperstack'
     assert '_BF' not in name and '_Z3' not in name
@@ -190,7 +209,14 @@ def test_zprojection_drops_z_keeps_channel_and_tile():
     # A z-projection collapses every z-slice (z_index=None) but keeps channel
     # and tile (per-channel, per-tile output). The post chain records both the
     # source's stitched state and the projection.
-    row = {'Well': 'A1', 'Color': 'BF', 'Tile': 'A1', 'Z-Slice': 3, 'Name': 'A1_BF_TA1_Z3'}
+    row = {
+        'Well': 'A1',
+        'Label': '',
+        'Color': 'BF',
+        'Tile': 'A1',
+        'Z-Slice': 3,
+        'Name': 'A1_BF_TA1_Z3',
+    }
     name = _build(row, z_index=None, scan_count=0, post=('stitched', 'zproj_median'))
     assert name == 'A1_BF_TA1_0000_stitched_zproj_median'
     assert '_Z3' not in name
@@ -200,7 +226,14 @@ def test_chained_post_outputs_carry_both_suffixes():
     # A video of an already-stitched output carries the ordered chain
     # ('stitched', 'video') -- the single-str post field could only hold one,
     # dropping the other. Video keeps z (one slice per video).
-    row = {'Well': 'A1', 'Color': 'BF', 'Tile': 'A1', 'Z-Slice': 3, 'Name': 'A1_BF_TA1_Z3'}
+    row = {
+        'Well': 'A1',
+        'Label': '',
+        'Color': 'BF',
+        'Tile': 'A1',
+        'Z-Slice': 3,
+        'Name': 'A1_BF_TA1_Z3',
+    }
     name = _build(row, post=('stitched', 'video'))
     assert name == 'A1_BF_TA1_Z3_stitched_video'
 

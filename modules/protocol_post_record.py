@@ -3,19 +3,24 @@
 import csv
 import datetime
 import io
+import os
 import pathlib
 
 import numpy as np
 import pandas as pd
 
-from modules.common_utils import PostFunction
+from modules.common_utils import PostFunction, recover_step_label, to_int
 
 from lvp_logger import logger
 
 
 class ProtocolPostRecord:
     FILE_HEADER = 'LumaViewPro Protocol Post-Processing Record'
-    CURRENT_VERSION = 1
+    # v2 adds Label: the source step's base text (user text or the
+    # 'custom<NNNN>' prefix) travels with every record so output filenames
+    # derive from the persisted field instead of re-parsing the rendered
+    # Name, which truncated user labels containing token-shaped segments.
+    CURRENT_VERSION = 2
     DEFAULT_FILENAME = 'protocol_post_record.tsv'
 
     def __del__(self):
@@ -35,6 +40,7 @@ class ProtocolPostRecord:
         'Filepath',
         'Timestamp',
         'Name',
+        'Label',
         'Scan Count',
         'X',
         'Y',
@@ -98,6 +104,7 @@ class ProtocolPostRecord:
                 ('Filepath', str),
                 ('Timestamp', str),
                 ('Name', str),
+                ('Label', str),
                 ('Scan Count', int),
                 ('X', float),
                 ('Y', float),
@@ -156,6 +163,7 @@ class ProtocolPostRecord:
         file_path: pathlib.Path,
         timestamp: datetime.datetime,
         name: str,
+        label: str,
         scan_count: int,
         x: float,
         y: float,
@@ -175,6 +183,7 @@ class ProtocolPostRecord:
             'Filepath': file_path,
             'Timestamp': timestamp,
             'Name': name,
+            'Label': label,
             'Scan Count': scan_count,
             'X': x,
             'Y': y,
@@ -197,6 +206,7 @@ class ProtocolPostRecord:
         file_path: pathlib.Path,
         timestamp: datetime.datetime,
         name: str,
+        label: str,
         scan_count: int,
         x: float,
         y: float,
@@ -219,6 +229,7 @@ class ProtocolPostRecord:
             file_path=file_path,
             timestamp=timestamp,
             name=name,
+            label=label,
             scan_count=scan_count,
             x=x,
             y=y,
@@ -239,6 +250,7 @@ class ProtocolPostRecord:
             file_path=file_path,
             timestamp=timestamp,
             name=name,
+            label=label,
             scan_count=scan_count,
             x=x,
             y=y,
@@ -258,6 +270,7 @@ class ProtocolPostRecord:
         file_path: pathlib.Path,
         timestamp: datetime.datetime,
         name: str,
+        label: str,
         scan_count: int,
         x: float,
         y: float,
@@ -277,6 +290,7 @@ class ProtocolPostRecord:
                 file_path,
                 timestamp,
                 name,
+                label,
                 scan_count,
                 x,
                 y,
@@ -305,8 +319,9 @@ class ProtocolPostRecord:
             if version[0] != 'Version':
                 raise Exception('Version key not found')
 
-            if int(version[1]) not in (1,):
-                raise Exception('Unsupported protocol execution record version')
+            file_version = int(version[1])
+            if file_version not in (1, 2):
+                raise Exception('Unsupported protocol post-processing record version')
 
             # Search for "Images" to indicate start of images data
             while True:
@@ -322,29 +337,98 @@ class ProtocolPostRecord:
                 table_lines.append(line)
 
             table_str = ''.join(table_lines)
+            # Pin the text-identity columns to str at read time: pandas type
+            # inference otherwise turns a numeric-looking name or label
+            # ('0600') into a float ('600.0') that corrupts derived output
+            # filenames.
             df = pd.read_csv(
                 io.StringIO(table_str),
                 sep='\t',
                 lineterminator='\n',
+                dtype={'Name': str, 'Label': str, 'Well': str, 'Tile': str},
             ).fillna('')
 
             if len(df) == 0:
-                raise Exception('No steps in protocol execution record')
+                # A record with no data rows is a legitimate state (a prior
+                # session generated no outputs); keep the typed empty frame
+                # so the append path stays usable instead of discarding the
+                # whole record file.
+                df = cls._create_empty_df()
+            else:
+                df['Timestamp'] = pd.to_datetime(df['Timestamp'])
 
-            df['Timestamp'] = pd.to_datetime(df['Timestamp'])
+                # Convert filename to pathlib type
+                df['Filepath'] = df.apply(lambda row: pathlib.Path(row['Filepath']), axis=1)
 
-            # Convert filename to pathlib type
-            df['Filepath'] = df.apply(lambda row: pathlib.Path(row['Filepath']), axis=1)
+                root_path = file_path.parent
+                df['File Exists'] = df.apply(
+                    lambda row: (root_path / row['Filepath']).is_file(), axis=1
+                )
 
-            root_path = file_path.parent
-            df['File Exists'] = df.apply(
-                lambda row: (root_path / row['Filepath']).is_file(), axis=1
-            )
+                # Z-Slice arrives as float64 whenever any cell is blank
+                # (pandas NaN inference); normalize to the int / -1-sentinel
+                # form so a z index can never render as 'Z3.0' in a name.
+                df['Z-Slice'] = df['Z-Slice'].apply(to_int)
 
-            if len(df) == 0:
-                cls._create_empty_df()
+            if 'Label' not in df.columns:
+                # Pre-v2 records never persisted the label; recover it per
+                # row from the Name's shape (machine-rendered or
+                # machine-anchored names yield their machine base, anything
+                # else is user text kept verbatim). Post rows' columns are
+                # output-adjusted (a stitch blanks the tile), so the
+                # anchor-shape test, not a plain render compare, is what
+                # keeps their machine names from being misread as labels.
+                df['Label'] = [recover_step_label(row)[0] for _, row in df.iterrows()]
 
-            return ProtocolPostRecord(
+            record = ProtocolPostRecord(
                 file_loc=file_path,
                 records=df,
             )
+
+            if file_version < cls.CURRENT_VERSION:
+                # The instance appends rows in the current column order, so
+                # an older file must be upgraded in place; appending
+                # current-format rows under an old header would silently
+                # misalign every column after Name.
+                record._rewrite_outfile()
+
+            return record
+
+    def _rewrite_outfile(self):
+        """Rewrite the on-disk file in the current format, keeping all rows.
+
+        Writes to a sibling temp file and atomically replaces the original,
+        so a crash or error mid-rewrite cannot truncate the record -- the
+        old file survives intact until the new one is complete.
+        """
+        self._close_outfile()
+        tmp_loc = self._file_loc.with_name(self._file_loc.name + '.tmp')
+        post_function_columns = PostFunction.list_values()
+        try:
+            self._initialize_outfile(outfile=tmp_loc)
+            for _, row in self.records().iterrows():
+                self._add_record_to_file(
+                    file_path=row['Filepath'],
+                    timestamp=row['Timestamp'],
+                    name=row['Name'],
+                    label=row['Label'],
+                    scan_count=row['Scan Count'],
+                    x=row['X'],
+                    y=row['Y'],
+                    z=row['Z'],
+                    z_slice=row['Z-Slice'],
+                    well=row['Well'],
+                    color=row['Color'],
+                    objective=row['Objective'],
+                    tile_group_id=row['Tile Group ID'],
+                    tile=row['Tile'],
+                    custom_step=row['Custom Step'],
+                    **{column: row[column] for column in post_function_columns},
+                )
+            self._close_outfile()
+            os.replace(tmp_loc, self._file_loc)
+        except Exception:
+            self._close_outfile()
+            tmp_loc.unlink(missing_ok=True)
+            raise
+        self._reopen_outfile(outfile=self._file_loc)

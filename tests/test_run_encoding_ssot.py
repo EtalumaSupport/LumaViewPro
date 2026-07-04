@@ -84,6 +84,7 @@ def _make_step(color='BF'):
         'Stim_Config': {},
         'Step Index': 0,
         'Auto_Named': True,
+        'Label': '',
     }
 
 

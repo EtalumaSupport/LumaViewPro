@@ -114,6 +114,7 @@ class ZProjector(ProtocolPostProcessor):
             file_path=file_path,
             timestamp=row0['Timestamp'],
             name=row0['Name'],
+            label=row0['Label'],
             scan_count=row0['Scan Count'],
             x=row0['X'],
             y=row0['Y'],

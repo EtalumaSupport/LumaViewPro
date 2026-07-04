@@ -78,9 +78,11 @@ def test_roundtrip_preserves_auto_flag(tmp_path):
     assert flags == [True, False], flags
 
 
-def test_legacy_protocol_defaults_to_user_named(tmp_path):
-    # A pre-v7 protocol carries no Auto_Named column; load defaults it to
-    # user-named so a channel change never regenerates over a stored name.
+def test_legacy_protocol_flag_recovered_by_compose_and_compare(tmp_path):
+    # A pre-v7 protocol carries no Auto_Named column; load recovers the flag
+    # per row by compose-and-compare: a Name byte-equal to the machine render
+    # of the row's structured columns is auto-generated (True), any other
+    # Name is user text kept verbatim in Label (False).
     tsv = tmp_path / 'v6.tsv'
     tsv.write_text(
         'LumaViewPro Protocol\n'
@@ -96,7 +98,17 @@ def test_legacy_protocol_defaults_to_user_named(tmp_path):
         'Video Config\tStim_Config\n'
         'A1_BF\t0\t0\t0\tFalse\tBF\tFalse\t50.0\t0.0\tFalse\t10.0\t1\t'
         "4x Oly\tA1\t\t-1\tFalse\t-1\t-1\timage\t{'fps': 5, 'duration': 5}\t{}\n"
+        'MyPickedSpot\t0\t0\t0\tFalse\tBF\tFalse\t50.0\t0.0\tFalse\t10.0\t1\t'
+        "4x Oly\tB2\t\t-1\tFalse\t-1\t-1\timage\t{'fps': 5, 'duration': 5}\t{}\n"
     )
     proto = Protocol.from_file(file_path=tsv, tiling_configs_file_loc=TILING_CONFIGS)
     assert proto is not None
-    assert not proto.step(idx=0)['Auto_Named']
+    # Machine-shaped name for its columns -> auto; regeneration may track a
+    # future channel change.
+    assert proto.step(idx=0)['Auto_Named']
+    assert proto.step(idx=0)['Label'] == ''
+    assert proto.step(idx=0)['Name'] == 'A1_BF'
+    # User text -> kept verbatim in Label, never regenerated over.
+    assert not proto.step(idx=1)['Auto_Named']
+    assert proto.step(idx=1)['Label'] == 'MyPickedSpot'
+    assert proto.step(idx=1)['Name'] == 'MyPickedSpot_BF'

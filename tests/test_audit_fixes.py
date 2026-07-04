@@ -3086,6 +3086,7 @@ def _protocol_step(**overrides):
         'Y': 0.0,
         'Z': 0.0,
         'Auto_Named': True,
+        'Label': '',
     }
     step.update(overrides)
     return step

@@ -119,6 +119,7 @@ def _make_step(
     video_config=None,
     stim_config=None,
     auto_named=True,
+    label='',
 ):
     return {
         'Name': name,
@@ -145,6 +146,7 @@ def _make_step(
         'Stim_Config': stim_config or _default_stim_config(),
         'Step Index': 0,
         'Auto_Named': auto_named,
+        'Label': label,
     }
 
 
@@ -711,9 +713,15 @@ class TestRoundTripEdgeCases:
         assert reloaded.step(idx=0)['False_Color'] == True  # noqa: E712 -- exact bool check
 
     def test_special_chars_in_name(self, tmp_path):
-        proto = _build_protocol([_make_step(name='test step (1) - BF')])
+        # The user's text lives in Label and survives verbatim; Name is a
+        # derived rendering of (Label, Color, Tile, Z-Slice), so it carries
+        # the channel/z tokens after the preserved special-char base.
+        proto = _build_protocol(
+            [_make_step(name='test step (1) - BF', label='test step (1) - BF', auto_named=False)]
+        )
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.step(idx=0)['Name'] == 'test step (1) - BF'
+        assert reloaded.step(idx=0)['Label'] == 'test step (1) - BF'
+        assert reloaded.step(idx=0)['Name'] == 'test step (1) - BF_BF_Z0'
 
 
 # ===========================================================================
@@ -1222,10 +1230,16 @@ class TestRoundTripCombinations:
 
     def test_multiple_objectives(self, tmp_path):
         """Steps with different objectives."""
+        # Distinct labels keep the derived Names (and so the load-time
+        # uniqueness key) distinct for three steps at the same well/position.
         steps = [
-            _make_step(name='A1_4x', objective='4x Oly', z=3000.0),
-            _make_step(name='A1_10x', objective='10x Oly', z=5000.0),
-            _make_step(name='A1_20x', objective='20x Oly', z=7000.0),
+            _make_step(name='A1_4x', label='A1_4x', auto_named=False, objective='4x Oly', z=3000.0),
+            _make_step(
+                name='A1_10x', label='A1_10x', auto_named=False, objective='10x Oly', z=5000.0
+            ),
+            _make_step(
+                name='A1_20x', label='A1_20x', auto_named=False, objective='20x Oly', z=7000.0
+            ),
         ]
         proto = _build_protocol(steps)
         reloaded = _save_and_reload(proto, tmp_path)
@@ -1850,6 +1864,8 @@ class TestProtocolSaveLoadFieldLevel:
         vc = {'duration': 3.5, 'fps': 15}
         step = _make_step(
             name='Test_Step_1',
+            label='Test_Step_1',
+            auto_named=False,
             x=12.345,
             y=67.89,
             z=4567.0,
@@ -1875,7 +1891,11 @@ class TestProtocolSaveLoadFieldLevel:
         reloaded = _save_and_reload(proto, tmp_path)
 
         s = reloaded.step(idx=0)
-        assert s['Name'] == 'Test_Step_1'
+        # Name is derived at load from the structured columns: the user label
+        # base plus the channel/tile/z tokens. The user's text itself
+        # round-trips in Label.
+        assert s['Name'] == 'Test_Step_1_Green_TT02_Z3'
+        assert s['Label'] == 'Test_Step_1'
         assert s['X'] == pytest.approx(12.345)
         assert s['Y'] == pytest.approx(67.89)
         assert s['Z'] == pytest.approx(4567.0)
@@ -2037,7 +2057,10 @@ class TestProtocolInsertStep:
             before_step=0,
         )
         assert proto.num_steps() == 2
-        assert proto.step(idx=0)['Name'] == 'new_step'
+        # The typed name becomes the step's Label; the derived Name renders
+        # it with the channel token.
+        assert proto.step(idx=0)['Label'] == 'new_step'
+        assert proto.step(idx=0)['Name'] == 'new_step_Green'
         assert proto.step(idx=0)['Color'] == 'Green'
         assert proto.step(idx=1)['Name'] == 'existing'
 
@@ -2055,7 +2078,8 @@ class TestProtocolInsertStep:
         )
         assert proto.num_steps() == 2
         assert proto.step(idx=0)['Name'] == 'first'
-        assert proto.step(idx=1)['Name'] == 'appended'
+        assert proto.step(idx=1)['Label'] == 'appended'
+        assert proto.step(idx=1)['Name'] == 'appended_Red'
         assert proto.step(idx=1)['Color'] == 'Red'
 
     def test_insert_between_steps(self):
@@ -2077,7 +2101,8 @@ class TestProtocolInsertStep:
         )
         assert proto.num_steps() == 3
         assert proto.step(idx=0)['Name'] == 'step_0'
-        assert proto.step(idx=1)['Name'] == 'middle'
+        assert proto.step(idx=1)['Label'] == 'middle'
+        assert proto.step(idx=1)['Name'] == 'middle_BF'
         assert proto.step(idx=2)['Name'] == 'step_1'
 
     def test_insert_with_video_config(self):
@@ -2203,18 +2228,21 @@ class TestProtocolModifyStep:
         proto = _build_protocol([_make_step(color='BF', illumination=50.0)])
         proto.modify_step(
             step_idx=0,
-            step_name='modified',
+            label='modified',
             layer='Green',
             layer_config=_layer_config(illumination=300.0),
             plate_position={'x': 10.0, 'y': 20.0, 'z': 5000.0},
             objective_id='10x Oly',
             stim_configs=_default_stim_config(),
-            auto_named=False,
         )
         step = proto.step(idx=0)
         assert step['Color'] == 'Green'
         assert step['Illumination'] == 300.0
-        assert step['Name'] == 'modified'
+        # A rename via modify_step stores the label and derives the display
+        # Name with the (new) channel token.
+        assert step['Label'] == 'modified'
+        assert step['Name'] == 'modified_Green_Z0'
+        assert not step['Auto_Named']
 
     def test_modify_to_video_with_stim(self):
         proto = _build_protocol([_make_step(acquire='image')])
@@ -2222,13 +2250,12 @@ class TestProtocolModifyStep:
         vc = {'duration': 3.0, 'fps': 15}
         proto.modify_step(
             step_idx=0,
-            step_name='now_video',
+            label='now_video',
             layer='Red',
             layer_config=_layer_config(acquire='video', video_config=vc),
             plate_position={'x': 10.0, 'y': 20.0, 'z': 5000.0},
             objective_id='10x Oly',
             stim_configs=sc,
-            auto_named=False,
         )
         step = proto.step(idx=0)
         assert step['Acquire'] == 'video'
@@ -2240,13 +2267,12 @@ class TestProtocolModifyStep:
         proto = _build_protocol([_make_step(color='BF')])
         proto.modify_step(
             step_idx=0,
-            step_name='modified_red',
+            label='modified_red',
             layer='Red',
             layer_config=_layer_config(illumination=200.0),
             plate_position={'x': 10.0, 'y': 20.0, 'z': 5000.0},
             objective_id='10x Oly',
             stim_configs=_default_stim_config(),
-            auto_named=False,
         )
 
         reloaded = _save_and_reload(proto, tmp_path / 'save')
@@ -2416,10 +2442,11 @@ class TestPerRowConfigParsing:
 
     def test_one_corrupt_video_config_preserves_others(self, tmp_path):
         """If one row has corrupt Video Config JSON, only that row gets default."""
+        # Wells match the names so the derived Names stay distinct at load.
         steps = [
-            _make_step(name='A1_BF', video_config={'duration': 5.0, 'fps': 10}),
-            _make_step(name='A2_BF', video_config={'duration': 5.0, 'fps': 10}),
-            _make_step(name='A3_BF', video_config={'duration': 5.0, 'fps': 10}),
+            _make_step(name='A1_BF', well='A1', video_config={'duration': 5.0, 'fps': 10}),
+            _make_step(name='A2_BF', well='A2', video_config={'duration': 5.0, 'fps': 10}),
+            _make_step(name='A3_BF', well='A3', video_config={'duration': 5.0, 'fps': 10}),
         ]
         loaded = self._save_and_corrupt(
             tmp_path,
@@ -2438,10 +2465,11 @@ class TestPerRowConfigParsing:
     def test_one_corrupt_stim_config_preserves_others(self, tmp_path):
         """If one row has corrupt Stim_Config JSON, only that row gets default."""
         sc = _stim_config_enabled(channels=['Red'])
+        # Wells match the names so the derived Names stay distinct at load.
         steps = [
-            _make_step(name='A1_BF', stim_config=sc),
-            _make_step(name='A2_BF', stim_config=sc),
-            _make_step(name='A3_BF', stim_config=sc),
+            _make_step(name='A1_BF', well='A1', stim_config=sc),
+            _make_step(name='A2_BF', well='A2', stim_config=sc),
+            _make_step(name='A3_BF', well='A3', stim_config=sc),
         ]
         loaded = self._save_and_corrupt(
             tmp_path,

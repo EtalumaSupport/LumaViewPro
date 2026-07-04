@@ -182,7 +182,16 @@ class Protocol:
     # the name string, which could not tell a user name that happened to match
     # the auto pattern from a real auto name.
     COLUMNS[7] = COLUMNS[6] + ['Auto_Named']
-    CURRENT_VERSION = 7
+    # v8 adds Label: the step's base text as a first-class column -- a
+    # user-typed name kept verbatim, or the 'custom<NNNN>' prefix of an added
+    # step; empty means the base is the Well. Name becomes a DERIVED display
+    # column rendered from the structured columns. Persisting the label is
+    # what keeps a rename in every filename: recovering it by parsing the
+    # rendered Name truncated any user text with a token-shaped segment
+    # ('Treatment_10x' -> 'Treatment') and dropped renames of well-anchored
+    # steps entirely.
+    COLUMNS[8] = COLUMNS[7] + ['Label']
+    CURRENT_VERSION = 8
     CURRENT_COLUMNS = COLUMNS[CURRENT_VERSION]
 
     # Header columns for the v6 'Layer Settings' block. Order is the
@@ -242,6 +251,21 @@ class Protocol:
     @staticmethod
     def sanitize_step_name(input: str) -> str:
         return re.sub(r'[^a-zA-Z0-9-_]', '', input)
+
+    @staticmethod
+    def _sanitized_label(step_name: str) -> str:
+        """Sanitize a user-typed step name, refusing one that sanitizes away.
+
+        Silently storing an empty label would revert the step to its machine
+        base and collapse same-channel custom steps onto one filename; fail
+        loud instead so the caller keeps the existing name.
+        """
+        label = Protocol.sanitize_step_name(step_name)
+        if label == '':
+            raise ProtocolError(
+                'Step name must contain at least one letter, digit, dash, or underscore.'
+            )
+        return label
 
     def capture_root(self) -> str:
         return self._config.get('capture_root', '')
@@ -492,6 +516,7 @@ class Protocol:
                 ('Video Config', object),
                 ('Stim_Config', object),
                 ('Auto_Named', bool),
+                ('Label', str),
             ]
         )
         df = pd.DataFrame(np.empty(0, dtype=dtypes))
@@ -852,6 +877,18 @@ class Protocol:
     def modify_capture_root(self, capture_root: str):
         self._config['capture_root'] = capture_root
 
+    def _regenerate_step_name(self, step_idx: int) -> str:
+        """Re-render the step's derived Name from its structured columns.
+
+        Name is a display rendering of (Label, Well, Color, Tile, Z-Slice);
+        every mutation of those columns re-renders it here so the stored
+        string can never drift from the fields it encodes.
+        """
+        step = self._config['steps'].loc[step_idx]
+        name = common_utils.build_step_name(common_utils.step_components(step))
+        self._config['steps'].at[step_idx, 'Name'] = name
+        return name
+
     def modify_name(
         self,
         step_idx: int,
@@ -865,23 +902,30 @@ class Protocol:
                 f'Cannot modify step idx {step_idx}. Protocol only has {self.num_steps()}.'
             )
 
-        Protocol.sanitize_step_name(step_name)
-        self._config['steps'].at[step_idx, 'Name'] = step_name
+        self._config['steps'].at[step_idx, 'Label'] = Protocol._sanitized_label(step_name)
         # A user typing a name makes it theirs: clear the auto flag so a later
         # channel change does not regenerate over it.
         self._config['steps'].at[step_idx, 'Auto_Named'] = False
+        self._regenerate_step_name(step_idx=step_idx)
 
     def modify_step(
         self,
         step_idx: int,
-        step_name: str,
         layer: str,
         layer_config: dict,
         plate_position: dict,
         objective_id: str,
         stim_configs: dict,
-        auto_named: bool,
+        label: str | None = None,
     ):
+        """Update a step in place; label=None keeps the step's existing label.
+
+        A non-None label is a user rename (clears the auto flag). The derived
+        Name is re-rendered from the updated columns either way, so a channel
+        change updates exactly the channel token while the label -- user text
+        or auto base -- rides along untouched.
+        """
+
         def _validate_inputs():
             if step_idx < 0:
                 raise ProtocolError('Step idx must be > 0')
@@ -893,8 +937,9 @@ class Protocol:
 
         _validate_inputs()
 
-        self._config['steps'].at[step_idx, 'Name'] = step_name
-        self._config['steps'].at[step_idx, 'Auto_Named'] = auto_named
+        if label is not None:
+            self._config['steps'].at[step_idx, 'Label'] = Protocol._sanitized_label(label)
+            self._config['steps'].at[step_idx, 'Auto_Named'] = False
         self._config['steps'].at[step_idx, 'X'] = plate_position['x']
         self._config['steps'].at[step_idx, 'Y'] = plate_position['y']
         self._config['steps'].at[step_idx, 'Z'] = plate_position['z']
@@ -913,6 +958,7 @@ class Protocol:
             layer_config['video_config']
         )
         self._config['steps'].at[step_idx, 'Stim_Config'] = copy.deepcopy(stim_configs)
+        self._regenerate_step_name(step_idx=step_idx)
 
     def insert_step(
         self,
@@ -944,13 +990,10 @@ class Protocol:
         auto_named = step_name is None
         if step_name is None:
             CUSTOM_INDEX_WIDTH = 4
-            step_name = common_utils.build_step_name(
-                common_utils.StepNameComponents(
-                    custom_prefix=f'custom{self._config["custom_step_count"]:0{CUSTOM_INDEX_WIDTH}d}',
-                    channel=layer,
-                )
-            )
+            label = f'custom{self._config["custom_step_count"]:0{CUSTOM_INDEX_WIDTH}d}'
             self._config['custom_step_count'] += 1
+        else:
+            label = Protocol._sanitized_label(step_name)
 
         well = ''
         tile = ''  # Manually inserted step is not a tile
@@ -970,7 +1013,7 @@ class Protocol:
         )
 
         step_dict = self._create_step_dict(
-            name=step_name,
+            label=label,
             x=plate_position['x'],
             y=plate_position['y'],
             z=step_z,
@@ -1013,7 +1056,7 @@ class Protocol:
             .reset_index(drop=True)
         )
 
-        return step_name
+        return step_dict['Name']
 
     def step(self, idx: int):
         def _validate():
@@ -1129,12 +1172,8 @@ class Protocol:
                     status['tiles_skipped'] += 1
                     continue
 
-                name = common_utils.build_step_name(
-                    common_utils.step_components(orig_step_df, tile=tile_label)
-                )
-
                 new_step_dict = self._create_step_dict(
-                    name=name,
+                    label=orig_step_df['Label'],
                     x=x_tile,
                     y=y_tile,
                     z=orig_step_df['Z'],
@@ -1230,12 +1269,8 @@ class Protocol:
                     status['zslices_skipped'] += 1
                     continue
 
-                name = common_utils.build_step_name(
-                    common_utils.step_components(orig_step_df, z_index=zstack_slice)
-                )
-
                 new_step_dict = self._create_step_dict(
-                    name=name,
+                    label=orig_step_df['Label'],
                     x=orig_step_df['X'],
                     y=orig_step_df['Y'],
                     z=zstack_position,
@@ -1438,18 +1473,10 @@ class Protocol:
                         else:
                             zstack_group_id_label = zstack_group_id
 
-                        step_name = common_utils.build_step_name(
-                            common_utils.StepNameComponents(
-                                well='' if custom_step else well_label,
-                                custom_prefix=well_label if custom_step else '',
-                                channel=layer_name,
-                                tile=tile_label,
-                                z_index=zstack_slice_label,
-                            )
-                        )
-
                         step_dict = cls._create_step_dict(
-                            name=step_name,
+                            # A manual position's name is its label (there is
+                            # no well anchor); a labware well needs none.
+                            label=well_label if custom_step else '',
                             x=x,
                             y=y,
                             z=z,
@@ -1539,7 +1566,7 @@ class Protocol:
 
     @staticmethod
     def _create_step_dict(
-        name,
+        label,
         x,
         y,
         z,
@@ -1563,8 +1590,14 @@ class Protocol:
         stim_config,
         auto_named,
     ):
-        return {
-            'Name': name,
+        """Build a step dict; the derived Name is rendered here, never passed.
+
+        Deriving Name from the structured fields at the single creation
+        point means no caller can hand in a Name that disagrees with the
+        columns it encodes.
+        """
+        step = {
+            'Name': '',
             'X': x,
             'Y': y,
             'Z': z,
@@ -1587,7 +1620,10 @@ class Protocol:
             'Video Config': copy.deepcopy(video_config),
             'Stim_Config': copy.deepcopy(stim_config),
             'Auto_Named': auto_named,
+            'Label': label,
         }
+        step['Name'] = common_utils.build_step_name(common_utils.step_components(step))
+        return step
 
     """
     stim_config = {
@@ -1690,10 +1726,10 @@ class Protocol:
         if config['version'] == cls.CURRENT_VERSION:
             allowed = True
 
-        elif (config['version'] in (2, 3, 4, 5, 6)) and (cls.CURRENT_VERSION == 7):
-            # v6 introduced the Layer Settings header block; v7 adds the
-            # Auto_Named column. Older versions load with both inferred or
-            # defaulted below.
+        elif (config['version'] in (2, 3, 4, 5, 6, 7)) and (cls.CURRENT_VERSION == 8):
+            # v6 introduced the Layer Settings header block; v7 added the
+            # Auto_Named column; v8 adds the Label column. Older versions
+            # load with the missing columns recovered or defaulted below.
             allowed = True
 
         if not allowed:
@@ -1855,19 +1891,48 @@ class Protocol:
             table_lines.append(line)
 
         table_str = ''.join(table_lines)
-        protocol_df = pd.read_csv(io.StringIO(table_str), sep='\t', lineterminator='\n').fillna('')
+        # Pin the text-identity columns to str at read time: pandas type
+        # inference otherwise turns a numeric-looking name or label ('0600')
+        # into a float ('600.0') that corrupts every derived filename on
+        # reload.
+        protocol_df = pd.read_csv(
+            io.StringIO(table_str),
+            sep='\t',
+            lineterminator='\n',
+            dtype={'Name': str, 'Label': str, 'Well': str, 'Tile': str},
+        ).fillna('')
 
         # M19: Validate required columns before processing.
         # Old versions use 'Channel' instead of 'Color' -- accept either.
         actual_cols = set(protocol_df.columns)
-        required_columns = {'Name', 'X', 'Y', 'Z', 'Illumination', 'Gain', 'Exposure'}
+        required_columns = {
+            'Name',
+            'X',
+            'Y',
+            'Z',
+            'Illumination',
+            'Gain',
+            'Exposure',
+            'Well',
+            'Tile',
+            'Z-Slice',
+        }
         if 'Color' not in actual_cols and 'Channel' not in actual_cols:
             required_columns.add('Color')  # will trigger error
         missing = required_columns - actual_cols
         if missing:
             raise ProtocolFormatError(f'Protocol missing required columns: {missing}')
 
-        protocol_df['Name'] = protocol_df['Name'].astype(str)
+        if 'Color' not in protocol_df.columns:
+            # The oldest files name the channel column 'Channel'; everything
+            # downstream (name derivation, validation, the image writer)
+            # reads 'Color', so normalize once at the read boundary.
+            protocol_df = protocol_df.rename(columns={'Channel': 'Color'})
+
+        # Z-Slice arrives as float64 whenever any cell is blank (pandas NaN
+        # inference); normalize to the int / -1-sentinel form the rest of
+        # the app uses, so a z index can never render as 'Z3.0' in a name.
+        protocol_df['Z-Slice'] = protocol_df['Z-Slice'].apply(common_utils.to_int)
 
         if len(protocol_df) == 0:
             # Will create an empty protocol
@@ -1994,11 +2059,30 @@ class Protocol:
             else:
                 config['tiling'] = tc.no_tiling_label()
 
-        if 'Auto_Named' not in protocol_df.columns:
-            # Pre-v7 protocols never recorded auto-vs-user naming. Treat their
-            # steps as user-named so a channel change never regenerates over a
-            # name the user may have set; new protocols carry the real flag.
-            protocol_df['Auto_Named'] = False
+        if 'Label' not in protocol_df.columns:
+            # Pre-v8 files never persisted the label; recover it per row from
+            # the Name's shape (machine-rendered or machine-anchored names
+            # yield their machine base, anything else is user text kept
+            # verbatim). Files that also predate the auto/user flag take the
+            # flag from the same classification; a stored flag is kept as-is.
+            recovered = [common_utils.recover_step_label(row) for _, row in protocol_df.iterrows()]
+            protocol_df['Label'] = [label for label, _ in recovered]
+            if 'Auto_Named' not in protocol_df.columns:
+                protocol_df['Auto_Named'] = [is_auto for _, is_auto in recovered]
+
+        # Name is a derived rendering of the structured columns; re-render it
+        # so a stale or hand-edited Name cannot disagree with the fields it
+        # encodes. For auto-named rows this reproduces the stored Name
+        # byte-identically.
+        protocol_df['Name'] = [
+            common_utils.build_step_name(common_utils.step_components(row))
+            for _, row in protocol_df.iterrows()
+        ]
+
+        # The in-memory steps now carry every current column; stamp the
+        # current version so a save writes the format the file actually
+        # holds instead of an older version label over new columns.
+        config['version'] = cls.CURRENT_VERSION
 
         config['steps'] = protocol_df
         config['custom_step_count'] = 0

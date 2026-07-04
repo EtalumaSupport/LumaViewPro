@@ -170,6 +170,7 @@ def _make_single_step_protocol(
         'Video Config': video_config,
         'Stim_Config': stim_config,
         'Step Index': 0,
+        'Label': '',
     }
     return _build_real_protocol([step])
 
@@ -233,6 +234,7 @@ def _make_multi_step_protocol(steps_config):
                 'Video Config': merged['video_config'],
                 'Stim_Config': merged['stim_config'],
                 'Step Index': i,
+                'Label': '',
             }
         )
     return _build_real_protocol(rows)
