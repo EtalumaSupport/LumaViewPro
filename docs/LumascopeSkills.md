@@ -527,7 +527,13 @@ scope.imaging.apply_layer_camera_settings(
 
 # Frame size (getters answer last-known-good on a transient read
 # failure; None / 0 only when no camera is active or never read)
-scope.imaging.set_frame_size(2048, 2048)
+delivered = scope.imaging.set_frame_size(2048, 2048)
+# Returns the DELIVERED {'width','height'} -- the clamped/snapped
+# geometry actually in effect, which may differ from the request
+# (drivers clamp to the sensor max and floor to the alignment grid).
+# Raises CameraSettingRejected (modules.exceptions) when a live camera
+# refuses the apply; returns None (no-op) when no camera is active.
+# Base geometry code on the returned dict, never on the request.
 scope.imaging.get_frame_size()                     # {'width': ..., 'height': ...} | None
 scope.imaging.get_max_width()                      # max at the current binning
 scope.imaging.get_max_height()
@@ -536,6 +542,11 @@ scope.imaging.get_pixel_alignment()                # {'width','height'} delivera
 
 # Binning
 scope.imaging.set_binning_size(2)
+# True when applied; raises CameraSettingRejected when a live camera
+# refuses; False (no-op) only when no camera is active. Same contract
+# for set_pixel_format. Success is observed by the return value,
+# rejection by the typed raise -- a dropped return cannot silently
+# record a rejected apply.
 scope.imaging.get_binning_size()                   # always >= 1 (last-known-good on failed read)
 scope.imaging.get_available_binning_sizes()        # e.g. [1, 2, 4]
 
@@ -787,7 +798,7 @@ caps.camera_max_frame_size      # (width, height) tuple in pixels; (0, 0) if no 
 
 Important consequences:
 
-- **`camera_max_frame_size` is `(0, 0)` when no camera is connected** -- that is a sentinel meaning "unknown / no camera," not a usable size. Check `scope.camera_connected` (or that the tuple is non-zero / `caps.camera_model` is non-empty) before using it as a `scope.imaging.set_frame_size(w, h)` target; `set_frame_size` itself no-ops when no camera is active, so a naive `set_frame_size(*caps.camera_max_frame_size)` silently does nothing rather than erroring.
+- **`camera_max_frame_size` is `(0, 0)` when no camera is connected** -- that is a sentinel meaning "unknown / no camera," not a usable size. Check `scope.camera_connected` (or that the tuple is non-zero / `caps.camera_model` is non-empty) before using it as a `scope.imaging.set_frame_size(w, h)` target; `set_frame_size` returns `None` (no-op) when no camera is active, so a naive `set_frame_size(*caps.camera_max_frame_size)` does nothing rather than erroring. With a live camera it returns the DELIVERED geometry and raises `CameraSettingRejected` if the apply is refused.
 - **LED channel count varies by scope.** LS560/LS620 (FX2 driver) expose 4 channels (`BF`, `Blue`, `Green`, `Red`); RP2040-based scopes expose 6 (`BF`, `PC`, `DF`, `Blue`, `Green`, `Red`). Don't iterate over a hardcoded list — iterate over `caps.led_colors`.
 - **Some scopes have no motor at all.** LS560/LS620 have `caps.axes == ()`. Calling `scope.motion.move_absolute_position('X', …)` against such a scope is a no-op, not an error — but your UI should hide motion controls based on `caps.has_xy_stage` etc.
 - **`axis_travel_limits_um` is populated only for present axes.** On a Z-only scope, `'X' in caps.axis_travel_limits_um` is `False`; indexing `caps.axis_travel_limits_um['X']` raises `KeyError`. Check `caps.has_xy_stage` (or `axis in caps.axes`) before reading. The mapping is read-only (`MappingProxyType`); mutation attempts raise `TypeError`.

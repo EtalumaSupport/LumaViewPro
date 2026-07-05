@@ -52,3 +52,25 @@ class AutofocusAborted(Exception):  # noqa: N818 -- cancellation/abort signal, n
     aborted, or app teardown)."""
 
     pass
+
+
+class CameraSettingRejected(Exception):  # noqa: N818 -- named for the event it signals; one type covers the defect class
+    """The camera driver rejected a state-changing setting apply.
+
+    Raised by ImagingAPI setters (frame size, binning, pixel format) when
+    a LIVE driver refuses the apply -- distinct from the camera-absent
+    no-op, which stays a quiet sentinel per the missing-hardware contract.
+    Success is observed by receiving the applied/delivered value, failure
+    by this raise, so a caller cannot record a rejected apply as applied
+    by forgetting to check a return code. The rejection has already been
+    logged and notified to the user when this is raised.
+
+    Attributes:
+        setting: Machine-readable setting name (e.g. 'frame_size').
+        requested: The value the caller asked for.
+    """
+
+    def __init__(self, setting: str, requested):
+        super().__init__(f'{setting}: driver rejected {requested!r}')
+        self.setting = setting
+        self.requested = requested

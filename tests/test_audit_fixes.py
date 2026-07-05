@@ -1724,6 +1724,9 @@ class TestSetBinningSizeFailureNotifies:
     camera silently staying at the old binning is invisible otherwise."""
 
     def test_set_binning_size_exception_notifies(self, monkeypatch):
+        import pytest
+
+        from modules.exceptions import CameraSettingRejected
         from modules.notification_center import notifications
 
         imaging, cam = _sim_backed_imaging()
@@ -1734,9 +1737,11 @@ class TestSetBinningSizeFailureNotifies:
             raise RuntimeError('simulated SDK failure')
 
         monkeypatch.setattr(cam, 'set_binning_size', raising_set_binning_size)
-        assert imaging.set_binning_size(2) is False, (
-            'a raising driver must surface as a False return'
-        )
+        # A raising driver surfaces as the typed rejection (the apply
+        # contract: success returns True, rejection raises so a caller
+        # cannot silently record a rejected apply).
+        with pytest.raises(CameraSettingRejected):
+            imaging.set_binning_size(2)
         assert captured, 'set_binning_size exception path must notify the user'
         assert captured[0][1] == 'Binning change failed', (
             f'notification title must name the failed operation; got {captured[0]}'
@@ -1766,16 +1771,21 @@ class TestSetBinningSizeReturnsBool:
         )
 
     def test_set_binning_size_returns_driver_value(self):
-        """The API method must propagate the driver's bool -- dropping it
-        (implicit None) made char-tool's `if not ok:` misreport every
-        successful binning op as a failure."""
+        """Success must surface as True and rejection must be impossible to
+        mistake for success -- dropping the outcome (implicit None) made
+        char-tool's `if not ok:` misreport every successful binning op as
+        a failure, and a silently-returned False let callers record a
+        rejected factor as current."""
+        import pytest
+
+        from modules.exceptions import CameraSettingRejected
+
         imaging, _cam = _sim_backed_imaging()
         assert imaging.set_binning_size(2) is True, (
             'a driver-accepted binning change must propagate as True'
         )
-        assert imaging.set_binning_size(5) is False, (
-            'a driver-rejected binning size (sim supports 1-4) must propagate as False'
-        )
+        with pytest.raises(CameraSettingRejected):
+            imaging.set_binning_size(5)  # sim supports 1-4
 
     def test_set_binning_size_has_returns_docstring_section(self):
         """Rule 38: public methods declare what they return."""

@@ -66,7 +66,12 @@ class _CoalescingApplier:
     them; on a fast camera (FX2 applies in milliseconds) the gate
     closes between events and every repeat became a real hardware
     apply. A failed apply does not update the last-applied record, so
-    a retry with the same value still goes through.
+    a retry with the same value still goes through -- and "failed"
+    covers BOTH failure shapes: a raising fn and a falsy return (the
+    camera-absent no-op, or any apply whose acceptance is signaled by
+    returning the applied value). Recording is gated on a truthy
+    return, so a rejection can never poison the dedupe record and
+    absorb the user's retry.
     """
 
     def __init__(self, name='coalescing_applier'):
@@ -99,12 +104,25 @@ class _CoalescingApplier:
                     # while an apply was in flight; nothing new to send.
                     continue
             try:
-                fn(val)
+                result = fn(val)
             except Exception as e:
+                # The typed rejection was already logged + notified at the
+                # API layer; this line ties it to the coalescer's value.
                 logger.error(f'[{self._name}] apply failed for {val!r}: {e}', exc_info=True)
             else:
-                with self._lock:
-                    self._last_applied = val
+                if result:
+                    # The recorded key is what the hardware actually holds:
+                    # an fn that returns the APPLIED value (e.g. a clamped
+                    # delivered size) records that, so a user retyping the
+                    # original request after seeing the clamp is not
+                    # absorbed against a value the camera never took. A
+                    # bare True records the request itself. An fn returning
+                    # a value must return it in the SAME shape submit()
+                    # receives (the frame push returns a (w, h) tuple) --
+                    # a mismatched shape would never equal a submitted key
+                    # and dedupe would silently stop absorbing.
+                    with self._lock:
+                        self._last_applied = val if result is True else result
 
 
 class MicroscopeSettings(BoxLayout):
@@ -181,6 +199,11 @@ class MicroscopeSettings(BoxLayout):
 
         lumaview.scope.disconnect()
         lumaview.scope = None
+        # The frame-size dedupe record describes the OLD camera; carried
+        # across the swap it would absorb the first matching apply on the
+        # new one (and its in-flight bookkeeping belongs to tasks queued
+        # against the discarded scope).
+        self._frame_size_applier = _CoalescingApplier(name='frame_size')
         # Reinitialize the scope object (connects motorboard, ledboard, camera)
         import modules.lumascope_api as lumascope_api
 
@@ -692,7 +715,6 @@ class MicroscopeSettings(BoxLayout):
 
     def select_image_mode(self):
         ctx = _app_ctx.ctx
-        settings = ctx.settings
 
         label = self.ids['image_mode_spinner'].text
         mode = image_mode.LABEL_TO_IMAGE_MODE.get(label)
@@ -700,9 +722,16 @@ class MicroscopeSettings(BoxLayout):
             return  # 'Select' placeholder or an unknown label -- ignore
         gui_logger.select('IMAGE_MODE', mode)
 
+        # The mode mirrors commit SYNCHRONOUSLY (display consumers read
+        # scope_display.image_mode on the next frame; the depth hint reads
+        # settings); a rejected format apply is corrected by the failure
+        # callback below -- commit-then-revert, so a rejected depth cannot
+        # STAY recorded with captures tagged at a depth the camera never
+        # took. The prior mode is captured first for the revert.
+        settings = ctx.settings
+        prior_mode = settings.get('image_mode')
         ctx.scope_display.image_mode = mode
         settings['image_mode'] = mode
-
         self._refresh_binning_depth_hint()
 
         # Apply the capture depth to the camera. Resolve to a format the
@@ -717,10 +746,46 @@ class MicroscopeSettings(BoxLayout):
             target = image_mode.select_capture_pixel_format(
                 capture_depth, imaging.get_supported_pixel_formats()
             )
-            if target is not None:
-                imaging.set_pixel_format(target)
+            if target is None:
+                # No matching format is a display-mode-only change:
+                # nothing to apply, the mode commit stands.
+                return True
+            # The absent-camera False propagates to the callback so the
+            # mode commit is reverted -- a format that never reached the
+            # hardware must not stay recorded as the capture depth.
+            return imaging.set_pixel_format(target)
 
-        ctx.camera_executor.put(IOTask(action=_set_pixel_format))
+        ctx.camera_executor.put(
+            IOTask(
+                action=_set_pixel_format,
+                callback=self._on_image_mode_outcome,
+                cb_args=(mode, prior_mode),
+                pass_result=True,
+                # The rejection is already notified at the API layer; the
+                # callback owns the UI revert.
+                silent_on_failure=True,
+            )
+        )
+
+    def _on_image_mode_outcome(self, mode, prior_mode, result=None, exception=None):
+        """UI-thread landing for an image-mode apply: no-op on success (the
+        mirrors committed synchronously at select time); on failure, revert
+        spinner, settings, and the display mode to the captured prior state."""
+        if exception is None and result:
+            return
+        ctx = _app_ctx.ctx
+        settings = ctx.settings
+        if prior_mode is not None:
+            settings['image_mode'] = prior_mode
+            ctx.scope_display.image_mode = prior_mode
+            prior_label = image_mode.IMAGE_MODE_LABELS.get(prior_mode)
+            if prior_label:
+                self.ids['image_mode_spinner'].text = prior_label
+        self._refresh_binning_depth_hint()
+        logger.error(
+            f'[LVP Main  ] image mode {mode} not applied '
+            f'({exception or "no result"}); reverted to {prior_mode}'
+        )
 
     def select_live_image_output_format(self):
         settings = _app_ctx.ctx.settings
@@ -1008,9 +1073,7 @@ class MicroscopeSettings(BoxLayout):
         native = self._native_roi()
         self._store_native_roi(native)
 
-        settings['binning']['size'] = new_binning_size_str
         gui_logger.select('BINNING', new_binning_size_str)
-        self._refresh_binning_depth_hint()
 
         # The displayed/captured size is native / binning, floored to the active
         # driver's DELIVERABLE granularity: get_pixel_alignment reports the
@@ -1020,20 +1083,68 @@ class MicroscopeSettings(BoxLayout):
         new_frame = binning.native_to_displayed(
             native, new_binning_size, imaging.get_pixel_alignment()
         )
+
+        # The binning settings value commits SYNCHRONOUSLY: _ui_binning_size
+        # (native-ROI reconstruction) and the FOV math both document that
+        # they read the synchronous UI binning, so deferring this write to
+        # the apply's completion would let a frame edit made during the
+        # (multi-second Pylon) apply reconstruct against the wrong epoch.
+        # A rejected factor is corrected by the failure callback below --
+        # commit-then-revert, not defer-and-diverge. The prior value is
+        # captured first so the revert restores the exact pre-select state.
+        prior_binning_size_str = settings['binning']['size']
+        prior_frame = {
+            'width': int(settings['frame']['width']),
+            'height': int(settings['frame']['height']),
+        }
+        settings['binning']['size'] = new_binning_size_str
+        self._refresh_binning_depth_hint()
         self.ids['frame_width_id'].text = str(new_frame['width'])
         self.ids['frame_height_id'].text = str(new_frame['height'])
 
-        # During app init, scope.initialize() handles all hardware calls
+        # During app init, scope.initialize() handles all hardware calls;
+        # the mirrors just reflect the settings being loaded.
         if ctx.initializing:
             return
 
         # Route through camera executor to prevent race with live view grab
         # loop. The frame push is enqueued after, so it lands once the new
-        # binning is applied and the driver can clamp to the right max.
+        # binning is applied and the driver can clamp to the right max. The
+        # completion callback acts ONLY on failure, reverting every mirror
+        # to the captured prior state -- a rejected factor must not stay
+        # recorded (it feeds every native-ROI / FOV / stitch derivation).
         ctx.camera_executor.put(
-            IOTask(action=imaging.set_binning_size, kwargs={'size': new_binning_size})
+            IOTask(
+                action=imaging.set_binning_size,
+                kwargs={'size': new_binning_size},
+                callback=self._on_binning_apply_outcome,
+                cb_args=(new_binning_size_str, prior_binning_size_str, prior_frame),
+                pass_result=True,
+                # The rejection is already notified at the API layer; the
+                # callback owns the UI revert.
+                silent_on_failure=True,
+            )
         )
         self._apply_displayed_frame(new_frame)
+
+    def _on_binning_apply_outcome(
+        self, new_binning_size_str, prior_binning_size_str, prior_frame, result=None, exception=None
+    ):
+        """UI-thread landing for a binning apply: no-op on success (all
+        mirrors committed synchronously at select time); on failure, revert
+        settings, spinner, and the frame derivation to the captured prior
+        state so a rejected factor cannot stay recorded."""
+        if exception is None and result:
+            return
+        ctx = _app_ctx.ctx
+        ctx.settings['binning']['size'] = prior_binning_size_str
+        self.ids['binning_spinner'].text = prior_binning_size_str
+        self._refresh_binning_depth_hint()
+        self._apply_displayed_frame(prior_frame)
+        logger.error(
+            f'[LVP Main  ] binning {new_binning_size_str} not applied '
+            f'({exception or "no result"}); reverted to {prior_binning_size_str}'
+        )
 
     def reconfigure_for_scope(self) -> None:
         """Apply the current scope to the UI in the canonical order.
@@ -1174,8 +1285,6 @@ class MicroscopeSettings(BoxLayout):
         """
         ctx = _app_ctx.ctx
         lumaview = ctx.lumaview
-        settings = ctx.settings
-        objective_helper = ctx.objective_helper
 
         if not lumaview.scope.camera_connected:
             return
@@ -1189,28 +1298,19 @@ class MicroscopeSettings(BoxLayout):
         except Exception:
             logger.warning('[LVP Main  ] Could not clamp frame size to camera minimum.')
 
-        settings['frame']['width'] = width
-        settings['frame']['height'] = height
-
         # The single framing chokepoint: both the frame-field edit and the
         # binning toggle reach the camera through here, so one log call records
         # every framing change the user makes (the prior gap that left the
         # frame-box resize invisible in the GUI log).
         gui_logger.frame_size(width, height, get_binning_from_ui())
 
-        self.ids['frame_width_id'].text = str(width)
-        self.ids['frame_height_id'].text = str(height)
-
-        objective_id = settings['objective_id']
-        objective = objective_helper.get_objective_info(objective_id=objective_id)
-
-        fov_size = common_utils.get_field_of_view(
-            focal_length=objective['focal_length'],
-            frame_size=settings['frame'],
-            binning_size=get_binning_from_ui(),
-        )
-        self.ids['field_of_view_width_id'].text = str(round(fov_size['width'], 0))
-        self.ids['field_of_view_height_id'].text = str(round(fov_size['height'], 0))
+        # Every mirror of "current geometry" (settings, text fields, FOV
+        # labels) is written from the DELIVERED size in the completion
+        # callback, never from this request: a rejected or clamped apply
+        # once left the mirrors claiming a size the camera never held, so
+        # tiling/FOV math disagreed with the frames on disk. The typed
+        # text stays visible during the (up to ~11 s Pylon) apply, then
+        # snaps to what the camera delivered.
 
         # Coalesce rapid frame_size() calls -- see _CoalescingApplier
         # + issue #624. The UI can fire this method several times in
@@ -1219,14 +1319,70 @@ class MicroscopeSettings(BoxLayout):
         # the same handler), and Pylon's stop_grabbing/start_grabbing
         # cycle takes ~11s on large frames, so naive queueing creates
         # minute-scale UI freezes.
-        scope = lumaview.scope
         if self._frame_size_applier.submit((width, height)):
             ctx.camera_executor.put(
                 IOTask(
                     action=self._frame_size_applier.apply_pending,
-                    args=(lambda wh: scope.imaging.set_frame_size(*wh),),
+                    args=(self._push_frame_size,),
                 )
             )
+        # FOV is derived state (settings frame x binning), and both inputs
+        # are current right here -- settings['frame'] is delivered-sourced
+        # and the binning committed synchronously. Refreshing now covers
+        # the dedupe-absorbed case (binning changed, same displayed size:
+        # no push, no delivered callback, but the FOV still halves).
+        self._refresh_fov_labels()
+
+    def _push_frame_size(self, wh):
+        """Camera-executor side of a frame-size apply: push to the camera
+        and marshal the DELIVERED geometry back to the UI mirrors.
+
+        Returns the DELIVERED (width, height) tuple so the coalescer
+        records what the camera actually holds as its dedupe key -- a
+        clamped delivery recorded under the request key would absorb the
+        user's retype of the original size while the field showed the
+        clamped one. A rejection raises out of here (contained by
+        apply_pending, already notified at the API layer) and an
+        absent-camera no-op returns None -- neither is recorded, so a
+        retry of the same size still reaches the hardware. The scope slot
+        is None for the whole reconnect window; that is the absent shape,
+        not an error.
+        """
+        scope = getattr(_app_ctx.ctx.lumaview, 'scope', None)
+        if scope is None:
+            return None
+        delivered = scope.imaging.set_frame_size(*wh)
+        if not delivered:
+            return None
+        Clock.schedule_once(lambda dt: self._on_frame_size_applied(delivered), 0)
+        return (int(delivered['width']), int(delivered['height']))
+
+    def _on_frame_size_applied(self, delivered: dict) -> None:
+        """UI-thread landing for an ACCEPTED frame-size apply: write every
+        geometry mirror from the size the camera actually delivered."""
+        settings = _app_ctx.ctx.settings
+
+        width = int(delivered['width'])
+        height = int(delivered['height'])
+        settings['frame']['width'] = width
+        settings['frame']['height'] = height
+        self.ids['frame_width_id'].text = str(width)
+        self.ids['frame_height_id'].text = str(height)
+        self._refresh_fov_labels()
+
+    def _refresh_fov_labels(self) -> None:
+        """Recompute the FOV readout from the current delivered-sourced
+        frame settings and the UI binning."""
+        ctx = _app_ctx.ctx
+        settings = ctx.settings
+        objective = ctx.objective_helper.get_objective_info(objective_id=settings['objective_id'])
+        fov_size = common_utils.get_field_of_view(
+            focal_length=objective['focal_length'],
+            frame_size=settings['frame'],
+            binning_size=get_binning_from_ui(),
+        )
+        self.ids['field_of_view_width_id'].text = str(round(fov_size['width'], 0))
+        self.ids['field_of_view_height_id'].text = str(round(fov_size['height'], 0))
 
     def open_advanced_settings(self):
         """Open the Advanced Settings modal (power-user / rarely-touched rows)."""

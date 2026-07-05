@@ -27,6 +27,7 @@ import threading
 import pytest
 
 from drivers.simulated_camera import SimulatedCamera
+from modules.exceptions import CameraSettingRejected
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.imaging import ImagingAPI
 from tests.ast_seams import parse_module
@@ -238,7 +239,10 @@ class TestGeometrySetterSequences:
         orig = cam.set_frame_size
         cam.set_frame_size = lambda w, h: False
         try:
-            imaging_capable.set_frame_size(1200, 800)
+            # Rejection surfaces as the typed raise (the apply contract);
+            # the sequencing assertions below are the test's subject.
+            with pytest.raises(CameraSettingRejected):
+                imaging_capable.set_frame_size(1200, 800)
         finally:
             cam.set_frame_size = orig
         # A rejected write still expires validity (force-invalidate), but the
@@ -292,12 +296,13 @@ class TestGeometrySetterSequences:
         orig = cam.set_binning_size
         cam.set_binning_size = lambda size: False
         try:
-            result = imaging_capable.set_binning_size(4)
+            # Rejection surfaces as the typed raise (the apply contract).
+            with pytest.raises(CameraSettingRejected):
+                imaging_capable.set_binning_size(4)
         finally:
             cam.set_binning_size = orig
         # A rejected write must not commit the requested factor: the hardware
         # is still at the previous binning and scale-bar math reads this value.
-        assert result is False
         assert imaging_capable._binning_size == 2
 
     def test_set_binning_size_refreshes_geometry_caches(self, imaging_capable):

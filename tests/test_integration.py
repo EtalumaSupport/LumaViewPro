@@ -883,10 +883,14 @@ class TestRestAPIPrep:
         assert session.scope.imaging.get_pixel_format() == 'Mono12'
 
     def test_set_pixel_format_invalid(self):
-        """set_pixel_format() with invalid format should return False."""
+        """set_pixel_format() with an unsupported format raises the typed
+        rejection (the apply contract: an L2 caller cannot mistake a
+        rejected format for an applied one by dropping the return)."""
+        from modules.exceptions import CameraSettingRejected
+
         session = ScopeSession.create_headless()
-        result = session.scope.imaging.set_pixel_format('InvalidFormat')
-        assert result is False
+        with pytest.raises(CameraSettingRejected):
+            session.scope.imaging.set_pixel_format('InvalidFormat')
 
     def test_get_supported_pixel_formats(self):
         """get_supported_pixel_formats() should return tuple of format strings."""

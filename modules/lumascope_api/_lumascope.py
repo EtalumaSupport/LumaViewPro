@@ -41,6 +41,8 @@ from drivers.null_motorboard import NullMotionBoard
 from drivers.null_ledboard import NullLEDBoard
 from drivers.protocols import MotorBoardProtocol, LEDBoardProtocol
 from drivers.registry import motor_registry, led_registry, camera_registry
+import modules.binning as binning
+from modules.exceptions import CameraSettingRejected
 from modules.scope_capabilities import ScopeCapabilities
 
 # Import additional libraries
@@ -601,8 +603,76 @@ class Lumascope:
         if config.turret_config:
             self.runtime_state.set_turret_config(config.turret_config)
         self.runtime_state.set_objective(config.objective_id)
-        self.imaging.set_binning_size(config.binning_size)
-        self.imaging.set_frame_size(config.frame_width, config.frame_height)
+        # Startup applies push PERSISTED settings at the connect boundary, so
+        # each value is reconciled to the capabilities the connected hardware
+        # actually reports BEFORE the apply -- a settings file written against
+        # a different camera (the swap case) must not send an unsupportable
+        # value. Reconciliation only makes sense against a real camera: with
+        # none connected the applies are quiet no-ops and the absent-fallback
+        # capability values must not masquerade as a camera's answer.
+        frame_width, frame_height = config.frame_width, config.frame_height
+        binning_size = config.binning_size
+        if self.camera_connected:
+            available_binning = self.imaging.get_available_binning_sizes()
+            if binning_size not in available_binning:
+                camera_binning = self.imaging.get_binning_size()
+                # The persisted frame is a DISPLAYED size at the persisted
+                # factor; at a different factor it would come up as a
+                # fraction-area ROI (driver clamping only protects against
+                # too-large requests). Re-derive it from the native intent
+                # at the factor actually being applied.
+                native = binning.displayed_to_native(
+                    {'width': frame_width, 'height': frame_height},
+                    binning_size,
+                    self.imaging.get_native_resolution()
+                    or {
+                        'width': frame_width * binning_size,
+                        'height': frame_height * binning_size,
+                    },
+                )
+                refit = binning.native_to_displayed(
+                    native, camera_binning, self.imaging.get_pixel_alignment()
+                )
+                logger.error(
+                    f'[SCOPE API ] initialize: persisted binning {binning_size} '
+                    f'is not supported by the connected camera '
+                    f'(available: {available_binning}); keeping the '
+                    f'camera-reported {camera_binning} and refitting the '
+                    f'frame {frame_width}x{frame_height} -> '
+                    f'{refit["width"]}x{refit["height"]}'
+                )
+                notifications.warning(
+                    'Camera',
+                    'Saved binning not supported',
+                    f'The saved {binning_size}x{binning_size} binning is not '
+                    f'supported by this camera; it starts at '
+                    f'{camera_binning}x{camera_binning} instead. Pick a '
+                    f'binning in Microscope Settings to update the saved '
+                    f'value.',
+                )
+                binning_size = camera_binning
+                frame_width, frame_height = refit['width'], refit['height']
+        # A rejection surviving reconciliation is a live hardware fault
+        # mid-apply. Each apply is contained individually so one faulted
+        # setting cannot skip the rest of bring-up: the callers of
+        # initialize are the app build and the reconnect button, where a
+        # propagated raise aborts startup entirely (no live view, no
+        # motion config, no session) over a single transient -- the
+        # rejection is already logged AND notified at the API layer, and
+        # every downstream consumer reads delivered geometry, never these
+        # requests, so nothing is left believing a rejected value.
+        for label, apply_fn in (
+            ('binning', lambda: self.imaging.set_binning_size(binning_size)),
+            ('frame size', lambda: self.imaging.set_frame_size(frame_width, frame_height)),
+        ):
+            try:
+                apply_fn()
+            except CameraSettingRejected as ex:
+                logger.error(
+                    f'[SCOPE API ] initialize: {label} apply rejected by a '
+                    f'connected camera ({ex}); bring-up continues at the '
+                    f'camera-held value'
+                )
         # Apply the capture pixel format HERE, synchronously, while the start
         # gate is still closed (this runs before the bring-up start_streaming).
         # Resolving + setting it now -- instead of via the async camera-executor
@@ -613,7 +683,14 @@ class Lumascope:
             config.capture_depth, self.imaging.get_supported_pixel_formats()
         )
         if pixel_format is not None:
-            self.imaging.set_pixel_format(pixel_format)
+            try:
+                self.imaging.set_pixel_format(pixel_format)
+            except CameraSettingRejected as ex:
+                logger.error(
+                    f'[SCOPE API ] initialize: pixel format apply rejected by '
+                    f'a connected camera ({ex}); bring-up continues at the '
+                    f'camera-held format'
+                )
         if self.capabilities.camera_supports_conversion_gain_mode:
             self.imaging.set_conversion_gain_mode('High' if config.high_conversion_gain else 'Low')
         if self.capabilities.camera_supports_line_noise_reduction:

@@ -23,6 +23,7 @@ from lib import profile_trace
 from lvp_logger import logger
 import modules.common_utils as common_utils
 import modules.image_utils as image_utils
+from modules.exceptions import CameraSettingRejected
 from modules.frame_validity import FrameValidity
 from modules.notification_center import notifications
 from modules.sequential_io_executor import IOTask
@@ -737,17 +738,51 @@ class ImagingAPI:
         if not state:
             self._refresh_cache_from_hardware_after_auto()
 
-    def set_frame_size(self, w: int, h: int) -> None:
+    def _camera_setting_rejection(
+        self, setting: str, requested, title: str, body: str
+    ) -> CameraSettingRejected:
+        """Log + notify + build the typed rejection for a camera-setting apply.
+
+        Callers ``raise self._camera_setting_rejection(...)`` so the raise
+        is explicit at every rejection site while the load-bearing ordering
+        (log, then notify, then the exception -- the exception class
+        documents that the rejection is already surfaced when it arrives)
+        lives in one place for all setters.
+        """
+        logger.error(f'[SCOPE API ] {setting}: driver rejected {requested!r}')
+        notifications.error('Camera', title, body)
+        return CameraSettingRejected(setting, requested)
+
+    def set_frame_size(self, w: int, h: int) -> dict | None:
         """Set the camera frame size in pixels.
+
+        Success is observed by receiving the DELIVERED geometry; rejection
+        is a raise. A caller therefore cannot record a rejected or clamped
+        apply as current geometry -- the only value available to record is
+        the one the camera actually took (a rejected resize once left the
+        UI, FOV math, and saved settings claiming a size the camera never
+        held, and the retry was absorbed by a dedupe record built from the
+        request).
 
         Args:
             w: Frame width in pixels.
             h: Frame height in pixels.
+
+        Returns:
+            dict | None: The DELIVERED ``{'width', 'height'}`` -- the
+                clamped/snapped geometry actually in effect, which may
+                differ from the request. None when no camera is active
+                (quiet no-op per the missing-hardware contract; a
+                notification fires).
+
+        Raises:
+            CameraSettingRejected: A live driver rejected the apply. The
+                rejection is logged and notified before the raise.
         """
 
         if not self._driver or not self._driver.active:
             self._notify_camera_absent('frame size')
-            return
+            return None
         # A frame-size change reallocates buffers; the pipeline must flush, so
         # invalidate unconditionally. Cache the DELIVERED size, not the request:
         # a driver may clamp or snap the request to its legal grid
@@ -762,15 +797,18 @@ class ImagingAPI:
             lambda: self._driver.set_frame_size(w, h),
             force_invalidate=('frame_size',),
         )
-        if delivered:
-            self._commit_camera_writes(
-                {
-                    'frame_size': {
-                        'width': int(delivered['width']),
-                        'height': int(delivered['height']),
-                    }
-                }
+        if not delivered:
+            raise self._camera_setting_rejection(
+                'frame_size',
+                {'width': w, 'height': h},
+                'Frame size change failed',
+                f'The camera did not accept the frame size {w}x{h}. '
+                f'It remains at the previous size -- try again, or check '
+                f'the USB connection if this repeats.',
             )
+        delivered_size = {'width': int(delivered['width']), 'height': int(delivered['height'])}
+        self._commit_camera_writes({'frame_size': dict(delivered_size)})
+        return delivered_size
 
     def _notify_camera_absent(self, op_label: str) -> None:
         """Fire a deduped notification when a camera-required operation
@@ -802,59 +840,75 @@ class ImagingAPI:
             size: Binning factor (1 = no binning, 2 = 2x2, etc.).
 
         Returns:
-            bool: True if the driver applied the binning. False if the
-                camera is absent, the driver returned False (size out of
-                range, camera inactive), or the driver raised an
-                exception. Caller can use the result to decide whether to
-                proceed with operations that depend on the new binning.
+            bool: True when the driver applied the binning. False only
+                when the camera is absent (quiet no-op per the
+                missing-hardware contract; a notification fires).
+
+        Raises:
+            CameraSettingRejected: A live driver rejected the apply or
+                raised from it. The rejection is logged and notified
+                before the raise, so a rejected binning cannot be
+                recorded as current by a caller that drops the return --
+                a rejected binning silently poisons every native-ROI /
+                FOV / stitch derivation built on the recorded factor.
         """
+        if not self._driver or not self._driver.active:
+            self._notify_camera_absent('binning')
+            return False
         try:
-            if self._driver:
-                # Binning realloc only takes effect when the driver applied it,
-                # so the invalidate is gated on the driver result.
-                # The factor is committed to the cache only when the driver
-                # applied it. A rejected write must not leave the requested
-                # value where scale-bar / FOV math reads it -- the hardware
-                # is still at the previous binning.
-                ok = self._camera_write(
-                    lambda: self._driver.set_binning_size(size=size),
-                    invalidates=('binning',),
-                    cache_update={'binning': int(size)},
-                )
-            else:
-                ok = False
-                self._notify_camera_absent('binning')
-            if ok:
-                # Both cached geometries are binning-dependent: the sensor
-                # minimum halves at 2x, and the delivered frame size halves
-                # with it. Left stale, the UI's frame-size clamp reads the 1x
-                # minimum and FOV math reads the 1x frame size until the next
-                # full hardware refresh. set_binning_size returns no geometry,
-                # so this refresh reads the getters -- a deliberate exception
-                # to the no-read-back preference, accepted because binning
-                # changes are rare user actions, not per-frame traffic. The
-                # validated-read path keeps a failed refresh from caching a
-                # sentinel (the prior geometry stays in place).
-                self._live_validated_read(
-                    'min_frame_size',
-                    lambda driver: driver.get_min_frame_size(),
-                    common_utils.is_valid_frame_size,
-                    lambda v: {'width': int(v['width']), 'height': int(v['height'])},
-                )
-                self.get_frame_size()
-            _api_log.info(f'set_binning {size}x{size} -> {ok}')
-            return ok
+            # Binning realloc only takes effect when the driver applied it,
+            # so the invalidate is gated on the driver result.
+            # The factor is committed to the cache only when the driver
+            # applied it. A rejected write must not leave the requested
+            # value where scale-bar / FOV math reads it -- the hardware
+            # is still at the previous binning.
+            ok = self._camera_write(
+                lambda: self._driver.set_binning_size(size=size),
+                invalidates=('binning',),
+                cache_update={'binning': int(size)},
+            )
         except Exception as ex:
             logger.exception(f'[SCOPE API ] Error setting binning size: {ex}')
-            from modules.notification_center import notifications
-
-            notifications.error(
-                'Camera',
+            raise self._camera_setting_rejection(
+                'binning',
+                size,
                 'Binning change failed',
                 f'Could not set binning to {size}x{size}: {type(ex).__name__}: {ex}. '
                 f'Camera may still be at previous binning -- verify actual frame size.',
+            ) from ex
+        # `is False` (not falsy): an explicit False is the driver's only
+        # rejection signal; a None return (drivers without a confirmation
+        # signal) counts as applied, matching _camera_write's own applied
+        # semantics -- treating None as rejection here would raise while
+        # the cache had already committed the factor.
+        if ok is False:
+            raise self._camera_setting_rejection(
+                'binning',
+                size,
+                'Binning change failed',
+                f'The camera did not accept {size}x{size} binning. It remains '
+                f'at the previous binning -- try again, or check the USB '
+                f'connection if this repeats.',
             )
-            return False
+        # Both cached geometries are binning-dependent: the sensor
+        # minimum halves at 2x, and the delivered frame size halves
+        # with it. Left stale, the UI's frame-size clamp reads the 1x
+        # minimum and FOV math reads the 1x frame size until the next
+        # full hardware refresh. set_binning_size returns no geometry,
+        # so this refresh reads the getters -- a deliberate exception
+        # to the no-read-back preference, accepted because binning
+        # changes are rare user actions, not per-frame traffic. The
+        # validated-read path keeps a failed refresh from caching a
+        # sentinel (the prior geometry stays in place).
+        self._live_validated_read(
+            'min_frame_size',
+            lambda driver: driver.get_min_frame_size(),
+            common_utils.is_valid_frame_size,
+            lambda v: {'width': int(v['width']), 'height': int(v['height'])},
+        )
+        self.get_frame_size()
+        _api_log.info(f'set_binning {size}x{size} -> True')
+        return True
 
     def set_pixel_format(self, pixel_format: str) -> bool:
         """Set the camera pixel format.
@@ -863,10 +917,17 @@ class ImagingAPI:
             pixel_format: Format string (e.g. 'Mono8', 'Mono12').
 
         Returns:
-            bool: True on success. False if the camera is absent /
-                inactive, the driver returned False (unsupported format),
-                or the driver raised. Never raises -- caller may safely
-                check `if not scope.imaging.set_pixel_format(...)` for fallback.
+            bool: True when the driver applied the format. False only
+                when the camera is absent / inactive (quiet no-op per the
+                missing-hardware contract; a notification fires).
+
+        Raises:
+            CameraSettingRejected: A live driver rejected the format
+                (unsupported) or raised from the apply. Logged and
+                notified before the raise, so a caller that drops the
+                return cannot record a rejected format as current --
+                capture depth, saved-file tagging, and data-rate math all
+                key off the recorded format.
         """
         if not self._driver or not self._driver.active:
             self._notify_camera_absent('pixel format')
@@ -881,17 +942,24 @@ class ImagingAPI:
             )
         except Exception as ex:
             logger.exception(f'[SCOPE API ] Error setting pixel format: {ex}')
-            from modules.notification_center import notifications
-
-            notifications.error(
-                'Camera',
+            raise self._camera_setting_rejection(
+                'pixel_format',
+                pixel_format,
                 'Pixel format change failed',
                 f'Could not set pixel format to {pixel_format}: '
                 f'{type(ex).__name__}: {ex}. Camera may still be at the '
                 f'previous format.',
+            ) from ex
+        if result is False:
+            raise self._camera_setting_rejection(
+                'pixel_format',
+                pixel_format,
+                'Pixel format change failed',
+                f'The camera did not accept the pixel format {pixel_format}. '
+                f'It remains at the previous format -- try again, or check '
+                f'the USB connection if this repeats.',
             )
-            return False
-        return result
+        return True
 
     def set_conversion_gain_mode(self, mode: str) -> bool:
         """Set the camera sensor conversion gain mode.
