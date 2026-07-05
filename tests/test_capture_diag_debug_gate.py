@@ -60,6 +60,7 @@ def _drive_capture(monkeypatch, debug_enabled):
         save_folder='/tmp',
         step={
             'Name': 'stepA',
+            'Label': '',
             'Acquire': 'image',
             'Auto_Gain': False,
             'Color': 'BF',

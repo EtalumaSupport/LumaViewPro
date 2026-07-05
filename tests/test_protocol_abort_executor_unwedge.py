@@ -115,7 +115,9 @@ def test_cleanup_skip_path_ends_executor_protocol_mode():
         file_io_executor=file_io,
         _release_scan_led_lease=lambda: None,
     )
-    SequencedCaptureRunner._cleanup_inner(stub)
+    # run_status feeds the end-reason plumbing on the full cleanup path;
+    # the skip path under test never reads it.
+    SequencedCaptureRunner._cleanup_inner(stub, run_status='aborted')
 
     assert io.protocol_finish.is_set(), 'io executor not signalled out of protocol-mode'
     assert file_io.protocol_finish.is_set(), 'file executor not signalled out of protocol-mode'

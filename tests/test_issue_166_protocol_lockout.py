@@ -65,17 +65,29 @@ def test_publish_helper_schedules_flip_on_main_thread():
 
 
 def test_every_run_start_publishes_true():
+    # The scan/protocol starters commit run-start state through the shared
+    # _commit_running_ui_state (called between prepare and start so a
+    # REFUSED run never publishes True); the publish lives there. The
+    # autofocus scan keeps its own commit set (it never owns
+    # ctx.protocol_running) and still publishes directly.
     src = _read('ui/protocol_settings.py')
-    for method in (
-        '_run_scan_from_ui_inner',
-        '_run_protocol_from_ui_inner',
-        'run_autofocus_scan_from_ui',
-    ):
+    commit_body = _def_source(src, '_commit_running_ui_state')
+    assert commit_body is not None, '_commit_running_ui_state missing'
+    assert re.search(r'_publish_protocol_running\(\s*True\s*\)', commit_body), (
+        '_commit_running_ui_state must publish protocol_running True'
+    )
+    for method in ('_run_scan_from_ui_inner', '_run_protocol_from_ui_inner'):
         body = _def_source(src, method)
         assert body is not None, f'{method} missing'
-        assert re.search(r'_publish_protocol_running\(\s*True\s*\)', body), (
-            f'{method} must publish protocol_running True at run start'
+        assert '_commit_running_ui_state' in body, (
+            f'{method} must commit run-start state via _commit_running_ui_state '
+            f'(which publishes protocol_running True)'
         )
+    af_body = _def_source(src, 'run_autofocus_scan_from_ui')
+    assert af_body is not None, 'run_autofocus_scan_from_ui missing'
+    assert re.search(r'_publish_protocol_running\(\s*True\s*\)', af_body), (
+        'run_autofocus_scan_from_ui must publish protocol_running True at run start'
+    )
 
 
 def test_every_run_reset_publishes_false():
