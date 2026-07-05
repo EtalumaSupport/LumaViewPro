@@ -47,6 +47,7 @@ CAMERA_WRITE_METHODS = frozenset(
         'set_pixel_format',
         'set_conversion_gain_mode',
         'set_line_noise_reduction',
+        'update_auto_gain_target_brightness',
     }
 )
 
@@ -185,6 +186,18 @@ class TestAutoSetterSequences:
         )
         # Disable does not arm the auto_gain window; it clears the gain target.
         assert events == [('invalidate', 'gain'), ('set_target', 'gain', None)]
+
+    def test_update_auto_gain_target_brightness_arms_settle_window(self, imaging_capable):
+        # A target change re-drives the running AG convergence, so it marks the
+        # same settle sources set_auto_gain arms -- forced (never gated on a
+        # value delta), and no manual target is recorded (gain stays AG-driven).
+        cam = imaging_capable._driver
+        expected = [('invalidate', 'gain')]
+        if getattr(cam.profile, 'has_auto_gain', False):
+            expected.append(('invalidate', 'auto_gain'))
+        events = _record_validity_events(imaging_capable)
+        imaging_capable.update_auto_gain_target_brightness(0.5)
+        assert events == expected
 
     def test_set_auto_exposure_enable_sequence(self, imaging_capable):
         events = _record_validity_events(imaging_capable)

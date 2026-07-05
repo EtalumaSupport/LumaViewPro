@@ -2803,7 +2803,19 @@ class ImagingAPI:
         """
         if not self._driver or not self._driver.active:
             return
-        self._driver.update_auto_gain_target_brightness(target_brightness)
+        # Changing the target re-drives the auto-gain loop: gain (and, under
+        # auto-exposure, exposure) converge to a new operating point, so a frame
+        # grabbed before they resettle is captured at the old brightness. Route
+        # through the sanctioned write path and mark the settle sources RED so
+        # capture waits for the convergence -- the same sources set_auto_gain
+        # arms, since this is the same convergence. The auto_gain settle source
+        # applies only when the camera has hardware auto-gain (others settle via
+        # the gain source alone).
+        arm_settle = getattr(self._driver.profile, 'has_auto_gain', False)
+        self._camera_write(
+            lambda: self._driver.update_auto_gain_target_brightness(target_brightness),
+            force_invalidate=('gain', 'auto_gain') if arm_settle else ('gain',),
+        )
 
     def auto_gain_once(
         self,
