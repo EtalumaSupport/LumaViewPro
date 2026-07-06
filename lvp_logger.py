@@ -210,10 +210,16 @@ _lvp_parent = logging.getLogger('LVP')
 _lvp_parent.setLevel(_log_level)
 logger.setLevel(_log_level)
 
-# Prevent logs from propagating to root (and the console)
-if not debug:
-    logger.propagate = False
-    _lvp_parent.propagate = False
+# The root logger is the single owner of the bundle file handlers (set up
+# below); every logger reaches the bundle by propagating to root, and no logger
+# holds its own copy of those handler instances. Propagation is therefore
+# load-bearing -- it is the only path LVP output takes to the bundle -- so it
+# stays enabled (the default). (An earlier design attached the same handler
+# instances to both the LVP loggers and root; a propagated record then wrote
+# the bundle line twice, masked only by disabling propagation in non-debug,
+# which left debug runs -- when the bundle matters most -- double-logged.)
+logger.propagate = True
+_lvp_parent.propagate = True
 
 # obtains name of the module (file) importing lvp_logger
 filename = f'{__file__}'
@@ -516,8 +522,8 @@ def enable_engineering_logs(enabled: bool):
             api_logger.removeHandler(_api_file_handler)
 
 
-logger.addHandler(file_handler)
-logger.addHandler(error_file_handler)
+# Only the REST sink is logger-specific; the bundle file handlers live on root
+# (the single owner) and are reached by propagation.
 logger.addHandler(rest_api_handler)
 
 # GUI interaction log -- every user action for crash forensics
@@ -538,23 +544,15 @@ kivy_logger = logging.getLogger('kivy')
 # this pin, Kivy's framework INFO chatter would flood the bundle. WARNING
 # matches Kivy's prior effective level (it was unset, inheriting root's default).
 kivy_logger.setLevel(logging.WARNING)
-kivy_logger.addHandler(file_handler)
-kivy_logger.addHandler(error_file_handler)
-kivy_logger.propagate = False
+# Kivy reaches the bundle by propagating to root (the single handler owner);
+# the WARNING floor keeps its framework chatter out. It previously held its own
+# copies of the bundle handlers and set propagate False to avoid writing the
+# bundle twice through root's copies -- the same shared-handler duplication the
+# LVP loggers carried.
+kivy_logger.propagate = True
 
-# Give LVP.* loggers the same file handlers so their output is captured
-_lvp_parent.addHandler(file_handler)
-_lvp_parent.addHandler(error_file_handler)
-
-# Best-effort: remove any existing console/stream handlers from root to reduce terminal noise
-if not debug:
-    try:
-        root_logger = logging.getLogger()
-        for h in list(root_logger.handlers):
-            if isinstance(h, logging.StreamHandler):
-                root_logger.removeHandler(h)
-    except Exception as e:
-        logger.warning(f'[Logger  ] Failed to remove console handler: {e}')
+# LVP.* records reach the bundle by propagating through _lvp_parent to root
+# (the single handler owner); no per-logger bundle handler is attached here.
 
 # Single logging config: the root logger writes to the shared bundle (and, when
 # a console stream exists, to it too), so any entry point that logs on the root
@@ -562,15 +560,18 @@ if not debug:
 # -- is captured by default without rolling its own logging setup. Root sits at
 # DEBUG so a script's own DEBUG-level per-run file handler still receives
 # records; the bundle handler filters to the main-log floor so a root / library
-# DEBUG firehose does not flood the bundle. The console handler is added only
-# when sys.stderr exists: a packaged windowed build has none, and a
-# StreamHandler over a missing stream raises on emit.
+# DEBUG firehose does not flood the bundle. The console handler echoes to the
+# terminal only in debug: every logger now propagates to root, so a non-debug
+# console would surface all LVP + framework output as terminal noise (the
+# reason the old non-debug path stripped root's stream handlers). It is also
+# gated on sys.stderr -- a packaged windowed build has none, and a StreamHandler
+# over a missing stream raises on emit.
 file_handler.setLevel(_log_level)
 _root_logger = logging.getLogger()
 _root_logger.setLevel(logging.DEBUG)
 _root_logger.addHandler(file_handler)
 _root_logger.addHandler(error_file_handler)
-if sys.stderr is not None:
+if debug and sys.stderr is not None:
     _root_console = logging.StreamHandler()
     _root_console.setLevel(_log_level)
     _root_console.setFormatter(CustomFormatter())

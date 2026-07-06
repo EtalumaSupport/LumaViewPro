@@ -6,10 +6,12 @@ bundle's file handler was attached only to the named ``lvp_logger`` / ``LVP``
 loggers, never to root, so a script's output never reached the shared bundle
 -- the run was visible only by its serial-traffic motion signature.
 
-``lvp_logger`` now owns the root config: it attaches the bundle handlers to
-root (so any root logging is captured by default) and adds a console handler
-only when ``sys.stderr`` exists (a packaged windowed build has none, and a
-StreamHandler over a missing stream raises on emit).
+``lvp_logger`` now owns the root config: root is the single owner of the bundle
+handlers (so any root logging is captured by default, and the LVP loggers reach
+the bundle by propagating to root instead of holding their own copies of the
+handlers). The console handler is added only in debug and only when
+``sys.stderr`` exists (a packaged windowed build has none, and a StreamHandler
+over a missing stream raises on emit).
 
 Source-level structural lock: the suite mocks ``lvp_logger`` at import
 (conftest installs a MagicMock), so the real module is asserted on by source
@@ -44,8 +46,11 @@ class TestRootLoggerCapturedInBundle:
 
 
 class TestConsoleGuardedOnStderr:
-    def test_console_only_when_stderr_present(self):
-        # A packaged windowed build has sys.stderr == None; a StreamHandler
-        # over it raises on emit, so the console handler is conditional.
-        assert 'if sys.stderr is not None:' in _SRC
+    def test_console_only_in_debug_and_when_stderr_present(self):
+        # The console echoes the bundle to the terminal only in debug: every
+        # logger now propagates to root, so a non-debug console would surface
+        # all LVP + framework output as terminal noise. It is also guarded on
+        # sys.stderr -- a packaged windowed build has None, and a StreamHandler
+        # over a missing stream raises on emit.
+        assert 'if debug and sys.stderr is not None:' in _SRC
         assert 'logging.StreamHandler()' in _SRC
