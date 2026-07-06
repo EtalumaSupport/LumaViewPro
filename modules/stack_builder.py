@@ -219,6 +219,29 @@ class StackBuilder(ProtocolPostProcessor):
         num_z = df['Z-Slice'].nunique()
         num_c = df['Color'].nunique()
 
+        # A hyperstack is a rectangular T x Z x C cube: every channel must be
+        # captured at the same z-slices and scan counts, exactly once each. A
+        # protocol that z-stacks one channel but single-shots another leaves
+        # holes the dense array could only pad with black planes -- fake data
+        # in a scientific image. Refuse the whole well through the post-
+        # processor's status=False failure path, naming the well so the user
+        # can align the protocol or build each channel separately.
+        expected_planes = num_t * num_z * num_c
+        captured_cells = df.groupby(['Scan Count', 'Z-Slice', 'Color']).ngroups
+        if len(df) != expected_planes or captured_cells != expected_planes:
+            well = df['Well'].iloc[0]
+            return {
+                'status': False,
+                'error': (
+                    f'Cannot build a hyperstack for well {well}: its channels '
+                    f'were not all captured at the same z-slices and scan '
+                    f'counts ({len(df)} images for a {num_t} x {num_z} x '
+                    f'{num_c} grid). Use the same z-stack settings on every '
+                    f'channel in the well, or build each channel separately.'
+                ),
+                'metadata': {},
+            }
+
         _, color_idx_map = np.unique(df['Color'], return_inverse=True)
         df['Color Index'] = color_idx_map
 
