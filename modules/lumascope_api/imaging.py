@@ -998,8 +998,8 @@ class ImagingAPI:
             notifications.error(
                 'Camera',
                 'Conversion gain mode change failed',
-                f'Could not set conversion gain mode to {mode!r}: '
-                f'{type(ex).__name__}: {ex}. Camera may still be at the previous mode.',
+                f'Could not set conversion gain mode to {mode!r}. '
+                f'Camera may still be at the previous mode. See the log for details.',
             )
             return False
         return result
@@ -1040,8 +1040,8 @@ class ImagingAPI:
             notifications.error(
                 'Camera',
                 'Line noise reduction change failed',
-                f'Could not {"enable" if enabled else "disable"} line noise reduction: '
-                f'{type(ex).__name__}: {ex}.',
+                f'Could not {"enable" if enabled else "disable"} line noise reduction. '
+                f'See the log for details.',
             )
             return False
         return result
@@ -1113,9 +1113,9 @@ class ImagingAPI:
             notifications.error(
                 'Camera',
                 'BslAcquisitionStopMode change failed',
-                f'Could not set acquisition_stop_mode to {mode!r}: '
-                f'{type(ex).__name__}: {ex}. Camera may still be at '
-                f'the previous stop-mode setting.',
+                f'Could not set acquisition_stop_mode to {mode!r}. '
+                f'Camera may still be at the previous stop-mode setting. '
+                f'See the log for details.',
             )
             raise
 
@@ -1155,7 +1155,7 @@ class ImagingAPI:
             notifications.error(
                 'Camera',
                 'BandwidthReserveMode change failed',
-                f'Could not set BandwidthReserveMode to {mode!r}: {type(ex).__name__}: {ex}.',
+                f'Could not set BandwidthReserveMode to {mode!r}. See the log for details.',
             )
             raise
 
@@ -1225,9 +1225,9 @@ class ImagingAPI:
             notifications.error(
                 'Camera',
                 'DeviceLinkThroughputLimit change failed',
-                f'Could not set DLTL to mode={mode}, value_bps={value_bps}: '
-                f'{type(ex).__name__}: {ex}. Camera may still be at the '
-                f'previous DLTL setting.',
+                f'Could not set DLTL to mode={mode}, value_bps={value_bps}. '
+                f'Camera may still be at the previous DLTL setting. '
+                f'See the log for details.',
             )
             raise
 
@@ -1268,7 +1268,7 @@ class ImagingAPI:
             notifications.error(
                 'Camera',
                 'MaxTransferSize change failed',
-                f'Could not set MaxTransferSize to {value_bytes}: {type(ex).__name__}: {ex}.',
+                f'Could not set MaxTransferSize to {value_bytes}. See the log for details.',
             )
             raise
 
@@ -1309,7 +1309,7 @@ class ImagingAPI:
             notifications.error(
                 'Camera',
                 'NumMaxQueuedUrbs change failed',
-                f'Could not set NumMaxQueuedUrbs to {value}: {type(ex).__name__}: {ex}.',
+                f'Could not set NumMaxQueuedUrbs to {value}. See the log for details.',
             )
             raise
 
@@ -1353,7 +1353,7 @@ class ImagingAPI:
             notifications.error(
                 'Camera',
                 'MaxNumBuffer change failed',
-                f'Could not set MaxNumBuffer to {value}: {type(ex).__name__}: {ex}.',
+                f'Could not set MaxNumBuffer to {value}. See the log for details.',
             )
             raise
 
@@ -1422,7 +1422,7 @@ class ImagingAPI:
             notifications.error(
                 'Camera',
                 'GevSCPSPacketSize change failed',
-                f'Could not set GevSCPSPacketSize to {size_bytes}: {type(ex).__name__}: {ex}.',
+                f'Could not set GevSCPSPacketSize to {size_bytes}. See the log for details.',
             )
             raise
 
@@ -1461,7 +1461,7 @@ class ImagingAPI:
             notifications.error(
                 'Camera',
                 'GevSCPD change failed',
-                f'Could not set GevSCPD to {delay_ticks}: {type(ex).__name__}: {ex}.',
+                f'Could not set GevSCPD to {delay_ticks}. See the log for details.',
             )
             raise
 
@@ -1566,8 +1566,8 @@ class ImagingAPI:
                 'Camera',
                 'Frame-rate cap change failed',
                 f'Could not set frame-rate cap to enabled={enabled}, '
-                f'fps={fps}: {type(ex).__name__}: {ex}. Camera may still be '
-                f'at the previous setting.',
+                f'fps={fps}. Camera may still be at the previous setting. '
+                f'See the log for details.',
             )
             raise
 

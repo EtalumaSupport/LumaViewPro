@@ -865,7 +865,7 @@ class LayerControl(BoxLayout):
                 notifications.error(
                     'Motion',
                     'Save focus failed',
-                    f"Couldn't read Z position: {e}",
+                    "Couldn't read the Z position. Check that the motor board is connected.",
                 )
             except Exception:
                 pass
@@ -908,7 +908,7 @@ class LayerControl(BoxLayout):
                 notifications.error(
                     'Motion',
                     'Focus move failed',
-                    f"Couldn't move Z to saved focus: {e}",
+                    "Couldn't move Z to the saved focus. Check that the motor board is connected.",
                 )
             except Exception:
                 pass
@@ -969,7 +969,8 @@ class LayerControl(BoxLayout):
                 notifications.error(
                     'LED',
                     f'{self.layer} LED command failed',
-                    f"Couldn't {'enable' if enabled else 'disable'} the {self.layer} channel: {e}",
+                    f"Couldn't {'enable' if enabled else 'disable'} the {self.layer} channel. "
+                    f'Check that the LED board is connected.',
                 )
             except Exception:
                 pass

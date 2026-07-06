@@ -283,7 +283,8 @@ class MotionAPI:
                 notifications.warning(
                     'Motion',
                     'Motor stop failed',
-                    f'STOP command failed during shutdown: {type(e).__name__}: {e}',
+                    'The motor STOP command failed during shutdown. '
+                    'If the stage is still moving, power-cycle the microscope.',
                 )
             except Exception:
                 pass

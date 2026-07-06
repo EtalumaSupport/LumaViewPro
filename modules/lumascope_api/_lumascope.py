@@ -195,7 +195,9 @@ def _try_connect_board(label, ctor, null_ctor):
     except Exception as e:
         logger.error(f'{label}: connect failed: {type(e).__name__}: {e}')
         _notify_board_failure(
-            label, 'connect failed', f'Could not connect to {label}: {type(e).__name__}: {e}'
+            label,
+            'connect failed',
+            f'Could not connect to {label}. Check the USB cable and 24V power, then restart LVP.',
         )
         return null_ctor()
 
@@ -226,25 +228,22 @@ def _notify_camera_failure(exc, *, suppress_if_cold_start: bool = False):
     if exc_type in ('RuntimeException', 'GenericException', 'LogicalErrorException'):
         title = 'Camera in use'
         body = (
-            f'Camera appears to be open in another application '
-            f'(Pylon Viewer, another LVP instance, etc.). '
-            f'Close it and restart LVP. ({exc_type}: {exc})'
+            'Camera appears to be open in another application '
+            '(Pylon Viewer, another LVP instance, etc.). '
+            'Close it and restart LVP.'
         )
     elif isinstance(exc, PermissionError):
         title = 'Camera port in use'
-        body = (
-            f'Camera port is in use by another program. '
-            f'Close the other program and restart LVP. ({exc})'
-        )
+        body = 'Camera port is in use by another program. Close the other program and restart LVP.'
     elif isinstance(exc, FileNotFoundError):
         title = 'Camera not detected'
-        body = f'Camera not found. Check USB cable and power. ({exc})'
+        body = 'Camera not found. Check USB cable and power.'
     else:
         title = 'Camera not initialized'
         body = (
-            f'Could not connect to camera: {exc_type}: {exc}. '
-            f'Check USB cable, power, and close other programs that '
-            f'may hold the camera.'
+            'Could not connect to the camera. '
+            'Check USB cable, power, and close other programs that '
+            'may hold the camera.'
         )
     if suppress_if_cold_start:
         # Cold-start with no hardware -- caller has already detected
@@ -990,9 +989,9 @@ class Lumascope:
                 notifications.error(
                     'Hardware',
                     'LED disconnect failed',
-                    f'LED board teardown raised {type(ex).__name__}: {ex}. '
-                    f'The serial port may be left open; reconnecting '
-                    f'may require a process restart.',
+                    'The LED board did not shut down cleanly. '
+                    'The serial port may be left open; reconnecting '
+                    'may require a process restart.',
                 )
         self._led_driver = NullLEDBoard()
 
@@ -1008,9 +1007,9 @@ class Lumascope:
                 notifications.error(
                     'Hardware',
                     'Motor disconnect failed',
-                    f'Motor board teardown raised {type(ex).__name__}: {ex}. '
-                    f'The serial port may be left open; reconnecting '
-                    f'may require a process restart.',
+                    'The motor board did not shut down cleanly. '
+                    'The serial port may be left open; reconnecting '
+                    'may require a process restart.',
                 )
         self._motion_driver = NullMotionBoard()
 
@@ -1024,9 +1023,9 @@ class Lumascope:
                 notifications.error(
                     'Hardware',
                     'Camera disconnect failed',
-                    f'Camera teardown raised {type(ex).__name__}: {ex}. '
-                    f'USB resources may not be fully released until the '
-                    f'app restarts.',
+                    'The camera did not shut down cleanly. '
+                    'USB resources may not be fully released until the '
+                    'app restarts.',
                 )
             self._camera_driver = None
         elif self._camera_driver is not None:

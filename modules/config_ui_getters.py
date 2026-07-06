@@ -385,15 +385,15 @@ def create_hyperstacks_if_needed():
                 )
                 logger.info('Hyperstack creation complete')
             except Exception as ex:
-                logger.exception('Error building hyperstacks')
+                logger.exception(f'Error building hyperstacks: {ex}')
                 # Background thread: the user already saw the "Saving
                 # Hyperstacks" info popup; without this they never see
                 # a result.
                 notifications.error(
                     'Post-processing',
                     'Hyperstack build failed',
-                    f'Could not create hyperstacks: {type(ex).__name__}: {ex}. '
-                    f'See logs for details; source files are untouched.',
+                    'Could not create hyperstacks. '
+                    'See the log for details; source files are untouched.',
                 )
 
         threading.Thread(target=_build, daemon=True).start()

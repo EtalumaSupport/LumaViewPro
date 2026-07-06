@@ -180,9 +180,9 @@ class ScopeSession:
             notifications.warning(
                 'Configuration',
                 'Wellplate loader unavailable',
-                f'Labware configuration could not load: {type(e).__name__}: {e}. '
-                f'Plate-based UI (tile plans, well picker) will not work. '
-                f'Check that data/labware.json exists and is valid.',
+                'Labware configuration could not load. '
+                'Plate-based UI (tile plans, well picker) will not work. '
+                'Check that data/labware.json exists and is valid.',
             )
 
         try:
@@ -196,8 +196,8 @@ class ScopeSession:
             notifications.warning(
                 'Configuration',
                 'Coordinate transformer unavailable',
-                f'Coordinate transformer could not load: {type(e).__name__}: {e}. '
-                f'Stage coordinate conversion (plate <-> stage) will not work.',
+                'Coordinate transformer could not load. '
+                'Stage coordinate conversion (plate <-> stage) will not work.',
             )
 
         try:
@@ -209,9 +209,9 @@ class ScopeSession:
             notifications.warning(
                 'Configuration',
                 'Objective helper unavailable',
-                f'Objective configuration could not load: {type(e).__name__}: {e}. '
-                f'Objective selection and lookup will not work. '
-                f'Check that data/objectives.json exists and is valid.',
+                'Objective configuration could not load. '
+                'Objective selection and lookup will not work. '
+                'Check that data/objectives.json exists and is valid.',
             )
 
         return cls(

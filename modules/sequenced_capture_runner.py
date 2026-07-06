@@ -961,7 +961,7 @@ class SequencedCaptureRunner:
         notifications.error(
             'Protocol',
             'Run failed to start',
-            f'The run could not start: {exc}',
+            'The run could not start. See the log for details.',
         )
 
     def run_in_progress(self) -> bool:

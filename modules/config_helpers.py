@@ -213,7 +213,7 @@ def get_current_plate_position(
         notifications.warning(
             'Position',
             'Labware not found',
-            f"Labware '{labware_id}' could not be loaded: {type(e).__name__}: {e}. "
+            f"Labware '{labware_id}' could not be loaded. "
             f'Returning stage coordinates instead of plate coordinates. '
             f'Check that the labware is defined in data/labware.json.',
         )
