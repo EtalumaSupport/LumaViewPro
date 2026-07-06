@@ -106,6 +106,49 @@ def _is_notification_call(node: ast.AST) -> bool:
     )
 
 
+_EXC_REPR_NAMES = frozenset({'e', 'ex', 'exc', 'err', 'error', 'exception', 'exc_type'})
+
+
+def _expr_is_exception_repr(expr: ast.AST) -> bool:
+    """True when an f-string replacement field renders a caught exception's
+    repr or class name -- the pattern that leaks SDK / registry internals
+    into an L1 popup. Matches a caught-exception name (`{e}`, `{exc}`, ...),
+    `{type(x).__name__}`, a bare `{type(x)}`, and `repr(e)` / `str(e)` over
+    such a name. The exception detail belongs in the paired logger call, not
+    the user-facing body.
+    """
+    if isinstance(expr, ast.Name):
+        return expr.id in _EXC_REPR_NAMES
+    if isinstance(expr, ast.Attribute) and expr.attr == '__name__':
+        inner = expr.value
+        if (
+            isinstance(inner, ast.Call)
+            and isinstance(inner.func, ast.Name)
+            and inner.func.id == 'type'
+        ):
+            return True
+    if isinstance(expr, ast.Call) and isinstance(expr.func, ast.Name):
+        if expr.func.id == 'type':
+            return True
+        if expr.func.id in ('repr', 'str') and expr.args:
+            first = expr.args[0]
+            return isinstance(first, ast.Name) and first.id in _EXC_REPR_NAMES
+    return False
+
+
+def _notification_exc_reprs(call: ast.Call) -> list[tuple[int, int]]:
+    """Return (line, col) for every f-string replacement field in `call`'s
+    direct arguments that renders an exception repr / class name."""
+    hits: list[tuple[int, int]] = []
+    arg_roots: list[ast.AST] = list(call.args)
+    arg_roots.extend(kw.value for kw in call.keywords)
+    for root in arg_roots:
+        for child in _walk_excluding_calls(root):
+            if isinstance(child, ast.FormattedValue) and _expr_is_exception_repr(child.value):
+                hits.append((child.lineno, child.col_offset))
+    return hits
+
+
 def _walk_excluding_calls(node: ast.AST):
     """Walk AST yielding `node` and its descendants, but skipping into Call subtrees.
 
@@ -241,6 +284,18 @@ def _check_rule_28(tree: ast.Module, path: str) -> list[Violation]:
                     'rule_28',
                     f'internal ID {m.group(0)!r} in notifications string; user-facing '
                     f'strings must not include rule tags / audit IDs / fix-N refs',
+                )
+            )
+        for ln, col in _notification_exc_reprs(node):
+            violations.append(
+                Violation(
+                    path,
+                    ln,
+                    col,
+                    'rule_28',
+                    'exception repr / class name in notifications string; user-facing '
+                    'strings speak to researchers -- keep the exception detail in the '
+                    'paired logger call, not the popup body',
                 )
             )
     return violations
