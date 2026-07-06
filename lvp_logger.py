@@ -533,6 +533,11 @@ gui_logger.propagate = False
 
 # Route Kivy framework errors to LVP main log + errors log
 kivy_logger = logging.getLogger('kivy')
+# Pin the level so Kivy does not inherit the root logger's DEBUG level (root
+# runs at DEBUG so standalone scripts' DEBUG per-run logs survive). Without
+# this pin, Kivy's framework INFO chatter would flood the bundle. WARNING
+# matches Kivy's prior effective level (it was unset, inheriting root's default).
+kivy_logger.setLevel(logging.WARNING)
 kivy_logger.addHandler(file_handler)
 kivy_logger.addHandler(error_file_handler)
 kivy_logger.propagate = False
@@ -550,6 +555,26 @@ if not debug:
                 root_logger.removeHandler(h)
     except Exception as e:
         logger.warning(f'[Logger  ] Failed to remove console handler: {e}')
+
+# Single logging config: the root logger writes to the shared bundle (and, when
+# a console stream exists, to it too), so any entry point that logs on the root
+# logger -- a standalone CLI script's logging.info(), or a third-party library
+# -- is captured by default without rolling its own logging setup. Root sits at
+# DEBUG so a script's own DEBUG-level per-run file handler still receives
+# records; the bundle handler filters to the main-log floor so a root / library
+# DEBUG firehose does not flood the bundle. The console handler is added only
+# when sys.stderr exists: a packaged windowed build has none, and a
+# StreamHandler over a missing stream raises on emit.
+file_handler.setLevel(_log_level)
+_root_logger = logging.getLogger()
+_root_logger.setLevel(logging.DEBUG)
+_root_logger.addHandler(file_handler)
+_root_logger.addHandler(error_file_handler)
+if sys.stderr is not None:
+    _root_console = logging.StreamHandler()
+    _root_console.setLevel(_log_level)
+    _root_console.setFormatter(CustomFormatter())
+    _root_logger.addHandler(_root_console)
 
 sys.excepthook = custom_except_hook
 
