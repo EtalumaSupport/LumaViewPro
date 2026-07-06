@@ -53,7 +53,7 @@ _LVP_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_LVP_ROOT))
 
 from drivers.pyloncamera import PylonCamera
-from lvp_logger import log_standalone_banner, logger
+from lvp_logger import logger
 from modules.exceptions import CameraSettingRejected
 from modules.lumascope_api import Lumascope
 
@@ -576,12 +576,14 @@ def main():
     _route_lvp_logging_to_stdout()
     _print_environment_header()
 
-    # Emit the standard launch fingerprint (script name, repo SHA, argv, host,
-    # SDK versions) through the production logger so it lands in the LVP_Log
-    # bundle and each run is identifiable. The probe-specific knobs the banner
-    # does not carry follow on the params line below (MaxNumBuffer is the only
-    # knob the driver already logs at connect).
-    log_standalone_banner(__file__, sys.argv)
+    # Record the invocation through the production logger so it lands in the
+    # LVP_Log bundle. The tool's own progress + deltas go to stdout only; a
+    # support bundle therefore cannot tell which command produced a run, and
+    # several runs append to the same log file. This line anchors each run and
+    # captures the knobs that are not otherwise logged (host_load_workers,
+    # duration, grab_strategy) -- MaxNumBuffer is the only knob the driver
+    # already logs at connect.
+    logger.info(f'[PROBE Sweep] run start: {" ".join(sys.argv)}')
     logger.info(
         f'[PROBE Sweep] params: duration={args.duration}s settle={args.settle}s '
         f'pixel_formats={args.pixel_formats} resolutions={args.resolutions} '
