@@ -577,7 +577,35 @@ def _collect_installed_packages() -> dict:
     return dict(sorted(packages.items(), key=lambda kv: kv[0].lower()))
 
 
-def log_environment_banner(install_path: str, version_str: str):
+def _git_short_sha(cwd: str) -> str:
+    """Return `git rev-parse --short HEAD` for the working tree at `cwd`, or
+    '' when unavailable (no .git, git binary absent, or timeout). Used for
+    both the LVP module identity and, for a standalone entry point, the
+    invoking script's own repo identity."""
+    try:
+        import subprocess
+
+        return (
+            subprocess.check_output(
+                ['git', 'rev-parse', '--short', 'HEAD'],
+                cwd=cwd,
+                stderr=subprocess.DEVNULL,
+                timeout=2,
+            )
+            .decode()
+            .strip()
+        )
+    except Exception:
+        return ''
+
+
+def log_environment_banner(
+    install_path: str,
+    version_str: str,
+    *,
+    invocation_file: str | None = None,
+    invocation_argv: list | None = None,
+):
     """Emit the standard launch-time environment fingerprint.
 
     ``install_path`` is the directory the executable runs from -- where
@@ -593,11 +621,27 @@ def log_environment_banner(install_path: str, version_str: str):
 
     Centralized here so REST API, headless test runner, CLI tools all
     get the same fingerprint without copy-paste.
+
+    When ``invocation_file`` / ``invocation_argv`` are given (standalone
+    entry points -- characterization scripts, CLI tools that are not the
+    GUI), the block also records the invoking script name, that script's
+    own repo SHA, and the argv, so a support bundle identifies the exact
+    command that ran. The script may live in a different repo than the LVP
+    module it imports, so its SHA is looked up separately from the LVP one.
     """
     import sys as _sys
 
     logger.info('[LVP Main  ] -----------------------------------------')
     logger.info(f'[LVP Main  ] Version:   {version_str}')
+
+    # Standalone entry points identify themselves: which script ran, its own
+    # repo SHA (may differ from the LVP module below), and the exact argv.
+    if invocation_file is not None:
+        logger.info(f'[LVP Main  ] Script:    {os.path.basename(invocation_file)}')
+        _script_sha = _git_short_sha(os.path.dirname(os.path.abspath(invocation_file)))
+        logger.info(f'[LVP Main  ] ScriptRepo: {_script_sha or "unknown"}')
+    if invocation_argv is not None:
+        logger.info(f'[LVP Main  ] Args:      {" ".join(str(_a) for _a in invocation_argv)}')
 
     # Build identity: branch + commit timestamp + build GUID from
     # version.txt. The pre-commit hook rewrites lines 2-4 on every commit
@@ -651,21 +695,7 @@ def log_environment_banner(install_path: str, version_str: str):
     except Exception:
         pass
     if not _git_hash:
-        try:
-            import subprocess
-
-            _git_hash = (
-                subprocess.check_output(
-                    ['git', 'rev-parse', '--short', 'HEAD'],
-                    cwd=install_path,
-                    stderr=subprocess.DEVNULL,
-                    timeout=2,
-                )
-                .decode()
-                .strip()
-            )
-        except Exception:
-            pass
+        _git_hash = _git_short_sha(install_path)
     logger.info(
         f'[LVP Main  ] Git:       {_git_hash or "unknown (use BuildGUID or Branch + Built)"}'
     )
@@ -765,6 +795,36 @@ def log_environment_banner(install_path: str, version_str: str):
             logger.info('[LVP Main  ]   ' + ', '.join(_freeze[_i : _i + _PER_LINE]))
 
     logger.info('[LVP Main  ] -----------------------------------------')
+
+
+def log_standalone_banner(invocation_file: str, invocation_argv: list) -> None:
+    """Emit the launch fingerprint for a standalone entry point (a CLI or
+    characterization script, not the GUI).
+
+    Derives the LVP install directory and version from this module's own
+    location, so callers pass only their own identity -- ``__file__`` and
+    ``sys.argv``. Routes through the named lvp_logger so the block lands in
+    the shared LVP_Log bundle; a bare ``logging.getLogger().info`` on the
+    root logger would miss that file handler and only reach the script's
+    own log.
+    """
+    import pathlib
+
+    lvp_root = os.path.dirname(os.path.abspath(__file__))
+    version_str = 'unknown'
+    try:
+        from modules.path_utils import read_version
+
+        _version, _ = read_version(pathlib.Path(lvp_root))
+        version_str = _version or 'unknown'
+    except Exception as _e:
+        logger.debug(f'[LVP Main  ] standalone banner: version unresolved: {_e}')
+    log_environment_banner(
+        lvp_root,
+        version_str,
+        invocation_file=invocation_file,
+        invocation_argv=invocation_argv,
+    )
 
 
 # Also catch unhandled exceptions in worker threads (Python 3.8+).
