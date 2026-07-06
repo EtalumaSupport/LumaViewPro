@@ -10,6 +10,7 @@ import modules.image_utils as image_utils
 
 from modules.common_utils import PostFunction
 from modules.protocol_post_processor import ProtocolPostProcessor
+from modules.protocol_post_processing_result import PostProcResult
 from modules.protocol_post_record import ProtocolPostRecord
 
 import modules.zprojection as zprojection
@@ -93,11 +94,13 @@ class ZProjector(ProtocolPostProcessor):
         df: pd.DataFrame,
         **kwargs,
     ):
-        return self._zproject(
-            path=path,
-            df=df[['Filepath', 'Color']],
-            method=kwargs['method'],
-            output_file_loc=kwargs['output_file_loc'],
+        return PostProcResult.from_group_result(
+            self._zproject(
+                path=path,
+                df=df[['Filepath', 'Color']],
+                method=kwargs['method'],
+                output_file_loc=kwargs['output_file_loc'],
+            )
         )
 
     @staticmethod
@@ -248,5 +251,6 @@ class ZProjector(ProtocolPostProcessor):
         )
 
         del result['image']
+        result['significant_bits'] = output_depth
 
         return result

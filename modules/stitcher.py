@@ -12,6 +12,7 @@ from modules.stitch_algorithms import stitch_registered_tiles
 
 from modules.common_utils import PostFunction
 from modules.protocol_post_processor import ProtocolPostProcessor
+from modules.protocol_post_processing_result import PostProcResult
 from modules.protocol_post_record import ProtocolPostRecord
 
 
@@ -91,7 +92,7 @@ class Stitcher(ProtocolPostProcessor):
             output_file_loc=kwargs.get('output_file_loc'),
         )
         if position_result['status']:
-            return position_result
+            return PostProcResult.from_group_result(position_result)
 
         logger_msg = position_result['error']
         import logging
@@ -100,10 +101,12 @@ class Stitcher(ProtocolPostProcessor):
             f'[Stitch] Position-aware stitch failed ({logger_msg}); '
             'falling back to simple grid stitch'
         )
-        return Stitcher._simple_position_stitcher(
-            path=path,
-            df=df[['Filepath', 'X', 'Y', 'Color']],
-            output_file_loc=kwargs.get('output_file_loc'),
+        return PostProcResult.from_group_result(
+            Stitcher._simple_position_stitcher(
+                path=path,
+                df=df[['Filepath', 'X', 'Y', 'Color']],
+                output_file_loc=kwargs.get('output_file_loc'),
+            )
         )
 
     @staticmethod
@@ -277,6 +280,7 @@ class Stitcher(ProtocolPostProcessor):
             'status': True,
             'error': None,
             'image': return_image,
+            'significant_bits': image_utils.resolve_output_depth(input_depths),
             'metadata': {
                 'center': center,
             },
@@ -414,6 +418,7 @@ class Stitcher(ProtocolPostProcessor):
             'status': True,
             'error': None,
             'image': return_image,
+            'significant_bits': image_utils.resolve_output_depth(input_depths),
             'metadata': {
                 'center': center,
                 'registered_tiles': registered_tiles,

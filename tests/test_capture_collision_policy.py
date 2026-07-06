@@ -33,6 +33,7 @@ import pandas as pd
 from modules.common_utils import PostFunction
 from modules.protocol import Protocol
 from modules.protocol_post_processor import ProtocolPostProcessor
+from modules.protocol_post_processing_result import PostProcResult
 
 from tests.test_protocol_overwrite_guard import _build_tsv, _step_row
 from tests.test_validate_steps import (
@@ -233,13 +234,13 @@ class _FakePostProcessor(ProtocolPostProcessor):
 
     def _group_algorithm(self, path, df, **kwargs):
         self.algorithm_calls.append(df.iloc[0]['OutName'])
-        result = {'status': True, 'metadata': {'significant_bits': 8}}
         actual = df.iloc[0].get('ActualOutPath')
-        if actual:
-            # A writer that relocated the output (collision suffix, container
-            # fallback) reports where the file really landed.
-            result['actual_output_file_loc'] = actual
-        return result
+        # A writer that relocated the output (collision suffix, container
+        # fallback) reports where the file really landed.
+        return PostProcResult.ok(
+            significant_bits=8,
+            actual_output_file_loc=actual if actual else None,
+        )
 
     def _add_record(self, protocol_post_record, alg_metadata, root_path, **kwargs):
         self.records_added.append(kwargs.get('file_path'))

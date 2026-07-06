@@ -93,8 +93,8 @@ class TestStitcherGroupAlgorithmCarriesColor:
             df=df,
             output_file_loc=pd.Series(['stitched.tiff'])[0],
         )
-        assert result['status'], (
-            f'_group_algorithm returned status=False: {result.get("error")}. '
+        assert result.status, (
+            f'_group_algorithm returned status=False: {result.error}. '
             f'Narrowing the df subset without Color drops the layer the '
             f'write_tiff routing needs for the colormap gate.'
         )

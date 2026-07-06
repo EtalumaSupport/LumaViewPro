@@ -9,6 +9,7 @@ import modules.image_utils as image_utils
 import modules.common_utils as common_utils
 from modules.common_utils import PostFunction
 from modules.protocol_post_processor import ProtocolPostProcessor
+from modules.protocol_post_processing_result import PostProcResult
 from modules.protocol_post_record import ProtocolPostRecord
 from modules.video_writer import VideoWriter
 
@@ -90,15 +91,17 @@ class VideoBuilder(ProtocolPostProcessor):
         # 'Color' included so _create_video can drive VideoWriter's in-writer
         # false-color from the layer name (one group is one color per
         # _get_groups).
-        return self._create_video(
-            path=path,
-            df=df[['Filepath', 'Scan Count', 'Timestamp', 'Color']],
-            frames_per_sec=kwargs['frames_per_sec'],
-            enable_timestamp_overlay=kwargs['enable_timestamp_overlay'],
-            output_file_loc=kwargs['output_file_loc'],
-            popup=kwargs['popup'],
-            total_groups=kwargs['total_groups'],
-            current_group=kwargs['current_group'],
+        return PostProcResult.from_group_result(
+            self._create_video(
+                path=path,
+                df=df[['Filepath', 'Scan Count', 'Timestamp', 'Color']],
+                frames_per_sec=kwargs['frames_per_sec'],
+                enable_timestamp_overlay=kwargs['enable_timestamp_overlay'],
+                output_file_loc=kwargs['output_file_loc'],
+                popup=kwargs['popup'],
+                total_groups=kwargs['total_groups'],
+                current_group=kwargs['current_group'],
+            )
         )
 
     @staticmethod
@@ -302,6 +305,10 @@ class VideoBuilder(ProtocolPostProcessor):
             # from the requested path); the record must point at the real
             # file, not the request.
             'actual_output_file_loc': video.output_path,
+            # Video encodes an 8-bit stream (every frame is downconverted to
+            # 8 bits inside the writer), so the output artifact's depth is 8
+            # regardless of the source frames' depth.
+            'significant_bits': 8,
             'metadata': {'dropped_frames': total_dropped},
         }
 

@@ -11,6 +11,7 @@ import modules.common_utils as common_utils
 from modules.common_utils import PostFunction
 from modules.exceptions import CaptureError
 from modules.protocol_post_processor import ProtocolPostProcessor
+from modules.protocol_post_processing_result import PostProcResult
 from modules.protocol_post_record import ProtocolPostRecord
 
 import logging
@@ -95,12 +96,14 @@ class StackBuilder(ProtocolPostProcessor):
         df: pd.DataFrame,
         **kwargs,
     ):
-        return StackBuilder._create_stack(
-            path=path,
-            df=df,
-            output_file_loc=kwargs['output_file_loc'],
-            focal_length=kwargs['focal_length'],
-            binning_size=kwargs['binning_size'],
+        return PostProcResult.from_group_result(
+            StackBuilder._create_stack(
+                path=path,
+                df=df,
+                output_file_loc=kwargs['output_file_loc'],
+                focal_length=kwargs['focal_length'],
+                binning_size=kwargs['binning_size'],
+            )
         )
 
     @staticmethod
@@ -310,7 +313,12 @@ class StackBuilder(ProtocolPostProcessor):
             hyperstack_resolution=ome_info['resolution'],
         )
 
-        return {'status': True, 'error': None, 'metadata': {}}
+        return {
+            'status': True,
+            'error': None,
+            'significant_bits': image_utils.resolve_output_depth(input_depths),
+            'metadata': {},
+        }
 
     @staticmethod
     def create_single_recording_stack(

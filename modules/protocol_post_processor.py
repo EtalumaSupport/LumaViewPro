@@ -230,30 +230,27 @@ class ProtocolPostProcessor(abc.ABC):
                 **kwargs,
             )
 
-            if not alg_results['status']:
-                last_error = alg_results.get('error')
-                logger.error(f'Failed to generate {output_file_loc_rel}: {alg_results["error"]}')
+            if not alg_results.status:
+                last_error = alg_results.error
+                logger.error(f'Failed to generate {output_file_loc_rel}: {alg_results.error}')
                 continue
 
             # A subclass whose writer relocated the output (collision suffix,
             # container-format fallback) reports where the file really landed;
             # the record must point at that file, not the request.
-            actual_output_file_loc = alg_results.get('actual_output_file_loc')
+            actual_output_file_loc = alg_results.actual_output_file_loc
             if actual_output_file_loc is not None:
                 output_file_loc_rel = pathlib.Path(actual_output_file_loc).relative_to(root_path)
 
-            # Each ProtocolPostProcessor subclass owns its own file
-            # write via tifffile (RGB-native; auto-detects photometric).
-            # cv2.imwrite was retired here -- cv2 is BGR-native and
-            # would silently swap channels relative to the RGB-native
-            # readers (tifffile / FIJI / OS preview). Subclasses that
-            # fail to write must signal status=False; an
-            # alg_results['image'] payload is now informational, not
-            # a save trigger.
+            # Each ProtocolPostProcessor subclass owns its own file write via
+            # tifffile (RGB-native; auto-detects photometric). cv2.imwrite was
+            # retired here -- cv2 is BGR-native and would silently swap channels
+            # relative to the RGB-native readers (tifffile / FIJI / OS preview).
+            # A subclass that fails to write must return a failed result.
 
             self._add_record(
                 protocol_post_record=protocol_post_record,
-                alg_metadata=alg_results['metadata'],
+                alg_metadata=alg_results.record_metadata,
                 root_path=root_path,
                 file_path=output_file_loc_rel,
                 row0=row0,
@@ -262,13 +259,12 @@ class ProtocolPostProcessor(abc.ABC):
 
             new_count += 1
             current_group += 1
-            # Carry the depth the artifact was written at so the completion
-            # line states whether the input depth round-tripped through this
-            # operation instead of requiring a tag read on the output file.
-            # Every post-processor populates significant_bits in its output
-            # metadata; index directly so a subclass that ever omits it fails
-            # loudly here rather than reporting a silent unknown.
-            output_significant_bits = alg_results['metadata']['significant_bits']
+            # Carry the depth the artifact was written at so the completion line
+            # states whether the input depth round-tripped through this operation
+            # instead of requiring a tag read on the output file. The typed result
+            # guarantees a successful group carries its output depth, so this read
+            # is always present.
+            output_significant_bits = alg_results.significant_bits
 
             if popup is not None:
                 popup.progress = (new_count / group_count) * 100

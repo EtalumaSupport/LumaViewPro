@@ -12,6 +12,7 @@ from modules.composite_builder import build_composite
 import modules.image_utils as image_utils
 from modules.common_utils import PostFunction
 from modules.protocol_post_processor import ProtocolPostProcessor
+from modules.protocol_post_processing_result import PostProcResult
 from modules.protocol_post_record import ProtocolPostRecord
 from modules.settings_init import settings
 from lvp_logger import logger
@@ -96,11 +97,13 @@ class CompositeGeneration(ProtocolPostProcessor):
         # channels because cv2.imwrite is BGR-oriented).
         output_file_loc_rel = kwargs.get('output_file_loc')
         output_format = kwargs.get('output_format', 'TIFF')
-        return CompositeGeneration._create_composite_image(
-            path=path,
-            df=df[['Filepath', 'Color']],
-            output_file_loc=path / output_file_loc_rel if output_file_loc_rel else None,
-            output_format=output_format,
+        return PostProcResult.from_group_result(
+            CompositeGeneration._create_composite_image(
+                path=path,
+                df=df[['Filepath', 'Color']],
+                output_file_loc=path / output_file_loc_rel if output_file_loc_rel else None,
+                output_format=output_format,
+            )
         )
 
     @staticmethod
