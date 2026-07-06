@@ -8705,17 +8705,17 @@ class TestModSliderScrollWheel:
 
 
 class TestModSliderClickThenScrollFocus:
-    """ModSlider scroll-wheel adjust requires the slider to be the most-
-    recently-clicked ModSlider before the wheel will adjust its value.
+    """ModSlider scroll-wheel adjust requires clicking the slider to ARM it
+    first; a bare hover-and-scroll without a prior click must not adjust the
+    value.
 
     Bare-hover scroll without a prior click was reported as too easy to
-    trigger accidentally -- a user grazing the slider with the cursor
-    while scrolling a panel would drift illumination / exposure / gain.
-    The class-level _focused_ref weakref tracks which ModSlider received
-    the most recent left-click; only wheel events landing on that
-    slider adjust its value. All other slider hovers fall through (the
-    scroll event propagates to the parent scroll-view, the standard
-    pre-#677 default).
+    trigger accidentally -- a user grazing the slider with the cursor while
+    scrolling a panel would drift illumination / exposure / gain. Clicking a
+    slider arms it (and highlights it); the armed slider disarms as soon as the
+    cursor leaves its bounds, so the armed state is scoped to the interaction
+    rather than sticky until the next click. All non-armed slider hovers fall
+    through so the wheel scrolls the parent scroll-view.
 
     Static-source assertions: runtime Kivy touch-event tests need a
     Window context that isn't available in unit-test env.
@@ -8726,52 +8726,50 @@ class TestModSliderClickThenScrollFocus:
 
         return pathlib.Path('ui/mod_slider.py').read_text()
 
-    def test_focused_ref_class_attribute_exists(self):
+    def test_armed_state_tracked_with_weakref(self):
         src = self._src()
-        assert '_focused_ref' in src, (
-            'ModSlider must declare _focused_ref class attribute to '
-            'track the most-recently-clicked slider for #677 sticky-'
-            'focus scroll gating.'
+        assert 'armed = BooleanProperty(' in src, (
+            'ModSlider must expose an `armed` BooleanProperty gating scroll '
+            'adjust (and driving the highlight) so only a clicked slider '
+            'responds to the wheel.'
         )
-        assert 'weakref.ref' in src, (
-            '_focused_ref must store a weakref so an unmounted slider '
-            'does not retain past Kivy widget teardown.'
+        assert '_armed_ref' in src and 'weakref.ref' in src, (
+            'A class-level _armed_ref weakref must track the armed slider so '
+            'arming a new one disarms the previous, without retaining an '
+            'unmounted slider past Kivy widget teardown.'
         )
 
-    def test_scroll_branch_checks_focus_before_adjusting(self):
+    def test_scroll_branch_checks_armed_before_adjusting(self):
         src = self._src()
         idx = src.find('def on_touch_down')
         assert idx >= 0
         next_def = src.find('\n    def ', idx + 1)
         body = src[idx:next_def] if next_def > 0 else src[idx:]
-        # The focus check must appear BEFORE the value-adjust assignment.
-        # The scroll branch is gated on the conditional; if the gate is
-        # removed (or moved after the adjust), bare-hover scroll
-        # regresses.
-        focus_idx = body.find('ModSlider._is_focused')
+        # The armed gate must appear BEFORE the value-adjust assignment: a bare
+        # hover-scroll over an un-armed slider must fall through, not adjust.
+        armed_idx = body.find('not self.armed')
         adjust_idx = body.find('self.value + delta')
-        assert focus_idx >= 0, (
-            'Scroll branch must call ModSlider._is_focused(self) before '
-            'adjusting value. If missing, bare-hover scroll regresses '
-            'to the pre-#677 too-easy-to-trigger behavior.'
+        assert armed_idx >= 0, (
+            'Scroll branch must return early when `not self.armed` before '
+            'adjusting value; otherwise bare-hover scroll regresses to the '
+            'too-easy-to-trigger behavior.'
         )
         assert adjust_idx >= 0, 'Sanity: scroll branch should still adjust value.'
-        assert focus_idx < adjust_idx, (
-            'Focus check must come BEFORE the adjust line; otherwise '
-            'the value still changes regardless of focus state.'
+        assert armed_idx < adjust_idx, (
+            'The armed check must come BEFORE the adjust line; otherwise '
+            'the value still changes regardless of armed state.'
         )
 
-    def test_click_on_slider_sets_focus(self):
+    def test_click_on_slider_arms_it(self):
         src = self._src()
         idx = src.find('def on_touch_down')
         assert idx >= 0
         next_def = src.find('\n    def ', idx + 1)
         body = src[idx:next_def] if next_def > 0 else src[idx:]
-        assert 'ModSlider._set_focused(self)' in body, (
-            'on_touch_down must call ModSlider._set_focused(self) on a '
-            'non-scroll touch that collides with this slider; otherwise '
-            'the user can never gain focus and scroll-adjust is '
-            'permanently disabled.'
+        assert 'self._arm()' in body, (
+            'on_touch_down must call self._arm() on a non-scroll touch that '
+            'collides with this slider; otherwise the slider can never be '
+            'armed and scroll-adjust is permanently disabled.'
         )
 
 

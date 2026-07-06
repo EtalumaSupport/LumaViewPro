@@ -297,6 +297,11 @@ class RangeSlider(Widget):
     def on_touch_down(self, touch):
         if self.disabled or not self.collide_point(*touch.pos):
             return
+        # A mouse-wheel touch must not grab a handle or jump its position --
+        # let it fall through so the enclosing menu scrolls. Only a click or
+        # drag moves a handle.
+        if 'button' in touch.profile and touch.button in ('scrollup', 'scrolldown'):
+            return False
         touch.grab(self)
         t_value = self._touch_normalized_value(touch)
         if abs(self.value1_normalized - t_value) < abs(self.value2_normalized - t_value):
