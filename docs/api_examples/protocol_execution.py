@@ -110,6 +110,13 @@ def main():
     session.start_executors()
     print('Session created, executors started')
 
+    # Start the camera feed before any capture. connect() configures the
+    # camera but does not begin grabbing (the lifecycle split); until the feed
+    # is running, capture_and_wait returns None. The GUI does this during
+    # bring-up; a headless script must do it explicitly.
+    scope.imaging.start_streaming()
+    print('Camera streaming started')
+
     # Create a ProtocolRunner from the session
     runner = session.create_protocol_runner()
 

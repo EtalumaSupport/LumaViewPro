@@ -1940,6 +1940,19 @@ class ImagingAPI:
         if not self._driver or not self._driver.active:
             return None
 
+        # active (connected) is necessary but not sufficient to deliver a
+        # frame: connect() configures the camera without starting the feed
+        # (the lifecycle split), and stop_streaming() deliberately halts it.
+        # A not-grabbing camera cannot produce a capture, so return the same
+        # not-ready sentinel as the active check above -- named distinctly so
+        # a stopped or not-yet-started feed is not misread as a grab timeout.
+        if not self._driver.is_grabbing():
+            logger.warning(
+                '[SCOPE API ] capture_and_wait: no active grab (streaming not '
+                'started or stopped) -- returning None until the feed is running.'
+            )
+            return None
+
         hold_start = time.monotonic()
         exposure_s = self.get_exposure_time() / 1000
         grab_timeout_s = max(exposure_s * 3, 1.0)
