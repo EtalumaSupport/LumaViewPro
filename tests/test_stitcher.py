@@ -285,6 +285,48 @@ class TestSimplePositionStitcher:
 
 
 class TestPositionAwareStitcher:
+    def test_position_stitcher_passes_shared_output_shape(self, tmp_path, monkeypatch):
+        # The stitched canvas size must come from the nominal stage grid --
+        # identical for every channel / Z-slice of a tile-group -- not from each
+        # layer's own content registration. Otherwise composite / z-projection
+        # of the per-layer outputs get mismatched shapes and cannot combine.
+        import modules.stitcher as stitcher_mod
+
+        left = np.full((50, 50), 100, dtype=np.uint8)
+        right = np.full((50, 50), 200, dtype=np.uint8)
+        cv2.imwrite(str(tmp_path / 'left.tiff'), left)
+        cv2.imwrite(str(tmp_path / 'right.tiff'), right)
+
+        fov = common_utils.get_field_of_view(
+            focal_length=18.0,
+            frame_size={'width': 50, 'height': 50},
+            binning_size=1,
+        )
+        half_fov_mm = fov['width'] / 2 / 1000
+        df = pd.DataFrame(
+            [
+                {'Filepath': 'left.tiff', 'X': 0.0, 'Y': 0.0, 'Objective': '10x Oly'},
+                {'Filepath': 'right.tiff', 'X': -half_fov_mm, 'Y': 0.0, 'Objective': '10x Oly'},
+            ]
+        )
+
+        recorded = {}
+        real = stitcher_mod.stitch_registered_tiles
+
+        def _spy(tiles, **kwargs):
+            recorded['output_shape'] = kwargs.get('output_shape')
+            return real(tiles, **kwargs)
+
+        monkeypatch.setattr(stitcher_mod, 'stitch_registered_tiles', _spy)
+        result = Stitcher(has_turret=False)._position_stitcher(tmp_path, df)
+
+        assert result['status'] is True
+        assert recorded['output_shape'] is not None, (
+            'position stitcher must pass a shared nominal output_shape so every '
+            'layer of a tile-group stitches to one canvas'
+        )
+        assert tuple(result['image'].shape[:2]) == recorded['output_shape']
+
     def test_preserves_overlap_from_stage_positions(self, tmp_path):
         left = np.full((50, 50), 100, dtype=np.uint8)
         right = np.full((50, 50), 200, dtype=np.uint8)

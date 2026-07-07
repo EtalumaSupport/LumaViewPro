@@ -381,7 +381,13 @@ class Stitcher(ProtocolPostProcessor):
             'y': round(df['Y'].unique().mean(), common_utils.max_decimal_precision(parameter='y')),
         }
 
-        stitched_img, registered_tiles = stitch_registered_tiles(tiles)
+        # Size the canvas from the nominal stage grid (stitched_h/w above) --
+        # identical for every channel / Z-slice of this tile-group -- so per-layer
+        # content registration cannot make the outputs diverge in shape and break
+        # composite / z-projection, which combine those per-layer outputs.
+        stitched_img, registered_tiles = stitch_registered_tiles(
+            tiles, output_shape=(stitched_h, stitched_w)
+        )
 
         if output_file_loc is not None:
             # Route through write_tiff (matching _simple_position_stitcher,
