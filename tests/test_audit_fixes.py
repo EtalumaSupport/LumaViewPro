@@ -4500,6 +4500,74 @@ class TestSessionManifestHelpers:
         # mean = (10 + 5 + 20) / 3 = 11.667
         assert abs(result['mean'] - 35.0 / 3) < 1e-6
 
+    def test_compute_fps_stats_from_ticks_steady_10fps(self):
+        from modules.recording_manifest import compute_fps_stats_from_ticks
+
+        # 1 GHz tick clock, 100ms spacing -> 0.1e9 ticks/frame -> 10 FPS exactly.
+        ticks = [i * 100_000_000 for i in range(10)]
+        result = compute_fps_stats_from_ticks(ticks, 1_000_000_000)
+        assert result['samples'] == 9
+        assert abs(result['mean'] - 10.0) < 1e-6
+        assert abs(result['min'] - 10.0) < 1e-6
+        assert abs(result['max'] - 10.0) < 1e-6
+
+    def test_compute_fps_stats_from_ticks_insufficient(self):
+        from modules.recording_manifest import compute_fps_stats_from_ticks
+
+        zeros = {'mean': 0.0, 'min': 0.0, 'max': 0.0, 'samples': 0}
+        assert compute_fps_stats_from_ticks([], 1_000_000_000) == zeros
+        assert compute_fps_stats_from_ticks([5], 1_000_000_000) == zeros
+        # No tick frequency -> ticks are uninterpretable, so zeros (caller
+        # falls back to host time).
+        assert compute_fps_stats_from_ticks([0, 100_000_000], None) == zeros
+
+    def test_build_session_manifest_prefers_camera_ticks_over_jittery_host(self):
+        import datetime
+
+        from modules.recording_manifest import build_session_manifest
+
+        # Host wall-clock is jittery (OS scheduling): 50/200/50/200 ms ->
+        # 20/5/20/5 fps, a min/max spread of 5..20.
+        base = datetime.datetime(2026, 5, 9, 14, 0, 0)
+        host_ms = [0, 50, 250, 300, 500]
+        timestamps = [base + datetime.timedelta(milliseconds=m) for m in host_ms]
+        # The camera's own clock recorded steady 100ms spacing -> exactly 10 fps.
+        tick_freq_hz = 1_000_000_000
+        ticks = [i * 100_000_000 for i in range(5)]
+        chunks = [{'Timestamp': t, 'FrameID': i} for i, t in enumerate(ticks)]
+
+        manifest = build_session_manifest(
+            timestamps=timestamps,
+            chunks_per_frame=chunks,
+            tick_freq_hz=tick_freq_hz,
+            captured_frames=5,
+            video_duration=0.5,
+        )
+        fps = manifest['recording']['actual_fps']
+        # From ticks: steady 10 fps, NOT the jittery host 5..20 spread.
+        assert abs(fps['min'] - 10.0) < 1e-6, f'expected tick-derived 10fps, got {fps}'
+        assert abs(fps['max'] - 10.0) < 1e-6, f'expected tick-derived 10fps, got {fps}'
+        assert abs(fps['mean'] - 10.0) < 1e-6
+
+    def test_build_session_manifest_falls_back_to_host_without_ticks(self):
+        import datetime
+
+        from modules.recording_manifest import build_session_manifest
+
+        # No chunk support: tick_freq_hz None, chunks all None -> host time.
+        base = datetime.datetime(2026, 5, 9, 14, 0, 0)
+        timestamps = [base + datetime.timedelta(milliseconds=100 * i) for i in range(5)]
+        manifest = build_session_manifest(
+            timestamps=timestamps,
+            chunks_per_frame=[None] * 5,
+            tick_freq_hz=None,
+            captured_frames=5,
+            video_duration=0.4,
+        )
+        fps = manifest['recording']['actual_fps']
+        assert fps['samples'] == 4
+        assert abs(fps['mean'] - 10.0) < 1e-6
+
     def test_gather_host_provenance_keys(self):
         from modules.recording_manifest import gather_host_provenance
 
