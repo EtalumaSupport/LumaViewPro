@@ -914,6 +914,33 @@ def build_postproc_output_metadata(
     return metadata
 
 
+def require_uniform_geometry(labeled_arrays, operation: str) -> None:
+    """Reject combine inputs that were not stitched to one shared geometry.
+
+    Combining images across a tile-group -- compositing channels, projecting a
+    Z-stack, assembling a hyperstack -- requires every input to share one (H, W)
+    canvas. Producing that geometry is the stitcher's responsibility; when it is
+    violated, the raw numpy failure is a cryptic broadcast / stack error that
+    hides which images disagree. This surfaces the violation as a clear,
+    actionable message naming each input and its shape.
+
+    Args:
+        labeled_arrays: (label, ndarray) pairs -- the images about to be combined.
+        operation: Verb phrase for the message, e.g. 'composite this well'.
+
+    Raises:
+        ValueError: if the inputs do not all share one (H, W).
+    """
+    shapes = [(label, tuple(array.shape[:2])) for label, array in labeled_arrays]
+    if len({hw for _, hw in shapes}) > 1:
+        detail = ', '.join(f'{label} {h}x{w}' for label, (h, w) in shapes)
+        raise ValueError(
+            f'Cannot {operation}: inputs were not stitched to one geometry '
+            f'({detail}). Every layer / slice of a tile-group must be stitched '
+            f'to the same canvas before it can be combined.'
+        )
+
+
 def build_composite_output_metadata(
     reference_input_path: pathlib.Path,
     *,

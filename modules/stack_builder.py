@@ -279,6 +279,13 @@ class StackBuilder(ProtocolPostProcessor):
             if image_utils.is_color_image(image):
                 image = image_utils.rgb_image_to_gray(image=image)
 
+            # Each plane must share the hyperstack's canvas; a per-plane stitch
+            # divergence otherwise surfaces as a cryptic broadcast error on the
+            # slice assignment below.
+            image_utils.require_uniform_geometry(
+                [('first plane', sample_image), (f'plane t{t} z{z} c{c}', image)],
+                operation='assemble this hyperstack',
+            )
             stacked_image[t, z, c, :, :] = image
             plane_metadata['PositionX'].append(row['X'])
             plane_metadata['PositionY'].append(row['Y'])
