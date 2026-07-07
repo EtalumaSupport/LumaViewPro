@@ -3200,6 +3200,7 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
             color='BF',
             tail_id_mode=None,
             save_encoding='rgb',
+            significant_bits=8,
         )
         assert recorded.get('save_encoding') == 'rgb', (
             'save_image must thread the resolved save_encoding through to '

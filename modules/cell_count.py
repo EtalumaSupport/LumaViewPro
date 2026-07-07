@@ -138,7 +138,7 @@ class CellCount:
 
         return filtered_region_info, filtered_contours
 
-    def process_image(self, image, settings, include_images=None, significant_bits: int = 16):
+    def process_image(self, image, settings, significant_bits: int, include_images=None):
         if include_images is None:
             include_images = ['filtered_contours']
 

@@ -2077,7 +2077,7 @@ _scale_bar_cache = {}
 
 
 def _compute_scale_bar_overlay(
-    height, width, dtype, is_color, objective, binning_size, color, significant_bits=12
+    height, width, dtype, is_color, objective, binning_size, color, significant_bits
 ):
     """Pre-render scale bar overlay and mask. Returns (overlay, mask, cache_key)."""
     pixel_size_um = common_utils.get_pixel_size(
@@ -2216,7 +2216,8 @@ def add_scale_bar(
     objective: dict,
     binning_size: int,
     color: str | None = None,
-    significant_bits: int = 12,
+    *,
+    significant_bits: int,
 ):
     global _scale_bar_cache
 

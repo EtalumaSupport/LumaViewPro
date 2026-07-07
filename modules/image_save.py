@@ -42,20 +42,6 @@ if TYPE_CHECKING:
 _NUM_SEQ_DIGITS = 6
 
 
-def _default_significant_bits(scope, array) -> int:
-    """Resolve the payload depth to record when no caller states one.
-
-    Delegates to the shared capture-time depth rule
-    (``scope.imaging.capture_frame_depth``) so the TIFF metadata, the
-    JPG downconversion, and the post-save log line can never disagree
-    about how deep a frame is when the rule changes. Callers that
-    captured the frame themselves should pass the depth they recorded
-    at capture time instead of relying on this default -- resolving it
-    here reads the camera's state at save time, not the frame's.
-    """
-    return scope.imaging.capture_frame_depth(array)
-
-
 def write_video_frame(
     frame: np.ndarray,
     file_loc: pathlib.Path,
@@ -467,7 +453,8 @@ def prepare_image_for_saving(
     x,
     y,
     z,
-    significant_bits: int | None = None,
+    *,
+    significant_bits: int,
 ) -> dict:
     """Prepare an image array and metadata for saving to disk.
 
@@ -489,17 +476,18 @@ def prepare_image_for_saving(
         x: Stage X position in um.
         y: Stage Y position in um.
         z: Stage Z position in um.
-        significant_bits: Payload depth of ``array`` to record in the
-            SignificantBits tag. None derives it: 8 for a uint8 frame, else the
-            camera's native depth. Summed callers pass 16 (16-bit container).
+        significant_bits: Payload depth ``array`` was captured at, recorded in
+            the SignificantBits tag. Required: the caller passes the depth it
+            captured the frame at (8 for a uint8 frame, the native depth for a
+            single wider frame, 16 for a summed 16-bit container) -- a save
+            cannot re-derive it from the camera's live state, which may already
+            describe a newer format.
 
     Returns:
         dict: Contains 'image' (ndarray) and 'metadata' (dict with 'file_loc').
     """
     metadata = generate_image_metadata(scope, color=true_color, x=x, y=y, z=z)
 
-    if significant_bits is None:
-        significant_bits = _default_significant_bits(scope, array)
     metadata['significant_bits'] = significant_bits
 
     array = _apply_save_orientation(array)
@@ -539,7 +527,7 @@ def save_image(
     false_color_buf: np.ndarray | None = None,
     rgb_buf: np.ndarray | None = None,
     jpeg_quality: int = 90,
-    significant_bits: int | None = None,
+    significant_bits: int,
 ) -> str:
     """Save an image array to a TIFF file with metadata.
 
@@ -634,16 +622,10 @@ def save_image(
             # color baking, and metadata are format-specific: JPG is an
             # 8-bit rendered display image, TIFF / OME-TIFF carry the
             # 16-bit data + metadata.
-            # The JPG branch skips prepare_image_for_saving, so resolve the
-            # payload depth here the same way it does: caller-stated, else 8 for
-            # an already-8-bit array, else the camera's current payload depth.
-            jpg_significant_bits = significant_bits
-            if jpg_significant_bits is None:
-                jpg_significant_bits = _default_significant_bits(scope, array)
             jpg_bytes = image_utils.encode_display_jpg(
                 _apply_save_orientation(array),
                 color,
-                significant_bits=jpg_significant_bits,
+                significant_bits=significant_bits,
                 jpeg_quality=jpeg_quality,
             )
             pathlib.Path(file_loc).write_bytes(jpg_bytes)
@@ -744,17 +726,13 @@ def save_live_image(
     if turn_off_all_leds_after:
         scope.illumination.leds_off()
 
-    if array is False:
+    if array is None:
         return None
 
     # Depth resolved here, right after the capture that produced the frame
     # (uint8 -> 8, summed -> 16, else the per-frame delivery stamp), and
     # handed down with it -- the shared capture-time depth rule.
-    significant_bits = (
-        scope.imaging.capture_frame_depth(array, sum_count)
-        if isinstance(array, np.ndarray)
-        else None
-    )
+    significant_bits = scope.imaging.capture_frame_depth(array, sum_count)
 
     path = save_image(
         scope,
@@ -774,10 +752,9 @@ def save_live_image(
     # Record what the manual capture actually wrote, so a saved-file bundle is
     # self-describing: the mode / encoding / depth that produced each file can be
     # read from the log instead of inferred from the file's tags afterward.
-    if isinstance(array, np.ndarray):
-        logger.info(
-            f'[ImageSave] manual capture encoding={save_encoding} '
-            f'significant_bits={significant_bits} dtype={array.dtype} '
-            f'shape={array.shape} -> {pathlib.Path(path).name}'
-        )
+    logger.info(
+        f'[ImageSave] manual capture encoding={save_encoding} '
+        f'significant_bits={significant_bits} dtype={array.dtype} '
+        f'shape={array.shape} -> {pathlib.Path(path).name}'
+    )
     return path

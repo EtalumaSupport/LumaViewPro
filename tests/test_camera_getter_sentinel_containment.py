@@ -37,7 +37,7 @@ import pytest
 import modules.common_utils as common_utils
 from drivers.camera import Camera
 from modules.binning import binning_size_int_to_str
-from modules.image_save import generate_image_metadata, prepare_image_for_saving
+from modules.image_save import generate_image_metadata
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.imaging import ImagingAPI
 
@@ -641,38 +641,6 @@ def test_writer_saves_capture_time_depth_not_save_time_rederivation(monkeypatch,
         f'save_image must receive the CapturedFrame depth (12), not a '
         f'save-time re-derivation; got {recorded[0]["significant_bits"]}'
     )
-
-
-# --- image_save default depth ----------------------------------------------------
-
-
-def test_default_depth_uses_frame_stamp_not_format_derived(tmp_path):
-    # A uint16 array with no caller-stated depth: the recorded metadata depth
-    # must be the per-frame stamp (12), not the format-derived value (Mono16
-    # -> 16) -- the two deliberately disagree here so the winner is provable.
-    driver = steady_good_driver({'get_pixel_format': ['Mono16']})
-    driver.cam_image_handler = _StampedFrameHandler(12)
-    imaging = _build_imaging(driver)
-    assert imaging.significant_bits == 16  # format-derived, the loser
-    assert imaging.last_significant_bits == 12  # per-frame stamp, the winner
-    scope = _metadata_scope_with_real_imaging(imaging, driver)
-
-    result = prepare_image_for_saving(
-        scope,
-        array=np.zeros((4, 4), dtype=np.uint16),
-        save_folder=tmp_path,
-        file_root='img_',
-        append='BF',
-        color='BF',
-        tail_id_mode=None,
-        output_format='TIFF',
-        true_color='BF',
-        x=0,
-        y=0,
-        z=0,
-        significant_bits=None,
-    )
-    assert result['metadata']['significant_bits'] == 12
 
 
 # --- Temp-logger un-latch (Seams-4) ----------------------------------------------

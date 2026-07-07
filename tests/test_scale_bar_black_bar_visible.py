@@ -24,7 +24,9 @@ _OBJECTIVE = {'focal_length': 10.0, 'magnification': 20}
 
 def _add(image, color):
     image_utils._scale_bar_cache = {}  # module-global cache; isolate each call
-    return image_utils.add_scale_bar(image=image, objective=_OBJECTIVE, binning_size=1, color=color)
+    return image_utils.add_scale_bar(
+        image=image, objective=_OBJECTIVE, binning_size=1, color=color, significant_bits=8
+    )
 
 
 def test_bf_black_bar_is_drawn():

@@ -169,7 +169,10 @@ class CompositeCapture(FloatLayout):
             else:
                 image = image_orig
 
-            # Original image may be in 8 or 12-bit
+            # Original image may be in 8 or 12-bit. Its depth is the per-frame
+            # delivery stamp of the single capture above (the same value the
+            # 8-bit copy is scaled by), handed down so the save marks the file
+            # at the frame's true depth rather than the camera's live format.
             save_image(
                 ctx.scope,
                 array=image_orig,
@@ -181,6 +184,7 @@ class CompositeCapture(FloatLayout):
                 output_format=settings['image_output_format']['live'],
                 jpeg_quality=settings.get('jpg_quality', 90),
                 save_encoding=save_encoding,
+                significant_bits=ctx.scope.imaging.capture_frame_depth(image_orig),
             )
 
             if use_bullseye:
@@ -193,7 +197,7 @@ class CompositeCapture(FloatLayout):
             else:
                 crosshairs_image = bullseye_image
 
-            # Overlay image is in 8-bits
+            # Overlay image is in 8-bits (rendered display image)
             save_image(
                 ctx.scope,
                 array=crosshairs_image,
@@ -205,6 +209,7 @@ class CompositeCapture(FloatLayout):
                 output_format=settings['image_output_format']['live'],
                 jpeg_quality=settings.get('jpg_quality', 90),
                 save_encoding=save_encoding,
+                significant_bits=ctx.scope.imaging.capture_frame_depth(crosshairs_image),
             )
 
     # capture and save a composite image using the current settings
@@ -509,6 +514,7 @@ class CompositeCapture(FloatLayout):
                 tail_id_mode='increment',
                 output_format=image_output_format['live'],
                 save_encoding=save_encoding,
+                significant_bits=capture_depth,
             )
         elif acquired_channel_count != 0:
             save_image(
@@ -521,6 +527,7 @@ class CompositeCapture(FloatLayout):
                 tail_id_mode='increment',
                 output_format=image_output_format['live'],
                 save_encoding=save_encoding,
+                significant_bits=capture_depth,
             )
         else:
             logger.info('[Composite Capture  ] No image saved as no channels were selected')

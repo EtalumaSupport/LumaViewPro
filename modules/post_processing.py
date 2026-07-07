@@ -22,7 +22,7 @@ class PostProcessing:
     def stitch(self, filepath):
         pass
 
-    def preview_cell_count(self, image, settings, significant_bits: int = 16):
+    def preview_cell_count(self, image, settings, significant_bits: int):
         preview_images, cell_stats = self._cell_count.process_image(
             image=image, settings=settings, significant_bits=significant_bits
         )
