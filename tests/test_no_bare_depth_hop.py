@@ -38,6 +38,10 @@ ALLOWLISTED_SINKS = frozenset(
         ('modules/image_utils.py', 'write_tiff'),
         ('modules/image_utils.py', 'add_scale_bar'),
         ('modules/image_utils.py', '_compute_scale_bar_overlay'),
+        # Resolves the on-disk depth FROM the encoding + acquired depth so a
+        # caller can report what the file actually carries; the encoding and
+        # depth genuinely arrive together here, like the write sinks above.
+        ('modules/image_utils.py', 'written_significant_bits'),
     }
 )
 

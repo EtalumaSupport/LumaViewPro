@@ -1664,6 +1664,36 @@ def _msb_align_to_container(data: np.ndarray, significant_bits: int) -> tuple[np
     return data, significant_bits
 
 
+def encoding_fills_container_dtype(save_encoding: str, dtype: np.dtype, is_color: bool) -> bool:
+    """Whether this encoding + payload left-justifies to fill its container.
+
+    The one gate write_tiff and depth-reporting callers share, so the rule
+    lives in exactly one place: a container-filling encoding of a narrow uint16
+    mono payload gets shifted up; a color frame or an already-8-bit payload does
+    not.
+    """
+    return (
+        image_mode.encoding_fills_container(save_encoding) and dtype == np.uint16 and not is_color
+    )
+
+
+def written_significant_bits(
+    save_encoding: str, significant_bits: int, dtype: np.dtype, is_color: bool
+) -> int:
+    """The significant-bit depth a write actually stamps on the file.
+
+    A container-filling encoding (scaled / false-color) left-justifies a narrow
+    uint16 mono payload to fill its container, so the file is stamped at the
+    container width, not the acquired depth -- a 12-bit capture saved scaled is
+    a 16-bit file. Every other case keeps the acquired depth. Callers report the
+    on-disk depth through this instead of the pre-encode value, which describes
+    the sensor, not the file. Mirrors the shift write_tiff applies.
+    """
+    if encoding_fills_container_dtype(save_encoding, dtype, is_color):
+        return dtype.itemsize * 8
+    return significant_bits
+
+
 def write_tiff(
     data,
     file_loc: pathlib.Path,
@@ -1699,11 +1729,7 @@ def write_tiff(
     # that no plain viewer can show; filling the mono payload first makes the
     # false color render bright. right_aligned/8bit keep their narrow payload --
     # the depth tag, not a shift, carries their scale.
-    if (
-        image_mode.encoding_fills_container(save_encoding)
-        and data.dtype == np.uint16
-        and not is_color_image(data)
-    ):
+    if encoding_fills_container_dtype(save_encoding, data.dtype, is_color_image(data)):
         data, sig = _msb_align_to_container(data, metadata['significant_bits'])
         metadata = {**metadata, 'significant_bits': sig}
 

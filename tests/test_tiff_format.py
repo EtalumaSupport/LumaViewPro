@@ -1083,3 +1083,48 @@ class TestFalseColorRgbDepth:
         with tf.TiffFile(str(path)) as f:
             arr = f.pages[0].asarray()
         assert int(arr.max()) == 4095, 'scientific must stay native, not filled'
+
+
+class TestReportedDepthMatchesFile:
+    """The depth a caller reports (in a log / bundle manifest) must equal the
+    depth the file actually carries. A scaled 12-bit capture is left-justified
+    to a 16-bit file, so reporting the pre-scale sensor depth (12) makes a
+    correctly-tagged 16-bit file read as if it were mis-tagged.
+    """
+
+    @pytest.mark.parametrize(
+        'save_encoding,capture_depth,make',
+        [
+            ('8bit', 8, lambda: np.zeros((4, 4), np.uint8)),
+            ('right_aligned', 12, lambda: np.full((4, 4), 4095, np.uint16)),
+            ('msb_aligned', 12, lambda: np.full((4, 4), 4095, np.uint16)),
+            ('rgb', 12, lambda: np.full((4, 4), 4095, np.uint16)),
+        ],
+    )
+    def test_helper_matches_file_tag(self, metadata, tmp_tiff, save_encoding, capture_depth, make):
+        data = make()
+        path = tmp_tiff()
+        image_utils.write_tiff(
+            data=data,
+            file_loc=path,
+            metadata={**metadata, 'significant_bits': capture_depth},
+            ome=False,
+            color='Green',
+            significant_bits=capture_depth,
+            save_encoding=save_encoding,
+        )
+        file_bits = image_utils.read_tiff_significant_bits(path)
+        reported = image_utils.written_significant_bits(
+            save_encoding, capture_depth, data.dtype, image_utils.is_color_image(data)
+        )
+        assert reported == file_bits, (
+            f'{save_encoding}: helper reported {reported} but file carries {file_bits}'
+        )
+
+    def test_scaled_capture_reports_container_depth_not_sensor(self):
+        u16 = np.dtype(np.uint16)
+        # The exact bug: a scaled 12-bit capture is a 16-bit file.
+        assert image_utils.written_significant_bits('msb_aligned', 12, u16, False) == 16
+        # Scientific keeps its narrow depth; 8-bit stays 8.
+        assert image_utils.written_significant_bits('right_aligned', 12, u16, False) == 12
+        assert image_utils.written_significant_bits('8bit', 8, np.dtype(np.uint8), False) == 8

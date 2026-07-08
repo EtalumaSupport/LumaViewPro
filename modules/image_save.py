@@ -750,11 +750,16 @@ def save_live_image(
     )
 
     # Record what the manual capture actually wrote, so a saved-file bundle is
-    # self-describing: the mode / encoding / depth that produced each file can be
-    # read from the log instead of inferred from the file's tags afterward.
+    # self-describing. Report the sensor's acquired depth AND the depth stamped
+    # on the file separately: a scaled encoding left-justifies a 12-bit capture
+    # to fill the 16-bit container, so the file is 16-bit while the sensor gave
+    # 12. Reporting only the acquired depth read as if the file were mis-tagged.
+    saved_significant_bits = image_utils.written_significant_bits(
+        save_encoding, significant_bits, array.dtype, image_utils.is_color_image(array)
+    )
     logger.info(
         f'[ImageSave] manual capture encoding={save_encoding} '
-        f'significant_bits={significant_bits} dtype={array.dtype} '
-        f'shape={array.shape} -> {pathlib.Path(path).name}'
+        f'capture_bits={significant_bits} saved_significant_bits={saved_significant_bits} '
+        f'dtype={array.dtype} shape={array.shape} -> {pathlib.Path(path).name}'
     )
     return path
