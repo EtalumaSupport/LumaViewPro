@@ -11,7 +11,6 @@ constructible in the first place.
 
 from __future__ import annotations
 
-import contextlib
 import queue as _queue_mod
 import threading
 from unittest.mock import MagicMock
@@ -22,16 +21,34 @@ def bare_pylon_camera():
 
     `cam.active` is a MagicMock standing in for the pylon
     InstantCamera, so tests set side_effects on its node accessors.
-    update_camera_config is replaced with a no-op context manager so
-    the grab-loop bounce stays out of unit scope.
+
+    Built via ``__new__``, so the lifecycle state ``Camera.__init__``
+    would set is seeded here: the re-entrant config lock, the
+    re-entrancy depth counter, and the per-instance start-gate latch
+    (CLOSED at construction). ``IsGrabbing()`` is forced False so the
+    REAL ``update_camera_config()`` runs -- its stop/start bounce is a
+    no-op while not grabbing, which lets tests count genuine restart
+    churn instead of mocking the bounce away.
     """
     from drivers import pyloncamera
 
     cam = pyloncamera.PylonCamera.__new__(pyloncamera.PylonCamera)
     cam._state_lock = threading.Lock()
+    cam._array_lock = threading.Lock()
+    cam._lifecycle_lock = threading.RLock()
+    cam._update_config_depth = 0
+    cam._grab_gate_open = False
+    # Durable frame-callback registry (base Camera.__init__ seeds these; connect
+    # re-applies the registry onto a rebuilt handler).
+    cam._frame_callback_lock = threading.Lock()
+    cam._registered_frame_callbacks = []
     cam.active = MagicMock()
+    cam.active.IsGrabbing.return_value = False
     cam._mark_disconnected = MagicMock()
-    cam.update_camera_config = lambda: contextlib.nullcontext()
+    # At GC, __del__ calls disconnect(), which blocks up to 2s in
+    # _wait_for_acquisition_idle against the MagicMock; stub it so plain
+    # fakes tear down fast.
+    cam._wait_for_acquisition_idle = MagicMock(return_value=True)
     return cam
 
 
@@ -309,15 +326,78 @@ def auto_roi_pylon_camera(**kwargs):
 
 
 def bare_ids_camera():
-    """IDSCamera analog of bare_pylon_camera: fake remote_nodemap."""
+    """IDSCamera analog of bare_pylon_camera: fake remote_nodemap +
+    data_stream.
+
+    Seeds the same lifecycle state (config lock, depth counter, start-gate
+    latch CLOSED) and forces ``data_stream.IsGrabbing()`` False so the REAL
+    ``update_camera_config()`` runs its no-op bounce. ``data_stream`` is
+    required because ``is_grabbing()`` reads it.
+    """
     from drivers import idscamera
 
     cam = idscamera.IDSCamera.__new__(idscamera.IDSCamera)
     cam._state_lock = threading.Lock()
+    cam._array_lock = threading.Lock()
+    cam._lifecycle_lock = threading.RLock()
+    cam._update_config_depth = 0
+    cam._grab_gate_open = False
+    # Durable frame-callback registry (base Camera.__init__ seeds these;
+    # connect() re-applies the registry onto each freshly built handler).
+    cam._frame_callback_lock = threading.Lock()
+    cam._registered_frame_callbacks = []
     cam.active = True
     cam.remote_nodemap = MagicMock()
+    cam.data_stream = MagicMock()
+    cam.data_stream.IsGrabbing.return_value = False
     cam._mark_disconnected = MagicMock()
-    cam.update_camera_config = lambda: contextlib.nullcontext()
+    # Removal/teardown lifecycle state read by disconnect()/connect() (seeded
+    # so a fake camera can exercise the teardown-ownership paths).
+    cam._device_removed = False
+    cam._disconnect_requested = False
+    cam._async_teardown_started = False
+    cam._pixel_format_cache = None
+    # Capability values __init__ resolves from the nodemap at connect: the
+    # analog gain selector entry and the max binning factor. Seeded so gain() /
+    # set_binning_size run against real state on a __new__-built fake.
+    cam._gain_selector = None
+    cam._max_binning = 2
+    cam._profile_is_generic = False
+    # Oversize-then-crop framing state, seeded as __init__ would so
+    # set_frame_size / get_frame_size and the unpack crop run against real state.
+    cam._crop_spec = None
+    cam._sensor_max = None
+    return cam
+
+
+def bare_fx2_camera():
+    """FX2Camera analog of bare_pylon_camera.
+
+    Built via ``__new__`` so the base lifecycle state (config lock, depth
+    counter, start-gate latch CLOSED) plus the FX2 streaming-state flags
+    that ``is_grabbing()`` / ``start_grabbing()`` read are seeded here.
+    The platform-specific streaming starters are MagicMocks so
+    ``start_grabbing()`` is observable without touching USB.
+    """
+    from drivers import fx2driver
+
+    cam = fx2driver.FX2Camera.__new__(fx2driver.FX2Camera)
+    cam._state_lock = threading.Lock()
+    cam._lifecycle_lock = threading.RLock()
+    cam._update_config_depth = 0
+    cam._grab_gate_open = False
+    cam.active = MagicMock()
+    cam._mark_disconnected = MagicMock()
+    cam._device_removed = False
+    cam._grabbing = False
+    cam._grab_thread = None
+    cam.stream_stats = MagicMock()
+    cam._start_iso_streaming = MagicMock()
+    cam._start_winusb_iso_streaming = MagicMock()
+    cam._start_bulk_streaming = MagicMock()
+    # start_grabbing() unconditionally spawns a _grab_loop daemon thread;
+    # keep it inert so a fake that reaches the start path leaks no work.
+    cam._grab_loop = MagicMock()
     return cam
 
 

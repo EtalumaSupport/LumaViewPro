@@ -39,6 +39,7 @@ def test_scale_bar_value_keys_off_background_brightness(color, expect_black):
         objective=_OBJECTIVE,
         binning_size=1,
         color=color,
+        significant_bits=8,
     )
     if expect_black:
         assert scale_bar_value == 0, f'{color} (bright background) should get a black bar'

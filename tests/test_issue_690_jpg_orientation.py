@@ -73,7 +73,9 @@ def test_tiff_and_jpg_save_identical_orientation(tmp_path, monkeypatch):
     )
     from types import SimpleNamespace
 
-    scope = SimpleNamespace()
+    scope = SimpleNamespace(
+        imaging=SimpleNamespace(capture_frame_depth=lambda array, sum_count=1: 8)
+    )
     tiff_path = image_save.save_image(
         scope,
         arr.copy(),
@@ -83,7 +85,8 @@ def test_tiff_and_jpg_save_identical_orientation(tmp_path, monkeypatch):
         color='BF',
         tail_id_mode=None,
         output_format='TIFF',
-        use_false_color_16bit=False,
+        save_encoding='8bit',
+        significant_bits=8,
     )
     jpg_path = image_save.save_image(
         scope,
@@ -95,6 +98,8 @@ def test_tiff_and_jpg_save_identical_orientation(tmp_path, monkeypatch):
         tail_id_mode=None,
         output_format='JPG',
         jpeg_quality=95,
+        save_encoding='8bit',
+        significant_bits=8,
     )
     tiff_px = tifffile.imread(tiff_path)
     jpg_px = cv2.imdecode(

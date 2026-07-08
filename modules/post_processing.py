@@ -22,8 +22,10 @@ class PostProcessing:
     def stitch(self, filepath):
         pass
 
-    def preview_cell_count(self, image, settings):
-        preview_images, cell_stats = self._cell_count.process_image(image=image, settings=settings)
+    def preview_cell_count(self, image, settings, significant_bits: int):
+        preview_images, cell_stats = self._cell_count.process_image(
+            image=image, settings=settings, significant_bits=significant_bits
+        )
 
         return preview_images['filtered_contours'], cell_stats
 
@@ -42,11 +44,18 @@ class PostProcessing:
         for filename in os.listdir(path):
             if filename.endswith(self.SUPPORTED_IMAGE_TYPES):
                 file_path = os.path.join(path, filename)
-                image = image_utils.image_file_to_image(image_file=file_path)
-                if image is None:
+                # One read returns pixels AND their payload depth together, so a
+                # right-aligned 12-bit TIFF scales to 8-bit by its true depth and
+                # the two can never be read out of sync.
+                try:
+                    image, significant_bits = image_utils.load_pixels(file_path)
+                except (FileNotFoundError, ValueError) as e:
+                    logger.warning(f'[LVP Main  ] Skipping unreadable image {filename}: {e}')
                     continue
 
-                _, region_info = self.preview_cell_count(image=image, settings=settings)
+                _, region_info = self.preview_cell_count(
+                    image=image, settings=settings, significant_bits=significant_bits
+                )
 
                 time_created_raw = os.path.getctime(file_path)
                 time_created = time.ctime(time_created_raw)

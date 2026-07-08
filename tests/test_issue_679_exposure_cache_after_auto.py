@@ -1,6 +1,6 @@
 """Regression: exposure / gain cache refreshes after an auto cycle (#679).
 
-Bug shape: Chris's 2026-05-26 BF Protocol ran twice; Run 1 captures
+Bug shape: the beta tester's 2026-05-26 BF Protocol ran twice; Run 1 captures
 came out anomalously dim while Run 2 captured at the protocol's
 configured exposure. Root cause: a pre-scan live-mode AG/AE Continuous
 cycle drove hardware exposure to ~0.014 ms while LVP's API-layer

@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from drivers.motorboard import MotorBoard
 from drivers.ledboard import LEDBoard
 from modules.lumascope_api import _constants as _api_constants
+import modules.image_mode as image_mode
 
 try:
     from drivers.idscamera import IDSCamera
@@ -40,6 +41,8 @@ from drivers.null_motorboard import NullMotionBoard
 from drivers.null_ledboard import NullLEDBoard
 from drivers.protocols import MotorBoardProtocol, LEDBoardProtocol
 from drivers.registry import motor_registry, led_registry, camera_registry
+import modules.binning as binning
+from modules.exceptions import CameraSettingRejected
 from modules.scope_capabilities import ScopeCapabilities
 
 # Import additional libraries
@@ -192,7 +195,9 @@ def _try_connect_board(label, ctor, null_ctor):
     except Exception as e:
         logger.error(f'{label}: connect failed: {type(e).__name__}: {e}')
         _notify_board_failure(
-            label, 'connect failed', f'Could not connect to {label}: {type(e).__name__}: {e}'
+            label,
+            'connect failed',
+            f'Could not connect to {label}. Check the USB cable and 24V power, then restart LVP.',
         )
         return null_ctor()
 
@@ -223,25 +228,22 @@ def _notify_camera_failure(exc, *, suppress_if_cold_start: bool = False):
     if exc_type in ('RuntimeException', 'GenericException', 'LogicalErrorException'):
         title = 'Camera in use'
         body = (
-            f'Camera appears to be open in another application '
-            f'(Pylon Viewer, another LVP instance, etc.). '
-            f'Close it and restart LVP. ({exc_type}: {exc})'
+            'Camera appears to be open in another application '
+            '(Pylon Viewer, another LVP instance, etc.). '
+            'Close it and restart LVP.'
         )
     elif isinstance(exc, PermissionError):
         title = 'Camera port in use'
-        body = (
-            f'Camera port is in use by another program. '
-            f'Close the other program and restart LVP. ({exc})'
-        )
+        body = 'Camera port is in use by another program. Close the other program and restart LVP.'
     elif isinstance(exc, FileNotFoundError):
         title = 'Camera not detected'
-        body = f'Camera not found. Check USB cable and power. ({exc})'
+        body = 'Camera not found. Check USB cable and power.'
     else:
         title = 'Camera not initialized'
         body = (
-            f'Could not connect to camera: {exc_type}: {exc}. '
-            f'Check USB cable, power, and close other programs that '
-            f'may hold the camera.'
+            'Could not connect to the camera. '
+            'Check USB cable, power, and close other programs that '
+            'may hold the camera.'
         )
     if suppress_if_cold_start:
         # Cold-start with no hardware -- caller has already detected
@@ -368,7 +370,7 @@ class Lumascope:
         # Camera state slots (_camera_listeners + lock, _frame_buffer,
         # _capturing_event, _focusing_event, _capture_return,
         # _autofocus_return, _suppress_value_warnings, _scale_bar,
-        # _camera_cache + lock, _binning_size, _camera_temp_event,
+        # _camera_cache + lock, _camera_temp_event,
         # _camera_temp_unschedule_fn, frame_validity) live on ImagingAPI.
 
         # ----- Motion Control Board -----
@@ -504,7 +506,7 @@ class Lumascope:
         # turret_config / stage_offset). Lumascope holds driver slots,
         # executor handles, source_path, and metrics_logger.
 
-        # Frame validity, camera_cache, scale_bar, _binning_size, +
+        # Frame validity, camera_cache, scale_bar, +
         # _camera_listeners/_frame_buffer/_capturing_event/_focusing_event/
         # _capture_return/_autofocus_return/_suppress_value_warnings/
         # _camera_temp_event init live on ImagingAPI.__init__.
@@ -600,8 +602,98 @@ class Lumascope:
         if config.turret_config:
             self.runtime_state.set_turret_config(config.turret_config)
         self.runtime_state.set_objective(config.objective_id)
-        self.imaging.set_binning_size(config.binning_size)
-        self.imaging.set_frame_size(config.frame_width, config.frame_height)
+        # Startup applies push PERSISTED settings at the connect boundary, so
+        # each value is reconciled to the capabilities the connected hardware
+        # actually reports BEFORE the apply -- a settings file written against
+        # a different camera (the swap case) must not send an unsupportable
+        # value. Reconciliation only makes sense against a real camera: with
+        # none connected the applies are quiet no-ops and the absent-fallback
+        # capability values must not masquerade as a camera's answer.
+        frame_width, frame_height = config.frame_width, config.frame_height
+        binning_size = config.binning_size
+        if self.camera_connected:
+            available_binning = self.imaging.get_available_binning_sizes()
+            if binning_size not in available_binning:
+                camera_binning = self.imaging.get_binning_size()
+                # The persisted frame is a DISPLAYED size at the persisted
+                # factor; at a different factor it would come up as a
+                # fraction-area ROI (driver clamping only protects against
+                # too-large requests). Re-derive it from the native intent
+                # at the factor actually being applied.
+                native = binning.displayed_to_native(
+                    {'width': frame_width, 'height': frame_height},
+                    binning_size,
+                    self.imaging.get_native_resolution()
+                    or {
+                        'width': frame_width * binning_size,
+                        'height': frame_height * binning_size,
+                    },
+                )
+                refit = binning.native_to_displayed(
+                    native, camera_binning, self.imaging.get_pixel_alignment()
+                )
+                logger.error(
+                    f'[SCOPE API ] initialize: persisted binning {binning_size} '
+                    f'is not supported by the connected camera '
+                    f'(available: {available_binning}); keeping the '
+                    f'camera-reported {camera_binning} and refitting the '
+                    f'frame {frame_width}x{frame_height} -> '
+                    f'{refit["width"]}x{refit["height"]}'
+                )
+                notifications.warning(
+                    'Camera',
+                    'Saved binning not supported',
+                    f'The saved {binning_size}x{binning_size} binning is not '
+                    f'supported by this camera; it starts at '
+                    f'{camera_binning}x{camera_binning} instead. Pick a '
+                    f'binning in Microscope Settings to update the saved '
+                    f'value.',
+                )
+                binning_size = camera_binning
+                frame_width, frame_height = refit['width'], refit['height']
+        # A rejection surviving reconciliation is a live hardware fault
+        # mid-apply. Each apply is contained individually so one faulted
+        # setting cannot skip the rest of bring-up: the callers of
+        # initialize are the app build and the reconnect button, where a
+        # propagated raise aborts startup entirely (no live view, no
+        # motion config, no session) over a single transient -- the
+        # rejection is already logged AND notified at the API layer, and
+        # every downstream consumer reads delivered geometry, never these
+        # requests, so nothing is left believing a rejected value.
+        for label, apply_fn in (
+            ('binning', lambda: self.imaging.set_binning_size(binning_size)),
+            ('frame size', lambda: self.imaging.set_frame_size(frame_width, frame_height)),
+        ):
+            try:
+                apply_fn()
+            except CameraSettingRejected as ex:
+                logger.error(
+                    f'[SCOPE API ] initialize: {label} apply rejected by a '
+                    f'connected camera ({ex}); bring-up continues at the '
+                    f'camera-held value'
+                )
+        # Apply the capture pixel format HERE, synchronously, while the start
+        # gate is still closed (this runs before the bring-up start_streaming).
+        # Resolving + setting it now -- instead of via the async camera-executor
+        # push that the image-mode spinner enqueues -- removes the race where
+        # the format lands after streaming begins and forces a redundant
+        # grab-loop restart. The spinner handler skips its push during init.
+        pixel_format = image_mode.select_capture_pixel_format(
+            config.capture_depth, self.imaging.get_supported_pixel_formats()
+        )
+        if pixel_format is not None:
+            try:
+                self.imaging.set_pixel_format(pixel_format)
+            except CameraSettingRejected as ex:
+                logger.error(
+                    f'[SCOPE API ] initialize: pixel format apply rejected by '
+                    f'a connected camera ({ex}); bring-up continues at the '
+                    f'camera-held format'
+                )
+        if self.capabilities.camera_supports_conversion_gain_mode:
+            self.imaging.set_conversion_gain_mode('High' if config.high_conversion_gain else 'Low')
+        if self.capabilities.camera_supports_line_noise_reduction:
+            self.imaging.set_line_noise_reduction(config.line_noise_reduction)
         self.runtime_state.set_stage_offset(config.stage_offset)
         self.imaging.set_scale_bar(enabled=config.scale_bar_enabled)
         self.motion.set_acceleration_limit(val_pct=config.acceleration_pct)
@@ -897,9 +989,9 @@ class Lumascope:
                 notifications.error(
                     'Hardware',
                     'LED disconnect failed',
-                    f'LED board teardown raised {type(ex).__name__}: {ex}. '
-                    f'The serial port may be left open; reconnecting '
-                    f'may require a process restart.',
+                    'The LED board did not shut down cleanly. '
+                    'The serial port may be left open; reconnecting '
+                    'may require a process restart.',
                 )
         self._led_driver = NullLEDBoard()
 
@@ -915,9 +1007,9 @@ class Lumascope:
                 notifications.error(
                     'Hardware',
                     'Motor disconnect failed',
-                    f'Motor board teardown raised {type(ex).__name__}: {ex}. '
-                    f'The serial port may be left open; reconnecting '
-                    f'may require a process restart.',
+                    'The motor board did not shut down cleanly. '
+                    'The serial port may be left open; reconnecting '
+                    'may require a process restart.',
                 )
         self._motion_driver = NullMotionBoard()
 
@@ -931,9 +1023,9 @@ class Lumascope:
                 notifications.error(
                     'Hardware',
                     'Camera disconnect failed',
-                    f'Camera teardown raised {type(ex).__name__}: {ex}. '
-                    f'USB resources may not be fully released until the '
-                    f'app restarts.',
+                    'The camera did not shut down cleanly. '
+                    'USB resources may not be fully released until the '
+                    'app restarts.',
                 )
             self._camera_driver = None
         elif self._camera_driver is not None:
@@ -941,6 +1033,13 @@ class Lumascope:
             # clear the slot but don't claim success on a real teardown.
             self._camera_driver = None
         self.imaging._invalidate_camera_cache()
+        # This scope's periodic camera-temp schedule dies WITH the scope:
+        # the tick deliberately never self-cancels (a transient
+        # connectivity False must not end logging), so the lifecycle edge
+        # here is the owner that keeps a scope swap (reconnect) from
+        # leaving an orphaned schedule sampling a discarded scope -- and
+        # pinning its whole object graph -- for the rest of the session.
+        self.imaging.stop_camera_temp_logging()
 
         all_ok = led_ok and motion_ok and camera_ok
         if all_ok:

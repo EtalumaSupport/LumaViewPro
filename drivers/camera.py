@@ -1,6 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 from abc import ABC, abstractmethod
 import contextlib
+import re
 import threading
 
 import numpy as np
@@ -10,7 +11,10 @@ from lvp_logger import logger
 try:
     from lvp_logger import camera_logger as _cam_log
 except ImportError:
-    _cam_log = None
+    # Fall back to the general logger, never None: the _cam_log call sites below
+    # are unguarded, so a None fallback turns every one into an AttributeError the
+    # moment the dedicated camera logger is unavailable.
+    _cam_log = logger
 from drivers.camera_profiles import CameraProfile, lookup_profile
 
 default_max_exposure = 1_000  # in ms
@@ -30,6 +34,12 @@ class ImageHandlerBase:
         self.last_result = False
         self.last_img = None
         self.last_img_ts = None
+        # Payload depth of the buffered frame, captured WITH it at store time so a
+        # consumer reads the depth this frame was acquired under -- not whatever
+        # the camera's pixel format reports later. A format switch leaves a prior
+        # frame in this buffer; pairing it with a freshly-queried depth is what
+        # mis-scaled (and crashed) the downconvert.
+        self.last_img_significant_bits = None
         self.last_chunks = None  # per-frame chunk metadata dict (None when unsupported)
         self._failed_grabs = 0
         # Per-frame consumers (manual record today; per-frame plugins later).
@@ -38,12 +48,16 @@ class ImageHandlerBase:
         self._frame_callbacks: list = []
 
     def get_last_image(self):
-        """Return (success, image, timestamp). Thread-safe.
+        """Return (success, image, timestamp, significant_bits). Thread-safe.
 
         No copy needed here -- the stored frame is already a copy from the SDK
         callback (GetArray().copy() in Pylon, copy() in IDS). _store_frame()
         replaces the reference (not in-place), so the returned array remains
         valid even after the next frame arrives.
+
+        The depth is returned WITH the frame (the value stamped at store time) so
+        a caller scales the buffered frame by the depth it was captured under, not
+        a depth queried separately afterward.
 
         On a stalled stream this keeps returning the last stored frame, so a
         live preview can freeze without an error surfacing here. Capture and
@@ -53,8 +67,8 @@ class ImageHandlerBase:
         """
         with self._frame_lock:
             if not self.last_result:
-                return False, None, None
-            return True, self.last_img, self.last_img_ts
+                return False, None, None, None
+            return True, self.last_img, self.last_img_ts, self.last_img_significant_bits
 
     def get_last_chunks(self) -> dict | None:
         """Return per-frame chunk metadata for the most recent successful grab.
@@ -81,6 +95,7 @@ class ImageHandlerBase:
             self.last_result = False
             self.last_img = None
             self.last_img_ts = None
+            self.last_img_significant_bits = None
             self.last_chunks = None
         self._failed_grabs = 0
 
@@ -111,7 +126,7 @@ class ImageHandlerBase:
         with self._frame_lock, contextlib.suppress(ValueError):
             self._frame_callbacks.remove(cb)
 
-    def _store_frame(self, image, timestamp, chunks: dict | None = None):
+    def _store_frame(self, image, timestamp, chunks: dict | None = None, *, significant_bits: int):
         """Called by subclass when a new frame is successfully grabbed.
 
         Args:
@@ -120,11 +135,19 @@ class ImageHandlerBase:
             chunks: optional per-frame chunk metadata dict. None for cameras
                 without chunk support; backward-compatible with callers that
                 don't pass it.
+            significant_bits: payload depth of THIS frame -- REQUIRED, so a frame
+                can never be buffered without the depth needed to interpret it.
+                The subclass derives it from the frame itself (the grab result's
+                pixel type, or the delivered array's container width for cameras
+                that deliver true container-depth frames), so the depth and the
+                pixels stay together and a later format switch cannot make the
+                buffered frame's depth read wrong.
         """
         with self._frame_lock:
             self.last_result = True
             self.last_img = image
             self.last_img_ts = timestamp
+            self.last_img_significant_bits = significant_bits
             self.last_chunks = chunks
             cbs = list(self._frame_callbacks)
         self._failed_grabs = 0
@@ -190,19 +213,32 @@ class Camera(ABC):
         # toggles the grab loop.
         self._update_config_depth = 0
 
+        # Durable per-frame callback registry, owned by the Camera rather than
+        # the ephemeral image handler. The handler's own callback list is a
+        # working copy the SDK thread dispatches from; it starts empty on every
+        # freshly-built handler (connect / recovery), so a driver that rebuilds
+        # its handler would silently drop every listener registered before the
+        # rebuild. Recording it here and re-pushing it via
+        # _reapply_frame_callbacks() after each handler build keeps manual-record
+        # and per-frame plugin listeners alive across a reconnect. Initialized
+        # before connect() below, which re-applies it on the first handler.
+        self._frame_callback_lock = threading.Lock()
+        self._registered_frame_callbacks: list = []
+
+        # Start gate: the camera-lifecycle split. connect() returns the
+        # camera CONFIGURED but NOT grabbing; streaming begins exactly once
+        # via open_and_start() (the configure-complete -> start transition).
+        # The latch is per-INSTANCE (set here, never a class attribute, so a
+        # reconnect's fresh camera always starts CLOSED) and is read/written
+        # under _lifecycle_lock so gate checks stay coherent with the grab
+        # loop's stop/start. CLOSED at construction; OPEN after release.
+        self._grab_gate_open = False
+
         self.connect()
-        # Registry contract: drivers signal "I couldn't find my hardware"
-        # via `found=False`, and `drivers/registry.py::create('auto')` skips
-        # such instances and tries the next candidate. PylonCamera and
-        # IDSCamera both catch their connect-failure exception internally
-        # and set `self.active = None` without raising -- without this line,
-        # the registry sees no exception and `getattr(instance, 'found', True)`
-        # defaults to True, so the broken Pylon instance is returned and
-        # FX2 (priority 80) never gets a turn. Discovered 2026-04-15 trying
-        # to bring up an LS620 through LVP for the first time. The
-        # `_active not in (False, None)` check matches `Camera.active`'s
-        # three-state semantics (False=initial, <obj>=connected, None=disconnected).
-        self.found = self._active not in (False, None)
+        # `found` is a derived property (below) that reads `active`, so it
+        # reflects connect()'s outcome here AND stays correct across a later
+        # disconnect / same-instance reconnect -- no stale one-time snapshot to
+        # refresh (it used to be assigned once here and never recomputed).
 
     @property
     def active(self):
@@ -224,6 +260,42 @@ class Camera(ABC):
         """Set the active-state value under the state lock."""
         with self._state_lock:
             self._active = value
+
+    @property
+    def found(self) -> bool:
+        """Whether the driver found its hardware -- derived from `active`.
+
+        Registry contract: drivers signal "I couldn't find my hardware" via
+        `found=False`, and `drivers/registry.py::create('auto')` skips such
+        instances and tries the next candidate (PylonCamera / IDSCamera catch
+        their connect-failure internally and set `active = None` without raising,
+        so without this the registry would return the broken instance and FX2
+        never gets a turn -- the LS620 first-bring-up failure). Deriving it from
+        `active`'s three-state semantics (False=initial, <obj>=connected,
+        None=disconnected) keeps it current after a disconnect / reconnect
+        instead of the old once-in-__init__ snapshot that went stale.
+        """
+        return self._active not in (False, None)
+
+    def _reset_lifecycle_state(self) -> None:
+        """Return per-instance lifecycle state to its just-constructed baseline.
+
+        Called by each driver's disconnect() so a reconnect that REUSES the same
+        instance starts clean. Resets only the genuine mutable state that would
+        otherwise persist: the start gate (else open_and_start() sees it already
+        OPEN and never restarts grabbing) and the last-frame buffer (else
+        get_array() returns the pre-disconnect image until the first new grab).
+        `found` needs no reset -- it is a property derived from `active`, which
+        the driver has already nulled by disconnect time. Each field is written
+        under its own documented lock (the gate under _lifecycle_lock, coherent
+        with open_and_start's stop/start; the buffer under _array_lock). Callers
+        must NOT hold a lock that either of these is ever acquired-after, to keep
+        the acquisition order consistent.
+        """
+        with self._lifecycle_lock:
+            self._grab_gate_open = False
+        with self._array_lock:
+            self.array = np.array([])
 
     def __del__(self):
         # Subclass __init__ may raise before super().__init__() runs (e.g.
@@ -356,6 +428,42 @@ class Camera(ABC):
                         f'restarted={was_grabbing and end_depth == 0}'
                     )
 
+    def open_and_start(self) -> bool:
+        """Release the start gate: begin streaming exactly once.
+
+        The single configure-complete -> start transition. ``connect()``
+        leaves the camera configured but NOT grabbing (gate CLOSED); this
+        opens the gate and fires the one ``start_grabbing()``.
+
+        Flag-idempotent: a no-op when the gate is already OPEN, so the two
+        bring-up release sites (startup + reconnect, which fire ~0.3s
+        apart) cannot double-start -- this does NOT rely on
+        ``start_grabbing`` idempotency. Restarting an already-released
+        camera after a deliberate stop is the primitive ``start_grabbing``
+        path, not this one.
+
+        The gate is opened BEFORE the start, so even if the start fails the
+        camera is RELEASED -- a later restart can recover it instead of the
+        gate stranding CLOSED (a permanently blank live view). The start
+        itself is not wrapped here: every ``start_grabbing()`` is already
+        exception-tolerant by contract (SDK failures are logged, not
+        raised), so callers in a ``finally`` need no guard.
+
+        Returns:
+            bool: True when this call released the gate and fired the
+                start; False when the gate was already open (no-op). The
+                return lets a caller distinguish "start just attempted"
+                from "already released" without a second SDK poll, so an
+                ensure-running wrapper does not immediately re-start a
+                device whose start just failed.
+        """
+        with self._lifecycle_lock:
+            if self._grab_gate_open:
+                return False
+            self._grab_gate_open = True
+            self.start_grabbing()
+            return True
+
     @abstractmethod
     def init_camera_config(self) -> None:
         """Apply the camera's startup configuration after connect().
@@ -386,15 +494,21 @@ class Camera(ABC):
         pass
 
     @abstractmethod
-    def set_frame_size(self, w: int, h: int) -> bool:
+    def set_frame_size(self, w: int, h: int) -> dict | bool:
         """Set the output frame size.
+
+        Drivers clamp or snap the request to their legal geometry grid, so
+        the delivered size can differ from the request. Returning it from the
+        write itself lets callers cache the real geometry without a follow-up
+        getter round-trip.
 
         Args:
             w: Frame width in pixels.
             h: Frame height in pixels.
 
         Returns:
-            bool: True on success.
+            The delivered size ``{'width': int, 'height': int}`` on success;
+            ``False`` when the camera is inactive or the apply fails.
         """
         pass
 
@@ -439,11 +553,15 @@ class Camera(ABC):
         pass
 
     @abstractmethod
-    def get_pixel_format(self) -> str:
+    def get_pixel_format(self) -> str | None:
         """Return the current camera pixel format.
 
         Returns:
-            str: Format identifier (e.g. ``'Mono8'``).
+            The format identifier (e.g. ``'Mono8'``), or ``None`` when the
+            camera is inactive or the read failed. ``None`` is the shared
+            failed-read sentinel -- distinct from every real format name,
+            so a consumer that forgets to handle it fails loudly instead
+            of silently treating the failure as a legal format.
         """
         pass
 
@@ -455,6 +573,95 @@ class Camera(ABC):
             tuple: Format identifier strings supported by the SDK.
         """
         pass
+
+    @staticmethod
+    def format_significant_bits(pixel_format: str | None, fallback: int) -> int:
+        """Payload bit count named by a Mono-style GenICam format string.
+
+        ``Mono12`` -> 12, ``Mono10`` -> 10, ``Mono8`` -> 8 (the FIRST digit
+        run in the format name). Returns ``fallback`` when the format is
+        None (failed read / inactive) or carries no digits. Scope: the
+        base-class depth rule for the shipping mono fleet -- drivers whose
+        format vocabulary breaks the first-digits-are-depth assumption
+        (IDS packed wire names like Mono12g24IDS, any future color
+        vocabulary like YCbCr422_8) keep their own parsers and override
+        ``significant_bits_for_format`` instead of feeding names here.
+        """
+        match = re.search(r'(\d+)', pixel_format or '')
+        return int(match.group(1)) if match else fallback
+
+    def significant_bits_for_format(self, pixel_format: str | None) -> int:
+        """Payload depth this driver DELIVERS for a given pixel-format name.
+
+        The override hook for the depth rule: the base implementation
+        derives from the format name; drivers whose delivered depth does
+        not follow the format string (FX2 delivers Mono8 regardless; a
+        converting driver could deliver a fixed depth) override this so
+        every depth consumer -- including the API layer, which calls this
+        with its validated last-known-good format so a transient format
+        read cannot change the answer -- honors the driver's word.
+        """
+        return self.format_significant_bits(pixel_format, self.native_bit_depth)
+
+    def last_stamped_significant_bits(self) -> int | None:
+        """Per-frame delivery stamp of the most recently buffered frame.
+
+        Returns None when no frame has been stored (or the handler recorded
+        no stamp) -- deliberately NO fallback, so callers choose their own
+        no-frame depth source: the driver property below falls back to its
+        live format read; the API layer falls back to its validated
+        last-known-good format instead, keeping a transient format-read
+        failure from turning into a wrong depth.
+
+        Read through the handler's get_last_image() method, not the raw
+        last_img_significant_bits attribute: the Pylon handler composes
+        ImageHandlerBase (to avoid a metaclass conflict with the SDK event
+        handler) and exposes only the method surface, so reaching the
+        attribute directly raises AttributeError on a Pylon camera. The
+        4-tuple read is atomic under the handler's frame lock, so the
+        stamp cannot describe a different frame than the one returned
+        beside it.
+        """
+        handler = self.cam_image_handler
+        if handler is not None:
+            success, _image, _ts, significant_bits = handler.get_last_image()
+            if success and significant_bits is not None:
+                return significant_bits
+        return None
+
+    @property
+    def significant_bits(self) -> int:
+        """Meaningful low bits of a delivered frame (payload, not container).
+
+        Derived from the active pixel format: ``Mono12`` -> 12, ``Mono10`` ->
+        10, ``Mono8`` -> 8 (the leading bit-count in the GenICam format name).
+        Right-aligned, so a value of ``(1 << significant_bits) - 1`` is full
+        scale. Distinct from ``native_bit_depth`` (the container width): a
+        Mono12 frame is significant_bits 12 in a 16-wide container. A summed
+        capture is promoted to a 16-bit container by the imaging layer and is
+        not described by this field. Drivers that deliver a fixed converted
+        depth regardless of the sensor's format -- IDS converts to Mono8 at the
+        SDK boundary, FX2 is Mono8-only -- override with a constant. Falls back
+        to the container width when the format name carries no bit count.
+        """
+        return self.significant_bits_for_format(self.get_pixel_format())
+
+    @property
+    def last_significant_bits(self):
+        """Payload depth of the most recently buffered frame (stamped at store).
+
+        The grab() + get_array() capture path (unlike grab_latest) hands back a
+        bare array, so this exposes the depth recorded WITH that frame. A caller
+        downconverting the just-grabbed frame uses this rather than the live
+        ``significant_bits``, which can already reflect a newer pixel format than
+        the buffered frame was captured under. Falls back to the live depth when
+        no frame has been stored yet.
+
+        Reads the stamp via ``last_stamped_significant_bits`` (see its
+        docstring for the handler-method contract).
+        """
+        stamped = self.last_stamped_significant_bits()
+        return stamped if stamped is not None else self.significant_bits
 
     @abstractmethod
     def exposure_t(self, exposure_ms: float) -> None:
@@ -503,6 +710,19 @@ class Camera(ABC):
         """
         pass
 
+    def get_sdk_info(self) -> dict:
+        """Return the camera SDK provenance label for diagnostic snapshots.
+
+        Driver-neutral so the diagnostic collector can stamp whichever SDK
+        actually produced a snapshot instead of assuming Pylon. The base
+        returns an unknown SDK; SDK-backed drivers override with the real
+        name + version.
+
+        Returns:
+            dict: ``{'name': <sdk name or None>, 'version': <str or None>}``.
+        """
+        return {'name': None, 'version': None}
+
     def _load_profile(self):
         """Load the camera profile based on model_name.
 
@@ -548,6 +768,30 @@ class Camera(ABC):
             float: Same value as the ``max_exposure`` property.
         """
         return self.max_exposure
+
+    @property
+    def min_exposure(self) -> float | None:
+        """Minimum exposure floor in milliseconds, or None if undeclared.
+
+        Mirror of `max_exposure`, derived from `profile.exposure_min_us` --
+        an optional profile field, so returns None when the profile carries
+        no floor and the caller should fall back. Drivers whose SDK exposes a
+        LIVE node minimum override `get_min_exposure` to report it: the node
+        floor can drift above the connect-time value once other settings
+        change, so a cached value goes stale.
+        """
+        if self.profile and self.profile.exposure_min_us:
+            return self.profile.exposure_min_us / 1000.0
+        return None
+
+    def get_min_exposure(self) -> float | None:
+        """Return the minimum exposure floor in milliseconds.
+
+        Returns:
+            float | None: Same value as the ``min_exposure`` property
+            (None when the profile declares no floor).
+        """
+        return self.min_exposure
 
     @property
     def max_gain(self) -> float:
@@ -598,7 +842,11 @@ class Camera(ABC):
         """Return the current hardware binning factor.
 
         Returns:
-            int: Binning factor (1 = no binning).
+            int: Binning factor (1 = no binning); 1 when the camera is
+                inactive (no camera means no binning); -1 on a read
+                failure. -1 (not 1) is the failure sentinel because 1 is
+                a legal factor -- an in-band failure value would let a
+                value-validating caller silently de-bin a 2x camera.
         """
         pass
 
@@ -618,7 +866,7 @@ class Camera(ABC):
             return False, None
 
         try:
-            result, image, image_ts = self.cam_image_handler.get_last_image()
+            result, image, image_ts, _significant_bits = self.cam_image_handler.get_last_image()
             if not result:
                 return False, None
 
@@ -648,48 +896,78 @@ class Camera(ABC):
 
         Returns:
             tuple: ``(success: bool, image: np.ndarray | None,
-                timestamp: datetime | None)``.
+                timestamp: datetime | None, significant_bits: int | None)``.
+                The depth is carried with the frame so the caller scales it by
+                the depth it was captured under, not a separately-queried one.
         """
         with self._state_lock:
             if self._active is None or self._device_removed:
-                return False, None, None
+                return False, None, None, None
 
         if not self.cam_image_handler:
-            return False, None, None
+            return False, None, None, None
 
         try:
-            result, image, image_ts = self.cam_image_handler.get_last_image()
+            result, image, image_ts, image_significant_bits = (
+                self.cam_image_handler.get_last_image()
+            )
             if not result or image is None:
-                return False, None, None
+                return False, None, None, None
 
             # Store for other consumers (e.g. recording), but the returned
             # image IS the copy -- callers don't need get_array().
             with self._array_lock:
                 self.array = image
-            return True, image, image_ts
+            return True, image, image_ts, image_significant_bits
         except Exception as ex:
             _cam_log.exception(f'[CAM Class ] grab_latest() failed: {ex}')
-            return False, None, None
+            return False, None, None, None
 
     def register_frame_callback(self, cb) -> None:
-        """Register a per-frame callback on the driver's image handler.
+        """Register a per-frame callback.
 
-        Default implementation delegates to ``cam_image_handler``;
-        drivers without a handler (SimulatedCamera) override.
+        Records the callback in the Camera's durable registry (so it survives a
+        handler rebuild) AND applies it to the current handler for immediate
+        dispatch. Idempotent for the same callable. SimulatedCamera extends this
+        to also drive its host-side pump.
         """
-        if not self.cam_image_handler:
-            return
-        self.cam_image_handler.register_frame_callback(cb)
+        with self._frame_callback_lock:
+            if cb not in self._registered_frame_callbacks:
+                self._registered_frame_callbacks.append(cb)
+        # Apply to the live handler OUTSIDE _frame_callback_lock: the handler
+        # takes its own _frame_lock, so nesting the two would couple the locks.
+        if self.cam_image_handler:
+            self.cam_image_handler.register_frame_callback(cb)
 
     def unregister_frame_callback(self, cb) -> None:
-        """Unregister a callback registered via ``register_frame_callback``.
+        """Unregister a callback from the durable registry and the current handler."""
+        with self._frame_callback_lock, contextlib.suppress(ValueError):
+            self._registered_frame_callbacks.remove(cb)
+        if self.cam_image_handler:
+            self.cam_image_handler.unregister_frame_callback(cb)
 
-        Default implementation delegates to ``cam_image_handler``;
-        drivers without a handler (SimulatedCamera) override.
+    def _reapply_frame_callbacks(self) -> None:
+        """Re-register the durable callback set onto the current handler.
+
+        A driver calls this immediately after building a new cam_image_handler
+        (connect / recovery). The handler owns the dispatch list and starts
+        empty, so without this every listener registered before the rebuild
+        stops receiving frames. No-op when the driver has no handler
+        (SimulatedCamera, which delivers via its own pump reading the registry).
         """
-        if not self.cam_image_handler:
+        handler = self.cam_image_handler
+        if handler is None:
             return
-        self.cam_image_handler.unregister_frame_callback(cb)
+        # Hold the registry lock ACROSS the re-push, not just the snapshot: an
+        # unregister interleaving here (e.g. a per-frame plugin auto-dropped on
+        # the SDK callback thread mid-reconnect) must not lose to a stale
+        # snapshot and get resurrected onto the fresh handler. Deadlock-safe --
+        # the lock order is always _frame_callback_lock -> handler._frame_lock
+        # (here and in register/unregister); frame dispatch runs OUTSIDE
+        # _frame_lock, so nothing acquires the two in the reverse order.
+        with self._frame_callback_lock:
+            for cb in self._registered_frame_callbacks:
+                handler.register_frame_callback(cb)
 
     @abstractmethod
     def grab_new_capture(self, timeout_s: float) -> tuple:

@@ -5,7 +5,6 @@ import pathlib
 
 import numpy as np
 import pandas as pd
-import tifffile as tf
 
 import modules.common_utils as common_utils
 import modules.image_utils as image_utils
@@ -13,6 +12,7 @@ from modules.stitch_algorithms import stitch_registered_tiles
 
 from modules.common_utils import PostFunction
 from modules.protocol_post_processor import ProtocolPostProcessor
+from modules.protocol_post_processing_result import PostProcResult
 from modules.protocol_post_record import ProtocolPostRecord
 
 
@@ -48,34 +48,23 @@ class Stitcher(ProtocolPostProcessor):
             objective_id=row0['Objective']
         )
 
-        # A stitch spans every tile of a (well, channel), so the per-tile
-        # token baked into the step name no longer identifies the output --
-        # always drop it. A composite-stitch additionally spans all channels;
-        # its stored Color is 'Composite', so the leaked channel token cannot
-        # be matched by Color -- drop whichever channel token is present. A
-        # single-channel stitch keeps its channel (a BF stitch is still BF).
-        # Any custom name text is otherwise preserved.
-        base_name = common_utils.strip_tile_token(row0['Name'], row0.get('Tile', ''))
-        if row0.get('Color', '') == 'Composite':
-            base_name = common_utils.strip_any_channel_token(base_name)
-
-        # Prepend the protocol's capture_root (passed in via kwargs by
-        # ProtocolPostProcessor.load_folder) so the stitched output
-        # carries the same filename root as the per-image saves.
-        capture_root = kwargs.get('capture_root', '')
-        prefix = f'{capture_root}_{base_name}' if capture_root else base_name
-        name = common_utils.generate_default_step_name(
-            custom_name_prefix=prefix,
-            well_label=row0['Well'],
-            color=row0['Color'],
-            z_height_idx=row0['Z-Slice'],
-            scan_count=row0['Scan Count'],
-            objective_short_name=objective_short_name,
-            tile_label=None,
-            stitched=True,
+        # A stitch spans every tile of a (well, channel), so the per-tile token
+        # is omitted (tile=None) -- by construction, never by stripping it back
+        # out of a name. The channel comes from the authoritative Color column:
+        # a single-channel stitch keeps its channel, and a composite-stitch
+        # carries 'Composite' automatically (its Color is 'Composite'), so no
+        # leaked channel token needs removing.
+        name = common_utils.build_step_name(
+            common_utils.step_components(
+                row0,
+                tile=None,
+                scan_count=row0['Scan Count'],
+                objective=objective_short_name,
+                post=('stitched',),
+            )
         )
 
-        outfile = f'{name}.tiff'
+        outfile = f'{self._prepend_capture_root(name, kwargs)}.tiff'
         return outfile
 
     def _filter_ignored_types(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -103,7 +92,7 @@ class Stitcher(ProtocolPostProcessor):
             output_file_loc=kwargs.get('output_file_loc'),
         )
         if position_result['status']:
-            return position_result
+            return PostProcResult.from_group_result(position_result)
 
         logger_msg = position_result['error']
         import logging
@@ -112,10 +101,12 @@ class Stitcher(ProtocolPostProcessor):
             f'[Stitch] Position-aware stitch failed ({logger_msg}); '
             'falling back to simple grid stitch'
         )
-        return Stitcher._simple_position_stitcher(
-            path=path,
-            df=df[['Filepath', 'X', 'Y', 'Color']],
-            output_file_loc=kwargs.get('output_file_loc'),
+        return PostProcResult.from_group_result(
+            Stitcher._simple_position_stitcher(
+                path=path,
+                df=df[['Filepath', 'X', 'Y', 'Color']],
+                output_file_loc=kwargs.get('output_file_loc'),
+            )
         )
 
     @staticmethod
@@ -132,6 +123,7 @@ class Stitcher(ProtocolPostProcessor):
             file_path=file_path,
             timestamp=row0['Timestamp'],
             name=row0['Name'],
+            label=row0['Label'],
             scan_count=row0['Scan Count'],
             x=alg_metadata['center']['x'],
             y=alg_metadata['center']['y'],
@@ -184,9 +176,15 @@ class Stitcher(ProtocolPostProcessor):
 
         source_image_sample_row = df.iloc[0]
         source_image_sample_filename = source_image_sample_row['Filepath']
-        source_image_sample = tf.imread(str(path / source_image_sample_filename))
-        source_image_h = source_image_sample.shape[0]
-        source_image_w = source_image_sample.shape[1]
+        # Only the tile geometry (size + dtype + color-ness) is needed here to
+        # size the canvas; the pixels and depth of every tile -- including this
+        # one -- are read in the placement loop below. Read the header alone so
+        # this first tile is not decoded once here and again in the loop.
+        source_image_shape, source_image_dtype = image_utils.read_image_geometry(
+            path / source_image_sample_filename
+        )
+        source_image_h = source_image_shape[0]
+        source_image_w = source_image_shape[1]
 
         df = df.sort_values(['X', 'Y'], ascending=False)
         df['x_index'] = df.groupby(by=['X']).ngroup()
@@ -205,17 +203,19 @@ class Stitcher(ProtocolPostProcessor):
         if reverse_y:
             df['y_pix_range'] = stitched_im_y - df['y_pix_range']
 
-        is_color_image = image_utils.is_color_image(image=source_image_sample)
-        if is_color_image:
-            stitched_img = np.zeros(
-                (stitched_im_y, stitched_im_x, 3), dtype=source_image_sample.dtype
-            )
+        is_color = image_utils.is_color_shape(source_image_shape)
+        if is_color:
+            stitched_img = np.zeros((stitched_im_y, stitched_im_x, 3), dtype=source_image_dtype)
         else:
-            stitched_img = np.zeros((stitched_im_y, stitched_im_x), dtype=source_image_sample.dtype)
+            stitched_img = np.zeros((stitched_im_y, stitched_im_x), dtype=source_image_dtype)
 
+        input_depths = []
         for _, row in df.iterrows():
             filename = row['Filepath']
-            image = tf.imread(str(path / filename))
+            image, significant_bits = image_utils.load_pixels(
+                path / filename, collapse_legacy_false_color=False
+            )
+            input_depths.append(significant_bits)
             im_x = image.shape[1]
             im_y = image.shape[0]
 
@@ -224,23 +224,23 @@ class Stitcher(ProtocolPostProcessor):
 
             if reverse_y:
                 if reverse_x:
-                    if is_color_image:
+                    if is_color:
                         stitched_img[y_val - im_y : y_val, x_val - im_x : x_val, :] = image
                     else:
                         stitched_img[y_val - im_y : y_val, x_val - im_x : x_val] = image
                 else:
-                    if is_color_image:
+                    if is_color:
                         stitched_img[y_val - im_y : y_val, x_val : x_val + im_x, :] = image
                     else:
                         stitched_img[y_val - im_y : y_val, x_val : x_val + im_x] = image
             else:
                 if reverse_x:
-                    if is_color_image:
+                    if is_color:
                         stitched_img[y_val : y_val + im_y, x_val - im_x : x_val, :] = image
                     else:
                         stitched_img[y_val : y_val + im_y, x_val - im_x : x_val] = image
                 else:
-                    if is_color_image:
+                    if is_color:
                         stitched_img[y_val : y_val + im_y, x_val : x_val + im_x, :] = image
                     else:
                         stitched_img[y_val : y_val + im_y, x_val : x_val + im_x] = image
@@ -260,6 +260,7 @@ class Stitcher(ProtocolPostProcessor):
             metadata = image_utils.build_postproc_output_metadata(
                 input_path=first_tile_path,
                 channel=source_image_sample_row['Color'],
+                significant_bits=image_utils.resolve_output_depth(input_depths),
                 plate_pos_mm_override=center,
             )
             image_utils.write_tiff(
@@ -268,6 +269,8 @@ class Stitcher(ProtocolPostProcessor):
                 metadata=metadata,
                 ome=False,
                 color=source_image_sample_row['Color'],
+                significant_bits=metadata['significant_bits'],
+                save_encoding=image_utils.resolve_output_save_encoding(stitched_img),
             )
             return_image = None
         else:
@@ -277,6 +280,7 @@ class Stitcher(ProtocolPostProcessor):
             'status': True,
             'error': None,
             'image': return_image,
+            'significant_bits': image_utils.resolve_output_depth(input_depths),
             'metadata': {
                 'center': center,
             },
@@ -307,15 +311,19 @@ class Stitcher(ProtocolPostProcessor):
         df['Y'] = df['Y'].astype(float)
 
         images = {}
+        input_depths = []
         for _, row in df.iterrows():
             image_filepath = path / row['Filepath']
-            image = tf.imread(str(image_filepath))
+            image, significant_bits = image_utils.load_pixels(
+                image_filepath, collapse_legacy_false_color=False
+            )
             if image is None:
                 return {
                     'status': False,
                     'error': f'unable to read image: {image_filepath}',
                 }
             images[row['Filepath']] = image
+            input_depths.append(significant_bits)
 
         sample_row = df.iloc[0]
         sample = images[sample_row['Filepath']]
@@ -373,7 +381,13 @@ class Stitcher(ProtocolPostProcessor):
             'y': round(df['Y'].unique().mean(), common_utils.max_decimal_precision(parameter='y')),
         }
 
-        stitched_img, registered_tiles = stitch_registered_tiles(tiles)
+        # Size the canvas from the nominal stage grid (stitched_h/w above) --
+        # identical for every channel / Z-slice of this tile-group -- so per-layer
+        # content registration cannot make the outputs diverge in shape and break
+        # composite / z-projection, which combine those per-layer outputs.
+        stitched_img, registered_tiles = stitch_registered_tiles(
+            tiles, output_shape=(stitched_h, stitched_w)
+        )
 
         if output_file_loc is not None:
             # Route through write_tiff (matching _simple_position_stitcher,
@@ -390,6 +404,7 @@ class Stitcher(ProtocolPostProcessor):
             metadata = image_utils.build_postproc_output_metadata(
                 input_path=first_tile_path,
                 channel=color,
+                significant_bits=image_utils.resolve_output_depth(input_depths),
                 plate_pos_mm_override=center,
             )
             image_utils.write_tiff(
@@ -398,6 +413,8 @@ class Stitcher(ProtocolPostProcessor):
                 metadata=metadata,
                 ome=False,
                 color=color,
+                significant_bits=metadata['significant_bits'],
+                save_encoding=image_utils.resolve_output_save_encoding(stitched_img),
             )
             return_image = None
         else:
@@ -407,6 +424,7 @@ class Stitcher(ProtocolPostProcessor):
             'status': True,
             'error': None,
             'image': return_image,
+            'significant_bits': image_utils.resolve_output_depth(input_depths),
             'metadata': {
                 'center': center,
                 'registered_tiles': registered_tiles,

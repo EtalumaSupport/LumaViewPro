@@ -4,6 +4,7 @@ import datetime
 import os
 import pathlib
 import threading
+from fractions import Fraction
 
 import cv2
 import numpy as np
@@ -19,6 +20,19 @@ try:
 except ImportError:
     _HAS_PYAV = False
     logger.info('VideoWriter: PyAV not available -- falling back to OpenCV VideoWriter')
+
+
+def fps_from_frames(captured_frames: int, duration_sec: float) -> float:
+    """Playback frames-per-second for captured_frames recorded over duration_sec.
+
+    Real division, never floor or int()-clamp. A slow recording (long-exposure
+    or timelapse) can capture fewer frames than the seconds elapsed, so the true
+    rate is below 1 fps: flooring it yields 0 (an empty, unplayable file that
+    silently loses the recording) and clamping it up to 1 distorts the playback
+    duration. The float rate is carried through to the encoder unchanged. The
+    caller guarantees duration_sec > 0.
+    """
+    return captured_frames / duration_sec
 
 
 class VideoWriter:
@@ -87,6 +101,43 @@ class VideoWriter:
             else:
                 self._init_cv2(width, height, True)
 
+    @property
+    def output_path(self) -> pathlib.Path:
+        """The authoritative save location -- read this back when recording.
+
+        May differ from the path the caller requested: a collision adds a
+        numeric suffix, and the cv2 fallback rewrites the container suffix to
+        .avi. A record built from the requested path would attribute the
+        wrong file to the capture whenever either applies.
+        """
+        return self._output_path
+
+    def _resolve_collision_free_output(self):
+        """Never silently overwrite an existing output.
+
+        Runs at encoder init -- after the backend (and therefore the real
+        container suffix) is known -- because an existence check against the
+        requested .mp4 path cannot see the .avi the cv2 fallback actually
+        opens. The plain name is kept when free; a numeric suffix is added
+        only on actual collision, so happy-path filenames are unchanged.
+        """
+        if not self._output_path.exists():
+            return
+        requested_path = self._output_path
+        n = 1
+        while True:
+            candidate = requested_path.with_name(
+                f'{requested_path.stem}_{n:06d}{requested_path.suffix}'
+            )
+            if not candidate.exists():
+                break
+            n += 1
+        logger.warning(
+            f'Video filename collision: {requested_path.name} already '
+            f'exists; saving as {candidate.name} instead.'
+        )
+        self._output_path = candidate
+
     @staticmethod
     def _get_timestamp_str(timestamp=None):
         if timestamp is not None:
@@ -95,11 +146,29 @@ class VideoWriter:
             ts = datetime.datetime.now()
         return ts.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
 
+    def _encoder_rate(self) -> Fraction:
+        """Canonical encoder frame rate, shared by every writer-init path.
+
+        A slow recording (timelapse / long-exposure) captures fewer frames than
+        the seconds elapsed, so its true rate is below 1 fps. Flooring such a
+        rate to an integer turns a value like 0.3 into 0, which every encoder
+        backend rejects -- producing an empty, unplayable file and losing the
+        recording. Keeping the rate as a clean fraction preserves the real
+        sub-1 rate so the encoders honor it and playback duration stays true;
+        limit_denominator trims the binary-float artifacts of a value like 0.3
+        to an exact ratio.
+        """
+        return Fraction(self._fps).limit_denominator()
+
     def _init_pyav(self, width, height, is_color):
         """Initialize PyAV H.264 encoder."""
         try:
+            self._resolve_collision_free_output()
             self._container = av.open(str(self._output_path), mode='w')
-            self._stream = self._container.add_stream('libx264', rate=int(self._fps))
+            # libx264 honors the fractional rate, so a true sub-1 fps recording
+            # (timelapse / long-exposure) keeps its real duration -- see
+            # _encoder_rate for why an int floor would lose it.
+            self._stream = self._container.add_stream('libx264', rate=self._encoder_rate())
             # Multi-threaded libx264, capped to cores-2 so the encode scales
             # with the machine but always leaves headroom for the GUI/GL main
             # thread (uncapped it grabs every core and froze the GUI mid-encode
@@ -119,7 +188,7 @@ class VideoWriter:
             self._stream.options = {'crf': '23', 'preset': 'ultrafast'}
             self._is_color = is_color
             logger.info(
-                f'VideoWriter: Opened H.264 encoder ({width}x{height} @ {int(self._fps)}fps)'
+                f'VideoWriter: Opened H.264 encoder ({width}x{height} @ {float(self._fps):g}fps)'
             )
         except Exception as e:
             logger.warning(f'VideoWriter: PyAV init failed ({e}), falling back to cv2')
@@ -128,19 +197,46 @@ class VideoWriter:
             self._stream = None
             self._init_cv2(width, height, is_color)
 
+    def _open_cv2_writer(self, fourcc, fallback_path, rate, width, height, is_color):
+        """Construct one cv2.VideoWriter at the given rate."""
+        return cv2.VideoWriter(
+            filename=str(fallback_path),
+            fourcc=fourcc,
+            fps=rate,
+            frameSize=(width, height),
+            isColor=is_color,
+        )
+
     def _init_cv2(self, width, height, is_color):
         """Initialize cv2 VideoWriter fallback (XVID/AVI)."""
         # Use XVID -- bundled with OpenCV, works on all platforms
         fourcc = cv2.VideoWriter_fourcc(*'XVID')
-        fallback_path = self._output_path.with_suffix('.avi')
-        self._output_path = fallback_path
-        self._cv2_video = cv2.VideoWriter(
-            filename=str(fallback_path),
-            fourcc=fourcc,
-            fps=self._fps,
-            frameSize=(width, height),
-            isColor=is_color,
+        self._output_path = self._output_path.with_suffix('.avi')
+        self._resolve_collision_free_output()
+        fallback_path = self._output_path
+        # cv2.VideoWriter takes a double fps. The FFMPEG-backed AVI encoder
+        # honors a true sub-1 rate (timelapse / long-exposure), so pass the real
+        # rate rather than an int that would floor 0.3 to 0 and lose the file.
+        rate = float(self._encoder_rate())
+        self._cv2_video = self._open_cv2_writer(
+            fourcc, fallback_path, rate, width, height, is_color
         )
+        if not self._cv2_video.isOpened() and rate < 1.0:
+            # OpenCV's built-in AVI/MJPEG encoder -- the fallback used when no
+            # FFMPEG plugin is present -- refuses to open below 1 fps (it
+            # asserts fps >= 1). Rather than ship an empty, unplayable file,
+            # reopen at the 1 fps floor so the captured frames are preserved.
+            # Playback then runs faster than the real capture rate; warn so that
+            # speedup is not a silent surprise.
+            logger.warning(
+                f'VideoWriter: cv2/AVI backend rejected sub-1 fps ({rate:g}); the '
+                f'built-in AVI encoder requires fps >= 1. Reopening at 1 fps -- '
+                f'playback will run faster than the real capture rate.'
+            )
+            rate = 1.0
+            self._cv2_video = self._open_cv2_writer(
+                fourcc, fallback_path, rate, width, height, is_color
+            )
         if not self._cv2_video.isOpened():
             logger.error(
                 f'VideoWriter: cv2 fallback ALSO failed to open {fallback_path}. '
@@ -174,13 +270,18 @@ class VideoWriter:
         else:
             self._init_cv2(w, h, is_color_encode)
 
-    def add_frame(self, image: np.ndarray, timestamp=None) -> None:
+    def add_frame(self, image: np.ndarray, timestamp=None, significant_bits=None) -> None:
         """Add a frame to the video.
 
         Accepts mono 2D (H, W) input when `color` was set at __init__; the
         writer applies the layer false-color and cv2 BGR-swap (cv2 path
         only) before the encoder boundary. Also accepts pre-colored RGB
         input for back-compat callers that produce their own RGB.
+
+        significant_bits scales a uint16 frame to 8-bit by its true payload
+        depth (e.g. 12 for a right-aligned 12-bit frame). None falls back to
+        treating uint16 as full 16-bit, which is correct for left-justified
+        legacy frames.
         """
         with self._frame_lock:
             if self._finished:
@@ -199,11 +300,12 @@ class VideoWriter:
 
             # Ensure 8-bit
             if image.dtype != np.uint8:
-                image = (
-                    image_utils.convert_16bit_to_8bit(image)
-                    if image.dtype == np.uint16
-                    else image.astype(np.uint8)
-                )
+                if significant_bits is not None:
+                    image = image_utils.convert_to_8bit(image, significant_bits)
+                elif image.dtype == np.uint16:
+                    image = image_utils.convert_to_8bit(image, significant_bits=16)
+                else:
+                    image = image.astype(np.uint8)
 
             # Mono + color set -> apply false-color inside the writer.
             # Mono + color None -> pass through; gray encode.

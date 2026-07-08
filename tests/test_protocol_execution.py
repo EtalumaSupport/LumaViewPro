@@ -35,9 +35,11 @@ _mock_settings_init.settings = {
 }
 sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
+from modules.exceptions import ProtocolRunRefusedError
+from modules.image_mode import ImageCaptureConfig
 from modules.lumascope_api import Lumascope
 from modules.sequential_io_executor import SequentialIOExecutor
-from modules.sequenced_capture_runner import SequencedCaptureRunner
+from modules.sequenced_capture_runner import RunPlan, SequencedCaptureRunner
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.protocol import Protocol
 
@@ -58,7 +60,7 @@ def _make_simulated_scope():
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
-    s._camera_driver.start_grabbing()
+    s.imaging.start_streaming()
     return s
 
 
@@ -102,13 +104,7 @@ def _make_autogain_settings():
 
 
 def _make_image_capture_config():
-    return {
-        'output_format': {
-            'live': 'TIFF',
-            'sequenced': 'TIFF',
-        },
-        'use_full_pixel_depth': False,
-    }
+    return ImageCaptureConfig.from_image_mode('8bit')
 
 
 TILING_CONFIGS = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
@@ -174,6 +170,7 @@ def _make_single_step_protocol(
         'Video Config': video_config,
         'Stim_Config': stim_config,
         'Step Index': 0,
+        'Label': '',
     }
     return _build_real_protocol([step])
 
@@ -237,6 +234,10 @@ def _make_multi_step_protocol(steps_config):
                 'Video Config': merged['video_config'],
                 'Stim_Config': merged['stim_config'],
                 'Step Index': i,
+                # Unique per-step label: steps that differ only in position
+                # or camera settings must still derive distinct capture
+                # filenames or validate_for_run refuses the run.
+                'Label': name,
             }
         )
     return _build_real_protocol(rows)
@@ -260,7 +261,7 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
     callbacks.setdefault('go_to_step', lambda **kw: None)
     callbacks.setdefault('move_position', lambda axis: None)
 
-    executor.run(
+    plan = executor.prepare(
         protocol=protocol,
         run_trigger_source='test',
         run_mode=run_kwargs.pop('run_mode', SequencedCaptureRunMode.SINGLE_SCAN),
@@ -282,6 +283,7 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
         },
         **run_kwargs,
     )
+    executor.start(plan)
 
     completed = done.wait(timeout=COMPLETION_TIMEOUT)
     return completed, result_holder
@@ -296,7 +298,7 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
 def scope():
     s = _make_simulated_scope()
     yield s
-    s._camera_driver.stop_grabbing()
+    s.imaging.stop_streaming()
     s.disconnect()
 
 
@@ -334,7 +336,7 @@ def executor(scope, executors):
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
         camera_executor=executors['camera'],
-        autofocus_thread=MagicMock(),
+        autofocus_thread=MagicMock(is_running=False),
         autofocus_runner=mock_af,
     )
     exc._wellplate_loader = WellPlateLoader()
@@ -462,6 +464,111 @@ class TestSingleScanAutoFocusNoneResult:
         assert protocol.step(idx=0)['Z'] == original_z, (
             'Z height should not change when autofocus returns None'
         )
+
+
+class TestAutofocusFailureDoesNotHaltProtocol:
+    """An autofocus failure mid-protocol must not stop the run or pop a modal --
+    an unattended scan keeps capturing at the fallback Z. The autofocus thread is
+    the sole owner of recording the fault with a traceback; the step runner adds
+    exactly one step-correlated warning so a possibly-out-of-focus fallback-Z
+    capture is traceable back to its step and well. That single line is
+    complementary to the AF thread's traceback (which it does not repeat) and the
+    one-shot latch keeps it from flooding once per settle poll.
+    """
+
+    def test_af_exception_warns_with_step_context_without_halt(
+        self, executor, scope, tmp_path, monkeypatch
+    ):
+        import modules.protocol_step_runner as psr
+
+        protocol = _make_single_step_protocol(color='BF', auto_focus=True)
+        af = executor._autofocus_runner
+        af.complete.return_value = True
+        af.in_progress.return_value = False
+        # The run kicks off its own AF future via autofocus_thread.run_autofocus,
+        # so control the fault on that returned Future -- a pre-set _af_future is
+        # cleared at run start and replaced by the kicked-off one.
+        af_future = MagicMock()
+        af_future.done.return_value = True
+        # The AF run raised (e.g. camera fault) -- carried on the Future.
+        af_future.exception.return_value = RuntimeError('camera fault during AF')
+        executor.autofocus_thread.run_autofocus.return_value = af_future
+
+        warnings = []
+        monkeypatch.setattr(psr.logger, 'warning', lambda msg, *a, **k: warnings.append(str(msg)))
+
+        completed, _ = _run_and_wait(executor, protocol, tmp_path)
+        assert completed, 'an AF failure must not halt the protocol'
+
+        af_warnings = [w for w in warnings if 'Autofocus failed' in w]
+        assert len(af_warnings) == 1, (
+            'the step runner must emit exactly one step-correlated AF-failure '
+            f'warning (got {len(af_warnings)})'
+        )
+        w = af_warnings[0]
+        # The step and well tie a blurry fallback-Z capture to its origin, and the
+        # exception type + message make the line user-actionable.
+        assert 'step 0' in w, f'warning is missing the step index: {w!r}'
+        assert 'well A1' in w, f'warning is missing the well: {w!r}'
+        assert 'RuntimeError' in w and 'camera fault during AF' in w, (
+            f'warning is missing the AF exception type/message: {w!r}'
+        )
+        assert 'fallback Z' in w, f'warning must say capture continues at fallback Z: {w!r}'
+
+    def test_af_failure_consumed_once_no_log_flood(self, executor, scope, monkeypatch):
+        """Drive scan_iterate directly while the stage stays in motion -- the
+        exact condition that made the old gate re-handle and re-log the same
+        resolved AF future on every ~1 kHz settle poll. A single fault must be
+        consumed exactly once and produce exactly one step-correlated warning
+        across all the settle polls -- not zero, and not one per poll.
+        """
+        import threading as _threading
+
+        import modules.protocol_step_runner as psr
+
+        # Stage never reports idle: scan_iterate keeps hitting the motion-settle
+        # early-return after the AF gate, so _af_future is not cleared between
+        # polls (it is cleared only at the step transition).
+        monkeypatch.setattr(scope.motion, 'is_moving', lambda *a, **k: True)
+
+        protocol = _make_single_step_protocol(color='BF', auto_focus=True)
+        executor._protocol = protocol
+        executor._aborted = _threading.Event()
+        executor._scan_in_progress.set()
+        executor._run_in_progress_event.set()
+        executor._grease_redistribution_event.set()
+        executor._curr_step = 0
+        executor._motion_wait_start = None
+        executor._step_start_time = 0.0
+        with executor._protocol_state_lock:
+            executor._n_scans = 1
+            executor._scan_count = 0
+        executor._af_result_consumed = False
+
+        af_future = MagicMock()
+        af_future.done.return_value = True
+        af_future.exception.return_value = RuntimeError('camera fault during AF')
+        executor._af_future = af_future
+
+        warnings = []
+        monkeypatch.setattr(psr.logger, 'warning', lambda msg, *a, **k: warnings.append(str(msg)))
+
+        for _ in range(10):
+            executor._step_executor.scan_iterate()
+
+        af_warnings = [w for w in warnings if 'Autofocus failed' in w]
+        assert len(af_warnings) == 1, (
+            'the step runner must emit exactly one step-correlated AF-failure '
+            f'warning across the settle polls, not one per poll (got {len(af_warnings)})'
+        )
+        assert 'step 0' in af_warnings[0], (
+            f'the AF-failure warning is missing the step index: {af_warnings[0]!r}'
+        )
+        assert af_future.exception.call_count == 1, (
+            'the resolved AF future must be consumed exactly once, not per poll '
+            f'(consumed {af_future.exception.call_count} times)'
+        )
+        assert executor._af_result_consumed is True
 
 
 class TestSingleScanAutoGainAndAutoFocus:
@@ -685,15 +792,13 @@ class TestPixelDepth:
 
     def test_full_pixel_depth(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(color='BF')
-        config = _make_image_capture_config()
-        config['use_full_pixel_depth'] = True
+        config = ImageCaptureConfig.from_image_mode('12bit_scientific')
         completed, _ = _run_and_wait(executor, protocol, tmp_path, image_capture_config=config)
         assert completed
 
     def test_8bit_pixel_depth(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(color='BF')
-        config = _make_image_capture_config()
-        config['use_full_pixel_depth'] = False
+        config = ImageCaptureConfig.from_image_mode('8bit')
         completed, _ = _run_and_wait(executor, protocol, tmp_path, image_capture_config=config)
         assert completed
 
@@ -1216,8 +1321,9 @@ class TestOmeTiffHyperstackFormat:
 
     def test_completes_with_hyperstack_format(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(color='BF')
-        config = _make_image_capture_config()
-        config['output_format']['sequenced'] = 'OME-TIFF Hyperstack'
+        config = ImageCaptureConfig.from_image_mode(
+            '8bit', output_format_sequenced='OME-TIFF Hyperstack'
+        )
         completed, _ = _run_and_wait(executor, protocol, tmp_path, image_capture_config=config)
         assert completed
 
@@ -1255,7 +1361,7 @@ class TestCancellationMidRun:
             'move_position': lambda axis: None,
         }
 
-        executor.run(
+        plan = executor.prepare(
             protocol=protocol,
             run_trigger_source='test',
             run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
@@ -1276,6 +1382,7 @@ class TestCancellationMidRun:
                 'Lumi': False,
             },
         )
+        executor.start(plan)
 
         # Let it run briefly then cancel
         time.sleep(1.0)
@@ -1300,7 +1407,7 @@ class TestCancellationMidRun:
             'move_position': lambda axis: None,
         }
 
-        executor.run(
+        plan = executor.prepare(
             protocol=protocol,
             run_trigger_source='test',
             run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
@@ -1321,6 +1428,7 @@ class TestCancellationMidRun:
                 'Lumi': False,
             },
         )
+        executor.start(plan)
 
         # Cancel almost immediately
         time.sleep(0.2)
@@ -1409,31 +1517,31 @@ class TestDisconnectedScope:
             'move_position': lambda axis: None,
         }
 
-        executor.run(
-            protocol=protocol,
-            run_trigger_source='test',
-            run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
-            sequence_name='test_disconnected',
-            image_capture_config=_make_image_capture_config(),
-            autogain_settings=_make_autogain_settings(),
-            parent_dir=tmp_path / 'output',
-            max_scans=1,
-            callbacks=callbacks,
-            leds_state_at_end='off',
-            initial_autofocus_states={
-                'BF': False,
-                'PC': False,
-                'DF': False,
-                'Red': False,
-                'Green': False,
-                'Blue': False,
-                'Lumi': False,
-            },
-        )
+        with pytest.raises(ProtocolRunRefusedError):
+            executor.prepare(
+                protocol=protocol,
+                run_trigger_source='test',
+                run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
+                sequence_name='test_disconnected',
+                image_capture_config=_make_image_capture_config(),
+                autogain_settings=_make_autogain_settings(),
+                parent_dir=tmp_path / 'output',
+                max_scans=1,
+                callbacks=callbacks,
+                leds_state_at_end='off',
+                initial_autofocus_states={
+                    'BF': False,
+                    'PC': False,
+                    'DF': False,
+                    'Red': False,
+                    'Green': False,
+                    'Blue': False,
+                    'Lumi': False,
+                },
+            )
 
         # Should NOT have started -- run_complete should NOT fire
-        started = done.wait(timeout=2.0)
-        assert not started, 'Protocol should not have started with disconnected scope'
+        assert not done.is_set(), 'Protocol should not have started with disconnected scope'
         assert not executor.run_in_progress()
 
 
@@ -1487,13 +1595,21 @@ class TestLargeProtocol:
     """Protocol with many steps -- verifies no accumulation bugs."""
 
     def test_50_step_single_scan(self, executor, scope, tmp_path):
-        steps = [{'color': 'BF', 'x': float(i), 'y': 0.0} for i in range(50)]
+        # Plate-mm coords inside the 6-well valid range (x in [7.76, 127.76],
+        # y in [5.48, 85.48] at zero stage_offset) so every step converts to an
+        # on-stage position and clears the pre-run travel-limit check; distinct
+        # X keeps them 50 separate steps.
+        steps = [{'color': 'BF', 'x': 10.0 + float(i), 'y': 20.0} for i in range(50)]
         protocol = _make_multi_step_protocol(steps)
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 
     def test_all_50_steps_visited(self, executor, scope, tmp_path):
-        steps = [{'color': 'BF', 'x': float(i), 'y': 0.0} for i in range(50)]
+        # Plate-mm coords inside the 6-well valid range (x in [7.76, 127.76],
+        # y in [5.48, 85.48] at zero stage_offset) so every step converts to an
+        # on-stage position and clears the pre-run travel-limit check; distinct
+        # X keeps them 50 separate steps.
+        steps = [{'color': 'BF', 'x': 10.0 + float(i), 'y': 20.0} for i in range(50)]
         protocol = _make_multi_step_protocol(steps)
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
@@ -1584,7 +1700,7 @@ class TestSavingWithNoneParentDir:
             'move_position': lambda axis: None,
         }
 
-        executor.run(
+        plan = executor.prepare(
             protocol=protocol,
             run_trigger_source='test',
             run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
@@ -1605,6 +1721,7 @@ class TestSavingWithNoneParentDir:
                 'Lumi': False,
             },
         )
+        executor.start(plan)
 
         completed = done.wait(timeout=COMPLETION_TIMEOUT)
         assert completed
@@ -1643,7 +1760,7 @@ class TestMinimalCallbacks:
 
         # Only provide run_complete -- no go_to_step or move_position.
         # This forces _go_to_step to use _default_move (which we've mocked).
-        executor.run(
+        plan = executor.prepare(
             protocol=protocol,
             run_trigger_source='test',
             run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
@@ -1664,6 +1781,7 @@ class TestMinimalCallbacks:
                 'Lumi': False,
             },
         )
+        executor.start(plan)
 
         completed = done.wait(timeout=COMPLETION_TIMEOUT)
         assert completed
@@ -1720,7 +1838,7 @@ class TestCleanupConcurrency:
             ]
         )
         done = threading.Event()
-        executor.run(
+        plan = executor.prepare(
             protocol=protocol,
             run_trigger_source='test',
             run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
@@ -1744,6 +1862,7 @@ class TestCleanupConcurrency:
                 'Lumi': False,
             },
         )
+        executor.start(plan)
         # Let protocol start
         time.sleep(0.1)
         # Fire reset from multiple threads simultaneously
@@ -2007,7 +2126,7 @@ class TestCameraStateRestoration:
         )
 
         done = threading.Event()
-        executor.run(
+        plan = executor.prepare(
             protocol=protocol,
             run_trigger_source='test',
             run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
@@ -2031,6 +2150,7 @@ class TestCameraStateRestoration:
                 'Lumi': False,
             },
         )
+        executor.start(plan)
         time.sleep(0.2)
         executor.reset()
         done.wait(timeout=COMPLETION_TIMEOUT)
@@ -2073,7 +2193,7 @@ class TestCleanupCorrectness:
             [{'color': c, 'illumination_ma': 100.0} for c in ['BF', 'Red', 'Green', 'Blue', 'BF']]
         )
         done = threading.Event()
-        executor.run(
+        plan = executor.prepare(
             protocol=protocol,
             run_trigger_source='test',
             run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
@@ -2097,6 +2217,7 @@ class TestCleanupCorrectness:
                 'Lumi': False,
             },
         )
+        executor.start(plan)
         time.sleep(0.2)
         executor.reset()
         done.wait(timeout=COMPLETION_TIMEOUT)
@@ -2289,4 +2410,136 @@ class TestSaveFailureRecordsRow:
             'A save_image failure left no row in the execution record; '
             'the save_failed row must be written when the disk write '
             'raises.'
+        )
+
+
+class TestRunReturnValueContract:
+    """prepare()/start() report whether the run can and did start.
+
+    A refused run loads no protocol and creates no run directory, so a
+    caller that treats the start sequence as fire-and-forget follows up
+    against the PREVIOUS run's state (stale save folder) or a runner
+    that never loaded a protocol (AttributeError inside a UI handler).
+    The typed refusal raised by prepare() plus the None-seeded getters
+    are the contract the UI call sites rely on; a failure after start()
+    commits unwinds as a failed run whose terminal callback fires.
+    """
+
+    def _prepare_run(self, executor, protocol, tmp_path, callbacks=None):
+        cbs = {
+            'go_to_step': lambda **kw: None,
+            'move_position': lambda axis: None,
+        }
+        if callbacks:
+            cbs.update(callbacks)
+        return executor.prepare(
+            protocol=protocol,
+            run_trigger_source='test',
+            run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
+            sequence_name='run_contract_test',
+            image_capture_config=_make_image_capture_config(),
+            autogain_settings=_make_autogain_settings(),
+            parent_dir=tmp_path / 'output',
+            max_scans=1,
+            callbacks=cbs,
+            leds_state_at_end='off',
+            initial_autofocus_states={
+                'BF': False,
+                'PC': False,
+                'DF': False,
+                'Red': False,
+                'Green': False,
+                'Blue': False,
+                'Lumi': False,
+            },
+        )
+
+    def test_refused_run_raises_and_leaves_runner_idle(self, executor, tmp_path):
+        empty_protocol = _build_real_protocol([])
+        with pytest.raises(ProtocolRunRefusedError):
+            self._prepare_run(executor, empty_protocol, tmp_path)
+        assert executor.run_dir() is None, (
+            'A refused run must not leave a run directory for callers to save into'
+        )
+        assert not executor._run_in_progress_event.is_set(), (
+            'A refused run must not mark a run as in progress'
+        )
+
+    def test_started_run_completes(self, executor, tmp_path):
+        done = threading.Event()
+        protocol = _make_single_step_protocol(color='BF')
+        plan = self._prepare_run(
+            executor,
+            protocol,
+            tmp_path,
+            callbacks={'run_complete': lambda **kwargs: done.set()},
+        )
+        assert isinstance(plan, RunPlan), 'prepare() must return the validated RunPlan'
+        executor.start(plan)
+        assert done.wait(timeout=COMPLETION_TIMEOUT), 'Started run did not complete'
+
+    def test_fresh_runner_getters_answer_none_not_attributeerror(self, executor):
+        assert executor._protocol is None, (
+            '_protocol must exist (as None) from construction so getters '
+            'can answer instead of raising AttributeError'
+        )
+        assert executor.run_dir() is None
+        assert executor.run_trigger_source() is None
+        assert executor.current_step_color() is None
+
+    def test_dir_setup_failure_fails_at_start_and_recovers(
+        self, executor, scope, tmp_path, monkeypatch
+    ):
+        """A run-directory setup failure is a failed-at-start run, not a
+        wedge: exactly one user notification, the terminal run_complete
+        callback fires with the failed-at-start status, the runner is
+        idle afterwards, and a subsequent prepare() succeeds."""
+        import modules.notification_center as notification_center
+
+        protocol = _make_single_step_protocol(color='BF')
+
+        notified = []
+        monkeypatch.setattr(
+            notification_center.notifications,
+            'error',
+            lambda *args, **kwargs: notified.append(args),
+        )
+        monkeypatch.setattr(
+            executor,
+            '_create_run_dir',
+            lambda: {'status': False, 'data': None, 'error': 'capture location vanished'},
+        )
+        completions = []
+        plan = self._prepare_run(
+            executor,
+            protocol,
+            tmp_path,
+            callbacks={'run_complete': lambda **kwargs: completions.append(kwargs)},
+        )
+        executor.start(plan)
+        assert len(notified) == 1, (
+            'A run that fails at directory setup must notify the user exactly '
+            f'once; got {len(notified)}: {notified}'
+        )
+        assert len(completions) == 1, (
+            'The terminal run_complete callback must fire exactly once for a '
+            f'failed-at-start run; got {completions}'
+        )
+        assert completions[0].get('status') == 'failed_at_start', (
+            f'run_complete must report the failed-at-start status; got {completions[0]}'
+        )
+        assert not executor.run_in_progress(), (
+            'A run that failed at directory setup must not stay marked in progress'
+        )
+        # A failed start must not leak hardware setup: the protocol LED
+        # lease is only held by a run in flight, so a fresh top-level
+        # acquire must succeed after the failure.
+        lease = scope.illumination.acquire_led_lease('leak probe', alive=lambda: True)
+        assert lease is not None, 'Failed-at-start run leaked the protocol LED lease'
+        lease.release()
+        # The runner is reusable: the next prepare() passes every gate.
+        monkeypatch.undo()
+        plan2 = self._prepare_run(executor, protocol, tmp_path)
+        assert isinstance(plan2, RunPlan), (
+            'A failed-at-start run must not wedge the runner; the next prepare() must succeed'
         )

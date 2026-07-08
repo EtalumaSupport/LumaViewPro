@@ -3,11 +3,36 @@
 import itertools
 import json
 import pathlib
+import re
 from typing import ClassVar
 
 from lvp_logger import logger
 
 import modules.common_utils as common_utils
+
+
+def _row_label(index: int) -> str:
+    """Spreadsheet-style row label for a zero-based mosaic row index.
+
+    Bijective base-26: A..Z for the first 26 rows, then AA, AB, ... A naive
+    chr(index + ord('A')) walks off the end of the alphabet past row 25 into
+    punctuation -- including '_' at row 30, the very character that separates
+    step-name tokens -- so a large-mosaic tile label could neither be matched
+    as a tile nor round-tripped through the step name. Staying inside the
+    uppercase alphabet keeps every label parseable and sortable.
+    """
+    label = ''
+    index += 1
+    while index > 0:
+        index, remainder = divmod(index - 1, 26)
+        label = chr(ord('A') + remainder) + label
+    return label
+
+
+def _split_row_col(tile_label: str) -> tuple[str, int]:
+    """Split a tile label into its row letters and integer column."""
+    letters = ''.join(itertools.takewhile(str.isalpha, tile_label))
+    return letters, int(tile_label[len(letters) :])
 
 
 class TilingConfig:
@@ -70,19 +95,39 @@ class TilingConfig:
 
         return None
 
-    def determine_tiling_label_from_names(self, names: list):
+    def determine_tiling_label_from_tiles(self, tiles: list):
+        """Infer the m x n tiling label from the steps' Tile column values.
+
+        The Tile column is the authoritative per-step tile assignment
+        (empty for untiled steps); reading it directly means a step name
+        containing tile-shaped user text can never fake a tiling.
+        """
         label_letters = set()
         label_numbers = set()
-        for name in names:
-            label = common_utils.get_tile_label_from_name(name=name)
-            if label is None:
+        malformed = set()
+        for tile in tiles:
+            if tile in (None, ''):
                 continue
 
-            label_letter = label[0]
-            label_number = int(label[1:])
+            tile = str(tile)
+            if not re.fullmatch(r'[A-Z]+\d+', tile):
+                # A malformed cell (hand-edited or corrupt TSV) contributes
+                # no tile -- _split_row_col would raise on it -- matching
+                # the old regex-gated name parse, which simply never matched
+                # such content.
+                malformed.add(tile)
+                continue
+
+            label_letter, label_number = _split_row_col(tile)
 
             label_letters.add(label_letter)
             label_numbers.add(label_number)
+
+        if malformed:
+            logger.warning(
+                f'[Tiling    ] Ignored malformed Tile value(s) during tiling '
+                f'inference: {", ".join(repr(v) for v in sorted(malformed)[:5])}'
+            )
 
         m = len(label_letters)
         n = len(label_numbers)
@@ -163,7 +208,7 @@ class TilingConfig:
                 # Handle special case where tiling is 1x1 (i.e. no tiling)
                 tile_label = ''
             else:
-                row_letter = chr(i + ord('A'))
+                row_letter = _row_label(i)
                 col_number = j + 1
                 tile_label = f'{row_letter}{col_number}'
 

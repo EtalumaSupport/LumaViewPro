@@ -16,6 +16,11 @@ from typing import TYPE_CHECKING
 
 from lvp_logger import logger
 
+from modules.lumascope_api.illumination import (
+    LedTransition,
+    LedTransitionCtx,
+    resolve_end_state,
+)
 from modules.protocol_state_machine import ProtocolState
 from modules.sequential_io_executor import IOTask
 
@@ -47,8 +52,7 @@ def run_cleanup(
     scope: Lumascope,
     callbacks: ProtocolCallbacks,
     # Executor functions
-    leds_off_fn,
-    led_on_fn,
+    apply_led_transition_fn,
     default_move_fn,
     cancel_scheduled_events_fn,
     # IO executors
@@ -59,16 +63,26 @@ def run_cleanup(
     # Mutable flag -- set to False when done
     set_run_in_progress_fn,
     logger_name: str = 'SequencedCaptureRunner',
+    # Terminal outcome the run_complete subscribers receive
+    run_status: str,
 ):
     """Core cleanup logic -- restores state, fires callbacks, ends executors.
 
-    Called from ``SequencedCaptureRunner._cleanup_inner()``.
+    Called from ``SequencedCaptureRunner._cleanup_inner()``. run_status
+    ('completed', 'aborted', 'failed', 'failed_at_start') is required so
+    the cleanup site states the run's true terminal outcome; it reaches
+    every run_complete subscriber as the ``status`` kwarg.
     """
-    # PF-2: capture initial state BEFORE the COMPLETING transition below so we
-    # can distinguish abort (ERROR) from normal end. On abort (e.g. hardware
-    # disconnect), file_io_executor's pending queue is cleared along with the
-    # other executors -- otherwise queued frames stay pinned in memory while
-    # they slowly drain to disk, which can lock the next protocol-start.
+    # Capture the abort state BEFORE the COMPLETING transition below. Only a
+    # hardware-error abort (ERROR state) clears file_io_executor's pending queue:
+    # on a hardware fault the queued frames are suspect, and letting them drain
+    # can pin memory and lock the next protocol-start. Every other abort path
+    # (user Stop, disk-full, 3-strike camera) leaves ERROR unset, so its pending
+    # writes DRAIN to disk instead of being dropped. Considered routing those
+    # through is_aborted too so Stop returns control instantly; rejected -- an
+    # already-captured frame must not be discarded because the user stopped the
+    # run; preserving the captured data wins over the faster stop. Revisit if
+    # draining a large pending queue on Stop becomes a real usability problem.
     is_aborted = get_state_fn() == ProtocolState.ERROR
 
     # Transition to COMPLETING (or stay in ERROR if that's how we got here)
@@ -103,7 +117,11 @@ def run_cleanup(
     # The AF Future resolves only after that finally chain finishes,
     # so waiting on it (bounded, so a wedged AF run cannot block
     # cleanup) guarantees the LED restore below runs last.
-    if autofocus_thread is not None:
+    # A run that failed during start() never dispatched anything, so a live
+    # AF future here belongs to SOMEONE ELSE -- most likely the very holder
+    # whose lease refusal failed this run. Aborting it would steal the
+    # operation the refusal deferred to.
+    if autofocus_thread is not None and run_status != 'failed_at_start':
         _af_future = autofocus_thread.current_future
         if _af_future is not None and not _af_future.done():
             autofocus_thread.abort()
@@ -124,27 +142,26 @@ def run_cleanup(
                 )
 
     # --- Restore LEDs ---
+    # One authority diff sets the run's end-state: off, or back to the
+    # channels that were lit before the run. The diff turns off any channel
+    # not in the target set, then asserts the target -- so restoring more
+    # than one pre-run channel does not flash, where the old per-channel
+    # restore loop extinguished each channel as it lit the next. An empty
+    # restore target (nothing was lit pre-run) collapses to off by
+    # construction. apply(RUN_END) runs on the still-held lease and serializes
+    # on the protocol IO queue, so the end-state off cannot race the
+    # return-to-position move across the shared serial bus.
     try:
-        if leds_state_at_end == 'off':
-            leds_off_fn()
-        elif leds_state_at_end == 'return_to_original':
-            any_restored = False
-            for color, color_data in original_led_states.items():
-                if color_data['enabled']:
-                    led_on_fn(
-                        color=color,
-                        illumination=color_data['illumination_ma'],
-                        block=True,
-                        force=True,
-                    )
-                    any_restored = True
-            if not any_restored:
-                # "return_to_original" with no LED active pre-run is silently
-                # equivalent to "off". The user-facing label says restore;
-                # the only honest restore IS leds_off when nothing was on.
-                leds_off_fn()
-        else:
+        end_policy, snapshot_lit = resolve_end_state(
+            leds_state_at_end, original_led_states, scope.illumination.color2ch
+        )
+        if end_policy is None:
             logger.error(f'Unsupported LEDs state at end value: {leds_state_at_end}')
+        else:
+            apply_led_transition_fn(
+                LedTransition.RUN_END,
+                LedTransitionCtx(end_policy=end_policy, snapshot_lit=snapshot_lit),
+            )
     except CancelledError:
         # An overlapping abort / new-run cycle cleared the protocol queue
         # and cancelled this restore task before it ran. The superseding
@@ -302,10 +319,12 @@ def run_cleanup(
 
     io_executor.clear_protocol_pending()
     if is_aborted:
-        # PF-2: drop pending writes on abort. Drain (the COMPLETING-path default)
-        # would write everything queued to disk before releasing memory -- fine on
-        # normal completion, but on disconnect/error the user wants control back
-        # without waiting for many GB of frames to slowly drain.
+        # Drop pending writes only on an ERROR-state abort. Drain (the
+        # COMPLETING-path default) writes everything queued to disk before
+        # releasing memory -- correct on normal completion AND on a user Stop
+        # (don't discard captured frames), but on a hardware disconnect/error the
+        # frames are suspect and the user wants control back without waiting for
+        # many GB to slowly drain.
         file_io_executor.clear_protocol_pending()
         logger.info(f'[{logger_name}] Cleanup: file_io_executor pending cleared (aborted)')
 
@@ -339,6 +358,29 @@ def run_cleanup(
             # not prevent the completion callbacks from firing.
             logger.error(f'[PROTOCOL] Failed to surface cleanup-error notification: {ex}')
 
+    # Surface silently-dropped captures. A full write queue discards an
+    # already-grabbed frame, so a nonzero count is images the user expected
+    # that are permanently absent from disk. A throttled log was the only prior
+    # signal; the run-terminal summary is the reliable surface because mid-run
+    # popups are suppressed. Fires on aborted runs too -- a queue-full drop
+    # during capture is unintended loss, distinct from an abort's deliberate
+    # drop of pending writes.
+    dropped_captures = file_io_executor.protocol_dropped_count()
+    if dropped_captures > 0:
+        try:
+            from modules.notification_center import notifications
+
+            notifications.warning(
+                'Protocol',
+                'Protocol Captures Dropped',
+                f'{dropped_captures} captured image(s) could not be saved because '
+                'the file writer fell behind the camera. Those images are lost '
+                'from this run. Reduce the capture rate (fewer channels or '
+                'Z-steps, or a slower scan) or use a faster save drive.',
+            )
+        except Exception as ex:
+            logger.error(f'[PROTOCOL] Failed to surface dropped-capture notification: {ex}')
+
     # --- Fire completion callbacks ---
     _file_queue_active = file_io_executor.is_protocol_queue_active()
     # Log the pending-write count so a post-run read shows HOW MANY files were
@@ -350,7 +392,7 @@ def run_cleanup(
     )
     if _file_queue_active:
         if callbacks.run_complete:
-            _schedule_ui(lambda dt: callbacks.run_complete(protocol=protocol), 0)
+            _schedule_ui(lambda dt: callbacks.run_complete(protocol=protocol, status=run_status), 0)
         if callbacks.files_complete:
             file_io_executor.set_protocol_complete_callback(
                 callback=lambda: _schedule_ui(
@@ -363,7 +405,7 @@ def run_cleanup(
         )
     else:
         if callbacks.run_complete:
-            _schedule_ui(lambda dt: callbacks.run_complete(protocol=protocol), 0)
+            _schedule_ui(lambda dt: callbacks.run_complete(protocol=protocol, status=run_status), 0)
         if callbacks.files_complete:
             _schedule_ui(lambda dt: callbacks.files_complete(protocol=protocol), 0)
         file_io_executor.protocol_finish_then_end()

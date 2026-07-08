@@ -103,12 +103,6 @@ void main (void) {
         self.white = 1.0
         self.black = 0.0
 
-        Window.bind(on_key_up=self._key_up)
-        Window.bind(on_key_down=self._key_down)
-
-        self._track_keys = ['ctrl', 'shift']
-        self._active_key_presses = set()
-
         # Status bar update interval. Drives FPS readout AND cursor
         # XY/Plate readouts in the window title (#638 follow-up: 1 Hz
         # was too sluggish for stage-position feedback during motion).
@@ -127,22 +121,6 @@ void main (void) {
         self._scroll_last_time = 0.0  # monotonic time of last scroll event
         self._scroll_inertia_window = 0.15  # seconds -- scrolls faster than this get multiplied
 
-    def _key_up(self, *args):
-        if len(args) < 5:  # No modifiers present
-            self._active_key_presses.clear()
-            return
-
-        modifiers = args[4]
-        for key in self._track_keys:
-            if (key not in modifiers) and (key in self._active_key_presses):
-                self._active_key_presses.remove(key)
-
-    def _key_down(self, *args):
-        modifiers = args[4]
-        for key in self._track_keys:
-            if (key in modifiers) and (key not in self._active_key_presses):
-                self._active_key_presses.add(key)
-
     def on_touch_down(self, touch, *args):
         logger.debug('[LVP Main  ] ShaderViewer.on_touch_down()')
         from modules.config_ui_getters import get_current_objective_info
@@ -159,7 +137,13 @@ void main (void) {
                 if w.collide_point(lx, ly):
                     return
 
-            if 'ctrl' in self._active_key_presses:
+            # Query the window's live modifier state (the single owner) rather
+            # than a private mirror that can desync when a ctrl/shift transition
+            # happens while this widget is not receiving key events (focus lost
+            # or regained with the key held, a popup consuming the event). The
+            # window rebuilds this from the OS modifier state on every key
+            # event, so there is nothing to go stale.
+            if 'ctrl' in Window.modifiers:
                 # Focus control -- accumulate scroll ticks, debounce into single move
                 if ctx.protocol_running.is_set():
                     return
@@ -170,7 +154,7 @@ void main (void) {
                     logger.debug('[LVP Main  ] Scroll-to-focus: objective info unavailable')
                     return
 
-                if 'shift' in self._active_key_presses:
+                if 'shift' in Window.modifiers:
                     step_um = objective['z_coarse']
                 else:
                     step_um = objective['z_fine']
@@ -247,12 +231,14 @@ void main (void) {
         img_y_max = scope_display.center_y + norm_h / 2
 
         if img_x_min <= local_x <= img_x_max and img_y_min <= local_y <= img_y_max:
-            tex_w, tex_h = scope_display.texture_size
-            self._mouse_pixel_x = int((local_x - img_x_min) * tex_w / norm_w)
+            # Full-resolution sensor frame, not the downscaled preview texture,
+            # so the reported pixel coordinate is in sensor pixels.
+            frame_w, frame_h = scope_display.full_resolution_frame_size()
+            self._mouse_pixel_x = int((local_x - img_x_min) * frame_w / norm_w)
             # Kivy Y is bottom-up, image Y is top-down
-            self._mouse_pixel_y = tex_h - 1 - int((local_y - img_y_min) * tex_h / norm_h)
-            self._mouse_pixel_x = max(0, min(self._mouse_pixel_x, tex_w - 1))
-            self._mouse_pixel_y = max(0, min(self._mouse_pixel_y, tex_h - 1))
+            self._mouse_pixel_y = frame_h - 1 - int((local_y - img_y_min) * frame_h / norm_h)
+            self._mouse_pixel_x = max(0, min(self._mouse_pixel_x, frame_w - 1))
+            self._mouse_pixel_y = max(0, min(self._mouse_pixel_y, frame_h - 1))
             self._mouse_over_image = True
         else:
             self._mouse_over_image = False
@@ -300,9 +286,12 @@ void main (void) {
                             focal_length=objective['focal_length'],
                             binning_size=get_binning_from_ui(),
                         )
-                        tex_w, tex_h = scope_display.texture_size
-                        dx_um = (self._mouse_pixel_x - tex_w / 2) * pixel_size_um
-                        dy_um = (self._mouse_pixel_y - tex_h / 2) * pixel_size_um
+                        # _mouse_pixel_* are sensor-pixel coords (full frame);
+                        # center on the full-resolution frame, not the
+                        # downscaled preview texture.
+                        frame_w, frame_h = scope_display.full_resolution_frame_size()
+                        dx_um = (self._mouse_pixel_x - frame_w / 2) * pixel_size_um
+                        dy_um = (self._mouse_pixel_y - frame_h / 2) * pixel_size_um
                         if ctx.lumaview.scope.motor_connected:
                             pos = ctx.lumaview.scope.motion.get_current_position(axis=None)
                             _, labware = get_selected_labware()

@@ -67,7 +67,7 @@ class CompositeCapture(FloatLayout):
         )
 
     def _live_capture_impl(self):
-        from modules.config_ui_getters import get_layer_configs
+        from modules.config_ui_getters import get_image_capture_config_from_ui, get_layer_configs
 
         logger.info('[LVP Main  ] CompositeCapture.live_capture()')
 
@@ -78,8 +78,9 @@ class CompositeCapture(FloatLayout):
         color = 'BF'
         well_label = ctx.scope.runtime_state.get_well_label()
 
-        use_full_pixel_depth = ctx.scope_display.use_full_pixel_depth
-        force_to_8bit_pixel_depth = not use_full_pixel_depth
+        image_capture_config = get_image_capture_config_from_ui()
+        force_to_8bit_pixel_depth = image_capture_config.capture_depth == 8
+        save_encoding = image_capture_config.save_encoding
 
         for layer in common_utils.get_layers():
             layer_obj = ctx.image_settings.layer_lookup(layer=layer)
@@ -92,9 +93,7 @@ class CompositeCapture(FloatLayout):
                 break
 
         save_folder = pathlib.Path(settings['live_folder']) / 'Manual'
-        separate_folder_per_channel = ctx.motion_settings.ids[
-            'microscope_settings_id'
-        ]._seperate_folder_per_channel
+        separate_folder_per_channel = settings['separate_folder_per_channel']
         if separate_folder_per_channel:
             save_folder = save_folder / layer
 
@@ -125,6 +124,7 @@ class CompositeCapture(FloatLayout):
                 sum_iteration_callback=sum_iteration_callback,
                 turn_off_all_leds_after=False,
                 jpeg_quality=settings.get('jpg_quality', 90),
+                save_encoding=save_encoding,
             )
 
         else:
@@ -145,6 +145,7 @@ class CompositeCapture(FloatLayout):
                     sum_iteration_callback=sum_iteration_callback,
                     turn_off_all_leds_after=False,
                     jpeg_quality=settings.get('jpg_quality', 90),
+                    save_encoding=save_encoding,
                 )
 
             image_orig = ctx.scope.imaging.capture_and_wait(force_to_8bit=force_to_8bit_pixel_depth)
@@ -156,13 +157,22 @@ class CompositeCapture(FloatLayout):
             time_string = now.strftime('%Y%m%d_%H%M%S')
             append = f'{append}_{time_string}'
 
-            # If not in 8-bit mode, generate an 8-bit copy of the image for visualization
-            if use_full_pixel_depth:
-                image = image_utils.convert_12bit_to_8bit(image_orig)
+            # If not in 8-bit mode, generate an 8-bit copy of the image for
+            # visualization. image_orig is a single native-depth capture here,
+            # so its depth is the per-frame delivery stamp (not a live format
+            # query, which can fail or already describe a newer format) so
+            # the downconvert scales against the real range.
+            if not force_to_8bit_pixel_depth:
+                image = image_utils.convert_to_8bit(
+                    image_orig, ctx.scope.imaging.last_significant_bits
+                )
             else:
                 image = image_orig
 
-            # Original image may be in 8 or 12-bit
+            # Original image may be in 8 or 12-bit. Its depth is the per-frame
+            # delivery stamp of the single capture above (the same value the
+            # 8-bit copy is scaled by), handed down so the save marks the file
+            # at the frame's true depth rather than the camera's live format.
             save_image(
                 ctx.scope,
                 array=image_orig,
@@ -173,6 +183,8 @@ class CompositeCapture(FloatLayout):
                 tail_id_mode=None,
                 output_format=settings['image_output_format']['live'],
                 jpeg_quality=settings.get('jpg_quality', 90),
+                save_encoding=save_encoding,
+                significant_bits=ctx.scope.imaging.capture_frame_depth(image_orig),
             )
 
             if use_bullseye:
@@ -185,7 +197,7 @@ class CompositeCapture(FloatLayout):
             else:
                 crosshairs_image = bullseye_image
 
-            # Overlay image is in 8-bits
+            # Overlay image is in 8-bits (rendered display image)
             save_image(
                 ctx.scope,
                 array=crosshairs_image,
@@ -196,6 +208,8 @@ class CompositeCapture(FloatLayout):
                 tail_id_mode=None,
                 output_format=settings['image_output_format']['live'],
                 jpeg_quality=settings.get('jpg_quality', 90),
+                save_encoding=save_encoding,
+                significant_bits=ctx.scope.imaging.capture_frame_depth(crosshairs_image),
             )
 
     # capture and save a composite image using the current settings
@@ -256,8 +270,14 @@ class CompositeCapture(FloatLayout):
         if not ctx.scope.imaging.camera_active:
             return
 
-        scope_display = self.ids['viewer_id'].ids['scope_display_id']
-        use_full_pixel_depth = scope_display.use_full_pixel_depth
+        # Resolve the image mode on the main thread (reads UI widgets) and pass
+        # the derived facts into the worker, which runs off-thread and must not
+        # touch Kivy widgets.
+        from modules.config_ui_getters import get_image_capture_config_from_ui
+
+        image_capture_config = get_image_capture_config_from_ui()
+        capture_depth = image_capture_config.capture_depth
+        save_encoding = image_capture_config.save_encoding
 
         # Run hardware-blocking work on worker_pool at MED priority so it
         # doesn't freeze the UI or contend with io_executor. HIGH-priority
@@ -270,7 +290,8 @@ class CompositeCapture(FloatLayout):
                     'z_stage_present': z_stage_present,
                     'initial_layer': initial_layer,
                     'led_restore_state': led_restore_state,
-                    'use_full_pixel_depth': use_full_pixel_depth,
+                    'capture_depth': capture_depth,
+                    'save_encoding': save_encoding,
                     'saved_video_false_color': saved_video_false_color,
                 },
                 priority=PRIORITY_MED,
@@ -282,7 +303,8 @@ class CompositeCapture(FloatLayout):
         z_stage_present,
         initial_layer,
         led_restore_state,
-        use_full_pixel_depth,
+        capture_depth,
+        save_encoding,
         saved_video_false_color=None,
     ):
         """Runs on background thread -- performs hardware I/O without blocking UI."""
@@ -291,7 +313,8 @@ class CompositeCapture(FloatLayout):
                 z_stage_present=z_stage_present,
                 initial_layer=initial_layer,
                 led_restore_state=led_restore_state,
-                use_full_pixel_depth=use_full_pixel_depth,
+                capture_depth=capture_depth,
+                save_encoding=save_encoding,
                 saved_video_false_color=saved_video_false_color,
             )
         except Exception as ex:
@@ -321,7 +344,8 @@ class CompositeCapture(FloatLayout):
         z_stage_present,
         initial_layer,
         led_restore_state,
-        use_full_pixel_depth,
+        capture_depth,
+        save_encoding,
         saved_video_false_color=None,
     ):
         """Inner worker -- actual composite capture logic."""
@@ -343,7 +367,7 @@ class CompositeCapture(FloatLayout):
         acquired_channel_count = 0
         most_recent_aq_channel = None
 
-        if use_full_pixel_depth:
+        if capture_depth == 12:
             dtype = np.uint16
             max_value = 4095
         else:
@@ -381,7 +405,7 @@ class CompositeCapture(FloatLayout):
 
                 transmitted_image = np.array(
                     ctx.scope.imaging.capture_and_wait_sync(
-                        force_to_8bit=not use_full_pixel_depth,
+                        force_to_8bit=capture_depth == 8,
                     ),
                     dtype=dtype,
                 )
@@ -432,7 +456,7 @@ class CompositeCapture(FloatLayout):
                     )
 
                 img_gray = ctx.scope.imaging.capture_and_wait_sync(
-                    force_to_8bit=not use_full_pixel_depth,
+                    force_to_8bit=capture_depth == 8,
                     sum_count=sum_count,
                     sum_delay_s=exposure / 1000,
                     sum_iteration_callback=sum_iteration_callback,
@@ -489,6 +513,8 @@ class CompositeCapture(FloatLayout):
                 color=None,
                 tail_id_mode='increment',
                 output_format=image_output_format['live'],
+                save_encoding=save_encoding,
+                significant_bits=capture_depth,
             )
         elif acquired_channel_count != 0:
             save_image(
@@ -500,6 +526,8 @@ class CompositeCapture(FloatLayout):
                 color=None,
                 tail_id_mode='increment',
                 output_format=image_output_format['live'],
+                save_encoding=save_encoding,
+                significant_bits=capture_depth,
             )
         else:
             logger.info('[Composite Capture  ] No image saved as no channels were selected')

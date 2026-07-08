@@ -6,7 +6,8 @@ frame (the same values frame_validity checks the camera settled to). Image
 metadata previously re-read gain/exposure LIVE per frame -- redundant, and
 racing the next step's settings. generate_image_metadata now sources them
 from the grab-time chunk (microseconds -> ms for exposure, dB for gain),
-falling back to the live getter only when no chunk is present.
+falling back to the live-confirmed surface (get_live_camera_settings, which
+omits a field whose read did not just succeed) only when no chunk is present.
 
 Driven behaviorally: a stub scope provides distinct chunk vs live values so
 each test proves which source won.
@@ -44,8 +45,10 @@ def _metadata_scope(chunks, chunk_reads=None):
         runtime_state=runtime_state,
         imaging=SimpleNamespace(
             _binning_size=1,
-            get_exposure_time=lambda: LIVE_EXPOSURE_MS,
-            get_gain=lambda: LIVE_GAIN_DB,
+            get_live_camera_settings=lambda: {
+                'gain_db': LIVE_GAIN_DB,
+                'exposure_ms': LIVE_EXPOSURE_MS,
+            },
         ),
         diagnostics=SimpleNamespace(
             get_microscope_model=lambda: 'LS720-SIM',
@@ -79,6 +82,54 @@ def test_gain_metadata_prefers_chunk_with_live_fallback():
     no_chunk = generate_image_metadata(_metadata_scope(None), color='BF', x=0, y=0, z=0)
     assert no_chunk['exposure_time_ms'] == LIVE_EXPOSURE_MS
     assert no_chunk['gain_db'] == LIVE_GAIN_DB
+
+
+def test_failed_live_read_omits_gain_exposure_keys():
+    """A failed live read must never be written into saved metadata as if it
+    were a real acquisition setting. get_live_camera_settings answers {} when
+    no field's read just succeeded; unknown -> the key is omitted."""
+    scope = _metadata_scope(None)
+    scope.imaging.get_live_camera_settings = lambda: {}
+    metadata = generate_image_metadata(scope, color='BF', x=0, y=0, z=0)
+    assert 'exposure_time_ms' not in metadata, (
+        f'failed exposure read must omit the key, not record {metadata.get("exposure_time_ms")}'
+    )
+    assert 'gain_db' not in metadata, (
+        f'failed gain read must omit the key, not record {metadata.get("gain_db")}'
+    )
+
+
+def test_inactive_camera_zero_exposure_omitted():
+    """Belt and braces: get_live_camera_settings can only return validated
+    values by contract, but image_save keeps its own validity guard. If a
+    non-physical value (zero exposure, negative gain) ever slips through the
+    live surface, the metadata keys are still omitted -- a save racing a
+    disconnect must not fabricate exposure_time_ms=0.0 in frame metadata."""
+    scope = _metadata_scope(None)
+    scope.imaging.get_live_camera_settings = lambda: {'exposure_ms': 0.0, 'gain_db': -1.0}
+    metadata = generate_image_metadata(scope, color='BF', x=0, y=0, z=0)
+    assert 'exposure_time_ms' not in metadata
+    assert 'gain_db' not in metadata
+
+
+def test_tiff_write_path_tolerates_omitted_gain_exposure():
+    """The structured TIFF writer must treat the omitted keys as optional
+    fields (same contract as the per-frame timestamps): a frame whose
+    exposure/gain is unknown still SAVES, with those TIFF fields absent --
+    one unreadable value must never become a lost frame."""
+    import numpy as np
+
+    from modules.image_utils import generate_tiff_data
+
+    scope = _metadata_scope(None)
+    scope.imaging.get_live_camera_settings = lambda: {}
+    metadata = generate_image_metadata(scope, color='BF', x=0, y=0, z=0)
+    metadata['significant_bits'] = 8  # write_tiff supplies this in production
+    data = np.zeros((4, 4), dtype=np.uint8)
+    tiff = generate_tiff_data(data, metadata=metadata, image_type='ome', color='BF')
+    plane = tiff['metadata']['Plane']
+    assert 'ExposureTime' not in plane
+    assert 'Gain' not in plane
 
 
 def test_chunk_provenance_fields_recorded():

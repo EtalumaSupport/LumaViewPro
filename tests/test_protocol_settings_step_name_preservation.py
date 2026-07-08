@@ -26,8 +26,9 @@ Fix
 Both paths route the field text through
 common_utils.resolve_step_rename, which returns None for a blank field
 ("no rename intended"). On None, step_name_validation skips the write
-and modify_step_ex substitutes the existing name. A non-empty entry is
-the user's rename and passes through sanitized.
+and modify_step_ex passes label=None to Protocol.modify_step, which
+keeps the step's existing Label and auto/user flag. A non-empty entry
+is the user's rename and passes through sanitized.
 
 Test approach
 -------------
@@ -110,39 +111,43 @@ class TestRenamePathsRouteThroughHelper:
             'step_name_validation.'
         )
 
-    def test_modify_step_ex_none_guard_runs_before_modify_step(self):
-        """The None-guard must run before Protocol.modify_step(...), else
-        modify_step still receives an unresolved name."""
+    def test_modify_step_ex_resolved_rename_flows_to_label_kwarg(self):
+        """The blank-field policy now lives in Protocol.modify_step itself:
+        label=None means "keep the existing label and auto/user flag". The
+        UI's job is to pass the resolve_step_rename result -- None included
+        -- straight through as the label kwarg, so a blank field can never
+        clobber the step's name."""
         method = _method_node('ProtocolSettings', 'modify_step_ex')
-        guard_lineno = None
-        modify_call_lineno = None
+        resolved_var = None
         for node in ast.walk(method):
             if (
-                guard_lineno is None
-                and isinstance(node, ast.If)
-                and isinstance(node.test, ast.Compare)
-                and any(isinstance(op, ast.Is) for op in node.test.ops)
-                and isinstance(node.test.comparators[0], ast.Constant)
-                and node.test.comparators[0].value is None
+                isinstance(node, ast.Assign)
+                and isinstance(node.value, ast.Call)
+                and isinstance(node.value.func, ast.Attribute)
+                and node.value.func.attr == 'resolve_step_rename'
+                and isinstance(node.targets[0], ast.Name)
             ):
-                guard_lineno = node.lineno
+                resolved_var = node.targets[0].id
+        assert resolved_var is not None, (
+            'modify_step_ex must assign the resolve_step_rename result to a variable'
+        )
+
+        label_kwarg = None
+        for node in ast.walk(method):
             if (
-                modify_call_lineno is None
-                and isinstance(node, ast.Call)
+                isinstance(node, ast.Call)
                 and isinstance(node.func, ast.Attribute)
                 and node.func.attr == 'modify_step'
                 and isinstance(node.func.value, ast.Attribute)
                 and node.func.value.attr == '_protocol'
             ):
-                modify_call_lineno = node.lineno
-        assert guard_lineno is not None, (
-            'modify_step_ex must contain an `if step_name is None:` guard '
-            'that preserves the existing protocol step name.'
+                for kw in node.keywords:
+                    if kw.arg == 'label':
+                        label_kwarg = kw.value
+        assert label_kwarg is not None, (
+            'self._protocol.modify_step(...) must receive the rename via label='
         )
-        assert modify_call_lineno is not None, (
-            'self._protocol.modify_step(...) call not found in modify_step_ex'
-        )
-        assert guard_lineno < modify_call_lineno, (
-            f'None-guard at line {guard_lineno} must run before '
-            f'self._protocol.modify_step at line {modify_call_lineno}.'
+        assert isinstance(label_kwarg, ast.Name) and label_kwarg.id == resolved_var, (
+            'the label kwarg must be the unmodified resolve_step_rename '
+            'result (None = blank field = keep the existing label)'
         )

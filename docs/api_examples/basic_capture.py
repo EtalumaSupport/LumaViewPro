@@ -44,10 +44,8 @@ def main():
     scope = Lumascope(simulate=True)
     print('Scope initialized (simulate=True)')
 
-    # Simulator-mode setup: kick the simulated camera into grabbing.
-    # Production cameras auto-start their stream; this is the one
-    # L2-known private-driver touch (see LumascopeSkills 'Camera info').
-    scope._camera_driver.start_grabbing()
+    # Begin the live camera feed (required before capture on every backend).
+    scope.imaging.start_streaming()
 
     # Set LED channel 0 (BF) to 100 mA
     scope.illumination.led_on(channel=0, mA=100)

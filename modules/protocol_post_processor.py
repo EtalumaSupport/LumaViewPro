@@ -75,6 +75,20 @@ class ProtocolPostProcessor(abc.ABC):
 
         return short_name
 
+    @staticmethod
+    def _prepend_capture_root(name: str, kwargs: dict) -> str:
+        """Prefix a post-processed output name with the protocol's capture_root.
+
+        load_folder is the only caller of _generate_filename and always threads
+        capture_root into kwargs, so it is read as a required key: a missing key
+        is a caller bug and fails loud rather than silently dropping the root.
+        An empty root is a valid state (no custom root set). The root is kept
+        out of the name seed, so a root that happens to contain a token cannot
+        perturb the derived name.
+        """
+        capture_root = kwargs['capture_root']
+        return f'{capture_root}_{name}' if capture_root else name
+
     def load_folder(
         self,
         path: str | pathlib.Path,
@@ -142,12 +156,35 @@ class ProtocolPostProcessor(abc.ABC):
 
         group_count = len(groups)
 
+        # When two DIFFERENT groups would render one output filename,
+        # generating them would produce only the first group's artifact (the
+        # second is skipped as already-recorded) -- a silent data loss.
+        # Refuse exactly those groups, loudly, and still process the
+        # unambiguous ones: an already-captured folder with baked-in
+        # colliding names (which renaming protocol steps cannot repair)
+        # stays post-processable for everything else.
+        planned_names = {}
+        for _, group in groups:
+            if len(group) <= 1:
+                continue
+            name = self._generate_filename(df=group, **kwargs)
+            planned_names[name] = planned_names.get(name, 0) + 1
+        colliding_names = {name for name, count in planned_names.items() if count > 1}
+        for name in sorted(colliding_names):
+            logger.error(
+                f'[{self._name} ] Refusing to generate {name}: more than one '
+                f'image group derives this output filename, so the artifacts '
+                f'would be indistinguishable.'
+            )
+
         logger.info(f'{self._name}: Generating {self._post_function.value.lower()} images')
 
         new_count = 0
         existing_count = 0
+        refused_count = 0
         current_group = 1
         last_error = None
+        output_significant_bits = None
 
         for _, group in groups:
             if len(group) == 0:
@@ -160,6 +197,9 @@ class ProtocolPostProcessor(abc.ABC):
                 continue
 
             output_filename = self._generate_filename(df=group, **kwargs)
+            if output_filename in colliding_names:
+                refused_count += 1
+                continue
             row0 = group.iloc[0]
             record_data_post_functions = row0[PostFunction.list_values()]
             record_data_post_functions[self._post_function.value] = True
@@ -190,23 +230,27 @@ class ProtocolPostProcessor(abc.ABC):
                 **kwargs,
             )
 
-            if not alg_results['status']:
-                last_error = alg_results.get('error')
-                logger.error(f'Failed to generate {output_file_loc_rel}: {alg_results["error"]}')
+            if not alg_results.status:
+                last_error = alg_results.error
+                logger.error(f'Failed to generate {output_file_loc_rel}: {alg_results.error}')
                 continue
 
-            # Each ProtocolPostProcessor subclass owns its own file
-            # write via tifffile (RGB-native; auto-detects photometric).
-            # cv2.imwrite was retired here -- cv2 is BGR-native and
-            # would silently swap channels relative to the RGB-native
-            # readers (tifffile / FIJI / OS preview). Subclasses that
-            # fail to write must signal status=False; an
-            # alg_results['image'] payload is now informational, not
-            # a save trigger.
+            # A subclass whose writer relocated the output (collision suffix,
+            # container-format fallback) reports where the file really landed;
+            # the record must point at that file, not the request.
+            actual_output_file_loc = alg_results.actual_output_file_loc
+            if actual_output_file_loc is not None:
+                output_file_loc_rel = pathlib.Path(actual_output_file_loc).relative_to(root_path)
+
+            # Each ProtocolPostProcessor subclass owns its own file write via
+            # tifffile (RGB-native; auto-detects photometric). cv2.imwrite was
+            # retired here -- cv2 is BGR-native and would silently swap channels
+            # relative to the RGB-native readers (tifffile / FIJI / OS preview).
+            # A subclass that fails to write must return a failed result.
 
             self._add_record(
                 protocol_post_record=protocol_post_record,
-                alg_metadata=alg_results['metadata'],
+                alg_metadata=alg_results.record_metadata,
                 root_path=root_path,
                 file_path=output_file_loc_rel,
                 row0=row0,
@@ -215,6 +259,12 @@ class ProtocolPostProcessor(abc.ABC):
 
             new_count += 1
             current_group += 1
+            # Carry the depth the artifact was written at so the completion line
+            # states whether the input depth round-tripped through this operation
+            # instead of requiring a tag read on the output file. The typed result
+            # guarantees a successful group carries its output depth, so this read
+            # is always present.
+            output_significant_bits = alg_results.significant_bits
 
             if popup is not None:
                 popup.progress = (new_count / group_count) * 100
@@ -224,8 +274,32 @@ class ProtocolPostProcessor(abc.ABC):
         if popup is not None:
             popup.progress = 100
 
+        collision_note = ''
+        if refused_count > 0:
+            collision_note = (
+                f' {refused_count} group(s) were refused because more than '
+                f'one group derives the same output filename '
+                f'({", ".join(sorted(colliding_names)[:3])}'
+                f'{", ..." if len(colliding_names) > 3 else ""}); their '
+                f'artifacts were not generated.'
+            )
+
         if (new_count == 0) and (existing_count == 0):
             fname = self._post_function.value
+            if refused_count > 0:
+                # Every eligible group collided; nothing could be generated.
+                msg = (
+                    f'No {fname} was generated: every image group derives an '
+                    f'output filename shared with another group, so their '
+                    f'artifacts would be indistinguishable. See '
+                    f'lumaviewpro.log for the colliding names.'
+                )
+                logger.info(f'[{self._name} ] {msg}')
+                return {
+                    'status': False,
+                    'reason': 'collision',
+                    'message': msg,
+                }
             needed = _MULTI_FRAME_REQUIREMENT.get(
                 self._post_function, 'multiple frames per scan position'
             )
@@ -261,6 +335,8 @@ class ProtocolPostProcessor(abc.ABC):
         end_ts = datetime.datetime.now()
         elapsed_time = end_ts - start_ts
         logger.info(
-            f'{self._name}: Complete - Created {new_count} {self._post_function.value.lower()} artifacts in {elapsed_time}.'
+            f'{self._name}: Complete - Created {new_count} {self._post_function.value.lower()} '
+            f'artifacts (significant_bits={output_significant_bits}) in {elapsed_time}.'
+            f'{collision_note}'
         )
-        return {'status': True, 'message': 'Success'}
+        return {'status': True, 'message': f'Success.{collision_note}'}

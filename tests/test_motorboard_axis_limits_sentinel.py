@@ -163,6 +163,8 @@ class TestSequencedCaptureRunnerHandlesNoneFromGetAxisLimits:
     def test_caller_skips_axes_without_limits(self, monkeypatch):
         from unittest.mock import MagicMock
 
+        from modules.exceptions import ProtocolRunRefusedError
+        from modules.image_mode import ImageCaptureConfig
         from modules.notification_center import notifications
         from modules.sequenced_capture_runner import (
             SequencedCaptureRunMode,
@@ -177,7 +179,7 @@ class TestSequencedCaptureRunnerHandlesNoneFromGetAxisLimits:
             protocol_thread=MagicMock(),
             file_io_executor=MagicMock(),
             camera_executor=MagicMock(),
-            autofocus_thread=MagicMock(),
+            autofocus_thread=MagicMock(is_running=False),
             autofocus_runner=MagicMock(),
         )
         runner.file_io_executor.is_protocol_queue_active.return_value = False
@@ -192,17 +194,18 @@ class TestSequencedCaptureRunnerHandlesNoneFromGetAxisLimits:
         scope.motion.get_axis_limits.side_effect = lambda axis: per_axis[axis]
         protocol = MagicMock()
         protocol.num_steps.return_value = 1
-        # Halt run() right after validation so the test exercises only
-        # the axis-limits collection.
+        # Halt prepare() right after validation (the refusal raises) so
+        # the test exercises only the axis-limits collection.
         protocol.validate_for_run.return_value = ['halt here']
-        runner.run(
-            protocol=protocol,
-            run_trigger_source='test',
-            run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
-            sequence_name='seq',
-            image_capture_config={},
-            autogain_settings={},
-        )
+        with pytest.raises(ProtocolRunRefusedError):
+            runner.prepare(
+                protocol=protocol,
+                run_trigger_source='test',
+                run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
+                sequence_name='seq',
+                image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
+                autogain_settings={},
+            )
         passed = protocol.validate_for_run.call_args.kwargs['axis_limits']
         assert set(passed) == {'X', 'Y', 'Z'}, (
             'axes with limits must be collected for validation; the None '

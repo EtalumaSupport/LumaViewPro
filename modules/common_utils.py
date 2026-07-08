@@ -1,9 +1,11 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
 import ctypes
+import dataclasses
 import enum
 import gc
 import json
+import numbers
 import os
 import pathlib
 import platform
@@ -72,97 +74,300 @@ class CustomJSONizer(json.JSONEncoder):
         return super().default(obj)
 
 
-def generate_default_step_name(
-    well_label,
-    color=None,
-    z_height_idx=None,
-    scan_count=None,
-    tile_label=None,
-    objective_short_name=None,
-    custom_name_prefix=None,
-    stitched: bool = False,
-    video: bool = False,
-    zprojection: str | None = None,
-    stack: bool = False,
-    hyperstack: bool = False,
-    turret_position: int | None = None,
-):
-    if custom_name_prefix not in (None, ''):
-        name = f'{custom_name_prefix}'
+@dataclasses.dataclass(frozen=True)
+class StepNameComponents:
+    """The semantic fields a step name encodes -- the single source of truth.
+
+    A step name is RENDERED from these fields by build_step_name and (only at
+    load boundaries for files that predate the Label column) RECOVERED by
+    parse_legacy_step_name. Holding the fields, not the rendered string, is what makes
+    renaming idempotent: changing one field and rebuilding always yields exactly
+    one token for it. The legacy builder appended a token only if the rendered
+    string did not already contain it, so feeding a built name back in as the
+    seed left the stale token beside the new one (e.g. a channel change produced
+    'A2_BF_Green'); rebuilding from components cannot do that.
+    """
+
+    well: str = ''  # 'A2'; the base when no custom_prefix is set
+    custom_prefix: str = ''  # step label (user text or 'custom0001'); renders as the base when set
+    channel: str | None = None  # 'BF' | 'Green' | 'Composite' | None
+    tile: str | None = None  # tile label, rendered '_T<tile>'
+    objective: str | None = None  # short objective name (turret builds)
+    turret_position: int | None = None  # rendered '_Turret<n>'
+    z_index: int | None = None  # rendered '_Z<n>'
+    scan_count: int | None = None  # rendered zero-padded to 4 digits
+    # Ordered post-output suffixes. A chain, not a single value: a stitched
+    # output that is later z-projected carries both ('stitched', 'zproj_median')
+    # and renders '_stitched_zproj_median'. Each element is a single suffix
+    # token ('stitched'|'video'|'stack'|'hyperstack') or 'zproj_<method>'.
+    post: tuple[str, ...] = ()
+
+
+# Single-token post-output suffixes occupying StepNameComponents.post. A
+# z-projection is two segments ('zproj_<method>'); the rest are single tokens.
+_POST_SUFFIX_TOKENS = frozenset({'stitched', 'video', 'stack', 'hyperstack'})
+
+
+def build_step_name(c: StepNameComponents) -> str:
+    """Render a step name deterministically from its components.
+
+    Replace-not-append: the name is assembled fresh from the fields, with no
+    'skip this token if the string already has it' guard and no path that folds
+    an already-built name back in as the seed. Feeding a built name back in as
+    the seed and appending a changed field was what left the stale token beside
+    the new one (a channel change produced 'A2_BF_Green'); building from
+    components in a fixed token order cannot do that.
+    """
+    base = c.custom_prefix if c.custom_prefix else c.well
+    parts = [base]
+    if c.channel not in (None, ''):
+        parts.append(c.channel)
+    if c.tile not in (None, '', -1):
+        parts.append(f'T{c.tile}')
+    if c.objective not in (None, '', -1):
+        parts.append(c.objective)
+    if c.turret_position is not None:
+        parts.append(f'Turret{c.turret_position}')
+    if c.z_index not in (None, '', -1):
+        parts.append(f'Z{c.z_index}')
+    if c.scan_count not in (None, ''):
+        parts.append(f'{c.scan_count:0>4}')
+    parts.extend(c.post)
+    return '_'.join(p for p in parts if p != '')
+
+
+def _token_kind(seg: str, layers: set, objectives: set) -> str | None:
+    """Classify one step-name segment into the component it fills, or None.
+
+    The single definition of "what is a step-name token", shared by
+    parse_legacy_step_name's custom-prefix accretion (which only needs to know
+    whether a segment classifies), its field-assignment loop (which needs
+    which field it fills), and the load-boundary machine-shape test in
+    recover_step_label. One table means they cannot disagree, and adding a
+    token type is a single edit.
+
+    Order is the disambiguation: a turret token ('Turret<n>') is tested
+    before the tile token, whose prefix is the same 'T' letter. The tile
+    shape is 'T<row-letters><col-number>', where the row label is one OR
+    MORE uppercase letters (a mosaic past 26 rows carries 'AA', 'AB', ...).
+    Requiring uppercase letters then digits means it cannot swallow
+    'Turret<n>' (whose 'urret' is lowercase) and lose the turret position,
+    which would otherwise surface as a bogus tile that broke callers
+    parsing the tile's trailing number.
+    """
+    if seg in layers or seg == 'Composite':
+        return 'channel'
+    if re.fullmatch(r'Turret\d+', seg):
+        return 'turret_position'
+    if re.fullmatch(r'T[A-Z]+\d+', seg):
+        return 'tile'
+    if seg in objectives or re.fullmatch(r'\d+x.*', seg):
+        return 'objective'
+    if re.fullmatch(r'Z\d+', seg):
+        return 'z_index'
+    if re.fullmatch(r'\d{4,}', seg):
+        return 'scan_count'
+    if seg in _POST_SUFFIX_TOKENS:
+        return 'post'
+    if seg == 'zproj':
+        return 'zproj'
+    return None
+
+
+def _machine_tokens_only(segs: list[str], layers: set, objectives: set) -> bool:
+    """True when every segment classifies as a known step-name token.
+
+    A machine-generated name -- even one carrying stale tokens from old
+    channel-change bugs, or one whose row columns were later output-adjusted
+    by a post processor -- consists only of vocabulary tokens after its
+    anchor. User-typed text always contains at least one segment the
+    vocabulary cannot classify.
+    """
+    i = 0
+    while i < len(segs):
+        kind = _token_kind(segs[i], layers, objectives)
+        if kind is None:
+            return False
+        if kind == 'zproj':
+            i += 1  # the method segment rides with its zproj token
+        i += 1
+    return True
+
+
+def parse_legacy_step_name(name, known_layers=None, known_objectives=()) -> StepNameComponents:
+    """Recover the components from a rendered step name, by SHAPE not position.
+
+    LEGACY LOAD BOUNDARY ONLY: the run-time pipeline never decodes a name --
+    fields travel as columns (Label et al.) -- so the only remaining caller
+    is the one-shot migration of files that predate the Label column
+    (recover_step_label). Each '_'-separated segment is classified by its
+    shape (plus the known-layer / known-objective vocabularies), so a token
+    never depends on a hard-coded segment index that silently breaks when
+    the token set shifts. Round-trips every name build_step_name produces:
+    build_step_name(parse_legacy_step_name(s)) == s.
+
+    A custom prefix may itself contain underscores, so leading segments that do
+    not classify as a known token accrete into custom_prefix; a custom prefix
+    that embeds a token-shaped segment is inherently ambiguous and is not
+    guaranteed to round-trip -- only auto-generated 'custom<N>' prefixes are.
+    That ambiguity is exactly why the parse is quarantined to the legacy
+    boundary and never trusted with user-typed text.
+    """
+    if known_layers is None:
+        known_layers = get_layers()
+    layers = set(known_layers)
+    objectives = set(known_objectives)
+
+    stem = pathlib.Path(name).name
+    segs = stem.split('_')
+    if not segs or segs == ['']:
+        return StepNameComponents()
+
+    def token_kind(seg):
+        return _token_kind(seg, layers, objectives)
+
+    def classifies(seg):
+        return token_kind(seg) is not None
+
+    well = ''
+    custom_prefix = ''
+    if re.fullmatch(r'[A-Z]{1,2}\d+', segs[0]):
+        well = segs[0]
+        i = 1
     else:
-        name = f'{well_label}'
+        custom_parts = [segs[0]]
+        i = 1
+        while i < len(segs) and not classifies(segs[i]):
+            custom_parts.append(segs[i])
+            i += 1
+        custom_prefix = '_'.join(custom_parts)
 
-    if color not in (None, '') and color not in name:
-        name = f'{name}_{color}'
+    channel = tile = objective = None
+    turret_position = z_index = scan_count = None
+    post = []
+    while i < len(segs):
+        seg = segs[i]
+        kind = token_kind(seg)
+        if kind == 'channel':
+            channel = seg
+        elif kind == 'tile':
+            tile = seg[1:]
+        elif kind == 'objective':
+            objective = seg
+        elif kind == 'turret_position':
+            turret_position = int(seg[len('Turret') :])
+        elif kind == 'z_index':
+            z_index = int(seg[1:])
+        elif kind == 'scan_count':
+            scan_count = int(seg)
+        elif kind == 'post':
+            post.append(seg)
+        elif kind == 'zproj' and i + 1 < len(segs):
+            post.append(f'zproj_{segs[i + 1]}')
+            i += 1
+        i += 1
 
-    if tile_label not in (None, '', -1) and f'_T{tile_label}' not in name:
-        name = f'{name}_T{tile_label}'
-
-    if objective_short_name not in (None, '', -1):
-        name = f'{name}_{objective_short_name}'
-
-    if turret_position is not None:
-        name = f'{name}_Turret{turret_position}'
-
-    if z_height_idx not in (None, '', -1) and f'_Z{z_height_idx}' not in name:
-        name = f'{name}_Z{z_height_idx}'
-
-    DESIRED_SCAN_COUNT_DIGITS = 4
-    if scan_count not in (None, ''):
-        name = f'{name}_{scan_count:0>{DESIRED_SCAN_COUNT_DIGITS}}'
-
-    if stitched:
-        name = f'{name}_stitched'
-
-    if video:
-        name = f'{name}_video'
-
-    if zprojection is not None:
-        name = f'{name}_zproj_{zprojection}'
-
-    if stack:
-        name = f'{name}_stack'
-
-    if hyperstack:
-        name = f'{name}_hyperstack'
-
-    return name
+    return StepNameComponents(
+        well=well,
+        custom_prefix=custom_prefix,
+        channel=channel,
+        tile=tile,
+        objective=objective,
+        turret_position=turret_position,
+        z_index=z_index,
+        scan_count=scan_count,
+        post=tuple(post),
+    )
 
 
-def strip_tile_token(name: str, tile) -> str:
-    """Remove the per-tile token (e.g. '_TA1') from a step name.
+def _blank_to_none(value):
+    """Normalize an absent step-column value (empty string or the -1 sentinel) to None."""
+    return None if value in (None, '', -1) else value
 
-    A stitched output spans every tile of a (well, channel), so the per-tile
-    token no longer identifies it. Removes the '_T<tile>' segment; returns the
-    name unchanged when tile is empty/absent or the token is not present.
-    Segment-based so a channel/well substring is never clipped.
+
+def step_components(step, **overrides) -> StepNameComponents:
+    """Map a protocol step / post-record row to its canonical name components.
+
+    The single place that reads a step's columns into StepNameComponents, so
+    every name-building site renders one identity from one source. Well, Color,
+    Tile, Z-Slice and Label are the authoritative columns. Label is the step's
+    base text -- a user-typed name kept verbatim, or the machine-assigned
+    'custom<NNNN>' prefix of an added step; empty means the base is the Well.
+    A label is never parsed back out of the rendered Name, so user text that
+    happens to embed a token-shaped segment ('Treatment_10x') can never be
+    truncated by the token vocabulary. The objective is deliberately not part
+    of a step's identity: it is a capture-time turret detail the writer stamps
+    onto the saved filename, never the Name. Pass overrides (channel=, tile=,
+    z_index=, scan_count=, objective=, turret_position=, post=) to set the
+    capture- or output-specific fields a given site adds.
     """
-    if tile in (None, '', -1):
-        return name
-    token = f'T{tile}'
-    parts = name.split('_')
-    if token in parts:
-        parts.remove(token)
-        return '_'.join(parts)
-    return name
+    well = step['Well']
+    well = '' if well in (None, '') else str(well)
+    label = step['Label']
+    label = '' if label in (None, '') else str(label)
+    base = StepNameComponents(
+        well=well,
+        custom_prefix=label,
+        channel=_blank_to_none(step['Color']),
+        tile=_blank_to_none(step['Tile']),
+        z_index=_blank_to_none(step['Z-Slice']),
+    )
+    return dataclasses.replace(base, **overrides) if overrides else base
 
 
-def strip_any_channel_token(name: str) -> str:
-    """Remove a single channel/layer token (e.g. '_BF') from a step name.
+def recover_step_label(step) -> tuple[str, bool]:
+    """Recover (label, is_auto) for a legacy row that predates the Label column.
 
-    A composite-stitch and a hyperstack span all channels, so no single
-    channel token should tag the output. The caller cannot match by Color
-    (a composite's stored Color is 'Composite' and a stack collapses Color to
-    None), so the first segment matching the known layer vocabulary is
-    removed. Returns the name unchanged when no layer token is present.
+    Load-boundary classification, run once per row when migrating a pre-Label
+    protocol or post-record file. Two machine shapes are recognized:
+
+    1. A Name byte-equal to the render of the row's structured columns -- the
+       ordinary auto-generated name.
+    2. A Name that is its own anchor (the row's Well, or a 'custom<NNNN>'
+       prefix) followed only by vocabulary tokens. This is the shape of names
+       written by old releases whose channel change appended a token instead
+       of replacing it ('A2_BF_Green'), and of post-record rows whose columns
+       were output-adjusted (a stitch blanks the tile, a composite rewrites
+       the color) while Name kept the source step's text.
+
+    Both recover the machine base ('' for a well anchor, the prefix for a
+    custom step), so the re-render cleans stale tokens exactly as the old
+    run-time parse did. Anything else is user text kept verbatim -- the lossy
+    token-shape parse is never trusted with it, so a label like
+    'Treatment_10x' survives whole. Comparing shapes (rather than trusting a
+    stored auto/user flag) also absorbs legacy rows whose flag says
+    user-named but whose Name is really machine-shaped; taking such a Name as
+    a verbatim label would re-suffix it on the next render ('A2_BF_BF').
     """
-    layers = set(get_layers())
-    parts = name.split('_')
-    for i, part in enumerate(parts):
-        if part in layers:
-            del parts[i]
-            return '_'.join(parts)
-    return name
+    name = str(step['Name'])
+    well = step['Well']
+    well = '' if well in (None, '') else str(well)
+    candidate_prefix = '' if well else parse_legacy_step_name(name).custom_prefix
+    rendered = build_step_name(
+        step_components(
+            {
+                'Well': well,
+                'Label': candidate_prefix,
+                'Color': step['Color'],
+                'Tile': step['Tile'],
+                'Z-Slice': step['Z-Slice'],
+            }
+        )
+    )
+    if rendered == name:
+        return candidate_prefix, True
+
+    segs = name.split('_')
+    if well:
+        anchored = segs[0] == well
+        machine_base = ''
+    else:
+        anchored = re.fullmatch(r'custom\d+', segs[0]) is not None
+        machine_base = segs[0]
+    if anchored and _machine_tokens_only(segs[1:], set(get_layers()), set()):
+        return machine_base, True
+
+    return name, False
 
 
 def resolve_step_rename(raw_text: str, sanitize) -> str | None:
@@ -187,95 +392,6 @@ def resolve_step_rename(raw_text: str, sanitize) -> str | None:
     return cleaned if cleaned else None
 
 
-def get_tile_label_from_name(name: str) -> str | None:
-    name = name.split('_')
-
-    if len(name) <= 2:
-        return None
-
-    segment = name[2]
-    if segment.startswith('T'):
-        return segment[1:]
-
-    return None
-
-
-def get_first_section_from_name(name: str) -> str | None:
-
-    # This will retrieve just the filename if the name has parent folders
-    name = pathlib.Path(name).name
-
-    name = name.split('_')
-    return name[0]
-
-
-def get_layer_from_name(name: str) -> str | None:
-    name = name.split('_')
-
-    return name[1]
-
-
-def replace_layer_in_step_name(step_name: str, new_layer_name: str) -> str | None:
-
-    # This replaces the parent folder when using per-channel folders for protocol runs
-    split_name = list(os.path.split(step_name))
-    if len(split_name) == 2:
-        using_per_channel_folders = True
-    else:
-        using_per_channel_folders = False
-
-    if using_per_channel_folders:
-        split_name[0] = new_layer_name
-        step_name = str(pathlib.Path(split_name[0]) / split_name[1])
-
-    step_name_segments = step_name.split('_')
-
-    # Confirm it's actually a layer before replacing it
-    if step_name_segments[1] in get_layers():
-        step_name_segments[1] = new_layer_name
-
-    return '_'.join(step_name_segments)
-
-
-def is_custom_name(name: str) -> bool:
-
-    # This will retrieve just the filename if name includes parent folders
-    name = pathlib.Path(name).name
-
-    name = name.split('_')
-
-    # All generated names have at least one '_'
-    if len(name) <= 1:
-        return True
-
-    well = name[0]
-    well_pattern = r'^[A-Z]{1,2}[0-9]+$'
-    if not re.match(pattern=well_pattern, string=well):
-        return True
-
-    color = name[1]
-    return color not in get_layers()
-
-
-def get_z_slice_from_name(name: str) -> int | None:
-    name = name.split('_')
-
-    # Z-slice info can either be at segment index 2 (if no tile label is present), or segment index 3 (if tile label is present)
-    if len(name) <= 2:
-        return None
-
-    if name[2].startswith('Z'):
-        return name[2][1:]
-
-    if len(name) <= 3:
-        return None
-
-    if name[3].startswith('Z'):
-        return name[3][1:]
-
-    return None
-
-
 def convert_zstack_reference_position_setting_to_config(text_label: str) -> str:
     LABEL_MAP = {
         'Current Position at Top': 'top',
@@ -289,6 +405,75 @@ def convert_zstack_reference_position_setting_to_config(text_label: str) -> str:
     raise Exception(f'Unknown Z-stack position reference: {text_label}')
 
 
+def is_valid_gain_db(value) -> bool:
+    """True when a camera gain reading is usable (a number >= 0 dB).
+
+    Negative is the drivers' failed-read / inactive sentinel; 0 dB is a
+    legal gain. A non-number (e.g. a stringified value from a hand-built
+    snapshot) is invalid rather than a comparison TypeError, so every
+    consumer can branch on the predicate without its own type guard.
+    One shared predicate so every consumer of the sentinel contract
+    validates the same way.
+    """
+    return isinstance(value, numbers.Real) and value >= 0
+
+
+def is_valid_exposure_ms(value) -> bool:
+    """True when a camera exposure reading is usable (a positive number).
+
+    Negative is the drivers' failed-read sentinel and 0 is the API's
+    inactive-camera return -- neither is a physical exposure. A
+    non-number is invalid rather than a comparison TypeError. One shared
+    predicate so every consumer of the sentinel contract validates the
+    same way.
+    """
+    return isinstance(value, numbers.Real) and value > 0
+
+
+def is_valid_frame_size(value) -> bool:
+    """True when a frame-size reading is usable (positive width and height).
+
+    The drivers return None (or an empty dict for the max/min variants) as
+    the failed-read / inactive sentinel, and a zero dimension is never a
+    deliverable frame. One shared predicate so every consumer of the
+    sentinel contract validates the same way.
+    """
+    if not isinstance(value, dict):
+        return False
+    width = value.get('width')
+    height = value.get('height')
+    return (
+        isinstance(width, numbers.Real)
+        and isinstance(height, numbers.Real)
+        and width > 0
+        and height > 0
+    )
+
+
+def is_valid_pixel_format(value) -> bool:
+    """True when a pixel-format reading is usable (a non-empty string).
+
+    None is the drivers' shared failed-read / inactive sentinel -- distinct
+    from every real format name so it cannot be mistaken for one.
+    """
+    return isinstance(value, str) and value != ''
+
+
+def is_valid_binning_size(value) -> bool:
+    """True when a binning reading is usable (a whole factor >= 1).
+
+    Negative is the drivers' failed-read sentinel; binning is always at
+    least 1x1 on real hardware.
+    """
+    return isinstance(value, numbers.Real) and value >= 1
+
+
+# Distinct non-format inputs raw_bytes_per_pixel has already warned about;
+# the caller cadence is per-stats-tick, so an unknown format warns once per
+# distinct value instead of flooding the log every second.
+_RAW_BPP_WARNED: set[str] = set()
+
+
 def raw_bytes_per_pixel(pixel_format: str, is_color_native: bool = False) -> int:
     """Bytes per pixel of the RAW camera buffer (for data-rate readouts).
 
@@ -297,6 +482,11 @@ def raw_bytes_per_pixel(pixel_format: str, is_color_native: bool = False) -> int
     container, so two bytes. Color-native cameras (none in the shipping fleet)
     carry three channels.
 
+    A non-string input (the pixel-format cache before any format was ever
+    read) is warned about and treated as a 2-byte container: the camera value
+    getters answer last-known-good, so a sentinel reaching this math means a
+    consumer bypassed that containment -- loud, not silently classified.
+
     Args:
         pixel_format: SDK pixel-format name (e.g. 'Mono8', 'Mono12', 'Mono16').
         is_color_native: Whether the camera delivers 3-channel color frames.
@@ -304,7 +494,17 @@ def raw_bytes_per_pixel(pixel_format: str, is_color_native: bool = False) -> int
     Returns:
         Bytes occupied by one pixel of the raw camera frame.
     """
-    bytes_per_channel = 1 if pixel_format == 'Mono8' else 2
+    if not is_valid_pixel_format(pixel_format):
+        marker = repr(pixel_format)
+        if marker not in _RAW_BPP_WARNED:
+            _RAW_BPP_WARNED.add(marker)
+            logger.warning(
+                f'raw_bytes_per_pixel: no pixel format known ({marker}); '
+                f'assuming a 2-byte container for the data-rate readout'
+            )
+        bytes_per_channel = 2
+    else:
+        bytes_per_channel = 1 if pixel_format == 'Mono8' else 2
     channels = 3 if is_color_native else 1
     return bytes_per_channel * channels
 
@@ -982,6 +1182,24 @@ def query_tracemalloc_top_n(n=5):
         return []
 
 
+# A single persistent Process handle for THIS process. psutil's
+# Process.cpu_percent() reports CPU since the PRIOR call on the SAME object, so a
+# fresh Process per snapshot always reads 0.0 -- no reference point -- which made
+# the [PROCESS METRICS] process-CPU figure log 0.0% on every snapshot. Caching
+# the handle (and priming it once on creation) makes each snapshot's process CPU
+# the average over the inter-snapshot interval, the way the module-level
+# psutil.cpu_percent() already reports the system figure.
+_SELF_PROC = None
+
+
+def _self_process():
+    global _SELF_PROC
+    if _SELF_PROC is None:
+        _SELF_PROC = psutil.Process(os.getpid())
+        _SELF_PROC.cpu_percent()  # prime the delta reference (this first read is 0.0)
+    return _SELF_PROC
+
+
 def system_metrics(path='/'):
     """Return a one-shot snapshot of process and host resource state.
 
@@ -995,7 +1213,7 @@ def system_metrics(path='/'):
     indicates a leak. See `docs/LOG_ANALYSIS_GUIDE.md` "Resource Health"
     section for healthy/unhealthy patterns.
     """
-    proc = psutil.Process(os.getpid())
+    proc = _self_process()
     disk = psutil.disk_usage(path)
     vmem = psutil.virtual_memory()
 
@@ -1190,6 +1408,94 @@ def check_disk_space(path='/') -> float:
     disk = psutil.disk_usage(path)
     free_space_mb = disk.free / (1024**2)
     return free_space_mb
+
+
+# Per-step disk-write estimates (MB). An image step writes one file; a video
+# step scales with its recording length, so a flat per-video figure under-counts
+# a long capture by orders of magnitude.
+ESTIMATED_IMAGE_STEP_MB = 8  # ~1900x1900 16-bit TIFF (~7.2 MB) + metadata
+ESTIMATED_VIDEO_STEP_MB = 50  # floor for a short compressed MP4
+_MP4_COMPRESSION_FRACTION = 0.1  # MP4 ~ a tenth of the raw per-frame bytes
+
+
+def read_video_config(step) -> dict:
+    """Return a step's Video Config as a dict, or {} when absent or malformed.
+
+    The one safe reader of a step's Video Config, shared by the disk-write
+    estimate and the time estimate. A protocol step is a pandas Series (or a
+    dict, or None at some defaults), and its 'Video Config' cell can be an
+    unpopulated NaN -- a truthy float, so a plain `or {}` does NOT guard it. A
+    caller that read it unguarded raised (None.get / nan.get), and the disk
+    check that wraps the call in a broad except then silently skipped, leaving a
+    near-full disk undetected. Returning {} for every non-dict keeps the reader
+    total so the guard can never be disabled by malformed config.
+
+    Args:
+        step: A protocol step (pandas Series / dict / None).
+
+    Returns:
+        The step's Video Config dict, or {} if the step or the cell is not a dict.
+    """
+    get = getattr(step, 'get', None)
+    if get is None:
+        return {}
+    video_config = get('Video Config')
+    return video_config if isinstance(video_config, dict) else {}
+
+
+def _coerce_positive_float(value) -> float:
+    """Coerce a Video Config numeric to a float >= 0, defaulting bad input to 0.
+
+    Video Config values come from a user-edited protocol and may be a
+    non-numeric string or a NaN; float() raises on the former and NaN poisons
+    the frame-count arithmetic. Both collapse to 0 (a missing dimension), which
+    floors the estimate rather than raising and disabling the disk guard.
+    """
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    # NaN != NaN; a NaN duration/fps means "unknown", treated as 0.
+    return result if result == result and result > 0 else 0.0
+
+
+def estimate_step_write_mb(step, *, video_as_frames: bool = False) -> float:
+    """Estimate the disk a single protocol step will write, in MB.
+
+    One owner for write-size estimation, shared by the pre-scan free-space check
+    and the per-write threshold so the two cannot drift. An image step writes
+    one file. A video step scales with the recording: the frame count is
+    duration_s * fps, and each frame costs about one image when saved as
+    individual TIFFs (video_as_frames) or a compressed fraction of that in an
+    MP4. Deriving from duration/fps -- not a flat per-video figure -- is what
+    lets a long recording be sized before it fills the disk; the MP4 path is
+    floored at the historical estimate so a short clip is never under-counted.
+
+    Total by construction: a None / malformed step or Video Config sizes to the
+    single-image estimate rather than raising, so the broad except around the
+    disk check can never silently disable the guard.
+
+    Args:
+        step: A protocol step (pandas Series / dict / None); reads Acquire +
+            Video Config.
+        video_as_frames: Run-level flag -- video saved as individual frames
+            rather than a compressed MP4.
+
+    Returns:
+        Estimated megabytes the step will write to disk.
+    """
+    get = getattr(step, 'get', None)
+    if get is None or get('Acquire') != 'video':
+        return ESTIMATED_IMAGE_STEP_MB
+    video_config = read_video_config(step)
+    duration_s = _coerce_positive_float(video_config.get('duration'))
+    fps = _coerce_positive_float(video_config.get('fps'))
+    frames = max(1, int(duration_s * fps))
+    if video_as_frames:
+        return frames * ESTIMATED_IMAGE_STEP_MB
+    return max(
+        ESTIMATED_VIDEO_STEP_MB, frames * ESTIMATED_IMAGE_STEP_MB * _MP4_COMPRESSION_FRACTION
+    )
 
 
 def check_disk_space_ok(path, required_mb: float) -> tuple[bool, float]:

@@ -251,7 +251,9 @@ class VerticalControl(BoxLayout):
             settings = ctx.settings
             objective_id = self.ids['objective_spinner2'].text
 
-            # #631: idempotent -- see microscope_settings.MicroscopeSettings.select_objective.
+            # Idempotent: text matching current settings is not a change, so
+            # skip the hardware calls and notifications. Defends against on_text
+            # firing for programmatic text writes (settings load, restore).
             if objective_id == settings.get('objective_id'):
                 return
 
@@ -260,18 +262,26 @@ class VerticalControl(BoxLayout):
                 gui_logger.select('OBJECTIVE', objective_id)
             logger.info('[LVP Main  ] VerticalControl.select_objective()')
 
+            # With a turret, the objective must be assigned to a turret position
+            # before it can be selected; warn (but still allow) if it is not.
+            if ctx.lumaview.scope.motion.has_turret():
+                turret_objectives = list(settings.get('turret_objectives', {}).values())
+                assigned = [obj for obj in turret_objectives if obj is not None]
+                if assigned and objective_id not in assigned:
+                    from modules.notification_center import notifications
+
+                    notifications.warning(
+                        'Objective',
+                        'Objective Not in Turret',
+                        f"[Objective] Cannot select '{objective_id}' -- not assigned "
+                        f'to any turret position. Assign it in Objective Control > '
+                        f'Turret before using.',
+                    )
+
             # Update objective stored in settings
             objective = ctx.objective_helper.get_objective_info(objective_id=objective_id)
             with ctx.settings_lock:
                 settings['objective_id'] = objective_id
-
-            # Update magnification UI info
-            microscope_settings_id = ctx.motion_settings.ids['microscope_settings_id']
-            microscope_settings_id.ids['magnification_id'].text = f'{objective["magnification"]}'
-
-            # Update selected to be consistent with other selector
-            ms_objective_spinner = microscope_settings_id.ids['objective_spinner']
-            ms_objective_spinner.text = objective_id
 
             # Set objective in lumascope
             if ctx.lumaview.scope.motion.has_turret():
@@ -282,6 +292,7 @@ class VerticalControl(BoxLayout):
             ctx.lumaview.scope.runtime_state.set_objective(objective_id=objective_id)
 
             # Update UI FOV
+            microscope_settings_id = ctx.motion_settings.ids['microscope_settings_id']
             fov_size = common_utils.get_field_of_view(
                 focal_length=objective['focal_length'],
                 frame_size=settings['frame'],

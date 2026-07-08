@@ -5,7 +5,6 @@ extracted from lumaviewpro.py.
 """
 
 import datetime
-import json
 import logging
 import math
 import pathlib
@@ -13,19 +12,19 @@ import threading
 import time
 
 import numpy as np
-import pandas as pd
 
 from kivy.clock import Clock
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 from modules import gui_logger
-from modules.config_helpers import get_manual_video_max_duration
+from modules.config_helpers import (
+    get_image_capture_config_from_settings,
+    get_manual_video_max_duration,
+)
 import modules.image_utils as image_utils
-from modules.recording_manifest import build_session_manifest
+from modules.manual_video_finalize import finalize_manual_video
 from modules.sequential_io_executor import IOTask
-from modules.stack_builder import StackBuilder
-from modules.video_writer import VideoWriter
 from ui.ui_helpers import set_last_save_folder
 from ui.composite_capture import CompositeCapture
 
@@ -58,13 +57,12 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         self.writing_progress_update = None
         self.video_writing_progress = 0
         self.video_writing_total_frames = 0
-        # Reused scratch buffers for the record-path depth conversion and
-        # false-color widening in record_helper. Sized lazily on the first
-        # frame of a record and freed at finalize. Reuse is safe: record_helper
-        # runs on the single-threaded camera_executor and copies its result
-        # into the memmap slot before the next call can overwrite the scratch.
+        # Reused scratch buffer for the record-path 8-bit depth conversion in
+        # record_helper. Sized lazily on the first frame of a record and freed at
+        # finalize. Reuse is safe: record_helper runs on the single-threaded
+        # camera_executor and copies its result into the memmap slot before the
+        # next call can overwrite the scratch.
         self._record_convert_buf = None
-        self._record_color_buf = None
         self._pause_led_snapshot = None  # save/restore via API
 
     def cam_toggle(self):
@@ -220,6 +218,9 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         self._record_shape_warning_emitted = False
 
         self.video_as_frames = settings['video_as_frames']
+        # Snapshot capture depth at record start so the per-frame record_helper
+        # reuses it without re-deriving the image mode on every frame.
+        self._record_capture_depth = get_image_capture_config_from_settings(settings).capture_depth
 
         # false_color was snapshotted on main thread by record_button()
         color = false_color
@@ -236,6 +237,26 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
 
         frame_size = self.scope.imaging.camera_frame_size
         exposure = self.scope.imaging.camera_exposure_ms
+        # The exposure cache seeds 0.0 and keeps the prior value when a
+        # read fails, so a camera whose exposure was never successfully
+        # read reports 0 here. The frame rate derived from it sizes the
+        # recording memmap; a fabricated fallback would misallocate the
+        # buffer, so refuse the record attempt loudly instead.
+        if exposure is None or exposure <= 0:
+            logger.error(
+                f'[LVP Main  ] record_init refused: camera exposure unknown '
+                f'({exposure}); cannot size the recording buffer'
+            )
+            from modules.notification_center import notifications
+
+            notifications.error(
+                'Recording',
+                'Camera exposure unavailable',
+                'The camera has not reported its exposure time, so the '
+                'recording cannot be sized. Reconnect the camera and try again.',
+            )
+            self.recording.clear()
+            return
         exposure_freq = 1.0 / (exposure / 1000)
         # Pre-flight: warn if the user requested an FPS limit that
         # exposure can't hit. Accept the achievable rate either way.
@@ -280,16 +301,15 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
 
         self.memmap_location = pathlib.Path(settings['live_folder']) / 'recording_temp.dat'
 
-        if not settings['use_full_pixel_depth'] or not settings['video_as_frames']:
+        if self._record_capture_depth == 8 or not settings['video_as_frames']:
             dtype = 'uint8'
         else:
             dtype = 'uint16'
 
-        # Calculate expected file size and shape
-        if (color is None) or (dtype == 'uint16'):
-            required_shape = (max_frames, frame_size['height'], frame_size['width'])
-        else:
-            required_shape = (max_frames, frame_size['height'], frame_size['width'], 3)
+        # Calculate expected file size and shape. The memmap is always mono (one
+        # plane per frame); false color is applied at the save edges, never baked
+        # into the recording buffer.
+        required_shape = (max_frames, frame_size['height'], frame_size['width'])
 
         bytes_per_element = 1 if dtype == 'uint8' else 2
         expected_size = int(np.prod(required_shape, dtype=np.int64)) * bytes_per_element
@@ -350,20 +370,12 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
             # Use mode="w+" only when creating new file or size changed (requires truncation)
             memmap_mode = 'r+' if reuse_existing else 'w+'
 
-            if (color is None) or (dtype == 'uint16'):
-                self.current_video_frames = np.memmap(
-                    str(self.memmap_location),
-                    dtype=dtype,
-                    mode=memmap_mode,
-                    shape=(max_frames, frame_size['height'], frame_size['width']),
-                )
-            else:
-                self.current_video_frames = np.memmap(
-                    str(self.memmap_location),
-                    dtype=dtype,
-                    mode=memmap_mode,
-                    shape=(max_frames, frame_size['height'], frame_size['width'], 3),
-                )
+            self.current_video_frames = np.memmap(
+                str(self.memmap_location),
+                dtype=dtype,
+                mode=memmap_mode,
+                shape=(max_frames, frame_size['height'], frame_size['width']),
+            )
         except OSError as e:
             logger.error(f'[LVP Main  ] Failed to create memmap file: {e}')
             logger.error(f'[LVP Main  ] If this persists, manually delete: {self.memmap_location}')
@@ -603,10 +615,9 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
 
             # Release memmap reference from MainDisplay so file_io_executor has exclusive ownership
             self.current_video_frames = None
-            # Drop the per-record conversion scratch buffers; a record is a
-            # bounded event and these are multi-MB each.
+            # Drop the per-record conversion scratch buffer; a record is a
+            # bounded event and it is multi-MB.
             self._record_convert_buf = None
-            self._record_color_buf = None
 
             # Clear recording event immediately - camera is now free
             if not self.recording.is_set():
@@ -666,271 +677,33 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         Clock.schedule_once(lambda dt: self._recording_cleanup_gui(memmap_path=memmap_path), 0)
 
     def recording_complete(self, **kwargs):
-        """Run on file_io_executor: Do heavy file writing without blocking camera."""
-        # Retrieve captured state passed from _finalize_recording_state
-        captured_frames = kwargs.get('captured_frames', 0)
-        timestamps = kwargs.get('timestamps', [])
-        chunks_per_frame = kwargs.get('chunks_per_frame', [])
-        tick_freq_hz = kwargs.get('tick_freq_hz')
-        video_frames = kwargs.get('video_frames')
-        video_duration = kwargs.get('video_duration', 0)
-        video_save_folder = kwargs.get('video_save_folder')
-        start_time_str = kwargs.get('start_time_str', '')
-        video_as_frames = kwargs.get('video_as_frames', False)
-        memmap_path = kwargs.get('memmap_path')
+        """Run on file_io_executor: finalize a finished manual recording.
 
-        # H-4 fix: use UI values snapshotted on main thread by _enqueue_recording_complete()
-        ui_snapshot = kwargs.get('ui_snapshot', {})
+        Thin wrapper over finalize_manual_video: unpacks the main-thread
+        UI snapshot kwargs and delegates the write, injecting the live
+        scope and a Clock-based progress callback so the support function
+        stays GUI-agnostic.
+        """
 
-        try:
-            # Defensive check
-            if video_frames is None:
-                logger.error('Manual-Video] recording_complete called with no video frames')
-                return memmap_path
+        def _progress_cb(value):
+            Clock.schedule_once(lambda dt, p=value: setattr(self, 'video_writing_progress', p), 0)
 
-            # Prevent division by zero
-            if video_duration <= 0:
-                video_duration = 0.1
-                logger.warning('Manual-Video] Video duration was 0, using 0.1s')
-
-            if captured_frames == 0:
-                logger.error('Manual-Video] No frames captured, aborting video write')
-                return memmap_path
-
-            calculated_fps = captured_frames // video_duration
-
-            logger.info(
-                f'Manual-Video] Images present in video array: {len(video_frames) > 0 if video_frames is not None else 0}'
-            )
-            logger.info(f'Manual-Video] Captured Frames: {captured_frames}')
-            logger.info(f'Manual-Video] Video FPS: {calculated_fps}')
-            logger.info('Manual-Video] Writing video...')
-
-            if ui_snapshot.get('active_layer_config') is None:
-                # The main-thread snapshot failed (raises when no layer
-                # accordion is open). Without the layer's false-color
-                # config the frames cannot be finalized; tell the user
-                # instead of dying on an opaque unpack TypeError that
-                # silently discarded the finished recording.
-                logger.error(
-                    'Manual-Video] No active layer config snapshot; cannot finalize recording'
-                )
-                from modules.notification_center import notifications
-
-                notifications.error(
-                    'Recording',
-                    'Recording Not Saved',
-                    'The recording could not be saved because no imaging '
-                    'layer was selected. Open a layer tab and record again.',
-                )
-                return memmap_path
-
-            color, _active_layer_config = ui_snapshot['active_layer_config']
-
-            include_hyperstack_generation = False
-
-            if video_as_frames:
-                image_capture_config = ui_snapshot['image_capture_config']
-
-                if image_capture_config['output_format']['sequenced'] == 'OME-TIFF Hyperstack':
-                    include_hyperstack_generation = True
-                    _, objective = ui_snapshot['objective_info']
-                    stack_builder = StackBuilder(
-                        has_turret=_app_ctx.ctx.scope.motion.has_turret(),
-                    )
-                    frame_metadata = []
-
-                save_folder = video_save_folder
-
-                if not save_folder.exists():
-                    save_folder.mkdir(exist_ok=True, parents=True)
-
-                for frame_num in range(captured_frames):
-                    image = video_frames[frame_num]
-                    ts = (
-                        timestamps[frame_num]
-                        if frame_num < len(timestamps)
-                        else datetime.datetime.now()
-                    )
-                    # Filename includes per-frame timestamp so the folder is
-                    # browsable without a viewer that reads TIFF metadata.
-                    # Colon-free ISO variant for Windows path-safety; millisecond
-                    # precision. The timestamp is not drawn into the pixels here:
-                    # it travels in the frame metadata, and Create Video draws it
-                    # at build time only when the timestamp overlay is enabled.
-                    ts_filename = ts.strftime('%Y-%m-%d_%H-%M-%S-%f')[:-3]
-                    frame_name = f'ManualVideo_Frame_{frame_num:04}_{ts_filename}'
-
-                    output_file_loc = save_folder / f'{frame_name}.tiff'
-
-                    # Issue #633 Stage 2A: per-frame timestamp metadata. Existing
-                    # 'datetime' / 'timestamp' / 'frame_num' keys preserved for
-                    # backward compatibility with downstream readers that look
-                    # for them. New 'timestamp_iso' / 'timestamp_camera_ticks' /
-                    # 'timestamp_camera_tick_hz' / 'frame_id' keys mirror the
-                    # structured Plane fields used elsewhere; the video_frame
-                    # TIFF path serializes them into the description tag.
-                    metadata = {
-                        'datetime': ts.strftime('%Y:%m:%d %H:%M:%S'),
-                        'timestamp': ts.strftime('%Y:%m:%d %H:%M:%S.%f'),
-                        'timestamp_iso': ts.isoformat(timespec='microseconds'),
-                        'frame_num': frame_num,
-                    }
-                    chunks = (
-                        chunks_per_frame[frame_num] if frame_num < len(chunks_per_frame) else None
-                    )
-                    if chunks is not None:
-                        ts_ticks = chunks.get('Timestamp')
-                        if ts_ticks is not None:
-                            metadata['timestamp_camera_ticks'] = int(ts_ticks)
-                        if tick_freq_hz is not None:
-                            metadata['timestamp_camera_tick_hz'] = int(tick_freq_hz)
-                        frame_id = chunks.get('FrameID')
-                        if frame_id is not None:
-                            metadata['frame_id'] = int(frame_id)
-
-                    if include_hyperstack_generation:
-                        current_position = _app_ctx.ctx.scope.motion.get_current_position()
-                        frame_metadata.append(
-                            {
-                                'Filepath': output_file_loc.name,
-                                'Scan Count': frame_num,
-                                'Color': color,
-                                'Z-Slice': 0,
-                                'X': current_position['X'],
-                                'Y': current_position['Y'],
-                                'Z': current_position['Z'],
-                            }
-                        )
-
-                    try:
-                        image_utils.write_tiff(
-                            data=image,
-                            metadata=metadata,
-                            file_loc=output_file_loc,
-                            video_frame=True,
-                            ome=False,
-                            color=color,
-                        )
-                    except Exception as e:
-                        logger.exception(f'Protocol-Video] Failed to write frame {frame_num}: {e}')
-
-                    # Update progress on main thread
-                    progress = frame_num + 1
-                    Clock.schedule_once(
-                        lambda dt, p=progress: setattr(self, 'video_writing_progress', p), 0
-                    )
-
-                logger.info('Manual-Video] Video frames written to disk.')
-
-                # Issue #633 Stage 2B: write session_manifest.json next to
-                # the TIFFs. Single summary file per recording with provenance,
-                # rate stats, and per-frame index. Failure to write does not
-                # abort the recording cleanup -- the TIFFs are the primary
-                # deliverable.
-                try:
-                    from lvp_logger import version as _lvp_version
-
-                    camera_model = None
-                    camera_serial = None
-                    try:
-                        scope = _app_ctx.ctx.scope
-                        if scope is not None and scope._camera_driver is not None:
-                            camera_model = getattr(scope._camera_driver, 'model_name', None)
-                            camera_serial = getattr(scope._camera_driver, '_device_serial', None)
-                    except Exception:
-                        pass
-                    manifest = build_session_manifest(
-                        timestamps=timestamps,
-                        chunks_per_frame=chunks_per_frame,
-                        tick_freq_hz=tick_freq_hz,
-                        captured_frames=captured_frames,
-                        video_duration=video_duration,
-                        camera_model=camera_model,
-                        camera_serial=camera_serial,
-                        lvp_version=_lvp_version,
-                        channel_color=color,
-                    )
-                    manifest_path = save_folder / 'session_manifest.json'
-                    with open(manifest_path, 'w') as fh:
-                        json.dump(manifest, fh, indent=2, default=str)
-                    logger.info(f'Manual-Video] Session manifest written to {manifest_path}')
-                except Exception as e:
-                    logger.warning(f'Manual-Video] Failed to write session_manifest.json: {e}')
-
-                if include_hyperstack_generation:
-                    logger.info('Manual-Video] Creating hyperstack...')
-
-                    _, objective = ui_snapshot['objective_info']
-                    frame_metadata_df = pd.DataFrame(frame_metadata)
-                    stack_builder.create_single_recording_stack(
-                        df=frame_metadata_df,
-                        path=save_folder,
-                        output_file_loc=save_folder / 'ManualVideo_Frame_HyperStack.ome.tiff',
-                        focal_length=objective['focal_length'],
-                        binning_size=ui_snapshot['binning'],
-                    )
-
-                    logger.info(
-                        f'Manual-Video] Hyperstack created at {save_folder / "ManualVideo_Frame_HyperStack.ome.tiff"}'
-                    )
-
-            else:
-                if not video_save_folder.exists():
-                    video_save_folder.mkdir(exist_ok=True, parents=True)
-
-                output_file_loc = video_save_folder / f'Video_{start_time_str}.mp4'
-
-                video_writer = VideoWriter(
-                    output_path=output_file_loc,
-                    fps=calculated_fps,
-                    include_timestamp_overlay=True,
-                )
-
-                for frame_num in range(captured_frames):
-                    try:
-                        ts = (
-                            timestamps[frame_num]
-                            if frame_num < len(timestamps)
-                            else datetime.datetime.now()
-                        )
-                        video_writer.add_frame(image=video_frames[frame_num], timestamp=ts)
-                    except Exception:
-                        logger.exception('Manual-Video] FAILED TO WRITE FRAME')
-
-                    # Update progress on main thread
-                    progress = frame_num + 1
-                    Clock.schedule_once(
-                        lambda dt, p=progress: setattr(self, 'video_writing_progress', p), 0
-                    )
-
-                video_writer.close()
-                logger.info(f'Manual-Video] Mp4 written to {output_file_loc}')
-
-            logger.info('Manual-Video] Video writing finished.')
-
-        finally:
-            # Cleanup memmap - must explicitly close the underlying mmap object
-            # This MUST run even if we return early (e.g., no frames captured)
-            if video_frames is not None:
-                try:
-                    # Explicitly close the memory-mapped file
-                    # Note: No need to flush() before close - close() handles any pending writes
-                    if hasattr(video_frames, '_mmap') and video_frames._mmap is not None:
-                        video_frames._mmap.close()
-                    del video_frames  # Delete the reference
-                except Exception as e:
-                    logger.warning(f'[LVP Main  ] Error closing memmap: {e}')
-
-            # NOTE: We intentionally do NOT delete the memmap file here because:
-            # 1. Windows file deletion can block for several seconds even after closing
-            # 2. This causes "Not Responding" freezes in the application
-            # 3. The file will be automatically reused on the next recording (see record_init)
-            # 4. Reusing the file is actually faster than creating a new one
-            logger.info('[LVP Main  ] Memmap file closed and ready for reuse')
-
-        # Return memmap_path so cleanup callback knows which path to remove from tracking
-        return memmap_path
+        return finalize_manual_video(
+            captured_frames=kwargs.get('captured_frames', 0),
+            timestamps=kwargs.get('timestamps', []),
+            chunks_per_frame=kwargs.get('chunks_per_frame', []),
+            tick_freq_hz=kwargs.get('tick_freq_hz'),
+            video_frames=kwargs.get('video_frames'),
+            video_duration=kwargs.get('video_duration', 0),
+            video_save_folder=kwargs.get('video_save_folder'),
+            start_time_str=kwargs.get('start_time_str', ''),
+            video_as_frames=kwargs.get('video_as_frames', False),
+            memmap_path=kwargs.get('memmap_path'),
+            video_false_color=kwargs.get('video_false_color'),
+            ui_snapshot=kwargs.get('ui_snapshot', {}),
+            scope=_app_ctx.ctx.scope,
+            progress_cb=_progress_cb,
+        )
 
     def _recording_cleanup_gui(self, memmap_path=None):
         """Final cleanup on GUI thread after video writing completes."""
@@ -993,34 +766,29 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
             return
 
         settings = _app_ctx.ctx.settings
-        force_to_8bit = not settings['use_full_pixel_depth'] or not settings['video_as_frames']
+        force_to_8bit = self._record_capture_depth == 8 or not settings['video_as_frames']
 
         if force_to_8bit and image.dtype != np.uint8:
             if self._record_convert_buf is None or self._record_convert_buf.shape != image.shape:
                 self._record_convert_buf = np.empty(image.shape, dtype=np.uint8)
-            image = image_utils.convert_12bit_to_8bit(image, out=self._record_convert_buf)
-        elif image.dtype == np.uint16:
-            if (
-                self._record_convert_buf is None
-                or self._record_convert_buf.shape != image.shape
-                or self._record_convert_buf.dtype != np.uint16
-            ):
-                self._record_convert_buf = np.empty(image.shape, dtype=np.uint16)
-            image = image_utils.convert_12bit_to_16bit(image, out=self._record_convert_buf)
-
-        # Note: Currently, if image is 12/16-bit, then we ignore false coloring for video captures.
-        if (image.dtype != np.uint16) and (self.video_false_color is not None):
-            color_shape = (image.shape[0], image.shape[1], 3)
-            if (
-                self._record_color_buf is None
-                or self._record_color_buf.shape != color_shape
-                or self._record_color_buf.dtype != image.dtype
-            ):
-                self._record_color_buf = np.empty(color_shape, dtype=image.dtype)
-            image = image_utils.add_false_color(
-                array=image, color=self.video_false_color, output=self._record_color_buf
+            image = image_utils.convert_to_8bit(
+                image, self._record_capture_depth, out=self._record_convert_buf
             )
+        # A uint16 capture travels into the memmap VERBATIM: the camera delivers
+        # a right-aligned payload (0..4095 for a 12-bit sensor) and the save edge
+        # (image_save.write_video_frame) is the single depth encoder. Left-
+        # justifying here too would double-encode -- the memmap shifts the
+        # payload up, then the save edge shifts (msb_aligned) or mislabels
+        # (right_aligned) it again. The slot assignment below copies the frame
+        # into the memmap, so the camera buffer is not aliased past this call and
+        # no scratch copy is needed.
 
+        # Every frame travels into the memmap MONO -- the memmap is never widened
+        # to RGB. False color is applied once at each output edge instead: the
+        # MP4 VideoWriter colorizes via its color= argument, and the per-frame
+        # TIFF write (image_save.write_video_frame) bakes it for the saved frames.
+        # Keeping the memmap mono drops the 3x RGB bloat and moves the per-frame
+        # false-color allocation off this capture-thread task to the save edge.
         image = np.flip(image, 0)
 
         target_shape = self.current_video_frames.shape[1:]

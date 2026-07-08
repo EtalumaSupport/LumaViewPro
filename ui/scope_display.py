@@ -26,6 +26,7 @@ Threading model (Stage B1):
 """
 
 import logging
+import statistics
 import threading
 import time
 
@@ -36,15 +37,17 @@ from kivy.clock import Clock
 from kivy.graphics import InstructionGroup, Color, Line, Ellipse
 from kivy.graphics.texture import Texture
 from kivy.metrics import dp
-from kivy.properties import BooleanProperty
+from kivy.properties import BooleanProperty, StringProperty
 from kivy.uix.image import Image
 from kivy.uix.widget import Widget
 from kivy.input import MotionEvent
 
 from modules.contrast_stretcher import ContrastStretcher
 from modules import gui_logger
+import modules.image_mode as image_mode
 import modules.autofocus_functions as autofocus_functions
 import modules.common_utils as common_utils
+import modules.image_utils as image_utils
 import modules.app_context as _app_ctx
 
 logger = logging.getLogger('LVP.ui.scope_display')
@@ -54,9 +57,33 @@ BULLSEYE_FPS_CAP = 15  # Max FPS for CPU-intensive bullseye LUT rendering
 VALIDITY_DOT_RADIUS = 10  # Engineering-mode validity indicator dot radius (px)
 VALIDITY_DOT_MARGIN = 20  # Margin from image edge to dot center (px)
 
+# --- Per-spike frame-drop attribution (the "uneven video" instrument) ---
+# A rendered frame is flagged "slow" when its inter-frame interval exceeds
+# both FRAME_SPIKE_RATIO x the recent-window median AND an absolute floor.
+# Median-relative (not mean) so the few spikes themselves don't move the
+# baseline; the floor stops a tiny median (fast steady stream) from firing on
+# normal jitter. A sustained-slow stream raises the median to match, so this
+# fires only on TRANSIENT stutters, not a uniformly slow rate (capture_fps owns
+# that). Unconditional WARN -- it must reach a normal bench bundle whether or
+# not debug_mode/[PERF] is on, and it self-limits to genuine spikes.
+FRAME_SPIKE_RATIO = 2.0  # interval must exceed this x the recent median
+FRAME_SPIKE_FLOOR_MS = 50.0  # ...and this absolute floor (ms)
+FRAME_SPIKE_WINDOW = 120  # recent OK-frame intervals feeding the median (~4-8 s)
+FRAME_SPIKE_MIN_SAMPLES = 30  # need this many before a median is meaningful
+FRAME_SPIKE_MEDIAN_REFRESH_S = 0.5  # recompute the cached median at most this often
+# Min gap between SLOW FRAME logs. The median baseline takes ~a window to catch
+# up to a sustained rate drop (which capture_fps, not this, owns), so without
+# this a fast->slow transition would log every frame until it does. This caps
+# that burst while still surfacing distinct transient stutters seconds apart.
+FRAME_SPIKE_LOG_MIN_GAP_S = 2.0
+
 
 class ScopeDisplay(Image):
     play = BooleanProperty(True)
+    # The active capture/save image mode, owned here as the runtime SSOT so UI
+    # panels in other widget trees can observe mode changes (e.g. depth-loss
+    # hints near the summing/binning controls) by binding to this property.
+    image_mode = StringProperty(image_mode.DEFAULT_IMAGE_MODE)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -91,6 +118,24 @@ class ScopeDisplay(Image):
         # (re)allocated lazily to match the frame in _render_one_frame.
         self._display_8bit_buf = None
 
+        # On-screen widget size (px), cached on the main thread by
+        # _on_size_changed so the display thread can downscale each preview
+        # frame to roughly the displayed size before the blit. The main-thread
+        # blit_buffer of a full-resolution large-sensor frame is the live-view
+        # FPS ceiling (it serializes against capture/convert on the GIL);
+        # uploading a near-display-size frame removes it. None until the widget
+        # is laid out -> full-resolution blit (prior behavior).
+        self._preview_target_wh = None
+        # Last (src_shape, dst_shape) logged, so the active downscale factor is
+        # recorded once per change instead of every frame.
+        self._preview_downscale_logged = None
+        # Full-resolution (W, H) of the most-recent camera frame, before the
+        # preview downscale. self.texture_size reflects the DOWNSCALED preview
+        # texture, so coordinate math (click-to-center, cursor pixel/plate
+        # readouts) that scales by per-sensor-pixel size must read this instead
+        # -- using the downscaled texture under-reports by the downscale factor.
+        self._full_res_frame_wh = None
+
         # FPS tracking -- capture thread (frames grabbed from camera)
         self._capture_fps_count = 0
         self._capture_fps_last_time = time.monotonic()
@@ -114,6 +159,22 @@ class ScopeDisplay(Image):
         self._frame_interval_history = deque(maxlen=2000)
         self._last_frame_pull_time = None
 
+        # Per-spike frame-drop attribution ("uneven video" instrument). Keyed off
+        # the last STATUS_OK frame so it measures inter-DISPLAYED-frame gaps, not
+        # loop iterations (duplicate/empty polls would otherwise collapse the
+        # interval). The window of recent OK-frame intervals feeds the median
+        # baseline; the median is cached and refreshed at most every
+        # FRAME_SPIKE_MEDIAN_REFRESH_S so the hot render path doesn't re-sort it
+        # every frame. _last_ok_compute carries the PREVIOUS OK frame's
+        # grab/proc/eng -- the display-path work that actually ran during the
+        # interval being attributed.
+        self._spike_interval_window = deque(maxlen=FRAME_SPIKE_WINDOW)
+        self._last_ok_frame_time = None
+        self._last_ok_compute = None
+        self._spike_median_cache = None
+        self._spike_median_refresh = 0.0
+        self._slow_frame_last_log = 0.0
+
         # Engineering stats timing (2x per second)
         self._eng_stats_last_time = 0.0
 
@@ -134,8 +195,6 @@ class ScopeDisplay(Image):
             bottom_pct=0.3,
             top_pct=0.3,
         )
-
-        self.use_full_pixel_depth = False
 
         # Counters (were module-level globals in lumaviewpro.py)
         self._debug_counter = 0
@@ -185,6 +244,10 @@ class ScopeDisplay(Image):
 
     def _on_size_changed(self, *args):
         """Rebuild crosshair overlay when widget size or position changes."""
+        # Cache the widget's pixel box for the display thread's preview
+        # downscale. A plain tuple assignment is atomic in CPython, so the
+        # thread reads a consistent (w, h) without a lock.
+        self._preview_target_wh = (int(self.width), int(self.height))
         if self._crosshair_visible:
             self._build_crosshair_overlay()
 
@@ -340,21 +403,11 @@ class ScopeDisplay(Image):
             ):
                 norm_texture_click_pos_x = click_pos_x - norm_texture_x_min
                 norm_texture_click_pos_y = click_pos_y - norm_texture_y_min
-                texture_width, texture_height = self.texture_size
-
-                # Scale to image pixels
-                texture_click_pos_x = norm_texture_click_pos_x * texture_width / norm_texture_width
-                texture_click_pos_y = (
-                    norm_texture_click_pos_y * texture_height / norm_texture_height
-                )
-
-                # Distance from center
-                x_dist_pixel = (
-                    texture_click_pos_x - texture_width / 2
-                )  # Positive means to the right of center
-                y_dist_pixel = (
-                    texture_click_pos_y - texture_height / 2
-                )  # Positive means above center
+                # Convert against the full-resolution sensor frame, not the
+                # downscaled preview texture (self.texture_size): pixel_size_um
+                # is the size of one sensor pixel, so the downscaled texture
+                # would under-move the stage by the downscale factor.
+                frame_width, frame_height = self.full_resolution_frame_size()
 
                 from modules.config_ui_getters import (
                     get_current_objective_info,
@@ -368,8 +421,14 @@ class ScopeDisplay(Image):
                     binning_size=get_binning_from_ui(),
                 )
 
-                x_dist_um = x_dist_pixel * pixel_size_um
-                y_dist_um = y_dist_pixel * pixel_size_um
+                # Positive x_dist_um -> click right of center; positive y_dist_um
+                # -> click above center.
+                x_dist_um = image_utils.click_offset_to_um(
+                    norm_texture_click_pos_x, norm_texture_width, frame_width, pixel_size_um
+                )
+                y_dist_um = image_utils.click_offset_to_um(
+                    norm_texture_click_pos_y, norm_texture_height, frame_height, pixel_size_um
+                )
 
                 gui_logger.button(
                     'SCOPE_CLICK_TO_CENTER',
@@ -480,6 +539,68 @@ class ScopeDisplay(Image):
             'max': history[-1],
             'n': n,
         }
+
+    def _check_slow_frame(self, cycle_start, *, grab_ms, proc_ms, eng_ms):
+        """Emit one WARN when the gap to the previous displayed frame spikes.
+
+        The "uneven video" instrument. Called only on STATUS_OK, so cycle_start
+        is the start of a genuinely-new displayed frame; the interval to the
+        previous OK frame is the gap the user actually perceives. Fires when that
+        interval exceeds both FRAME_SPIKE_RATIO x the recent-window median AND
+        FRAME_SPIKE_FLOOR_MS -- transient stutters, not a uniformly slow stream
+        (whose median rises to match; capture_fps owns that). Unconditional WARN
+        so it reaches a normal bench bundle whether or not debug_mode/[PERF] is
+        on; the floor+ratio+rate-limit gate keeps it to genuine spikes.
+
+        Attribution: the grab/proc/eng reported are the PREVIOUS frame's --
+        the display-path work that actually ran DURING this interval (this
+        frame's compute happens after cycle_start, outside the interval). gap =
+        interval - that work = the non-display remainder: pacing wait, camera
+        delivery latency, GIL contention, host scheduling / page-fault pressure.
+        A large gap with small prev-frame compute points upstream of the display
+        path; a large prev-frame compute points at the render itself.
+        """
+        prev_time = self._last_ok_frame_time
+        prev_compute = self._last_ok_compute
+        self._last_ok_frame_time = cycle_start
+        self._last_ok_compute = (grab_ms, proc_ms, eng_ms)
+        if prev_time is None:
+            return
+        interval_ms = (cycle_start - prev_time) * 1000.0
+        window = self._spike_interval_window
+        window.append(interval_ms)
+        if len(window) < FRAME_SPIKE_MIN_SAMPLES:
+            return
+        median_ms = self._spike_median(cycle_start)
+        threshold_ms = max(FRAME_SPIKE_FLOOR_MS, FRAME_SPIKE_RATIO * median_ms)
+        if interval_ms <= threshold_ms:
+            return
+        if (cycle_start - self._slow_frame_last_log) < FRAME_SPIKE_LOG_MIN_GAP_S:
+            return
+        self._slow_frame_last_log = cycle_start
+        p_grab, p_proc, p_eng = prev_compute if prev_compute else (0.0, 0.0, 0.0)
+        prev_total = p_grab + p_proc + p_eng
+        logger.warning(
+            f'[SLOW FRAME] interval={interval_ms:.0f}ms (median={median_ms:.0f}ms) | '
+            f'prev-frame grab={p_grab:.1f}ms proc={p_proc:.1f}ms eng={p_eng:.1f}ms '
+            f'(={prev_total:.1f}ms) gap={interval_ms - prev_total:.0f}ms'
+        )
+
+    def _spike_median(self, now):
+        """Median of the recent OK-frame-interval window, cached.
+
+        The baseline shifts slowly, so recomputing the median every frame would
+        re-sort the window on the GIL-bound render path for no benefit. Refresh
+        at most every FRAME_SPIKE_MEDIAN_REFRESH_S; statistics.median averages the
+        two middle samples on an even-length window (no upper-middle bias).
+        """
+        if (
+            self._spike_median_cache is None
+            or (now - self._spike_median_refresh) >= FRAME_SPIKE_MEDIAN_REFRESH_S
+        ):
+            self._spike_median_cache = statistics.median(self._spike_interval_window)
+            self._spike_median_refresh = now
+        return self._spike_median_cache
 
     # _pull_next_frame, update_scopedisplay, _schedule_next retired in Stage B1.
     # The dedicated scope_display_thread owns the FPS-paced loop; this widget
@@ -642,6 +763,12 @@ class ScopeDisplay(Image):
         if image is None or image.size == 0:
             return STATUS_EMPTY
 
+        # Record the full-resolution frame size for coordinate math before any
+        # preview downscale. Both the bullseye and the mono preview derive from
+        # this frame; click-to-center and the cursor readouts convert against
+        # the full-resolution sensor pixels, not the downscaled display texture.
+        self._full_res_frame_wh = (image.shape[1], image.shape[0])
+
         # (Re)allocate the reusable buffer to match the frame so the NEXT
         # frame's conversion writes into it. The 8-bit camera path returns
         # its own buffer and never uses this; the cost is one idle buffer.
@@ -693,6 +820,10 @@ class ScopeDisplay(Image):
                 ctx.camera_executor.put(IOTask(action=self.get_true_gain_exp, args=(active_layer,)))
 
         t_eng_stats = 0
+        # Display-path compute for THIS frame; set by whichever render branch runs
+        # (mono downscale, or the bullseye transform when its rate cap lets it
+        # render). Stays 0 when a rate cap skips the render -- there was no work.
+        proc_ms = 0.0
         if ctx.engineering_mode:
             # Frame validity indicator: update every frame (lightweight canvas op)
             fv_valid = ctx.scope.imaging.frame_is_valid
@@ -727,9 +858,23 @@ class ScopeDisplay(Image):
             now_be = time.monotonic()
             if now_be - self._bullseye_last_time >= self._bullseye_min_interval:
                 self._bullseye_last_time = now_be
+                t_process_start = now_be  # bullseye render is this frame's process stage
                 image_bullseye = self.transform_to_bullseye_prealloc(image=image)
-                bullseye_bytes = image_bullseye.tobytes()
-                bullseye_shape = image_bullseye.shape
+                # Downscale the RGB bullseye to ~widget size before the blit, so
+                # it no longer blits full-resolution every frame (the same
+                # main-thread upload ceiling the mono path avoids). categorical:
+                # the bullseye is a false-color contour map, so nearest-neighbor
+                # keeps the thin pure-color iso-intensity lines instead of
+                # area-averaging them toward black.
+                display_bullseye = self._downscale_for_blit(image_bullseye, categorical=True)
+                # tobytes() copies the (possibly downscaled) frame: when no
+                # downscale applies this decouples from the reused bullseye
+                # buffer the next frame overwrites; when it does, it copies the
+                # fresh cv2.resize output. Either way the bytes are stable for
+                # the coalesced main-thread blit.
+                bullseye_bytes = display_bullseye.tobytes()
+                proc_ms = (time.monotonic() - t_process_start) * 1000.0
+                bullseye_shape = display_bullseye.shape
                 g = generation
                 # Same single-pending-blit coalescing as the main path below.
                 self._schedule_blit(
@@ -745,10 +890,19 @@ class ScopeDisplay(Image):
             if self.use_live_image_histogram_equalization:
                 image = self._contrast_stretcher.update(image)
 
+            # Downscale to ~widget size on this worker thread so the main-thread
+            # blit uploads far fewer bytes. The full-resolution blit of a
+            # large-sensor frame is the live-view FPS ceiling (it serializes
+            # against capture/convert on the GIL); displayed pixels are
+            # unchanged because the GPU was scaling the oversized texture down
+            # to the widget anyway. Stats above used the full-resolution image.
+            display_image = self._downscale_for_blit(image)
+
             # Convert to bytes on worker thread, blit on main thread
-            image_bytes = image.tobytes()
+            image_bytes = display_image.tobytes()
             t_process_end = time.monotonic()
-            image_shape = image.shape
+            proc_ms = (t_process_end - t_process_start) * 1000.0
+            image_shape = display_image.shape
             t_blit_scheduled = time.monotonic()
             g = generation
             self._schedule_blit(
@@ -804,6 +958,18 @@ class ScopeDisplay(Image):
                     self._perf_blit_schedule_times.clear()
                     self._perf_blit_delays.clear()
 
+        # Attribute this displayed frame's stutter (if any) before returning. Only
+        # reached on STATUS_OK -- a genuinely new frame, past the duplicate gate --
+        # so the interval it measures is between frames the user actually sees, not
+        # between loop iterations. grab/eng are set in both render paths; proc by
+        # whichever render branch ran.
+        self._check_slow_frame(
+            cycle_start,
+            grab_ms=(t_grab_end - t_grab_start) * 1000.0,
+            proc_ms=proc_ms,
+            eng_ms=t_eng_stats * 1000.0,
+        )
+
         return STATUS_OK
 
     # _schedule_next retired; ScopeDisplayThread loop owns pacing.
@@ -825,6 +991,70 @@ class ScopeDisplay(Image):
             if not self._blit_scheduled:
                 self._blit_scheduled = True
                 Clock.schedule_once(self._run_pending_blit, 0)
+
+    def full_resolution_frame_size(self):
+        """(width, height) of the most-recent full-resolution camera frame.
+
+        Coordinate math that scales display offsets by the per-sensor-pixel size
+        (click-to-center, the cursor pixel/plate readouts) must use this, NOT
+        self.texture_size: the live preview texture is downscaled to ~widget
+        size before the blit, so texture_size is smaller than the sensor frame
+        and would make those conversions under-report by the downscale factor.
+        Falls back to texture_size before the first frame is rendered.
+        """
+        if self._full_res_frame_wh is not None:
+            return self._full_res_frame_wh
+        return self.texture_size
+
+    def _current_preview_target(self):
+        """Display-thread estimate of the on-screen live-image size in pixels.
+
+        The base widget box (cached on the main thread by _on_size_changed) is
+        scaled UP by the zoom factor of the enclosing Scatter, so a zoomed-in or
+        1:1 view is never downscaled below what it actually shows -- at 1:1 the
+        scale equals sensor/widget, so the target reaches sensor size and the
+        decimation factor falls to 1 (full-resolution blit). Zoom-out is clamped
+        to 1.0 (keep widget-size detail rather than over-shrinking). Reads are
+        plain attribute fetches of numeric Kivy properties; a one-frame-stale
+        value during an active zoom self-corrects on the next frame.
+        """
+        parent = self.parent
+        scale = getattr(parent, 'scale', 1.0) if parent is not None else 1.0
+        return image_utils.scaled_preview_target(self._preview_target_wh, scale)
+
+    def _downscale_for_blit(self, image, *, categorical=False):
+        """Downscale a preview frame to the on-screen widget size and log the
+        factor. Shared by the mono and bullseye blit paths so both derive the
+        target, downscale, and log identically. ``categorical`` selects
+        nearest-neighbor resampling for a false-color image (the bullseye
+        contour map) vs area-averaging for a continuous-tone frame (mono)."""
+        target = self._current_preview_target()
+        out = image_utils.decimate_for_preview(image, target, categorical=categorical)
+        self._log_preview_downscale(image.shape, out.shape, target)
+        return out
+
+    def _log_preview_downscale(self, src_shape, dst_shape, target):
+        """Record the active preview-downscale factor once per change.
+
+        Makes a log bundle self-sufficient: the next bench run shows whether the
+        live preview is downscaling and by how much, without inferring it from
+        frame-rate alone. Called every frame; logs only when the src->dst
+        mapping changes (widget resize, zoom, or downscale turning on/off)."""
+        key = (src_shape, dst_shape)
+        if key == self._preview_downscale_logged:
+            return
+        self._preview_downscale_logged = key
+        if dst_shape == src_shape:
+            logger.info(
+                f'[LVP Main  ] Preview downscale OFF (blitting full resolution '
+                f'{src_shape[1]}x{src_shape[0]}, display target {target}) -- '
+                f'frame already <= target (or target not yet known)'
+            )
+        else:
+            logger.info(
+                f'[LVP Main  ] Preview downscale ON: {src_shape[1]}x{src_shape[0]} -> '
+                f'{dst_shape[1]}x{dst_shape[0]} (display target {target})'
+            )
 
     def _run_pending_blit(self, dt):
         """Main-thread Clock callback: run the latest pending blit, if any."""
@@ -886,8 +1116,8 @@ class ScopeDisplay(Image):
         self._count_display_fps()
         # _schedule_next retired; ScopeDisplayThread loop owns pacing.
 
-    def hold_protocol_saved_image(self, image):
-        """DISPLAY-1: show the most-recent protocol-saved image and hold it.
+    def hold_protocol_saved_image(self, image, significant_bits):
+        """Show the most-recent protocol-saved image and hold it.
 
         Called from the protocol-image-writer thread immediately after a
         step finishes capturing. Pushes the captured frame to the
@@ -900,10 +1130,13 @@ class ScopeDisplay(Image):
         frame.
 
         Args:
-            image: numpy.ndarray, the captured frame in either 8-bit or
-                12-bit grayscale (matching what was saved). The display
-                is luminance-only; if the array is wider than 8 bits,
-                we convert with the same LUT the live path uses.
+            image: numpy.ndarray, the captured frame in 8-bit or wider
+                grayscale (matching what was saved). The display is
+                luminance-only; if the array is wider than 8 bits, we
+                convert with the same LUT the live path uses.
+            significant_bits: Payload depth of ``image`` so the downconvert
+                scales against the real range (a summed 16-bit frame is not
+                indexed as 12-bit out of range).
         """
         if image is None or getattr(image, 'size', 0) == 0:
             return
@@ -913,7 +1146,7 @@ class ScopeDisplay(Image):
 
             arr = image
             if arr.dtype != np.uint8:
-                arr = _image_utils.convert_12bit_to_8bit(arr)
+                arr = _image_utils.convert_to_8bit(arr, significant_bits)
             shape = arr.shape
             data = arr.tobytes()
             gen = self._current_generation()
@@ -957,8 +1190,16 @@ class ScopeDisplay(Image):
     def update_auto_gain_ui(self, layer, actual_gain, actual_exp):
         ctx = _app_ctx.ctx
         layer_obj = ctx.image_settings.layer_lookup(layer=layer)
+        # A non-physical reading (the cache's never-read seed or its
+        # deliberate post-auto invalidation) has no honest slider position
+        # -- skip the field rather than push a below-minimum value that
+        # would persist into layer settings on the next slider write.
         # Only update if values changed to prevent unnecessary ScrollView layout recalculation
-        if abs(layer_obj.ids['gain_slider'].value - actual_gain) > 0.01:
+        if common_utils.is_valid_gain_db(actual_gain) and (
+            abs(layer_obj.ids['gain_slider'].value - actual_gain) > 0.01
+        ):
             layer_obj.ids['gain_slider'].value = actual_gain
-        if abs(layer_obj.ids['exp_slider'].value - actual_exp) > 0.01:
+        if common_utils.is_valid_exposure_ms(actual_exp) and (
+            abs(layer_obj.ids['exp_slider'].value - actual_exp) > 0.01
+        ):
             layer_obj.ids['exp_slider'].value = actual_exp

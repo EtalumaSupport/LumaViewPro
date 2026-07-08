@@ -63,6 +63,8 @@ def _write_structured_input(
     image_utils.write_tiff(
         data=arr,
         file_loc=path,
+        significant_bits=8,
+        save_encoding='8bit',
         metadata={
             'datetime': '2026-05-27T12:00:00',
             'plate_pos_mm': plate_pos_mm,
@@ -668,3 +670,18 @@ class TestHyperstackChannelColor:
         # cleanly via JSON.
         assert recovered['Channel']['Name'] == ['Green']
         assert recovered['Channel']['Color'] == [0x00FF00FF]
+
+
+def test_load_plane_raises_typed_error_naming_the_file(tmp_path):
+    """A malformed hyperstack input frame fails with a typed CaptureError that
+    names the offending file, not a raw tifffile/OS exception. A hyperstack plane
+    cannot be skipped the way a video frame can (it would misalign the TZCYX grid),
+    so the read fails the whole build loudly and legibly -- the notify boundary
+    then shows a clear message instead of a raw decoder error."""
+    from modules.exceptions import CaptureError
+
+    bad = tmp_path / 'corrupt_plane.tiff'
+    bad.write_bytes(b'this is not a valid tiff')
+
+    with pytest.raises(CaptureError, match=r'corrupt_plane\.tiff'):
+        StackBuilder._load_plane(bad)

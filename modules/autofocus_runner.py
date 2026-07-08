@@ -18,6 +18,11 @@ import modules.common_utils as common_utils
 import modules.lumascope_api as lumascope_api
 from modules.exceptions import AutofocusAborted
 from modules.kivy_utils import schedule_ui as _schedule_ui
+from modules.lumascope_api.illumination import (
+    LedTransition,
+    LedTransitionCtx,
+    snapshot_lit_pairs,
+)
 from modules.notification_center import notifications
 from modules.objectives_loader import ObjectiveLoader
 from modules.sequential_io_executor import IOTask, SequentialIOExecutor
@@ -255,48 +260,74 @@ class AutofocusRunner:
             self._scope.imaging.set_gain(self._camera_gain)
         if self._camera_exposure is not None:
             self._scope.imaging.set_exposure_time(self._camera_exposure)
-        # Acquire the LED lease BEFORE driving illumination below. The
-        # leds_exclusive write carries owner 'autofocus'; issued before AF
-        # holds a lease, a protocol's already-held lease refuses the
-        # out-of-turn write and the AF channel never lights -- AF would then
-        # scan an unlit field. Inside a protocol step the protocol passes its
-        # lease and AF nests as a child it must outlive; an interactive run
-        # takes a top-level lease. A refused acquire (None) does not stop the
-        # run.
-        if led_lease is not None:
-            self._led_lease = led_lease.acquire_child('autofocus')
-        else:
-            self._led_lease = self._scope.illumination.acquire_led_lease('autofocus')
-        # Make the AF channel the only lit one before scanning. A Live-mode
-        # LED on a different channel would otherwise stay lit alongside the AF
-        # channel and corrupt the focus metric with mixed illumination. Using
-        # the exclusive primitive (rather than leds_off + led_on) leaves an
-        # AF channel that is already lit at target untouched, so AF does not
-        # blink it off->on at scan start. Pre-AF state is snapshotted into
-        # self._saved_led_state above and restored on AF exit.
-        if self._led_color is not None and self._scope.led_connected:
-            self._scope.illumination.leds_exclusive(
-                channel=self._scope.illumination.color2ch(self._led_color),
-                mA=self._led_illumination,
-                block=True,
-                owner='autofocus',
-            )
-        else:
-            # No AF illumination configured -- focus on ambient; clear any
-            # Live-mode LED so it does not bias the metric.
-            self._scope.illumination.leds_off()
-        # Drop Z precision for the coarse passes; the fine pass restores
-        # precision ON, and all exit paths (success, abort, exception)
-        # also restore ON via the finally block and reset().
-        try:
-            self._scope.motion.set_precision_mode('Z', False)
-        except Exception as e:
-            logger.debug(f'[AF] Could not drop precision mode for coarse passes: {e}')
-        self._move_absolute_position(pos=self._params['z_min'])
-
         last_gc_time = time.monotonic()
         completed_successfully = False
         try:
+            # Acquire the LED lease BEFORE driving illumination below. AF
+            # illuminates by calling apply(AF_ENTER) ON this lease; issued
+            # before AF holds a lease, a protocol's already-held lease would
+            # refuse the out-of-turn write and the AF channel never lights --
+            # AF would then scan an unlit field. Inside a protocol step the
+            # protocol passes its lease and AF nests as a child it must
+            # outlive; an interactive run takes a top-level lease. The alive
+            # probe is _af_in_progress (set above, cleared LAST in the
+            # finally), so a contender can prove this run dead but never
+            # steal from it live. The acquire sits inside the try so a
+            # refused acquire unwinds through the finally (camera/Z restore,
+            # in-progress flags cleared) instead of latching is_focusing.
+            if led_lease is not None:
+                self._led_lease = led_lease.acquire_child(
+                    'autofocus', alive=self._af_in_progress.is_set
+                )
+            else:
+                self._led_lease = self._scope.illumination.acquire_led_lease(
+                    'autofocus', alive=self._af_in_progress.is_set
+                )
+            if self._led_lease is None:
+                # A live owner holds illumination authority. AF without the
+                # lease would sweep an unlit field and commit a garbage Z --
+                # refuse the run loudly instead. error severity: the
+                # operation ABORTED, and the likeliest contention (a running
+                # protocol) suppresses non-fatal popups, which would
+                # otherwise swallow exactly this message.
+                holder = self._scope.illumination.led_lease_owner
+                holder_desc = f'Another operation ({holder})' if holder else 'Another operation'
+                logger.error(f'[AF] LED lease refused (held live by {holder!r}); aborting run')
+                notifications.error(
+                    'Autofocus',
+                    'Autofocus Did Not Start',
+                    f'{holder_desc} is controlling the microscope '
+                    'illumination. Let it finish, then run autofocus.',
+                )
+                raise AutofocusAborted(f'LED authority held live by {holder!r}')
+            # Make the AF channel the only lit one before scanning, confirmed
+            # on (AF_ENTER blocks) so the focus metric never reads a dark or
+            # mixed-illumination frame: a Live-mode LED on another channel
+            # would otherwise stay lit alongside the AF channel and bias the
+            # metric. The authority diff offs every non-target channel and
+            # leaves an AF channel already at target untouched (no off->on
+            # blink). No AF color means an empty target, so ambient AF clears
+            # every channel. Pre-AF state was snapshotted into
+            # self._saved_led_state above; the exit restores it via
+            # AF_TO_CAPTURE.
+            af_channel = (
+                self._scope.illumination.color2ch(self._led_color)
+                if self._led_color is not None
+                else None
+            )
+            self._led_lease.apply(
+                LedTransition.AF_ENTER,
+                LedTransitionCtx(channel=af_channel, mA=self._led_illumination),
+            )
+            # Drop Z precision for the coarse passes; the fine pass restores
+            # precision ON, and all exit paths (success, abort, exception)
+            # also restore ON via the finally block and reset().
+            try:
+                self._scope.motion.set_precision_mode('Z', False)
+            except Exception as e:
+                logger.debug(f'[AF] Could not drop precision mode for coarse passes: {e}')
+            self._move_absolute_position(pos=self._params['z_min'])
+
             while (
                 self._af_in_progress.is_set()
                 and self._is_focusing_event.is_set()
@@ -389,33 +420,43 @@ class AutofocusRunner:
                     )
                     notifications.warning(
                         'Autofocus',
+                        'Z Position Not Restored',
                         'Could not restore Z position after autofocus stopped. '
                         'Move Z manually if needed.',
                     )
-            if self._keep_led_on and completed_successfully:
-                # Skip the off + restore cycle so the downstream capture
-                # inherits the AF LED state -- the caller guarantees the
-                # capture that follows AF in the same step uses the same
-                # channel + illumination. Success-only: on abort or error
-                # that capture never runs, so inheriting would leave the
-                # LED lit with no owner to ever turn it off (overnight
-                # sample damage); the restore/off branch below covers
-                # those exits.
-                _af_log.info('[AF] keep_led_on -- skipping LED off + restore')
-            else:
-                if self._saved_led_state:
-                    # restore_led_state(owner='autofocus') turns off AF-owned
-                    # channels that should not be lit and re-asserts the pre-AF
-                    # snapshot idempotently -- a channel already at its pre-AF
-                    # target is left untouched, so AF does not blink it off->on
-                    # at scan end. A separate leds_off first would turn the
-                    # channel off only for restore to re-light it.
-                    self._scope.illumination.restore_led_state(
-                        self._saved_led_state, owner='autofocus'
+            # The AF-end LED state is the authority's AF_TO_CAPTURE decision:
+            # hold the AF channel for the following capture, or restore the
+            # pre-AF snapshot. Hold only on success -- on abort or error the
+            # capture never runs, so inheriting would leave the LED lit with no
+            # owner to turn it off (overnight sample damage); a non-success
+            # exit always restores. The authority's diff is idempotent (a
+            # channel already at its target is left untouched, so no off->on
+            # blink) and offs whatever is lit but not in the target.
+            keep_for_capture = self._keep_led_on and completed_successfully
+            illumination = self._scope.illumination
+            if self._led_lease is not None:
+                af_channel = (
+                    illumination.color2ch(self._led_color) if self._led_color is not None else None
+                )
+                snapshot_lit = (
+                    snapshot_lit_pairs(
+                        self._saved_led_state.get('states', {}), illumination.color2ch
                     )
-                else:
-                    # No snapshot to restore -- just release AF's own channel.
-                    self._led_off()
+                    if self._saved_led_state
+                    else frozenset()
+                )
+                self._led_lease.apply(
+                    LedTransition.AF_TO_CAPTURE,
+                    LedTransitionCtx(
+                        channel=af_channel,
+                        mA=self._led_illumination,
+                        keep_led_on=keep_for_capture,
+                        snapshot_lit=snapshot_lit,
+                    ),
+                )
+            # No lease means the acquire was refused and the run aborted
+            # before AF lit anything: there is no AF LED state to restore,
+            # and writing here would fight the live holder's lease.
             if self._saved_camera_state:
                 restore = self._camera_state_to_restore()
                 _af_log.info(
