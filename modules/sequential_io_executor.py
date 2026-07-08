@@ -647,6 +647,10 @@ class SequentialIOExecutor:
         if self.protocol_finish.is_set():
             self.protocol_finish.clear()
             logger.info(f'{self.name} Cleared stale protocol_finish flag')
+        # Reset per run so the dropped-capture count -- and the "this run" line
+        # in the overflow warning -- reflect only this run, not every run since
+        # the app launched.
+        self._protocol_queue_dropped_count = 0
         self.protocol_running.set()
         logger.info(f'{self.name} Protocol Started')
 
@@ -1045,6 +1049,15 @@ class SequentialIOExecutor:
         if self.running_task is not None and getattr(self.running_task, 'protocol', False):
             queue_count += 1
         return queue_count
+
+    def protocol_dropped_count(self) -> int:
+        """Captures dropped this run because the bounded write queue was full.
+
+        Each dropped task is one already-grabbed frame the writer could not
+        keep up with, so it was never saved -- the run's owner reads this at
+        the end to tell the user about the lost images. Reset at protocol_start.
+        """
+        return self._protocol_queue_dropped_count
 
     def seconds_since_last_task(self) -> float:
         return time.monotonic() - self.last_task_done_monotonic

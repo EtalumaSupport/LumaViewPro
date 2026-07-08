@@ -274,6 +274,10 @@ class _FakeExecutor:
         self._protocol_queue_active = False
         self._complete_callback = None
         self._finish_called = False
+        self._dropped = 0
+
+    def protocol_dropped_count(self):
+        return self._dropped
 
     def protocol_end(self):
         self.protocol_ended = True
@@ -370,6 +374,29 @@ class TestRunCleanup:
         args, _, run_in_progress = self._make_cleanup_args()
         run_cleanup(**args)
         assert run_in_progress[0] is False
+
+    def test_dropped_captures_surface_a_run_end_notification(self):
+        from modules.protocol_cleanup import run_cleanup
+        from unittest.mock import patch
+
+        args, _, _ = self._make_cleanup_args()
+        args['file_io_executor']._dropped = 3
+        with patch('modules.notification_center.notifications') as notif:
+            run_cleanup(**args)
+        drop_warnings = [c for c in notif.warning.call_args_list if 'could not be saved' in str(c)]
+        assert drop_warnings, 'a nonzero dropped-capture count must warn the user at run end'
+        assert '3' in str(drop_warnings[0]), 'the notification must state how many were dropped'
+
+    def test_no_dropped_captures_no_drop_notification(self):
+        from modules.protocol_cleanup import run_cleanup
+        from unittest.mock import patch
+
+        args, _, _ = self._make_cleanup_args()
+        args['file_io_executor']._dropped = 0
+        with patch('modules.notification_center.notifications') as notif:
+            run_cleanup(**args)
+        drop_warnings = [c for c in notif.warning.call_args_list if 'could not be saved' in str(c)]
+        assert not drop_warnings, 'a clean run must not claim dropped captures'
 
     def test_cleanup_fires_run_complete_callback(self):
         from modules.protocol_cleanup import run_cleanup
@@ -842,3 +869,42 @@ class TestProtocolRecordReconciliation:
         self._add_row(rec, 'a')
         rec.complete(reconcile=False)
         assert fired == [], 'aborted runs must not warn about an expected gap'
+
+
+def test_protocol_dropped_count_resets_per_run_and_counts_overflow():
+    """The per-run drop total resets at protocol_start and counts one per
+    overflow, so the run's owner can report exactly this run's lost captures.
+    """
+    from modules.sequential_io_executor import (
+        SequentialIOExecutor,
+        IOTask,
+        PROTOCOL_QUEUE_FULL,
+    )
+
+    ex = SequentialIOExecutor(name='TEST_DROP_COUNT', protocol_queue_maxsize=2)
+    ex.start()
+    try:
+        ex.protocol_start()
+        assert ex.protocol_dropped_count() == 0
+        # The worker signals once it is actually running the blocking task, so
+        # the queue is provably empty before we fill it -- no sleep-based race.
+        running = threading.Event()
+        block = threading.Event()
+
+        def blocker():
+            running.set()
+            block.wait(5)
+
+        ex.protocol_put(IOTask(action=blocker))
+        assert running.wait(2), 'worker never picked up the blocking task'
+        ex.protocol_put(IOTask(action=lambda: None))  # fill to maxsize (2)
+        ex.protocol_put(IOTask(action=lambda: None))
+        r1 = ex.protocol_put(IOTask(action=lambda: None))  # overflow -> dropped
+        r2 = ex.protocol_put(IOTask(action=lambda: None))
+        assert r1 == PROTOCOL_QUEUE_FULL and r2 == PROTOCOL_QUEUE_FULL
+        assert ex.protocol_dropped_count() == 2
+        block.set()
+        ex.protocol_start()  # a fresh run zeroes the count
+        assert ex.protocol_dropped_count() == 0
+    finally:
+        ex.shutdown(wait=True)

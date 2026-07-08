@@ -1598,6 +1598,11 @@ def _run_cleanup_kwargs(**overrides):
     from modules.protocol_callbacks import ProtocolCallbacks
     from modules.protocol_state_machine import ProtocolState
 
+    # The real file executor returns an int drop count (0 on a clean run); the
+    # mock must too, or the run-end dropped-capture check compares a MagicMock.
+    file_io_executor = MagicMock()
+    file_io_executor.protocol_dropped_count.return_value = 0
+
     kwargs = {
         'get_state_fn': MagicMock(return_value=ProtocolState.RUNNING),
         'set_state_fn': MagicMock(),
@@ -1618,7 +1623,7 @@ def _run_cleanup_kwargs(**overrides):
         'cancel_scheduled_events_fn': MagicMock(),
         'io_executor': MagicMock(),
         'autofocus_thread': None,
-        'file_io_executor': MagicMock(),
+        'file_io_executor': file_io_executor,
         'camera_executor': MagicMock(),
         'set_run_in_progress_fn': MagicMock(),
         'run_status': 'completed',
@@ -3064,12 +3069,17 @@ def _make_capture_runner(**overrides):
     """
     from modules.sequenced_capture_runner import SequencedCaptureRunner
 
+    # The real file executor returns an int drop count (0 on a clean run); the
+    # mock must too, or run-end cleanup compares a MagicMock against an int.
+    file_io_executor = MagicMock()
+    file_io_executor.protocol_dropped_count.return_value = 0
+
     kwargs = {
         'scope': MagicMock(),
         'stage_offset': {'x': 0.0, 'y': 0.0, 'z': 0.0},
         'io_executor': MagicMock(),
         'protocol_thread': MagicMock(),
-        'file_io_executor': MagicMock(),
+        'file_io_executor': file_io_executor,
         'camera_executor': MagicMock(),
         'autofocus_thread': MagicMock(is_running=False),
     }

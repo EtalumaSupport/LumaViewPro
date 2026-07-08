@@ -59,6 +59,9 @@ def bare_capture_runner(**overrides):
     kwargs.update(overrides)
     runner = SequencedCaptureRunner(**kwargs)
     runner.file_io_executor.is_protocol_queue_active.return_value = False
+    # The real executor returns an int drop count (0 on a clean run); the mock
+    # must too, or run-end cleanup compares a MagicMock against an int.
+    runner.file_io_executor.protocol_dropped_count.return_value = 0
     return runner
 
 

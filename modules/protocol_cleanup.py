@@ -358,6 +358,29 @@ def run_cleanup(
             # not prevent the completion callbacks from firing.
             logger.error(f'[PROTOCOL] Failed to surface cleanup-error notification: {ex}')
 
+    # Surface silently-dropped captures. A full write queue discards an
+    # already-grabbed frame, so a nonzero count is images the user expected
+    # that are permanently absent from disk. A throttled log was the only prior
+    # signal; the run-terminal summary is the reliable surface because mid-run
+    # popups are suppressed. Fires on aborted runs too -- a queue-full drop
+    # during capture is unintended loss, distinct from an abort's deliberate
+    # drop of pending writes.
+    dropped_captures = file_io_executor.protocol_dropped_count()
+    if dropped_captures > 0:
+        try:
+            from modules.notification_center import notifications
+
+            notifications.warning(
+                'Protocol',
+                'Protocol Captures Dropped',
+                f'{dropped_captures} captured image(s) could not be saved because '
+                'the file writer fell behind the camera. Those images are lost '
+                'from this run. Reduce the capture rate (fewer channels or '
+                'Z-steps, or a slower scan) or use a faster save drive.',
+            )
+        except Exception as ex:
+            logger.error(f'[PROTOCOL] Failed to surface dropped-capture notification: {ex}')
+
     # --- Fire completion callbacks ---
     _file_queue_active = file_io_executor.is_protocol_queue_active()
     # Log the pending-write count so a post-run read shows HOW MANY files were
