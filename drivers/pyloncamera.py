@@ -4487,6 +4487,11 @@ class _CameraRemovalHandler(pylon.ConfigurationEventHandler):
                 f'[CAM Class ] OnGrabError fired (SDK grab thread caught '
                 f'exception; grab will stop): {errorMessage}'
             )
-            self._parent._mark_disconnected()
+            # Diagnostic only -- do NOT mark the camera disconnected here. A
+            # grab-thread exception (e.g. a GEV chunk-parse error right after a
+            # SetValue) is not evidence the device was removed, and latching on
+            # the first one dropped a working camera. Definitive removal is
+            # owned elsewhere: OnCameraDeviceRemoved, the DEVICE_NOT_FOUND grab
+            # path, and the consecutive-failure cascade.
         except BaseException as e:
             _log_safely(f'OnGrabError guard caught {type(e).__name__}: {e}')
