@@ -301,6 +301,11 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
 
         self.memmap_location = pathlib.Path(settings['live_folder']) / 'recording_temp.dat'
 
+        # video_as_frames does double duty: it also selects the finalize path.
+        # False -> the MP4 encoder, whose depth argument is optional and would
+        # read a right-aligned frame as a 16-bit container, so the buffer must
+        # be 8-bit here. True -> the TIFF-per-frame path, which carries depth
+        # per file and may hold native-depth pixels.
         if self._record_capture_depth == 8 or not settings['video_as_frames']:
             dtype = 'uint8'
         else:
