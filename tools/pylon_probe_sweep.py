@@ -54,6 +54,7 @@ sys.path.insert(0, str(_LVP_ROOT))
 
 from drivers.pyloncamera import PylonCamera
 from lvp_logger import logger
+from modules.exceptions import CameraSettingRejected
 from modules.lumascope_api import Lumascope
 
 
@@ -281,9 +282,15 @@ def _apply_cell(scope, transport: str, cell: dict, sensor_w: int, sensor_h: int)
     """
     log = []
     with scope.camera.update_camera_config():
-        # Pixel format
+        # Pixel format. A rejected format is one cell's data point, not a
+        # sweep abort: record it and keep sweeping (set_pixel_format raises
+        # the typed rejection; the sweep's whole job is probing formats the
+        # camera may lack).
         pf = cell['pixel_format']
-        log.append(('pixel_format', scope.imaging.set_pixel_format(pf)))
+        try:
+            log.append(('pixel_format', scope.imaging.set_pixel_format(pf)))
+        except CameraSettingRejected as e:
+            log.append(('pixel_format', f'REJECTED: {e}'))
 
         # Resolution + centered ROI
         w, h = cell['resolution']

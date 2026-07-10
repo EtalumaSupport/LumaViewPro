@@ -1,17 +1,14 @@
 """Tests for ``modules.image_utils`` -- convert helpers + boundary wrappers.
 
-Phase 1c.4 adds ``convert_12bit_to_8bit(out=...)`` as a sibling to the
-existing PIW-5 ``convert_12bit_to_16bit(out=...)`` pattern. Saves
+Covers ``convert_12bit_to_8bit(out=...)``, whose reusable out buffer saves
 ~120 MB/s allocator churn on the 30fps Pylon 12-bit preview path.
-
-The ``test_audit_fixes.TestPIW5_Convert12to16OutBuffer`` test covers the
-16-bit sibling. This file covers the 8-bit variant.
 """
 
 from __future__ import annotations
 
 import numpy as np
 
+import modules.image_utils as image_utils
 from modules.image_utils import convert_12bit_to_8bit
 
 
@@ -88,3 +85,19 @@ class TestConvert12to8OutBuffer:
         assert alloc_count['n'] < 10, (
             f'Expected O(1) frame-sized allocations with reused out buffer; got {alloc_count["n"]}.'
         )
+
+
+class TestIsColorShape:
+    """is_color_shape is the one channel-count rule; is_color_image delegates to
+    it so a caller holding only a shape tuple uses the same definition."""
+
+    def test_three_channel_shape_is_color(self):
+        assert image_utils.is_color_shape((8, 8, 3)) is True
+
+    def test_mono_shape_is_not_color(self):
+        assert image_utils.is_color_shape((8, 8)) is False
+        assert image_utils.is_color_shape((8, 8, 1)) is False
+
+    def test_is_color_image_delegates_to_shape(self):
+        assert image_utils.is_color_image(np.zeros((4, 4, 3), dtype=np.uint8)) is True
+        assert image_utils.is_color_image(np.zeros((4, 4), dtype=np.uint8)) is False

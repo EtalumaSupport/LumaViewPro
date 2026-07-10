@@ -147,8 +147,8 @@ def _build_composite(arr, path):
 
     def test_stack_builder_bare_tf_imwrite_blocks(self):
         # stack_builder joined the post-processor write path set when
-        # the hyperstack write was routed through image_utils.write_tiff
-        # (via the hyperstack_metadata override hook). A regression that
+        # the hyperstack write was routed through the canonical
+        # image_utils.write_hyperstack_tiff helper. A regression that
         # reintroduces a bare tifffile.imwrite in stack_builder bypasses
         # the canonical save path; the rule catches it.
         src = """
@@ -161,21 +161,17 @@ def _save(arr, path):
         assert len(violations) == 1
         assert violations[0].rule == 'rule_31c'
 
-    def test_stack_builder_with_write_tiff_helper_passes(self):
-        # The new canonical shape: stack_builder calls write_tiff with
-        # the hyperstack_metadata override. The helper presence in the
-        # same function satisfies the pairing requirement even if a
-        # bare imwrite slipped in (belt-and-suspenders).
+    def test_stack_builder_with_write_hyperstack_tiff_helper_passes(self):
+        # The canonical shape: stack_builder calls write_hyperstack_tiff.
+        # The helper presence in the same function satisfies the pairing
+        # requirement even if a bare imwrite slipped in (belt-and-suspenders).
         src = """
 from modules import image_utils
 
 def _create_stack(arr, path):
-    image_utils.write_tiff(
+    image_utils.write_hyperstack_tiff(
         data=arr,
         file_loc=path,
-        metadata={},
-        ome=True,
-        color='',
         hyperstack_metadata={'axes': 'TZCYX'},
     )
 """

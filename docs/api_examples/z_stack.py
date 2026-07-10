@@ -59,8 +59,8 @@ def main():
     scope = Lumascope(simulate=True)
     print('Scope initialized (simulate=True)')
 
-    # Simulator-mode setup: kick the simulated camera into grabbing.
-    scope._camera_driver.start_grabbing()
+    # Begin the live camera feed (required before capture on every backend).
+    scope.imaging.start_streaming()
 
     # Configure illumination
     scope.illumination.led_on(channel=LED_COLOR, mA=LED_MA)

@@ -4,13 +4,13 @@ import pathlib
 
 import numpy as np
 import pandas as pd
-import tifffile as tf
 
 import modules.common_utils as common_utils
 import modules.image_utils as image_utils
 
 from modules.common_utils import PostFunction
 from modules.protocol_post_processor import ProtocolPostProcessor
+from modules.protocol_post_processing_result import PostProcResult
 from modules.protocol_post_record import ProtocolPostRecord
 
 import modules.zprojection as zprojection
@@ -55,24 +55,24 @@ class ZProjector(ProtocolPostProcessor):
             objective_id=row0['Objective']
         )
 
-        # Prepend the protocol's capture_root (passed in via kwargs by
-        # ProtocolPostProcessor.load_folder) so the z-projected output
-        # carries the same filename root as the per-image saves.
-        capture_root = kwargs.get('capture_root', '')
-        prefix = f'{capture_root}_{row0["Name"]}' if capture_root else row0['Name']
-        name = common_utils.generate_default_step_name(
-            custom_name_prefix=prefix,
-            well_label=row0['Well'],
-            color=row0['Color'],
-            z_height_idx=None,
-            scan_count=row0['Scan Count'],
-            tile_label=row0['Tile'],
-            objective_short_name=objective_short_name,
-            stitched=row0['Stitched'],
-            zprojection=kwargs['method'].lower(),
+        # A z-projection collapses every z-slice into one image, so the z token
+        # is omitted (z_index=None) -- a single slice index would mislabel the
+        # projection. channel and tile are kept (per-channel, per-tile output).
+        # Post-output suffixes chain: a z-projection of an already-stitched
+        # output carries both ('stitched', 'zproj_<method>').
+        post = ('stitched',) if row0['Stitched'] else ()
+        post = (*post, f'zproj_{kwargs["method"].lower()}')
+        name = common_utils.build_step_name(
+            common_utils.step_components(
+                row0,
+                z_index=None,
+                scan_count=row0['Scan Count'],
+                objective=objective_short_name,
+                post=post,
+            )
         )
 
-        outfile = f'{name}.tiff'
+        outfile = f'{self._prepend_capture_root(name, kwargs)}.tiff'
         return outfile
 
     def _filter_ignored_types(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -94,11 +94,13 @@ class ZProjector(ProtocolPostProcessor):
         df: pd.DataFrame,
         **kwargs,
     ):
-        return self._zproject(
-            path=path,
-            df=df[['Filepath', 'Color']],
-            method=kwargs['method'],
-            output_file_loc=kwargs['output_file_loc'],
+        return PostProcResult.from_group_result(
+            self._zproject(
+                path=path,
+                df=df[['Filepath', 'Color']],
+                method=kwargs['method'],
+                output_file_loc=kwargs['output_file_loc'],
+            )
         )
 
     @staticmethod
@@ -115,6 +117,7 @@ class ZProjector(ProtocolPostProcessor):
             file_path=file_path,
             timestamp=row0['Timestamp'],
             name=row0['Name'],
+            label=row0['Label'],
             scan_count=row0['Scan Count'],
             x=row0['X'],
             y=row0['Y'],
@@ -198,9 +201,15 @@ class ZProjector(ProtocolPostProcessor):
         first_slice_path = path / first_slice_row['Filepath']
 
         orig_images = []
+        input_depths = []
         for _, row in df.iterrows():
             image_filepath = path / row['Filepath']
-            orig_images.append(tf.imread(str(image_filepath)))
+            image, significant_bits = image_utils.load_pixels(
+                image_filepath, collapse_legacy_false_color=False
+            )
+            orig_images.append(image)
+            input_depths.append(significant_bits)
+        output_depth = image_utils.resolve_output_depth(input_depths)
 
         try:
             # If working with color images, split the list of color images
@@ -229,6 +238,7 @@ class ZProjector(ProtocolPostProcessor):
         metadata = image_utils.build_postproc_output_metadata(
             input_path=first_slice_path,
             channel=first_slice_row['Color'],
+            significant_bits=output_depth,
         )
         image_utils.write_tiff(
             data=result['image'],
@@ -236,8 +246,11 @@ class ZProjector(ProtocolPostProcessor):
             metadata=metadata,
             ome=False,
             color=first_slice_row['Color'],
+            significant_bits=metadata['significant_bits'],
+            save_encoding=image_utils.resolve_output_save_encoding(result['image']),
         )
 
         del result['image']
+        result['significant_bits'] = output_depth
 
         return result

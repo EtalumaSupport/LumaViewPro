@@ -110,6 +110,14 @@ class ScopeSession:
             import modules.lumascope_api as lumascope_api
 
             scope = lumascope_api.Lumascope()
+            # connect() leaves the camera configured but NOT grabbing (the
+            # camera-lifecycle start gate). The GUI releases the gate in its
+            # own bring-up; for a scope THIS session constructed there is no
+            # other bring-up, so release it here or headless captures time
+            # out forever. Scopes passed in by a caller are that caller's
+            # bring-up responsibility (already released, or deliberately
+            # stopped -- either way not ours to restart).
+            scope.imaging.start_streaming()
 
         executor_bundle = None
         if io_executor is None and camera_executor is None:
@@ -172,9 +180,9 @@ class ScopeSession:
             notifications.warning(
                 'Configuration',
                 'Wellplate loader unavailable',
-                f'Labware configuration could not load: {type(e).__name__}: {e}. '
-                f'Plate-based UI (tile plans, well picker) will not work. '
-                f'Check that data/labware.json exists and is valid.',
+                'Labware configuration could not load. '
+                'Plate-based UI (tile plans, well picker) will not work. '
+                'Check that data/labware.json exists and is valid.',
             )
 
         try:
@@ -188,8 +196,8 @@ class ScopeSession:
             notifications.warning(
                 'Configuration',
                 'Coordinate transformer unavailable',
-                f'Coordinate transformer could not load: {type(e).__name__}: {e}. '
-                f'Stage coordinate conversion (plate <-> stage) will not work.',
+                'Coordinate transformer could not load. '
+                'Stage coordinate conversion (plate <-> stage) will not work.',
             )
 
         try:
@@ -201,9 +209,9 @@ class ScopeSession:
             notifications.warning(
                 'Configuration',
                 'Objective helper unavailable',
-                f'Objective configuration could not load: {type(e).__name__}: {e}. '
-                f'Objective selection and lookup will not work. '
-                f'Check that data/objectives.json exists and is valid.',
+                'Objective configuration could not load. '
+                'Objective selection and lookup will not work. '
+                'Check that data/objectives.json exists and is valid.',
             )
 
         return cls(
@@ -258,6 +266,11 @@ class ScopeSession:
                     settings = {}
 
         scope = lumascope_api.Lumascope(simulate=True)
+        # Release the camera start gate: connect() leaves the sim camera
+        # configured but NOT grabbing, and this factory is the whole
+        # bring-up for the simulated session -- without the release every
+        # capture would time out.
+        scope.imaging.start_streaming()
 
         executor_bundle = create_default(ui_dispatcher=None)
 

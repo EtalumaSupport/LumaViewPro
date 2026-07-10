@@ -13,10 +13,10 @@ import pathlib
 
 import psutil
 
-from lvp_logger import logger, metrics_logger
 import modules.common_utils as common_utils
+import modules.image_mode as image_mode
+from lvp_logger import logger, metrics_logger
 from modules.exceptions import ConfigError
-
 
 # ---------------------------------------------------------------------------
 # Protocol / Step helpers
@@ -116,6 +116,25 @@ def get_auto_gain_settings(settings: dict) -> dict:
     return autogain_settings
 
 
+def get_sequenced_run_settings(settings: dict) -> dict:
+    """Resolve the settings-derived kwargs a sequenced-capture run forwards.
+
+    The single source for the run-parameters a protocol scan reads from the
+    user settings, spread into SequencedCaptureRunner.run() at every call site.
+    Both the GUI scan path and the API protocol path build the run kwargs, and
+    each forwarding a separate hand-picked subset is how they drift: a key
+    present on one path but missing on the other silently changes hardware
+    behavior (LED hold, output layout) for whichever path forgot it. Routing
+    both through here makes the per-path subset one definition, so adding a new
+    run-param cannot reach the runner on only one path.
+    """
+    return {
+        'keep_led_between_steps': settings.get('keep_led_between_steps', False),
+        'video_as_frames': settings.get('video_as_frames', False),
+        'separate_folder_per_channel': settings.get('separate_folder_per_channel', False),
+    }
+
+
 def get_manual_video_max_duration(settings: dict) -> float:
     """Return the manual-video max recording duration in seconds.
 
@@ -194,7 +213,7 @@ def get_current_plate_position(
         notifications.warning(
             'Position',
             'Labware not found',
-            f"Labware '{labware_id}' could not be loaded: {type(e).__name__}: {e}. "
+            f"Labware '{labware_id}' could not be loaded. "
             f'Returning stage coordinates instead of plate coordinates. '
             f'Check that the labware is defined in data/labware.json.',
         )
@@ -746,6 +765,33 @@ DEFAULT_AG_AE_MAX_EXPOSURE_MS = {
 DEFAULT_MAX_GAIN_DB = 48.0
 
 
+def _camera_cap_for_ui(value: float | None, default: float) -> float:
+    """A live camera cap, or the no-camera default.
+
+    camera_max_* return None by design when no camera is connected (so callers
+    can tell "missing" from a real value; #616); this applies the documented
+    UI fallback in one place for both the exposure and gain resolvers.
+    """
+    if value is not None:
+        return value
+    return default
+
+
+def camera_max_exposure_for_ui(imaging) -> float:
+    """The exposure-slider upper bound from the live camera, or the no-camera
+    default. The single UI-facing resolver, so the connect (load_settings) and
+    reconnect paths can't apply the fallback differently.
+    """
+    return _camera_cap_for_ui(imaging.camera_max_exposure, DEFAULT_MAX_EXPOSURE_MS)
+
+
+def camera_max_gain_for_ui(imaging) -> float:
+    """The gain-slider upper bound from the live camera, or the no-camera
+    default. Parallel to camera_max_exposure_for_ui.
+    """
+    return _camera_cap_for_ui(imaging.camera_max_gain, DEFAULT_MAX_GAIN_DB)
+
+
 def get_binning_from_settings(settings: dict) -> int:
     """Read binning size from settings dict (no UI needed)."""
     try:
@@ -809,18 +855,22 @@ def get_protocol_time_params_from_settings(settings: dict) -> dict:
     }
 
 
-def get_image_capture_config_from_settings(settings: dict) -> dict:
-    """Read image capture config from settings dict (no UI needed)."""
+def get_image_capture_config_from_settings(settings: dict) -> image_mode.ImageCaptureConfig:
+    """Read image capture config from settings dict (no UI needed).
+
+    Resolves the consolidated image_mode (and its capture_depth /
+    save_encoding). The explicit ``image_mode`` key is authoritative; absent
+    it, the mode is derived from the legacy keys for installs saved before the
+    consolidated key existed.
+    """
     output_format = settings.get('image_output_format', {})
-    return {
-        'output_format': {
-            'live': output_format.get('live', 'TIFF'),
-            'sequenced': output_format.get('sequenced', 'TIFF'),
-        },
-        'use_full_pixel_depth': settings.get('use_full_pixel_depth', False),
-        'false_color_16bit': settings.get('false_color_16bit', False),
-        'jpg_quality': int(settings.get('jpg_quality', 90)),
-    }
+    mode = image_mode.resolve_settings_image_mode(settings)
+    return image_mode.ImageCaptureConfig.from_image_mode(
+        mode,
+        output_format_live=output_format.get('live', 'TIFF'),
+        output_format_sequenced=output_format.get('sequenced', 'TIFF'),
+        jpg_quality=settings.get('jpg_quality', 90),
+    )
 
 
 DEFAULT_LABWARE_ID = '96 well microplate'

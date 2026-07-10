@@ -14,7 +14,8 @@ from typing import TYPE_CHECKING
 
 from lvp_logger import logger
 
-from modules.common_utils import check_disk_space_ok
+from modules.common_utils import check_disk_space_ok, estimate_step_write_mb
+from modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
 from modules.protocol_state_machine import ProtocolState
 
 if TYPE_CHECKING:
@@ -23,8 +24,6 @@ if TYPE_CHECKING:
 from modules.kivy_utils import schedule_ui as _schedule_ui
 
 # --- Disk-space estimation constants ---
-ESTIMATED_VIDEO_STEP_MB = 50  # MP4 compressed, ~10-50 MB typical
-ESTIMATED_IMAGE_STEP_MB = 8  # 1900x1900 16-bit TIFF ~7.2 MB + metadata
 MIN_REQUIRED_DISK_MB = 2048  # Minimum free disk space to start a scan (2 GB)
 
 # --- Hardware health check ---
@@ -59,8 +58,52 @@ class ProtocolRunLoop:
             # protocol state is reset, and resources are released even if an
             # unhandled exception occurs.  _cleanup() is idempotent (guarded
             # by _cleanup_lock and _run_in_progress check) so duplicate calls
-            # from the normal path are harmless.
-            self._p._cleanup()
+            # from the normal path are harmless -- the inner loop's own
+            # cleanup already ran with its true status and this no-ops, so
+            # 'failed' only ever reaches subscribers for a crashed loop.
+            self._p._cleanup(run_status='failed')
+
+    def _inter_scan_wait_follows(self) -> bool:
+        """Whether the run is about to enter an inter-scan period wait.
+
+        The shared skip condition for the idle-entry actions (LED darkening,
+        stage pre-positioning): false after the final scan (no idle follows;
+        the run-end transition owns that end state) and on abort (teardown
+        owns it). One predicate so the two idle-entry behaviors cannot
+        diverge.
+        """
+        p = self._p
+        return p.remaining_scans() > 0 and not p._aborted.is_set()
+
+    def _enter_inter_scan_idle(self):
+        """Guarantee the sample is dark before the inter-scan period wait.
+
+        The dark-idle guarantee lives HERE, at the one owner of the idle,
+        rather than on the step machinery's success path: any path into the
+        wait -- a normal scan end, a final-step write drop that skipped the
+        step-boundary decision, or a mid-scan exception riding the
+        transient retry -- passes through this epilogue, so no new early
+        return or exception path in the step flow can leave a channel lit
+        on the sample for a full period. The authority's diff makes it a
+        no-op on a scan that already went dark (no blink, no extra serial
+        traffic).
+
+        A raise from the apply is contained here by design, not propagated:
+        one call site is the transient-retry branch, where a propagated
+        raise would escalate a single failed off-command into aborting a
+        healthy multi-day timelapse -- the opposite of the ride-out-a-blip
+        contract that branch implements. The failure is not silent: it is
+        logged at error level, the LED driver's own command-failure path
+        fires the user-facing sample-safety notification, and the channel
+        is re-asserted exclusive by the next scan's step illumination.
+        """
+        p = self._p
+        if not self._inter_scan_wait_follows():
+            return
+        try:
+            p._step_executor.apply_led_transition(LedTransition.SCAN_IDLE, LedTransitionCtx())
+        except Exception as ex:
+            logger.error(f'[PROTOCOL] Scan-idle LED-off failed entering the idle wait: {ex}')
 
     def _return_to_first_step_between_scans(self):
         """Pre-position the stage at the first step during the inter-scan wait.
@@ -73,7 +116,7 @@ class ProtocolRunLoop:
         is left where the last scan ended.
         """
         p = self._p
-        if p.remaining_scans() <= 0 or p._aborted.is_set():
+        if not self._inter_scan_wait_follows():
             return
         try:
             first_step = p._protocol.step(idx=0)
@@ -87,6 +130,15 @@ class ProtocolRunLoop:
         last_connection_check = time.monotonic()
 
         consecutive_scan_failures = 0
+
+        # The per-step write estimate is a per-run invariant -- the protocol
+        # steps and the video_as_frames mode do not change mid-run -- so compute
+        # the required free space once on the first scan that checks and reuse
+        # it, instead of re-walking every step on each scan's disk check. Stays
+        # None (and unevaluated) until a scan with an output dir actually needs
+        # it.
+        run_required_mb = None
+        num_steps = 0
 
         while p._run_in_progress_event.is_set() and not p._aborted.is_set():
             try:
@@ -111,7 +163,7 @@ class ProtocolRunLoop:
                         'failure. Review the log for the cause, then restart '
                         'the scan.',
                     )
-                    p._cleanup()
+                    p._cleanup(run_status='failed')
                     break
 
                 # Periodic hardware connection check (every 30 seconds)
@@ -132,7 +184,7 @@ class ProtocolRunLoop:
                             )
                             if p._state not in (ProtocolState.COMPLETING, ProtocolState.IDLE):
                                 p._set_state(ProtocolState.ERROR)
-                            p._cleanup()
+                            p._cleanup(run_status='failed')
                             break
                     except Exception as ex:
                         logger.warning(f'[PROTOCOL] Connection check failed: {ex}')
@@ -140,16 +192,18 @@ class ProtocolRunLoop:
                 # Check if we've completed all scans
                 remaining_scans = p.remaining_scans()
                 if remaining_scans <= 0:
-                    p._cleanup()
+                    p._cleanup(run_status='completed')
                     break
 
                 # Check if enough time has elapsed for the next scan
                 # Skip this check for the first scan (scan_count == 0)
                 if p._scan_count > 0:
-                    current_time = datetime.datetime.now()
+                    # Monotonic pacing (see _start_t init): elapsed and period
+                    # are both in seconds, immune to wall-clock jumps.
+                    current_time = time.monotonic()
                     elapsed_time = current_time - p._start_t
 
-                    if elapsed_time < p._protocol.period():
+                    if elapsed_time < p._protocol.period().total_seconds():
                         time.sleep(0.1)
                         continue
 
@@ -163,31 +217,32 @@ class ProtocolRunLoop:
                         )
                     )
 
-                # Initialize scan variables
-                p._curr_step = 0
-                # Reset the AF state pointer so the first step's
-                # kick-off check sees None.
-                p._af_future = None
+                # Initialize per-scan state (curr_step, AF pointer).
+                p._reset_scan_state()
                 if p._callbacks.run_scan_pre:
                     _schedule_ui(lambda dt: p._callbacks.run_scan_pre(), 0)
 
-                # Check disk space once per scan
+                # Check disk space once per scan, against the per-run estimate
+                # summed once on the first check and reused thereafter.
                 try:
                     if p._parent_dir is not None:
-                        estimated_mb = 0
-                        num_steps = p._protocol.num_steps()
-                        for i in range(num_steps):
-                            step = p._protocol.step(idx=i)
-                            if step.get('Acquire') == 'video':
-                                estimated_mb += ESTIMATED_VIDEO_STEP_MB
-                            else:
-                                estimated_mb += ESTIMATED_IMAGE_STEP_MB
-                        required_mb = max(MIN_REQUIRED_DISK_MB, estimated_mb)
-                        ok, free_mb = check_disk_space_ok(p._parent_dir, required_mb)
+                        if run_required_mb is None:
+                            num_steps = p._protocol.num_steps()
+                            run_required_mb = max(
+                                MIN_REQUIRED_DISK_MB,
+                                sum(
+                                    estimate_step_write_mb(
+                                        p._protocol.step(idx=i),
+                                        video_as_frames=p._video_as_frames,
+                                    )
+                                    for i in range(num_steps)
+                                ),
+                            )
+                        ok, free_mb = check_disk_space_ok(p._parent_dir, run_required_mb)
                         if not ok:
                             msg = (
                                 f'Insufficient disk space: {free_mb:.0f} MB free, '
-                                f'need ~{required_mb:.0f} MB for {num_steps} steps.'
+                                f'need ~{run_required_mb:.0f} MB for {num_steps} steps.'
                             )
                             logger.error(f'[PROTOCOL] {msg} -- aborting protocol')
                             from modules.notification_center import notifications
@@ -227,9 +282,8 @@ class ProtocolRunLoop:
                     f'Protocol scan {p._scan_count} completed in {scan_duration.total_seconds():.2f} seconds'
                 )
 
-                with p._protocol_state_lock:
-                    p._scan_count += 1
-                logger.debug(f'[{p.LOGGER_NAME}] Scan {p._scan_count}/{p._n_scans} completed')
+                new_count = p.advance_scan_count()
+                logger.debug(f'[{p.LOGGER_NAME}] Scan {new_count}/{p._n_scans} completed')
 
                 if p._callbacks.scan_iterate_post:
                     _schedule_ui(lambda dt: p._callbacks.scan_iterate_post(), 0)
@@ -238,6 +292,9 @@ class ProtocolRunLoop:
                 if p._state == ProtocolState.SCANNING:
                     p._set_state(ProtocolState.RUNNING)
 
+                # Dark before (and during) the pre-positioning move and the
+                # period wait -- one of the two entries into the idle.
+                self._enter_inter_scan_idle()
                 self._return_to_first_step_between_scans()
                 consecutive_scan_failures = 0
 
@@ -252,6 +309,12 @@ class ProtocolRunLoop:
                 # out. The 30s periodic are_all_connected() check
                 # earlier in this loop covers between-scan
                 # disconnects; this branch covers during-scan ones.
+                # Handle-state check only (cached connected flags), NOT a
+                # liveness round-trip: a camera whose handle is valid but whose
+                # grab has died reads connected=True and so classifies as
+                # transient. The consecutive-failure cap below bounds that case;
+                # a true liveness probe (a hardware round-trip) is deferred --
+                # it needs bench validation before it can change classification.
                 try:
                     connected = p._scope.are_all_connected()
                 except Exception:
@@ -283,16 +346,19 @@ class ProtocolRunLoop:
                             p._set_state(ProtocolState.ERROR)
                         except ValueError:
                             pass
-                    p._cleanup()
+                    # run_status is a required argument of _cleanup; this
+                    # site is the mid-scan hardware-disconnect abort, so the
+                    # terminal outcome it reports is a failure.
+                    p._cleanup(run_status='failed')
                     break
 
                 # Transient: log warning, do NOT increment scan_count,
                 # do NOT break. The outer while loop's next iteration
                 # waits the protocol period and re-runs the scan.
                 logger.warning(
-                    f'[Protocol] Transient scan failure (hardware '
-                    f'still connected); will retry on next period: '
-                    f'{ex}',
+                    f'[Protocol] Scan failure with hardware handles still '
+                    f'present (handle-state check, not a confirmed liveness '
+                    f'probe); retrying on next period: {ex}',
                     exc_info=True,
                 )
                 p._scan_in_progress.clear()
@@ -318,8 +384,20 @@ class ProtocolRunLoop:
                         'in a row. Check hardware connections and the log '
                         'for the cause, then restart the scan.',
                     )
-                    p._cleanup()
+                    p._cleanup(run_status='failed')
                     break
 
-        # Ensure cleanup runs when exiting the while loop
-        p._cleanup()
+                # The failed scan may have died with a channel lit (an
+                # exception between the step's illuminate and its boundary
+                # decision) -- the other entry into the idle. Dark before
+                # the period wait, or the sample stays lit for the full
+                # period per retry. After the strike escalation above, so
+                # the final strike goes straight to cleanup's run-end
+                # decision without an extra darken that the restore-original
+                # end state would immediately reverse (an off-then-on blink).
+                self._enter_inter_scan_idle()
+
+        # Ensure cleanup runs when exiting the while loop. The while
+        # condition goes false on an abort (aborted set) or when the run
+        # flag cleared; name which one so subscribers see the truth.
+        p._cleanup(run_status='aborted' if p._aborted.is_set() else 'completed')

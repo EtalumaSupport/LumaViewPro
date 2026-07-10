@@ -22,6 +22,7 @@ import pathlib
 from typing import ClassVar
 
 import modules.binning as binning
+from drivers.camera_profiles import lookup_profile
 from drivers.simulated_camera import SimulatedCamera
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -155,6 +156,84 @@ class TestBinningRoundTrip:
         assert binning.native_to_displayed(native, 1, align) == start
         assert binning.native_to_displayed(native, 2, align) == {'width': 960, 'height': 600}
         assert binning.native_to_displayed(native, 4, align) == {'width': 480, 'height': 300}
+
+
+# The deliverable frame-size granularity the UI floors to before handing the
+# size to the camera. For the IDS driver (oversize-then-crop) it is even (2x2);
+# a floor-only driver reports its real camera grid. The UI must source it from
+# imaging.get_pixel_alignment() (per-driver), NOT a hardcoded grid -- a hardcoded
+# even-only floor would make Pylon/FX2/sim display/persist a size larger than the
+# hardware actually delivers.
+IDS_DELIVERABLE_ALIGN = {'width': 2, 'height': 2}
+
+
+class TestDeliverableAlignmentFloor:
+    """The UI floors the requested frame size to the active driver's DELIVERABLE
+    granularity. The IDS driver crops back to the exact request, so its
+    granularity is even (2x2) and a 1900 frame stays 1900 (not the old 1872, nor
+    the off-grid 948 at 2x). A floor-only driver keeps its real grid so the saved
+    size still matches what it delivers.
+    """
+
+    def test_ids_profile_reports_even_deliverable_granularity(self):
+        # The IDS driver crops to exact, so get_pixel_alignment (which returns
+        # profile.alignment) reports even -- the only constraint is even dims.
+        assert lookup_profile('U3-34Lx').alignment == IDS_DELIVERABLE_ALIGN
+
+    def test_floor_only_driver_keeps_real_camera_grid(self):
+        # A non-cropping driver must still report its true grid here, or the UI
+        # would persist a size it cannot deliver (the regression this guards).
+        assert lookup_profile('SimulatedCamera').alignment != IDS_DELIVERABLE_ALIGN
+
+    def test_even_floor_preserves_offgrid_width(self):
+        # 1900 is off the 48-px camera grid but even; flooring to the IDS
+        # deliverable granularity leaves it 1900 (the driver crops to it).
+        disp = binning.native_to_displayed(
+            {'width': 1900, 'height': 1900}, 1, IDS_DELIVERABLE_ALIGN
+        )
+        assert disp == {'width': 1900, 'height': 1900}
+        assert disp['width'] != 1872  # the old camera-grid floor
+
+    def test_even_floor_floors_odd_to_even(self):
+        # H.264 yuv420p still needs even dims; an odd native floors to even.
+        disp = binning.native_to_displayed(
+            {'width': 1901, 'height': 1903}, 1, IDS_DELIVERABLE_ALIGN
+        )
+        assert disp == {'width': 1900, 'height': 1902}
+
+    def test_even_floor_2x_avoids_offgrid_948(self):
+        # native height 1900 / 2 = 950. The old camera-grid floor (multiple of 4)
+        # produced the off-grid 948 the SDK rejects; even-floor leaves 950.
+        disp = binning.native_to_displayed(
+            {'width': 1900, 'height': 1900}, 2, IDS_DELIVERABLE_ALIGN
+        )
+        assert disp['height'] == 950
+        assert disp['height'] != 948
+
+    def test_ui_callers_source_alignment_from_driver_not_hardcoded(self):
+        # Pin the fix at the call site: both frame-size paths must floor to the
+        # ACTIVE driver's deliverable granularity via imaging.get_pixel_alignment(),
+        # not a hardcoded grid -- else a non-cropping driver persists an
+        # undeliverable size (the reviewed regression).
+        for name in ('frame_size', 'select_binning_size'):
+            method = _method_node(REPO_ROOT / 'ui' / 'microscope_settings.py', name)
+            calls = [
+                n
+                for n in ast.walk(method)
+                if isinstance(n, ast.Call)
+                and isinstance(n.func, ast.Attribute)
+                and n.func.attr == 'native_to_displayed'
+            ]
+            assert calls, f'{name} must derive the displayed size via native_to_displayed'
+            for call in calls:
+                assert len(call.args) >= 3, (
+                    f'{name}: native_to_displayed must receive an explicit alignment arg'
+                )
+                align_src = ast.dump(call.args[2])
+                assert 'get_pixel_alignment' in align_src, (
+                    f'{name} must floor to imaging.get_pixel_alignment() (per-driver), '
+                    f'not a hardcoded alignment'
+                )
 
 
 class TestSimPostBinningContract:

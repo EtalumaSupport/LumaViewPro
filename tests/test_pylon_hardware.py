@@ -31,6 +31,7 @@ from drivers.pyloncamera import PylonCamera
 class TestPylon(unittest.TestCase):
     def setUp(self):
         self.camera = PylonCamera()
+        self.camera.open_and_start()
 
     def tearDown(self):
         self.camera.disconnect()

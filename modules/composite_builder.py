@@ -9,6 +9,8 @@ capture path and the post-capture composite generation path.
 
 import numpy as np
 
+import modules.image_utils as image_utils
+
 # Canonical RGB color mapping -- single source of truth for channel-to-RGB index.
 # Index 0 = Red, 1 = Green, 2 = Blue (standard RGB ordering).
 # Callers using BGR (OpenCV) must convert at their boundaries.
@@ -45,6 +47,14 @@ def build_composite(
     """
     if brightness_thresholds is None:
         brightness_thresholds = {}
+
+    # Every channel (and the transmitted base) must share one canvas before they
+    # can be blended into RGB; a per-layer stitch divergence otherwise surfaces
+    # as a cryptic numpy broadcast error mid-blend.
+    labeled = list(channel_images.items())
+    if transmitted_image is not None:
+        labeled.append(('transmitted', transmitted_image))
+    image_utils.require_uniform_geometry(labeled, operation='composite this tile-group')
 
     # Determine image dimensions from first available image
     if transmitted_image is not None:

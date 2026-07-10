@@ -4,7 +4,17 @@ import time
 import numpy as np
 import pytest
 
-from modules.video_capture import StimulationController, VideoCaptureSession
+from modules.video_capture import (
+    STIM_END_CAPTURE_FAULT,
+    STIM_END_EMPTY_SCHEDULE,
+    STIM_END_INCOMPLETE,
+    STIM_END_JOIN_TIMEOUT,
+    STIM_END_SCHEDULE_COMPLETE,
+    STIM_END_STOP_EVENT_SET,
+    _CLEAN_STIM_END_REASONS,
+    StimulationController,
+    VideoCaptureSession,
+)
 
 
 class FakeFrameValidity:
@@ -432,7 +442,7 @@ def test_stim_edge_not_refused_while_protocol_owns_lease():
 
     scope = Lumascope(simulate=True)
     scope._led_driver.set_timing_mode('fast')
-    scope.illumination.acquire_led_lease('protocol')
+    scope.illumination.acquire_led_lease('protocol', alive=lambda: True)
 
     stim_configs = {
         'Blue': {
@@ -451,3 +461,385 @@ def test_stim_edge_not_refused_while_protocol_owns_lease():
         StimEdge(target_offset_s=0.0, action='on', channel=ch, mA=50.0, color='Blue')
     )
     assert scope.illumination.led_enabled('Blue'), 'stim pulse was refused under the protocol lease'
+
+
+def _one_frame_result(stim_end_reason):
+    import datetime
+    import queue as _queue
+
+    from modules.video_capture import VideoCaptureResult
+
+    frames = _queue.Queue()
+    frames.put((np.zeros((4, 4), dtype=np.uint8), datetime.datetime.now()))
+    return VideoCaptureResult(
+        captured_frames=1,
+        calculated_fps=1,
+        video_images=frames,
+        duration_sec=1.0,
+        stim_end_reason=stim_end_reason,
+    )
+
+
+def test_failed_stim_writes_status_sidecar(tmp_path):
+    """A stim schedule that ended on a dispatch fault must leave a stim-status
+    sidecar next to the saved recording, so the incomplete stimulation is on disk
+    rather than the run looking like a normal stim recording."""
+    from modules.video_capture import write_video
+
+    write_video(
+        result=_one_frame_result('dispatch_error'),
+        save_folder=tmp_path,
+        name='rec',
+        video_as_frames=True,
+        step={'Color': 'Blue', 'False_Color': False},
+        callbacks={},
+        save_encoding='8bit',
+        capture_depth=8,
+    )
+    sidecar = tmp_path / 'rec_stim_status.txt'
+    assert sidecar.exists(), 'a failed stim run must leave a status sidecar'
+    assert 'dispatch_error' in sidecar.read_text()
+
+
+def test_clean_and_intentional_stim_runs_write_no_sidecar(tmp_path):
+    from modules.video_capture import write_video
+
+    for reason in ('schedule_complete', 'stop_event_set', 'stop_event_set_before_start', None):
+        write_video(
+            result=_one_frame_result(reason),
+            save_folder=tmp_path,
+            name=f'rec_{reason}',
+            video_as_frames=True,
+            step={'Color': 'Blue', 'False_Color': False},
+            callbacks={},
+            save_encoding='8bit',
+            capture_depth=8,
+        )
+        assert not (tmp_path / f'rec_{reason}_stim_status.txt').exists(), (
+            f'end_reason={reason!r} is clean/intentional and must not write a sidecar'
+        )
+
+
+def test_dropped_frames_are_logged_not_a_modal(tmp_path, monkeypatch):
+    """Dropped frames during a protocol video are logged, never a modal:
+    write_video runs only on the protocol path, and an unattended protocol must
+    not pop a non-fatal dialog."""
+    import modules.notification_center as nc
+    import modules.video_capture as vc
+    from modules.video_capture import write_video
+
+    result = _one_frame_result('schedule_complete')
+    result.dropped_frames = 3
+
+    notified = []
+    monkeypatch.setattr(nc.notifications, 'warning', lambda *a, **k: notified.append(a))
+    warnings = []
+    monkeypatch.setattr(vc.logger, 'warning', lambda msg, *a, **k: warnings.append(str(msg)))
+
+    write_video(
+        result=result,
+        save_folder=tmp_path,
+        name='rec',
+        video_as_frames=True,
+        step={'Color': 'Blue', 'False_Color': False},
+        callbacks={},
+        save_encoding='8bit',
+        capture_depth=8,
+    )
+    assert not notified, 'dropped frames must not pop a modal during a protocol'
+    assert any('dropped' in w for w in warnings), 'the dropped-frame count must be logged'
+
+
+# --- Incomplete-stim classification: the clean state must be earned, not the
+# default. Each test below drives one way a schedule can fail to finish and
+# asserts it does NOT classify clean. They fail on the prior code, where
+# _end_reason defaulted to 'schedule_complete' and was only republished by
+# run()'s finally -- so an early return, a wedged thread, a zero-frame
+# recording, or a camera-fault stop all read clean and wrote no sidecar.
+
+
+def _stim_step(duration_sec):
+    """A one-channel video step with stim enabled, for capture()-driven tests."""
+    return {
+        'Exposure': 10,
+        'Auto_Gain': False,
+        'Video Config': {'duration': duration_sec},
+        'Color': 'Red',
+        'False_Color': False,
+        'Stim_Config': {
+            'Red': {
+                'enabled': True,
+                'illumination': 100,
+                'frequency': 5.0,
+                'pulse_width': 20,
+                'pulse_count': 5,
+            },
+        },
+    }
+
+
+def test_empty_schedule_classifies_incomplete_not_clean():
+    """Face: an enabled stim that builds zero edges (misconfigured pulse_count)
+    returns before run()'s try/finally. It delivers no pulses, so it must not be
+    read as a clean schedule_complete."""
+    scheduler = StimulationController(
+        FakeScope(),
+        {
+            'Red': {
+                'enabled': True,
+                'illumination': 100,
+                'frequency': 5.0,
+                'pulse_width': 20,
+                'pulse_count': 0,  # builds no edges
+            }
+        },
+    )
+    assert scheduler._edges == []
+
+    scheduler.run(threading.Event(), threading.Event())
+
+    assert scheduler._end_reason == STIM_END_EMPTY_SCHEDULE
+    assert scheduler._end_reason not in _CLEAN_STIM_END_REASONS
+
+
+def test_camera_fault_stop_classifies_incomplete_not_clean():
+    """Face: a camera disconnect stops the schedule via the same stop_event an
+    intentional stop uses. The fault is threaded through so the truncated
+    schedule classifies incomplete instead of a clean stop_event_set."""
+    scope = FakeScope()
+    scheduler = StimulationController(
+        scope,
+        {
+            'Red': {
+                'enabled': True,
+                'illumination': 100,
+                'frequency': 100.0,
+                'pulse_width': 2,
+                'pulse_count': 200,  # long enough to still be running at stop
+            }
+        },
+    )
+
+    start_event = threading.Event()
+    stop_event = threading.Event()
+    fault_event = threading.Event()
+    thread = threading.Thread(target=scheduler.run, args=(start_event, stop_event, fault_event))
+    thread.start()
+    start_event.set()
+    time.sleep(0.02)
+    # Order mirrors capture(): mark the fault, then trip the shared stop.
+    fault_event.set()
+    stop_event.set()
+    thread.join(timeout=2.0)
+
+    assert not thread.is_alive()
+    assert scheduler._end_reason == STIM_END_CAPTURE_FAULT
+    assert scheduler._end_reason not in _CLEAN_STIM_END_REASONS
+
+
+def test_normal_stop_without_fault_stays_clean():
+    """Guard for the disambiguation: a stop with no fault (short video / cancel)
+    stays clean, so the fault path does not over-flag intentional stops."""
+    scope = FakeScope()
+    scheduler = StimulationController(
+        scope,
+        {
+            'Red': {
+                'enabled': True,
+                'illumination': 100,
+                'frequency': 100.0,
+                'pulse_width': 2,
+                'pulse_count': 200,
+            }
+        },
+    )
+
+    start_event = threading.Event()
+    stop_event = threading.Event()
+    fault_event = threading.Event()
+    thread = threading.Thread(target=scheduler.run, args=(start_event, stop_event, fault_event))
+    thread.start()
+    start_event.set()
+    time.sleep(0.02)
+    stop_event.set()  # no fault
+    thread.join(timeout=2.0)
+
+    assert scheduler._end_reason == STIM_END_STOP_EVENT_SET
+    assert scheduler._end_reason in _CLEAN_STIM_END_REASONS
+
+
+def test_join_timeout_marks_wedged_stim_incomplete(monkeypatch):
+    """Face: stim_thread.join can return with the thread still alive (a wedged
+    dispatch). run()'s finally never ran, so the reason must be forced to a
+    join-timeout marker rather than left at the clean default."""
+
+    class WedgedThread:
+        def __init__(self, target, name, args, daemon=False):
+            self.target = target
+            self.name = name
+            self.args = args
+            self.daemon = daemon
+
+        def start(self):
+            pass  # never runs run(): _end_reason stays the constructor default
+
+        def join(self, timeout=None):
+            pass  # returns without the thread having exited
+
+        def is_alive(self):
+            return True
+
+    monkeypatch.setattr('modules.video_capture.threading.Thread', WedgedThread)
+
+    session = VideoCaptureSession(
+        scope=FakeScope(),
+        step=_stim_step(0.03),
+        autogain_settings={},
+        is_protocol_running_fn=lambda: True,
+        callbacks={},
+        leds_off_fn=lambda: None,
+    )
+    result = session.capture()
+
+    assert result is not None
+    assert result.stim_end_reason == STIM_END_JOIN_TIMEOUT
+    assert result.stim_end_reason not in _CLEAN_STIM_END_REASONS
+
+
+def test_zero_frame_capture_with_incomplete_stim_writes_sidecar(tmp_path, monkeypatch):
+    """Face: a recording that captures zero frames returns before write_video, so
+    the sidecar must be written from the capture path. An incomplete stim under a
+    frame-less recording still dosed the sample wrong and must not be silent."""
+
+    class IdleThread:
+        def __init__(self, target, name, args, daemon=False):
+            self.target = target
+            self.name = name
+            self.args = args
+            self.daemon = daemon
+
+        def start(self):
+            pass  # never runs run(): _end_reason stays the INCOMPLETE default
+
+        def join(self, timeout=None):
+            pass
+
+        def is_alive(self):
+            return False
+
+    monkeypatch.setattr('modules.video_capture.threading.Thread', IdleThread)
+
+    class DisconnectedScope(FakeScope):
+        def get_image(self, force_to_8bit=True, force_new_capture=False):
+            # Non-array => camera disconnected => capture loop breaks with zero
+            # frames captured.
+            return None
+
+    session = VideoCaptureSession(
+        scope=DisconnectedScope(),
+        step=_stim_step(0.5),
+        autogain_settings={},
+        is_protocol_running_fn=lambda: True,
+        callbacks={},
+        leds_off_fn=lambda: None,
+        save_folder=tmp_path,
+        name='rec',
+    )
+    result = session.capture()
+
+    assert result is None  # zero frames -> no video result
+    sidecar = tmp_path / 'rec_stim_status.txt'
+    assert sidecar.exists(), 'a frame-less recording with an incomplete stim must leave a sidecar'
+
+
+class _LateFinallyScheduler(StimulationController):
+    """Simulates the scheduler thread's finally running LATE.
+
+    The capture thread, on a join timeout, classifies the recording JOIN_TIMEOUT.
+    The real risk is that the wedged thread then unwedges and its finally
+    publishes a clean reason onto the shared _end_reason field BEFORE the capture
+    thread reads its result. This subclass reproduces that exact clobber: the
+    moment a JOIN_TIMEOUT is written to the field, it overwrites it with a clean
+    reason, as the late finally would. The hardened capture path must not read
+    this back -- it owns the decision in a local.
+    """
+
+    @property
+    def _end_reason(self):
+        return self.__dict__.get('_end_reason_value', STIM_END_INCOMPLETE)
+
+    @_end_reason.setter
+    def _end_reason(self, value):
+        if value == STIM_END_JOIN_TIMEOUT:
+            # The late finally wins the race and stamps the field clean.
+            self.__dict__['_end_reason_value'] = STIM_END_SCHEDULE_COMPLETE
+        else:
+            self.__dict__['_end_reason_value'] = value
+
+
+def test_late_scheduler_finally_cannot_clobber_join_timeout(tmp_path, monkeypatch):
+    """Race guard: a join-timeout classification owns the recording even if the
+    wedged scheduler thread's finally runs late and publishes a clean reason.
+
+    On the unhardened code the capture thread forced JOIN_TIMEOUT onto the shared
+    field, then re-read that field for the result -- so a late finally that
+    overwrote it with schedule_complete flipped the recording to clean and wrote
+    no sidecar, hiding an under-dosed sample. The capture thread must snapshot the
+    join-timeout decision into a local and never re-read the cross-thread field.
+    """
+    from modules.video_capture import write_video
+
+    class WedgedThread:
+        def __init__(self, target, name, args, daemon=False):
+            self.target = target
+            self.name = name
+            self.args = args
+            self.daemon = daemon
+
+        def start(self):
+            pass  # never runs run(): _end_reason stays the constructor default
+
+        def join(self, timeout=None):
+            pass  # returns without the thread having exited
+
+        def is_alive(self):
+            return True
+
+    monkeypatch.setattr('modules.video_capture.threading.Thread', WedgedThread)
+    # The session builds the scheduler internally; swap in the late-clobber
+    # variant so any write of JOIN_TIMEOUT to the shared field is overwritten
+    # clean, exactly as a late finally on the real thread would.
+    monkeypatch.setattr('modules.video_capture.StimulationController', _LateFinallyScheduler)
+
+    session = VideoCaptureSession(
+        scope=FakeScope(),
+        step=_stim_step(0.03),
+        autogain_settings={},
+        is_protocol_running_fn=lambda: True,
+        callbacks={},
+        leds_off_fn=lambda: None,
+        save_folder=tmp_path,
+        name='rec',
+    )
+    result = session.capture()
+
+    assert result is not None
+    assert result.stim_end_reason == STIM_END_JOIN_TIMEOUT
+    assert result.stim_end_reason not in _CLEAN_STIM_END_REASONS
+
+    write_video(
+        result=result,
+        save_folder=tmp_path,
+        name='rec',
+        video_as_frames=True,
+        step={'Color': 'Red', 'False_Color': False},
+        callbacks={},
+        save_encoding='8bit',
+        capture_depth=8,
+    )
+    sidecar = tmp_path / 'rec_stim_status.txt'
+    assert sidecar.exists(), (
+        'a join-timeout recording must leave a sidecar even when the wedged '
+        'thread later publishes a clean reason'
+    )
+    assert STIM_END_JOIN_TIMEOUT in sidecar.read_text()

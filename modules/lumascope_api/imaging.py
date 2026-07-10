@@ -3,7 +3,7 @@
 
 ImagingAPI owns _camera_cache, _frame_buffer, _scale_bar,
 _capturing_event, _focusing_event, _camera_listeners,
-_camera_temp_event, _binning_size, _suppress_value_warnings,
+_camera_temp_event, _suppress_value_warnings,
 _capture_return, _autofocus_return, and the frame_validity instance.
 """
 
@@ -15,13 +15,15 @@ import logging as _logging
 import threading
 import time
 from typing import TYPE_CHECKING, Any
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 
 import numpy as np
 
 from lib import profile_trace
 from lvp_logger import logger
+import modules.common_utils as common_utils
 import modules.image_utils as image_utils
+from modules.exceptions import CameraSettingRejected
 from modules.frame_validity import FrameValidity
 from modules.notification_center import notifications
 from modules.sequential_io_executor import IOTask
@@ -193,17 +195,6 @@ class ImagingAPI:
         self._camera_temp_event = None
         self._camera_temp_unschedule_fn = None
 
-        # Binning size cache -- read live from driver if camera is
-        # connected, otherwise default to 1. Defensive against fake/test
-        # cameras that may not implement get_binning_size.
-        if self._driver and hasattr(self._driver, 'get_binning_size'):
-            try:
-                self._binning_size = self._driver.get_binning_size()
-            except Exception:
-                self._binning_size = 1
-        else:
-            self._binning_size = 1
-
         # Scale-bar overlay config -- defaults disabled; users opt in via
         # set_scale_bar(...). Reads/writes under self._state_lock.
         self._scale_bar = {
@@ -211,13 +202,23 @@ class ImagingAPI:
             'color': None,
         }
 
-        # Camera state cache -- push-based, not polled.
-        # Updated when camera connects and after every
-        # set_gain/set_exposure/etc. UI reads from cache with zero SDK calls.
+        # Camera state cache -- the single store every public camera getter
+        # answers from. Updated when the camera connects, after every
+        # set_gain/set_exposure/etc. write-through, and by each getter's
+        # validated live read. Every entry is either a validated hardware
+        # reading or its seed below, and the seeds are the documented
+        # camera-absent defaults -- so a driver failure sentinel can never
+        # be cached or returned, and for every key except 'binning' the
+        # matching is_valid_* predicate rejects the seed, making "never
+        # successfully read" detectable from the value itself. gain_db
+        # seeds to -1.0 (not 0.0) because 0 dB is a legal gain and would
+        # read as hardware truth. 'binning' seeds to 1, which is also its
+        # absent default AND a legal factor: never-read and genuinely-1x1
+        # are indistinguishable by design -- both honestly answer 1.
         self._camera_cache_lock = threading.Lock()
         self._camera_cache = {
             'active': False,
-            'gain_db': 0.0,
+            'gain_db': -1.0,
             'exposure_ms': 0.0,
             'frame_size': {'width': 0, 'height': 0},
             'max_frame_size': {'width': 0, 'height': 0},
@@ -227,6 +228,18 @@ class ImagingAPI:
             'pixel_format': None,
             'binning': 1,
         }
+        # Per-key write generation, bumped by every authoritative cache
+        # write (_commit_camera_writes). A validated live READ snapshots
+        # the generation before touching the driver and commits only if
+        # it is unchanged, so a read that was in flight while a setter
+        # landed can never overwrite the setter's newer truth with the
+        # pre-write hardware value.
+        self._camera_cache_write_gen: dict[str, int] = {}
+        # Per-key monotonic timestamp of the last WARNING about a failed
+        # camera read; failures inside the window log at debug instead,
+        # so a dead camera polled at frame rate warns once per window,
+        # not per frame.
+        self._camera_read_warn_ts: dict[str, float] = {}
         self._populate_camera_cache()
 
     @property
@@ -238,6 +251,16 @@ class ImagingAPI:
         here keeps ImagingAPI in sync without rebinding.
         """
         return self._scope._camera_driver
+
+    @property
+    def _binning_size(self) -> int:
+        """Last-known binning factor (cache-backed; no SDK read).
+
+        Per-frame consumers (scale-bar sizing, FOV math) read this instead
+        of get_binning_size() so the hot path never touches the SDK.
+        """
+        with self._camera_cache_lock:
+            return self._camera_cache['binning']
 
     # --- Private helpers (relocated from Lumascope) ---
 
@@ -272,33 +295,48 @@ class ImagingAPI:
             logger.warning(f'[SCOPE API ] Failed to load camera timing config: {e}')
 
     def _populate_camera_cache(self) -> None:
-        """Populate camera cache from hardware. Called at init and on reconnect."""
+        """Populate camera cache from hardware. Called at init and on reconnect.
+
+        One canonical read path: every key refreshes through the same
+        validated-read commit the public getters answer by, so a failed or
+        sentinel read never overwrites a cached last-known-good value,
+        one raising key cannot abort the rest of the round, and populate
+        cannot drift from the getters' validation rules. The direct
+        _live_validated_read calls cover the keys with no public getter
+        (sensor minimum, exposure/gain ceilings).
+        """
         if not self._driver or not self._driver.active:
             with self._camera_cache_lock:
                 self._camera_cache['active'] = False
             return
 
         try:
-            cache = {
-                'active': True,
-                'gain_db': self._driver.get_gain() or 0.0,
-                'exposure_ms': self._driver.get_exposure_t() or 0.0,
-                'frame_size': self._driver.get_frame_size() or {'width': 0, 'height': 0},
-                'max_frame_size': self._driver.get_max_frame_size() or {'width': 0, 'height': 0},
-                'min_frame_size': self._driver.get_min_frame_size() or {'width': 0, 'height': 0},
-                'max_exposure_ms': self._driver.get_max_exposure() or None,
-                'max_gain_db': self._driver.get_max_gain()
-                if hasattr(self._driver, 'get_max_gain')
-                else None,
-                'pixel_format': self._driver.get_pixel_format()
-                if hasattr(self._driver, 'get_pixel_format')
-                else None,
-                'binning': self._driver.get_binning_size()
-                if hasattr(self._driver, 'get_binning_size')
-                else 1,
-            }
+            self.get_binning_size()
+            self.get_gain()
+            self.get_exposure_time()
+            self.get_frame_size()
+            self.get_pixel_format()
+            self._get_max_frame_size()
+            self._live_validated_read(
+                'min_frame_size',
+                lambda driver: driver.get_min_frame_size(),
+                common_utils.is_valid_frame_size,
+                lambda v: {'width': int(v['width']), 'height': int(v['height'])},
+            )
+            self._live_validated_read(
+                'max_exposure_ms',
+                lambda driver: driver.get_max_exposure(),
+                common_utils.is_valid_exposure_ms,
+                float,
+            )
+            self._live_validated_read(
+                'max_gain_db',
+                lambda driver: driver.get_max_gain(),
+                lambda v: isinstance(v, (int, float)) and v > 0,
+                float,
+            )
             with self._camera_cache_lock:
-                self._camera_cache.update(cache)
+                self._camera_cache['active'] = True
             logger.info('[SCOPE API ] Camera cache populated')
         except Exception as e:
             logger.warning(f'[SCOPE API ] Failed to populate camera cache: {e}')
@@ -328,19 +366,27 @@ class ImagingAPI:
             gain = self._driver.get_gain()
             exp = self._driver.get_exposure_t()
         except Exception as e:
-            with self._camera_cache_lock:
-                self._camera_cache['gain_db'] = -1.0
-                self._camera_cache['exposure_ms'] = -1.0
+            self._commit_camera_writes({'gain_db': -1.0, 'exposure_ms': -1.0})
             logger.warning(
                 f'[SCOPE API ] cache refresh after auto-off failed: {e}; '
                 f'cache invalidated to force next setter through.'
             )
             return
-        with self._camera_cache_lock:
-            if gain is not None:
-                self._camera_cache['gain_db'] = float(gain)
-            if exp is not None:
-                self._camera_cache['exposure_ms'] = float(exp)
+        # A non-physical reading (the drivers' negative failed-read
+        # sentinel) routes to the SAME -1.0 invalidation the exception
+        # path above writes -- NOT keep-prior: the pre-auto cached value
+        # is known-stale here (hardware moved during the auto cycle), and
+        # keeping it would let the setter equality check short-circuit.
+        # Committed as an authoritative write (generation bump): a stale
+        # getter read racing this resync must not resurrect the pre-auto
+        # value.
+        resync = {}
+        if gain is not None:
+            resync['gain_db'] = float(gain) if common_utils.is_valid_gain_db(gain) else -1.0
+        if exp is not None:
+            resync['exposure_ms'] = float(exp) if common_utils.is_valid_exposure_ms(exp) else -1.0
+        if resync:
+            self._commit_camera_writes(resync)
         # Diagnostic: record where hardware auto-gain/exposure actually
         # converged when the cycle ended. A converged gain that stayed near
         # the floor on a dim scene means the settle window ended before AG
@@ -414,6 +460,111 @@ class ImagingAPI:
                 return source
         return None
 
+    def _camera_write(
+        self,
+        write_fn: Callable[[], object],
+        *,
+        invalidates: tuple[str, ...] = (),
+        force_invalidate: tuple[str, ...] = (),
+        targets: tuple[tuple[str, float | None], ...] = (),
+        force_clear: tuple[str, ...] = (),
+        cache_update: dict[str, object] | None = None,
+    ) -> object:
+        """Single sanctioned path for a camera-state write and its validity
+        consequence. Every camera setter routes its hardware write through here
+        so the write and the frame-validity invalidation it requires are
+        declared together -- a new setter cannot write a camera node and forget
+        to invalidate.
+
+        Order is load-bearing: the write happens first, then ``force_invalidate``
+        fires unconditionally (the always-mark-RED contract for the manual value
+        setters, so a hardware-rejected write still expires validity rather than
+        leaving a stale frame acceptable), then the applied-only block runs. A
+        write is "applied" when the driver did not return ``False`` -- an explicit
+        ``False`` is the only rejection signal; a ``None`` return (drivers without
+        a confirmation signal) and any truthy result both count as applied.
+
+        Args:
+            write_fn: Zero-arg callable performing the driver write (including
+                any lock it needs) and returning the driver's result.
+            invalidates: Sources to invalidate only when the write was applied.
+            force_invalidate: Sources to invalidate unconditionally, regardless
+                of the result.
+            targets: ``(source, value)`` pairs passed to ``set_target`` when the
+                write was applied (``value`` None clears the target).
+            force_clear: Sources whose chunk target is cleared (set to None)
+                unconditionally -- the mode/one-shot setters drop their manual
+                target whether or not the driver reported the write applied, so
+                chunk-match falls back to skip-frames settling (target
+                maintenance stays outside the applied gate). Clear-only by
+                construction: an unconditional write can only ever drop a
+                target, never record one for a possibly-rejected value.
+            cache_update: Keys to write into the ``_camera_cache`` snapshot when
+                the write was applied.
+
+        Returns:
+            The driver write's result, so the caller can do its own rejection
+            handling / listener fire.
+        """
+        result = write_fn()
+        for source in force_invalidate:
+            self.frame_validity.invalidate(source)
+        for source in force_clear:
+            self.frame_validity.set_target(source, None)
+        applied = result is not False
+        if applied:
+            for source in invalidates:
+                self.frame_validity.invalidate(source)
+            for source, value in targets:
+                self.frame_validity.set_target(source, value)
+            if cache_update:
+                self._commit_camera_writes(cache_update)
+        return result
+
+    # Failed camera reads inside this window after a WARNING log at debug;
+    # mirrors the notification framework's short non-fatal dedup window so
+    # a dead camera polled at frame rate warns once per window, not per
+    # frame, while the first failure of a streak is always visible in the
+    # main log.
+    _READ_FAILURE_WARN_INTERVAL_S = 5.0
+
+    def _commit_camera_writes(self, updates: dict) -> None:
+        """Cache write-through for authoritative values.
+
+        Authoritative means the value did not come from a read: a driver
+        write that was applied, or a deliberate invalidation. Bumps each
+        key's write generation so a validated live read that was already
+        in flight when this landed cannot commit its now-stale value over
+        the newer truth.
+        """
+        with self._camera_cache_lock:
+            self._camera_cache.update(updates)
+            for key in updates:
+                self._camera_cache_write_gen[key] = self._camera_cache_write_gen.get(key, 0) + 1
+
+    def _log_camera_read_failure(self, key: str, cause: object) -> None:
+        """Surface a failed camera read without per-frame log spam.
+
+        The read failures this layer absorbs (getters answer
+        last-known-good) must still be visible in the main log, or a
+        camera whose every read fails looks healthy in a tech-support
+        bundle. First failure per key per window logs WARNING; repeats
+        within the window log debug.
+        """
+        now = time.monotonic()
+        with self._camera_cache_lock:
+            last_warn = self._camera_read_warn_ts.get(key, 0.0)
+            warn = (now - last_warn) >= self._READ_FAILURE_WARN_INTERVAL_S
+            if warn:
+                self._camera_read_warn_ts[key] = now
+        if warn:
+            logger.warning(
+                f'[SCOPE API ] camera {key} read failed ({cause}); '
+                f'answering last-known-good until a read succeeds'
+            )
+        else:
+            _api_log.debug(f'camera {key} read failed: {cause}')
+
     # --- Setters ---
     def set_gain(self, gain_db: float) -> None:
         """Set the camera gain.
@@ -423,16 +574,26 @@ class ImagingAPI:
         """
         if not self._driver or not self._driver.active:
             return
-        # The validity invalidate must NEVER be gated by the software cache:
-        # a cache desynced from hardware once short-circuited it, so a frame
-        # at a stale gain was captured as valid. Always invalidate + drive the
-        # setter (the driver compares against live hardware and skips a truly
-        # redundant SDK write). The cache-equality check gates only the UI
-        # listener + info log, where a missed redundant update is harmless.
+        # The validity invalidate must never be gated by the software cache:
+        # a cache desynced from hardware once short-circuited it, so a frame at
+        # a stale gain was captured as valid. force_invalidate marks 'gain' RED
+        # on every write (even a rejected one); the requested value is recorded
+        # as the chunk target and cached only when the write was not rejected.
+        # The driver compares against live hardware and skips a truly redundant
+        # SDK write; the cache-equality check here gates only the UI listener +
+        # info log, where a missed redundant update is harmless.
         changed = abs(float(gain_db) - self.camera_gain) >= 0.001
-        with self._cam_lock:
-            ok = self._driver.gain(gain_db)
-        self.frame_validity.invalidate('gain')
+
+        def _write_gain():
+            with self._cam_lock:
+                return self._driver.gain(gain_db)
+
+        ok = self._camera_write(
+            _write_gain,
+            force_invalidate=('gain',),
+            targets=(('gain', float(gain_db)),),
+            cache_update={'gain_db': float(gain_db)},
+        )
         if ok is False:
             # Confirmed hardware rejection (drivers without a confirmation
             # signal return None). Frames keep streaming at the OLD gain,
@@ -446,15 +607,9 @@ class ImagingAPI:
                 'Captures will continue at the previous gain. Check that '
                 'the value is within the camera limits.',
             )
-        else:
-            # Record requested gain so capture_and_wait's chunk-match can
-            # clear the pending source once a frame's ChunkGain matches.
-            self.frame_validity.set_target('gain', float(gain_db))
-            with self._camera_cache_lock:
-                self._camera_cache['gain_db'] = float(gain_db)
-            if changed:
-                _api_log.info(f'set_gain {gain_db}dB')
-                self._fire_camera_listeners('gain', float(gain_db))
+        elif changed:
+            _api_log.info(f'set_gain {gain_db}dB')
+            self._fire_camera_listeners('gain', float(gain_db))
 
     def set_exposure_time(self, exposure_ms: float) -> None:
         """Set the camera exposure time.
@@ -486,9 +641,22 @@ class ImagingAPI:
                 f'in milliseconds, not seconds or microseconds.\n'
                 f'Call stack:\n{_caller}'
             )
-        with self._cam_lock:
-            ok = self._driver.exposure_t(exposure_ms)
-        self.frame_validity.invalidate('exposure')
+
+        # Record requested exposure for chunk-match. ChunkExposureTime is
+        # microseconds; the API takes milliseconds. Convert at the seam so the
+        # chunk value and frame_validity's tolerance share units. force_invalidate
+        # marks 'exposure' RED on every write; target + cache only when the write
+        # was not rejected.
+        def _write_exposure():
+            with self._cam_lock:
+                return self._driver.exposure_t(exposure_ms)
+
+        ok = self._camera_write(
+            _write_exposure,
+            force_invalidate=('exposure',),
+            targets=(('exposure', float(exposure_ms) * 1000.0),),
+            cache_update={'exposure_ms': float(exposure_ms)},
+        )
         if ok is False:
             # Confirmed hardware rejection (drivers without a confirmation
             # signal return None). Frames keep streaming at the OLD
@@ -502,17 +670,9 @@ class ImagingAPI:
                 'Captures will continue at the previous exposure. Check '
                 'that the value is within the camera limits.',
             )
-        else:
-            # Record requested exposure for chunk-match. ChunkExposureTime
-            # is microseconds; the API takes milliseconds. Convert at the
-            # seam so the chunk value and frame_validity's tolerance share
-            # units.
-            self.frame_validity.set_target('exposure', float(exposure_ms) * 1000.0)
-            with self._camera_cache_lock:
-                self._camera_cache['exposure_ms'] = float(exposure_ms)
-            if changed:
-                _api_log.info(f'set_exposure {exposure_ms}ms')
-                self._fire_camera_listeners('exposure', float(exposure_ms))
+        elif changed:
+            _api_log.info(f'set_exposure {exposure_ms}ms')
+            self._fire_camera_listeners('exposure', float(exposure_ms))
 
     def set_auto_gain(self, state: bool, settings: dict) -> None:
         """Enable or disable automatic gain adjustment.
@@ -527,24 +687,31 @@ class ImagingAPI:
 
         if not self._driver or not self._driver.active:
             return
-        self._driver.auto_gain(
-            state,
-            target_brightness=settings['target_brightness'],
-            min_gain_db=settings['min_gain_db'],
-            max_gain_db=settings['max_gain_db'],
-            ae_max_exposure_ms=settings.get('max_exposure_ms'),
+
+        def _write_auto_gain():
+            self._driver.auto_gain(
+                state,
+                target_brightness=settings['target_brightness'],
+                min_gain_db=settings['min_gain_db'],
+                max_gain_db=settings['max_gain_db'],
+                ae_max_exposure_ms=settings.get('max_exposure_ms'),
+            )
+
+        # Auto-gain dynamically adjusts the value, so clear the manual gain
+        # target (chunk-match falls back to skip-frames calibration). Arming
+        # hardware continuous AG needs the camera several frames to settle
+        # against the lit scene, so invalidate 'auto_gain' to hold capture for
+        # the settle count -- gated on the camera actually having hardware AG
+        # (cameras without it reach correct exposure through a future software-AG
+        # loop that reuses the gain/exposure settle sources, not this one). The
+        # mode flip leaves the gain value node unchanged, so these are forced,
+        # not gated on a value delta.
+        arm_settle = state and getattr(self._driver.profile, 'has_auto_gain', False)
+        self._camera_write(
+            _write_auto_gain,
+            force_invalidate=('gain', 'auto_gain') if arm_settle else ('gain',),
+            force_clear=('gain',),
         )
-        self.frame_validity.invalidate('gain')
-        # Auto-gain dynamically adjusts the value; clear the manual target
-        # so chunk-match falls back to skip-frames calibration.
-        self.frame_validity.set_target('gain', None)
-        # Arming hardware continuous AG needs the camera several frames to
-        # settle against the lit scene; wait the auto_gain settle count before
-        # a capture grabs. Gated on the camera actually having hardware AG --
-        # cameras without it reach correct exposure through a future software-AG
-        # loop that reuses the gain/exposure settle sources, not this one.
-        if state and getattr(self._driver.profile, 'has_auto_gain', False):
-            self.frame_validity.invalidate('auto_gain')
         # Hardware-truth wins over cache after the auto cycle ends.
         if not state:
             self._refresh_cache_from_hardware_after_auto()
@@ -558,30 +725,90 @@ class ImagingAPI:
 
         if not self._driver or not self._driver.active:
             return
-        self._driver.auto_exposure_t(state)
-        self.frame_validity.invalidate('exposure')
-        # Auto-exposure dynamically adjusts the value; clear the manual
-        # target so chunk-match falls back to skip-frames calibration.
-        self.frame_validity.set_target('exposure', None)
+        # Auto-exposure dynamically adjusts the value, so clear the manual
+        # exposure target (chunk-match falls back to skip-frames calibration).
+        # The mode flip leaves the exposure value node unchanged, so the
+        # invalidate + target-clear are forced, not gated on a value delta.
+        self._camera_write(
+            lambda: self._driver.auto_exposure_t(state),
+            force_invalidate=('exposure',),
+            force_clear=('exposure',),
+        )
         # Hardware-truth wins over cache after the auto cycle ends.
         if not state:
             self._refresh_cache_from_hardware_after_auto()
 
-    def set_frame_size(self, w: int, h: int) -> None:
+    def _camera_setting_rejection(
+        self, setting: str, requested, title: str, body: str
+    ) -> CameraSettingRejected:
+        """Log + notify + build the typed rejection for a camera-setting apply.
+
+        Callers ``raise self._camera_setting_rejection(...)`` so the raise
+        is explicit at every rejection site while the load-bearing ordering
+        (log, then notify, then the exception -- the exception class
+        documents that the rejection is already surfaced when it arrives)
+        lives in one place for all setters.
+        """
+        logger.error(f'[SCOPE API ] {setting}: driver rejected {requested!r}')
+        notifications.error('Camera', title, body)
+        return CameraSettingRejected(setting, requested)
+
+    def set_frame_size(self, w: int, h: int) -> dict | None:
         """Set the camera frame size in pixels.
+
+        Success is observed by receiving the DELIVERED geometry; rejection
+        is a raise. A caller therefore cannot record a rejected or clamped
+        apply as current geometry -- the only value available to record is
+        the one the camera actually took (a rejected resize once left the
+        UI, FOV math, and saved settings claiming a size the camera never
+        held, and the retry was absorbed by a dedupe record built from the
+        request).
 
         Args:
             w: Frame width in pixels.
             h: Frame height in pixels.
+
+        Returns:
+            dict | None: The DELIVERED ``{'width', 'height'}`` -- the
+                clamped/snapped geometry actually in effect, which may
+                differ from the request. None when no camera is active
+                (quiet no-op per the missing-hardware contract; a
+                notification fires).
+
+        Raises:
+            CameraSettingRejected: A live driver rejected the apply. The
+                rejection is logged and notified before the raise.
         """
 
         if not self._driver or not self._driver.active:
             self._notify_camera_absent('frame size')
-            return
-        self._driver.set_frame_size(w, h)
-        self.frame_validity.invalidate('frame_size')
-        with self._camera_cache_lock:
-            self._camera_cache['frame_size'] = {'width': int(w), 'height': int(h)}
+            return None
+        # A frame-size change reallocates buffers; the pipeline must flush, so
+        # invalidate unconditionally. Cache the DELIVERED size, not the request:
+        # a driver may clamp or snap the request to its legal grid
+        # (oversize-then-crop, alignment multiples), and FOV / pixel-size math
+        # reads this cache, so it must reflect what the camera actually
+        # delivers. The delivered geometry comes from the write's own return
+        # value -- a separate get_frame_size() read-back is deliberately
+        # avoided because a transient read error there can spuriously drop the
+        # camera. A falsy result means the WRITE failed, so the prior cache
+        # entry (still describing the hardware) is left in place.
+        delivered = self._camera_write(
+            lambda: self._driver.set_frame_size(w, h),
+            force_invalidate=('frame_size',),
+        )
+        if not delivered:
+            raise self._camera_setting_rejection(
+                'frame_size',
+                {'width': w, 'height': h},
+                'Frame size change failed',
+                f'The camera did not accept the frame size {w}x{h}. '
+                f'It remains at the previous size -- try again, or check '
+                f'the USB connection if this repeats.',
+            )
+        delivered_size = {'width': int(delivered['width']), 'height': int(delivered['height'])}
+        self._commit_camera_writes({'frame_size': dict(delivered_size)})
+        return delivered_size
 
     def _notify_camera_absent(self, op_label: str) -> None:
         """Fire a deduped notification when a camera-required operation
@@ -613,35 +840,75 @@ class ImagingAPI:
             size: Binning factor (1 = no binning, 2 = 2x2, etc.).
 
         Returns:
-            bool: True if the driver applied the binning. False if the
-                camera is absent, the driver returned False (size out of
-                range, camera inactive), or the driver raised an
-                exception. Caller can use the result to decide whether to
-                proceed with operations that depend on the new binning.
-        """
-        try:
-            self._binning_size = size
+            bool: True when the driver applied the binning. False only
+                when the camera is absent (quiet no-op per the
+                missing-hardware contract; a notification fires).
 
-            if self._driver:
-                ok = self._driver.set_binning_size(size=size)
-            else:
-                ok = False
-                self._notify_camera_absent('binning')
-            if ok:
-                self.frame_validity.invalidate('binning')
-            _api_log.info(f'set_binning {size}x{size} -> {ok}')
-            return ok
+        Raises:
+            CameraSettingRejected: A live driver rejected the apply or
+                raised from it. The rejection is logged and notified
+                before the raise, so a rejected binning cannot be
+                recorded as current by a caller that drops the return --
+                a rejected binning silently poisons every native-ROI /
+                FOV / stitch derivation built on the recorded factor.
+        """
+        if not self._driver or not self._driver.active:
+            self._notify_camera_absent('binning')
+            return False
+        try:
+            # Binning realloc only takes effect when the driver applied it,
+            # so the invalidate is gated on the driver result.
+            # The factor is committed to the cache only when the driver
+            # applied it. A rejected write must not leave the requested
+            # value where scale-bar / FOV math reads it -- the hardware
+            # is still at the previous binning.
+            ok = self._camera_write(
+                lambda: self._driver.set_binning_size(size=size),
+                invalidates=('binning',),
+                cache_update={'binning': int(size)},
+            )
         except Exception as ex:
             logger.exception(f'[SCOPE API ] Error setting binning size: {ex}')
-            from modules.notification_center import notifications
-
-            notifications.error(
-                'Camera',
+            raise self._camera_setting_rejection(
+                'binning',
+                size,
                 'Binning change failed',
                 f'Could not set binning to {size}x{size}: {type(ex).__name__}: {ex}. '
                 f'Camera may still be at previous binning -- verify actual frame size.',
+            ) from ex
+        # `is False` (not falsy): an explicit False is the driver's only
+        # rejection signal; a None return (drivers without a confirmation
+        # signal) counts as applied, matching _camera_write's own applied
+        # semantics -- treating None as rejection here would raise while
+        # the cache had already committed the factor.
+        if ok is False:
+            raise self._camera_setting_rejection(
+                'binning',
+                size,
+                'Binning change failed',
+                f'The camera did not accept {size}x{size} binning. It remains '
+                f'at the previous binning -- try again, or check the USB '
+                f'connection if this repeats.',
             )
-            return False
+        # Both cached geometries are binning-dependent: the sensor
+        # minimum halves at 2x, and the delivered frame size halves
+        # with it. Left stale, the UI's frame-size clamp reads the 1x
+        # minimum and FOV math reads the 1x frame size until the next
+        # full hardware refresh. set_binning_size returns no geometry,
+        # so this refresh reads the getters -- a deliberate exception
+        # to the no-read-back preference, accepted because binning
+        # changes are rare user actions, not per-frame traffic. The
+        # validated-read path keeps a failed refresh from caching a
+        # sentinel (the prior geometry stays in place).
+        self._live_validated_read(
+            'min_frame_size',
+            lambda driver: driver.get_min_frame_size(),
+            common_utils.is_valid_frame_size,
+            lambda v: {'width': int(v['width']), 'height': int(v['height'])},
+        )
+        self.get_frame_size()
+        _api_log.info(f'set_binning {size}x{size} -> True')
+        return True
 
     def set_pixel_format(self, pixel_format: str) -> bool:
         """Set the camera pixel format.
@@ -650,32 +917,133 @@ class ImagingAPI:
             pixel_format: Format string (e.g. 'Mono8', 'Mono12').
 
         Returns:
-            bool: True on success. False if the camera is absent /
-                inactive, the driver returned False (unsupported format),
-                or the driver raised. Never raises -- caller may safely
-                check `if not scope.imaging.set_pixel_format(...)` for fallback.
+            bool: True when the driver applied the format. False only
+                when the camera is absent / inactive (quiet no-op per the
+                missing-hardware contract; a notification fires).
+
+        Raises:
+            CameraSettingRejected: A live driver rejected the format
+                (unsupported) or raised from the apply. Logged and
+                notified before the raise, so a caller that drops the
+                return cannot record a rejected format as current --
+                capture depth, saved-file tagging, and data-rate math all
+                key off the recorded format.
         """
         if not self._driver or not self._driver.active:
             self._notify_camera_absent('pixel format')
             return False
         try:
-            result = self._driver.set_pixel_format(pixel_format)
+            # Format change reallocates geometry only when the driver applied
+            # it, so invalidate + snapshot are gated on the driver result.
+            result = self._camera_write(
+                lambda: self._driver.set_pixel_format(pixel_format),
+                invalidates=('pixel_format',),
+                cache_update={'pixel_format': pixel_format},
+            )
         except Exception as ex:
             logger.exception(f'[SCOPE API ] Error setting pixel format: {ex}')
-            from modules.notification_center import notifications
-
-            notifications.error(
-                'Camera',
+            raise self._camera_setting_rejection(
+                'pixel_format',
+                pixel_format,
                 'Pixel format change failed',
                 f'Could not set pixel format to {pixel_format}: '
                 f'{type(ex).__name__}: {ex}. Camera may still be at the '
                 f'previous format.',
+            ) from ex
+        if result is False:
+            raise self._camera_setting_rejection(
+                'pixel_format',
+                pixel_format,
+                'Pixel format change failed',
+                f'The camera did not accept the pixel format {pixel_format}. '
+                f'It remains at the previous format -- try again, or check '
+                f'the USB connection if this repeats.',
+            )
+        return True
+
+    def set_conversion_gain_mode(self, mode: str) -> bool:
+        """Set the camera sensor conversion gain mode.
+
+        High conversion gain lowers the sensor read-noise floor (better
+        low-light signal-to-noise) at the cost of dynamic range; Low is
+        the standard wide-range mode. Pylon-only -- returns False on
+        cameras/drivers that don't implement the setter.
+
+        Args:
+            mode: 'High' (low noise) or 'Low' (wide dynamic range).
+
+        Returns:
+            bool: True on success. False if the camera is absent, the
+                driver doesn't implement the setter, or the driver
+                returned False / raised. Never raises.
+        """
+        if not self._driver or not self._driver.active:
+            self._notify_camera_absent('conversion gain mode')
+            return False
+        if not hasattr(self._driver, 'set_conversion_gain_mode'):
+            logger.debug(
+                f'[SCOPE API ] set_conversion_gain_mode: '
+                f'{type(self._driver).__name__} does not implement this method'
             )
             return False
-        if result:
-            self.frame_validity.invalidate('pixel_format')
-            with self._camera_cache_lock:
-                self._camera_cache['pixel_format'] = pixel_format
+        try:
+            result = self._camera_write(
+                lambda: self._driver.set_conversion_gain_mode(mode),
+                invalidates=('conversion_gain_mode',),
+            )
+        except Exception as ex:
+            logger.exception(f'[SCOPE API ] Error setting conversion gain mode: {ex}')
+            from modules.notification_center import notifications
+
+            notifications.error(
+                'Camera',
+                'Conversion gain mode change failed',
+                f'Could not set conversion gain mode to {mode!r}. '
+                f'Camera may still be at the previous mode. See the log for details.',
+            )
+            return False
+        return result
+
+    def set_line_noise_reduction(self, enabled: bool) -> bool:
+        """Enable or disable the camera line-noise reduction filter.
+
+        A camera-side filter that smooths horizontal stripe artifacts in
+        the sensor readout. Pylon-only -- returns False on cameras/drivers
+        that don't implement the setter.
+
+        Args:
+            enabled: True turns the filter on; False off.
+
+        Returns:
+            bool: True on success. False if the camera is absent, the
+                driver doesn't implement the setter, or the driver
+                returned False / raised. Never raises.
+        """
+        if not self._driver or not self._driver.active:
+            self._notify_camera_absent('line noise reduction')
+            return False
+        if not hasattr(self._driver, 'set_line_noise_reduction'):
+            logger.debug(
+                f'[SCOPE API ] set_line_noise_reduction: '
+                f'{type(self._driver).__name__} does not implement this method'
+            )
+            return False
+        try:
+            result = self._camera_write(
+                lambda: self._driver.set_line_noise_reduction(enabled=enabled),
+                invalidates=('line_noise_reduction',),
+            )
+        except Exception as ex:
+            logger.exception(f'[SCOPE API ] Error setting line noise reduction: {ex}')
+            from modules.notification_center import notifications
+
+            notifications.error(
+                'Camera',
+                'Line noise reduction change failed',
+                f'Could not {"enable" if enabled else "disable"} line noise reduction. '
+                f'See the log for details.',
+            )
+            return False
         return result
 
     # --- SDK-perf knobs (write-only by design) ---
@@ -745,9 +1113,9 @@ class ImagingAPI:
             notifications.error(
                 'Camera',
                 'BslAcquisitionStopMode change failed',
-                f'Could not set acquisition_stop_mode to {mode!r}: '
-                f'{type(ex).__name__}: {ex}. Camera may still be at '
-                f'the previous stop-mode setting.',
+                f'Could not set acquisition_stop_mode to {mode!r}. '
+                f'Camera may still be at the previous stop-mode setting. '
+                f'See the log for details.',
             )
             raise
 
@@ -787,7 +1155,7 @@ class ImagingAPI:
             notifications.error(
                 'Camera',
                 'BandwidthReserveMode change failed',
-                f'Could not set BandwidthReserveMode to {mode!r}: {type(ex).__name__}: {ex}.',
+                f'Could not set BandwidthReserveMode to {mode!r}. See the log for details.',
             )
             raise
 
@@ -857,9 +1225,9 @@ class ImagingAPI:
             notifications.error(
                 'Camera',
                 'DeviceLinkThroughputLimit change failed',
-                f'Could not set DLTL to mode={mode}, value_bps={value_bps}: '
-                f'{type(ex).__name__}: {ex}. Camera may still be at the '
-                f'previous DLTL setting.',
+                f'Could not set DLTL to mode={mode}, value_bps={value_bps}. '
+                f'Camera may still be at the previous DLTL setting. '
+                f'See the log for details.',
             )
             raise
 
@@ -900,7 +1268,7 @@ class ImagingAPI:
             notifications.error(
                 'Camera',
                 'MaxTransferSize change failed',
-                f'Could not set MaxTransferSize to {value_bytes}: {type(ex).__name__}: {ex}.',
+                f'Could not set MaxTransferSize to {value_bytes}. See the log for details.',
             )
             raise
 
@@ -941,7 +1309,7 @@ class ImagingAPI:
             notifications.error(
                 'Camera',
                 'NumMaxQueuedUrbs change failed',
-                f'Could not set NumMaxQueuedUrbs to {value}: {type(ex).__name__}: {ex}.',
+                f'Could not set NumMaxQueuedUrbs to {value}. See the log for details.',
             )
             raise
 
@@ -985,7 +1353,7 @@ class ImagingAPI:
             notifications.error(
                 'Camera',
                 'MaxNumBuffer change failed',
-                f'Could not set MaxNumBuffer to {value}: {type(ex).__name__}: {ex}.',
+                f'Could not set MaxNumBuffer to {value}. See the log for details.',
             )
             raise
 
@@ -1054,7 +1422,7 @@ class ImagingAPI:
             notifications.error(
                 'Camera',
                 'GevSCPSPacketSize change failed',
-                f'Could not set GevSCPSPacketSize to {size_bytes}: {type(ex).__name__}: {ex}.',
+                f'Could not set GevSCPSPacketSize to {size_bytes}. See the log for details.',
             )
             raise
 
@@ -1093,7 +1461,7 @@ class ImagingAPI:
             notifications.error(
                 'Camera',
                 'GevSCPD change failed',
-                f'Could not set GevSCPD to {delay_ticks}: {type(ex).__name__}: {ex}.',
+                f'Could not set GevSCPD to {delay_ticks}. See the log for details.',
             )
             raise
 
@@ -1198,107 +1566,270 @@ class ImagingAPI:
                 'Camera',
                 'Frame-rate cap change failed',
                 f'Could not set frame-rate cap to enabled={enabled}, '
-                f'fps={fps}: {type(ex).__name__}: {ex}. Camera may still be '
-                f'at the previous setting.',
+                f'fps={fps}. Camera may still be at the previous setting. '
+                f'See the log for details.',
             )
             raise
 
     # --- Getters ---
+    def _live_validated_read(
+        self,
+        key: str,
+        reader: Callable[[Camera], object],
+        is_valid: Callable[[object], bool],
+        coerce: Callable[[Any], Any],
+    ) -> object | None:
+        """Attempt one live driver read: validate, commit to cache, return.
+
+        Returns None when no camera is active or the read raised or came
+        back as the driver's failure sentinel (-1 / None / {}). The commit
+        is generation-guarded: if an authoritative write
+        (_commit_camera_writes) landed while the driver read was in
+        flight, the stale read is discarded and the newer cache value is
+        returned instead, so a slow read can never overwrite a setter's
+        write-through.
+
+        Callers decide what None means: the value getters fall back to
+        the cached last-known-good; the live-confirmed consumers
+        (metadata writers, state snapshots) omit the field, because for
+        them a stale value recorded as truth is worse than no value.
+        """
+        driver = self._driver
+        if not driver or not driver.active:
+            return None
+        with self._camera_cache_lock:
+            gen_before = self._camera_cache_write_gen.get(key, 0)
+        try:
+            live = reader(driver)
+        except Exception as ex:
+            self._log_camera_read_failure(key, ex)
+            return None
+        if not is_valid(live):
+            self._log_camera_read_failure(key, f'sentinel value {live!r}')
+            return None
+        value = coerce(live)
+        with self._camera_cache_lock:
+            if self._camera_cache_write_gen.get(key, 0) == gen_before:
+                self._camera_cache[key] = value
+            else:
+                value = self._camera_cache[key]
+        return value
+
+    def _validated_camera_read(
+        self,
+        key: str,
+        reader: Callable[[Camera], object],
+        is_valid: Callable[[object], bool],
+        coerce: Callable[[Any], Any],
+        absent: object,
+    ) -> object:
+        """Refresh-then-read: the single path a public camera getter answers by.
+
+        Attempts the live driver read on every call (so a getter tracks
+        hardware while auto-gain moves it), commits the result to the camera
+        cache only when it validates, and answers from the cache either way.
+        A driver failure sentinel (-1 / None / {}) or a raising read can
+        therefore never cross this boundary: consumers receive the
+        last-known-good value, or ``absent`` (the documented camera-absent
+        default) when no camera is active or no valid value has ever been
+        read.
+
+        Args:
+            key: Camera-cache key backing this getter.
+            reader: Live read, called with the resolved driver.
+            is_valid: Shared validity predicate for this value.
+            coerce: Normalizes a validated live value for caching.
+            absent: Documented return when no camera is active or no valid
+                value is known.
+
+        Returns:
+            The validated live value, the cached last-known-good, or
+            ``absent``.
+        """
+        driver = self._driver
+        if not driver or not driver.active:
+            return absent
+        live = self._live_validated_read(key, reader, is_valid, coerce)
+        if live is not None:
+            return live
+        with self._camera_cache_lock:
+            cached = self._camera_cache[key]
+        return cached if is_valid(cached) else absent
+
+    def get_live_camera_settings(self) -> dict:
+        """Live-confirmed gain and exposure, omitting any field whose read
+        did not just succeed.
+
+        For consumers that record what the hardware was at a specific
+        moment (saved-image metadata, state snapshots): the value getters
+        (get_gain / get_exposure_time) deliberately hide read failures
+        behind the last-known-good cache, which is right for control flow
+        but would record a value the frame was not captured at. Here,
+        unknown stays unknown.
+
+        Returns:
+            dict: Zero, one, or both of 'gain_db' and 'exposure_ms' --
+                only fields whose live driver read succeeded and
+                validated. Empty when no camera is active.
+        """
+        settings = {}
+        gain = self._live_validated_read(
+            'gain_db',
+            lambda driver: driver.get_gain(),
+            common_utils.is_valid_gain_db,
+            float,
+        )
+        if gain is not None:
+            settings['gain_db'] = gain
+        exposure = self._live_validated_read(
+            'exposure_ms',
+            lambda driver: driver.get_exposure_t(),
+            common_utils.is_valid_exposure_ms,
+            float,
+        )
+        if exposure is not None:
+            settings['exposure_ms'] = exposure
+        return settings
+
     def get_gain(self) -> float:
         """Get the current camera gain.
 
         Returns:
-            float: Gain in dB, or -1 if camera inactive.
+            float: Gain in dB -- the live reading when it succeeds, else the
+                last-known-good value. -1 when no camera is active or gain
+                has never been read.
         """
-
-        if not self._driver or not self._driver.active:
-            return -1
-        return self._driver.get_gain()
+        return self._validated_camera_read(
+            'gain_db',
+            lambda driver: driver.get_gain(),
+            common_utils.is_valid_gain_db,
+            float,
+            -1.0,
+        )
 
     def get_exposure_time(self) -> float:
         """Get the current camera exposure time.
 
         Returns:
-            float: Exposure time in milliseconds, or 0 if camera inactive.
+            float: Exposure time in milliseconds -- the live reading when it
+                succeeds, else the last-known-good value. 0 when no camera
+                is active or exposure has never been read.
         """
-
-        if not self._driver or not self._driver.active:
-            return 0
-        exposure = self._driver.get_exposure_t()
-        return exposure
+        return self._validated_camera_read(
+            'exposure_ms',
+            lambda driver: driver.get_exposure_t(),
+            common_utils.is_valid_exposure_ms,
+            float,
+            0.0,
+        )
 
     def get_frame_size(self) -> dict | None:
         """Get the current camera frame size.
 
         Returns:
-            dict | None: Contains 'width' and 'height' in pixels, or
-                None if inactive.
+            dict | None: Contains 'width' and 'height' in pixels -- the live
+                reading when it succeeds, else the last-known-good value.
+                None when no camera is active or the size has never been
+                read.
         """
-
-        if not self._driver or not self._driver.active:
-            return
-        return self._driver.get_frame_size()
+        frame_size = self._validated_camera_read(
+            'frame_size',
+            lambda driver: driver.get_frame_size(),
+            common_utils.is_valid_frame_size,
+            lambda v: {'width': int(v['width']), 'height': int(v['height'])},
+            None,
+        )
+        return dict(frame_size) if frame_size is not None else None
 
     def get_pixel_format(self) -> str | None:
         """Get the current camera pixel format.
 
         Returns:
-            str | None: Pixel format string (e.g. 'Mono8'), or None if inactive.
+            str | None: Pixel format string (e.g. 'Mono8') -- the live
+                reading when it succeeds, else the last-known-good value
+                (seeded by connect-time configuration and the
+                set_pixel_format write-through). None when no camera is
+                active or no format is known.
         """
-        if not self._driver or not self._driver.active:
-            return None
-        return self._driver.get_pixel_format()
+        return self._validated_camera_read(
+            'pixel_format',
+            lambda driver: driver.get_pixel_format(),
+            common_utils.is_valid_pixel_format,
+            str,
+            None,
+        )
+
+    def _get_max_frame_size(self) -> dict | None:
+        """Validated sensor-max frame size, or None when never read."""
+        return self._validated_camera_read(
+            'max_frame_size',
+            lambda driver: driver.get_max_frame_size(),
+            common_utils.is_valid_frame_size,
+            lambda v: {'width': int(v['width']), 'height': int(v['height'])},
+            None,
+        )
 
     def get_max_width(self) -> int:
         """Get the maximum pixel width of the camera sensor.
 
         Returns:
-            int: Max width in pixels, or 0 if camera inactive.
+            int: Max width in pixels -- last-known-good when the live read
+                fails. 0 when no camera is active or the value has never
+                been read.
         """
-        if (not self._driver) or (not self._driver.active):
-            return 0
-        return self._driver.get_max_frame_size()['width']
+        max_frame_size = self._get_max_frame_size()
+        return int(max_frame_size['width']) if max_frame_size else 0
 
     def get_max_height(self) -> int:
         """Get the maximum pixel height of the camera sensor.
 
         Returns:
-            int: Max height in pixels, or 0 if camera inactive.
+            int: Max height in pixels -- last-known-good when the live read
+                fails. 0 when no camera is active or the value has never
+                been read.
         """
-        if (not self._driver) or (not self._driver.active):
-            return 0
-        return self._driver.get_max_frame_size()['height']
+        max_frame_size = self._get_max_frame_size()
+        return int(max_frame_size['height']) if max_frame_size else 0
 
     def get_width(self) -> int:
         """Get the current frame width setting.
 
         Returns:
-            int: Current width in pixels, or 0 if camera unavailable.
+            int: Current width in pixels -- last-known-good when the live
+                read fails. 0 when no camera is active or the size has
+                never been read.
         """
-        if not self._driver:
-            return 0
-        return self._driver.get_frame_size()['width']
+        frame_size = self.get_frame_size()
+        return int(frame_size['width']) if frame_size else 0
 
     def get_height(self) -> int:
         """Get the current frame height setting.
 
         Returns:
-            int: Current height in pixels, or 0 if camera unavailable.
+            int: Current height in pixels -- last-known-good when the live
+                read fails. 0 when no camera is active or the size has
+                never been read.
         """
-        if not self._driver:
-            return 0
-        return self._driver.get_frame_size()['height']
+        frame_size = self.get_frame_size()
+        return int(frame_size['height']) if frame_size else 0
 
     def get_binning_size(self) -> int:
         """Get the current camera binning size.
 
         Returns:
-            int: Current binning factor (1 if camera inactive).
+            int: Current binning factor, always >= 1 -- last-known-good when
+                the live read fails, 1 when no camera is active. The driver's
+                -1 failed-read sentinel never surfaces here: a -1 would flow
+                into frame-geometry arithmetic (native size = displayed *
+                binning) as a sign flip.
         """
-        if not self._driver or not self._driver.active:
-            return 1
-
-        return self._driver.get_binning_size()
+        return self._validated_camera_read(
+            'binning',
+            lambda driver: driver.get_binning_size(),
+            common_utils.is_valid_binning_size,
+            int,
+            1,
+        )
 
     def get_supported_pixel_formats(self) -> tuple:
         """Get the list of supported camera pixel formats.
@@ -1343,10 +1874,15 @@ class ImagingAPI:
             return {}
 
     def get_pixel_alignment(self) -> dict:
-        """Return the camera's frame-size pixel alignment.
+        """Return the camera's deliverable frame-size granularity.
 
-        Frame width/height must be a multiple of these values (a Pylon
-        constraint on most current models). Defaults to 4x4 when unknown.
+        The frame width/height a caller can request, floored to these values, is
+        what the camera will actually deliver. For a floor-only driver (Pylon,
+        FX2, simulator) this is the hardware AOI grid -- a request off the grid
+        is floored down (e.g. multiple-of-4 on most Pylon models). The IDS
+        driver instead delivers any even size exactly via oversize-then-crop, so
+        it reports ``{2, 2}`` -- the only constraint is even dimensions (H.264).
+        Defaults to 4x4 when unknown.
 
         Returns:
             dict: ``{'width': int, 'height': int}``.
@@ -1402,6 +1938,19 @@ class ImagingAPI:
                 Sentinel-return contract: `if image is None: ...`.
         """
         if not self._driver or not self._driver.active:
+            return None
+
+        # active (connected) is necessary but not sufficient to deliver a
+        # frame: connect() configures the camera without starting the feed
+        # (the lifecycle split), and stop_streaming() deliberately halts it.
+        # A not-grabbing camera cannot produce a capture, so return the same
+        # not-ready sentinel as the active check above -- named distinctly so
+        # a stopped or not-yet-started feed is not misread as a grab timeout.
+        if not self._driver.is_grabbing():
+            logger.warning(
+                '[SCOPE API ] capture_and_wait: no active grab (streaming not '
+                'started or stopped) -- returning None until the feed is running.'
+            )
             return None
 
         hold_start = time.monotonic()
@@ -1569,11 +2118,18 @@ class ImagingAPI:
     _SATURATION_BLOWN_FRACTION = 0.98  # >= 98% of pixels saturated = blown frame
 
     @staticmethod
-    def _saturated_fraction(arr: np.ndarray | None) -> float:
-        """Fraction of pixels at or above the near-full-scale threshold."""
+    def _saturated_fraction(arr: np.ndarray | None, significant_bits: int) -> float:
+        """Fraction of pixels at or above the near-full-scale threshold.
+
+        Full scale comes from the frame's payload depth, not the container
+        dtype: a 12-bit frame in a uint16 container tops out at 4095, so
+        measuring against 65535 would report a fully blown frame as 0%
+        saturated and let it slip past the evidence check.
+        """
         if arr is None or arr.size == 0:
             return 0.0
-        near_max = np.iinfo(arr.dtype).max * ImagingAPI._SATURATION_NEAR_MAX_FRACTION
+        full_scale = (1 << significant_bits) - 1
+        near_max = full_scale * ImagingAPI._SATURATION_NEAR_MAX_FRACTION
         return float(np.count_nonzero(arr >= near_max)) / arr.size
 
     def get_image(
@@ -1690,9 +2246,18 @@ class ImagingAPI:
                     time.sleep(0.05)
                     continue
 
+                # Saturation measures against the just-grabbed frame's own
+                # payload depth (the delivery stamp), never the container
+                # dtype -- a 12-bit frame in a uint16 container is blown at
+                # 4095, not 65535. Read only on the checking path: the stamp
+                # read takes the handler's frame lock, which the streaming
+                # thread contends on every delivery.
+                if all_ones_check:
+                    frame_depth = self.last_significant_bits
                 if (
                     all_ones_check
-                    and self._saturated_fraction(tmp) >= self._SATURATION_BLOWN_FRACTION
+                    and self._saturated_fraction(tmp, frame_depth)
+                    >= self._SATURATION_BLOWN_FRACTION
                 ):
                     # Near-fully-saturated frame -- retry once in case it was a
                     # transient blip, then surface it. A blown frame is usually
@@ -1712,16 +2277,16 @@ class ImagingAPI:
                             retry_frame = self._driver.get_array()
                     # Saturation walk is outside cam_lock -- no camera state needed,
                     # and the walk would otherwise block concurrent set_gain/set_exposure.
-                    if (
-                        retry_frame is not None
-                        and self._saturated_fraction(retry_frame) < self._SATURATION_BLOWN_FRACTION
+                    if retry_frame is not None and (
+                        self._saturated_fraction(retry_frame, self.last_significant_bits)
+                        < self._SATURATION_BLOWN_FRACTION
                     ):
                         tmp = retry_frame  # retry was clean, use it
                     else:
                         # Log (not notify): a blown frame is self-evident on
                         # screen and in the saved file, so a popup adds nothing.
                         # The log line is for the post-mortem / log-analysis pass.
-                        sat_pct = self._saturated_fraction(tmp) * 100.0
+                        sat_pct = self._saturated_fraction(tmp, frame_depth) * 100.0
                         logger.warning(
                             f'[SCOPE API ] get_image: captured frame is {sat_pct:.0f}% '
                             f'saturated -- likely over-exposure or a stale camera gain; '
@@ -1814,16 +2379,29 @@ class ImagingAPI:
         if self._scope.runtime_state._objective is None:
             use_scale_bar = False
 
+        need_8bit = force_to_8bit and image.dtype != np.uint8
+
+        # A summed capture lives in a 16-bit container; a single frame carries
+        # the camera's native payload depth. The scale bar's white value and the
+        # 8-bit downconvert divisor both follow this depth so a summed 12-bit
+        # value never indexes the 12-bit display table, a 10-bit frame is not
+        # crushed as if 12-bit, and the bar maps to full white not a dim gray.
+        # Query the driver only when a consumer needs it -- a raw passthrough
+        # frame returns without touching the driver's depth.
+        if use_scale_bar or need_8bit:
+            significant_bits = self.capture_frame_depth(image, sum_count)
+
         if use_scale_bar:
             image = image_utils.add_scale_bar(
                 image=image,
                 objective=self._scope.runtime_state._objective,
                 binning_size=self._binning_size,
                 color=self._scale_bar.get('color'),
+                significant_bits=significant_bits,
             )
 
-        if force_to_8bit and image.dtype != np.uint8:
-            image = image_utils.convert_12bit_to_8bit(image)
+        if need_8bit:
+            image = image_utils.convert_to_8bit(image, significant_bits)
 
         return image
 
@@ -1835,7 +2413,7 @@ class ImagingAPI:
         Copy budget (per frame):
           - grab_latest(): 0 copies (returns reference from ImageHandler)
           - add_scale_bar(): 0 copies (modifies array in-place)
-          - convert_12bit_to_8bit(): 1 copy (LUT indexing creates new array),
+          - convert_to_8bit(): 1 copy (LUT indexing creates new array),
             or 0 fresh allocations when the caller supplies out_8bit.
           - Total: 0 copies (8-bit) or 1 copy (12-bit with force_to_8bit)
           The caller adds 1 more copy via tobytes() for GPU blit.
@@ -1862,7 +2440,7 @@ class ImagingAPI:
         # Single-copy grab: grab_latest() returns the image directly,
         # avoiding the extra copy that grab() + get_array() would make.
         # This saves ~2.3MB copy + 1 lock acquisition per frame.
-        grab_status, tmp, grab_image_ts = self._driver.grab_latest()
+        grab_status, tmp, grab_image_ts, frame_significant_bits = self._driver.grab_latest()
         if not grab_status or tmp is None:
             return None, None
         # grab_latest() returns the same buffered frame on every poll, and
@@ -1887,12 +2465,123 @@ class ImagingAPI:
                 objective=self._scope.runtime_state._objective,
                 binning_size=self._binning_size,
                 color=self._scale_bar.get('color'),
+                significant_bits=frame_significant_bits,
             )
 
         if force_to_8bit and tmp.dtype != np.uint8:
-            tmp = image_utils.convert_12bit_to_8bit(tmp, out=out_8bit)
+            tmp = image_utils.convert_to_8bit(tmp, frame_significant_bits, out=out_8bit)
 
         return tmp, grab_image_ts
+
+    @property
+    def significant_bits(self) -> int:
+        """Meaningful payload bits of frames the current camera delivers.
+
+        The depth a single captured frame should be scaled / tagged by (12 for a
+        Mono12 sensor, 8 for an 8-bit one). A summed frame is promoted to a
+        16-bit container by get_image and is not described by this -- summed
+        callers declare 16 themselves. Falls back to the container width when no
+        camera is attached.
+
+        Derived from the CACHED pixel format (the validated last-known-good)
+        via the driver's own depth rule (``significant_bits_for_format``, so
+        a constant-depth driver like FX2 stays authoritative), not a live
+        driver read: a transient format-read failure once made a 12-bit
+        camera report depth 16 here, so a fully blown frame passed the
+        saturation evidence check at 0.0% and files were stamped at the
+        wrong depth. For the depth of a frame you are HOLDING, prefer
+        ``last_significant_bits`` -- the per-frame stamp.
+        """
+        driver = self._driver
+        if driver is None:
+            return 16
+        return driver.significant_bits_for_format(self.get_pixel_format())
+
+    @property
+    def last_significant_bits(self) -> int:
+        """Payload depth of the most recently delivered frame (per-frame stamp).
+
+        The depth to save, evidence-check, or downconvert a just-captured
+        frame at: every driver stamps the depth WITH the frame at delivery,
+        so it cannot fail a live read and always describes a frame the
+        camera actually produced. Read it as closely as possible to the
+        grab that produced the frame you hold -- a later read can describe
+        a newer frame. The stamp is an in-memory read (no SDK node touch),
+        so it has no transient-failure mode. Falls back to
+        ``significant_bits`` (the validated cached-format depth -- NOT the
+        driver's live-read fallback, which a transient format failure
+        could turn into a wrong container-width answer) when no frame has
+        been stored yet; 16 when no camera is attached.
+        """
+        driver = self._driver
+        if driver is None:
+            return 16
+        stamped = driver.last_stamped_significant_bits()
+        return int(stamped) if stamped is not None else self.significant_bits
+
+    def capture_frame_depth(self, array: np.ndarray | None, sum_count: int = 1) -> int:
+        """Payload depth of a frame just produced by a capture call.
+
+        The one depth-classification rule every save / evidence / display
+        consumer shares: an 8-bit container carries 8 significant bits, a
+        summed capture fills its promoted 16-bit container, and a single
+        wider frame carries the per-frame delivery stamp. Read it at
+        capture time, next to the grab that produced ``array``, and hand
+        it DOWN with the frame -- re-deriving depth later reads the
+        camera's state at that later moment, not the frame's.
+        """
+        if array is not None and getattr(array, 'dtype', None) == np.uint8:
+            return 8
+        if sum_count > 1:
+            return 16
+        return self.last_significant_bits
+
+    # --- Streaming control ---
+    def start_streaming(self) -> None:
+        """Begin camera streaming -- the public way to start the live feed.
+
+        After ``connect()`` the camera is configured but NOT grabbing (the
+        camera-lifecycle split); this is the sanctioned release. Opens the
+        start gate (idempotent) and ensures the grab is running, so it both
+        performs the one-time bring-up start and restarts a feed that was
+        deliberately stopped. No-op when no camera is attached.
+
+        The UI bring-up calls this in load_settings / reconnect; headless
+        callers (scripts, tests) call it after constructing the scope
+        instead of reaching into the private camera driver.
+        """
+        driver = self._driver
+        if driver is None:
+            return
+        # open_and_start reports whether it just fired the one-time start;
+        # the restart poll runs only when the gate was ALREADY open (a feed
+        # deliberately stopped earlier). This keeps the two ensure-running
+        # mechanisms from stacking: a just-attempted start that failed is
+        # not immediately retried against the same failed device.
+        if not driver.open_and_start() and not driver.is_grabbing():
+            driver.start_grabbing()
+
+    def stop_streaming(self) -> None:
+        """Stop camera streaming.
+
+        After this, ``get_image()`` / ``capture_and_wait()`` time out until
+        streaming resumes. No-op when no camera is attached.
+        """
+        driver = self._driver
+        if driver is None:
+            return
+        driver.stop_grabbing()
+
+    def is_streaming(self) -> bool:
+        """Whether the camera is currently acquiring frames.
+
+        Queries the driver directly (unlike ``camera_active``, which reads
+        the cached connected-state). False when no camera is attached.
+        """
+        driver = self._driver
+        if driver is None:
+            return False
+        return driver.is_grabbing()
 
     # --- State / lifecycle properties ---
     @property
@@ -1980,18 +2669,28 @@ class ImagingAPI:
         return float(value)
 
     @property
-    def camera_pixel_format(self) -> str:
+    def camera_pixel_format(self) -> str | None:
         """Current camera pixel format (e.g. 'Mono8', 'Mono12') (reads cache).
 
         Returns:
-            str: Cached pixel format string.
+            str | None: Cached pixel format string, or None when no format
+                has ever been successfully read or configured. A failed
+                driver read never overwrites this entry
+                (validate-before-store at cache population), so a known
+                format survives transient read failures.
         """
         with self._camera_cache_lock:
-            return self._camera_cache.get('pixel_format', 'Mono8')
+            return self._camera_cache['pixel_format']
 
     # --- Save / restore ---
     def save_camera_state(self, tag: str) -> dict:
         """Snapshot the current camera gain and exposure for later restoration.
+
+        Omit-if-unknown: a field enters the snapshot only when a usable
+        value exists (the getters answer last-known-good, so a missing
+        field means the value was NEVER successfully read). Restore can
+        therefore trust every field it finds, and name the ones it
+        cannot restore.
 
         Args:
             tag: Descriptive name for the snapshot (for logging).
@@ -1999,14 +2698,45 @@ class ImagingAPI:
         Returns:
             dict: Snapshot suitable for passing to ``restore_camera_state``.
         """
+        snapshot = {'tag': tag}
         gain_db = self.get_gain()
+        if common_utils.is_valid_gain_db(gain_db):
+            snapshot['gain_db'] = gain_db
+        else:
+            # The warning belongs HERE, not at restore: an absent field at
+            # restore time can be a deliberate caller trim (autofocus keeps
+            # the fields its run explicitly targeted), but at save time a
+            # missing value has exactly one meaning -- the camera never
+            # reported it -- and a later partial restore would otherwise be
+            # untraceable.
+            logger.warning(
+                f'[SCOPE API ] save_camera_state tag={tag}: gain has never '
+                f'been successfully read; snapshot omits it and the restore '
+                f'will leave gain unchanged'
+            )
         exposure_ms = self.get_exposure_time()
-        snapshot = {'tag': tag, 'gain_db': gain_db, 'exposure_ms': exposure_ms}
-        _api_log.info(f'save_camera_state tag={tag}: gain={gain_db} exp={exposure_ms}')
+        if common_utils.is_valid_exposure_ms(exposure_ms):
+            snapshot['exposure_ms'] = exposure_ms
+        else:
+            logger.warning(
+                f'[SCOPE API ] save_camera_state tag={tag}: exposure has '
+                f'never been successfully read; snapshot omits it and the '
+                f'restore will leave exposure unchanged'
+            )
+        _api_log.info(
+            f'save_camera_state tag={tag}: '
+            f'gain={snapshot.get("gain_db", "never-read")} '
+            f'exp={snapshot.get("exposure_ms", "never-read")}'
+        )
         return snapshot
 
     def restore_camera_state(self, snapshot: dict) -> None:
         """Restore camera gain and exposure from a previously saved state.
+
+        Fields absent from the snapshot are skipped and named in the log:
+        either the caller deliberately trimmed them (autofocus keeps the
+        values its run explicitly targeted) or they were never readable at
+        save time -- save_camera_state already WARNed about the latter.
 
         Args:
             snapshot: Return value from ``save_camera_state``.
@@ -2014,12 +2744,37 @@ class ImagingAPI:
         if not snapshot:
             return
         tag = snapshot.get('tag', '?')
-        _api_log.info(f'restore_camera_state tag={tag}')
-        gain_db = snapshot.get('gain_db', -1)
-        exposure_ms = snapshot.get('exposure_ms', 0)
-        if gain_db >= 0:
+        # An ABSENT field is a legitimate trim (skip quietly); a PRESENT
+        # field that fails validation is a caller bug -- the sanctioned
+        # producer only ever emits valid fields -- so that case warns.
+        gain_db = snapshot.get('gain_db')
+        gain_known = common_utils.is_valid_gain_db(gain_db)
+        if not gain_known and 'gain_db' in snapshot:
+            logger.warning(
+                f'[SCOPE API ] restore_camera_state tag={tag}: snapshot '
+                f'carries a non-physical gain ({gain_db!r}); gain left as-is'
+            )
+        exposure_ms = snapshot.get('exposure_ms')
+        exposure_known = common_utils.is_valid_exposure_ms(exposure_ms)
+        if not exposure_known and 'exposure_ms' in snapshot:
+            logger.warning(
+                f'[SCOPE API ] restore_camera_state tag={tag}: snapshot '
+                f'carries a non-physical exposure ({exposure_ms!r}); '
+                f'exposure left as-is'
+            )
+        # The log of record goes BEFORE the hardware writes: a setter may
+        # raise a typed exception mid-restore, and the post-mortem then
+        # needs the line stating what this restore was about to do (a
+        # partial restore with no record once misattributed wrong-
+        # brightness images to protocol settings).
+        _api_log.info(
+            f'restore_camera_state tag={tag}: '
+            f'gain={gain_db if gain_known else "skipped"} '
+            f'exp={exposure_ms if exposure_known else "skipped"}'
+        )
+        if gain_known:
             self.set_gain(gain_db)
-        if exposure_ms > 0:
+        if exposure_known:
             self.set_exposure_time(exposure_ms)
 
     # --- Camera config orchestration ---
@@ -2061,7 +2816,19 @@ class ImagingAPI:
         """
         if not self._driver or not self._driver.active:
             return
-        self._driver.update_auto_gain_target_brightness(target_brightness)
+        # Changing the target re-drives the auto-gain loop: gain (and, under
+        # auto-exposure, exposure) converge to a new operating point, so a frame
+        # grabbed before they resettle is captured at the old brightness. Route
+        # through the sanctioned write path and mark the settle sources RED so
+        # capture waits for the convergence -- the same sources set_auto_gain
+        # arms, since this is the same convergence. The auto_gain settle source
+        # applies only when the camera has hardware auto-gain (others settle via
+        # the gain source alone).
+        arm_settle = getattr(self._driver.profile, 'has_auto_gain', False)
+        self._camera_write(
+            lambda: self._driver.update_auto_gain_target_brightness(target_brightness),
+            force_invalidate=('gain', 'auto_gain') if arm_settle else ('gain',),
+        )
 
     def auto_gain_once(
         self,
@@ -2083,22 +2850,24 @@ class ImagingAPI:
         """
         if not self._driver or not self._driver.active:
             return
-        self._driver.auto_gain_once(
-            state=state,
-            target_brightness=target_brightness,
-            min_gain_db=min_gain_db,
-            max_gain_db=max_gain_db,
-            ae_max_exposure_ms=ae_max_exposure_ms,
+        # One-shot AG changes both gain and exposure on the camera from a single
+        # driver call; the pipeline still needs frames to flush the converged
+        # values, so both validity markers must go RED until they settle. The
+        # converged values are chosen by the SDK, so clear any manual chunk-match
+        # target and fall back to skip-frames settling. Both invalidations and
+        # target-clears are forced -- one call, two sources, no value write the
+        # authority could observe.
+        self._camera_write(
+            lambda: self._driver.auto_gain_once(
+                state=state,
+                target_brightness=target_brightness,
+                min_gain_db=min_gain_db,
+                max_gain_db=max_gain_db,
+                ae_max_exposure_ms=ae_max_exposure_ms,
+            ),
+            force_invalidate=('gain', 'exposure'),
+            force_clear=('gain', 'exposure'),
         )
-        # One-shot AG changes both gain and exposure on the camera; the
-        # pipeline still needs frames to flush the converged values, so
-        # the validity marker must go RED until they settle. The converged
-        # values are chosen by the SDK, so clear any manual chunk-match
-        # target and fall back to skip-frames settling.
-        self.frame_validity.invalidate('gain')
-        self.frame_validity.invalidate('exposure')
-        self.frame_validity.set_target('gain', None)
-        self.frame_validity.set_target('exposure', None)
         # One-shot AG always ends with the auto cycle complete and the
         # SDK toggled back to Off internally; hardware holds the
         # converged value while LVP's cache is still pre-auto.
@@ -2337,24 +3106,29 @@ class ImagingAPI:
             schedule_interval_fn: Callable matching ``Clock.schedule_interval(func, interval)``.
                 Passed in so this module stays GUI-agnostic.
             unschedule_fn: Callable matching ``Clock.unschedule(event)``,
-                used by ``stop_camera_temp_logging`` and on
-                disconnect-while-logging.
+                used by ``stop_camera_temp_logging``.
             interval_s: Seconds between log emissions; default 4 hours.
         """
         # Defensive: if a previous logger is already running, stop it
         # before starting a new one (idempotent -- safe to call repeatedly).
+        # No unschedule_fn arg: the OLD event must be cancelled with the
+        # scheduler it was registered on (the stored fn), not the one
+        # being handed in for the new schedule.
         if getattr(self, '_camera_temp_event', None) is not None:
-            self.stop_camera_temp_logging(unschedule_fn)
+            self.stop_camera_temp_logging()
 
         self._camera_temp_unschedule_fn = unschedule_fn
         self.log_camera_temps()  # one immediate sample
 
         def _tick(_dt=0):
-            # Self-unschedule when the camera disconnects so a stale
-            # event doesn't survive scope switches.
-            if not self._scope.camera_connected:
-                self.stop_camera_temp_logging(unschedule_fn)
-                return
+            # camera_connected is an instantaneous poll and a False can be
+            # transient (a single flaky connectivity query), so the tick
+            # skips the sample (log_camera_temps guards internally) but
+            # STAYS SCHEDULED -- self-unscheduling here permanently ended
+            # temperature logging for the rest of a multi-day soak on one
+            # transient False. Teardown belongs to the explicit owners:
+            # stop_camera_temp_logging via the metrics logger stop and the
+            # scope-swap path.
             self.log_camera_temps()
 
         self._camera_temp_event = schedule_interval_fn(_tick, interval_s)

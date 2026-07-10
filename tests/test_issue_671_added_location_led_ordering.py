@@ -1,7 +1,7 @@
 """Regression test for #671 -- LED-state-hygiene at the transition
 from a TSV-loaded last step to a `Protocol.insert_step()`-added step.
 
-User repro (Chris, beta12, 2026-05-19):
+User repro (the beta tester, beta12, 2026-05-19):
   1. Load an 8-step TSV (A1+A2 well, 4 channels each: BF, Blue, Green,
      Red, in that order).
   2. Use the UI to add a 4-channel location at a 3rd X/Y. The UI
@@ -60,6 +60,7 @@ _mock_settings_init.settings = {
 }
 sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
+from modules.image_mode import ImageCaptureConfig
 from modules.lumascope_api import Lumascope
 from modules.protocol import Protocol
 from modules.sequenced_capture_runner import (
@@ -107,6 +108,7 @@ def _step_dict(name, x, y, z, color, idx):
         'Video Config': {'duration': 5, 'fps': 30},
         'Stim_Config': {},
         'Step Index': idx,
+        'Label': '',
     }
 
 
@@ -184,9 +186,9 @@ def scope():
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
-    s._camera_driver.start_grabbing()
+    s.imaging.start_streaming()
     yield s
-    s._camera_driver.stop_grabbing()
+    s.imaging.stop_streaming()
     s.disconnect()
 
 
@@ -237,7 +239,7 @@ def executor(scope, executors):
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
         camera_executor=executors['camera'],
-        autofocus_thread=MagicMock(),
+        autofocus_thread=MagicMock(is_running=False),
         autofocus_runner=mock_af,
     )
     exc._wellplate_loader = WellPlateLoader()
@@ -275,15 +277,12 @@ def _run_protocol(executor, protocol, tmp_path):
         # through to default_move(), which fires real move_abs calls.
     }
 
-    executor.run(
+    plan = executor.prepare(
         protocol=protocol,
         run_trigger_source='test',
         run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
         sequence_name='issue_671_repro',
-        image_capture_config={
-            'output_format': {'live': 'TIFF', 'sequenced': 'TIFF'},
-            'use_full_pixel_depth': False,
-        },
+        image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
         autogain_settings={
             'target_brightness': 0.3,
             'min_gain_db': 0.0,
@@ -304,6 +303,7 @@ def _run_protocol(executor, protocol, tmp_path):
             'Lumi': False,
         },
     )
+    executor.start(plan)
 
     completed = done.wait(timeout=30)
     return completed, result_holder
@@ -317,9 +317,16 @@ def _run_protocol(executor, protocol, tmp_path):
 class TestAddedLocationLedOrdering:
     """At the boundary between the last TSV step (A2 Red) and the
     first user-added step (added BF), the canonical convention
-    requires `leds_off` BEFORE the first `move_abs` of the next
-    step. The bug is that the convention is violated specifically
+    requires the LED-off BEFORE the first `move_abs` of the next
+    step, so the previous step's LED is not lit during well-to-well
+    motion. The bug is that the convention is violated specifically
     at this transition.
+
+    The invariant is the ordering (off precedes move), not the form
+    of the off: the boundary off may be the nuclear `leds_off` or the
+    LED authority's per-channel `led_off ch=N` diff. Either satisfies
+    the contract, so routing the boundary through the authority must
+    not falsely reproduce the bug.
     """
 
     def test_leds_off_precedes_move_at_added_location_boundary(self, executor, tmp_path):
@@ -367,30 +374,37 @@ class TestAddedLocationLedOrdering:
         last_a2_red_led_on = all_red_led_ons[1]  # A2_Red at step 8
 
         first_move_after_a2_red = None
-        first_leds_off_after_a2_red = None
+        first_boundary_off_after_a2_red = None
         for i in range(last_a2_red_led_on + 1, len(capture.records)):
             msg = capture.records[i][1]
             if first_move_after_a2_red is None and msg.startswith('move_abs '):
                 first_move_after_a2_red = i
-            if first_leds_off_after_a2_red is None and msg.strip() == 'leds_off':
-                first_leds_off_after_a2_red = i
-            if first_move_after_a2_red is not None and first_leds_off_after_a2_red is not None:
+            # The boundary off is either the nuclear leds_off or the LED
+            # authority's per-channel led_off diff; match either form so the
+            # invariant under test is the ordering, not the emission shape.
+            if first_boundary_off_after_a2_red is None and (
+                msg.strip() == 'leds_off' or msg.startswith('led_off ch=')
+            ):
+                first_boundary_off_after_a2_red = i
+            if first_move_after_a2_red is not None and first_boundary_off_after_a2_red is not None:
                 break
 
         assert first_move_after_a2_red is not None, (
             'Did not see any move_abs after A2 Red led_on. '
             'Did the protocol abort before transitioning to step 9?'
         )
-        assert first_leds_off_after_a2_red is not None, 'Did not see leds_off after A2 Red led_on.'
+        assert first_boundary_off_after_a2_red is not None, (
+            'Did not see the boundary LED-off after A2 Red led_on.'
+        )
 
-        # THE ASSERTION: leds_off must precede the first move_abs
-        # at the TSV->added-location boundary. With #671 unfixed,
-        # the move fires first (Red LED stays on during the move).
-        assert first_leds_off_after_a2_red < first_move_after_a2_red, (
-            f'#671 reproduced: leds_off (idx '
-            f'{first_leds_off_after_a2_red}) fired AFTER first move_abs '
+        # THE ASSERTION: the boundary LED-off must precede the first move_abs
+        # at the TSV->added-location boundary. With the bug unfixed, the move
+        # fires first (Red LED stays on during the move).
+        assert first_boundary_off_after_a2_red < first_move_after_a2_red, (
+            f'#671 reproduced: the boundary LED-off (idx '
+            f'{first_boundary_off_after_a2_red}) fired AFTER first move_abs '
             f'following A2 Red (idx {first_move_after_a2_red}). At the '
-            f'TSV->added-location boundary, leds_off must precede the '
+            f'TSV->added-location boundary, the LED-off must precede the '
             f"move so the previous step's LED isn't lit during "
             f'well-to-well motion.\n'
             f'Surrounding events:\n'
@@ -400,7 +414,7 @@ class TestAddedLocationLedOrdering:
                     max(0, last_a2_red_led_on),
                     min(
                         len(capture.records),
-                        max(first_move_after_a2_red, first_leds_off_after_a2_red) + 5,
+                        max(first_move_after_a2_red, first_boundary_off_after_a2_red) + 5,
                     ),
                 )
             )

@@ -138,13 +138,13 @@ class CellCount:
 
         return filtered_region_info, filtered_contours
 
-    def process_image(self, image, settings, include_images=None):
+    def process_image(self, image, settings, significant_bits: int, include_images=None):
         if include_images is None:
             include_images = ['filtered_contours']
 
         if image.dtype != np.uint8:
             if image.dtype == np.uint16:
-                image = image_utils.convert_16bit_to_8bit(image=image)
+                image = image_utils.convert_to_8bit(image, significant_bits=significant_bits)
             else:
                 raise NotImplementedError(f'Unable to process image of type {image.dtype}')
 

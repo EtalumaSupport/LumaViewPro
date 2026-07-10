@@ -79,6 +79,16 @@ class TestFromSettings:
         assert config.expects_motion is True
         assert config.expects_led is True
 
+    def test_capture_depth_resolved_from_image_mode(self):
+        # No image_mode key -> 8-bit default.
+        config = ScopeInitConfig.from_settings(_BASE_SETTINGS, labware=None)
+        assert config.capture_depth == 8
+        # A 12-bit image mode resolves to a 12-bit capture depth, so
+        # initialize() applies a 12-bit native pixel format up front.
+        twelve = {**_BASE_SETTINGS, 'image_mode': '12bit_scientific'}
+        config = ScopeInitConfig.from_settings(twelve, labware=None)
+        assert config.capture_depth == 12
+
     def test_ls620_no_motor_expected(self):
         config = ScopeInitConfig.from_settings(
             _BASE_SETTINGS,

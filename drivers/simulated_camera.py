@@ -7,7 +7,6 @@ camera state (exposure, gain, binning, frame size, pixel format), and
 supports the full Camera ABC interface.
 """
 
-import contextlib
 import datetime
 import pathlib
 import threading
@@ -84,8 +83,11 @@ class SimulatedCamera(Camera):
         # whenever any are registered AND grabbing is active. Tests that
         # exercise the production callback path use this; the display
         # pull-pipeline (grab/grab_latest) keeps working as before.
-        self._frame_callbacks: list = []
-        self._frame_callback_lock = threading.Lock()
+        # Per-frame callbacks live in the base Camera's durable registry
+        # (_registered_frame_callbacks + _frame_callback_lock, created by
+        # super().__init__() below); the pump reads that registry, so a
+        # reconnect keeps the same source of truth as the handler-based drivers.
+        # Only the pump-thread lifecycle state is sim-specific.
         self._pump_thread: threading.Thread | None = None
         self._pump_stop = threading.Event()
 
@@ -214,7 +216,8 @@ class SimulatedCamera(Camera):
 
             self._load_profile()
             self.init_camera_config()
-            self._grabbing = True
+            # connect() returns CONFIGURED but NOT grabbing; the single
+            # start fires later via open_and_start() (the start gate).
 
             if _cam_log is not None:
                 _cam_log.info(f'sim Connected: {self.model_name} ({self._device_serial})')
@@ -229,15 +232,26 @@ class SimulatedCamera(Camera):
                 False when it was already disconnected.
         """
         with self._lock:
-            if self.active:
-                self._grabbing = False
-                self.active = None
-                if _cam_log is not None:
-                    _cam_log.info('sim Disconnected')
-                logger.info('[CAM Sim   ] Disconnected')
-                self._stop_callback_pump()
-                return True
-            return False
+            if not self.active:
+                return False
+            self._grabbing = False
+            self.active = None
+            if _cam_log is not None:
+                _cam_log.info('sim Disconnected')
+            logger.info('[CAM Sim   ] Disconnected')
+        # Stop the pump OUTSIDE self._lock (mirroring stop_grabbing): the pump
+        # loop grabs under self._lock, so joining it while holding that lock
+        # stalls the full join timeout whenever the pump is mid-acquire. With
+        # _grabbing already False under the lock above, a pump that wins the
+        # lock race idles instead of grabbing, then exits on the stop signal.
+        self._stop_callback_pump()
+        # Reset base lifecycle state OUTSIDE self._lock too:
+        # _reset_lifecycle_state takes _lifecycle_lock, and holding sim's _lock
+        # across it would create a _lock -> _lifecycle_lock acquisition order
+        # (the base config path takes them the other way). The pump is stopped
+        # above, so nothing writes the frame buffer concurrently from here on.
+        self._reset_lifecycle_state()
+        return True
 
     def is_connected(self) -> bool:
         """Whether the simulated camera is currently connected.
@@ -282,7 +296,7 @@ class SimulatedCamera(Camera):
             logger.info('[CAM Sim   ] start_grabbing')
         # Re-spawn the pump if callbacks were registered while not grabbing.
         with self._frame_callback_lock:
-            need_pump = bool(self._frame_callbacks)
+            need_pump = bool(self._registered_frame_callbacks)
         if need_pump:
             self._start_callback_pump()
 
@@ -305,19 +319,18 @@ class SimulatedCamera(Camera):
         while ``_grabbing`` is True, so callers (manual record) see the
         same push-driven semantics they get from real cameras.
         """
-        with self._frame_callback_lock:
-            if cb not in self._frame_callbacks:
-                self._frame_callbacks.append(cb)
-            need_pump = bool(self._frame_callbacks) and self._grabbing
-        if need_pump:
+        super().register_frame_callback(cb)  # durable storage; sim has no handler
+        # We just appended cb, so the registry is non-empty; the pump only needs
+        # to run while grabbing. Avoids re-taking _frame_callback_lock that
+        # super() already released.
+        if self._grabbing:
             self._start_callback_pump()
 
     def unregister_frame_callback(self, cb) -> None:
         """Remove a registered callback; stops the pump when none remain."""
+        super().unregister_frame_callback(cb)
         with self._frame_callback_lock:
-            with contextlib.suppress(ValueError):
-                self._frame_callbacks.remove(cb)
-            still_active = bool(self._frame_callbacks)
+            still_active = bool(self._registered_frame_callbacks)
         if not still_active:
             self._stop_callback_pump()
 
@@ -356,7 +369,7 @@ class SimulatedCamera(Camera):
                     return
                 continue
             with self._frame_callback_lock:
-                cbs = list(self._frame_callbacks)
+                cbs = list(self._registered_frame_callbacks)
             if not cbs:
                 return
             with self._lock:
@@ -377,7 +390,7 @@ class SimulatedCamera(Camera):
     # ------------------------------------------------------------------
     # Frame size
     # ------------------------------------------------------------------
-    def set_frame_size(self, w: int, h: int) -> None:
+    def set_frame_size(self, w: int, h: int) -> dict:
         """Set the simulated camera frame size, clamped to valid ranges.
 
         ``w`` and ``h`` are post-binning (displayed) pixels, so the ceiling is
@@ -389,6 +402,11 @@ class SimulatedCamera(Camera):
                 clamped to [48, native_width / binning]).
             h: Target height in pixels (snapped to a multiple of 4,
                 clamped to [4, native_height / binning]).
+
+        Returns:
+            dict: The delivered size ``{'width': int, 'height': int}`` after
+                snapping and clamping, so the caller knows what was actually
+                applied without a read-back.
         """
         with self._lock:
             max_w = self._native_width // self._binning
@@ -397,6 +415,7 @@ class SimulatedCamera(Camera):
             self._height = max(4, min(max_h, int(h / 4) * 4))
             if _cam_log is not None:
                 _cam_log.info(f'sim set_frame_size({self._width}x{self._height})')
+            return {'width': self._width, 'height': self._height}
 
     def get_min_frame_size(self) -> dict:
         """Return the simulator's minimum supported frame size.
@@ -786,14 +805,15 @@ class SimulatedCamera(Camera):
         """Single-copy grab for display pipeline (overrides Camera.grab_latest).
 
         SimulatedCamera doesn't use ImageHandlerBase, so we override
-        to generate and return the image directly.
+        to generate and return the image directly. The depth travels with the
+        frame (the generated frame's format depth), matching the real drivers.
 
         Returns:
             tuple: ``(success: bool, image: np.ndarray | None,
-                timestamp: datetime | None)``.
+                timestamp: datetime | None, significant_bits: int | None)``.
         """
         if not self._grabbing:
-            return False, None, None
+            return False, None, None, None
 
         if self._grab_delay > 0:
             time.sleep(self._grab_delay)
@@ -805,7 +825,7 @@ class SimulatedCamera(Camera):
             if now - last < exposure_s:
                 with self._lock:
                     img = self.array.copy() if self.array.size > 0 else None
-                return True, img, self._last_grab_ts
+                return True, img, self._last_grab_ts, self.significant_bits
             self._last_frame_time = now
 
         with self._lock:
@@ -813,7 +833,7 @@ class SimulatedCamera(Camera):
             self._last_grab_ts = datetime.datetime.now()
             img = self.array.copy()
 
-        return True, img, self._last_grab_ts
+        return True, img, self._last_grab_ts, self.significant_bits
 
     def grab_new_capture(self, timeout_s: float) -> tuple:
         """Generate a fresh image (blocking with timeout).

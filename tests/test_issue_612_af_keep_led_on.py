@@ -97,26 +97,28 @@ def test_runner_stores_keep_led_on_on_self():
     )
 
 
-def test_runner_finally_skips_led_off_when_flag_set():
+def test_runner_finally_holds_led_only_on_success():
+    # The AF-end LED state routes through the authority's AF_TO_CAPTURE
+    # transition (hold the AF channel for the capture, or restore the pre-AF
+    # snapshot), and the hold is gated on completed_successfully -- so an
+    # aborted or errored AF restores rather than leaving the channel lit with
+    # no capture to consume it. This is the invariant the inline off+restore
+    # cycle used to encode; pin the invariant, not the mechanism. (#612)
     method = _method_node(_module_tree(RUNNER_SRC), 'AutofocusRunner', 'run')
-    src = ast.unparse(method)  # noqa: F841 -- deferred
-    # Find an If gating on self._keep_led_on; in its else branch the
-    # _led_off + restore_led_state calls are present.
-    has_keep_guard = False
+    src = ast.unparse(method)
+    assert 'LedTransition.AF_TO_CAPTURE' in src, (
+        'AF end-state must route through the authority AF_TO_CAPTURE transition. (#612)'
+    )
+    gated = False
     for node in ast.walk(method):
-        if isinstance(node, ast.If):
-            test_src = ast.unparse(node.test)
-            if 'self._keep_led_on' not in test_src:
-                continue
-            # The else branch must contain self._led_off().
-            else_src = '\n'.join(ast.unparse(s) for s in node.orelse)
-            if 'self._led_off()' in else_src and 'restore_led_state' in else_src:
-                has_keep_guard = True
+        if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.And):
+            operands = {ast.unparse(v) for v in node.values}
+            if 'self._keep_led_on' in operands and 'completed_successfully' in operands:
+                gated = True
                 break
-    assert has_keep_guard, (
-        'AutofocusRunner.run finally must gate the _led_off + '
-        'restore_led_state pair on `if self._keep_led_on: ... else: ...` '
-        'so the protocol-AF path can inherit the LED state. (#612)'
+    assert gated, (
+        'the keep-led-on hold must be ANDed with completed_successfully so a '
+        'non-success AF exit restores rather than holds the LED. (#612)'
     )
 
 

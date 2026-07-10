@@ -3,10 +3,10 @@
 SequencedCaptureRunner with MagicMock deps.
 
 Three layers of readiness:
-- bare_capture_runner(): a constructed runner; enough for run()'s
-  pre-run gates and snapshot phase.
-- scan_ready_runner(): the scan-ready state run() normally establishes,
-  with a single-step protocol mock -- drive
+- bare_capture_runner(): a constructed runner; enough for prepare()'s
+  refusal gates and start()'s snapshot phase.
+- scan_ready_runner(): the scan-ready state prepare()+start() normally
+  establish, with a single-step protocol mock -- drive
   runner._step_executor.scan_iterate() / scan_loop() directly.
 - run_loop_ready_runner(): additionally RUNNING state, zero period,
   go_to_step callback, and a mocked _cleanup -- drive
@@ -17,7 +17,10 @@ Three layers of readiness:
 from __future__ import annotations
 
 import datetime
+import time
 from unittest.mock import MagicMock
+
+from modules.image_mode import ImageCaptureConfig
 
 
 def protocol_step(**overrides):
@@ -50,19 +53,22 @@ def bare_capture_runner(**overrides):
         'protocol_thread': MagicMock(),
         'file_io_executor': MagicMock(),
         'camera_executor': MagicMock(),
-        'autofocus_thread': MagicMock(),
+        'autofocus_thread': MagicMock(is_running=False),
         'autofocus_runner': MagicMock(),
     }
     kwargs.update(overrides)
     runner = SequencedCaptureRunner(**kwargs)
     runner.file_io_executor.is_protocol_queue_active.return_value = False
+    # The real executor returns an int drop count (0 on a clean run); the mock
+    # must too, or run-end cleanup compares a MagicMock against an int.
+    runner.file_io_executor.protocol_dropped_count.return_value = 0
     return runner
 
 
 def scr_run_kwargs(**overrides):
-    """Keyword args for SequencedCaptureRunner.run() with a protocol mock
-    that passes every pre-run gate; tests override the gate or snapshot
-    under test."""
+    """Keyword args for SequencedCaptureRunner.prepare() with a protocol
+    mock that passes every refusal gate; tests override the gate or
+    snapshot under test."""
     from modules.sequenced_capture_runner import SequencedCaptureRunMode
 
     protocol = MagicMock()
@@ -75,7 +81,7 @@ def scr_run_kwargs(**overrides):
         'run_trigger_source': 'test',
         'run_mode': SequencedCaptureRunMode.FULL_PROTOCOL,
         'sequence_name': 'seq',
-        'image_capture_config': {},
+        'image_capture_config': ImageCaptureConfig.from_image_mode('8bit'),
         'autogain_settings': {'target_brightness': 0.3},
         'parent_dir': None,
         'disable_saving_artifacts': True,
@@ -86,8 +92,8 @@ def scr_run_kwargs(**overrides):
 
 
 def scan_ready_runner(step, **state):
-    """Runner advanced to the scan-ready state run() normally
-    establishes, with a single-step protocol mock returning *step*.
+    """Runner advanced to the scan-ready state prepare()+start()
+    normally establish, with a single-step protocol mock returning *step*.
     Keyword args land as runner attributes (e.g. _n_scans=2)."""
     runner = bare_capture_runner()
     runner._scope.motion.is_moving.return_value = False
@@ -103,10 +109,11 @@ def scan_ready_runner(step, **state):
     runner._image_writer = MagicMock()
     runner._disable_saving_artifacts = True
     runner._enable_image_saving = False
-    runner._image_capture_config = {'output_format': {'sequenced': 'TIFF'}}
+    runner._image_capture_config = ImageCaptureConfig.from_image_mode('8bit')
     runner._separate_folder_per_channel = False
     runner._video_as_frames = False
     runner._leds_state_at_end = 'off'
+    runner._keep_led_between_steps = False
     runner._update_z_pos_from_autofocus = False
     runner._save_autofocus_data = False
     runner._parent_dir = None
@@ -127,7 +134,8 @@ def run_loop_ready_runner(step, n_scans=1, **state):
     runner._scan_in_progress.clear()
     runner._n_scans = n_scans
     runner._protocol.period.return_value = datetime.timedelta(0)
-    runner._start_t = datetime.datetime.now()
+    # _start_t is a monotonic timestamp (seconds), matching the run loop's pacing.
+    runner._start_t = time.monotonic()
     runner._callbacks = ProtocolCallbacks(go_to_step=MagicMock())
     runner._cleanup = MagicMock()
     runner._set_state(ProtocolState.RUNNING)

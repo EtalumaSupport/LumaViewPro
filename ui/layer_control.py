@@ -11,6 +11,7 @@ from kivy.uix.scrollview import ScrollView
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
+import modules.image_mode as image_mode
 from modules import gui_logger
 from modules.sequential_io_executor import IOTask
 
@@ -80,8 +81,17 @@ class LayerControl(BoxLayout):
     stimulation_support = BooleanProperty(False)
     show_stim_controls = BooleanProperty(False)
     autogain_support = BooleanProperty(True)
+    # Orthogonal runtime gate (like show_camera_controls): the Auto Gain/Exp
+    # checkbox drives the camera's hardware auto-gain, so it is hidden on a
+    # camera whose profile reports no hardware AG (IDS U3-34Lx, FX2 LS620).
+    # Set from scope.capabilities.camera_supports_auto_gain on connect /
+    # scope-change; AND-ed with the per-layer static autogain_support in the kv.
+    camera_autogain_support = BooleanProperty(True)
     exposure_summing_support = BooleanProperty(False)
     show_camera_controls = BooleanProperty(True)
+    # Drives the 8-bit summing depth-loss hint row; the row height follows the
+    # label's wrapped texture so the multi-line warning is not clipped.
+    sum_depth_hint_active = BooleanProperty(False)
     show_cbt = BooleanProperty(True)
 
     def __init__(self, **kwargs):
@@ -105,6 +115,43 @@ class LayerControl(BoxLayout):
         )
         self._init_ui_retries = 0
         Clock.schedule_once(self._init_ui, 0)
+        # Defer the depth-hint binding: scope_display (the image_mode owner) is
+        # built later in the app startup, so bind on the next frame.
+        Clock.schedule_once(self._bind_depth_hint, 0)
+
+    def _bind_depth_hint(self, *args):
+        """Observe image_mode changes so the summing depth-loss hint stays
+        current when the user switches mode in the other settings panel.
+
+        scope_display (the image_mode owner) is built later in app startup, so
+        the first frame can fire before it exists; retry rather than drop the
+        binding for the session, and guard against binding twice across retries.
+        """
+        if getattr(self, '_depth_hint_bound', False):
+            return
+        scope_display = getattr(_app_ctx.ctx, 'scope_display', None)
+        if scope_display is None:
+            self._depth_hint_bind_retries = getattr(self, '_depth_hint_bind_retries', 0) + 1
+            if self._depth_hint_bind_retries <= INIT_MAX_RETRIES:
+                Clock.schedule_once(self._bind_depth_hint, 0.1)
+            return
+        scope_display.bind(image_mode=lambda *a: self._refresh_sum_depth_hint())
+        self._depth_hint_bound = True
+        self._refresh_sum_depth_hint()
+
+    def _refresh_sum_depth_hint(self):
+        """Show the depth-loss hint below the Sum control only when this layer
+        sums in an 8-bit mode (the summed range is truncated on save).
+        """
+        if 'sum_depth_hint_row' not in self.ids:
+            return
+        scope_display = getattr(_app_ctx.ctx, 'scope_display', None)
+        if scope_display is None:
+            return
+        sum_count = _app_ctx.ctx.settings.get(self.layer, {}).get('sum')
+        self.sum_depth_hint_active = image_mode.depth_truncation_warning_active(
+            sum_count, scope_display.image_mode
+        )
 
     def _validate_and_apply_text_input(
         self,
@@ -344,11 +391,13 @@ class LayerControl(BoxLayout):
         total = int(self.ids['sum_slider'].value)
         gui_logger.slider(f'SUM_{self.layer}', total)
         settings[self.layer]['sum'] = total
+        self._refresh_sum_depth_hint()
         self.apply_settings()
 
     def sum_text(self):
         logger.info('[LVP Main  ] LayerControl.sum_text()')
         if self._validate_and_apply_text_input('sum_text', 'sum_slider', 'sum', cast=int):
+            self._refresh_sum_depth_hint()
             self.apply_settings()
 
     def video_duration_slider(self):
@@ -434,6 +483,12 @@ class LayerControl(BoxLayout):
             # print(f"Gain: {gain}    Exp: {exp}")
 
             if (not init) and (not state):
+                # A non-physical reading (no gain/exposure was ever
+                # successfully read) must not overwrite the layer's stored
+                # settings or push a below-minimum slider value -- keep
+                # the previous settings for that field instead.
+                gain_known = common_utils.is_valid_gain_db(gain)
+                exp_known = common_utils.is_valid_exposure_ms(exp)
                 # Clamp exposure to a per-class minimum before writing back
                 # to settings. AG can drive the camera to its physical
                 # minimum (Pylon ~30us on bright samples); writing those
@@ -444,21 +499,24 @@ class LayerControl(BoxLayout):
                 # floor at 1ms (sub-ms never realistic in those modes);
                 # transmitted (BF/PC/DF) floor at 0.1ms (the warning
                 # threshold). Live AG output to the camera is untouched.
-                exp_min = self.ids['exp_slider'].min
-                exp_max = self.ids['exp_slider'].max
-                if self.layer in common_utils.get_image_layers():
-                    exp_min = max(exp_min, FLUORESCENCE_MIN_EXPOSURE_MS)
-                else:
-                    exp_min = max(exp_min, TRANSMITTED_MIN_EXPOSURE_MS)
-                exp = float(np.clip(exp, exp_min, exp_max))
+                if exp_known:
+                    exp_min = self.ids['exp_slider'].min
+                    exp_max = self.ids['exp_slider'].max
+                    if self.layer in common_utils.get_image_layers():
+                        exp_min = max(exp_min, FLUORESCENCE_MIN_EXPOSURE_MS)
+                    else:
+                        exp_min = max(exp_min, TRANSMITTED_MIN_EXPOSURE_MS)
+                    exp = float(np.clip(exp, exp_min, exp_max))
 
-                settings[self.layer]['gain_db'] = gain
-                settings[self.layer]['exp_ms'] = exp
-                # Update sliders/text to show the auto-adjusted values
-                self.ids['gain_slider'].value = gain
-                self.ids['gain_text'].text = str(round(gain, 1))
-                self.ids['exp_slider'].value = exp
-                self.ids['exp_text'].text = str(round(exp, 2))
+                if gain_known:
+                    settings[self.layer]['gain_db'] = gain
+                    # Update sliders/text to show the auto-adjusted values
+                    self.ids['gain_slider'].value = gain
+                    self.ids['gain_text'].text = str(round(gain, 1))
+                if exp_known:
+                    settings[self.layer]['exp_ms'] = exp
+                    self.ids['exp_slider'].value = exp
+                    self.ids['exp_text'].text = str(round(exp, 2))
 
             settings[self.layer]['auto_gain'] = state
             self.apply_settings()
@@ -807,7 +865,7 @@ class LayerControl(BoxLayout):
                 notifications.error(
                     'Motion',
                     'Save focus failed',
-                    f"Couldn't read Z position: {e}",
+                    "Couldn't read the Z position. Check that the motor board is connected.",
                 )
             except Exception:
                 pass
@@ -850,7 +908,7 @@ class LayerControl(BoxLayout):
                 notifications.error(
                     'Motion',
                     'Focus move failed',
-                    f"Couldn't move Z to saved focus: {e}",
+                    "Couldn't move Z to the saved focus. Check that the motor board is connected.",
                 )
             except Exception:
                 pass
@@ -859,16 +917,11 @@ class LayerControl(BoxLayout):
 
     def update_led_state(self, apply_settings=True):
         ctx = _app_ctx.ctx
-        # While autofocus owns the LED, a live UI apply -- such as the
-        # exposure field losing focus when the AF button is clicked -- must
-        # not turn off the channel autofocus is using, or AF scans a dark
-        # frame. Logged so a bench run can confirm the suppression fired.
-        if ctx.scope.imaging.is_focusing:
-            logger.debug(
-                '[LVP Main  ] update_led_state suppressed -- autofocus owns '
-                f'the LED (layer={self.layer})'
-            )
-            return
+        # No autofocus guard here: while AF holds the LED ownership lease,
+        # led_on/led_off refuse any unleased UI write, so a live UI apply during
+        # a scan (e.g. the exposure field losing focus when the AF button is
+        # clicked) cannot turn off the channel AF is using. The lease is the
+        # structural guard; an early-return here would only duplicate it.
         # Skip hardware commands during programmatic state changes
         # (e.g., disable_leds_for_other_layers toggling buttons).
         if LayerControl._suppressing_led_log or self._initializing:
@@ -916,7 +969,8 @@ class LayerControl(BoxLayout):
                 notifications.error(
                     'LED',
                     f'{self.layer} LED command failed',
-                    f"Couldn't {'enable' if enabled else 'disable'} the {self.layer} channel: {e}",
+                    f"Couldn't {'enable' if enabled else 'disable'} the {self.layer} channel. "
+                    f'Check that the LED board is connected.',
                 )
             except Exception:
                 pass
@@ -1046,6 +1100,19 @@ class LayerControl(BoxLayout):
         except Exception as e:
             logger.warning(f'[LVP Main  ] {self.layer} widget sync from settings failed: {e}')
 
+    def effective_auto_gain(self) -> bool:
+        """The auto-gain enable actually in force for this layer's camera.
+
+        The saved preference (settings[layer]['auto_gain']) gated by the
+        camera's hardware capability (camera_autogain_support -- the same gate
+        the kv visibility uses). On a camera without hardware AG/AE the Auto
+        Gain/Exp control is hidden, so its stored preference resolves to off
+        here. Derived on read, never written back, so a capable camera's saved
+        preference survives a swap to an AG-less body and back.
+        """
+        settings = _app_ctx.ctx.settings
+        return bool(settings[self.layer]['auto_gain'] and self.camera_autogain_support)
+
     def apply_settings(self, ignore_auto_gain=False, update_led=True, protocol=False):
 
         # Skip apply_settings if layer is still initializing
@@ -1174,7 +1241,12 @@ class LayerControl(BoxLayout):
         gain = settings[self.layer]['gain_db']
 
         if not protocol_running_global.is_set():
-            auto_gain_enabled = settings[self.layer]['auto_gain']
+            # Effective enable = saved preference gated by camera capability
+            # (effective_auto_gain): on a camera without hardware AG/AE the
+            # control is hidden, so a stored True must read as off here -- else
+            # the gain/exposure sliders below stay disabled with no UI to clear
+            # them. Non-destructive: the stored preference is left intact.
+            auto_gain_enabled = self.effective_auto_gain()
             # Sync the toggle CheckBox + dependent slider-disabled state to
             # the settings value before applying to the camera. The .kv has
             # no Kivy binding from settings to auto_gain.active, so when the

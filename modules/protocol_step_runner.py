@@ -21,8 +21,16 @@ from typing import TYPE_CHECKING
 from lvp_logger import logger
 
 import modules.config_helpers as config_helpers
+from modules.exceptions import AutofocusAborted
+from modules.lumascope_api.illumination import (
+    FIRE_AND_FORGET_TRANSITIONS,
+    LedEndPolicy,
+    LedTransition,
+    LedTransitionCtx,
+    resolve_end_state,
+)
 from modules.protocol_state_machine import ProtocolState
-from modules.sequential_io_executor import IOTask
+from modules.sequential_io_executor import IOTask, PROTOCOL_ENQUEUED
 from modules.settings_init import settings
 
 if TYPE_CHECKING:
@@ -102,7 +110,38 @@ class ProtocolStepRunner:
         if p._af_future is not None and not p._af_future.done():
             return
 
-        if p._af_future is not None and p._af_future.done():
+        if p._af_future is not None and not p._af_result_consumed:
+            # The autofocus run has resolved (we passed the not-done gate above).
+            # Handle it exactly once. AFE restores the pre-AF Z on a non-success,
+            # which leaves the stage in motion, so the polls that immediately
+            # follow hit the is_moving early-return below WITHOUT clearing
+            # _af_future (it is cleared only at the step transition). Without this
+            # one-shot latch each of those ~1 kHz settle polls would re-enter and
+            # re-handle the same resolved future.
+            #
+            # The autofocus thread is the sole owner of recording the fault with
+            # a full traceback: it logs every non-abort exception before setting
+            # it on the future, but at that altitude it has no idea which protocol
+            # step or well the run belonged to. AFE has restored a usable Z, so an
+            # AF fault mid-protocol is non-fatal -- the step still captures here at
+            # that fallback Z and the run continues (no halt, no modal). That
+            # fallback capture may be out of focus, so emit one step-correlated
+            # warning that ties a possibly-blurry frame back to its step and well.
+            # It is complementary to the AF thread's traceback (which it does not
+            # repeat), and the one-shot latch keeps it to a single line per fault
+            # rather than one per ~1 kHz settle poll. An intentional abort is not a
+            # fault, so it stays at debug.
+            p._af_result_consumed = True
+            _af_exc = p._af_future.exception()
+            if isinstance(_af_exc, AutofocusAborted):
+                logger.debug(f'[PROTOCOL] Autofocus aborted at step {p._curr_step}')
+            elif _af_exc is not None:
+                _af_well = p._protocol.step(idx=p._curr_step).get('Well', '?')
+                logger.warning(
+                    f'[PROTOCOL] Autofocus failed at step {p._curr_step} '
+                    f'(well {_af_well}) ({type(_af_exc).__name__}: {_af_exc}) -- '
+                    f'capturing at fallback Z and continuing'
+                )
             _cam_gain = p._scope.imaging.get_gain() if p._scope.imaging.camera_active else '?'
             _cam_exp = (
                 p._scope.imaging.get_exposure_time() if p._scope.imaging.camera_active else '?'
@@ -130,6 +169,12 @@ class ProtocolStepRunner:
                 )
                 logger.error(f'[PROTOCOL] {timeout_msg} -- transitioning to ERROR state')
                 from modules.notification_center import notifications
+
+                # The timed-out move is still in flight. Halt the motor before
+                # erroring out so it stops driving toward the unreachable target
+                # rather than latching against a limit. Idempotent + no-ops on
+                # field firmware without a STOP command.
+                p._scope.motion.stop_motion()
 
                 notifications.error(
                     'Protocol', 'Protocol Error -- Motion Timeout', timeout_msg, fatal=True
@@ -236,17 +281,11 @@ class ProtocolStepRunner:
         # exposed. Lighting first lets AG settle toward the real exposure. The
         # capture_and_wait drain then waits the measured auto_gain settle frames
         # (invalidated inside set_auto_gain) before grabbing -- no separate
-        # timed wait. The exclusive light makes this channel the only lit one;
-        # capture() re-asserts the same channel idempotently. Arm once per step
-        # (_auto_gain_armed_step is a one-shot keyed on _curr_step).
+        # timed wait. The STEP_LIGHT illuminate makes this channel the only lit
+        # one; the capture path re-asserts the same channel idempotently. Arm
+        # once per step (_auto_gain_armed_step is a one-shot keyed on _curr_step).
         if step['Auto_Gain'] and p._auto_gain_armed_step != p._curr_step:
-            if p._scope.led_connected:
-                # Make this step's channel the only lit one, idempotently: a
-                # same-color step that kept its LED on (Z-stack slice) is left
-                # lit instead of being blinked off->on while arming AG.
-                p._step_executor.leds_exclusive(
-                    color=step['Color'], illumination=step['Illumination'], block=True
-                )
+            self._apply_step_light(step)
             # Cap AG/AE exposure to this step's channel-class ceiling before
             # arming. Set on the shared settings dict so capture() inherits it.
             # step['Color'] is the layer; the per-install override is read from
@@ -296,47 +335,83 @@ class ProtocolStepRunner:
                 else:
                     save_folder = p._run_dir
 
-                output_format = p._image_capture_config['output_format']['sequenced']
+                output_format = p._image_capture_config.output_format_sequenced
                 if output_format == 'OME-TIFF Hyperstack':
                     output_format = 'TIFF'
 
                 # Video encoding runs on FILE_WORKER after capture -- no gate needed
 
-                # Keep the LED on between consecutive same-channel steps in
-                # two cases. (1) Always within one z-stack: slices of the same
-                # Z-Stack Group are a single acquisition, so cycling the LED
-                # between Z moves would blink the sample on every slice.
-                # (2) Between distinct same-channel steps only when the opt-in
-                # speed optimization is enabled (default off) -- otherwise the
-                # LED extinguishes between steps. On non-final scans the last
-                # step always evaluates _keep_led=False so the inter-scan
-                # period runs with LEDs off (sample safety).
-                _keep_led = False
+                # Whether to hold this channel lit across the step boundary is
+                # the LED authority's STEP_BOUNDARY decision. The caller reads
+                # the protocol and precomputes primitives into the boundary
+                # ctx; the authority owns the policy (hold within a z-stack
+                # group, hold across a same-color move only on the opt-in, go
+                # dark across a scan boundary, hold on the final step when
+                # run-end will re-light this same channel). The decision is
+                # applied through the authority after the capture completes
+                # (below), not threaded into the capture leaf.
                 num_steps = p._protocol.num_steps()
+                same_color = False
+                same_zstack_group = False
+                is_scan_boundary = False
+                is_run_end_boundary = False
+                end_policy = LedEndPolicy.OFF
+                snapshot_lit = frozenset()
                 if p._curr_step < num_steps - 1:
                     next_step = p._protocol.step(idx=p._curr_step + 1)
-                    if next_step['Color'] == step['Color']:
-                        same_zstack = (
-                            step['Z-Stack Group ID'] != -1
-                            and next_step['Z-Stack Group ID'] == step['Z-Stack Group ID']
-                        )
-                        if same_zstack or p._keep_led_between_steps:
-                            _keep_led = True
-                elif p.remaining_scans() <= 1 and p._leds_state_at_end == 'return_to_original':
-                    # Final step of the final scan: if cleanup is about to
-                    # re-light this same channel (it was lit before the run),
-                    # turning it off here produces a visible off->on blink a
-                    # few ms later -- the end-of-acquire flicker on a
-                    # live-view-lit z-stack. Hold it; cleanup's restore
-                    # adjusts the current without a dark gap and turns off
-                    # anything that should not stay lit.
-                    _orig = getattr(p, '_original_led_states', None) or {}
-                    _orig_channel = _orig.get(step['Color'])
-                    if _orig_channel and _orig_channel.get('enabled'):
-                        _keep_led = True
+                    same_color = next_step['Color'] == step['Color']
+                    # A z-stack group is one channel acquired across z slices, so
+                    # group membership already implies the same color.
+                    same_zstack_group = (
+                        same_color
+                        and step['Z-Stack Group ID'] != -1
+                        and next_step['Z-Stack Group ID'] == step['Z-Stack Group ID']
+                    )
+                elif p.remaining_scans() <= 1:
+                    # Final step of the final scan -- the run-end boundary. The
+                    # authority holds this channel only if the run-end target
+                    # re-lights it, so the boundary off plus the restore a few
+                    # ms later is not a visible end-of-acquire flicker on a
+                    # live-view-lit z-stack. Feed the SAME end-state the cleanup
+                    # RUN_END uses (resolved once), so the boundary and cleanup
+                    # cannot disagree about what run-end will light.
+                    is_run_end_boundary = True
+                    resolved_policy, snapshot_lit = resolve_end_state(
+                        p._leds_state_at_end,
+                        getattr(p, '_original_led_states', None),
+                        p._scope.illumination.color2ch,
+                    )
+                    if resolved_policy is not None:
+                        end_policy = resolved_policy
+                else:
+                    # Last step of a non-final scan: the inter-scan idle runs dark.
+                    is_scan_boundary = True
+                # An unmapped channel (color2ch returns None when no LED board
+                # is present) makes the boundary target empty, but that is
+                # moot: with no board the authority's diff is a no-op, so there
+                # is nothing to keep lit anyway.
+                boundary_ctx = LedTransitionCtx(
+                    channel=p._scope.illumination.color2ch(step['Color']),
+                    mA=step['Illumination'],
+                    same_color=same_color,
+                    same_zstack_group=same_zstack_group,
+                    keep_led_across_moves=p._keep_led_between_steps,
+                    is_scan_boundary=is_scan_boundary,
+                    is_run_end_boundary=is_run_end_boundary,
+                    end_policy=end_policy,
+                    snapshot_lit=snapshot_lit,
+                )
+
+                # Illuminate the step's channel and confirm it on BEFORE the
+                # grab. The capture leaf no longer drives the LED -- it is a pure
+                # grab+save -- so the run-lifecycle illuminate lives here on the
+                # authority, the symmetric twin of the STEP_BOUNDARY off applied
+                # after capture. Idempotent on an AG step (already lit when AG
+                # armed) and on a held same-color channel.
+                self._apply_step_light(step)
 
                 _t_capture_start = time.monotonic()
-                p._image_writer.capture(
+                completed = p._image_writer.capture(
                     save_folder=save_folder,
                     step=step,
                     output_format=output_format,
@@ -344,17 +419,21 @@ class ProtocolStepRunner:
                     scan_count=p._scan_count,
                     sum_count=step['Sum'],
                     enable_image_saving=p._enable_image_saving,
-                    image_capture_config=p._image_capture_config,
                     autogain_settings=p._autogain_settings,
                     video_as_frames=p._video_as_frames,
                     separate_folder_per_channel=p._separate_folder_per_channel,
                     curr_step=p._curr_step,
-                    keep_led_on=_keep_led,
                 )
                 _t_capture_done = time.monotonic()
                 logger.debug(
                     f'[TIMING] Step {p._curr_step} capture+save: {(_t_capture_done - _t_capture_start) * 1000:.1f}ms'
                 )
+                # Drive the step-boundary LED decision through the authority,
+                # but only when the capture completed with the LED left lit. A
+                # failed or aborted capture has already turned the LED off as
+                # cleanup, so applying a hold target here would re-light it.
+                if completed:
+                    self.apply_led_transition(LedTransition.STEP_BOUNDARY, boundary_ctx)
 
             else:
                 # No saving -- turn off LEDs manually (capture normally does this)
@@ -388,6 +467,9 @@ class ProtocolStepRunner:
             with p._protocol_state_lock:
                 p._curr_step = min(p._curr_step + 1, num_steps - 1)
                 p._af_future = None
+                # The handled-latch travels with the future pointer: the next
+                # step starts a fresh AF run whose outcome must be consumed anew.
+                p._af_result_consumed = False
 
             if p._callbacks.update_step_number:
                 _schedule_ui(lambda dt: p._callbacks.update_step_number(p._curr_step + 1), 0)
@@ -501,47 +583,66 @@ class ProtocolStepRunner:
     def perform_grease_redistribution(self):
         p = self._p
         p._grease_redistribution_event.clear()
-        p._io_executor.protocol_put(IOTask(action=self._grease_redist_w_pos))
+        result = p._io_executor.protocol_put(IOTask(action=self._grease_redist_w_pos))
+        if result is not PROTOCOL_ENQUEUED:
+            # The grease task did not enter the queue -- io executor disabled,
+            # protocol not running, or queue full all return a non-enqueued
+            # value -- so the matching set() inside _grease_redist_w_pos's
+            # finally will never run. Release the gate now or the next scan's
+            # scan_iterate gate blocks forever waiting on a task that does not
+            # exist, a silent hang the consecutive-failure cap cannot catch.
+            logger.warning(
+                '[PROTOCOL] Grease redistribution task was not queued '
+                '(io executor unavailable or queue full); skipping it and '
+                'releasing the scan gate'
+            )
+            p._grease_redistribution_event.set()
 
     def _grease_redist_w_pos(self):
         p = self._p
         axis = 'Z'
         _t_start = time.monotonic()
-        # get_current_position is a cache read (LAYER-L pinned that as a
-        # zero-serial-IO accessor); safe to call directly from any thread
-        # that needs the live z position.
-        z_orig = p._scope.motion.get_current_position(axis=axis)
-        self._move_axis_through_io(
-            axis,
-            0,
-            wait_until_complete=True,
-            overshoot_enabled=True,
-            timeout=120.0,
-        )
-
-        if p._callbacks.move_position:
-            _schedule_ui(lambda dt, a=axis: p._callbacks.move_position(a))
-
-        self._move_axis_through_io(
-            axis,
-            z_orig,
-            wait_until_complete=True,
-            overshoot_enabled=True,
-            timeout=120.0,
-        )
-
-        if p._callbacks.move_position:
-            _schedule_ui(lambda dt, a=axis: p._callbacks.move_position(a))
-
-        elapsed = time.monotonic() - _t_start
-        if elapsed > 30:
-            logger.warning(
-                f'[PROTOCOL] Grease redistribution took {elapsed:.1f}s (> 30s threshold)'
+        try:
+            # get_current_position is a cache read (a zero-serial-IO accessor);
+            # safe to call directly from any thread that needs the live z position.
+            z_orig = p._scope.motion.get_current_position(axis=axis)
+            self._move_axis_through_io(
+                axis,
+                0,
+                wait_until_complete=True,
+                overshoot_enabled=True,
+                timeout=120.0,
             )
-        else:
-            logger.debug(f'[PROTOCOL] Grease redistribution completed in {elapsed:.1f}s')
 
-        p._grease_redistribution_event.set()
+            if p._callbacks.move_position:
+                _schedule_ui(lambda dt, a=axis: p._callbacks.move_position(a))
+
+            self._move_axis_through_io(
+                axis,
+                z_orig,
+                wait_until_complete=True,
+                overshoot_enabled=True,
+                timeout=120.0,
+            )
+
+            if p._callbacks.move_position:
+                _schedule_ui(lambda dt, a=axis: p._callbacks.move_position(a))
+
+            elapsed = time.monotonic() - _t_start
+            if elapsed > 30:
+                logger.warning(
+                    f'[PROTOCOL] Grease redistribution took {elapsed:.1f}s (> 30s threshold)'
+                )
+            else:
+                logger.debug(f'[PROTOCOL] Grease redistribution completed in {elapsed:.1f}s')
+        finally:
+            # ALWAYS release the gate, even if a move raised. A raise propagates
+            # to the io_executor task runner (which logs it with a traceback), so
+            # the failure is still surfaced -- but the gate MUST be released
+            # first or the next scan's scan_iterate gate blocks forever, a silent
+            # hang the consecutive-failure cap cannot catch (this runs
+            # fire-and-forget; nothing reaches the run loop).
+            p._grease_redistribution_event.set()
 
     # ------------------------------------------------------------------
     # LED control
@@ -565,61 +666,61 @@ class ProtocolStepRunner:
                 logger.warning(f'[{p.LOGGER_NAME}] Direct leds_off fallback failed: {ex}')
         # LED observer handles UI sync -- no manual callback
 
-    def led_on(self, color: str, illumination: float, block: bool = True, force: bool = False):
-        """Turn on a single LED channel via the IO executor.
+    def apply_led_transition(self, transition: LedTransition, ctx: LedTransitionCtx) -> None:
+        """Drive an LED lifecycle transition through the run's LED authority.
 
-        UI update is handled by the LED observer -- no manual callback needed.
+        Submitted on the protocol IO queue so the transition's LED commands
+        serialize with the run's moves and captures -- a move must not race the
+        LEDs off at a well boundary. No-op when the run holds no lease.
+
+        Whether the submitter waits for completion is a property of the
+        transition (FIRE_AND_FORGET_TRANSITIONS): the scan-idle darkening is
+        enqueued without waiting, because on the failure-retry path the
+        executor carrying it may be the very thing that wedged the scan and
+        FIFO ordering already places the off before anything later.
         """
         p = self._p
-        if p._aborted.is_set() and not force:
+        lease = getattr(p, '_led_lease', None)
+        if lease is None:
             return
-
         fut = p._io_executor.protocol_put(
-            IOTask(
-                action=p._scope.illumination.led_on,
-                kwargs={
-                    'channel': p._scope.illumination.color2ch(color),
-                    'mA': illumination,
-                    'block': block,
-                    'owner': 'protocol',
-                },
-            ),
-            return_future=True,
+            IOTask(action=lease.apply, args=(transition, ctx)), return_future=True
         )
         if fut:
-            fut.result(timeout=30)
-        # Sleep for 5 ms to ensure that LED properly turns on before next action
-        time.sleep(0.005)
+            if transition not in FIRE_AND_FORGET_TRANSITIONS:
+                fut.result(timeout=30)
+        else:
+            lease.apply(transition, ctx)
 
-    def leds_exclusive(
-        self, color: str, illumination: float, block: bool = True, force: bool = False
-    ):
-        """Make a single channel the only lit LED, via the IO executor.
+    def _apply_step_light(self, step) -> None:
+        """Illuminate the step's channel through the authority, confirmed on.
 
-        Idempotent: a channel already lit at this illumination is left
-        untouched, so consecutive same-color steps (Z-stack slices) do not
-        flicker the LED off->on. Other channels are turned off. Replaces the
-        leds_off + led_on pair at step boundaries.
-
-        UI update is handled by the LED observer -- no manual callback needed.
+        The LED must be lit before the camera grabs the step's frame (a dark
+        grab is mis-exposed) and before continuous auto-gain arms against the
+        scene. STEP_LIGHT is a confirm-on transition, so apply blocks until the
+        board reports the channel on; the short settle after covers the board's
+        on-to-stable lag before the grab. A same-color step that kept its channel
+        lit is left untouched (the diff self-skips), so consecutive z-slices do
+        not blink off->on.
         """
         p = self._p
-        if p._aborted.is_set() and not force:
+        if p._aborted.is_set():
+            # Aborting: do not re-illuminate the sample during teardown -- the
+            # abort path is turning the LEDs off, and a stray on here flashes
+            # the sample at cancel time.
             return
-
-        fut = p._io_executor.protocol_put(
-            IOTask(
-                action=p._scope.illumination.leds_exclusive,
-                kwargs={
-                    'channel': p._scope.illumination.color2ch(color),
-                    'mA': illumination,
-                    'block': block,
-                    'owner': 'protocol',
-                },
+        if not p._scope.led_connected:
+            # A disconnected LED board makes every step grab a dark frame; say so
+            # at the capture point so a black-frame run is diagnosable.
+            logger.warning(
+                '[Capture   ] LED controller not available; step channel not illuminated.'
+            )
+            return
+        self.apply_led_transition(
+            LedTransition.STEP_LIGHT,
+            LedTransitionCtx(
+                channel=p._scope.illumination.color2ch(step['Color']),
+                mA=step['Illumination'],
             ),
-            return_future=True,
         )
-        if fut:
-            fut.result(timeout=30)
-        # Sleep for 5 ms to ensure that LED properly turns on before next action
         time.sleep(0.005)

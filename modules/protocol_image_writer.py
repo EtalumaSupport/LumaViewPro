@@ -14,7 +14,7 @@ import pathlib
 import logging
 import threading
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
 
@@ -32,10 +32,32 @@ except ImportError:
     profile_trace = None
 
 if TYPE_CHECKING:
+    from modules.image_mode import ImageCaptureConfig
     from modules.lumascope_api import Lumascope
     from modules.protocol_callbacks import ProtocolCallbacks
     from modules.protocol_execution_record import ProtocolExecutionRecord
     from modules.sequential_io_executor import SequentialIOExecutor
+
+
+# Minimum free disk space to allow a SINGLE protocol write, in MB. Distinct from
+# the run loop's larger whole-run MIN_REQUIRED_DISK_MB: each individual capture
+# must have at least this much headroom beyond its own estimated size before it
+# is allowed to write, so one write cannot fill the last sliver of a disk.
+MIN_PER_WRITE_DISK_MB = 500
+
+
+class CapturedFrame(NamedTuple):
+    """A captured frame coupled with the payload depth it was captured at.
+
+    The save runs asynchronously on the file-IO thread; a bare array would
+    force the writer to re-derive depth at save time, when the camera may
+    be at a different pixel format or unreadable. Coupling the depth to
+    the frame at capture makes handing over a frame without its depth
+    unrepresentable.
+    """
+
+    image: np.ndarray
+    significant_bits: int
 
 
 class ProtocolImageWriter:
@@ -59,12 +81,14 @@ class ProtocolImageWriter:
         execution_record: ProtocolExecutionRecord,
         # Functions borrowed from the parent executor
         leds_off_fn,
-        led_on_fn,
         is_run_in_progress_fn,
         stim_profiling: bool = False,
         run_dir: pathlib.Path | None = None,
-        # PIW-3: cached settings, read once at run start to avoid per-save lock acquires
-        false_color_16bit: bool = False,
+        # The run's one immutable capture/save intent. Required so a run
+        # cannot be built without its image mode; holding the whole frozen
+        # config (rather than a loose save_encoding) leaves no second
+        # channel for the capture depth and the save encoding to diverge.
+        image_capture_config: ImageCaptureConfig,
     ):
         self._scope = scope
         self._callbacks = callbacks
@@ -73,15 +97,10 @@ class ProtocolImageWriter:
         self._abort_fn = abort_fn
         self._execution_record = execution_record
         self._leds_off = leds_off_fn
-        self._led_on = led_on_fn
         self._is_run_in_progress = is_run_in_progress_fn
         self._stim_profiling = stim_profiling
         self._run_dir = run_dir
-        self._false_color_16bit = false_color_16bit
-        # PIW-5 / PF-3 / PIW-6: per-run reusable buffers for the save path.
-        # Allocated lazily on first matching save; re-allocated on shape/dtype change.
-        # file_io_executor runs single-threaded, so reuse across saves is safe.
-        self._convert_buf_12to16 = None  # PIW-5: 2D uint16, eliminates image.copy() in convert
+        self._config = image_capture_config
         self._consecutive_capture_failures = 0
         self._MAX_CONSECUTIVE_CAPTURE_FAILURES = 3
 
@@ -117,7 +136,7 @@ class ProtocolImageWriter:
         except Exception as ex:
             logger.error(f'[Protocol-Writer] Failed to record dropped capture: {ex}')
 
-    def _capture_evidence(self, image) -> str:
+    def _capture_evidence(self, image, significant_bits: int) -> str:
         """One-line provenance for a captured frame: brightness statistics
         plus the chunk-verified exposure / gain and capture-hold timing.
 
@@ -125,14 +144,17 @@ class ProtocolImageWriter:
         settings saturates or mis-exposes) previously left no log trace at
         all; this line makes every protocol capture auditable from a
         support bundle. Brightness is computed on a strided sample so the
-        cost stays negligible at full frame rate.
+        cost stays negligible at full frame rate. ``significant_bits`` is
+        the frame's true bit depth, required because the container dtype
+        can be wider than the data (12-bit frames ride in uint16); a
+        container-derived full scale reads a saturated frame as sat=0%.
         """
         try:
             parts = []
             if image is not None and getattr(image, 'size', 0) > 0:
                 sample = image[::8, ::8]
-                max_value = np.iinfo(image.dtype).max
-                sat_fraction = float(np.count_nonzero(sample >= 0.99 * max_value)) / sample.size
+                full_scale = (1 << significant_bits) - 1
+                sat_fraction = float(np.count_nonzero(sample >= 0.99 * full_scale)) / sample.size
                 parts.append(f'mean={float(sample.mean()):.1f}')
                 parts.append(f'sat={sat_fraction * 100.0:.1f}%')
             info = self._scope.imaging.last_capture_info or {}
@@ -150,16 +172,6 @@ class ProtocolImageWriter:
             logger.debug(f'[Protocol-Writer] capture evidence unavailable: {ex}')
             return ''
 
-    def _get_convert_buf_12to16(self, array):
-        """Get-or-allocate the 12->16 conversion buffer matching array's shape/dtype."""
-        if (
-            self._convert_buf_12to16 is None
-            or self._convert_buf_12to16.shape != array.shape
-            or self._convert_buf_12to16.dtype != array.dtype
-        ):
-            self._convert_buf_12to16 = np.empty(array.shape, dtype=array.dtype)
-        return self._convert_buf_12to16
-
     def capture(
         self,
         save_folder,
@@ -170,21 +182,34 @@ class ProtocolImageWriter:
         scan_count=None,
         sum_count: int = 1,
         enable_image_saving: bool = True,
-        image_capture_config: dict | None = None,
         autogain_settings: dict | None = None,
         video_as_frames: bool = False,
         separate_folder_per_channel: bool = False,
         curr_step: int = 0,
-        keep_led_on: bool = False,
-    ):
+    ) -> bool:
         """Orchestrate image/video acquisition for a single protocol step.
 
-        Runs on the protocol-executor thread.
+        Runs on the protocol-executor thread. Capture depth and save
+        encoding come from the writer's held run config (self._config) --
+        the one carrier for the run's capture/save intent -- so the values
+        the camera captures with and the values the file-IO thread saves
+        with cannot diverge for one run.
+
+        Returns:
+            True if the capture completed normally and left the step channel
+            lit, so the caller should drive the step-boundary LED decision
+            through the authority. False if the capture returned early
+            (aborted, failed, cancelled, or a dropped write); the caller must
+            not apply a boundary hold in that case -- the failure paths have
+            already turned the LED off, and a dropped write's still-lit
+            channel is resolved by the next step's exclusive illuminate
+            mid-scan, or by the run loop's scan-idle darkening at a scan
+            boundary.
         """
         if self._aborted.is_set():
-            return
+            return False
         if not self._is_run_in_progress():
-            return
+            return False
 
         # N5 (STALL-1 H5 disambiguator): proto-state trace.
         # See docs/STALL1_INSTRUMENTATION_EXPERIMENT.md (Firmware repo) sec.4 N5.
@@ -287,11 +312,6 @@ class ProtocolImageWriter:
             except Exception:
                 capture_root = ''
 
-            if capture_root not in (None, ''):
-                combined_prefix = f'{capture_root}_{step["Name"]}'
-            else:
-                combined_prefix = step['Name']
-
             # In engineering mode, include turret position in filename.
             # engineering_mode lives on the app context (ctx); fall back to
             # False when ctx is unset (bare-fixture test paths).
@@ -311,17 +331,23 @@ class ProtocolImageWriter:
                         e,
                     )
 
-            name = common_utils.generate_default_step_name(
-                well_label=step['Well'],
-                color=step['Color'],
-                z_height_idx=step['Z-Slice'],
-                scan_count=scan_count,
-                custom_name_prefix=combined_prefix,
-                objective_short_name=objective_short_name,
-                tile_label=step['Tile'],
-                video=is_video,
-                turret_position=turret_pos,
+            # The objective is stamped onto the saved filename here (the one
+            # writer), separate from the step's identity Name. capture_root is
+            # a path prefix kept out of the name seed, so a root that happens
+            # to contain a token cannot perturb the derived name.
+            step_name = common_utils.build_step_name(
+                common_utils.step_components(
+                    step,
+                    scan_count=scan_count,
+                    objective=objective_short_name,
+                    turret_position=turret_pos,
+                    post=('video',) if is_video else (),
+                )
             )
+            if capture_root not in (None, ''):
+                name = f'{capture_root}_{step_name}'
+            else:
+                name = step_name
             # Ensure the filename base has no invalid path characters
             try:
                 name = Protocol.sanitize_step_name(input=name)
@@ -334,22 +360,16 @@ class ProtocolImageWriter:
                     name,
                 )
 
-            # Illuminate
-            if self._scope.led_connected:
-                self._led_on(color=step['Color'], illumination=step['Illumination'], block=True)
-                logger.info(
-                    f'[{self.LOGGER_NAME} ] scope.illumination.led_on({step["Color"]}, {step["Illumination"]})'
-                )
-            else:
-                logger.warning('LED controller not available.')
-
+            # The step's channel is already lit and confirmed on by the runner's
+            # STEP_LIGHT illuminate before this leaf is called; the leaf is a
+            # pure grab+save and drives no LED on the success path (its failure /
+            # video / cancel offs remain as error cleanup below).
             sum_iteration_callback = None
             use_color = step['Color'] if step['False_Color'] else 'BF'
 
-            if enable_image_saving:
-                use_full_pixel_depth = image_capture_config['use_full_pixel_depth']
-                jpeg_quality = image_capture_config.get('jpg_quality', 90)
+            capture_depth = self._config.capture_depth
 
+            if enable_image_saving:
                 if is_video:
                     session = VideoCaptureSession(
                         scope=self._scope,
@@ -360,6 +380,10 @@ class ProtocolImageWriter:
                         leds_off_fn=self._leds_off,
                         stim_profiling=self._stim_profiling,
                         run_dir=self._run_dir,
+                        # Passed so a zero-frame recording can still drop the
+                        # incomplete-stim sidecar (no write_video runs in that case).
+                        save_folder=save_folder,
+                        name=name,
                     )
                     video_result = session.capture()
 
@@ -377,7 +401,7 @@ class ProtocolImageWriter:
                             reason='video_cancelled',
                         )
                         _proto_outcome = 'video_cancelled'
-                        return
+                        return False
 
                     self._leds_off()
 
@@ -413,14 +437,14 @@ class ProtocolImageWriter:
                             name=name,
                         )
                         _proto_outcome = 'video_dropped_queue_full'
-                        return
+                        return False
                     _proto_outcome = 'video_success'
-                    return  # Video: leds_off already called at line 181
+                    return False  # Video always extinguishes; leds_off called above
 
                 else:
                     # Frame validity drains stale frames, then grabs a valid one
                     captured_image = self._scope.imaging.capture_and_wait(
-                        force_to_8bit=not use_full_pixel_depth,
+                        force_to_8bit=capture_depth == 8,
                         all_ones_check=True,
                         timeout_s=1.0,
                         sum_count=sum_count,
@@ -433,6 +457,22 @@ class ProtocolImageWriter:
                         logger.error(
                             f'[PROTOCOL] Capture failed for step {curr_step} ({step.get("Name", "?")}), scan {scan_count} -- camera inactive or frame drain failed (failure {self._consecutive_capture_failures}/{self._MAX_CONSECUTIVE_CAPTURE_FAILURES})'
                         )
+                        aborting = (
+                            self._consecutive_capture_failures
+                            >= self._MAX_CONSECUTIVE_CAPTURE_FAILURES
+                        )
+                        # Surface the abort cause to the user BEFORE the cleanup
+                        # side effects (recording the failed step, leds_off), so
+                        # the notification leads the effects rather than trailing
+                        # them. The abort itself runs after leds_off below.
+                        if aborting:
+                            from modules.notification_center import notifications
+
+                            notifications.critical(
+                                'Protocol',
+                                'Camera Failure',
+                                f'Camera failed {self._consecutive_capture_failures} consecutive captures. Aborting protocol.',
+                            )
                         # Still record the step with "capture_failed" so the record isn't silently missing.
                         # If the file-IO queue is also full, fall back to recording directly (synchronously)
                         # so the failure isn't doubly hidden.
@@ -460,39 +500,41 @@ class ProtocolImageWriter:
                                 name=name,
                             )
                         self._leds_off()
-                        if (
-                            self._consecutive_capture_failures
-                            >= self._MAX_CONSECUTIVE_CAPTURE_FAILURES
-                        ):
-                            from modules.notification_center import notifications
-
-                            notifications.critical(
-                                'Protocol',
-                                'Camera Failure',
-                                f'Camera failed {self._consecutive_capture_failures} consecutive captures. Aborting protocol.',
-                            )
+                        if aborting:
                             self._abort_fn()
                         _proto_outcome = 'capture_failed'
-                        return
+                        return False
 
                     self._consecutive_capture_failures = 0  # Reset on success
+
+                    # Depth travels with the frame so the evidence line's
+                    # saturation threshold, the hold-display downconvert, AND
+                    # the eventual file save all scale against the real range
+                    # (summed -> 16-bit). Resolved here at capture time -- the
+                    # async save must not re-derive it later, when the camera
+                    # may be at a different format or unreadable.
+                    frame_significant_bits = self._scope.imaging.capture_frame_depth(
+                        captured_image, sum_count
+                    )
                     logger.info(
-                        f'Protocol Image Captured: {name} {self._capture_evidence(captured_image)}'
+                        f'Protocol Image Captured: {name} '
+                        f'{self._capture_evidence(captured_image, frame_significant_bits)}'
                     )
 
-                    # DISPLAY-1: hold the captured image on screen for at
-                    # least 500 ms so the user can see the saved frame
-                    # before the live preview overwrites it. NOT a delay --
-                    # the next protocol save bumps the hold deadline
-                    # forward, so display tracks the most-recent saved
-                    # frame in real time. Best-effort; missing scope_display
-                    # (early init / standalone tools) is fine.
+                    # Hold the captured image on screen for at least 500 ms so
+                    # the user can see the saved frame before the live preview
+                    # overwrites it. NOT a delay -- the next protocol save bumps
+                    # the hold deadline forward, so display tracks the
+                    # most-recent saved frame in real time. Best-effort; missing
+                    # scope_display (early init / standalone tools) is fine.
                     try:
                         import modules.app_context as _app_ctx
 
                         ctx = _app_ctx.ctx
                         if ctx is not None and getattr(ctx, 'scope_display', None) is not None:
-                            ctx.scope_display.hold_protocol_saved_image(captured_image)
+                            ctx.scope_display.hold_protocol_saved_image(
+                                captured_image, frame_significant_bits
+                            )
                     except Exception as _e:
                         logger.debug(f'[PROTOCOL] hold_protocol_saved_image failed: {_e}')
 
@@ -505,9 +547,11 @@ class ProtocolImageWriter:
                                 'use_color': use_color,
                                 'name': name,
                                 'output_format': output_format,
-                                'jpeg_quality': jpeg_quality,
                                 'step': step,
-                                'captured_image': captured_image,
+                                'captured_image': CapturedFrame(
+                                    image=captured_image,
+                                    significant_bits=frame_significant_bits,
+                                ),
                                 'step_index': curr_step,
                                 'scan_count': scan_count,
                                 'capture_time': _success_capture_time,
@@ -526,7 +570,7 @@ class ProtocolImageWriter:
                             name=name,
                         )
                         _proto_outcome = 'dropped_queue_full'
-                        return
+                        return False
                     _proto_outcome = 'success'
 
             else:
@@ -554,8 +598,13 @@ class ProtocolImageWriter:
                 else:
                     _proto_outcome = 'not_saving'
 
-            if not keep_led_on:
-                self._leds_off()
+            # Completed normally with the step channel still lit. The
+            # step-boundary LED decision -- hold within a z-stack or across a
+            # same-color move, or go dark -- belongs to the LED authority and
+            # is driven by the caller, so the leaf no longer turns the LED off
+            # here. The failure paths above keep their own offs: those are
+            # error cleanup, not the boundary decision.
+            return True
         except Exception:
             _proto_outcome = 'exception'
             raise
@@ -589,7 +638,7 @@ class ProtocolImageWriter:
         use_color=None,
         name=None,
         output_format=None,
-        jpeg_quality=90,
+        *,
         step=None,
         captured_image=None,
         step_index=None,
@@ -600,7 +649,18 @@ class ProtocolImageWriter:
     ):
         """Write captured image/video to disk and record in execution log.
 
-        Runs on the file-IO thread.
+        Runs on the file-IO thread. Encoding, depth, and JPEG quality come
+        from the writer's held run config -- the one carrier for the run's
+        capture/save intent -- so the video and image legs cannot receive
+        different values for one run.
+
+        Args:
+            captured_image: ``CapturedFrame`` (frame + the payload depth it
+                was captured at) for the still-image leg, or None. The depth
+                travels with the frame because this save is asynchronous --
+                deriving depth here would read the camera's state at save
+                time, when the format may have changed or the camera may be
+                unreadable.
         """
         # Count the attempt up front so end-of-run reconciliation can detect a
         # capture that returns without leaving a row in the execution record.
@@ -610,10 +670,17 @@ class ProtocolImageWriter:
         captured_frames = 0
         duration_sec = 0.0
 
-        # M8: Check disk space before writing -- long protocols can fill disk.
+        # Check disk space before writing -- long protocols can fill disk.
+        # Require headroom for THIS step's predicted write (a long
+        # video_as_frames recording can far exceed the flat floor), never below
+        # the per-write minimum.
         if save_folder is not None:
             try:
-                ok, free_mb = common_utils.check_disk_space_ok(save_folder, 500)
+                required_mb = max(
+                    MIN_PER_WRITE_DISK_MB,
+                    common_utils.estimate_step_write_mb(step, video_as_frames=video_as_frames),
+                )
+                ok, free_mb = common_utils.check_disk_space_ok(save_folder, required_mb)
                 if not ok:
                     from modules.notification_center import notifications
 
@@ -642,6 +709,8 @@ class ProtocolImageWriter:
                         video_as_frames=video_as_frames,
                         step=step,
                         callbacks=self._callbacks.to_dict(),
+                        save_encoding=self._config.save_encoding,
+                        capture_depth=self._config.capture_depth,
                     )
                 except Exception:
                     self._record_dropped_capture(
@@ -674,24 +743,18 @@ class ProtocolImageWriter:
                         )
                     return
 
-                # Pass per-run convert buffer for uint16 saves only (12->16
-                # conversion doesn't apply to uint8). Pass per-run false-
-                # color + RGB buffers for any 2D single-channel capture
-                # (uint8 or uint16) when false-color is enabled -- the
-                # write_tiff gate accepts both bit depths now.
-                is_uint16_2d = (
-                    hasattr(captured_image, 'dtype')
-                    and captured_image.dtype == np.uint16
-                    and getattr(captured_image, 'ndim', 0) == 2
-                )
-                out_12to16 = self._get_convert_buf_12to16(captured_image) if is_uint16_2d else None
+                # The frame arrives coupled with the payload depth it was
+                # captured at (uint8 -> 8, summed -> 16, else the per-frame
+                # delivery stamp) -- recorded at capture time on the executor
+                # thread, because by the time this save runs the camera may
+                # be at a different format or unreadable.
                 # Same failure-row contract as the video leg above: a
                 # raise from save_image must not leave the record without
                 # a row for this step.
                 try:
                     capture_result = save_image(
                         self._scope,
-                        array=captured_image,
+                        array=captured_image.image,
                         save_folder=save_folder,
                         file_root=None,
                         append=name,
@@ -702,13 +765,13 @@ class ProtocolImageWriter:
                         # on actual collision.
                         tail_id_mode='if_collision',
                         output_format=output_format,
-                        jpeg_quality=jpeg_quality,
+                        jpeg_quality=self._config.jpg_quality,
                         true_color=step['Color'],
                         x=step['X'],
                         y=step['Y'],
                         z=step['Z'],
-                        use_false_color_16bit=self._false_color_16bit,
-                        out_12to16=out_12to16,
+                        save_encoding=self._config.save_encoding,
+                        significant_bits=captured_image.significant_bits,
                     )
                 except Exception:
                     self._record_dropped_capture(

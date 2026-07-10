@@ -8,6 +8,7 @@ re-exports everything for existing callers.
 """
 
 import logging
+import typing
 
 from kivy.uix.scrollview import ScrollView
 from modules.kivy_utils import schedule_ui as _schedule_ui
@@ -15,9 +16,31 @@ from modules.kivy_utils import schedule_ui as _schedule_ui
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 import modules.config_helpers as config_helpers
+from modules.exceptions import ProtocolRunRefusedError
 from modules.sequential_io_executor import IOTask
 
 logger = logging.getLogger('LVP.modules.ui_helpers')
+
+
+def run_with_refusal_boundary(
+    start_fn: typing.Callable[[], None],
+    on_refused: typing.Callable[[], None],
+) -> None:
+    """The single UI boundary for the runner's typed run refusal.
+
+    A refused run is a designed outcome, not a failure to propagate: the
+    runner's refusal funnel has already logged it and notified the user
+    exactly once, and no running-state was committed (commit_ui_state
+    runs only after a successful prepare). What remains is per-starter:
+    undo the pre-gate button cosmetics via on_refused. Every UI starter
+    (scan, protocol, autofocus scan, z-stack) routes its prepare/start
+    sequence through this one handler so refusal handling cannot drift
+    between them.
+    """
+    try:
+        start_fn()
+    except ProtocolRunRefusedError:
+        on_refused()
 
 
 # ============================================================================

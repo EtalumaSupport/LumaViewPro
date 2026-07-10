@@ -110,6 +110,13 @@ def main():
     session.start_executors()
     print('Session created, executors started')
 
+    # Start the camera feed before any capture. connect() configures the
+    # camera but does not begin grabbing (the lifecycle split); until the feed
+    # is running, capture_and_wait returns None. The GUI does this during
+    # bring-up; a headless script must do it explicitly.
+    scope.imaging.start_streaming()
+    print('Camera streaming started')
+
     # Create a ProtocolRunner from the session
     runner = session.create_protocol_runner()
 
@@ -131,11 +138,18 @@ def main():
     #   tiling_file = pathlib.Path("data/tiling.json")
     #   protocol = Protocol.from_config(config, tiling_configs_file_loc=tiling_file)
     #
+    #   # The image capture config is REQUIRED: it states the run's image
+    #   # mode (bit depth + on-disk encoding) explicitly -- there is no
+    #   # silent default. Modes: '8bit', '12bit_scientific', '12bit_scaled',
+    #   # '12bit_false_color_rgb'.
+    #   capture_config = runner.build_image_capture_config(image_mode="8bit")
+    #
     #   # Run a single scan (captures all positions/channels once)
     #   runner.run_single_scan(
     #       protocol=protocol,
     #       sequence_name="my_scan",
     #       parent_dir=pathlib.Path("./output"),
+    #       image_capture_config=capture_config,
     #   )
     #
     #   # Monitor progress
@@ -147,7 +161,11 @@ def main():
     #   print(f"Completed: {completed}")
     #
     #   # For a full timed protocol (repeats scans over duration):
-    #   runner.run_protocol(protocol=protocol, sequence_name="my_protocol")
+    #   runner.run_protocol(
+    #       protocol=protocol,
+    #       sequence_name="my_protocol",
+    #       image_capture_config=capture_config,
+    #   )
     #
     #   # To abort a running protocol:
     #   runner.abort()
