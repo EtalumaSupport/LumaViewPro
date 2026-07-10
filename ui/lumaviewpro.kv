@@ -1696,13 +1696,36 @@
 	# Pad
 	Widget:
 		size_hint_y: None
+		height: '20dp'
+
+	BoxLayout:
+		orientation: 'horizontal'
+		size_hint_y: None
 		height: '30dp'
+		padding: '0dp'
+		spacing: '5dp'
+		Label:
+			text: 'Mode'
+			halign: 'left'
+			valign: 'middle'
+			font_size: '12sp'
+			size_hint_x: None
+			width: '120dp'
+		Spinner:
+			id: stitching_mode_spinner
+			sync_height: True
+			text: 'Quality'
+			font_size:'12sp'
+			option_cls: "SpinnerOption0"
+			text_autoupdate: True
+			values: ('Quality', 'Fast Preview')
+			on_text: root.stitching_mode = self.text
 
 	FolderChooseBTN:
 
 		id: stitch_apply_btn
 		text: 'Apply Stitching to Protocol Folder'
-        tooltip_text: 'Assemble tiles into stitched montage image of abutted tiles'
+		tooltip_text: 'Assemble tiles into stitched montage image of abutted tiles'
 		size_hint_y: None
 		height: '30dp'
 		font_size: '12sp'

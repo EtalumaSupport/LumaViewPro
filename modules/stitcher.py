@@ -18,6 +18,10 @@ from modules.protocol_post_record import ProtocolPostRecord
 
 
 class Stitcher(ProtocolPostProcessor):
+    QUALITY_MODE = 'quality'
+    FAST_PREVIEW_MODE = 'fast_preview'
+    _FAST_PREVIEW_SUFFIX = 'FastPreview'
+
     def __init__(self, *args, **kwargs):
         super().__init__(
             *args,
@@ -65,6 +69,8 @@ class Stitcher(ProtocolPostProcessor):
         # carries the same filename root as the per-image saves.
         capture_root = kwargs.get('capture_root', '')
         prefix = f'{capture_root}_{base_name}' if capture_root else base_name
+        if kwargs.get('stitching_mode') == self.FAST_PREVIEW_MODE:
+            prefix = f'{prefix}_{self._FAST_PREVIEW_SUFFIX}'
         name = common_utils.generate_default_step_name(
             custom_name_prefix=prefix,
             well_label=row0['Well'],
@@ -129,6 +135,7 @@ class Stitcher(ProtocolPostProcessor):
             df=df[stitch_columns],
             pixel_size_um=pixel_size_um,
             output_file_loc=kwargs.get('output_file_loc'),
+            stitching_mode=kwargs.get('stitching_mode', self.QUALITY_MODE),
         )
 
     @staticmethod

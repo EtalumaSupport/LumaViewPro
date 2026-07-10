@@ -21,6 +21,7 @@ import modules.common_utils as common_utils
 import modules.image_utils as image_utils
 from modules.stitch_algorithms import (
     crop_to_content,
+    estimate_phase_offset,
     feature_stitch,
     stitch_registered_tiles,
 )
@@ -326,6 +327,91 @@ def overlap_stitcher(
     )
 
 
+def fft_phase_stitcher(
+    path: pathlib.Path,
+    df: pd.DataFrame,
+    pixel_size_um: float | None,
+    output_file_loc: pathlib.Path | None = None,
+) -> dict:
+    """Use stage-position placement plus FFT phase-correlation registration."""
+    center = _center_metadata(df)
+    if pixel_size_um is None or pixel_size_um <= 0:
+        return _failure('fft_phase_stitcher', 'pixel_size_um must be greater than 0', center)
+
+    try:
+        frame = df.copy()
+        frame['X'] = frame['X'].astype(float)
+        frame['Y'] = frame['Y'].astype(float)
+
+        read_t0 = time.perf_counter()
+        images = {
+            row['Filepath']: _read_tile(path, row['Filepath'])
+            for _, row in frame.iterrows()
+        }
+        tile_bytes = sum(int(image.nbytes) for image in images.values())
+        logger.info(
+            '[StitchPerf] fft-phase read %.1fms tiles=%d bytes=%d',
+            (time.perf_counter() - read_t0) * 1000.0,
+            len(images),
+            tile_bytes,
+        )
+        sample_row = frame.iloc[0]
+        sample = images[sample_row['Filepath']]
+        image_h = sample.shape[0]
+        image_w = sample.shape[1]
+
+        x_max = frame['X'].max()
+        y_min = frame['Y'].min()
+        frame['x_pix'] = ((x_max - frame['X']) * 1000 / pixel_size_um).round().astype(int)
+        frame['y_pix'] = ((frame['Y'] - y_min) * 1000 / pixel_size_um).round().astype(int)
+
+        if int(frame['x_pix'].max() + image_w) <= 0 or int(
+            frame['y_pix'].max() + image_h
+        ) <= 0:
+            return _failure('fft_phase_stitcher', 'invalid stitched image dimensions', center)
+
+        tiles = [
+            {
+                'tile': images[row['Filepath']],
+                'x_px': int(row['x_pix']),
+                'y_px': int(row['y_pix']),
+            }
+            for _, row in frame.iterrows()
+        ]
+        stitch_t0 = time.perf_counter()
+        stitched_img, registered_tiles = stitch_registered_tiles(
+            tiles,
+            max_correction_px=24,
+            min_overlap_px=16,
+            estimator=estimate_phase_offset,
+        )
+        logger.info(
+            '[StitchPerf] fft-phase register+blend %.1fms output_shape=%s dtype=%s',
+            (time.perf_counter() - stitch_t0) * 1000.0,
+            stitched_img.shape,
+            stitched_img.dtype,
+        )
+    except Exception as exc:
+        return _failure(
+            'fft_phase_stitcher',
+            f'FFT phase stitching failed: {type(exc).__name__}: {exc}',
+            center,
+        )
+
+    return _result(
+        image=stitched_img,
+        path=path,
+        output_file_loc=output_file_loc,
+        df=df,
+        metadata={
+            'center': center,
+            'algorithm': 'fft_phase_stitcher',
+            'pixel_size_um': pixel_size_um,
+            'registered_tiles': registered_tiles,
+        },
+    )
+
+
 def stage_position_stitcher(
     path: pathlib.Path,
     df: pd.DataFrame,
@@ -525,6 +611,7 @@ def channel_aware_stitcher(
     df: pd.DataFrame,
     pixel_size_um: float | None = None,
     output_file_loc: pathlib.Path | None = None,
+    stitching_mode: str = 'quality',
 ) -> dict:
     """Route channels through the preferred algorithm and fallbacks.
 
@@ -537,30 +624,45 @@ def channel_aware_stitcher(
         'df': df,
         'output_file_loc': output_file_loc,
     }
+    mode = str(stitching_mode or 'quality')
     chain: list[tuple[str, Callable[[], dict]]] = []
-    if color == 'BF':
+    if mode == 'fast_preview':
+        chain.extend(
+            [
+                (
+                    'fft_phase_stitcher',
+                    lambda: fft_phase_stitcher(**shared, pixel_size_um=pixel_size_um),
+                ),
+                (
+                    'simple_position_stitcher',
+                    lambda: simple_position_stitcher(**shared),
+                ),
+            ]
+        )
+    elif color == 'BF':
         chain.append(
             (
                 'bf_feature_stitcher',
                 lambda: bf_feature_stitcher(**shared),
             )
         )
-    chain.extend(
-        [
-            (
-                'overlap_stitcher',
-                lambda: overlap_stitcher(**shared, pixel_size_um=pixel_size_um),
-            ),
-            (
-                'stage_position_stitcher',
-                lambda: stage_position_stitcher(**shared, pixel_size_um=pixel_size_um),
-            ),
-            (
-                'simple_position_stitcher',
-                lambda: simple_position_stitcher(**shared),
-            ),
-        ]
-    )
+    if mode != 'fast_preview':
+        chain.extend(
+            [
+                (
+                    'overlap_stitcher',
+                    lambda: overlap_stitcher(**shared, pixel_size_um=pixel_size_um),
+                ),
+                (
+                    'stage_position_stitcher',
+                    lambda: stage_position_stitcher(**shared, pixel_size_um=pixel_size_um),
+                ),
+                (
+                    'simple_position_stitcher',
+                    lambda: simple_position_stitcher(**shared),
+                ),
+            ]
+        )
     row0 = df.iloc[0]
     return _run_fallback_chain(
         chain,

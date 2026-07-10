@@ -20,6 +20,7 @@ from modules.stitch_algorithms import (
     _image_stats,
     align_tile_positions,
     color_transfer,
+    estimate_phase_offset,
     _grab_contours,
     crop_to_content,
     stitch_registered_tiles,
@@ -613,8 +614,128 @@ class TestSimplePositionStitcher:
         assert result['metadata']['algorithm'] == 'simple_position_stitcher'
         assert result['metadata']['fallback_from'] == 'overlap_stitcher'
 
+    def test_fast_preview_route_uses_fft_then_simple_only(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        df = pd.DataFrame(
+            [
+                {
+                    'Filepath': 'a.tiff',
+                    'X': 0.0,
+                    'Y': 0.0,
+                    'Objective': '10x Oly',
+                    'Color': 'Green',
+                },
+                {
+                    'Filepath': 'b.tiff',
+                    'X': 1.0,
+                    'Y': 0.0,
+                    'Objective': '10x Oly',
+                    'Color': 'Green',
+                },
+            ]
+        )
+        calls = []
+
+        def fft_fail(*args, **kwargs):
+            calls.append('fft_phase_stitcher')
+            return {
+                'status': False,
+                'error': 'fft failed',
+                'image': None,
+                'metadata': {'center': {'x': 0.5, 'y': 0.0}},
+            }
+
+        def simple_success(*args, **kwargs):
+            calls.append('simple_position_stitcher')
+            return {
+                'status': True,
+                'error': None,
+                'image': np.zeros((4, 8), dtype=np.uint8),
+                'metadata': {
+                    'center': {'x': 0.5, 'y': 0.0},
+                    'algorithm': 'simple_position_stitcher',
+                },
+            }
+
+        def slow_quality_should_not_run(*args, **kwargs):
+            raise AssertionError('fast preview should not use current LVP quality registration')
+
+        monkeypatch.setattr('modules.stitching_core.fft_phase_stitcher', fft_fail)
+        monkeypatch.setattr('modules.stitching_core.overlap_stitcher', slow_quality_should_not_run)
+        monkeypatch.setattr(
+            'modules.stitching_core.stage_position_stitcher',
+            slow_quality_should_not_run,
+        )
+        monkeypatch.setattr('modules.stitching_core.simple_position_stitcher', simple_success)
+
+        result = channel_aware_stitcher(
+            tmp_path,
+            df,
+            pixel_size_um=1.0,
+            stitching_mode=Stitcher.FAST_PREVIEW_MODE,
+        )
+
+        assert result['status'] is True
+        assert calls == ['fft_phase_stitcher', 'simple_position_stitcher']
+        assert result['metadata']['algorithm'] == 'simple_position_stitcher'
+        assert result['metadata']['fallback_from'] == 'fft_phase_stitcher'
+
+    def test_fast_preview_filename_is_distinct_from_quality(self):
+        stitcher = Stitcher(has_turret=False)
+        df = pd.DataFrame(
+            [
+                {
+                    'Name': 'A1_Green_T00',
+                    'Tile': 'T00',
+                    'Color': 'Green',
+                    'Objective': '10x Oly',
+                    'Well': 'A1',
+                    'Z-Slice': -1,
+                    'Scan Count': 0,
+                }
+            ]
+        )
+
+        quality = stitcher._generate_filename(df)
+        preview = stitcher._generate_filename(
+            df,
+            stitching_mode=Stitcher.FAST_PREVIEW_MODE,
+        )
+
+        assert quality != preview
+        assert 'FastPreview' in preview
+
 
 class TestPositionAwareStitcher:
+    def test_phase_offset_recovers_neighbor_jitter(self):
+        rng = np.random.default_rng(321)
+        base = rng.integers(0, 255, (80, 180), dtype=np.uint8)
+        tile_w = 100
+        tile_h = 80
+        nominal_step = 75
+        jitter = (3, -2)
+        pad = 8
+        padded = cv2.copyMakeBorder(base, pad, pad, pad, pad, cv2.BORDER_REFLECT_101)
+        left = padded[pad : pad + tile_h, pad : pad + tile_w]
+        right = padded[
+            pad + jitter[1] : pad + jitter[1] + tile_h,
+            pad + nominal_step + jitter[0] : pad + nominal_step + jitter[0] + tile_w,
+        ]
+
+        corr_x, corr_y, score = estimate_phase_offset(
+            left,
+            right,
+            nominal_dx=nominal_step,
+            nominal_dy=0,
+        )
+
+        assert corr_x == pytest.approx(jitter[0], abs=1)
+        assert corr_y == pytest.approx(jitter[1], abs=1)
+        assert score > 0
+
     def test_preserves_overlap_from_stage_positions(self, tmp_path):
         left = np.full((50, 50), 100, dtype=np.uint8)
         right = np.full((50, 50), 200, dtype=np.uint8)
