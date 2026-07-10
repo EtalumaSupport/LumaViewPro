@@ -12,6 +12,7 @@ import numpy as np
 import tifffile as tf
 
 from modules.common_utils import ColorChannel
+from modules.exceptions import FrameDepthError
 import modules.common_utils as common_utils
 import modules.image_mode as image_mode
 import modules.image_utils as image_utils
@@ -1416,7 +1417,19 @@ def convert_to_8bit(image, significant_bits: int, out=None):
     """
     if image.dtype == np.uint8:
         return image
-    lut = _lut_to_8bit(int(significant_bits))
+    significant_bits = int(significant_bits)
+    max_value = (1 << significant_bits) - 1
+    # A payload above the declared depth would index the LUT out of range today,
+    # and silently white-clip the frame the moment the downconvert becomes a
+    # scale-and-clip. State the depth contract here so it holds whatever the
+    # arithmetic below becomes. Scan only when the container can actually hold a
+    # value above the depth -- a 16-bit payload fills its uint16 container and
+    # cannot overflow, so it pays nothing.
+    if max_value < np.iinfo(image.dtype).max:
+        peak = int(image.max())
+        if peak > max_value:
+            raise FrameDepthError(peak, significant_bits)
+    lut = _lut_to_8bit(significant_bits)
     if out is not None and out.shape == image.shape and out.dtype == np.uint8:
         np.take(lut, image, out=out)
         return out
