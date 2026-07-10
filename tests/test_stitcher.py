@@ -1,6 +1,8 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Tests for stitcher modules -- stitch_algorithms.py (feature-based) and stitcher.py (grid-based)."""
 
+import ast
+import logging
 import pathlib
 
 import cv2
@@ -152,6 +154,7 @@ class TestCropToContent:
 # Current stitcher.py -- _simple_position_stitcher
 # ---------------------------------------------------------------------------
 
+from modules.stitching_core import channel_aware_stitcher
 from modules.stitcher import Stitcher
 import modules.common_utils as common_utils
 import modules.image_utils as image_utils
@@ -282,6 +285,359 @@ class TestSimplePositionStitcher:
         assert result['status'] is True
         assert result['image'].dtype == np.uint16
         assert result['image'].shape == (64, 32)
+
+    def test_channel_aware_bf_output_shape_and_dtype(self, tmp_path):
+        for ix, x in enumerate((0.0, 1.0)):
+            for iy, y in enumerate((0.0, 1.0)):
+                tile = np.full((12, 10), ix * 40 + iy * 20 + 50, dtype=np.uint8)
+                tifffile.imwrite(str(tmp_path / f'bf_{ix}_{iy}.tiff'), tile)
+
+        df = pd.DataFrame(
+            [
+                {
+                    'Filepath': f'bf_{ix}_{iy}.tiff',
+                    'X': x,
+                    'Y': y,
+                    'Objective': '10x Oly',
+                    'Color': 'BF',
+                    'Well': 'A1',
+                    'Tile Group ID': 1,
+                }
+                for ix, x in enumerate((0.0, 1.0))
+                for iy, y in enumerate((0.0, 1.0))
+            ]
+        )
+
+        result = channel_aware_stitcher(tmp_path, df, pixel_size_um=None)
+
+        assert result['status'] is True
+        assert result['image'].shape == (24, 20)
+        assert result['image'].dtype == np.uint8
+
+    def test_channel_aware_fluorescence_output_shape_and_dtype(self, tmp_path):
+        for ix, x in enumerate((0.0, 1.0)):
+            for iy, y in enumerate((0.0, 1.0)):
+                tile = np.full((8, 6), ix * 1000 + iy * 2000 + 100, dtype=np.uint16)
+                tifffile.imwrite(str(tmp_path / f'green_{ix}_{iy}.tiff'), tile)
+
+        df = pd.DataFrame(
+            [
+                {
+                    'Filepath': f'green_{ix}_{iy}.tiff',
+                    'X': x,
+                    'Y': y,
+                    'Objective': '10x Oly',
+                    'Color': 'Green',
+                    'Well': 'B2',
+                    'Tile Group ID': 2,
+                }
+                for ix, x in enumerate((0.0, 1.0))
+                for iy, y in enumerate((0.0, 1.0))
+            ]
+        )
+
+        result = channel_aware_stitcher(tmp_path, df, pixel_size_um=None)
+
+        assert result['status'] is True
+        assert result['image'].shape == (16, 12)
+        assert result['image'].dtype == np.uint16
+
+    def test_load_folder_surfaces_degraded_success_to_callers(self, tmp_path, monkeypatch):
+        rows = []
+        for tile_idx, x in enumerate((0.0, 1.0)):
+            row = {
+                'Filepath': f'tile_{tile_idx}.tiff',
+                'Timestamp': '2026-06-19T00:00:00',
+                'Name': 'scan_BF',
+                'Scan Count': 0,
+                'X': x,
+                'Y': 0.0,
+                'Z': 0.0,
+                'Z-Slice': 0,
+                'Well': 'A1',
+                'Color': 'BF',
+                'Objective': '10x Oly',
+                'Tile Group ID': 1,
+                'Tile': str(tile_idx),
+                'Custom Step': False,
+                'Raw': True,
+            }
+            for post_function in common_utils.PostFunction.list_values():
+                row[post_function] = False
+            rows.append(row)
+
+        class FakePostRecord:
+            def file_exists_in_records(self, filepath):
+                return False
+
+            def complete(self):
+                pass
+
+        class FakeHelper:
+            def load_folder(self, path, tiling_configs_file_loc):
+                return {
+                    'status': True,
+                    'images_df': pd.DataFrame(rows),
+                    'root_path': tmp_path,
+                    'protocol_post_record': FakePostRecord(),
+                    'protocol': None,
+                }
+
+            def generate_output_dir_name(self, record):
+                return 'Stitched'
+
+        stitcher = Stitcher(has_turret=False)
+        stitcher._post_processing_helper = FakeHelper()
+        monkeypatch.setattr(stitcher, '_generate_filename', lambda df, **kwargs: 'stitched.tiff')
+        monkeypatch.setattr(stitcher, '_add_record', lambda **kwargs: None)
+
+        def degraded_group_algorithm(**kwargs):
+            from modules.protocol_post_processing_result import PostProcResult
+
+            return PostProcResult.ok(
+                significant_bits=16,
+                record_metadata={
+                    'center': {'x': 0.5, 'y': 0.0},
+                    'algorithm': 'simple_position_stitcher',
+                    'fallback_from': 'bf_feature_stitcher',
+                    'fallback_reason': 'bf_feature_stitcher: BF feature stitching failed',
+                },
+            )
+
+        monkeypatch.setattr(stitcher, '_group_algorithm', degraded_group_algorithm)
+
+        result = stitcher.load_folder(tmp_path, tmp_path / 'tiling.json')
+
+        assert result['status'] is True
+        assert result['degraded'] is True
+        assert 'degraded output' in result['message']
+        assert result['degraded_outputs'] == [
+            {
+                'filepath': 'Stitched/stitched.tiff',
+                'algorithm': 'simple_position_stitcher',
+                'fallback_from': 'bf_feature_stitcher',
+                'fallback_reason': 'bf_feature_stitcher: BF feature stitching failed',
+            }
+        ]
+
+    def test_stitcher_callback_has_degraded_operator_surface(self):
+        source = (
+            pathlib.Path(__file__).resolve().parent.parent / 'ui' / 'post_processing.py'
+        ).read_text()
+        tree = ast.parse(source)
+        callback = next(
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef) and node.name == 'stitcher_callback'
+        )
+
+        degraded_branch = [
+            node
+            for node in ast.walk(callback)
+            if isinstance(node, ast.If) and 'degraded' in ast.unparse(node.test)
+        ]
+
+        assert degraded_branch, 'stitcher_callback must branch on result["degraded"]'
+        branch_source = ast.unparse(degraded_branch[0])
+        assert 'Success (degraded)' in branch_source
+        assert 'popup.text' in branch_source
+
+    def test_bf_route_uses_feature_then_overlap_then_stage_then_simple(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        df = pd.DataFrame(
+            [
+                {
+                    'Filepath': 'a.tiff',
+                    'X': 0.0,
+                    'Y': 0.0,
+                    'Objective': '10x Oly',
+                    'Color': 'BF',
+                },
+                {
+                    'Filepath': 'b.tiff',
+                    'X': 1.0,
+                    'Y': 0.0,
+                    'Objective': '10x Oly',
+                    'Color': 'BF',
+                },
+            ]
+        )
+        calls = []
+
+        def fail(name):
+            def runner(*args, **kwargs):
+                calls.append(name)
+                return {
+                    'status': False,
+                    'error': f'{name} failed',
+                    'image': None,
+                    'metadata': {'center': {'x': 0.5, 'y': 0.0}},
+                }
+
+            return runner
+
+        def simple_success(*args, **kwargs):
+            calls.append('simple_position_stitcher')
+            return {
+                'status': True,
+                'error': None,
+                'image': np.zeros((4, 8), dtype=np.uint8),
+                'metadata': {
+                    'center': {'x': 0.5, 'y': 0.0},
+                    'algorithm': 'simple_position_stitcher',
+                },
+            }
+
+        monkeypatch.setattr(
+            'modules.stitching_core.bf_feature_stitcher',
+            fail('bf_feature_stitcher'),
+        )
+        monkeypatch.setattr('modules.stitching_core.overlap_stitcher', fail('overlap_stitcher'))
+        monkeypatch.setattr(
+            'modules.stitching_core.stage_position_stitcher',
+            fail('stage_position_stitcher'),
+        )
+        monkeypatch.setattr('modules.stitching_core.simple_position_stitcher', simple_success)
+
+        result = channel_aware_stitcher(tmp_path, df, pixel_size_um=1.0)
+
+        assert result['status'] is True
+        assert calls == [
+            'bf_feature_stitcher',
+            'overlap_stitcher',
+            'stage_position_stitcher',
+            'simple_position_stitcher',
+        ]
+        assert result['metadata']['algorithm'] == 'simple_position_stitcher'
+        assert result['metadata']['fallback_from'] == 'bf_feature_stitcher'
+
+    def test_fallback_logs_operator_visible_warning(
+        self,
+        tmp_path,
+        monkeypatch,
+        caplog,
+    ):
+        df = pd.DataFrame(
+            [
+                {
+                    'Filepath': 'a.tiff',
+                    'X': 0.0,
+                    'Y': 0.0,
+                    'Objective': '10x Oly',
+                    'Color': 'Green',
+                    'Well': 'A1',
+                    'Tile Group ID': 3,
+                },
+                {
+                    'Filepath': 'b.tiff',
+                    'X': 1.0,
+                    'Y': 0.0,
+                    'Objective': '10x Oly',
+                    'Color': 'Green',
+                    'Well': 'A1',
+                    'Tile Group ID': 3,
+                },
+            ]
+        )
+
+        def overlap_fail(*args, **kwargs):
+            return {
+                'status': False,
+                'error': 'registration failed',
+                'image': None,
+                'metadata': {'center': {'x': 0.5, 'y': 0.0}},
+            }
+
+        def stage_success(*args, **kwargs):
+            return {
+                'status': True,
+                'error': None,
+                'image': np.zeros((4, 8), dtype=np.uint8),
+                'metadata': {
+                    'center': {'x': 0.5, 'y': 0.0},
+                    'algorithm': 'stage_position_stitcher',
+                },
+            }
+
+        monkeypatch.setattr('modules.stitching_core.overlap_stitcher', overlap_fail)
+        monkeypatch.setattr('modules.stitching_core.stage_position_stitcher', stage_success)
+
+        with caplog.at_level(logging.WARNING, logger='LVP.modules.stitching_core'):
+            result = channel_aware_stitcher(tmp_path, df, pixel_size_um=1.0)
+
+        assert result['status'] is True
+        assert result['metadata']['fallback_from'] == 'overlap_stitcher'
+        assert 'using stage_position_stitcher for well=A1 color=Green tile_group=3' in caplog.text
+
+    def test_fluorescence_route_uses_overlap_then_stage_then_simple(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        df = pd.DataFrame(
+            [
+                {
+                    'Filepath': 'a.tiff',
+                    'X': 0.0,
+                    'Y': 0.0,
+                    'Objective': '10x Oly',
+                    'Color': 'Green',
+                },
+                {
+                    'Filepath': 'b.tiff',
+                    'X': 1.0,
+                    'Y': 0.0,
+                    'Objective': '10x Oly',
+                    'Color': 'Green',
+                },
+            ]
+        )
+        calls = []
+
+        def fail(name):
+            def runner(*args, **kwargs):
+                calls.append(name)
+                return {
+                    'status': False,
+                    'error': f'{name} failed',
+                    'image': None,
+                    'metadata': {'center': {'x': 0.5, 'y': 0.0}},
+                }
+
+            return runner
+
+        def simple_success(*args, **kwargs):
+            calls.append('simple_position_stitcher')
+            return {
+                'status': True,
+                'error': None,
+                'image': np.zeros((4, 8), dtype=np.uint8),
+                'metadata': {
+                    'center': {'x': 0.5, 'y': 0.0},
+                    'algorithm': 'simple_position_stitcher',
+                },
+            }
+
+        def bf_should_not_run(*args, **kwargs):
+            raise AssertionError('fluorescence should not use BF feature stitching')
+
+        monkeypatch.setattr('modules.stitching_core.bf_feature_stitcher', bf_should_not_run)
+        monkeypatch.setattr('modules.stitching_core.overlap_stitcher', fail('overlap_stitcher'))
+        monkeypatch.setattr(
+            'modules.stitching_core.stage_position_stitcher',
+            fail('stage_position_stitcher'),
+        )
+        monkeypatch.setattr('modules.stitching_core.simple_position_stitcher', simple_success)
+
+        result = channel_aware_stitcher(tmp_path, df, pixel_size_um=1.0)
+
+        assert result['status'] is True
+        assert calls == ['overlap_stitcher', 'stage_position_stitcher', 'simple_position_stitcher']
+        assert result['metadata']['algorithm'] == 'simple_position_stitcher'
+        assert result['metadata']['fallback_from'] == 'overlap_stitcher'
 
 
 class TestPositionAwareStitcher:

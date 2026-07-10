@@ -3,6 +3,7 @@
 import abc
 import datetime
 import pathlib
+import time
 
 import pandas as pd
 
@@ -184,6 +185,7 @@ class ProtocolPostProcessor(abc.ABC):
         refused_count = 0
         current_group = 1
         last_error = None
+        degraded_outputs = []
         output_significant_bits = None
 
         for _, group in groups:
@@ -209,6 +211,11 @@ class ProtocolPostProcessor(abc.ABC):
             output_path = root_path / output_subfolder
             output_file_loc = output_path / output_filename
             output_file_loc_rel = output_file_loc.relative_to(root_path)
+            group_label = (
+                f'well={row0.get("Well", "")} color={row0.get("Color", "")} '
+                f'tile_group={row0.get("Tile Group ID", "")} '
+                f'tiles={len(group)} output={output_file_loc_rel}'
+            )
 
             if protocol_post_record.file_exists_in_records(filepath=output_file_loc_rel):
                 logger.info(
@@ -221,6 +228,8 @@ class ProtocolPostProcessor(abc.ABC):
 
             kwargs['output_file_loc'] = output_file_loc_rel
 
+            group_t0 = time.perf_counter()
+            logger.info(f'[StitchPerf] {self._name} group start: {group_label}')
             alg_results = self._group_algorithm(
                 path=root_path,
                 df=group,
@@ -229,11 +238,33 @@ class ProtocolPostProcessor(abc.ABC):
                 current_group=current_group,
                 **kwargs,
             )
+            group_ms = (time.perf_counter() - group_t0) * 1000.0
 
             if not alg_results.status:
                 last_error = alg_results.error
+                logger.info(
+                    f'[StitchPerf] {self._name} group failed after '
+                    f'{group_ms:.1f}ms: {group_label}'
+                )
                 logger.error(f'Failed to generate {output_file_loc_rel}: {alg_results.error}')
                 continue
+
+            alg_metadata = alg_results.record_metadata
+            logger.info(
+                f'[StitchPerf] {self._name} group done in {group_ms:.1f}ms: '
+                f'algorithm={alg_metadata.get("algorithm", "")} '
+                f'degraded={bool(alg_metadata.get("fallback_reason"))} {group_label}'
+            )
+            fallback_reason = alg_metadata.get('fallback_reason')
+            if fallback_reason:
+                degraded_outputs.append(
+                    {
+                        'filepath': str(output_file_loc_rel),
+                        'algorithm': alg_metadata.get('algorithm', ''),
+                        'fallback_from': alg_metadata.get('fallback_from', ''),
+                        'fallback_reason': fallback_reason,
+                    }
+                )
 
             # A subclass whose writer relocated the output (collision suffix,
             # container-format fallback) reports where the file really landed;
@@ -339,4 +370,18 @@ class ProtocolPostProcessor(abc.ABC):
             f'artifacts (significant_bits={output_significant_bits}) in {elapsed_time}.'
             f'{collision_note}'
         )
+        if degraded_outputs:
+            logger.warning(
+                f'{self._name}: Complete with degraded outputs: {len(degraded_outputs)} '
+                f'{self._post_function.value.lower()} artifact(s) used fallback stitching.'
+            )
+            return {
+                'status': True,
+                'message': (
+                    f'Success with degraded output: {len(degraded_outputs)} '
+                    f'{self._post_function.value.lower()} artifact(s) used fallback stitching.'
+                ),
+                'degraded': True,
+                'degraded_outputs': degraded_outputs,
+            }
         return {'status': True, 'message': f'Success.{collision_note}'}

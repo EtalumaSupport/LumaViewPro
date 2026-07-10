@@ -80,6 +80,13 @@ class StitchControls(BoxLayout):
             Clock.schedule_once(lambda dt: popup.dismiss(), 5)
             return
 
+        if result.get('degraded'):
+            final_text = 'Stitching images - Success (degraded)'
+            final_text += f'\n{result.get("message", "Fallback stitching was used.")}'
+            popup.text = final_text
+            Clock.schedule_once(lambda dt: popup.dismiss(), 5)
+            return
+
         final_text = f'Stitching images - {status_map[result["status"]]}'
         if result['status'] is False:
             final_text += f'\n{result["message"]}'
