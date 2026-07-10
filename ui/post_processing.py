@@ -40,7 +40,6 @@ logger = logging.getLogger('LVP.ui.post_processing')
 class StitchControls(BoxLayout):
     done = BooleanProperty(False)
     stitching_mode = StringProperty('Quality')
-    _MODE_LABELS = ('Quality', 'Fast Preview')
     _MODE_VALUES = {
         'Quality': Stitcher.QUALITY_MODE,
         'Fast Preview': Stitcher.FAST_PREVIEW_MODE,
@@ -49,18 +48,15 @@ class StitchControls(BoxLayout):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         _app_ctx.register_early('stitch_controls', self)
-        Clock.schedule_once(self._init_ui, 0)
-
-    def _init_ui(self, dt=0):
-        self.ids['stitching_mode_spinner'].values = self._MODE_LABELS
-        self.ids['stitching_mode_spinner'].text = self.stitching_mode
 
     def set_button_enabled_state(self, state: bool):
-        self.ids['stitch_apply_btn'].disabled = not state
+        disabled = not state
+        self.ids['quality_stitch_btn'].disabled = disabled
+        self.ids['fast_preview_stitch_btn'].disabled = disabled
 
     @show_popup
     def run_stitcher(self, popup, path):
-        mode_label = self.ids['stitching_mode_spinner'].text or self.stitching_mode
+        mode_label = self.stitching_mode
         stitching_mode = self._MODE_VALUES.get(mode_label, Stitcher.QUALITY_MODE)
         gui_logger.button('RUN_STITCHER', f'path={path} mode={stitching_mode}')
         ctx = _app_ctx.ctx
