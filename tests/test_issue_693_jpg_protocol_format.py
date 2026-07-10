@@ -62,27 +62,29 @@ def test_quality_row_shared_across_live_and_sequenced():
 
 def test_build_image_capture_config_carries_jpg_quality_default():
     runner = ProtocolRunner.__new__(ProtocolRunner)
-    cfg = runner.build_image_capture_config(sequenced_format='JPG')
-    assert cfg['output_format']['sequenced'] == 'JPG'
-    assert cfg['jpg_quality'] == 90
+    cfg = runner.build_image_capture_config(image_mode='8bit', sequenced_format='JPG')
+    assert cfg.output_format_sequenced == 'JPG'
+    assert cfg.jpg_quality == 90
 
 
 def test_build_image_capture_config_carries_custom_jpg_quality():
     runner = ProtocolRunner.__new__(ProtocolRunner)
-    cfg = runner.build_image_capture_config(sequenced_format='JPG', jpg_quality=55)
-    assert cfg['jpg_quality'] == 55
+    cfg = runner.build_image_capture_config(
+        image_mode='8bit', sequenced_format='JPG', jpg_quality=55
+    )
+    assert cfg.jpg_quality == 55
 
 
 def test_settings_config_reads_jpg_quality():
     cfg = config_helpers.get_image_capture_config_from_settings(
         {'image_output_format': {'live': 'JPG', 'sequenced': 'JPG'}, 'jpg_quality': 40}
     )
-    assert cfg['jpg_quality'] == 40
+    assert cfg.jpg_quality == 40
 
 
 def test_settings_config_defaults_jpg_quality_when_absent():
     cfg = config_helpers.get_image_capture_config_from_settings({})
-    assert cfg['jpg_quality'] == 90
+    assert cfg.jpg_quality == 90
 
 
 # --- Part 3: composite / stitch guard against JPG source ---------------------

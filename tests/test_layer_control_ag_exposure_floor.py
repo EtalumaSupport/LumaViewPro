@@ -15,7 +15,7 @@ appropriate floor:
   default min is 0.01 ms, so np.clip(0.030, 0.01, max) returned 0.030.
 - The 0.030 ms write then fires set_exposure_time's <0.1 ms
   "Value should be in milliseconds" WARNING on every subsequent
-  apply_settings (visible in Chris's beta9 logs as recurring spam).
+  apply_settings (visible in the beta tester's beta9 logs as recurring spam).
 
 Fix
 ---
@@ -42,6 +42,8 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
+
+import modules.common_utils as real_common_utils
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -130,9 +132,13 @@ def _extract_method_source(class_name: str, method_name: str) -> str:
 def _compile_cb():
     """Compile update_auto_gain_cb into a standalone callable."""
     fn_src = _extract_method_source('LayerControl', 'update_auto_gain_cb')
-    # Stub common_utils.get_image_layers to return the fluorescence + lumi list.
+    # Stub common_utils.get_image_layers to return the fluorescence + lumi
+    # list; the validity predicates are the REAL ones so the stub cannot
+    # drift from production's definition of a usable reading.
     common_utils_stub = SimpleNamespace(
         get_image_layers=lambda: ['Blue', 'Green', 'Red', 'Lumi'],
+        is_valid_gain_db=real_common_utils.is_valid_gain_db,
+        is_valid_exposure_ms=real_common_utils.is_valid_exposure_ms,
     )
     app_ctx_stub = SimpleNamespace(ctx=SimpleNamespace(settings={}))
     ns = {
@@ -262,3 +268,26 @@ class TestExposureFloorBehavior:
         fake = _make_fake_layer('Lumi', slider_min=1.0)
         cb(fake, result=(False, False, 0.0, 0.5))
         assert app_ctx_stub.ctx.settings['Lumi']['exp_ms'] == 1.0
+
+    def test_unknown_exposure_keeps_previous_settings(self):
+        """A non-physical exposure reading (nothing was ever successfully
+        read from the camera) must not overwrite the layer's stored
+        exposure -- the previous value is the best truth available."""
+        cb, app_ctx_stub = _compile_cb()
+        app_ctx_stub.ctx.settings = {'BF': {'exp_ms': 42.0, 'gain_db': 7.0, 'auto_gain': True}}
+        fake = _make_fake_layer('BF', slider_min=0.01)
+        cb(fake, result=(False, False, 3.0, 0.0))
+        assert app_ctx_stub.ctx.settings['BF']['exp_ms'] == 42.0
+        # The valid gain reading in the same callback still lands.
+        assert app_ctx_stub.ctx.settings['BF']['gain_db'] == 3.0
+
+    def test_unknown_gain_keeps_previous_settings(self):
+        """A non-physical gain reading must not overwrite the layer's
+        stored gain, while a valid exposure in the same callback still
+        floors and lands."""
+        cb, app_ctx_stub = _compile_cb()
+        app_ctx_stub.ctx.settings = {'BF': {'exp_ms': 42.0, 'gain_db': 7.0, 'auto_gain': True}}
+        fake = _make_fake_layer('BF', slider_min=0.01)
+        cb(fake, result=(False, False, -1.0, 5.0))
+        assert app_ctx_stub.ctx.settings['BF']['gain_db'] == 7.0
+        assert app_ctx_stub.ctx.settings['BF']['exp_ms'] == 5.0

@@ -274,6 +274,10 @@ class _FakeExecutor:
         self._protocol_queue_active = False
         self._complete_callback = None
         self._finish_called = False
+        self._dropped = 0
+
+    def protocol_dropped_count(self):
+        return self._dropped
 
     def protocol_end(self):
         self.protocol_ended = True
@@ -344,8 +348,7 @@ class TestRunCleanup:
             'protocol_execution_record': None,
             'scope': MagicMock(),
             'callbacks': ProtocolCallbacks(),
-            'leds_off_fn': lambda: None,
-            'led_on_fn': lambda **kw: None,
+            'apply_led_transition_fn': lambda transition, ctx: None,
             'default_move_fn': lambda **kw: None,
             'cancel_scheduled_events_fn': lambda: None,
             'io_executor': io_exec,
@@ -353,6 +356,7 @@ class TestRunCleanup:
             'file_io_executor': file_exec,
             'camera_executor': camera_exec,
             'set_run_in_progress_fn': lambda v: run_in_progress.__setitem__(0, v),
+            'run_status': 'completed',
         }
         defaults.update(overrides)
         return defaults, state, run_in_progress
@@ -371,11 +375,34 @@ class TestRunCleanup:
         run_cleanup(**args)
         assert run_in_progress[0] is False
 
+    def test_dropped_captures_surface_a_run_end_notification(self):
+        from modules.protocol_cleanup import run_cleanup
+        from unittest.mock import patch
+
+        args, _, _ = self._make_cleanup_args()
+        args['file_io_executor']._dropped = 3
+        with patch('modules.notification_center.notifications') as notif:
+            run_cleanup(**args)
+        drop_warnings = [c for c in notif.warning.call_args_list if 'could not be saved' in str(c)]
+        assert drop_warnings, 'a nonzero dropped-capture count must warn the user at run end'
+        assert '3' in str(drop_warnings[0]), 'the notification must state how many were dropped'
+
+    def test_no_dropped_captures_no_drop_notification(self):
+        from modules.protocol_cleanup import run_cleanup
+        from unittest.mock import patch
+
+        args, _, _ = self._make_cleanup_args()
+        args['file_io_executor']._dropped = 0
+        with patch('modules.notification_center.notifications') as notif:
+            run_cleanup(**args)
+        drop_warnings = [c for c in notif.warning.call_args_list if 'could not be saved' in str(c)]
+        assert not drop_warnings, 'a clean run must not claim dropped captures'
+
     def test_cleanup_fires_run_complete_callback(self):
         from modules.protocol_cleanup import run_cleanup
 
         completed = []
-        cb = ProtocolCallbacks(run_complete=lambda protocol=None: completed.append(True))
+        cb = ProtocolCallbacks(run_complete=lambda protocol=None, **kwargs: completed.append(True))
         args, _, _ = self._make_cleanup_args(callbacks=cb)
         run_cleanup(**args)
         assert len(completed) == 1
@@ -385,7 +412,7 @@ class TestRunCleanup:
 
         files_done = []
         cb = ProtocolCallbacks(
-            run_complete=lambda protocol=None: None,
+            run_complete=lambda protocol=None, **kwargs: None,
             files_complete=lambda protocol=None: files_done.append(True),
         )
         args, _, _ = self._make_cleanup_args(callbacks=cb)
@@ -400,39 +427,48 @@ class TestRunCleanup:
         run_cleanup(**args)  # should not raise
         assert state[0] == ProtocolState.IDLE
 
-    def test_cleanup_calls_leds_off(self):
+    def test_cleanup_offs_leds_via_run_end_transition(self):
+        from modules.lumascope_api.illumination import LedEndPolicy, LedTransition
         from modules.protocol_cleanup import run_cleanup
 
-        leds_off_called = []
+        calls = []
         args, _, _ = self._make_cleanup_args(
-            leds_off_fn=lambda: leds_off_called.append(True),
+            apply_led_transition_fn=lambda transition, ctx: calls.append((transition, ctx)),
             leds_state_at_end='off',
         )
         run_cleanup(**args)
-        assert len(leds_off_called) == 1
+        assert len(calls) == 1
+        transition, ctx = calls[0]
+        assert transition is LedTransition.RUN_END
+        assert ctx.end_policy is LedEndPolicy.OFF
 
     def test_cleanup_restores_leds_to_original(self):
+        from modules.lumascope_api.illumination import LedEndPolicy, LedTransition
         from modules.protocol_cleanup import run_cleanup
 
-        restored = []
+        calls = []
         # Schema matches lumascope_api.illumination's get_led_states():
-        # color -> {'enabled': bool, 'illumination_ma': float}. The cleanup
-        # code reads color_data['illumination_ma'] when restoring.
+        # color -> {'enabled': bool, 'illumination_ma': float}. Cleanup maps
+        # each lit channel to its (channel, mA) pair for the RUN_END snapshot.
         original_leds = {
             'Red': {'enabled': True, 'illumination_ma': 50},
             'Green': {'enabled': False, 'illumination_ma': 0},
         }
+        scope = MagicMock()
+        scope.illumination.color2ch.side_effect = lambda c: {'Red': 0, 'Green': 1}.get(c)
         args, _, _ = self._make_cleanup_args(
             leds_state_at_end='return_to_original',
             original_led_states=original_leds,
-            led_on_fn=lambda color=None, illumination=None, block=True, force=True: restored.append(
-                (color, illumination)
-            ),
+            scope=scope,
+            apply_led_transition_fn=lambda transition, ctx: calls.append((transition, ctx)),
         )
         run_cleanup(**args)
-        assert ('Red', 50) in restored
-        # Green was not enabled, so should not be restored
-        assert ('Green', 0) not in restored
+        assert len(calls) == 1
+        transition, ctx = calls[0]
+        assert transition is LedTransition.RUN_END
+        assert ctx.end_policy is LedEndPolicy.RETURN_TO_ORIGINAL
+        # Red (channel 0) was lit at 50 mA pre-run; Green was off, so excluded.
+        assert ctx.snapshot_lit == frozenset({(0, 50)})
 
     def test_cleanup_ends_all_executors(self):
         from modules.protocol_cleanup import run_cleanup
@@ -486,6 +522,42 @@ class TestRunCleanup:
         run_cleanup(**args)
         assert state[0] == ProtocolState.IDLE
 
+    def test_pending_writes_dropped_only_on_error_abort(self):
+        """The pending FILE-write queue is cleared only on an ERROR-state abort.
+        A non-ERROR end/abort (user Stop) deliberately DRAINS pending writes so
+        already-captured frames are not discarded. Pins that decision against the
+        opposite recommendation (drop on every abort).
+        """
+        from modules.protocol_cleanup import run_cleanup
+
+        # ERROR abort (hardware fault): pending file writes are dropped.
+        err_state = [ProtocolState.ERROR]
+        args, _, _ = self._make_cleanup_args()
+        args['get_state_fn'] = lambda: err_state[0]
+
+        def set_err_state(s):
+            if err_state[0] == ProtocolState.ERROR and s == ProtocolState.IDLE:
+                err_state[0] = s
+            elif err_state[0] == s:
+                pass
+            else:
+                validate_transition(err_state[0], s)
+                err_state[0] = s
+
+        args['set_state_fn'] = set_err_state
+        run_cleanup(**args)
+        assert args['file_io_executor'].protocol_pending_cleared, (
+            'an ERROR-state abort must drop the pending file-write queue'
+        )
+
+        # Non-ERROR end/abort (user Stop, RUNNING -> COMPLETING -> IDLE): pending
+        # writes drain, not dropped.
+        args2, _, _ = self._make_cleanup_args()
+        run_cleanup(**args2)
+        assert not args2['file_io_executor'].protocol_pending_cleared, (
+            'a non-ERROR (user Stop) abort must drain pending writes, not drop them'
+        )
+
 
 # ===========================================================================
 # protocol_image_writer.py
@@ -497,6 +569,7 @@ class TestProtocolImageWriterWriteCapture:
 
     def _make_writer(self, execution_record=None):
         """Create a ProtocolImageWriter with minimal stubs."""
+        from modules.image_mode import ImageCaptureConfig
         from modules.protocol_image_writer import ProtocolImageWriter
 
         writer = ProtocolImageWriter(
@@ -507,8 +580,8 @@ class TestProtocolImageWriterWriteCapture:
             abort_fn=lambda: None,
             execution_record=execution_record,
             leds_off_fn=lambda: None,
-            led_on_fn=lambda **kw: None,
             is_run_in_progress_fn=lambda: True,
+            image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
         )
         return writer
 
@@ -599,10 +672,10 @@ class TestRunCleanupCancelledHandoff:
         from unittest.mock import patch
         from modules.protocol_cleanup import run_cleanup
 
-        def cancelled_leds_off():
+        def cancelled_apply(transition, ctx):
             raise CancelledError()
 
-        args, _, _ = self._args(leds_off_fn=cancelled_leds_off)
+        args, _, _ = self._args(apply_led_transition_fn=cancelled_apply)
         with patch('modules.notification_center.notifications') as mock_notif:
             run_cleanup(**args)
             mock_notif.warning.assert_not_called()
@@ -627,10 +700,10 @@ class TestRunCleanupCancelledHandoff:
         from unittest.mock import patch
         from modules.protocol_cleanup import run_cleanup
 
-        def broken_leds_off():
+        def broken_apply(transition, ctx):
             raise RuntimeError('serial dead')
 
-        args, _, _ = self._args(leds_off_fn=broken_leds_off)
+        args, _, _ = self._args(apply_led_transition_fn=broken_apply)
         with patch('modules.notification_center.notifications') as mock_notif:
             run_cleanup(**args)
             mock_notif.warning.assert_called_once()
@@ -644,14 +717,21 @@ class TestFinalStepKeepsLedWhenCleanupRestoresIt:
     cleanup is about to re-light the same channel (it was lit before the
     run): the off->on pair is a visible end-of-acquire flicker on a
     z-stack started from a live-view-lit channel. Non-final scans keep
-    the LED-off so inter-scan waits stay dark (sample safety).
+    the LED off so inter-scan waits stay dark (sample safety).
+
+    The runner drives the boundary decision through the LED authority
+    (apply_led_transition(STEP_BOUNDARY, ctx)) after a completed capture,
+    so the assertion is on the authority's target set: a non-empty target
+    holds the channel lit, an empty target lets it go dark.
     """
 
-    def _keep_led_for(self, *, leds_state_at_end, original_led_states, n_scans=1):
-        """Drive the final step of a scan and return the keep_led_on flag
-        the capture received."""
+    def _boundary_target_for(self, *, leds_state_at_end, original_led_states, n_scans=1):
+        """Drive the final step of a scan and return the STEP_BOUNDARY target
+        the runner asks the authority for (empty set = goes dark, non-empty =
+        held lit)."""
         from unittest.mock import MagicMock
 
+        from modules.lumascope_api.illumination import LedLease, LedTransition
         from tests.protocol_drives import protocol_step, scan_ready_runner
 
         runner = scan_ready_runner(
@@ -662,49 +742,45 @@ class TestFinalStepKeepsLedWhenCleanupRestoresIt:
             _original_led_states=original_led_states,
             _n_scans=n_scans,
         )
+        captured = {}
+
+        def _spy(transition, ctx):
+            if transition is LedTransition.STEP_BOUNDARY:
+                captured['ctx'] = ctx
+
+        runner._step_executor.apply_led_transition = _spy
         runner._step_executor.scan_iterate()
         assert runner._image_writer.capture.called, 'the step must reach capture'
-        return runner._image_writer.capture.call_args.kwargs['keep_led_on']
+        assert 'ctx' in captured, 'the runner must drive the STEP_BOUNDARY decision'
+        return LedLease.target_leds(LedTransition.STEP_BOUNDARY, captured['ctx'])
 
     @staticmethod
     def _lit_before_run():
         return {'BF': {'enabled': True, 'illumination_ma': 100.0}}
 
     def test_final_scan_restore_keeps_lit_channel(self):
-        assert (
-            self._keep_led_for(
-                leds_state_at_end='return_to_original',
-                original_led_states=self._lit_before_run(),
-            )
-            is True
+        assert self._boundary_target_for(
+            leds_state_at_end='return_to_original',
+            original_led_states=self._lit_before_run(),
         ), 'cleanup is about to re-light this channel; turning it off here blinks'
 
     def test_final_scan_restore_skips_unlit_channel(self):
-        assert (
-            self._keep_led_for(
-                leds_state_at_end='return_to_original',
-                original_led_states={'BF': {'enabled': False, 'illumination_ma': 0.0}},
-            )
-            is False
+        assert not self._boundary_target_for(
+            leds_state_at_end='return_to_original',
+            original_led_states={'BF': {'enabled': False, 'illumination_ma': 0.0}},
         ), 'a channel dark before the run must go dark at the end'
 
     def test_leds_off_at_end_never_keeps(self):
-        assert (
-            self._keep_led_for(
-                leds_state_at_end='off',
-                original_led_states=self._lit_before_run(),
-            )
-            is False
+        assert not self._boundary_target_for(
+            leds_state_at_end='off',
+            original_led_states=self._lit_before_run(),
         ), "leds_state_at_end='off' must always end dark"
 
     def test_non_final_scan_stays_dark(self):
-        assert (
-            self._keep_led_for(
-                leds_state_at_end='return_to_original',
-                original_led_states=self._lit_before_run(),
-                n_scans=2,
-            )
-            is False
+        assert not self._boundary_target_for(
+            leds_state_at_end='return_to_original',
+            original_led_states=self._lit_before_run(),
+            n_scans=2,
         ), 'inter-scan waits must run dark (sample safety) on non-final scans'
 
 
@@ -793,3 +869,42 @@ class TestProtocolRecordReconciliation:
         self._add_row(rec, 'a')
         rec.complete(reconcile=False)
         assert fired == [], 'aborted runs must not warn about an expected gap'
+
+
+def test_protocol_dropped_count_resets_per_run_and_counts_overflow():
+    """The per-run drop total resets at protocol_start and counts one per
+    overflow, so the run's owner can report exactly this run's lost captures.
+    """
+    from modules.sequential_io_executor import (
+        SequentialIOExecutor,
+        IOTask,
+        PROTOCOL_QUEUE_FULL,
+    )
+
+    ex = SequentialIOExecutor(name='TEST_DROP_COUNT', protocol_queue_maxsize=2)
+    ex.start()
+    try:
+        ex.protocol_start()
+        assert ex.protocol_dropped_count() == 0
+        # The worker signals once it is actually running the blocking task, so
+        # the queue is provably empty before we fill it -- no sleep-based race.
+        running = threading.Event()
+        block = threading.Event()
+
+        def blocker():
+            running.set()
+            block.wait(5)
+
+        ex.protocol_put(IOTask(action=blocker))
+        assert running.wait(2), 'worker never picked up the blocking task'
+        ex.protocol_put(IOTask(action=lambda: None))  # fill to maxsize (2)
+        ex.protocol_put(IOTask(action=lambda: None))
+        r1 = ex.protocol_put(IOTask(action=lambda: None))  # overflow -> dropped
+        r2 = ex.protocol_put(IOTask(action=lambda: None))
+        assert r1 == PROTOCOL_QUEUE_FULL and r2 == PROTOCOL_QUEUE_FULL
+        assert ex.protocol_dropped_count() == 2
+        block.set()
+        ex.protocol_start()  # a fresh run zeroes the count
+        assert ex.protocol_dropped_count() == 0
+    finally:
+        ex.shutdown(wait=True)

@@ -21,9 +21,10 @@ Two mode-entry sites were silently skipping the convention:
 * ``modules/autofocus_runner.py::run`` -- at AF start with a Live-mode
   LED on a different channel than the AF channel, additive illumination
   would leave both lit. AF's focus metric would see mixed illumination
-  and converge to the wrong Z. AF now uses ``leds_exclusive`` so its
-  channel is the only one lit (and an already-lit AF channel is not
-  blinked off->on), AFTER snapshotting prior state for the exit restore.
+  and converge to the wrong Z. AF now makes its channel the only one lit
+  via the LED authority (the AF_ENTER transition diffs off other channels,
+  and an already-lit AF channel is not blinked off->on), AFTER snapshotting
+  prior state for the exit restore.
 
 The tests drive the real run loop / AF run headlessly (via
 tests/protocol_drives.py and tests/af_drives.py) and observe the LED
@@ -35,6 +36,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+from modules.lumascope_api.illumination import LedTransition
 from tests.af_drives import af_runner_and_scope, drive_af
 from tests.protocol_drives import (
     bare_capture_runner,
@@ -73,16 +75,18 @@ class TestProtocolRunLoopNoCacheClearingLedsOffAtScanStart:
             f'observed: {events}'
         )
 
-    def test_capture_is_wired_to_leds_exclusive(self):
-        """run() must hand the image writer the exclusive primitive (offs
-        other channels, self-skips an already-lit one), not the additive
-        led_on, so step 0 is not double-illuminated by a stray Live-mode
-        LED and a same-color step is not blinked."""
+    def test_capture_leaf_does_not_drive_the_led(self):
+        """The run-lifecycle illuminate lives on the authority, not the capture
+        leaf: the runner applies STEP_LIGHT (offs other channels, self-skips an
+        already-lit one) and confirms the channel on before the grab, so the
+        leaf is a pure grab+save with no LED-on hook that could double-illuminate
+        step 0 or blink a same-color step (exclusivity itself is pinned by the
+        end-to-end lifecycle test's one-lit-at-a-time scenarios)."""
         runner = bare_capture_runner()
-        runner.run(**scr_run_kwargs())
-        assert runner._image_writer._led_on == runner._step_executor.leds_exclusive, (
-            "the writer's LED-on hook must be the step executor's "
-            'leds_exclusive, not the additive led_on'
+        runner.start(runner.prepare(**scr_run_kwargs()))
+        assert not hasattr(runner._image_writer, '_led_on'), (
+            'the capture leaf must not drive the LED; the STEP_LIGHT illuminate '
+            'lives on the authority via the runner'
         )
 
 
@@ -97,52 +101,80 @@ class TestAutofocusRunnerExclusiveIlluminationAtRunStart:
     the snapshot on exit -- so the focus metric never sees mixed
     illumination and the user's LED state survives the run."""
 
-    def test_exclusive_illumination_follows_save_led_state(self, monkeypatch):
+    def _af_enter_index(self, scope):
+        """Index in scope.mock_calls of the AF_ENTER illuminate on the AF lease."""
+        return next(
+            i
+            for i, (name, args, kwargs) in enumerate(scope.mock_calls)
+            if name.endswith('.apply') and args and args[0] is LedTransition.AF_ENTER
+        )
+
+    def test_af_enter_illuminate_follows_save_led_state(self, monkeypatch):
         monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 7.0)
         runner, scope = af_runner_and_scope()
         scope.led_connected = True
         drive_af(runner, led_color='Red', led_illumination=42.0)
 
-        names = [name for name, args, kwargs in scope.illumination.method_calls]
-        assert 'leds_exclusive' in names, (
-            f'AF must make its channel the only lit one; LED calls: {names}'
+        # AF makes its channel the only lit one via the authority's AF_ENTER
+        # (the diff offs other channels) and restores the pre-AF snapshot on
+        # exit via AF_TO_CAPTURE -- both transitions driven on the AF lease,
+        # replacing the old direct per-channel LED calls AF made before the
+        # authority.
+        af_lease = scope.illumination.acquire_led_lease.return_value
+        applied = [c.args[0] for c in af_lease.apply.call_args_list if c.args]
+        assert LedTransition.AF_ENTER in applied, (
+            f'AF must illuminate via the authority AF_ENTER; applied: {applied}'
         )
-        exclusive_kwargs = scope.illumination.leds_exclusive.call_args.kwargs
-        assert exclusive_kwargs['mA'] == 42.0 and exclusive_kwargs['owner'] == 'autofocus'
-        assert names.index('save_led_state') < names.index('leds_exclusive'), (
-            'the pre-AF LED snapshot must precede the illumination change, '
-            'or the exit restore would restore the wrong (already-changed) '
-            f'state; LED calls: {names}'
+        assert LedTransition.AF_TO_CAPTURE in applied, (
+            f'AF exit must restore via AF_TO_CAPTURE; applied: {applied}'
         )
-        assert 'restore_led_state' in names[names.index('leds_exclusive') :], (
-            f'AF exit must restore the pre-AF snapshot; LED calls: {names}'
+        enter_ctx = next(
+            c.args[1]
+            for c in af_lease.apply.call_args_list
+            if c.args and c.args[0] is LedTransition.AF_ENTER
+        )
+        assert enter_ctx.mA == 42.0
+        # The pre-AF snapshot must precede the AF_ENTER illuminate, or the exit
+        # restore would capture the already-changed (post-illuminate) state.
+        ordered = [name for name, args, kwargs in scope.mock_calls]
+        save_idx = next(i for i, n in enumerate(ordered) if n.endswith('save_led_state'))
+        assert save_idx < self._af_enter_index(scope), (
+            f'pre-AF snapshot must precede the AF_ENTER illuminate; calls: {ordered}'
         )
 
     def test_ambient_fallback_clears_leds(self, monkeypatch):
-        """No AF channel configured: any Live-mode LED must be cleared so
-        it does not bias the focus metric."""
+        """No AF channel configured: AF_ENTER's target is empty, so the
+        authority diff clears every channel and ambient AF is not biased by a
+        stray Live-mode LED."""
         monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 7.0)
         runner, scope = af_runner_and_scope()
         drive_af(runner)
-        names = [name for name, args, kwargs in scope.illumination.method_calls]
-        assert 'leds_off' in names, (
-            f'ambient AF must clear the LEDs before scanning; LED calls: {names}'
+        af_lease = scope.illumination.acquire_led_lease.return_value
+        enter = [
+            c
+            for c in af_lease.apply.call_args_list
+            if c.args and c.args[0] is LedTransition.AF_ENTER
+        ]
+        assert enter, 'ambient AF must still drive AF_ENTER (an empty target clears the LEDs)'
+        assert enter[0].args[1].channel is None, (
+            'no AF color -> empty AF_ENTER target -> every channel cleared'
         )
-        assert names.index('save_led_state') < names.index('leds_off'), (
-            f'the snapshot must precede the clear; LED calls: {names}'
+        ordered = [name for name, args, kwargs in scope.mock_calls]
+        save_idx = next(i for i, n in enumerate(ordered) if n.endswith('save_led_state'))
+        assert save_idx < self._af_enter_index(scope), (
+            f'the snapshot must precede the clear; calls: {ordered}'
         )
 
 
 class TestAutofocusAcquiresLeaseBeforeIllumination:
     """AF must hold its LED lease BEFORE it drives illumination.
 
-    The illumination write carries owner 'autofocus'. If it is issued
-    before AF holds a lease, a protocol's already-held lease refuses the
-    out-of-turn write and the AF channel never lights -- AF then scans an
-    unlit field, the focus metric reads noise, and gain/exposure climb
-    chasing nothing. The lease acquire must therefore precede the
-    leds_exclusive call on both AF paths (interactive top-level lease and
-    in-protocol child lease)."""
+    AF illuminates by calling apply(AF_ENTER) ON its lease, so holding the
+    lease before illumination is now structural: a refused acquire leaves the
+    field as-is rather than driving an out-of-turn write that a protocol's
+    held lease would refuse (AF scanning an unlit field). These pin that the
+    AF_ENTER illuminate runs on the correctly-acquired lease on both paths
+    (interactive top-level lease and in-protocol child lease)."""
 
     def test_top_level_lease_precedes_illumination(self, monkeypatch):
         monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 7.0)
@@ -150,34 +182,36 @@ class TestAutofocusAcquiresLeaseBeforeIllumination:
         scope.led_connected = True
         drive_af(runner, led_color='Red', led_illumination=42.0)
         names = [name for name, args, kwargs in scope.illumination.method_calls]
-        assert 'acquire_led_lease' in names and 'leds_exclusive' in names, (
-            f'expected a lease acquire and an illumination write; LED calls: {names}'
-        )
-        assert names.index('acquire_led_lease') < names.index('leds_exclusive'), (
-            'the LED lease must be acquired before illumination is driven, or '
-            "a protocol's held lease refuses the write and AF scans dark; "
-            f'LED calls: {names}'
+        assert 'acquire_led_lease' in names, f'AF must acquire a top-level lease; calls: {names}'
+        af_lease = scope.illumination.acquire_led_lease.return_value
+        applied = [c.args[0] for c in af_lease.apply.call_args_list if c.args]
+        assert LedTransition.AF_ENTER in applied, (
+            f'AF must illuminate via AF_ENTER on its acquired lease; applied: {applied}'
         )
 
     def test_child_lease_precedes_illumination(self, monkeypatch):
         """In-protocol path: AF takes a child lease under the protocol's
-        lease. The child acquire must precede the illumination write."""
+        lease and illuminates through it. The child acquire must precede the
+        AF_ENTER illuminate (it is a method on the child, so structurally so)."""
         monkeypatch.setattr('modules.autofocus_functions.focus_function', lambda image: 7.0)
         runner, scope = af_runner_and_scope()
         scope.led_connected = True
-        # Attach the parent lease to the scope mock so its acquire_child
-        # call is recorded in scope.mock_calls alongside the illumination
-        # write -- one ordered record spanning both objects.
+        # Attach the parent lease to the scope mock so its acquire_child call
+        # is recorded in scope.mock_calls alongside the AF_ENTER apply on the
+        # child -- one ordered record spanning both objects.
         parent_lease = scope.protocol_lease
         drive_af(runner, led_color='Red', led_illumination=42.0, led_lease=parent_lease)
-        ordered = [call[0] for call in scope.mock_calls]
         acquire = next(
-            i for i, name in enumerate(ordered) if name.endswith('protocol_lease.acquire_child')
+            i
+            for i, (name, args, kwargs) in enumerate(scope.mock_calls)
+            if name.endswith('protocol_lease.acquire_child')
         )
         illuminate = next(
-            i for i, name in enumerate(ordered) if name.endswith('illumination.leds_exclusive')
+            i
+            for i, (name, args, kwargs) in enumerate(scope.mock_calls)
+            if name.endswith('.apply') and args and args[0] is LedTransition.AF_ENTER
         )
         assert acquire < illuminate, (
-            'the child LED lease must be acquired before illumination is '
-            f'driven; call order: {ordered}'
+            'the child LED lease must be acquired before AF_ENTER illuminates; '
+            f'call order: {[n for n, a, k in scope.mock_calls]}'
         )

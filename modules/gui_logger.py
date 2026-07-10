@@ -35,6 +35,18 @@ def select(name, value):
     _log.info(f'SELECT {name} {value}')
 
 
+def frame_size(width, height, binning):
+    """Log a framing change -- the displayed (post-binning) frame size + binning.
+
+    Wired from ``MicroscopeSettings._apply_displayed_frame``, the single
+    chokepoint both the frame-field edit (``frame_size``) and the binning
+    toggle (``select_binning_size``) flow through, so one call covers every
+    framing change the user makes -- including the frame-box resize that was
+    previously absent from the GUI log.
+    """
+    _log.info(f'FRAME_SIZE {width}x{height} binning={binning}')
+
+
 def protocol_action(action, detail=''):
     """Log a protocol-level action (run, stop, pause, step add, etc.)."""
     _log.info(f'PROTOCOL {action} {detail}')

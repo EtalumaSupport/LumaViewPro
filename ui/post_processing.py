@@ -167,8 +167,9 @@ class ZProjectionControls(BoxLayout):
         if result['status'] is False:
             # Same single-surface contract as the no-result branch above.
             Clock.schedule_once(lambda dt: popup.dismiss(), 0)
-            if result.get('reason') == 'error':
-                # The projection itself failed (not a bad-folder case);
+            if result.get('reason') in ('error', 'collision'):
+                # The projection failed or its output names collide (not a
+                # bad-folder case); the message carries the real remedy, so
                 # don't send the user off to pick a different folder.
                 notifications.warning(
                     'Z-Projection',
@@ -658,6 +659,7 @@ class CellCountControls(BoxLayout):
         super().__init__(**kwargs)
         logger.info('LVP Main: CellCountControls.__init__()')
         self._preview_source_image = None
+        self._preview_source_significant_bits = 16
         self._preview_image = None
         self._post = post_processing.PostProcessing()
         self._settings = self._get_init_settings()
@@ -847,10 +849,14 @@ class CellCountControls(BoxLayout):
         self._regenerate_image_preview()
 
     def set_preview_source_file(self, file) -> None:
-        image = image_utils.image_file_to_image(image_file=file)
-        if image is None:
+        # One read returns pixels AND their payload depth, so the preview always
+        # scales by the source's true depth and cannot read the two out of sync.
+        try:
+            image, significant_bits = image_utils.load_pixels(file)
+        except (FileNotFoundError, ValueError) as e:
+            logger.warning(f'[LVP Main  ] Cell-count preview could not load {file}: {e}')
             return
-
+        self._preview_source_significant_bits = significant_bits
         self.set_preview_source(image=image)
 
     def calculate_area_filter_max(self, image):
@@ -889,8 +895,13 @@ class CellCountControls(BoxLayout):
         self._preview_source_image = image
         self._preview_image = image
         img_widget = self.ids['cell_count_image_id']
+        # The stored source stays full-depth for the cell-count math; the display
+        # blit gets an 8-bit copy scaled by the source's payload depth, so a
+        # right-aligned 12-bit frame renders correctly instead of being blitted
+        # as raw 16-bit bytes.
+        display_image = image_utils.convert_to_8bit(image, self._preview_source_significant_bits)
         img_widget.texture = image_utils_kivy.image_to_texture(
-            image=image, existing=img_widget.texture
+            image=display_image, existing=img_widget.texture
         )
         self.update_filter_max(image=image)
         self._regenerate_image_preview()
@@ -917,7 +928,9 @@ class CellCountControls(BoxLayout):
             return
 
         image, _ = self._post.preview_cell_count(
-            image=self._preview_source_image, settings=self._settings
+            image=self._preview_source_image,
+            settings=self._settings,
+            significant_bits=self._preview_source_significant_bits,
         )
 
         self._preview_image = image

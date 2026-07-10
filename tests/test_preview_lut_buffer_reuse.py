@@ -63,6 +63,7 @@ def test_get_image_from_buffer_reuses_caller_buffer():
 
     cam = SimulatedCamera()
     cam.connect()
+    cam.open_and_start()
     assert cam.set_pixel_format('Mono12')
     scope = Lumascope.__new__(Lumascope)
     scope._camera_driver = cam

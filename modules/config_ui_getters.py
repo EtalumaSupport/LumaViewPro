@@ -16,10 +16,10 @@ import pathlib
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 import modules.config_helpers as config_helpers
-from modules.stack_builder import StackBuilder
-from modules.tiling_config import TilingConfig
-from modules.zstack_config import ZStackConfig
 import modules.labware as labware
+from modules.image_mode import ImageCaptureConfig
+from modules.stack_builder import StackBuilder
+from modules.zstack_config import ZStackConfig
 
 logger = logging.getLogger('LVP.modules.config_ui_getters')
 
@@ -27,6 +27,19 @@ logger = logging.getLogger('LVP.modules.config_ui_getters')
 # ---------------------------------------------------------------------------
 # Capability gates
 # ---------------------------------------------------------------------------
+
+
+def _live_capabilities():
+    """The capability surface of the LIVE scope, or None if not built yet.
+
+    Reads ``ctx.lumaview.scope`` -- the reference ``reconnect()`` rebuilds on a
+    scope change -- NOT the ``ctx.scope`` registry field, which is a build-time
+    reference reconnect never refreshes. Every capability gate must resolve
+    through here so a reconnect is reflected and the gates can't drift apart.
+    """
+    lumaview = getattr(_app_ctx.ctx, 'lumaview', None)
+    scope = getattr(lumaview, 'scope', None)
+    return getattr(scope, 'capabilities', None)
 
 
 def firmware_stim_supported() -> bool:
@@ -37,9 +50,24 @@ def firmware_stim_supported() -> bool:
     Fails safe to False (hide) when the scope or its capability surface is not
     yet available, so stim never appears on firmware that cannot drive it.
     """
-    scope = getattr(_app_ctx.ctx, 'scope', None)
-    caps = getattr(scope, 'capabilities', None)
+    caps = _live_capabilities()
     return bool(caps.supports('firmware_stim')) if caps is not None else False
+
+
+def camera_autogain_supported() -> bool:
+    """True when the connected camera has hardware auto-gain or auto-exposure.
+
+    The single gate for the "Auto Gain/Exp" control, which drives BOTH
+    auto-gain and auto-exposure -- so it stays visible if the hardware offers
+    either, and hides only when the camera offers neither (IDS U3-34Lx, FX2
+    LS620). Fails safe to True (show) when no capability surface exists yet, so
+    a not-yet-built scope keeps the prior always-shown behavior rather than
+    hiding on unknown.
+    """
+    caps = _live_capabilities()
+    if caps is None:
+        return True
+    return bool(caps.camera_supports_auto_gain or caps.camera_supports_auto_exposure)
 
 
 # ---------------------------------------------------------------------------
@@ -211,18 +239,17 @@ def get_selected_labware() -> tuple[str | None, labware.WellPlate | None]:
 # ---------------------------------------------------------------------------
 
 
-def get_image_capture_config_from_ui() -> dict:
+def get_image_capture_config_from_ui() -> ImageCaptureConfig:
     microscope_settings = _app_ctx.ctx.motion_settings.ids['microscope_settings_id']
-    output_format = {
-        'live': microscope_settings.ids['live_image_output_format_spinner'].text,
-        'sequenced': microscope_settings.ids['sequenced_image_output_format_spinner'].text,
-    }
-    use_full_pixel_depth = _app_ctx.ctx.scope_display.use_full_pixel_depth
-    return {
-        'output_format': output_format,
-        'use_full_pixel_depth': use_full_pixel_depth,
-        'jpg_quality': int(_app_ctx.ctx.settings.get('jpg_quality', 90)),
-    }
+    mode = _app_ctx.ctx.scope_display.image_mode
+    return ImageCaptureConfig.from_image_mode(
+        mode,
+        output_format_live=microscope_settings.ids['live_image_output_format_spinner'].text,
+        output_format_sequenced=microscope_settings.ids[
+            'sequenced_image_output_format_spinner'
+        ].text,
+        jpg_quality=_app_ctx.ctx.settings.get('jpg_quality', 90),
+    )
 
 
 def get_sequenced_capture_config_from_ui() -> dict:
@@ -231,9 +258,7 @@ def get_sequenced_capture_config_from_ui() -> dict:
     labware_id, _ = get_selected_labware()
     protocol_settings = _app_ctx.ctx.motion_settings.ids['protocol_settings_id']
     tiling = protocol_settings.ids['tiling_size_spinner'].text
-    tiling_overlap_percent = TilingConfig.validate_overlap_percent(
-        protocol_settings.ids['tiling_overlap_spinner'].text.strip().rstrip('%')
-    )
+    tiling_overlap_percent = protocol_settings.get_tiling_overlap_percent()
     use_zstacking = protocol_settings.ids['acquire_zstack_id'].active
     frame_dimensions = get_current_frame_dimensions()
     zstack_params = get_zstack_params()
@@ -329,8 +354,9 @@ def get_protocol_time_params() -> dict:
 def create_hyperstacks_if_needed():
     ctx = _app_ctx.ctx
     image_capture_config = get_image_capture_config_from_ui()
-    if image_capture_config['output_format']['sequenced'] == 'OME-TIFF Hyperstack':
+    if image_capture_config.output_format_sequenced == 'OME-TIFF Hyperstack':
         import threading
+
         from modules.notification_center import notifications
 
         notifications.info(
@@ -359,15 +385,15 @@ def create_hyperstacks_if_needed():
                 )
                 logger.info('Hyperstack creation complete')
             except Exception as ex:
-                logger.exception('Error building hyperstacks')
+                logger.exception(f'Error building hyperstacks: {ex}')
                 # Background thread: the user already saw the "Saving
                 # Hyperstacks" info popup; without this they never see
                 # a result.
                 notifications.error(
                     'Post-processing',
                     'Hyperstack build failed',
-                    f'Could not create hyperstacks: {type(ex).__name__}: {ex}. '
-                    f'See logs for details; source files are untouched.',
+                    'Could not create hyperstacks. '
+                    'See the log for details; source files are untouched.',
                 )
 
         threading.Thread(target=_build, daemon=True).start()

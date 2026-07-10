@@ -5,12 +5,13 @@ import pathlib
 import numpy as np
 import pandas as pd
 import psutil
-import tifffile as tf
 
 import modules.image_utils as image_utils
 import modules.common_utils as common_utils
 from modules.common_utils import PostFunction
+from modules.exceptions import CaptureError
 from modules.protocol_post_processor import ProtocolPostProcessor
+from modules.protocol_post_processing_result import PostProcResult
 from modules.protocol_post_record import ProtocolPostRecord
 
 import logging
@@ -64,31 +65,22 @@ class StackBuilder(ProtocolPostProcessor):
             objective_id=row0['Objective']
         )
 
-        # A hyperstack collapses every channel into one file (color=None
-        # below), so the channel token baked into the step name no longer
-        # identifies it -- drop whichever channel token is present. The
-        # per-tile token is kept: a stack is still one tile. Any custom name
-        # text is otherwise preserved.
-        base_name = common_utils.strip_any_channel_token(row0['Name'])
-
-        # Prepend the protocol's capture_root (passed in via kwargs by
-        # ProtocolPostProcessor.load_folder) so the stack output carries
-        # the same filename root as the per-image saves.
-        capture_root = kwargs.get('capture_root', '')
-        prefix = f'{capture_root}_{base_name}' if capture_root else base_name
-
-        name = common_utils.generate_default_step_name(
-            custom_name_prefix=prefix,
-            well_label=row0['Well'],
-            color=None,
-            z_height_idx=None,
-            scan_count=None,
-            tile_label=None,
-            objective_short_name=objective_short_name,
-            hyperstack=True,
+        # A hyperstack spans every channel AND every z-slice, so both the
+        # channel and z tokens are omitted (channel=None, z_index=None) -- a
+        # single slice index would mislabel the whole stack. The per-tile token
+        # is kept: a stack is still one tile. Collapsed dimensions are dropped
+        # by construction, never by stripping tokens back out of a name.
+        name = common_utils.build_step_name(
+            common_utils.step_components(
+                row0,
+                channel=None,
+                z_index=None,
+                objective=objective_short_name,
+                post=('hyperstack',),
+            )
         )
 
-        outfile = f'{name}.ome.tiff'
+        outfile = f'{self._prepend_capture_root(name, kwargs)}.ome.tiff'
         return outfile
 
     def _filter_ignored_types(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -104,12 +96,14 @@ class StackBuilder(ProtocolPostProcessor):
         df: pd.DataFrame,
         **kwargs,
     ):
-        return StackBuilder._create_stack(
-            path=path,
-            df=df,
-            output_file_loc=kwargs['output_file_loc'],
-            focal_length=kwargs['focal_length'],
-            binning_size=kwargs['binning_size'],
+        return PostProcResult.from_group_result(
+            StackBuilder._create_stack(
+                path=path,
+                df=df,
+                output_file_loc=kwargs['output_file_loc'],
+                focal_length=kwargs['focal_length'],
+                binning_size=kwargs['binning_size'],
+            )
         )
 
     @staticmethod
@@ -126,6 +120,7 @@ class StackBuilder(ProtocolPostProcessor):
             file_path=file_path,
             timestamp=row0['Timestamp'],
             name=row0['Name'],
+            label=row0['Label'],
             scan_count=-1,
             x=row0['X'],
             y=row0['Y'],
@@ -148,11 +143,15 @@ class StackBuilder(ProtocolPostProcessor):
         plane_metadata: dict,
         binning_size: int,
         focal_length: float,
+        significant_bits: int,
     ):
         channel_names = df['Color'].unique().tolist()
         row0 = df.iloc[0]
         sample_image_file_loc = path / row0['Filepath']
-        sample_image = tf.imread(sample_image_file_loc)
+        # The hyperstack inherits the depth the caller carried from the
+        # load_pixels read of the input frames -- no second open to re-derive
+        # what those pixels already came tagged with.
+        sample_significant_bits = significant_bits
 
         pixel_size_um = round(
             common_utils.get_pixel_size(
@@ -170,7 +169,7 @@ class StackBuilder(ProtocolPostProcessor):
                 'PositionY': plane_metadata['PositionY'],
                 'PositionZ': plane_metadata['PositionZ'],
             },
-            significant_bits=sample_image.itemsize * 8,
+            significant_bits=sample_significant_bits,
             pixel_size_um=pixel_size_um,
         )
 
@@ -182,13 +181,30 @@ class StackBuilder(ProtocolPostProcessor):
             'maxworkers': 2,
         }
 
-        resolution = (1e4 / pixel_size_um, 1e4 / pixel_size_um)
+        resolution = image_utils.resolution_for_pixel_size(pixel_size_um)
 
         return {
             'metadata': metadata,
             'options': options,
             'resolution': resolution,
         }
+
+    @staticmethod
+    def _load_plane(path: pathlib.Path) -> tuple[np.ndarray, int]:
+        """Read one input frame's pixels and depth, failing loud and naming the file.
+
+        A hyperstack plane cannot be skipped the way a video frame can -- a
+        missing plane would misalign the fixed TZCYX grid -- so a malformed
+        input fails the whole build with a clear, typed error that names the
+        offending file, rather than a raw tifffile/OS exception surfacing from
+        deep inside the read.
+        """
+        try:
+            return image_utils.load_pixels(path, collapse_legacy_false_color=False)
+        except Exception as ex:
+            raise CaptureError(
+                f'failed to read hyperstack input frame {path}: {type(ex).__name__}: {ex}'
+            ) from ex
 
     @staticmethod
     def _create_stack(
@@ -206,12 +222,35 @@ class StackBuilder(ProtocolPostProcessor):
         num_z = df['Z-Slice'].nunique()
         num_c = df['Color'].nunique()
 
+        # A hyperstack is a rectangular T x Z x C cube: every channel must be
+        # captured at the same z-slices and scan counts, exactly once each. A
+        # protocol that z-stacks one channel but single-shots another leaves
+        # holes the dense array could only pad with black planes -- fake data
+        # in a scientific image. Refuse the whole well through the post-
+        # processor's status=False failure path, naming the well so the user
+        # can align the protocol or build each channel separately.
+        expected_planes = num_t * num_z * num_c
+        captured_cells = df.groupby(['Scan Count', 'Z-Slice', 'Color']).ngroups
+        if len(df) != expected_planes or captured_cells != expected_planes:
+            well = df['Well'].iloc[0]
+            return {
+                'status': False,
+                'error': (
+                    f'Cannot build a hyperstack for well {well}: its channels '
+                    f'were not all captured at the same z-slices and scan '
+                    f'counts ({len(df)} images for a {num_t} x {num_z} x '
+                    f'{num_c} grid). Use the same z-stack settings on every '
+                    f'channel in the well, or build each channel separately.'
+                ),
+                'metadata': {},
+            }
+
         _, color_idx_map = np.unique(df['Color'], return_inverse=True)
         df['Color Index'] = color_idx_map
 
         row0 = df.iloc[0]
         sample_image_file_loc = path / row0['Filepath']
-        sample_image = tf.imread(sample_image_file_loc)
+        sample_image, _ = StackBuilder._load_plane(sample_image_file_loc)
         sample_image_shape = sample_image.shape
         h, w = sample_image_shape[0], sample_image_shape[1]
 
@@ -229,15 +268,24 @@ class StackBuilder(ProtocolPostProcessor):
             'PositionZ': [],
         }
 
+        input_depths = []
         for _, row in df.iterrows():
             t = row['Scan Count']
             z = row['Z-Slice']
             c = row['Color Index']
-            image = tf.imread(path / row['Filepath'])
+            image, significant_bits = StackBuilder._load_plane(path / row['Filepath'])
+            input_depths.append(significant_bits)
 
             if image_utils.is_color_image(image):
                 image = image_utils.rgb_image_to_gray(image=image)
 
+            # Each plane must share the hyperstack's canvas; a per-plane stitch
+            # divergence otherwise surfaces as a cryptic broadcast error on the
+            # slice assignment below.
+            image_utils.require_uniform_geometry(
+                [('first plane', sample_image), (f'plane t{t} z{z} c{c}', image)],
+                operation='assemble this hyperstack',
+            )
             stacked_image[t, z, c, :, :] = image
             plane_metadata['PositionX'].append(row['X'])
             plane_metadata['PositionY'].append(row['Y'])
@@ -255,27 +303,29 @@ class StackBuilder(ProtocolPostProcessor):
             plane_metadata=plane_metadata,
             focal_length=focal_length,
             binning_size=binning_size,
+            significant_bits=image_utils.resolve_output_depth(input_depths),
         )
 
         output_file_loc_abs = path / output_file_loc
         output_file_loc_abs.parent.mkdir(exist_ok=True, parents=True)
-        # Route through write_tiff's hyperstack override hook so the
-        # canonical LVP write path owns the file-creation side of the
-        # save pipeline. metadata / ome / color are unused on this path
-        # (the hyperstack_* kwargs carry the OME-XML + write options);
-        # the placeholder kwargs satisfy the existing signature.
-        image_utils.write_tiff(
+        # Route through the canonical hyperstack write path so LVP owns
+        # the file-creation side of the save pipeline. The caller-built
+        # OME dict carries the per-plane depth, so this path needs no
+        # scalar significant_bits.
+        image_utils.write_hyperstack_tiff(
             data=stacked_image,
             file_loc=output_file_loc_abs,
-            metadata={},
-            ome=True,
-            color='',
             hyperstack_metadata=ome_info['metadata'],
             hyperstack_options=ome_info['options'],
             hyperstack_resolution=ome_info['resolution'],
         )
 
-        return {'status': True, 'error': None, 'metadata': {}}
+        return {
+            'status': True,
+            'error': None,
+            'significant_bits': image_utils.resolve_output_depth(input_depths),
+            'metadata': {},
+        }
 
     @staticmethod
     def create_single_recording_stack(

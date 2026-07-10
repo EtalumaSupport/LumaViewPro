@@ -48,6 +48,7 @@ _mock_settings_init.settings = {
 }
 sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
+from modules.image_mode import ImageCaptureConfig
 from modules.lumascope_api import Lumascope
 from modules.protocol import Protocol
 from modules.sequenced_capture_runner import (
@@ -118,9 +119,9 @@ def scope():
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
-    s._camera_driver.start_grabbing()
+    s.imaging.start_streaming()
     yield s
-    s._camera_driver.stop_grabbing()
+    s.imaging.stop_streaming()
     s.disconnect()
 
 
@@ -171,7 +172,7 @@ def executor(scope, executors):
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
         camera_executor=executors['camera'],
-        autofocus_thread=MagicMock(),
+        autofocus_thread=MagicMock(is_running=False),
         autofocus_runner=mock_af,
     )
     exc._wellplate_loader = WellPlateLoader()
@@ -204,15 +205,12 @@ def _run_protocol(executor, protocol, tmp_path):
         'run_complete': on_complete,
     }
 
-    executor.run(
+    plan = executor.prepare(
         protocol=protocol,
         run_trigger_source='test',
         run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
         sequence_name='issue_673_repro',
-        image_capture_config={
-            'output_format': {'live': 'TIFF', 'sequenced': 'TIFF'},
-            'use_full_pixel_depth': False,
-        },
+        image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
         autogain_settings={
             'target_brightness': 0.3,
             'min_gain_db': 0.0,
@@ -233,6 +231,7 @@ def _run_protocol(executor, protocol, tmp_path):
             'Lumi': False,
         },
     )
+    executor.start(plan)
 
     completed = done.wait(timeout=30)
     return completed, result_holder

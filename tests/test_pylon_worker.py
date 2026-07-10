@@ -48,6 +48,11 @@ class _FakeGrabResult:
         arr.copy.return_value = arr
         return arr
 
+    def GetPixelType(self):
+        # Real pypylon PixelType_Mono8 value; the worker reads this to stamp
+        # the frame's depth (pylon.BitDepth maps it to 8).
+        return 0x01080001
+
     def GetErrorCode(self):
         return self._err_code
 
@@ -182,6 +187,16 @@ class TestProcessFailure(unittest.TestCase):
     def test_payload_discarded_does_not_record_failure(self):
         worker, _, base, _ = _make_worker()
         gr = _FakeGrabResult(err_code=_PYLON_ERR_PAYLOAD_DISCARDED, err_desc='discarded')
+        worker._process_failure(gr, 0.0)
+        base._record_failure.assert_not_called()
+
+    def test_payload_discarded_literal_bench_code_does_not_record_failure(self):
+        # Inject the literal hardware code (3791651346 = 0xE2000212), NOT the
+        # constant -- the constant-based test above stays green even if the
+        # constant drifts off the real value, so it can't catch the typo that
+        # left the benign branch dead. This pins the real-hardware code.
+        worker, _, base, _ = _make_worker()
+        gr = _FakeGrabResult(err_code=3791651346, err_desc='Payload data has been discarded')
         worker._process_failure(gr, 0.0)
         base._record_failure.assert_not_called()
 

@@ -524,6 +524,26 @@ class TestSharedConnectionInvariant:
 # ---------------------------------------------------------------------------
 
 
+class TestFX2FrameCallbackAdoption:
+    """FX2 adopts the durable frame-callback contract: a callback registered
+    before a reconnect survives the handler rebuild in connect()."""
+
+    def test_reconnect_preserves_frame_callback(self, fake_fx2_conn):
+        cam = fx2driver.FX2Camera()
+
+        def _cb(image, ts, chunks):
+            pass
+
+        cam.register_frame_callback(_cb)
+        assert _cb in cam.cam_image_handler._frame_callbacks
+
+        # connect() rebuilds the handler (the reconnect path); the durable
+        # registry must be re-applied onto the fresh _FX2ImageHandler.
+        cam.connect()
+        assert _cb in cam._registered_frame_callbacks
+        assert _cb in cam.cam_image_handler._frame_callbacks
+
+
 class TestFX2CameraProfile:
     """FX2Camera should load the MT9P031-LS620 profile and populate
     dynamic gain / exposure fields in ``_query_dynamic_capabilities``.
@@ -566,6 +586,26 @@ class TestFX2CameraProfile:
     def test_default_frame_size_is_1900x1900(self, fake_fx2_conn):
         cam = fx2driver.FX2Camera()
         assert cam.get_frame_size() == {'width': 1900, 'height': 1900}
+
+    def test_set_frame_size_returns_delivered_geometry(self, fake_fx2_conn):
+        cam = fx2driver.FX2Camera()
+        # 1000 is already a multiple of 4; 999 rounds down to 996.
+        delivered = cam.set_frame_size(1000, 999)
+        assert delivered == {'width': 1000, 'height': 996}
+        assert cam.get_frame_size() == {'width': 1000, 'height': 996}
+
+    def test_set_frame_size_register_failure_returns_false_keeps_geometry(self, fake_fx2_conn):
+        cam = fx2driver.FX2Camera()
+        cam.set_frame_size(1000, 996)
+        fake_fx2_conn.sensor_reg_write.side_effect = OSError('usb gone')
+        try:
+            result = cam.set_frame_size(500, 500)
+        finally:
+            fake_fx2_conn.sensor_reg_write.side_effect = None
+        # A failed apply reports the base contract's False and leaves
+        # get_frame_size() at the geometry the sensor is still running with.
+        assert result is False
+        assert cam.get_frame_size() == {'width': 1000, 'height': 996}
 
     def test_max_frame_size_is_1900x1900(self, fake_fx2_conn):
         cam = fx2driver.FX2Camera()

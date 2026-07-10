@@ -16,7 +16,11 @@ Usage
     runner = ProtocolRunner(session)
 
     protocol = Protocol.from_file("my_protocol.csv")
-    runner.run_single_scan(protocol, sequence_name="test_scan")
+    runner.run_single_scan(
+        protocol,
+        sequence_name="test_scan",
+        image_capture_config=runner.build_image_capture_config(image_mode="8bit"),
+    )
     runner.wait_for_completion()
 """
 
@@ -25,10 +29,14 @@ import threading
 import typing
 
 import modules.common_utils as common_utils
+import modules.image_mode as image_mode_module
+from modules.exceptions import ConfigError
 from modules.protocol import Protocol
 from modules.sequenced_capture_runner import SequencedCaptureRunner, SequencedCaptureRunMode
 from modules.sequential_io_executor import SequentialIOExecutor
 from modules.protocol_thread import ProtocolThread
+
+from lvp_logger import logger
 
 
 class ProtocolRunner:
@@ -90,20 +98,31 @@ class ProtocolRunner:
 
     def build_image_capture_config(
         self,
+        *,
+        image_mode: str,
         live_format: str = 'TIFF',
         sequenced_format: str = 'TIFF',
-        use_full_pixel_depth: bool = True,
         jpg_quality: int = 90,
-    ) -> dict:
-        """Build an image capture config dict without reading from GUI."""
-        return {
-            'output_format': {
-                'live': live_format,
-                'sequenced': sequenced_format,
-            },
-            'use_full_pixel_depth': use_full_pixel_depth,
-            'jpg_quality': jpg_quality,
-        }
+    ) -> image_mode_module.ImageCaptureConfig:
+        """Build an image capture config without reading from GUI.
+
+        image_mode is required: a headless run is a deliberate act by a
+        script author, and an unstated mode silently decided the science
+        data's bit depth (a script that captured full depth on older
+        releases would quietly produce 8-bit files). capture_depth and
+        save_encoding are derived together from the one image_mode value
+        rather than carried independently, so the config that drives capture
+        also drives the save: a 12-bit-scaled capture cannot be paired with
+        an 8-bit save that stores it right-aligned (dark). This is the
+        GUI-less mirror of get_image_capture_config_from_ui; both route
+        through the same one constructor so the two paths cannot drift.
+        """
+        return image_mode_module.ImageCaptureConfig.from_image_mode(
+            image_mode,
+            output_format_live=live_format,
+            output_format_sequenced=sequenced_format,
+            jpg_quality=jpg_quality,
+        )
 
     # ------------------------------------------------------------------
     # Run methods
@@ -114,7 +133,7 @@ class ProtocolRunner:
         protocol: Protocol,
         sequence_name: str = 'scan',
         parent_dir: pathlib.Path | str | None = None,
-        image_capture_config: dict | None = None,
+        image_capture_config: image_mode_module.ImageCaptureConfig | None = None,
         enable_image_saving: bool = True,
         callbacks: dict[str, typing.Callable] | None = None,
         return_to_position: dict | None = None,
@@ -125,10 +144,19 @@ class ProtocolRunner:
             protocol: Protocol defining the steps to execute
             sequence_name: Name for the output folder
             parent_dir: Parent directory for output (defaults to settings['live_folder']/ProtocolData)
-            image_capture_config: Image format config (defaults to TIFF)
+            image_capture_config: The run's capture/save intent; REQUIRED.
+                Build one with build_image_capture_config(image_mode=...).
             enable_image_saving: Whether to save captured images
             callbacks: Optional dict of callback functions
             return_to_position: Optional position to return to after scan
+
+        Raises:
+            ConfigError: image_capture_config was not provided -- there is
+                no silent default image mode; the caller states the run's
+                bit depth explicitly.
+            ProtocolRunRefusedError: The run was refused before any state
+                was committed; is_running() stays False and
+                wait_for_completion() is not armed.
         """
         self._run(
             protocol=protocol,
@@ -148,7 +176,7 @@ class ProtocolRunner:
         protocol: Protocol,
         sequence_name: str = 'protocol',
         parent_dir: pathlib.Path | str | None = None,
-        image_capture_config: dict | None = None,
+        image_capture_config: image_mode_module.ImageCaptureConfig | None = None,
         enable_image_saving: bool = True,
         callbacks: dict[str, typing.Callable] | None = None,
     ):
@@ -158,9 +186,18 @@ class ProtocolRunner:
             protocol: Protocol defining the steps, period, and duration
             sequence_name: Name for the output folder
             parent_dir: Parent directory for output
-            image_capture_config: Image format config (defaults to TIFF)
+            image_capture_config: The run's capture/save intent; REQUIRED.
+                Build one with build_image_capture_config(image_mode=...).
             enable_image_saving: Whether to save captured images
             callbacks: Optional dict of callback functions
+
+        Raises:
+            ConfigError: image_capture_config was not provided -- there is
+                no silent default image mode; the caller states the run's
+                bit depth explicitly.
+            ProtocolRunRefusedError: The run was refused before any state
+                was committed; is_running() stays False and
+                wait_for_completion() is not armed.
         """
         self._run(
             protocol=protocol,
@@ -182,14 +219,34 @@ class ProtocolRunner:
         max_scans: int | None,
         sequence_name: str,
         parent_dir: pathlib.Path | str | None = None,
-        image_capture_config: dict | None = None,
+        image_capture_config: image_mode_module.ImageCaptureConfig | None = None,
         enable_image_saving: bool = True,
         callbacks: dict[str, typing.Callable] | None = None,
         return_to_position: dict | None = None,
     ):
-        """Internal: configure and launch the sequenced capture executor."""
+        """Internal: configure and launch the sequenced capture executor.
+
+        Raises:
+            ConfigError: image_capture_config was not provided; raised
+                before any executor starts or hardware moves.
+            ProtocolRunRefusedError: The runner refused the request (already
+                running, files still writing, empty/invalid protocol,
+                hardware not connected); no state was committed and the
+                user was already notified once.
+        """
+        # No silent default: an unstated image mode silently decided the
+        # data's bit depth (an older-release script that captured full depth
+        # would quietly produce 8-bit files). The caller states intent once;
+        # this raises before any executor starts or hardware moves.
+        if image_capture_config is None:
+            raise ConfigError(
+                'image_capture_config is required for a headless run: pass '
+                'image_capture_config=runner.build_image_capture_config('
+                "image_mode='8bit') (or one of the 12-bit modes) so the "
+                "run's capture depth and save encoding are explicit."
+            )
+
         self._ensure_executors_started()
-        self._completion_event.clear()
 
         if parent_dir is None:
             parent_dir = (
@@ -199,8 +256,17 @@ class ProtocolRunner:
         else:
             parent_dir = pathlib.Path(parent_dir)
 
-        if image_capture_config is None:
-            image_capture_config = self.build_image_capture_config()
+        # One self-describing record per scan: the per-frame save path runs
+        # thousands of times per session and cannot log its depth at info
+        # level, so a scan's capture depth / on-disk encoding is otherwise
+        # recoverable only by inspecting the output file tags afterward. This
+        # line lets a support bundle state the mode the scan ran in.
+        logger.info(
+            f'[Protocol] scan "{sequence_name}" '
+            f'image_mode={image_capture_config.image_mode} '
+            f'capture_depth={image_capture_config.capture_depth} '
+            f'save_encoding={image_capture_config.save_encoding}'
+        )
 
         import modules.config_helpers as config_helpers
 
@@ -232,9 +298,7 @@ class ProtocolRunner:
             if layer in settings
         }
 
-        self.session.protocol_running.set()
-
-        self._executor.run(
+        plan = self._executor.prepare(
             protocol=protocol,
             run_mode=run_mode,
             run_trigger_source=run_trigger_source,
@@ -247,10 +311,22 @@ class ProtocolRunner:
             callbacks=merged_callbacks,
             return_to_position=return_to_position,
             leds_state_at_end='off',
-            video_as_frames=self.session.settings.get('video_as_frames', False),
-            keep_led_between_steps=self.session.settings.get('keep_led_between_steps', False),
             initial_autofocus_states=initial_autofocus_states,
+            **config_helpers.get_sequenced_run_settings(self.session.settings),
         )
+
+        # Commit caller-side running state only between a successful
+        # prepare and start: a refusal above raises before anything here
+        # is set, so there is no refusal-rollback path and
+        # wait_for_completion() can never wait on a run that was refused.
+        self._completion_event.clear()
+        self.session.protocol_running.set()
+        # No rollback on a start()-race refusal: the refusal means another
+        # run is LIVE, so protocol_running=True stays truthful, and the
+        # completion event resolves when that live run's run_complete fires
+        # (each _run wires the same shared event). Clearing here would
+        # falsely signal the live run's completion to its own waiters.
+        self._executor.start(plan)
 
     # ------------------------------------------------------------------
     # Status

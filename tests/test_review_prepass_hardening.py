@@ -72,10 +72,13 @@ class TestMetadataReadRobustness:
 
     def test_missing_plane_key_returns_none_not_keyerror(self, tmp_path):
         p = tmp_path / 'partial.tiff'
+        # PositionX is a REQUIRED plane key (ExposureTime/Gain became
+        # optional when the writer started omitting them for unknown
+        # values, and a plane missing only those now recovers).
         tf.imwrite(
             str(p),
             np.zeros((4, 4), dtype=np.uint16),
-            metadata=_structured_metadata(missing='ExposureTime'),
+            metadata=_structured_metadata(missing='PositionX'),
         )
         # Must not raise; falls back to None so the postproc job uses defaults.
         assert image_utils.read_postproc_input_metadata(p) is None

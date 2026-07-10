@@ -9,6 +9,7 @@ import modules.image_utils as image_utils
 import modules.common_utils as common_utils
 from modules.common_utils import PostFunction
 from modules.protocol_post_processor import ProtocolPostProcessor
+from modules.protocol_post_processing_result import PostProcResult
 from modules.protocol_post_record import ProtocolPostRecord
 from modules.video_writer import VideoWriter
 
@@ -54,24 +55,21 @@ class VideoBuilder(ProtocolPostProcessor):
             objective_id=row0['Objective']
         )
 
-        # Prepend the protocol's capture_root (passed in via kwargs by
-        # ProtocolPostProcessor.load_folder) so the video output carries
-        # the same filename root as the per-image saves.
-        capture_root = kwargs.get('capture_root', '')
-        prefix = f'{capture_root}_{row0["Name"]}' if capture_root else row0['Name']
-        name = common_utils.generate_default_step_name(
-            custom_name_prefix=prefix,
-            well_label=row0['Well'],
-            color=row0['Color'],
-            z_height_idx=row0['Z-Slice'],
-            scan_count=None,
-            objective_short_name=objective_short_name,
-            tile_label=row0['Tile'],
-            stitched=row0['Stitched'],
-            video=True,
+        # Post-output suffixes chain: a video of an already-stitched output
+        # carries both ('stitched', 'video'). channel, tile and z come from the
+        # authoritative columns (a video keeps the source slice's z token,
+        # matching the per-image save).
+        post = ('stitched',) if row0['Stitched'] else ()
+        post = (*post, 'video')
+        name = common_utils.build_step_name(
+            common_utils.step_components(
+                row0,
+                objective=objective_short_name,
+                post=post,
+            )
         )
 
-        outfile = f'{name}.mp4'
+        outfile = f'{self._prepend_capture_root(name, kwargs)}.mp4'
         return outfile
 
     def _filter_ignored_types(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -93,15 +91,17 @@ class VideoBuilder(ProtocolPostProcessor):
         # 'Color' included so _create_video can drive VideoWriter's in-writer
         # false-color from the layer name (one group is one color per
         # _get_groups).
-        return self._create_video(
-            path=path,
-            df=df[['Filepath', 'Scan Count', 'Timestamp', 'Color']],
-            frames_per_sec=kwargs['frames_per_sec'],
-            enable_timestamp_overlay=kwargs['enable_timestamp_overlay'],
-            output_file_loc=kwargs['output_file_loc'],
-            popup=kwargs['popup'],
-            total_groups=kwargs['total_groups'],
-            current_group=kwargs['current_group'],
+        return PostProcResult.from_group_result(
+            self._create_video(
+                path=path,
+                df=df[['Filepath', 'Scan Count', 'Timestamp', 'Color']],
+                frames_per_sec=kwargs['frames_per_sec'],
+                enable_timestamp_overlay=kwargs['enable_timestamp_overlay'],
+                output_file_loc=kwargs['output_file_loc'],
+                popup=kwargs['popup'],
+                total_groups=kwargs['total_groups'],
+                current_group=kwargs['current_group'],
+            )
         )
 
     @staticmethod
@@ -118,6 +118,7 @@ class VideoBuilder(ProtocolPostProcessor):
             file_path=file_path,
             timestamp=row0['Timestamp'],
             name=row0['Name'],
+            label=row0['Label'],
             scan_count=row0['Scan Count'],
             x=row0['X'],
             y=row0['Y'],
@@ -131,6 +132,57 @@ class VideoBuilder(ProtocolPostProcessor):
             custom_step=row0['Custom Step'],
             **kwargs,
         )
+
+    def _add_source_frame(
+        self,
+        writer: VideoWriter,
+        image_path: pathlib.Path,
+        *,
+        enable_timestamp_overlay: bool,
+        fallback_timestamp=None,
+    ) -> bool:
+        """Read one saved frame and hand it to the writer with its payload depth.
+
+        Both encode paths (the protocol-post-processor pipeline and the public
+        path-based build) funnel through here so a uint16 frame's significant-bit
+        depth is always read alongside its pixels and passed to add_frame. A frame
+        stored right-aligned (12-bit data, max 4095) renders near-black if scaled
+        as a full 16-bit value, so the depth is not optional context -- dropping
+        it on any one path silently darkens every frame that path encodes.
+        The array and its depth come from a single call so the two cannot drift
+        apart, and keeping the read-and-add sequence in one place means a future
+        depth change cannot quietly skip one of the two paths.
+
+        When the timestamp overlay is on, the per-frame time comes from each
+        frame's own metadata so a video built from recorded frames shows the real
+        capture time per frame; it falls back to the caller-supplied step time
+        when the frame carries none. The pixels, depth, and timestamp are read
+        from a single file open, so an overlay-enabled build opens each frame
+        once rather than twice. When the overlay is off, the timestamp is neither
+        read nor stamped, so the cheaper depth-only read is used.
+
+        Returns True when the frame was added, False when the source could not be
+        read (the caller counts it as a skipped / dropped frame).
+        """
+        try:
+            if enable_timestamp_overlay:
+                image, significant_bits, frame_ts = image_utils.load_pixels_with_timestamp(
+                    image_path
+                )
+                if frame_ts is None:
+                    frame_ts = fallback_timestamp
+            else:
+                image, significant_bits = image_utils.load_pixels(image_path)
+                frame_ts = None
+        except Exception as e:
+            logger.error(f'[{self._name}] Failed to read image: {image_path}: {e}')
+            return False
+
+        # image is mono 2D (a legacy 3-channel replica collapses to mono inside
+        # load_pixels). VideoWriter applies the layer false-color, the 8-bit
+        # downconvert scaled by significant_bits, and any cv2 BGR-swap internally.
+        writer.add_frame(image=image, timestamp=frame_ts, significant_bits=significant_bits)
+        return True
 
     def _create_video(
         self,
@@ -199,30 +251,26 @@ class VideoBuilder(ProtocolPostProcessor):
         skipped = 0
         for _, row in df.iterrows():
             image_path = path / row['Filepath']
-            try:
-                image = image_utils.read_tiff_with_legacy_collapse(image_path)
-            except Exception as e:
-                logger.error(f'[{self._name}] Failed to read image: {image_path}: {e}')
+            # The step time is only the fallback the overlay uses when a frame
+            # carries no timestamp of its own, so with the overlay off it is never
+            # read -- skip the per-frame conversion entirely. Guard the dataframe
+            # Timestamp: the loader fills missing values with the empty string (no
+            # to_pydatetime) rather than a pandas Timestamp.
+            fallback_ts = None
+            if enable_timestamp_overlay:
+                fallback_ts = (
+                    row['Timestamp'].to_pydatetime()
+                    if hasattr(row['Timestamp'], 'to_pydatetime')
+                    else None
+                )
+            if not self._add_source_frame(
+                video,
+                image_path,
+                enable_timestamp_overlay=enable_timestamp_overlay,
+                fallback_timestamp=fallback_ts,
+            ):
                 skipped += 1
                 continue
-
-            # Post-1d: image is mono 2D (legacy 3-channel collapses to mono
-            # via read_tiff_with_legacy_collapse). VideoWriter applies the
-            # layer false-color and any cv2 BGR-swap internally.
-
-            # Timestamp overlay and 8-bit conversion handled by VideoWriter.add_frame().
-            # Source the per-frame time from each frame's own metadata so a video
-            # built from recorded frames shows the real capture time per frame, not
-            # one repeated step time. Fall back to the dataframe's Timestamp (set
-            # from the protocol execution record for scan-image videos), guarding
-            # the case where it is the empty string the loader fills for missing
-            # values rather than a pandas Timestamp.
-            frame_ts = None
-            if enable_timestamp_overlay:
-                frame_ts = image_utils.read_frame_timestamp(image_path)
-                if frame_ts is None and hasattr(row['Timestamp'], 'to_pydatetime'):
-                    frame_ts = row['Timestamp'].to_pydatetime()
-            video.add_frame(image=image, timestamp=frame_ts)
 
             if popup is not None:
                 popup.progress = start_percentage + (i / total_frames) * percent_diff
@@ -252,6 +300,15 @@ class VideoBuilder(ProtocolPostProcessor):
         return {
             'status': True,
             'error': None,
+            # The writer is the authority on where the file landed (a
+            # collision suffix or the cv2 .avi fallback may have moved it
+            # from the requested path); the record must point at the real
+            # file, not the request.
+            'actual_output_file_loc': video.output_path,
+            # Video encodes an 8-bit stream (every frame is downconverted to
+            # 8 bits inside the writer), so the output artifact's depth is 8
+            # regardless of the source frames' depth.
+            'significant_bits': 8,
             'metadata': {'dropped_frames': total_dropped},
         }
 
@@ -319,13 +376,13 @@ class VideoBuilder(ProtocolPostProcessor):
         error = None
         try:
             for tiff_path in tiff_paths:
-                try:
-                    image = image_utils.read_tiff_with_legacy_collapse(tiff_path)
-                except Exception as e:
-                    logger.error(f'[{self._name}] build_video: failed to read {tiff_path}: {e}')
+                if not self._add_source_frame(
+                    writer,
+                    tiff_path,
+                    enable_timestamp_overlay=include_timestamp_overlay,
+                ):
                     skipped += 1
                     continue
-                writer.add_frame(image)
                 frame_count += 1
         except Exception as e:
             logger.exception(f'[{self._name}] build_video: encode failed')
@@ -347,6 +404,9 @@ class VideoBuilder(ProtocolPostProcessor):
             'error': error,
             'frame_count': frame_count,
             'dropped_frames': dropped,
+            # Where the file actually landed (collision suffix / cv2 .avi
+            # fallback may have moved it from output_file).
+            'output_file': writer.output_path,
         }
 
     def build_from_folder(

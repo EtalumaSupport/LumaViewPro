@@ -177,7 +177,21 @@ class Protocol:
             'Stim_Config',
         ],
     }
-    CURRENT_VERSION = 6
+    # v7 adds Auto_Named: an explicit flag for whether a step still carries its
+    # auto-generated name (vs a user-typed one). It replaces inferring that from
+    # the name string, which could not tell a user name that happened to match
+    # the auto pattern from a real auto name.
+    COLUMNS[7] = COLUMNS[6] + ['Auto_Named']
+    # v8 adds Label: the step's base text as a first-class column -- a
+    # user-typed name kept verbatim, or the 'custom<NNNN>' prefix of an added
+    # step; empty means the base is the Well. Name becomes a DERIVED display
+    # column rendered from the structured columns. Persisting the label is
+    # what keeps a rename in every filename: recovering it by parsing the
+    # rendered Name truncated any user text with a token-shaped segment
+    # ('Treatment_10x' -> 'Treatment') and dropped renames of well-anchored
+    # steps entirely.
+    COLUMNS[8] = COLUMNS[7] + ['Label']
+    CURRENT_VERSION = 8
     CURRENT_COLUMNS = COLUMNS[CURRENT_VERSION]
 
     # Header columns for the v6 'Layer Settings' block. Order is the
@@ -195,9 +209,6 @@ class Protocol:
         'Sum',
         'Stim_Enabled',
     ]
-    STEP_NAME_PATTERN = re.compile(
-        r'^(?P<well_label>[A-Z][0-9]+)(_(?P<color>(Blue|Green|Red|BF|DF|PC|Lumi)))(_T(?P<tile_label>[A-Z][0-9]+))?(_Z(?P<z_slice>[0-9]+))?(_([0-9]*))?(.tif[f])?$'
-    )
 
     def __init__(self, tiling_configs_file_loc: pathlib.Path, config: dict | None = None):
 
@@ -237,6 +248,21 @@ class Protocol:
     @staticmethod
     def sanitize_step_name(input: str) -> str:
         return re.sub(r'[^a-zA-Z0-9-_]', '', input)
+
+    @staticmethod
+    def _sanitized_label(step_name: str) -> str:
+        """Sanitize a user-typed step name, refusing one that sanitizes away.
+
+        Silently storing an empty label would revert the step to its machine
+        base and collapse same-channel custom steps onto one filename; fail
+        loud instead so the caller keeps the existing name.
+        """
+        label = Protocol.sanitize_step_name(step_name)
+        if label == '':
+            raise ProtocolError(
+                'Step name must contain at least one letter, digit, dash, or underscore.'
+            )
+        return label
 
     def capture_root(self) -> str:
         return self._config.get('capture_root', '')
@@ -486,6 +512,8 @@ class Protocol:
                 ('Acquire', str),
                 ('Video Config', object),
                 ('Stim_Config', object),
+                ('Auto_Named', bool),
+                ('Label', str),
             ]
         )
         df = pd.DataFrame(np.empty(0, dtype=dtypes))
@@ -494,6 +522,45 @@ class Protocol:
     # Valid values for field validation
     VALID_COLORS: ClassVar[set] = {c.name for c in color_channels.ColorChannel}
     VALID_ACQUIRE_MODES: ClassVar[set] = {'image', 'video'}
+
+    @staticmethod
+    def _capture_base_names(steps_df: pd.DataFrame) -> pd.Series:
+        """The filename base each step's captures render, one per step.
+
+        A video step renders with its 'video' suffix, so an image step and a
+        video step may legitimately share a Name without their files
+        colliding. The Objective column is deliberately NOT part of the
+        base: the writer stamps the objective short name per step, but only
+        on turret builds -- collision checks pair this base with the
+        Objective column (see _capture_collision_key) instead of baking a
+        token into the base that non-turret filenames never carry.
+        """
+        return steps_df.apply(
+            lambda row: common_utils.build_step_name(
+                common_utils.step_components(
+                    row, post=('video',) if row.get('Acquire') == 'video' else ()
+                )
+            ),
+            axis=1,
+        )
+
+    @classmethod
+    def _capture_collision_key(cls, steps_df: pd.DataFrame) -> pd.DataFrame:
+        """The per-step key on which capture filenames collide.
+
+        Pairs the rendered base with the Objective column: the writer stamps
+        the objective short name per step on turret builds, so steps
+        differing only in objective save distinct files there. On a
+        non-turret scope that pair genuinely collides on disk -- that
+        residual case falls to the write-time rename suffix (with a warning)
+        rather than refusing turret protocols that are legitimate.
+        """
+        return pd.DataFrame(
+            {
+                'base': cls._capture_base_names(steps_df),
+                'objective': steps_df['Objective'] if 'Objective' in steps_df.columns else '',
+            }
+        )
 
     def validate_steps(self, objectives_file: str | None = None) -> list:
         """Validate all step fields and return a list of error strings.
@@ -590,19 +657,37 @@ class Protocol:
 
         return errors
 
-    def validate_for_run(self, axis_limits: dict | None = None) -> list:
+    def validate_for_run(
+        self, axis_limits: dict | None = None, stage_offset: dict | None = None
+    ) -> list:
         """Validate protocol is safe to execute on hardware.
 
         Checks positions are within axis travel limits. Call this before
         starting a protocol run. validate_steps() checks field format;
         this method checks runtime safety.
 
+        Step X/Y are stored in plate millimetres -- the same values the
+        protocol runner feeds through plate_to_stage before moving -- while
+        the axis limits are stage micrometres. This converts X/Y to the stage
+        frame the same way the runner does, so a step that lands off the
+        physical stage is caught here instead of slipping through a
+        plate-mm-vs-stage-um mismatch. Z is stored in stage um and compared
+        directly.
+
         Args:
             axis_limits: dict mapping axis name to {'min': float, 'max': float}
-                in um. Example: {'X': {'min': 0, 'max': 120000}, ...}
+                in stage um. Example: {'X': {'min': 0, 'max': 120000}, ...}
+            stage_offset: {'x': float, 'y': float} in um, used to convert step
+                X/Y from plate-mm to stage-um. Required when axis_limits
+                includes X or Y; may be None only when X/Y are not checked.
 
         Returns:
             List of error strings. Empty list if all checks pass.
+
+        Raises:
+            ValueError: If axis_limits requests an X or Y check but
+                stage_offset is None, since the plate-mm to stage-um
+                conversion cannot run without it.
         """
         errors = []
         steps = self.steps()
@@ -612,43 +697,117 @@ class Protocol:
         # Validate step field values first
         errors.extend(self.validate_steps())
 
+        # Refuse a run whose steps would write identical files. Collisions
+        # are caught here, loudly, before any hardware moves -- never left
+        # to the write-time rename suffix, which preserves pixels but makes
+        # which file belongs to which step undeterminable afterwards.
+        if len(steps) > 1:
+            collision_key = self._capture_collision_key(steps)
+            dup_mask = collision_key.duplicated(keep=False)
+            if dup_mask.any():
+                groups = collision_key.loc[dup_mask].groupby(['base', 'objective']).groups
+                for (base, _objective), indices in sorted(groups.items()):
+                    rows = ', '.join(str(idx + 1) for idx in indices)
+                    errors.append(
+                        f"Steps {rows}: each would save captures as '{base}_...'. "
+                        f'Rename these steps so each produces a unique filename.'
+                    )
+
+        # Load labware once: it backs both the known-plate check and the
+        # plate-mm -> stage-um conversion the position check needs. Use
+        # is_known_plate() rather than plate_list membership so legacy/alias
+        # names (e.g. "384 well Corning Spheroid Microplate" -> "384 well
+        # microplate") are accepted here exactly as they are at runtime in
+        # get_plate(). Without this, validation hard-fails on names that
+        # would have run fine.
+        from modules import labware_loader
+
+        loader = labware_loader.WellPlateLoader()
+        labware_key = self.labware()
+        labware = None
+        if labware_key:
+            try:
+                if loader.is_known_plate(labware_key):
+                    labware = loader.get_plate(plate_key=labware_key)
+                else:
+                    plate_list = loader.get_plate_list()
+                    errors.append(
+                        f"Labware '{labware_key}' not found. Available: {', '.join(plate_list)}"
+                    )
+            except Exception as ex:
+                # A loader failure leaves labware unvalidated and disables the
+                # X/Y position check (no plate to convert against); surface it
+                # so the gap is visible rather than a silently-skipped net.
+                logger.warning(f'[Protocol] Labware validation skipped for {labware_key!r}: {ex}')
+
         if axis_limits:
+            checks_xy = ('X' in axis_limits) or ('Y' in axis_limits)
+            if checks_xy and labware is not None and stage_offset is None:
+                raise ValueError(
+                    'validate_for_run needs stage_offset to check X/Y travel limits: '
+                    'step X/Y are plate-mm and must convert to stage-um.'
+                )
+            from modules import coord_transformations
+
+            transformer = coord_transformations.CoordinateTransformer()
             for idx, step in steps.iterrows():
                 label = f'Step {idx + 1} ({step.get("Name", "?")})'
+
+                # Convert this step's plate-mm X/Y into the stage-um frame the
+                # limits are in. stage_x/stage_y stay None when X/Y cannot be
+                # converted (no labware, or a non-numeric coordinate reported
+                # per-axis below), so the limit check is skipped rather than
+                # comparing the wrong frame.
+                stage_x = stage_y = None
+                x_invalid = y_invalid = False
+                if checks_xy and labware is not None:
+                    try:
+                        px = float(step.get('X', 0))
+                    except (ValueError, TypeError):
+                        x_invalid = True
+                    try:
+                        py = float(step.get('Y', 0))
+                    except (ValueError, TypeError):
+                        y_invalid = True
+                    if not x_invalid and not y_invalid:
+                        stage_x, stage_y = transformer.plate_to_stage(
+                            labware=labware, stage_offset=stage_offset, px=px, py=py
+                        )
 
                 for axis in ('X', 'Y', 'Z'):
                     if axis not in axis_limits:
                         continue
-                    try:
-                        pos = float(step.get(axis, 0))
-                    except (ValueError, TypeError):
-                        errors.append(f'{label}: {axis} position is not a valid number')
+                    if axis == 'Z':
+                        # Z is stored in stage um; no conversion needed.
+                        try:
+                            pos = float(step.get('Z', 0))
+                        except (ValueError, TypeError):
+                            errors.append(f'{label}: Z position is not a valid number')
+                            continue
+                    elif labware is None:
+                        # Cannot convert without labware; the missing/unknown
+                        # plate is already reported above and blocks the run.
                         continue
+                    elif axis == 'X':
+                        if x_invalid:
+                            errors.append(f'{label}: X position is not a valid number')
+                            continue
+                        if stage_x is None:
+                            continue
+                        pos = stage_x
+                    else:
+                        if y_invalid:
+                            errors.append(f'{label}: Y position is not a valid number')
+                            continue
+                        if stage_y is None:
+                            continue
+                        pos = stage_y
                     limits = axis_limits[axis]
                     if pos < limits['min'] or pos > limits['max']:
                         errors.append(
                             f'{label}: {axis} position {pos} um is outside travel limits '
                             f'({limits["min"]}-{limits["max"]} um)'
                         )
-
-        # Validate labware exists. Use is_known_plate() rather than plate_list
-        # membership so legacy/alias names (e.g. "384 well Corning Spheroid
-        # Microplate" -> "384 well microplate") are accepted here exactly as
-        # they are at runtime in get_plate(). Without this, validation
-        # hard-fails on names that would have run fine.
-        labware_key = self.labware()
-        if labware_key:
-            try:
-                from modules import labware_loader
-
-                loader = labware_loader.WellPlateLoader()
-                if not loader.is_known_plate(labware_key):
-                    plate_list = loader.get_plate_list()
-                    errors.append(
-                        f"Labware '{labware_key}' not found. Available: {', '.join(plate_list)}"
-                    )
-            except Exception:
-                pass  # skip labware validation if loader fails
 
         return errors
 
@@ -770,6 +929,18 @@ class Protocol:
     def modify_capture_root(self, capture_root: str):
         self._config['capture_root'] = capture_root
 
+    def _regenerate_step_name(self, step_idx: int) -> str:
+        """Re-render the step's derived Name from its structured columns.
+
+        Name is a display rendering of (Label, Well, Color, Tile, Z-Slice);
+        every mutation of those columns re-renders it here so the stored
+        string can never drift from the fields it encodes.
+        """
+        step = self._config['steps'].loc[step_idx]
+        name = common_utils.build_step_name(common_utils.step_components(step))
+        self._config['steps'].at[step_idx, 'Name'] = name
+        return name
+
     def modify_name(
         self,
         step_idx: int,
@@ -783,19 +954,30 @@ class Protocol:
                 f'Cannot modify step idx {step_idx}. Protocol only has {self.num_steps()}.'
             )
 
-        Protocol.sanitize_step_name(step_name)
-        self._config['steps'].at[step_idx, 'Name'] = step_name
+        self._config['steps'].at[step_idx, 'Label'] = Protocol._sanitized_label(step_name)
+        # A user typing a name makes it theirs: clear the auto flag so a later
+        # channel change does not regenerate over it.
+        self._config['steps'].at[step_idx, 'Auto_Named'] = False
+        self._regenerate_step_name(step_idx=step_idx)
 
     def modify_step(
         self,
         step_idx: int,
-        step_name: str,
         layer: str,
         layer_config: dict,
         plate_position: dict,
         objective_id: str,
         stim_configs: dict,
+        label: str | None = None,
     ):
+        """Update a step in place; label=None keeps the step's existing label.
+
+        A non-None label is a user rename (clears the auto flag). The derived
+        Name is re-rendered from the updated columns either way, so a channel
+        change updates exactly the channel token while the label -- user text
+        or auto base -- rides along untouched.
+        """
+
         def _validate_inputs():
             if step_idx < 0:
                 raise ProtocolError('Step idx must be > 0')
@@ -807,7 +989,9 @@ class Protocol:
 
         _validate_inputs()
 
-        self._config['steps'].at[step_idx, 'Name'] = step_name
+        if label is not None:
+            self._config['steps'].at[step_idx, 'Label'] = Protocol._sanitized_label(label)
+            self._config['steps'].at[step_idx, 'Auto_Named'] = False
         self._config['steps'].at[step_idx, 'X'] = plate_position['x']
         self._config['steps'].at[step_idx, 'Y'] = plate_position['y']
         self._config['steps'].at[step_idx, 'Z'] = plate_position['z']
@@ -826,6 +1010,7 @@ class Protocol:
             layer_config['video_config']
         )
         self._config['steps'].at[step_idx, 'Stim_Config'] = copy.deepcopy(stim_configs)
+        self._regenerate_step_name(step_idx=step_idx)
 
     def insert_step(
         self,
@@ -837,7 +1022,6 @@ class Protocol:
         stim_configs: dict,
         before_step: int | None = 0,
         after_step: int | None = None,
-        include_objective_in_step_name: bool = False,
     ) -> str:
 
         def _validate_inputs():
@@ -855,22 +1039,13 @@ class Protocol:
 
         _validate_inputs()
 
-        if include_objective_in_step_name:
-            objective_short_name = self._objective_loader.get_objective_info(
-                objective_id=objective_id
-            )['short_name']
-        else:
-            objective_short_name = None
-
+        auto_named = step_name is None
         if step_name is None:
             CUSTOM_INDEX_WIDTH = 4
-            step_name = common_utils.generate_default_step_name(
-                well_label='',
-                custom_name_prefix=f'custom{self._config["custom_step_count"]:0{CUSTOM_INDEX_WIDTH}d}',
-                color=layer,
-                objective_short_name=objective_short_name,
-            )
+            label = f'custom{self._config["custom_step_count"]:0{CUSTOM_INDEX_WIDTH}d}'
             self._config['custom_step_count'] += 1
+        else:
+            label = Protocol._sanitized_label(step_name)
 
         well = ''
         tile = ''  # Manually inserted step is not a tile
@@ -890,7 +1065,7 @@ class Protocol:
         )
 
         step_dict = self._create_step_dict(
-            name=step_name,
+            label=label,
             x=plate_position['x'],
             y=plate_position['y'],
             z=step_z,
@@ -912,6 +1087,7 @@ class Protocol:
             acquire=layer_config['acquire'],
             video_config=layer_config['video_config'],
             stim_config=copy.deepcopy(stim_configs),
+            auto_named=auto_named,
         )
 
         if before_step is not None:
@@ -932,7 +1108,7 @@ class Protocol:
             .reset_index(drop=True)
         )
 
-        return step_name
+        return step_dict['Name']
 
     def step(self, idx: int):
         def _validate():
@@ -1048,29 +1224,8 @@ class Protocol:
                     status['tiles_skipped'] += 1
                     continue
 
-                name = common_utils.generate_default_step_name(
-                    well_label=orig_step_df['Well'],
-                    color=orig_step_df['Color'],
-                    z_height_idx=orig_step_df['Z-Slice'],
-                    tile_label=tile_label,
-                    objective_short_name=None,  # Can add this if needed
-                    custom_name_prefix=None
-                    if not orig_step_df['Custom Step']
-                    else orig_step_df['Name'],
-                )
-
-                # if not orig_step_df['Custom Step']:
-                #     name = common_utils.generate_default_step_name(
-                #         well_label=orig_step_df['Well'],
-                #         color=orig_step_df['Color'],
-                #         tile_label=tile_label,
-                #         objective_short_name=None,
-                #     )
-                # else:
-                #     name = orig_step_df['Name']
-
                 new_step_dict = self._create_step_dict(
-                    name=name,
+                    label=orig_step_df['Label'],
                     x=x_tile,
                     y=y_tile,
                     z=orig_step_df['Z'],
@@ -1092,6 +1247,7 @@ class Protocol:
                     acquire=orig_step_df['Acquire'],
                     video_config=orig_step_df['Video Config'],
                     stim_config=orig_step_df['Stim_Config'],
+                    auto_named=orig_step_df['Auto_Named'],
                 )
 
                 new_steps.append(new_step_dict)
@@ -1165,19 +1321,8 @@ class Protocol:
                     status['zslices_skipped'] += 1
                     continue
 
-                name = common_utils.generate_default_step_name(
-                    well_label=orig_step_df['Well'],
-                    color=orig_step_df['Color'],
-                    z_height_idx=zstack_slice,
-                    tile_label=orig_step_df['Tile'],
-                    objective_short_name=None,  # Can add this if needed
-                    custom_name_prefix=None
-                    if not orig_step_df['Custom Step']
-                    else orig_step_df['Name'],
-                )
-
                 new_step_dict = self._create_step_dict(
-                    name=name,
+                    label=orig_step_df['Label'],
                     x=orig_step_df['X'],
                     y=orig_step_df['Y'],
                     z=zstack_position,
@@ -1199,6 +1344,7 @@ class Protocol:
                     acquire=orig_step_df['Acquire'],
                     video_config=orig_step_df['Video Config'],
                     stim_config=orig_step_df['Stim_Config'],
+                    auto_named=orig_step_df['Auto_Named'],
                 )
 
                 new_steps.append(new_step_dict)
@@ -1379,17 +1525,10 @@ class Protocol:
                         else:
                             zstack_group_id_label = zstack_group_id
 
-                        step_name = common_utils.generate_default_step_name(
-                            well_label=well_label,
-                            color=layer_name,
-                            z_height_idx=zstack_slice_label,
-                            tile_label=tile_label,
-                            objective_short_name=None,  # Can add this if needed
-                            custom_name_prefix=None if not custom_step else well_label,
-                        )
-
                         step_dict = cls._create_step_dict(
-                            name=step_name,
+                            # A manual position's name is its label (there is
+                            # no well anchor); a labware well needs none.
+                            label=well_label if custom_step else '',
                             x=x,
                             y=y,
                             z=z,
@@ -1411,6 +1550,7 @@ class Protocol:
                             acquire=layer_config['acquire'],
                             video_config=video_config,
                             stim_config=stim_config,
+                            auto_named=True,
                         )
                         steps.append(step_dict)
 
@@ -1478,7 +1618,7 @@ class Protocol:
 
     @staticmethod
     def _create_step_dict(
-        name,
+        label,
         x,
         y,
         z,
@@ -1500,9 +1640,16 @@ class Protocol:
         acquire,
         video_config,
         stim_config,
+        auto_named,
     ):
-        return {
-            'Name': name,
+        """Build a step dict; the derived Name is rendered here, never passed.
+
+        Deriving Name from the structured fields at the single creation
+        point means no caller can hand in a Name that disagrees with the
+        columns it encodes.
+        """
+        step = {
+            'Name': '',
             'X': x,
             'Y': y,
             'Z': z,
@@ -1524,7 +1671,11 @@ class Protocol:
             'Acquire': acquire,
             'Video Config': copy.deepcopy(video_config),
             'Stim_Config': copy.deepcopy(stim_config),
+            'Auto_Named': auto_named,
+            'Label': label,
         }
+        step['Name'] = common_utils.build_step_name(common_utils.step_components(step))
+        return step
 
     """
     stim_config = {
@@ -1627,10 +1778,10 @@ class Protocol:
         if config['version'] == cls.CURRENT_VERSION:
             allowed = True
 
-        elif (config['version'] in (2, 3, 4, 5)) and (cls.CURRENT_VERSION == 6):
-            # v6 introduces the Layer Settings header block; older
-            # versions are accepted and per-layer state is inferred
-            # from the steps Color column on load.
+        elif (config['version'] in (2, 3, 4, 5, 6, 7)) and (cls.CURRENT_VERSION == 8):
+            # v6 introduced the Layer Settings header block; v7 added the
+            # Auto_Named column; v8 adds the Label column. Older versions
+            # load with the missing columns recovered or defaulted below.
             allowed = True
 
         if not allowed:
@@ -1792,19 +1943,48 @@ class Protocol:
             table_lines.append(line)
 
         table_str = ''.join(table_lines)
-        protocol_df = pd.read_csv(io.StringIO(table_str), sep='\t', lineterminator='\n').fillna('')
+        # Pin the text-identity columns to str at read time: pandas type
+        # inference otherwise turns a numeric-looking name or label ('0600')
+        # into a float ('600.0') that corrupts every derived filename on
+        # reload.
+        protocol_df = pd.read_csv(
+            io.StringIO(table_str),
+            sep='\t',
+            lineterminator='\n',
+            dtype={'Name': str, 'Label': str, 'Well': str, 'Tile': str},
+        ).fillna('')
 
         # M19: Validate required columns before processing.
         # Old versions use 'Channel' instead of 'Color' -- accept either.
         actual_cols = set(protocol_df.columns)
-        required_columns = {'Name', 'X', 'Y', 'Z', 'Illumination', 'Gain', 'Exposure'}
+        required_columns = {
+            'Name',
+            'X',
+            'Y',
+            'Z',
+            'Illumination',
+            'Gain',
+            'Exposure',
+            'Well',
+            'Tile',
+            'Z-Slice',
+        }
         if 'Color' not in actual_cols and 'Channel' not in actual_cols:
             required_columns.add('Color')  # will trigger error
         missing = required_columns - actual_cols
         if missing:
             raise ProtocolFormatError(f'Protocol missing required columns: {missing}')
 
-        protocol_df['Name'] = protocol_df['Name'].astype(str)
+        if 'Color' not in protocol_df.columns:
+            # The oldest files name the channel column 'Channel'; everything
+            # downstream (name derivation, validation, the image writer)
+            # reads 'Color', so normalize once at the read boundary.
+            protocol_df = protocol_df.rename(columns={'Channel': 'Color'})
+
+        # Z-Slice arrives as float64 whenever any cell is blank (pandas NaN
+        # inference); normalize to the int / -1-sentinel form the rest of
+        # the app uses, so a z index can never render as 'Z3.0' in a name.
+        protocol_df['Z-Slice'] = protocol_df['Z-Slice'].apply(common_utils.to_int)
 
         if len(protocol_df) == 0:
             # Will create an empty protocol
@@ -1925,14 +2105,63 @@ class Protocol:
             tc = TilingConfig(tiling_configs_file_loc=tiling_configs_file_loc)
 
             if len(protocol_df) > 0:
-                config['tiling'] = tc.determine_tiling_label_from_names(
-                    names=protocol_df['Name'].to_list()
+                config['tiling'] = tc.determine_tiling_label_from_tiles(
+                    tiles=protocol_df['Tile'].to_list()
                 )
             else:
                 config['tiling'] = tc.no_tiling_label()
 
+        if 'Label' not in protocol_df.columns:
+            # Pre-v8 files never persisted the label; recover it per row from
+            # the Name's shape (machine-rendered or machine-anchored names
+            # yield their machine base, anything else is user text kept
+            # verbatim). Files that also predate the auto/user flag take the
+            # flag from the same classification; a stored flag is kept as-is.
+            recovered = [common_utils.recover_step_label(row) for _, row in protocol_df.iterrows()]
+            protocol_df['Label'] = [label for label, _ in recovered]
+            if 'Auto_Named' not in protocol_df.columns:
+                protocol_df['Auto_Named'] = [is_auto for _, is_auto in recovered]
+
+        # The rename entry points store labels sanitized, but a file edited
+        # outside the app may carry characters the writer strips at save
+        # time -- letting two labels that differ only in stripped characters
+        # pass the collision checks yet collide on disk. Normalize at the
+        # read boundary, loudly: a silently different filename would read as
+        # a lost rename.
+        sanitized_labels = protocol_df['Label'].map(cls.sanitize_step_name)
+        changed_labels = sanitized_labels != protocol_df['Label']
+        if changed_labels.any():
+            originals = ', '.join(repr(v) for v in protocol_df.loc[changed_labels, 'Label'].head(5))
+            logger.warning(
+                f'Protocol load: removed unsupported characters from '
+                f'{int(changed_labels.sum())} step label(s); letters, digits, '
+                f'dash, and underscore are kept. Affected: {originals}'
+            )
+        protocol_df['Label'] = sanitized_labels
+
+        # Name is a derived rendering of the structured columns; re-render it
+        # so a stale or hand-edited Name cannot disagree with the fields it
+        # encodes. For auto-named rows this reproduces the stored Name
+        # byte-identically.
+        protocol_df['Name'] = [
+            common_utils.build_step_name(common_utils.step_components(row))
+            for _, row in protocol_df.iterrows()
+        ]
+
+        # The in-memory steps now carry every current column; stamp the
+        # current version so a save writes the format the file actually
+        # holds instead of an older version label over new columns.
+        config['version'] = cls.CURRENT_VERSION
+
         config['steps'] = protocol_df
-        config['custom_step_count'] = 0
+        # Resume the custom-step counter past the highest machine label
+        # already in the file; restarting at zero would hand a newly added
+        # step a 'custom<NNNN>' label an existing step already owns, and
+        # their captures would collide.
+        custom_indices = protocol_df['Label'].str.extract(r'^custom(\d+)$', expand=False).dropna()
+        config['custom_step_count'] = (
+            int(custom_indices.astype(int).max()) + 1 if len(custom_indices) else 0
+        )
 
         if len(protocol_df) > MAX_STEP_COUNT:
             raise ValueError(
@@ -1940,70 +2169,30 @@ class Protocol:
                 f'{MAX_STEP_COUNT:,}. File may be corrupt.'
             )
 
-        # Reject protocols where multiple steps share the same
-        # filename-determining tuple (Name, Well, Tile, Z-Slice,
-        # Tile Group ID). When this happens at runtime the image
-        # writer collapses the colliding rows into one filename and
-        # the later writes silently overwrite the earlier ones (#636).
-        # Tile Group ID is included so legitimately-tiled protocols
-        # are not rejected.
+        # Warn -- do not reject -- when steps would render the same capture
+        # filename (#636's harm class). The file must stay loadable so the
+        # user can rename the colliding steps IN the app; the run itself is
+        # refused at start (validate_for_run), which is where the data-loss
+        # gate lives. A load-time rejection would block its own remedy.
         if len(protocol_df) > 1:
-            key_cols = [
-                c
-                for c in ('Name', 'Well', 'Tile', 'Z-Slice', 'Tile Group ID')
-                if c in protocol_df.columns
-            ]
-            if len(key_cols) >= 2:
-                dup_mask = protocol_df.duplicated(subset=key_cols, keep=False)
-                if dup_mask.any():
-                    dups = protocol_df.loc[dup_mask, key_cols].copy()
-                    dups['Row'] = dups.index + 1  # 1-based for user
-                    sample = dups.head(6).to_string(index=False)
-                    extra = f'\n  ... and {len(dups) - 6} more rows' if len(dups) > 6 else ''
-                    raise ValueError(
-                        f'Protocol has {len(dups)} steps with duplicate '
-                        f'({", ".join(key_cols)}) -- image writes would '
-                        f'overwrite each other. Edit the protocol so each '
-                        f'step has a unique combination, then reload.\n'
-                        f'\nDuplicates:\n{sample}{extra}'
-                    )
-
-        # Softer check (#636 follow-up): rows with the same
-        # (Name, Well, Tile, Z-Slice) but DIFFERENT Tile Group IDs
-        # produce the same filename at write time (TGID isn't in the
-        # filename pattern). The write-time if_collision defense
-        # preserves data with a rename suffix, but the user has no
-        # signal that their Name format is producing collisions. Warn
-        # them upfront so they can fix the Name field BEFORE running
-        # the scan instead of discovering renamed files afterward.
-        if len(protocol_df) > 1:
-            filename_key_cols = [
-                c for c in ('Name', 'Well', 'Tile', 'Z-Slice') if c in protocol_df.columns
-            ]
-            if filename_key_cols:
-                filename_dup_mask = protocol_df.duplicated(subset=filename_key_cols, keep=False)
-                if filename_dup_mask.any():
-                    n_collisions = int(filename_dup_mask.sum())
-                    n_unique = (
-                        protocol_df.loc[filename_dup_mask, filename_key_cols]
-                        .drop_duplicates()
-                        .shape[0]
-                    )
-                    warn_msg = (
-                        f'Protocol has {n_collisions} steps sharing '
-                        f'{n_unique} distinct filenames across different '
-                        f'Tile Group IDs. LumaViewPro will preserve all '
-                        f'images by appending a collision suffix (e.g. '
-                        f'_000001, _000002) but the filenames will not '
-                        f'match the default pattern. To avoid renaming, '
-                        f'include the Tile Group ID in your step Name field.'
-                    )
-                    logger.warning(f'Protocol load: {warn_msg}')
-                    notifications.warning(
-                        category='Protocol',
-                        title='Duplicate filenames in protocol',
-                        message=warn_msg,
-                    )
+            collision_key = cls._capture_collision_key(protocol_df)
+            dup_mask = collision_key.duplicated(keep=False)
+            if dup_mask.any():
+                n_collisions = int(dup_mask.sum())
+                n_unique = len(collision_key.loc[dup_mask].drop_duplicates())
+                warn_msg = (
+                    f'Protocol has {n_collisions} steps sharing '
+                    f'{n_unique} capture filenames. The protocol can be '
+                    f'edited, but running it will be refused until each '
+                    f'step produces a unique filename -- rename the '
+                    f'colliding steps first.'
+                )
+                logger.warning(f'Protocol load: {warn_msg}')
+                notifications.warning(
+                    category='Protocol',
+                    title='Duplicate filenames in protocol',
+                    message=warn_msg,
+                )
 
         return cls(tiling_configs_file_loc=tiling_configs_file_loc, config=config)
 
@@ -2026,27 +2215,6 @@ class Protocol:
     def has_zstacks(self) -> bool:
         max_group_id = self.steps()['Z-Stack Group ID'].max()
         return max_group_id > -1
-
-    @classmethod
-    def extract_data_from_step_name(cls, s):
-        result = cls.STEP_NAME_PATTERN.match(string=s['name'])
-        if result is None:
-            return s
-
-        details = result.groupdict()
-
-        if 'well_label' in details:
-            s['well'] = details['well_label']
-
-        if ('z_slice' in details) and (details['z_slice'] is not None):
-            s['z_slice'] = details['z_slice']
-        else:
-            s['z_slice'] = None
-
-        if 'tile_label' in details:
-            s['tile'] = details['tile_label']
-
-        return s
 
 
 if __name__ == '__main__':

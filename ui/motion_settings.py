@@ -299,9 +299,6 @@ class MotionSettings(BoxLayout):
             vert_control.ids['tiling_size_apply_id'].disabled = False
             vert_control.ids['tiling_size_apply_id'].opacity = 1
             vert_control.ids['tiling_box_label_id'].opacity = 1
-            vert_control.ids['tiling_overlap_label_id'].opacity = 1
-            vert_control.ids['tiling_overlap_spinner'].disabled = False
-            vert_control.ids['tiling_overlap_spinner'].opacity = 1
         else:
             vert_control.ids['tiling_size_spinner'].text = '1x1'
             vert_control.ids['tiling_size_spinner'].disabled = True
@@ -309,10 +306,6 @@ class MotionSettings(BoxLayout):
             vert_control.ids['tiling_size_apply_id'].disabled = True
             vert_control.ids['tiling_size_apply_id'].opacity = 0
             vert_control.ids['tiling_box_label_id'].opacity = 0
-            vert_control.ids['tiling_overlap_spinner'].text = '0%'
-            vert_control.ids['tiling_overlap_label_id'].opacity = 0
-            vert_control.ids['tiling_overlap_spinner'].disabled = True
-            vert_control.ids['tiling_overlap_spinner'].opacity = 0
 
     # Hide (and unhide) motion settings
     def toggle_settings(self):

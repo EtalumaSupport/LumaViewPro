@@ -6,6 +6,7 @@ data/current.json
 .pytest_cache/
 calls.txt
 logs/
+driver_test_*.log
 capture/
 script_testing.py
 venv*/

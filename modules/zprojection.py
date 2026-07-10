@@ -15,6 +15,8 @@ import enum
 
 import numpy as np
 
+import modules.image_utils as image_utils
+
 from lvp_logger import logger
 
 
@@ -54,6 +56,13 @@ def zproject(images_data: list[np.ndarray], method: ZProjectMethod) -> np.ndarra
     if not images_data:
         logger.error('[ZProject] No images provided')
         return None
+
+    # Every slice must share one canvas before it can be stacked; a per-slice
+    # stitch divergence otherwise surfaces as a cryptic np.stack shape error.
+    image_utils.require_uniform_geometry(
+        [(f'slice {i}', img) for i, img in enumerate(images_data)],
+        operation='z-project this stack',
+    )
 
     orig_dtype = images_data[0].dtype
     stack = np.stack(images_data, axis=0)

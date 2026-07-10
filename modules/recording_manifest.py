@@ -49,27 +49,54 @@ def gather_host_provenance() -> dict:
     }
 
 
+def _fps_stats_from_interval_seconds(interval_seconds: list) -> dict:
+    """Mean / min / max / sample-count FPS from interframe interval durations.
+
+    The one interval-to-stats core shared by the host-timestamp and
+    camera-tick paths, so both report FPS identically. Non-positive
+    intervals (duplicate or out-of-order stamps) are dropped. Returns
+    zeros when no positive interval remains.
+    """
+    rates = [1.0 / dt for dt in interval_seconds if dt > 0]
+    if not rates:
+        return {'mean': 0.0, 'min': 0.0, 'max': 0.0, 'samples': 0}
+    return {
+        'mean': sum(rates) / len(rates),
+        'min': min(rates),
+        'max': max(rates),
+        'samples': len(rates),
+    }
+
+
 def compute_fps_stats(timestamps: list) -> dict:
-    """Compute mean / min / max / sample-count FPS from frame timestamps.
+    """Compute FPS stats from per-frame host wall-clock datetimes.
 
     Returns zeros when fewer than 2 timestamps are available (no
-    intervals to measure).
+    intervals to measure). Host wall-clock carries OS scheduling jitter;
+    prefer compute_fps_stats_from_ticks when the camera reports hardware
+    timestamps.
     """
     if not timestamps or len(timestamps) < 2:
         return {'mean': 0.0, 'min': 0.0, 'max': 0.0, 'samples': 0}
-    intervals = []
-    for i in range(1, len(timestamps)):
-        dt = (timestamps[i] - timestamps[i - 1]).total_seconds()
-        if dt > 0:
-            intervals.append(1.0 / dt)
-    if not intervals:
+    intervals = [
+        (timestamps[i] - timestamps[i - 1]).total_seconds() for i in range(1, len(timestamps))
+    ]
+    return _fps_stats_from_interval_seconds(intervals)
+
+
+def compute_fps_stats_from_ticks(ticks: list, tick_freq_hz: int | None) -> dict:
+    """Compute FPS stats from the camera's own hardware timestamp ticks.
+
+    Ticks are the frame's own clock, free of the OS scheduling jitter that
+    host wall-clock stamps pick up between grab and callback, so they report
+    the true frame cadence. Returns zeros (caller falls back to host time)
+    when the tick frequency is unknown or fewer than 2 ticks are available.
+    """
+    if not tick_freq_hz or tick_freq_hz <= 0 or not ticks or len(ticks) < 2:
         return {'mean': 0.0, 'min': 0.0, 'max': 0.0, 'samples': 0}
-    return {
-        'mean': sum(intervals) / len(intervals),
-        'min': min(intervals),
-        'max': max(intervals),
-        'samples': len(intervals),
-    }
+    seconds = [t / tick_freq_hz for t in ticks]
+    intervals = [seconds[i] - seconds[i - 1] for i in range(1, len(seconds))]
+    return _fps_stats_from_interval_seconds(intervals)
 
 
 def build_session_manifest(
@@ -110,7 +137,16 @@ def build_session_manifest(
     Returns:
         dict suitable for json.dump.
     """
-    fps_stats = compute_fps_stats(timestamps)
+    # Prefer the camera's hardware timestamp ticks for the FPS stats: the host
+    # wall-clock stamps carry OS scheduling jitter between grab and callback,
+    # which widens the min/max spread and misreports true cadence. Ticks are
+    # the frame's own clock. Fall back to host time when the camera has no
+    # timestamp chunk (tick_freq_hz None) or too few ticks landed.
+    frame_ticks = [c['Timestamp'] for c in chunks_per_frame if c and c.get('Timestamp') is not None]
+    if tick_freq_hz and len(frame_ticks) >= 2:
+        fps_stats = compute_fps_stats_from_ticks(frame_ticks, tick_freq_hz)
+    else:
+        fps_stats = compute_fps_stats(timestamps)
     recording_start_iso = timestamps[0].isoformat(timespec='microseconds') if timestamps else None
     recording_end_iso = timestamps[-1].isoformat(timespec='microseconds') if timestamps else None
 

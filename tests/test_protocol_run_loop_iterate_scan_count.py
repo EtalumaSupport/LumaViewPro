@@ -15,6 +15,7 @@ drives two scans, then runs the callbacks and asserts they counted down.
 
 import datetime
 import threading
+import time
 from types import SimpleNamespace
 from unittest import mock
 
@@ -37,9 +38,25 @@ def _make_two_scan_parent():
     p._protocol = mock.MagicMock()
     p._protocol.period.return_value = datetime.timedelta(0)
     p._parent_dir = None  # skip the disk-space branch
-    p._start_t = datetime.datetime.now() - datetime.timedelta(hours=1)
+    # _start_t is a monotonic timestamp (seconds); set it an hour in the past so
+    # the period-0 pacing check fires immediately.
+    p._start_t = time.monotonic() - 3600.0
     p._curr_step = 0
     p._af_future = None
+
+    # The run loop drives per-scan state + the scan-count increment through the
+    # runner's own methods now (single-owner counters); the stub implements them
+    # to match. advance_scan_count increments and returns the new count.
+    def _reset_scan_state():
+        p._curr_step = 0
+        p._af_future = None
+
+    def _advance_scan_count():
+        p._scan_count += 1
+        return p._scan_count
+
+    p._reset_scan_state = _reset_scan_state
+    p.advance_scan_count = _advance_scan_count
     p._step_executor = mock.MagicMock()
     p._scan_in_progress = mock.MagicMock()
     p._set_state = mock.MagicMock()
@@ -82,3 +99,40 @@ def test_iterate_callback_reports_per_scan_remaining_count():
         call.kwargs['remaining_scans'] for call in p._callbacks.protocol_iterate_pre.call_args_list
     ]
     assert reported == [2, 1]
+
+
+def test_scan_pacing_waits_on_monotonic_period():
+    """Inter-scan pacing compares a MONOTONIC elapsed against the period in
+    seconds. With _start_t set to 'now' and a 100 s period, the loop must WAIT on
+    the second scan (only ~0 s of monotonic time has elapsed) rather than firing
+    it. A wall-clock _start_t in the past, or a backward clock jump, must not be
+    able to rush or stall the schedule.
+    """
+    p = _make_two_scan_parent()
+    p._protocol.period.return_value = datetime.timedelta(seconds=100)
+    p._start_t = time.monotonic()  # just started: ~0 s elapsed
+
+    loop = ProtocolRunLoop(p)
+
+    # The pacing branch sleeps then continues while it waits; abort on the first
+    # sleep so the loop exits instead of spinning on the unmet period.
+    def _abort_on_sleep(_seconds):
+        p._aborted.set()
+
+    deferred = []
+    with (
+        mock.patch(
+            'modules.protocol_run_loop._schedule_ui', lambda cb, *a, **k: deferred.append(cb)
+        ),
+        mock.patch('modules.protocol_run_loop.time.sleep', _abort_on_sleep),
+    ):
+        loop._run_loop_inner()
+
+    for cb in deferred:
+        cb(0)
+
+    # Scan 0 fired (its iterate-pre was scheduled); scan 1 hit the pacing wait
+    # and aborted, so exactly one iterate-pre callback fired -- the period gated
+    # on monotonic time, not on a stale wall-clock _start_t (which sat an hour in
+    # the past in the helper and would have fired immediately).
+    assert p._callbacks.protocol_iterate_pre.call_count == 1

@@ -8,10 +8,8 @@ import pathlib
 import threading
 import time
 
-import numpy as np
-
 from kivy.clock import Clock
-from kivy.properties import BooleanProperty
+from kivy.properties import BooleanProperty, StringProperty
 from kivy.uix.boxlayout import BoxLayout
 
 import modules.app_context as _app_ctx
@@ -19,9 +17,8 @@ import modules.binning as binning
 import modules.common_utils as common_utils
 from modules import gui_logger
 from modules.config_helpers import (
-    DEFAULT_MAX_EXPOSURE_MS,
-    DEFAULT_MAX_GAIN_DB,
-    get_manual_video_max_duration,
+    camera_max_exposure_for_ui,
+    camera_max_gain_for_ui,
 )
 from modules.config_ui_getters import (
     firmware_stim_supported,
@@ -34,6 +31,7 @@ from modules.path_utils import resolve_data_file
 from modules.scope_init_config import ScopeInitConfig
 from modules.memory_profiler import MemoryLeakProfiler
 from modules.sequential_io_executor import IOTask
+import modules.image_mode as image_mode
 from ui.ui_helpers import scope_leds_off
 from modules.zstack_config import ZStackConfig
 
@@ -53,21 +51,40 @@ class _CoalescingApplier:
     Pattern:
       - submit(value) stashes value in a single pending slot and
         returns True only when the caller should enqueue the worker
-        task (i.e. no task already in flight).
+        task (i.e. no task already in flight and the value is not a
+        repeat of what the hardware already holds).
       - apply_pending(fn) drains the pending slot and calls fn(value)
         for each value. Loops until pending is empty so late-arriving
         updates during an apply() are picked up in the SAME task
         rather than spawning a new one.
+
+    Exact repeats of the last successfully applied value are absorbed.
+    One user edit fires the bound handler up to four times (each text
+    field binds both on_text_validate and on_focus loss, and the
+    handler reads BOTH fields every call, so all four calls compute
+    the identical value). On a slow camera the in-flight gate folds
+    them; on a fast camera (FX2 applies in milliseconds) the gate
+    closes between events and every repeat became a real hardware
+    apply. A failed apply does not update the last-applied record, so
+    a retry with the same value still goes through -- and "failed"
+    covers BOTH failure shapes: a raising fn and a falsy return (the
+    camera-absent no-op, or any apply whose acceptance is signaled by
+    returning the applied value). Recording is gated on a truthy
+    return, so a rejection can never poison the dedupe record and
+    absorb the user's retry.
     """
 
     def __init__(self, name='coalescing_applier'):
         self._name = name
         self._pending = None
         self._in_flight = False
+        self._last_applied = None
         self._lock = threading.Lock()
 
     def submit(self, value):
         with self._lock:
+            if not self._in_flight and self._pending is None and value == self._last_applied:
+                return False
             self._pending = value
             if self._in_flight:
                 return False
@@ -82,18 +99,38 @@ class _CoalescingApplier:
                 if val is None:
                     self._in_flight = False
                     return
+                if val == self._last_applied:
+                    # A repeat of what the hardware already holds arrived
+                    # while an apply was in flight; nothing new to send.
+                    continue
             try:
-                fn(val)
+                result = fn(val)
             except Exception as e:
+                # The typed rejection was already logged + notified at the
+                # API layer; this line ties it to the coalescer's value.
                 logger.error(f'[{self._name}] apply failed for {val!r}: {e}', exc_info=True)
+            else:
+                if result:
+                    # The recorded key is what the hardware actually holds:
+                    # an fn that returns the APPLIED value (e.g. a clamped
+                    # delivered size) records that, so a user retyping the
+                    # original request after seeing the clamp is not
+                    # absorbed against a value the camera never took. A
+                    # bare True records the request itself. An fn returning
+                    # a value must return it in the SAME shape submit()
+                    # receives (the frame push returns a (w, h) tuple) --
+                    # a mismatched shape would never equal a submitted key
+                    # and dedupe would silently stop absorbing.
+                    with self._lock:
+                        self._last_applied = val if result is True else result
 
 
 class MicroscopeSettings(BoxLayout):
-    # Mirrors the LED firmware's stim capability so the kv can hide the global
-    # Stimulation Settings section when the firmware cannot drive stim. Set
-    # from firmware_stim_supported() at settings load; defaults hidden so stim
-    # never flashes before the capability probe result lands.
-    stim_supported = BooleanProperty(False)
+    # Current scope model name, shown read-only in the panel. The selector
+    # that changes it lives in Advanced Settings; this reflects the settings
+    # SSOT and is refreshed in set_ui_features_for_scope (the one place a
+    # scope change reconfigures the UI).
+    current_scope_model = StringProperty('')
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -162,6 +199,11 @@ class MicroscopeSettings(BoxLayout):
 
         lumaview.scope.disconnect()
         lumaview.scope = None
+        # The frame-size dedupe record describes the OLD camera; carried
+        # across the swap it would absorb the first matching apply on the
+        # new one (and its in-flight bookkeeping belongs to tasks queued
+        # against the discarded scope).
+        self._frame_size_applier = _CoalescingApplier(name='frame_size')
         # Reinitialize the scope object (connects motorboard, ledboard, camera)
         import modules.lumascope_api as lumascope_api
 
@@ -174,6 +216,10 @@ class MicroscopeSettings(BoxLayout):
         scope_config = self.scopes.get(settings.get('microscope'))
         config = ScopeInitConfig.from_settings(settings, labware, scope_config=scope_config)
         lumaview.scope.initialize(config)
+        # Start gate release: configuration is applied, so open the gate and
+        # fire the single grab (the camera-lifecycle split -- connect() left
+        # it configured but not grabbing).
+        lumaview.scope.imaging.start_streaming()
 
         ctx.sequenced_capture_runner.set_scope(lumaview.scope)
         ctx.autofocus_runner.set_scope(lumaview.scope)
@@ -188,8 +234,18 @@ class MicroscopeSettings(BoxLayout):
         # on_start uses. Pre-LVP-A-5 this block was open-coded here and
         # had subtly drifted from the App's version.
         ctx.session.start_application_session(disable_homing=ctx.disable_homing)
-        ctx.image_settings.set_layer_exposure_ranges()
-        layer_obj = ctx.image_settings.layer_lookup(layer='BF')
+        # Resync the whole per-camera UI surface from the NEW camera: refresh
+        # the slider caps first (reconnect previously left the gain cap stale,
+        # a blackout risk on a lower-cap camera), then the per-layer ranges +
+        # gates through the single grouping.
+        ctx.max_exposure = camera_max_exposure_for_ui(lumaview.scope.imaging)
+        ctx.max_gain = camera_max_gain_for_ui(lumaview.scope.imaging)
+        ctx.image_settings.sync_camera_capability_ranges()
+        # Re-apply the VISIBLE layer (not a hardcoded channel) so its controls
+        # reflect the new camera -- e.g. a non-BF open layer's gain/exposure
+        # sliders get re-enabled when the new camera lacks hardware auto-gain.
+        visible_layer = ctx.image_settings.open_or_default_layer()
+        layer_obj = ctx.image_settings.layer_lookup(layer=visible_layer)
         layer_obj.apply_settings()
 
         scope_leds_off()
@@ -198,116 +254,6 @@ class MicroscopeSettings(BoxLayout):
         ctx.motion_settings.update_xy_stage_control_gui(full_redraw=True)
 
         logger.info('[LVP Main  ] Reconnection complete.')
-
-    def acceleration_pct_slider(self):
-        settings = _app_ctx.ctx.settings
-        scope_configs = self.scopes
-        selected_scope_config = scope_configs[settings['microscope']]
-
-        if not selected_scope_config['XYStage']:
-            return
-
-        logger.info('[LVP Main  ] MicroscopeSettings.acceleration_pct_slider()')
-        acc_val = self.ids['acceleration_pct_slider'].value
-        gui_logger.slider('ACCELERATION', acc_val)
-        self.set_acceleration_limit(val_pct=acc_val)
-
-    def acceleration_pct_text(self):
-        logger.info('[LVP Main  ] MicroscopeSettings.acceleration_pct_text()')
-        acc_min = self.ids['acceleration_pct_slider'].min
-        acc_max = self.ids['acceleration_pct_slider'].max
-        try:
-            acc_val = int(self.ids['acceleration_pct_text'].text)
-        except Exception:
-            logger.debug(
-                f'[LVP Main  ] Invalid acceleration input: {self.ids["acceleration_pct_text"].text!r}'
-            )
-            return
-
-        acc_val = int(np.clip(acc_val, acc_min, acc_max))
-
-        self.ids['acceleration_pct_slider'].value = acc_val
-        self.ids['acceleration_pct_text'].text = str(acc_val)
-        self.set_acceleration_limit(val_pct=acc_val)
-
-    def set_acceleration_limit(self, val_pct: int):
-        """Apply acceleration limit (writes settings + dispatches motor command).
-
-        MOT-1: motor serial write goes through ``io_executor`` instead of
-        running synchronously on MainThread. The slider's ``on_value`` event
-        can fire at up to 60 Hz on a smooth drag -- without the executor route,
-        every tick blocks the UI on a serial write. Settings dict is still
-        updated synchronously so other UI code reading the slider sees the
-        committed value immediately.
-
-        The 100 ms ``Clock.create_trigger`` debounce coalesces rapid slider
-        ticks into one motor write per debounce window, matching the
-        ``_CoalescingApplier`` pattern used for ``frame_size`` and
-        ``apply_settings``. Final settle of the slider always lands on the
-        last value the user picked.
-        """
-        ctx = _app_ctx.ctx
-        with ctx.settings_lock:
-            ctx.settings['motion']['acceleration_max_pct'] = val_pct
-        # Stash the most recent value; the trigger reads it when it fires.
-        self._pending_acceleration_pct = int(val_pct)
-        if self._acceleration_dispatch_trigger is None:
-            self._acceleration_dispatch_trigger = Clock.create_trigger(
-                lambda dt: self._dispatch_acceleration_to_motor(),
-                self._ACCELERATION_DEBOUNCE_S,
-            )
-        self._acceleration_dispatch_trigger()
-
-    _ACCELERATION_DEBOUNCE_S = 0.10
-    _acceleration_dispatch_trigger = None
-    _pending_acceleration_pct = None
-
-    def _dispatch_acceleration_to_motor(self):
-        """Send the most-recent acceleration value to the motor on IO_WORKER.
-
-        Reads ``self._pending_acceleration_pct`` (latest stash from
-        ``set_acceleration_limit``) and submits an IOTask through
-        ``io_executor``. If the slider moved again while the trigger was
-        pending, only the latest value reaches the motor -- no queued
-        command burst. See MOT-1 docstring on ``set_acceleration_limit``.
-        """
-        ctx = _app_ctx.ctx
-        if ctx is None or self._pending_acceleration_pct is None:
-            return
-        val_pct = self._pending_acceleration_pct
-        scope = ctx.lumaview.scope if ctx.lumaview else None
-        if scope is None:
-            return
-        ctx.io_executor.put(
-            IOTask(
-                action=scope.motion.set_acceleration_limit,
-                kwargs={'val_pct': val_pct},
-            )
-        )
-
-    def set_acceleration_control_visibility(self, visible):
-        for acceleration_id in ('acceleration_control_box',):
-            self.ids[acceleration_id].visible = visible
-
-    def live_view_fps_slider(self):
-        ctx = _app_ctx.ctx
-        fps_val = int(self.ids['live_view_fps_slider'].value)
-        gui_logger.slider('FPS', fps_val)
-        # Values above 60 mean "uncapped" -- store 0 as sentinel
-        if fps_val > 60:
-            fps_val = 0
-        ctx.live_view_fps = fps_val
-        with ctx.settings_lock:
-            ctx.settings['live_view_fps'] = fps_val
-        logger.info(
-            f'[LVP Main  ] Live view FPS set to {"Max (uncapped)" if fps_val == 0 else fps_val}'
-        )
-
-        # Restart scope display with new FPS
-        scope_display = ctx.scope_display
-        if scope_display is not None:
-            scope_display.stop()
-            scope_display.start(fps=fps_val)
 
     # load settings from JSON file
     def load_settings(self, filename='./data/current.json'):
@@ -375,32 +321,41 @@ class MicroscopeSettings(BoxLayout):
 
             # update GUI values from JSON data:
 
-            # Scope auto-detection
+            # Scope auto-detection. The model selector lives in Advanced
+            # Settings; write the detected (or saved) model to the settings
+            # SSOT here, then reconfigure the UI for it (control visibility +
+            # read-only model label + stage redraw, in that order).
             detected_model = lumaview.scope.diagnostics.get_microscope_model()
             if detected_model in self.scopes:
                 logger.info(f'[LVP Main  ] Auto-detected scope as {detected_model}')
-                self.ids['scope_spinner'].text = detected_model
+                settings['microscope'] = detected_model
             else:
                 logger.info(f'[LVP Main  ] Using scope selection from {filename}')
-                self.ids['scope_spinner'].text = settings['microscope']
+            self.reconfigure_for_scope()
 
-            if settings['use_full_pixel_depth']:
-                self.ids['enable_full_pixel_depth_btn'].state = 'down'
-            else:
-                self.ids['enable_full_pixel_depth_btn'].state = 'normal'
-            self.update_full_pixel_depth_state()
+            # Image mode selector: populate the options from the camera's
+            # capability, then select the stored mode. A stored 12-bit mode on
+            # an 8-bit-only camera falls back to 8-bit and tells the user.
+            # Setting the spinner text fires select_image_mode (on_text), which
+            # caches the mode and applies the pixel format.
+            formats = self.load_image_modes()
+            mode = image_mode.resolve_settings_image_mode(settings)
+            # Only downgrade when the camera DEFINITIVELY lacks 12-bit (formats
+            # known and without Mono12). An empty list here means the camera
+            # is not up yet -- keep the stored mode; the options refresh when
+            # the spinner is next opened.
+            if formats and mode not in image_mode.available_modes(formats):
+                from modules.notification_center import notifications
 
-            if settings.get('false_color_16bit', False):
-                self.ids['false_color_16bit_btn'].state = 'down'
-            else:
-                self.ids['false_color_16bit_btn'].state = 'normal'
-
-            if 'separate_folder_per_channel' in settings:
-                if settings['separate_folder_per_channel']:
-                    self.ids['separate_folder_per_channel_id'].state = 'down'
-                else:
-                    self.ids['separate_folder_per_channel_id'].state = 'normal'
-            self.update_separate_folders_per_channel()
+                notifications.warning(
+                    'Camera',
+                    'Image mode not supported',
+                    'This camera supports 8-bit capture only; the saved 12-bit '
+                    'image mode was changed to 8-bit.',
+                )
+                mode = image_mode.IMAGE_MODE_8BIT
+                settings['image_mode'] = mode
+            self.ids['image_mode_spinner'].text = image_mode.IMAGE_MODE_LABELS[mode]
 
             self.ids['live_image_output_format_spinner'].text = settings['image_output_format'][
                 'live'
@@ -424,18 +379,13 @@ class MicroscopeSettings(BoxLayout):
             self.ids['sequenced_image_output_format_spinner'].text = sequenced_fmt
             self.select_sequenced_image_output_format()
 
-            # camera_max_exposure returns None when no camera is connected;
-            # fall back to the default slider upper bound. See #616.
-            max_exposure = lumaview.scope.imaging.camera_max_exposure or DEFAULT_MAX_EXPOSURE_MS
-
+            # The exposure/gain slider caps from the live camera (the resolver
+            # applies the documented no-camera fallback; #616). The gain cap
+            # keeps the slider honest per-camera -- a universal 48 dB let LS620
+            # users overdrive past the usable range and black out the image.
+            max_exposure = camera_max_exposure_for_ui(lumaview.scope.imaging)
             ctx.max_exposure = max_exposure
-
-            # Parallel treatment for gain -- see #gain-slider-clamp note.
-            # Pre-fix, the gain slider was hardcoded 0-48 dB in the kv,
-            # which let users overdrive LS620 past its usable range (the
-            # image went black at high gain). Pulling the cap from the
-            # camera profile keeps the slider honest per-camera.
-            max_gain = lumaview.scope.imaging.camera_max_gain or DEFAULT_MAX_GAIN_DB
+            max_gain = camera_max_gain_for_ui(lumaview.scope.imaging)
             ctx.max_gain = max_gain
 
             if not settings['video_as_frames']:
@@ -445,12 +395,6 @@ class MicroscopeSettings(BoxLayout):
 
             self.select_video_recording_format()
 
-            manual_video = settings.get('manual_video', {})
-            self.ids['manual_video_max_fps_input'].text = str(manual_video.get('max_fps', 0))
-            self.ids['manual_video_max_duration_input'].text = str(
-                get_manual_video_max_duration(settings)
-            )
-
             if 'live_view_fps' in settings:
                 ctx.live_view_fps = settings['live_view_fps']
             else:
@@ -458,14 +402,6 @@ class MicroscopeSettings(BoxLayout):
 
             fps_label = 'Max (uncapped)' if ctx.live_view_fps == 0 else str(ctx.live_view_fps)
             logger.info(f'[LVP Main  ] Live view FPS set to {fps_label}')
-            # fps=0 (uncapped) maps to slider position 65 ("Max")
-            self.ids['live_view_fps_slider'].value = (
-                65 if ctx.live_view_fps == 0 else ctx.live_view_fps
-            )
-
-            acceleration_limit = settings['motion']['acceleration_max_pct']
-            self.ids['acceleration_pct_slider'].value = acceleration_limit
-            self.ids['acceleration_pct_text'].text = str(acceleration_limit)
 
             # Set Frame Size UI
             binning_size_str = settings['binning']['size']
@@ -503,15 +439,12 @@ class MicroscopeSettings(BoxLayout):
                         f'Startup objective {objective_id} not found in turret objectives ({turret_objectives}).'
                     )
 
-            self.ids['objective_spinner'].text = objective_id
-
             vertical_control_id = ctx.motion_settings.ids['verticalcontrol_id']
             v_control_objective_spinner = vertical_control_id.ids['objective_spinner2']
             v_control_objective_spinner.text = objective_id
 
             objective_helper = ctx.objective_helper
             objective = objective_helper.get_objective_info(objective_id=objective_id)
-            self.ids['magnification_id'].text = f'{objective["magnification"]}'
 
             # Populate FOV fields at startup; otherwise the fields stay blank
             # until the user clicks Frame Size or selects an objective (both
@@ -548,12 +481,18 @@ class MicroscopeSettings(BoxLayout):
             scope_config = self.scopes.get(settings.get('microscope'))
             config = ScopeInitConfig.from_settings(settings, labware, scope_config=scope_config)
             lumaview.scope.initialize(config)
+            # Start gate release (primary startup site): configuration is
+            # applied, so open the gate and fire the single grab.
+            lumaview.scope.imaging.start_streaming()
 
             protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
             protocol_settings.ids['capture_period'].text = str(settings['protocol']['period'])
             protocol_settings.ids['capture_dur'].text = str(settings['protocol']['duration'])
             protocol_settings.ids['labware_spinner'].text = settings['protocol']['labware']
             protocol_settings.select_labware()
+            # Apply the persisted step-location view at startup; the toggle
+            # that edits this now lives in Advanced Settings.
+            ctx.stage.show_protocol_steps(enable=settings['show_step_locations'])
 
             zstack_settings = ctx.motion_settings.ids['verticalcontrol_id'].ids['zstack_id']
             zstack_settings.ids['zstack_spinner'].text = settings['zstack']['position']
@@ -581,32 +520,13 @@ class MicroscopeSettings(BoxLayout):
                     self.ids['show_tooltips_btn'].state = 'normal'
                     ctx.show_tooltips = False
 
-            if 'protocol_led_on' in settings:
-                if settings['protocol_led_on']:
-                    self.ids['protocol_led_on_btn'].state = 'down'
-                else:
-                    self.ids['protocol_led_on_btn'].state = 'normal'
-            else:
-                self.ids['protocol_led_on_btn'].state = 'normal'
-                settings['protocol_led_on'] = False
-
-            # Stimulation is firmware-gated: never expose it unless the LED
-            # firmware reports support. On unsupported firmware force it off so
-            # the per-layer controls and the global toggle stay hidden.
-            self.stim_supported = firmware_stim_supported()
-            if not self.stim_supported:
+            # Stimulation is firmware-gated. The enable toggle lives in
+            # Advanced Settings now; startup just establishes the setting and
+            # pushes the persisted state down to every layer via the single
+            # owner (which forces it off on unsupported firmware).
+            if 'stimulation_enabled' not in settings:
                 settings['stimulation_enabled'] = False
-
-            if 'stimulation_enabled' in settings:
-                if settings['stimulation_enabled']:
-                    self.ids['stimulation_settings_btn'].state = 'down'
-                else:
-                    self.ids['stimulation_settings_btn'].state = 'normal'
-                    # Apply the disabled state to all layers
-                    self.update_stimulation_settings()
-            else:
-                self.ids['stimulation_settings_btn'].state = 'normal'
-                settings['stimulation_enabled'] = False
+            self.apply_stimulation_support()
 
             # Protocol accordions are permanently disabled (no longer a setting)
             settings.pop('disable_protocol_accordions', None)
@@ -625,21 +545,15 @@ class MicroscopeSettings(BoxLayout):
                 if 'ill_ma' in settings[layer]:
                     layer_obj.ids['ill_slider'].value = settings[layer]['ill_ma']
 
+                # Size the sliders to the camera caps BEFORE setting the value
+                # (the Kivy slider clamps the displayed value to its max). The
+                # over-cap STORED value is reconciled + persisted by the single
+                # clamp_layer_settings_to_caps pass after the loop, not a
+                # duplicate inline clamp here.
                 layer_obj.ids['gain_slider'].max = max_gain
-
-                if settings[layer]['gain_db'] <= max_gain:
-                    layer_obj.ids['gain_slider'].value = settings[layer]['gain_db']
-                else:
-                    layer_obj.ids['gain_slider'].value = max_gain
-                    settings[layer]['gain_db'] = max_gain
-
+                layer_obj.ids['gain_slider'].value = settings[layer]['gain_db']
                 layer_obj.ids['exp_slider'].max = max_exposure
-
-                if settings[layer]['exp_ms'] <= max_exposure:
-                    layer_obj.ids['exp_slider'].value = settings[layer]['exp_ms']
-                else:
-                    layer_obj.ids['exp_slider'].value = max_exposure
-                    settings[layer]['exp_ms'] = max_exposure
+                layer_obj.ids['exp_slider'].value = settings[layer]['exp_ms']
 
                 layer_obj.ids['false_color'].active = settings[layer]['false_color']
 
@@ -711,6 +625,12 @@ class MicroscopeSettings(BoxLayout):
 
                     layer_obj.update_stim_controls_visibility()
 
+            # Reconcile any layer whose stored gain/exposure exceeds the new
+            # camera's cap down to it -- the single clamp owner, shared with the
+            # reconnect resync, instead of the per-layer inline clamp this loop
+            # used to carry.
+            ctx.image_settings.clamp_layer_settings_to_caps()
+
         except json.JSONDecodeError as e:
             # Real "incompatible JSON" -- file content can't be parsed.
             logger.error(f'[LVP Main  ] load_settings: JSON parse error in {filename}: {e}')
@@ -739,17 +659,6 @@ class MicroscopeSettings(BoxLayout):
 
         self.set_ui_features_for_scope()
 
-    def update_separate_folders_per_channel(self):
-        settings = _app_ctx.ctx.settings
-
-        if self.ids['separate_folder_per_channel_id'].state == 'down':
-            self._seperate_folder_per_channel = True
-        else:
-            self._seperate_folder_per_channel = False
-        gui_logger.toggle('SEPARATE_FOLDERS', self._seperate_folder_per_channel)
-
-        settings['separate_folder_per_channel'] = self._seperate_folder_per_channel
-
     def update_bullseye_state(self):
         gui_logger.toggle('BULLSEYE', self.ids['enable_bullseye_btn_id'].state == 'down')
         if self.ids['enable_bullseye_btn_id'].state == 'down':
@@ -767,40 +676,116 @@ class MicroscopeSettings(BoxLayout):
 
             _app_ctx.ctx.scope_display.use_bullseye = False
 
-    def update_full_pixel_depth_state(self):
+    def _supported_pixel_formats(self):
+        """The active camera's supported pixel formats, or [] if unavailable."""
+        try:
+            return _app_ctx.ctx.lumaview.scope.imaging.get_supported_pixel_formats() or []
+        except Exception:
+            logger.warning('[LVP Main  ] Could not read camera pixel formats; assuming 8-bit only.')
+            return []
+
+    def load_image_modes(self):
+        """Populate the image-mode spinner with the modes this camera supports.
+
+        A camera without Mono12/Mono12p offers 8-bit only, so the 12-bit
+        options never appear where they cannot work. Returns the queried
+        formats so the load-time sync can reuse them.
+        """
+        formats = self._supported_pixel_formats()
+        self.ids['image_mode_spinner'].values = image_mode.available_mode_labels(formats)
+        return formats
+
+    # Drives the 8-bit binning depth-loss hint row; the row height follows the
+    # label's wrapped texture so the multi-line warning is not clipped.
+    binning_depth_hint_active = BooleanProperty(False)
+
+    def _refresh_binning_depth_hint(self):
+        """Show the depth-loss hint below the binning control only when binning
+        is active in an 8-bit mode (the binned range is truncated on save).
+        """
+        if 'binning_depth_hint_row' not in self.ids:
+            return
+        scope_display = getattr(_app_ctx.ctx, 'scope_display', None)
+        if scope_display is None:
+            return
+        binning_size = binning.binning_size_str_to_int(self.ids['binning_spinner'].text)
+        self.binning_depth_hint_active = image_mode.depth_truncation_warning_active(
+            binning_size, scope_display.image_mode
+        )
+
+    def select_image_mode(self):
+        ctx = _app_ctx.ctx
+
+        label = self.ids['image_mode_spinner'].text
+        mode = image_mode.LABEL_TO_IMAGE_MODE.get(label)
+        if mode is None:
+            return  # 'Select' placeholder or an unknown label -- ignore
+        gui_logger.select('IMAGE_MODE', mode)
+
+        # The mode mirrors commit SYNCHRONOUSLY (display consumers read
+        # scope_display.image_mode on the next frame; the depth hint reads
+        # settings); a rejected format apply is corrected by the failure
+        # callback below -- commit-then-revert, so a rejected depth cannot
+        # STAY recorded with captures tagged at a depth the camera never
+        # took. The prior mode is captured first for the revert.
+        settings = ctx.settings
+        prior_mode = settings.get('image_mode')
+        ctx.scope_display.image_mode = mode
+        settings['image_mode'] = mode
+        self._refresh_binning_depth_hint()
+
+        # Apply the capture depth to the camera. Resolve to a format the
+        # sensor actually supports BEFORE pushing, so we never request a
+        # format it lacks (e.g. Mono8 on an IDS sensor that exposes only
+        # Mono10/12 -- that logs a spurious 'Unsupported' warning). Route
+        # through the camera executor to avoid racing the live-view grab loop.
+        capture_depth = image_mode.resolve_image_mode(mode)['capture_depth']
+
+        def _set_pixel_format():
+            imaging = ctx.lumaview.scope.imaging
+            target = image_mode.select_capture_pixel_format(
+                capture_depth, imaging.get_supported_pixel_formats()
+            )
+            if target is None:
+                # No matching format is a display-mode-only change:
+                # nothing to apply, the mode commit stands.
+                return True
+            # The absent-camera False propagates to the callback so the
+            # mode commit is reverted -- a format that never reached the
+            # hardware must not stay recorded as the capture depth.
+            return imaging.set_pixel_format(target)
+
+        ctx.camera_executor.put(
+            IOTask(
+                action=_set_pixel_format,
+                callback=self._on_image_mode_outcome,
+                cb_args=(mode, prior_mode),
+                pass_result=True,
+                # The rejection is already notified at the API layer; the
+                # callback owns the UI revert.
+                silent_on_failure=True,
+            )
+        )
+
+    def _on_image_mode_outcome(self, mode, prior_mode, result=None, exception=None):
+        """UI-thread landing for an image-mode apply: no-op on success (the
+        mirrors committed synchronously at select time); on failure, revert
+        spinner, settings, and the display mode to the captured prior state."""
+        if exception is None and result:
+            return
         ctx = _app_ctx.ctx
         settings = ctx.settings
-
-        if self.ids['enable_full_pixel_depth_btn'].state == 'down':
-            use_full_pixel_depth = True
-        else:
-            use_full_pixel_depth = False
-        gui_logger.toggle('FULL_PIXEL_DEPTH', use_full_pixel_depth)
-
-        ctx.scope_display.use_full_pixel_depth = use_full_pixel_depth
-
-        # Route through camera executor to prevent race with live view grab loop
-        def _set_pixel_format():
-            if use_full_pixel_depth:
-                if not ctx.lumaview.scope.imaging.set_pixel_format('Mono12'):
-                    formats = ctx.lumaview.scope.imaging.get_supported_pixel_formats()
-                    if formats:
-                        ctx.lumaview.scope.imaging.set_pixel_format(formats[0])
-            else:
-                if not ctx.lumaview.scope.imaging.set_pixel_format('Mono8'):
-                    formats = ctx.lumaview.scope.imaging.get_supported_pixel_formats()
-                    if formats:
-                        ctx.lumaview.scope.imaging.set_pixel_format(formats[0])
-
-        ctx.camera_executor.put(IOTask(action=_set_pixel_format))
-
-        settings['use_full_pixel_depth'] = use_full_pixel_depth
-
-    def update_false_color_16bit_state(self):
-        settings = _app_ctx.ctx.settings
-        enabled = self.ids['false_color_16bit_btn'].state == 'down'
-        gui_logger.toggle('FALSE_COLOR_16BIT', enabled)
-        settings['false_color_16bit'] = enabled
+        if prior_mode is not None:
+            settings['image_mode'] = prior_mode
+            ctx.scope_display.image_mode = prior_mode
+            prior_label = image_mode.IMAGE_MODE_LABELS.get(prior_mode)
+            if prior_label:
+                self.ids['image_mode_spinner'].text = prior_label
+        self._refresh_binning_depth_hint()
+        logger.error(
+            f'[LVP Main  ] image mode {mode} not applied '
+            f'({exception or "no result"}); reverted to {prior_mode}'
+        )
 
     def select_live_image_output_format(self):
         settings = _app_ctx.ctx.settings
@@ -831,56 +816,6 @@ class MicroscopeSettings(BoxLayout):
             settings['video_as_frames'] = False
         else:
             settings['video_as_frames'] = True
-
-    def update_manual_video_max_fps(self):
-        # 0 = no limit (camera free-run rate). record_init keys
-        # _user_requested_fps_limit on this; non-zero requests the
-        # camera-side rate cap.
-        settings = _app_ctx.ctx.settings
-        widget = self.ids['manual_video_max_fps_input']
-        try:
-            value = int(widget.text)
-        except (ValueError, TypeError):
-            value = -1
-        if value < 0 or value > 200:
-            from modules.notification_center import notifications
-
-            notifications.warning(
-                'Settings',
-                'Invalid FPS limit',
-                'Manual Video Max FPS must be between 0 and 200 '
-                '(0 = no limit). Reverting to previous value.',
-            )
-            settings.setdefault('manual_video', {})
-            widget.text = str(settings['manual_video'].get('max_fps', 0))
-            return
-        settings.setdefault('manual_video', {})
-        settings['manual_video']['max_fps'] = value
-        gui_logger.text_input_debounced('MANUAL_VIDEO_MAX_FPS', value)
-
-    def update_manual_video_max_duration(self):
-        # Memmap allocates max_fps * duration frames; the disk-space
-        # pre-flight in record_init catches infeasible sizes.
-        settings = _app_ctx.ctx.settings
-        widget = self.ids['manual_video_max_duration_input']
-        try:
-            value = int(widget.text)
-        except (ValueError, TypeError):
-            value = 0
-        if value < 1 or value > 3600:
-            from modules.notification_center import notifications
-
-            notifications.warning(
-                'Settings',
-                'Invalid time limit',
-                'Video Time Limit must be between 1 and 3600 seconds. Reverting to previous value.',
-            )
-            settings.setdefault('manual_video', {})
-            widget.text = str(get_manual_video_max_duration(settings))
-            return
-        settings.setdefault('manual_video', {})
-        settings['manual_video']['max_duration_seconds'] = value
-        gui_logger.text_input_debounced('MANUAL_VIDEO_MAX_DURATION_S', value)
 
     def update_scale_bar_state(self):
         ctx = _app_ctx.ctx
@@ -921,22 +856,18 @@ class MicroscopeSettings(BoxLayout):
         ctx.show_tooltips = enabled
         settings['show_tooltips'] = enabled
 
-    def update_protocol_led_on(self):
-        settings = _app_ctx.ctx.settings
-        enabled = self.ids['protocol_led_on_btn'].state == 'down'
-        gui_logger.toggle('PROTOCOL_LED_ON', enabled)
-        settings['protocol_led_on'] = enabled
+    def apply_stimulation_support(self):
+        """Push the persisted global stimulation enable to every channel.
 
-    def update_stimulation_settings(self):
-        """Toggle stimulation features globally across all channels."""
+        Single owner of the per-layer stimulation sync. Reads
+        ``settings['stimulation_enabled']`` (the source of truth, populated
+        by the settings load) rather than a widget, so the startup load and
+        the Advanced Settings toggle both drive the same path. Firmware
+        without stim support can never enable it, even if a stale setting
+        says otherwise.
+        """
         settings = _app_ctx.ctx.settings
-        # Firmware without stim support can never enable it, even if a stale
-        # setting or a hidden toggle says otherwise.
-        self.stim_supported = firmware_stim_supported()
-        stimulation_enabled = self.stim_supported and (
-            self.ids['stimulation_settings_btn'].state == 'down'
-        )
-        gui_logger.toggle('STIMULATION_ENABLED', stimulation_enabled)
+        stimulation_enabled = firmware_stim_supported() and settings['stimulation_enabled']
         settings['stimulation_enabled'] = stimulation_enabled
 
         # Update all layer controls
@@ -1037,13 +968,29 @@ class MicroscopeSettings(BoxLayout):
             sizes = [1, 2, 4]
         spinner.values = [f'{s}x{s}' for s in sizes]
 
+    def _ui_binning_size(self) -> int:
+        """The binning factor the UI currently shows (the settings SSOT).
+
+        Native-ROI reconstruction multiplies the displayed frame size by the
+        binning it was entered at, so it must read the SYNCHRONOUS UI binning
+        (``settings['binning']['size']``), NOT ``imaging.get_binning_size()``.
+        The hardware binning is applied asynchronously through the camera
+        executor, so right after a binning change the driver still reports the
+        previous factor; reconstructing displayed * that stale factor rebuilds
+        a wrong (and, when only one axis was previously off-square, non-square)
+        native ROI -- the 1056x950-instead-of-950x950 bench bug.
+        """
+        settings = _app_ctx.ctx.settings
+        return binning.binning_size_str_to_int(settings['binning']['size'])
+
     def _native_roi(self) -> dict:
         """Return the unbinned ROI -- the source of truth for frame sizing.
 
         Persisted as ``settings['frame']['native_width']/['native_height']``.
-        When absent (older settings files that stored only the displayed
-        size), reconstruct it from the displayed frame size times the current
-        binning, capped at the sensor native resolution.
+        The stored pair is the unconditional source of truth (binning never
+        changes it). Only when absent (older settings files that stored just
+        the displayed size) is it reconstructed from the displayed frame size
+        times the UI binning, capped at the sensor native resolution.
         """
         ctx = _app_ctx.ctx
         frame = ctx.settings['frame']
@@ -1054,17 +1001,32 @@ class MicroscopeSettings(BoxLayout):
                 'width': int(frame['native_width']),
                 'height': int(frame['native_height']),
             }
+            src = 'stored'
         else:
-            cur_binning = imaging.get_binning_size()
+            cur_binning = self._ui_binning_size()
             displayed = {'width': int(frame['width']), 'height': int(frame['height'])}
             cap = native_max or {
                 'width': displayed['width'] * cur_binning,
                 'height': displayed['height'] * cur_binning,
             }
+            # displayed_to_native already caps the reconstruction at the cap
+            # (native_max when known), so no separate clamp is needed here.
             native = binning.displayed_to_native(displayed, cur_binning, cap)
-        if native_max:
-            native['width'] = min(native['width'], native_max['width'])
-            native['height'] = min(native['height'], native_max['height'])
+            src = (
+                f'reconstructed displayed={displayed["width"]}x{displayed["height"]} '
+                f'ui_binning={cur_binning}'
+            )
+        # The stored pair is returned verbatim -- the unconditional source of
+        # truth. It is deliberately NOT re-capped against the live native_max: a
+        # transient small reading (a camera reconnect / init race) would
+        # otherwise shrink the persisted native_* permanently when a binning
+        # toggle re-stores it. The driver's set_frame_size is the real clamp to
+        # the current sensor max.
+        # Forensic line: whether the native ROI came from the stored source of
+        # truth or was rebuilt from displayed*binning, and at which binning.
+        # A reconstruction against a stale binning is how the native size
+        # silently drifted, so the src + inputs stay visible in the log.
+        logger.info(f'[LVP Main  ] native_roi: src={src} -> {native["width"]}x{native["height"]}')
         return native
 
     def _store_native_roi(self, native: dict) -> None:
@@ -1097,57 +1059,104 @@ class MicroscopeSettings(BoxLayout):
             )
             return
 
-        settings['binning']['size'] = new_binning_size_str
-
-        # Native ROI is the source of truth; the displayed/captured size is
-        # native / binning. Deriving from the fixed native ROI (not the prior
-        # displayed value) is what makes binning round-trip: iterating on the
-        # already-floored displayed value lost pixels that never came back.
-        #
-        # Persist the native ROI here too, not just on a frame-field edit.
-        # Without this, settings that never had native_* stored fall through
-        # _native_roi's reconstruction (displayed * binning) on every binning
-        # change -- and at a coarse binning the displayed value is already
-        # floored, so reconstruction shrinks native a little each step and the
-        # cycle drifts (1x1 -> 4x4 -> 1x1 came back smaller). Storing the
-        # native ROI on the first change locks the source of truth so later
-        # changes read a fixed value and round-trip exactly.
+        # Capture the native ROI BEFORE overwriting the binning setting.
+        # _native_roi reconstruction multiplies the displayed value by the UI
+        # binning (settings['binning']['size']), so it must read the OLD binning
+        # the current displayed value corresponds to; reading it after the
+        # overwrite would rebuild native against the new factor and skew it (the
+        # non-square frame at 2x). Storing it locks the source of truth so this
+        # and every later binning change round-trips exactly -- without it,
+        # settings that never had native_* fall through reconstruction
+        # (displayed * binning) on every change, and at a coarse binning the
+        # already-floored displayed value shrinks native a little each step so
+        # the cycle drifts (1x1 -> 4x4 -> 1x1 came back smaller).
         native = self._native_roi()
         self._store_native_roi(native)
+
+        gui_logger.select('BINNING', new_binning_size_str)
+
+        # The displayed/captured size is native / binning, floored to the active
+        # driver's DELIVERABLE granularity: get_pixel_alignment reports the
+        # camera grid for floor-only drivers (Pylon/FX2/sim) and just 'even' for
+        # the IDS driver, which crops back to the exact request -- so a 1900
+        # frame stays 1900 on IDS but floors to the real grid elsewhere.
         new_frame = binning.native_to_displayed(
             native, new_binning_size, imaging.get_pixel_alignment()
         )
+
+        # The binning settings value commits SYNCHRONOUSLY: _ui_binning_size
+        # (native-ROI reconstruction) and the FOV math both document that
+        # they read the synchronous UI binning, so deferring this write to
+        # the apply's completion would let a frame edit made during the
+        # (multi-second Pylon) apply reconstruct against the wrong epoch.
+        # A rejected factor is corrected by the failure callback below --
+        # commit-then-revert, not defer-and-diverge. The prior value is
+        # captured first so the revert restores the exact pre-select state.
+        prior_binning_size_str = settings['binning']['size']
+        prior_frame = {
+            'width': int(settings['frame']['width']),
+            'height': int(settings['frame']['height']),
+        }
+        settings['binning']['size'] = new_binning_size_str
+        self._refresh_binning_depth_hint()
         self.ids['frame_width_id'].text = str(new_frame['width'])
         self.ids['frame_height_id'].text = str(new_frame['height'])
 
-        # During app init, scope.initialize() handles all hardware calls
+        # During app init, scope.initialize() handles all hardware calls;
+        # the mirrors just reflect the settings being loaded.
         if ctx.initializing:
             return
 
         # Route through camera executor to prevent race with live view grab
         # loop. The frame push is enqueued after, so it lands once the new
-        # binning is applied and the driver can clamp to the right max.
+        # binning is applied and the driver can clamp to the right max. The
+        # completion callback acts ONLY on failure, reverting every mirror
+        # to the captured prior state -- a rejected factor must not stay
+        # recorded (it feeds every native-ROI / FOV / stitch derivation).
         ctx.camera_executor.put(
-            IOTask(action=imaging.set_binning_size, kwargs={'size': new_binning_size})
+            IOTask(
+                action=imaging.set_binning_size,
+                kwargs={'size': new_binning_size},
+                callback=self._on_binning_apply_outcome,
+                cb_args=(new_binning_size_str, prior_binning_size_str, prior_frame),
+                pass_result=True,
+                # The rejection is already notified at the API layer; the
+                # callback owns the UI revert.
+                silent_on_failure=True,
+            )
         )
         self._apply_displayed_frame(new_frame)
 
-    def load_scopes(self):
-        logger.info('[LVP Main  ] MicroscopeSettings.load_scopes()')
-        spinner = self.ids['scope_spinner']
-        spinner.values = list(self.scopes.keys())
-
-    def select_scope(self):
-        gui_logger.select('SCOPE', self.ids['scope_spinner'].text)
-        logger.info('[LVP Main  ] MicroscopeSettings.select_scope()')
+    def _on_binning_apply_outcome(
+        self, new_binning_size_str, prior_binning_size_str, prior_frame, result=None, exception=None
+    ):
+        """UI-thread landing for a binning apply: no-op on success (all
+        mirrors committed synchronously at select time); on failure, revert
+        settings, spinner, and the frame derivation to the captured prior
+        state so a rejected factor cannot stay recorded."""
+        if exception is None and result:
+            return
         ctx = _app_ctx.ctx
-        settings = ctx.settings
+        ctx.settings['binning']['size'] = prior_binning_size_str
+        self.ids['binning_spinner'].text = prior_binning_size_str
+        self._refresh_binning_depth_hint()
+        self._apply_displayed_frame(prior_frame)
+        logger.error(
+            f'[LVP Main  ] binning {new_binning_size_str} not applied '
+            f'({exception or "no result"}); reverted to {prior_binning_size_str}'
+        )
 
-        spinner = self.ids['scope_spinner']
-        settings['microscope'] = spinner.text
+    def reconfigure_for_scope(self) -> None:
+        """Apply the current scope to the UI in the canonical order.
 
+        set_ui_features_for_scope first (control visibility + the read-only
+        model label), then a stage redraw for the new model's geometry. The
+        single owner of the scope-change reconfigure sequence -- called at
+        startup and when the Advanced Settings selector changes the scope, so
+        the order is identical on both paths.
+        """
         self.set_ui_features_for_scope()
-        ctx.stage.full_redraw()
+        _app_ctx.ctx.stage.full_redraw()
 
     def set_ui_features_for_scope(self) -> None:
         ctx = _app_ctx.ctx
@@ -1157,9 +1166,7 @@ class MicroscopeSettings(BoxLayout):
         scope_configs = microscope_settings.scopes
         selected_scope_config = scope_configs[settings['microscope']]
 
-        microscope_settings.set_acceleration_control_visibility(
-            visible=selected_scope_config['XYStage']
-        )
+        microscope_settings.current_scope_model = settings['microscope']
 
         motion_settings = ctx.motion_settings
         motion_settings.set_turret_control_visibility(visible=selected_scope_config['Turret'])
@@ -1180,9 +1187,6 @@ class MicroscopeSettings(BoxLayout):
 
         protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
         protocol_settings.set_labware_selection_visibility(visible=selected_scope_config['XYStage'])
-        protocol_settings.set_show_protocol_step_locations_visibility(
-            visible=selected_scope_config['XYStage']
-        )
 
         ctx.motion_settings.ids['post_processing_id'].ids[
             'stitch_controls_id'
@@ -1230,77 +1234,6 @@ class MicroscopeSettings(BoxLayout):
         except Exception as e:
             logger.debug(f'[LVP Main  ] image_settings._resort_accordion failed: {e}')
 
-    def load_objectives(self):
-        logger.info('[LVP Main  ] MicroscopeSettings.load_objectives()')
-        spinner = self.ids['objective_spinner']
-        objective_helper = _app_ctx.ctx.objective_helper
-        spinner.values = objective_helper.get_objectives_list()
-
-    def select_objective(self):
-        try:
-            objective_id = self.ids['objective_spinner'].text
-            ctx = _app_ctx.ctx
-            settings = ctx.settings
-
-            # #631: idempotent -- if the spinner text matches current settings, no
-            # work to do. Defends against on_text firing for programmatic text
-            # writes (e.g. settings load, mirror-spinner sync) without redoing
-            # hardware calls or notifications.
-            if objective_id == settings.get('objective_id'):
-                return
-
-            gui_logger.select('OBJECTIVE', objective_id)
-            logger.info('[LVP Main  ] MicroscopeSettings.select_objective()')
-
-            lumaview = ctx.lumaview
-            objective_helper = ctx.objective_helper
-
-            # If turret is present, objective must be assigned to a turret position (#606)
-            if lumaview.scope.motion.has_turret():
-                turret_objectives = list(settings.get('turret_objectives', {}).values())
-                assigned = [obj for obj in turret_objectives if obj is not None]
-                if assigned and objective_id not in assigned:
-                    from modules.notification_center import notifications
-
-                    notifications.warning(
-                        'Objective',
-                        'Objective Not in Turret',
-                        f"[Objective] Cannot select '{objective_id}' -- not assigned "
-                        f'to any turret position. Assign it in Objective Control > '
-                        f'Turret before using.',
-                    )
-
-            objective = objective_helper.get_objective_info(objective_id=objective_id)
-            settings['objective_id'] = objective_id
-            microscope_settings_id = ctx.motion_settings.ids['microscope_settings_id']
-            microscope_settings_id.ids['magnification_id'].text = f'{objective["magnification"]}'
-
-            # Update selected to be consistent with other selector
-            vc_objective_spinner = ctx.motion_settings.ids['verticalcontrol_id'].ids[
-                'objective_spinner2'
-            ]
-            vc_objective_spinner.text = objective_id
-
-            if lumaview.scope.motion.has_turret():
-                lumaview.scope.runtime_state.set_turret_config(
-                    turret_config=settings['turret_objectives']
-                )
-
-            lumaview.scope.runtime_state.set_objective(objective_id=objective_id)
-
-            fov_size = common_utils.get_field_of_view(
-                focal_length=objective['focal_length'],
-                frame_size=settings['frame'],
-                binning_size=get_binning_from_ui(),
-            )
-            self.ids['field_of_view_width_id'].text = str(round(fov_size['width'], 0))
-            self.ids['field_of_view_height_id'].text = str(round(fov_size['height'], 0))
-        except Exception as e:
-            logger.error(f'[UI] select_objective failed: {e}', exc_info=True)
-            from ui.notification_popup import show_notification_popup
-
-            show_notification_popup(title='Error', message=str(e))
-
     def frame_size(self):
         """Apply a user edit of the frame width/height fields.
 
@@ -1323,7 +1256,10 @@ class MicroscopeSettings(BoxLayout):
             frame = ctx.settings['frame']
             typed = {'width': frame['width'], 'height': frame['height']}
 
-        cur_binning = imaging.get_binning_size()
+        # The typed value is a displayed size at the UI binning, so reconstruct
+        # native against the synchronous UI binning, not the async hardware
+        # binning (see _ui_binning_size).
+        cur_binning = self._ui_binning_size()
         native_max = imaging.get_native_resolution() or {
             'width': int(typed['width']) * cur_binning,
             'height': int(typed['height']) * cur_binning,
@@ -1331,6 +1267,9 @@ class MicroscopeSettings(BoxLayout):
         native = binning.displayed_to_native(typed, cur_binning, native_max)
         self._store_native_roi(native)
 
+        # Floor to the active driver's deliverable granularity (see
+        # select_binning_size): the IDS driver crops to the exact request, so
+        # get_pixel_alignment reports 'even' for it and the real grid elsewhere.
         displayed = binning.native_to_displayed(native, cur_binning, imaging.get_pixel_alignment())
         self._apply_displayed_frame(displayed)
 
@@ -1346,8 +1285,6 @@ class MicroscopeSettings(BoxLayout):
         """
         ctx = _app_ctx.ctx
         lumaview = ctx.lumaview
-        settings = ctx.settings
-        objective_helper = ctx.objective_helper
 
         if not lumaview.scope.camera_connected:
             return
@@ -1361,22 +1298,19 @@ class MicroscopeSettings(BoxLayout):
         except Exception:
             logger.warning('[LVP Main  ] Could not clamp frame size to camera minimum.')
 
-        settings['frame']['width'] = width
-        settings['frame']['height'] = height
+        # The single framing chokepoint: both the frame-field edit and the
+        # binning toggle reach the camera through here, so one log call records
+        # every framing change the user makes (the prior gap that left the
+        # frame-box resize invisible in the GUI log).
+        gui_logger.frame_size(width, height, get_binning_from_ui())
 
-        self.ids['frame_width_id'].text = str(width)
-        self.ids['frame_height_id'].text = str(height)
-
-        objective_id = settings['objective_id']
-        objective = objective_helper.get_objective_info(objective_id=objective_id)
-
-        fov_size = common_utils.get_field_of_view(
-            focal_length=objective['focal_length'],
-            frame_size=settings['frame'],
-            binning_size=get_binning_from_ui(),
-        )
-        self.ids['field_of_view_width_id'].text = str(round(fov_size['width'], 0))
-        self.ids['field_of_view_height_id'].text = str(round(fov_size['height'], 0))
+        # Every mirror of "current geometry" (settings, text fields, FOV
+        # labels) is written from the DELIVERED size in the completion
+        # callback, never from this request: a rejected or clamped apply
+        # once left the mirrors claiming a size the camera never held, so
+        # tiling/FOV math disagreed with the frames on disk. The typed
+        # text stays visible during the (up to ~11 s Pylon) apply, then
+        # snaps to what the camera delivered.
 
         # Coalesce rapid frame_size() calls -- see _CoalescingApplier
         # + issue #624. The UI can fire this method several times in
@@ -1385,17 +1319,82 @@ class MicroscopeSettings(BoxLayout):
         # the same handler), and Pylon's stop_grabbing/start_grabbing
         # cycle takes ~11s on large frames, so naive queueing creates
         # minute-scale UI freezes.
-        scope = lumaview.scope
         if self._frame_size_applier.submit((width, height)):
             ctx.camera_executor.put(
                 IOTask(
                     action=self._frame_size_applier.apply_pending,
-                    args=(lambda wh: scope.imaging.set_frame_size(*wh),),
+                    args=(self._push_frame_size,),
                 )
             )
+        # FOV is derived state (settings frame x binning), and both inputs
+        # are current right here -- settings['frame'] is delivered-sourced
+        # and the binning committed synchronously. Refreshing now covers
+        # the dedupe-absorbed case (binning changed, same displayed size:
+        # no push, no delivered callback, but the FOV still halves).
+        self._refresh_fov_labels()
+
+    def _push_frame_size(self, wh):
+        """Camera-executor side of a frame-size apply: push to the camera
+        and marshal the DELIVERED geometry back to the UI mirrors.
+
+        Returns the DELIVERED (width, height) tuple so the coalescer
+        records what the camera actually holds as its dedupe key -- a
+        clamped delivery recorded under the request key would absorb the
+        user's retype of the original size while the field showed the
+        clamped one. A rejection raises out of here (contained by
+        apply_pending, already notified at the API layer) and an
+        absent-camera no-op returns None -- neither is recorded, so a
+        retry of the same size still reaches the hardware. The scope slot
+        is None for the whole reconnect window; that is the absent shape,
+        not an error.
+        """
+        scope = getattr(_app_ctx.ctx.lumaview, 'scope', None)
+        if scope is None:
+            return None
+        delivered = scope.imaging.set_frame_size(*wh)
+        if not delivered:
+            return None
+        Clock.schedule_once(lambda dt: self._on_frame_size_applied(delivered), 0)
+        return (int(delivered['width']), int(delivered['height']))
+
+    def _on_frame_size_applied(self, delivered: dict) -> None:
+        """UI-thread landing for an ACCEPTED frame-size apply: write every
+        geometry mirror from the size the camera actually delivered."""
+        settings = _app_ctx.ctx.settings
+
+        width = int(delivered['width'])
+        height = int(delivered['height'])
+        settings['frame']['width'] = width
+        settings['frame']['height'] = height
+        self.ids['frame_width_id'].text = str(width)
+        self.ids['frame_height_id'].text = str(height)
+        self._refresh_fov_labels()
+
+    def _refresh_fov_labels(self) -> None:
+        """Recompute the FOV readout from the current delivered-sourced
+        frame settings and the UI binning."""
+        ctx = _app_ctx.ctx
+        settings = ctx.settings
+        objective = ctx.objective_helper.get_objective_info(objective_id=settings['objective_id'])
+        fov_size = common_utils.get_field_of_view(
+            focal_length=objective['focal_length'],
+            frame_size=settings['frame'],
+            binning_size=get_binning_from_ui(),
+        )
+        self.ids['field_of_view_width_id'].text = str(round(fov_size['width'], 0))
+        self.ids['field_of_view_height_id'].text = str(round(fov_size['height'], 0))
+
+    def open_advanced_settings(self):
+        """Open the Advanced Settings modal (power-user / rarely-touched rows)."""
+        gui_logger.button('OPEN_ADVANCED_SETTINGS')
+        from ui.advanced_settings import AdvancedSettings
+
+        self._advanced_settings_popup = AdvancedSettings()
+        self._advanced_settings_popup.open()
 
     def generate_support_report(self):
         """Show confirmation dialog, then generate a tech support report."""
+        gui_logger.button('GENERATE_SUPPORT_REPORT')
         from ui.notification_popup import show_confirmation_popup
 
         show_confirmation_popup(
@@ -1471,6 +1470,7 @@ class MicroscopeSettings(BoxLayout):
 
     def zip_logs_only(self):
         """Quick zip of logs + data + recent protocols. No hardware tests."""
+        gui_logger.button('ZIP_LOGS')
         from ui.progress_popup import CustomPopup
         from modules.tech_support_report import TechSupportReport
         import threading

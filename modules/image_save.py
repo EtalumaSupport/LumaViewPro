@@ -30,6 +30,7 @@ from lib.handle_trace import tick as _h_tick
 from lvp_logger import logger, version
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
+import modules.image_mode as image_mode
 import modules.image_utils as image_utils
 from modules.exceptions import CaptureError, ConfigError
 from modules.notification_center import notifications
@@ -39,6 +40,78 @@ if TYPE_CHECKING:
 
 
 _NUM_SEQ_DIGITS = 6
+
+
+def write_video_frame(
+    frame: np.ndarray,
+    file_loc: pathlib.Path,
+    metadata: dict,
+    layer_color: str,
+    false_color_on: bool,
+    save_encoding: str,
+    capture_depth: int,
+) -> None:
+    """Save one captured video frame to TIFF through the single canonical path.
+
+    Shared by the manual-record and protocol-video Frames branches so both
+    honor the image mode identically:
+
+      - a false-color-off layer (and any transmitted BF/PC/DF) saves mono, even
+        under the RGB encoding -- the mode never colorizes a colorless choice;
+      - a 12-bit frame carries significant_bits so msb_aligned left-justifies
+        and right_aligned marks the file at its true depth;
+      - 8-bit fluorescence false color is baked to RGB here, because the
+        video_frame TIFF write emits no palette colormap (unlike the still
+        8-bit path).
+
+    Args:
+        frame: One captured frame -- mono uint8/uint16, or already-colored RGB.
+        file_loc: Output .tiff path.
+        metadata: Per-frame metadata dict (must include 'datetime').
+        layer_color: Acquiring layer ('Red'/'Green'/'Blue'/'Lumi'/'BF'/...).
+        false_color_on: Whether the layer's false-color toggle was on.
+        save_encoding: Resolved image-mode save encoding ('8bit'/'right_aligned'/
+            'msb_aligned'/'rgb').
+        capture_depth: Acquired bit depth (8 or 12); stamps significant_bits for
+            uint16 frames.
+
+    Raises:
+        CaptureError: if save_encoding is not a recognized image-mode encoding
+            (a typo would otherwise fall through to a plain mono write).
+    """
+    if save_encoding not in image_mode.VALID_SAVE_ENCODINGS:
+        raise CaptureError(
+            f'unknown save_encoding {save_encoding!r}; a video frame cannot be saved '
+            'with an unrecognized image-mode encoding'
+        )
+    save_color = layer_color if false_color_on else 'BF'
+    # State the payload depth so the file is labeled honestly: an 8-bit frame
+    # is 8-bit; a uint16 frame carries its acquired depth (12 for Mono12) so
+    # msb_aligned can left-justify and right_aligned marks the true depth; a
+    # summed / full-container 16-bit frame is 16.
+    if frame.dtype == np.uint8:
+        significant_bits = 8
+    elif capture_depth and capture_depth < 16:
+        significant_bits = capture_depth
+    else:
+        significant_bits = 16
+    if (
+        frame.dtype == np.uint8
+        and false_color_on
+        and not image_utils.is_color_image(frame)
+        and save_color in common_utils.get_image_layers()
+    ):
+        frame = image_utils.add_false_color(array=frame, color=save_color)
+    image_utils.write_tiff(
+        data=frame,
+        file_loc=file_loc,
+        metadata=metadata,
+        ome=False,
+        color=save_color,
+        video_frame=True,
+        significant_bits=significant_bits,
+        save_encoding=save_encoding,
+    )
 
 
 def get_next_save_path(scope: Lumascope, path) -> str:
@@ -153,10 +226,9 @@ def generate_image_save_path(
             logger.warning(
                 f'Protocol filename collision: {base_path.name} already '
                 f'exists; saving as {path.name} instead. This usually means '
-                f'your protocol has multiple steps that produce the same '
-                f'filename (same Name + Well + Tile + Z-Slice across '
-                f'different Tile Group IDs). Consider including the Tile '
-                f'Group ID in the step Name field to avoid the rename suffix.'
+                f'the output folder already holds files from a previous run '
+                f'-- capture into a fresh folder, or rename the protocol '
+                f'steps so each produces a unique filename.'
             )
 
     elif tail_id_mode is None:
@@ -260,11 +332,46 @@ def generate_image_metadata(scope: Lumascope, color, x, y, z) -> dict:
     chunks = chunks or {}
 
     _chunk_exp_us = chunks.get('ExposureTime')
-    exposure_ms_value = (
-        _chunk_exp_us / 1000.0 if _chunk_exp_us is not None else scope.imaging.get_exposure_time()
-    )
     _chunk_gain_db = chunks.get('Gain')
-    gain_db_value = _chunk_gain_db if _chunk_gain_db is not None else scope.imaging.get_gain()
+    # The live-confirmed surface, not get_gain()/get_exposure_time(): the
+    # value getters answer last-known-good on a failed read, which is
+    # right for control flow but would record a gain/exposure this frame
+    # was not captured at. get_live_camera_settings omits a field whose
+    # read did not just succeed, so unknown stays unknown here.
+    if _chunk_exp_us is None or _chunk_gain_db is None:
+        _live_settings = scope.imaging.get_live_camera_settings()
+    else:
+        _live_settings = {}
+    exposure_ms_value = (
+        _chunk_exp_us / 1000.0 if _chunk_exp_us is not None else _live_settings.get('exposure_ms')
+    )
+    gain_db_value = _chunk_gain_db if _chunk_gain_db is not None else _live_settings.get('gain_db')
+
+    # A non-physical gain / exposure (negative failed-read sentinel, or the
+    # zero exposure an inactive camera reports) is not a real setting.
+    # Unknown stays unknown: omit the key from the saved metadata rather
+    # than record a value the hardware never had -- a -1.0 or 0.0 in
+    # OME/TIFF metadata reads downstream as a real acquisition setting.
+    _frame_settings = {}
+    if common_utils.is_valid_exposure_ms(exposure_ms_value):
+        _frame_settings['exposure_time_ms'] = round(
+            exposure_ms_value, common_utils.max_decimal_precision('exposure')
+        )
+    else:
+        logger.warning(
+            'Exposure time for this frame is unknown (no chunk data and the '
+            'live camera read failed or the camera is inactive); omitting '
+            'exposure_time_ms from saved metadata'
+        )
+    if common_utils.is_valid_gain_db(gain_db_value):
+        _frame_settings['gain_db'] = round(
+            gain_db_value, common_utils.max_decimal_precision('gain')
+        )
+    else:
+        logger.warning(
+            'Gain for this frame is unknown (no chunk data and the live '
+            'camera read failed); omitting gain_db from saved metadata'
+        )
 
     metadata = {
         'camera_make': 'Etaluma',
@@ -280,10 +387,7 @@ def generate_image_metadata(scope: Lumascope, color, x, y, z) -> dict:
         'x_pos': px,
         'y_pos': py,
         'z_pos_um': z,
-        'exposure_time_ms': round(
-            exposure_ms_value, common_utils.max_decimal_precision('exposure')
-        ),
-        'gain_db': round(gain_db_value, common_utils.max_decimal_precision('gain')),
+        **_frame_settings,
         'illumination_ma': (
             round(_ma, common_utils.max_decimal_precision('illumination'))
             if (_ma := scope.illumination.get_led_ma(color=color)) is not None
@@ -349,12 +453,15 @@ def prepare_image_for_saving(
     x,
     y,
     z,
-    out_12to16: np.ndarray | None = None,
+    *,
+    significant_bits: int,
 ) -> dict:
     """Prepare an image array and metadata for saving to disk.
 
-    Flips the image vertically, converts bit depth if needed, generates
-    the save path and metadata.
+    Flips the image vertically, records the payload bit depth, and generates
+    the save path and metadata. Pixel values are stored raw (right-aligned) --
+    a 12-bit frame is saved as 0..4095, not left-justified to 0..65520 -- with
+    the true depth carried in the SignificantBits tag instead.
 
     Args:
         scope: Passed to generate_image_metadata + generate_image_save_path.
@@ -369,16 +476,19 @@ def prepare_image_for_saving(
         x: Stage X position in um.
         y: Stage Y position in um.
         z: Stage Z position in um.
-        out_12to16: Optional preallocated buffer for 12-to-16-bit
-            conversion (avoids per-frame allocation in the hot path).
+        significant_bits: Payload depth ``array`` was captured at, recorded in
+            the SignificantBits tag. Required: the caller passes the depth it
+            captured the frame at (8 for a uint8 frame, the native depth for a
+            single wider frame, 16 for a summed 16-bit container) -- a save
+            cannot re-derive it from the camera's live state, which may already
+            describe a newer format.
 
     Returns:
         dict: Contains 'image' (ndarray) and 'metadata' (dict with 'file_loc').
     """
     metadata = generate_image_metadata(scope, color=true_color, x=x, y=y, z=z)
 
-    if array.dtype == np.uint16:
-        array = image_utils.convert_12bit_to_16bit(array, out=out_12to16)
+    metadata['significant_bits'] = significant_bits
 
     array = _apply_save_orientation(array)
 
@@ -407,16 +517,17 @@ def save_image(
     append='ms',
     color='BF',
     tail_id_mode='increment',
+    *,
+    save_encoding: str,
     output_format: str = 'TIFF',
     true_color: str = 'BF',
     x=None,
     y=None,
     z=None,
-    use_false_color_16bit: bool | None = None,
-    out_12to16: np.ndarray | None = None,
     false_color_buf: np.ndarray | None = None,
     rgb_buf: np.ndarray | None = None,
     jpeg_quality: int = 90,
+    significant_bits: int,
 ) -> str:
     """Save an image array to a TIFF file with metadata.
 
@@ -433,10 +544,11 @@ def save_image(
         x: Stage X position in um.
         y: Stage Y position in um.
         z: Stage Z position in um.
-        use_false_color_16bit: Pre-resolved bool from sequenced_capture_runner;
-            None falls back to image_utils.write_tiff's settings-lock read
-            path (preserves behavior for ad-hoc callers).
-        out_12to16: Preallocated 12-to-16-bit conversion buffer.
+        save_encoding: The derived on-disk encoding from the image_mode
+            config layer (rgb / msb_aligned / right_aligned / 8bit). Required
+            and keyword-only: it is the single value that drives the save
+            shape, so no call site can omit the image mode and silently store
+            a scaled payload right-aligned (dark).
         false_color_buf: Preallocated false-color buffer.
         rgb_buf: Preallocated RGB buffer.
         jpeg_quality: JPEG quality 1-100, used only when output_format
@@ -491,7 +603,7 @@ def save_image(
             x=x,
             y=y,
             z=z,
-            out_12to16=out_12to16,
+            significant_bits=significant_bits,
         )
         image = image_data['image']
         metadata = image_data['metadata']
@@ -511,7 +623,10 @@ def save_image(
             # 8-bit rendered display image, TIFF / OME-TIFF carry the
             # 16-bit data + metadata.
             jpg_bytes = image_utils.encode_display_jpg(
-                _apply_save_orientation(array), color, jpeg_quality=jpeg_quality
+                _apply_save_orientation(array),
+                color,
+                significant_bits=significant_bits,
+                jpeg_quality=jpeg_quality,
             )
             pathlib.Path(file_loc).write_bytes(jpg_bytes)
         else:
@@ -521,7 +636,8 @@ def save_image(
                 metadata=metadata,
                 ome=ome,
                 color=color,
-                use_false_color_16bit=use_false_color_16bit,
+                significant_bits=metadata['significant_bits'],
+                save_encoding=save_encoding,
                 false_color_buf=false_color_buf,
                 rgb_buf=rgb_buf,
             )
@@ -562,6 +678,8 @@ def save_live_image(
     turn_off_all_leds_after: bool = False,
     use_executor: bool = False,
     jpeg_quality: int = 90,
+    *,
+    save_encoding: str,
 ) -> str | None:
     """Grab the current live image from the camera and save to a TIFF file.
 
@@ -588,6 +706,9 @@ def save_live_image(
         use_executor: Reserved for future use.
         jpeg_quality: JPEG quality 1-100, used only when output_format
             is "JPG".
+        save_encoding: The derived on-disk encoding from the image_mode
+            config layer; required and keyword-only, forwarded to save_image
+            so the live-capture path cannot drop the image mode.
 
     Returns:
         str | None: Path to saved file, or None on failure.
@@ -605,10 +726,15 @@ def save_live_image(
     if turn_off_all_leds_after:
         scope.illumination.leds_off()
 
-    if array is False:
+    if array is None:
         return None
 
-    return save_image(
+    # Depth resolved here, right after the capture that produced the frame
+    # (uint8 -> 8, summed -> 16, else the per-frame delivery stamp), and
+    # handed down with it -- the shared capture-time depth rule.
+    significant_bits = scope.imaging.capture_frame_depth(array, sum_count)
+
+    path = save_image(
         scope,
         array,
         save_folder,
@@ -619,4 +745,21 @@ def save_live_image(
         output_format=output_format,
         true_color=true_color,
         jpeg_quality=jpeg_quality,
+        significant_bits=significant_bits,
+        save_encoding=save_encoding,
     )
+
+    # Record what the manual capture actually wrote, so a saved-file bundle is
+    # self-describing. Report the sensor's acquired depth AND the depth stamped
+    # on the file separately: a scaled encoding left-justifies a 12-bit capture
+    # to fill the 16-bit container, so the file is 16-bit while the sensor gave
+    # 12. Reporting only the acquired depth read as if the file were mis-tagged.
+    saved_significant_bits = image_utils.written_significant_bits(
+        save_encoding, significant_bits, array.dtype, image_utils.is_color_image(array)
+    )
+    logger.info(
+        f'[ImageSave] manual capture encoding={save_encoding} '
+        f'capture_bits={significant_bits} saved_significant_bits={saved_significant_bits} '
+        f'dtype={array.dtype} shape={array.shape} -> {pathlib.Path(path).name}'
+    )
+    return path

@@ -6,14 +6,16 @@ import pathlib
 import pandas as pd
 
 import modules.common_utils as common_utils
+import modules.image_utils as image_utils
+from modules.stitch_algorithms import stitch_registered_tiles
 from modules.stitching_core import (
     channel_aware_stitcher,
-    overlap_stitcher,
     simple_position_stitcher,
 )
 
 from modules.common_utils import PostFunction
 from modules.protocol_post_processor import ProtocolPostProcessor
+from modules.protocol_post_processing_result import PostProcResult
 from modules.protocol_post_record import ProtocolPostRecord
 
 
@@ -53,36 +55,26 @@ class Stitcher(ProtocolPostProcessor):
             objective_id=row0['Objective']
         )
 
-        # A stitch spans every tile of a (well, channel), so the per-tile
-        # token baked into the step name no longer identifies the output --
-        # always drop it. A composite-stitch additionally spans all channels;
-        # its stored Color is 'Composite', so the leaked channel token cannot
-        # be matched by Color -- drop whichever channel token is present. A
-        # single-channel stitch keeps its channel (a BF stitch is still BF).
-        # Any custom name text is otherwise preserved.
-        base_name = common_utils.strip_tile_token(row0['Name'], row0.get('Tile', ''))
-        if row0.get('Color', '') == 'Composite':
-            base_name = common_utils.strip_any_channel_token(base_name)
-
-        # Prepend the protocol's capture_root (passed in via kwargs by
-        # ProtocolPostProcessor.load_folder) so the stitched output
-        # carries the same filename root as the per-image saves.
-        capture_root = kwargs.get('capture_root', '')
-        prefix = f'{capture_root}_{base_name}' if capture_root else base_name
+        # A stitch spans every tile of a (well, channel), so the per-tile token
+        # is omitted (tile=None) -- by construction, never by stripping it back
+        # out of a name. The channel comes from the authoritative Color column:
+        # a single-channel stitch keeps its channel, and a composite-stitch
+        # carries 'Composite' automatically (its Color is 'Composite'), so no
+        # leaked channel token needs removing.
+        post = ('stitched',)
         if kwargs.get('stitching_mode') == self.FAST_PREVIEW_MODE:
-            prefix = f'{prefix}_{self._FAST_PREVIEW_SUFFIX}'
-        name = common_utils.generate_default_step_name(
-            custom_name_prefix=prefix,
-            well_label=row0['Well'],
-            color=row0['Color'],
-            z_height_idx=row0['Z-Slice'],
-            scan_count=row0['Scan Count'],
-            objective_short_name=objective_short_name,
-            tile_label=None,
-            stitched=True,
+            post = ('stitched', self._FAST_PREVIEW_SUFFIX)
+        name = common_utils.build_step_name(
+            common_utils.step_components(
+                row0,
+                tile=None,
+                scan_count=row0['Scan Count'],
+                objective=objective_short_name,
+                post=post,
+            )
         )
 
-        outfile = f'{name}.tiff'
+        outfile = f'{self._prepend_capture_root(name, kwargs)}.tiff'
         return outfile
 
     def _filter_ignored_types(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -130,12 +122,14 @@ class Stitcher(ProtocolPostProcessor):
             if col in df.columns
         ]
 
-        return channel_aware_stitcher(
-            path=path,
-            df=df[stitch_columns],
-            pixel_size_um=pixel_size_um,
-            output_file_loc=kwargs.get('output_file_loc'),
-            stitching_mode=kwargs.get('stitching_mode', self.QUALITY_MODE),
+        return PostProcResult.from_group_result(
+            channel_aware_stitcher(
+                path=path,
+                df=df[stitch_columns],
+                pixel_size_um=pixel_size_um,
+                output_file_loc=kwargs.get('output_file_loc'),
+                stitching_mode=kwargs.get('stitching_mode', self.QUALITY_MODE),
+            )
         )
 
     @staticmethod
@@ -152,6 +146,7 @@ class Stitcher(ProtocolPostProcessor):
             file_path=file_path,
             timestamp=row0['Timestamp'],
             name=row0['Name'],
+            label=row0['Label'],
             scan_count=row0['Scan Count'],
             x=alg_metadata['center']['x'],
             y=alg_metadata['center']['y'],
@@ -184,6 +179,12 @@ class Stitcher(ProtocolPostProcessor):
         df: pd.DataFrame,
         output_file_loc: pathlib.Path | None = None,
     ):
+        """Place tiles using recorded stage positions.
+
+        Unlike _simple_position_stitcher, this preserves the pixel overlap
+        implied by the stage coordinates instead of treating every adjacent
+        tile as edge-to-edge. Overlapping pixels are averaged.
+        """
         required_cols = {'Filepath', 'X', 'Y', 'Objective'}
         if not required_cols.issubset(df.columns):
             missing = sorted(required_cols.difference(df.columns))
@@ -191,26 +192,120 @@ class Stitcher(ProtocolPostProcessor):
                 'status': False,
                 'error': f'missing required columns: {missing}',
             }
+
+        df = df.copy()
+        df['X'] = df['X'].astype(float)
+        df['Y'] = df['Y'].astype(float)
+
+        images = {}
+        input_depths = []
+        for _, row in df.iterrows():
+            image_filepath = path / row['Filepath']
+            image, significant_bits = image_utils.load_pixels(
+                image_filepath, collapse_legacy_false_color=False
+            )
+            if image is None:
+                return {
+                    'status': False,
+                    'error': f'unable to read image: {image_filepath}',
+                }
+            images[row['Filepath']] = image
+            input_depths.append(significant_bits)
+
+        sample_row = df.iloc[0]
+        sample = images[sample_row['Filepath']]
+        image_h = sample.shape[0]
+        image_w = sample.shape[1]
+
         try:
             objective = self._objectives_helper.get_objective_info(
-                objective_id=df.iloc[0]['Objective']
+                objective_id=sample_row['Objective']
             )
-            pixel_size_um = common_utils.get_pixel_size(
+            fov = common_utils.get_field_of_view(
                 focal_length=objective['focal_length'],
+                frame_size={'width': image_w, 'height': image_h},
                 binning_size=1,
             )
         except Exception as e:
             return {
                 'status': False,
-                'error': f'unable to determine objective pixel size: {e}',
+                'error': f'unable to determine objective field of view: {e}',
             }
 
-        return overlap_stitcher(
-            path=path,
-            df=df,
-            pixel_size_um=pixel_size_um,
-            output_file_loc=output_file_loc,
+        um_per_pixel_x = fov['width'] / image_w
+        um_per_pixel_y = fov['height'] / image_h
+        if um_per_pixel_x <= 0 or um_per_pixel_y <= 0:
+            return {
+                'status': False,
+                'error': 'invalid field-of-view scale',
+            }
+
+        x_max = df['X'].max()
+        y_min = df['Y'].min()
+        df['x_pix'] = ((x_max - df['X']) * 1000 / um_per_pixel_x).round().astype(int)
+        df['y_pix'] = ((df['Y'] - y_min) * 1000 / um_per_pixel_y).round().astype(int)
+
+        stitched_w = int(df['x_pix'].max() + image_w)
+        stitched_h = int(df['y_pix'].max() + image_h)
+        if stitched_w <= 0 or stitched_h <= 0:
+            return {
+                'status': False,
+                'error': 'invalid stitched image dimensions',
+            }
+
+        tiles = [
+            {
+                'tile': images[row['Filepath']],
+                'x_px': int(row['x_pix']),
+                'y_px': int(row['y_pix']),
+            }
+            for _, row in df.iterrows()
+        ]
+
+        center = {
+            'x': round(df['X'].unique().mean(), common_utils.max_decimal_precision(parameter='x')),
+            'y': round(df['Y'].unique().mean(), common_utils.max_decimal_precision(parameter='y')),
+        }
+
+        stitched_img, registered_tiles = stitch_registered_tiles(
+            tiles, output_shape=(stitched_h, stitched_w)
         )
+
+        output_depth = image_utils.resolve_output_depth(input_depths)
+        if output_file_loc is not None:
+            color = df['Color'].iloc[0] if 'Color' in df.columns else ''
+            output_file_loc_abs = path / output_file_loc
+            output_file_loc_abs.parent.mkdir(parents=True, exist_ok=True)
+            first_tile_path = path / sample_row['Filepath']
+            metadata = image_utils.build_postproc_output_metadata(
+                input_path=first_tile_path,
+                channel=color,
+                significant_bits=output_depth,
+                plate_pos_mm_override=center,
+            )
+            image_utils.write_tiff(
+                data=stitched_img,
+                file_loc=output_file_loc_abs,
+                metadata=metadata,
+                ome=False,
+                color=color,
+                significant_bits=metadata['significant_bits'],
+                save_encoding=image_utils.resolve_output_save_encoding(stitched_img),
+            )
+            return_image = None
+        else:
+            return_image = stitched_img
+
+        return {
+            'status': True,
+            'error': None,
+            'image': return_image,
+            'significant_bits': output_depth,
+            'metadata': {
+                'center': center,
+                'registered_tiles': registered_tiles,
+            },
+        }
 
 
 if __name__ == '__main__':

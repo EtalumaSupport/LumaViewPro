@@ -106,6 +106,49 @@ def _is_notification_call(node: ast.AST) -> bool:
     )
 
 
+_EXC_REPR_NAMES = frozenset({'e', 'ex', 'exc', 'err', 'error', 'exception', 'exc_type'})
+
+
+def _expr_is_exception_repr(expr: ast.AST) -> bool:
+    """True when an f-string replacement field renders a caught exception's
+    repr or class name -- the pattern that leaks SDK / registry internals
+    into an L1 popup. Matches a caught-exception name (`{e}`, `{exc}`, ...),
+    `{type(x).__name__}`, a bare `{type(x)}`, and `repr(e)` / `str(e)` over
+    such a name. The exception detail belongs in the paired logger call, not
+    the user-facing body.
+    """
+    if isinstance(expr, ast.Name):
+        return expr.id in _EXC_REPR_NAMES
+    if isinstance(expr, ast.Attribute) and expr.attr == '__name__':
+        inner = expr.value
+        if (
+            isinstance(inner, ast.Call)
+            and isinstance(inner.func, ast.Name)
+            and inner.func.id == 'type'
+        ):
+            return True
+    if isinstance(expr, ast.Call) and isinstance(expr.func, ast.Name):
+        if expr.func.id == 'type':
+            return True
+        if expr.func.id in ('repr', 'str') and expr.args:
+            first = expr.args[0]
+            return isinstance(first, ast.Name) and first.id in _EXC_REPR_NAMES
+    return False
+
+
+def _notification_exc_reprs(call: ast.Call) -> list[tuple[int, int]]:
+    """Return (line, col) for every f-string replacement field in `call`'s
+    direct arguments that renders an exception repr / class name."""
+    hits: list[tuple[int, int]] = []
+    arg_roots: list[ast.AST] = list(call.args)
+    arg_roots.extend(kw.value for kw in call.keywords)
+    for root in arg_roots:
+        for child in _walk_excluding_calls(root):
+            if isinstance(child, ast.FormattedValue) and _expr_is_exception_repr(child.value):
+                hits.append((child.lineno, child.col_offset))
+    return hits
+
+
 def _walk_excluding_calls(node: ast.AST):
     """Walk AST yielding `node` and its descendants, but skipping into Call subtrees.
 
@@ -241,6 +284,18 @@ def _check_rule_28(tree: ast.Module, path: str) -> list[Violation]:
                     'rule_28',
                     f'internal ID {m.group(0)!r} in notifications string; user-facing '
                     f'strings must not include rule tags / audit IDs / fix-N refs',
+                )
+            )
+        for ln, col in _notification_exc_reprs(node):
+            violations.append(
+                Violation(
+                    path,
+                    ln,
+                    col,
+                    'rule_28',
+                    'exception repr / class name in notifications string; user-facing '
+                    'strings speak to researchers -- keep the exception detail in the '
+                    'paired logger call, not the popup body',
                 )
             )
     return violations
@@ -388,6 +443,7 @@ _FALSE_COLOR_HELPER_NAMES = frozenset(
     {
         'maybe_apply_false_color',
         'write_tiff',
+        'write_hyperstack_tiff',
     }
 )
 
@@ -408,6 +464,17 @@ _RULE_31A_FILE_EXEMPT = frozenset(
 )
 _RULE_31A_BANNED_CV2_ATTRS = frozenset({'imread', 'imwrite', 'VideoWriter'})
 
+_RULE_31D_PATH_SCOPE = ('modules/', 'ui/')
+_RULE_31D_FILE_EXEMPT = frozenset(
+    {
+        # image_utils.py owns load_pixels -- the one reader that returns the
+        # pixels AND their significant-bit depth together -- plus the
+        # read_tiff_with_legacy_collapse helper it calls. tifffile.imread here
+        # is the boundary implementation, so the depth cannot be dropped.
+        'modules/image_utils.py',
+    }
+)
+
 _RULE_31B_BOUNDARY_PATHS = frozenset(
     {
         # The display / encode boundary where mono -> RGB false-color
@@ -417,13 +484,18 @@ _RULE_31B_BOUNDARY_PATHS = frozenset(
         # layer as TIFF metadata.
         'ui/main_display.py',
         'modules/video_capture.py',
-        # Sanctioned save-layer exception: the user-opt-in false_color_16bit
-        # setting (default OFF) deliberately widens 16-bit fluorescence to
+        # Sanctioned save-layer exception: the user-opt-in false-color image
+        # mode (default OFF) deliberately widens 16-bit fluorescence to
         # 3-channel RGB so it renders in color in Windows Preview, which
         # cannot read the TIFF-metadata color path. maybe_apply_false_color
         # is the single canonical gate for that opt-in; it no-ops when the
         # setting is off, preserving the mono-native default everywhere else.
         'modules/image_utils.py',
+        # Sanctioned save-layer exception: write_video_frame is the one
+        # canonical video-frame save path. The video_frame TIFF write emits no
+        # palette colormap, so 8-bit fluorescence false color must bake to RGB
+        # here; it no-ops on mono / already-colored / false-color-off frames.
+        'modules/image_save.py',
     }
 )
 
@@ -438,8 +510,8 @@ def _check_rule_31c(tree: ast.AST, path: str) -> list[Violation]:
     Bug shape this prevents: post-processor functions that compute a
     fluorescence-shaped output and save via bare tifffile.imwrite
     bypass the false-color RGB widening. Symptom: greyscale projection
-    / stitched / composite outputs even with the false_color_16bit
-    setting on.
+    / stitched / composite outputs even with the false-color image
+    mode selected.
 
     Per-function pairing rule: a function may call tifffile.imwrite IF
     the same function also calls one of the false-color helpers. A
@@ -547,6 +619,57 @@ def _check_rule_31a(tree: ast.AST, path: str) -> list[Violation]:
     return violations
 
 
+def _check_rule_31d(tree: ast.AST, path: str) -> list[Violation]:
+    """Block bare ``tf.imread`` / ``tifffile.imread`` in production
+    ``modules/`` and ``ui/`` outside the canonical depth-carrying reader.
+
+    Bug shape this prevents: a caller reads saved pixels via
+    ``tifffile.imread`` and gets the array with no significant-bit depth.
+    The depth then has to be read separately (a second open) and threaded
+    by hand -- and a caller who forgets scales a right-aligned 12-bit frame
+    as a full 16-bit value, reading it back ~16x dark. The canonical route
+    is ``image_utils.load_pixels``, which returns ``(image,
+    significant_bits)`` in one call so the pixels and their depth cannot be
+    obtained apart.
+
+    Path scope: only fires on ``modules/`` and ``ui/`` sources. File-level
+    exempt for the reader owner in ``_RULE_31D_FILE_EXEMPT``. Test files
+    exempt via ``_is_test_path``. The write side (depth-less ``write_tiff``)
+    is already impossible by signature -- ``significant_bits`` is a required
+    positional -- so this guard covers the read side; rule_31a covers the
+    cv2 read side; rule_31c covers the false-color-aware write side.
+    """
+    if _is_test_path(path):
+        return []
+    norm = path.replace('\\', '/')
+    if not any(norm.startswith(scope) for scope in _RULE_31D_PATH_SCOPE):
+        return []
+    if norm in _RULE_31D_FILE_EXEMPT:
+        return []
+    violations: list[Violation] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        f = node.func
+        if not isinstance(f, ast.Attribute):
+            continue
+        if isinstance(f.value, ast.Name) and f.value.id in _TIFFFILE_NAMES and f.attr == 'imread':
+            violations.append(
+                Violation(
+                    path,
+                    node.lineno,
+                    node.col_offset,
+                    'rule_31d',
+                    f'bare {f.value.id}.imread in modules/ or ui/; route '
+                    f'through image_utils.load_pixels, which returns '
+                    f'(image, significant_bits) together. A bare read hands '
+                    f'back pixels with no depth; a right-aligned 12-bit frame '
+                    f'read without its depth scales ~16x dark.',
+                )
+            )
+    return violations
+
+
 def _check_rule_31b(tree: ast.AST, path: str) -> list[Violation]:
     """Block ``add_false_color`` callsites outside the display / encode
     boundary.
@@ -563,7 +686,7 @@ def _check_rule_31b(tree: ast.AST, path: str) -> list[Violation]:
     Path scope: any production ``.py``. Allowed call sites are listed
     in ``_RULE_31B_BOUNDARY_PATHS`` -- the manual record path, protocol
     video capture, and image_utils itself (the sanctioned save-layer
-    exception: the opt-in false_color_16bit setting widens 16-bit
+    exception: the false-color image mode widens 16-bit
     fluorescence to RGB for Windows-Preview color via
     maybe_apply_false_color, which no-ops when the setting is off).
     Test files exempt via ``_is_test_path``.
@@ -744,6 +867,7 @@ def check_source(content: str, path: str) -> list[Violation]:
         violations.extend(_check_rule_31a(tree, path))
         violations.extend(_check_rule_31b(tree, path))
         violations.extend(_check_rule_31c(tree, path))
+        violations.extend(_check_rule_31d(tree, path))
         violations.extend(_check_rule_35d(tree, path))
     violations.extend(_check_rule_27a(content, path))
     violations.extend(_check_rule_27b(content, path))

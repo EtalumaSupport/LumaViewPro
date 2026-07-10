@@ -212,7 +212,8 @@ _a2A3536_31umBAS = CameraProfile(
     driver='pylon',
 )
 
-# IDS -- U3-34L0XCP-M (NO and GL variants share same specs)
+# IDS -- U3-34L family (IMX676): XCP, XLS, ... body variants share the same
+# sensor specs; matched by the 'U3-34Lx' substring in _PROFILES below.
 _U3_34L0XCP_M = CameraProfile(
     model_name='U3-34L0XCP-M',
     sensor='Sony IMX676-AAMR1-C',
@@ -227,7 +228,12 @@ _U3_34L0XCP_M = CameraProfile(
     exposure_max_us=2_000_000,
     binning_sizes=[1, 2],  # Sensor 2x2 only, H+V joint
     binning_modes=['Sum'],
-    alignment={'width': 48, 'height': 4},
+    # Deliverable frame-size granularity, NOT the hardware AOI grid. The IDS
+    # driver delivers any even size via oversize-then-crop (it reads the real
+    # 48x4 AOI grid live from the SDK nodemap, set_frame_size), so the size the
+    # UI/API can request is bounded only by even-dimension video safety. A
+    # floor-only driver (Pylon/FX2/sim) instead reports its true grid here.
+    alignment={'width': 2, 'height': 2},
     gain=GainInfo(
         analog_max_db=None,  # 31.6x max -- query dB from SDK
         has_digital=False,
@@ -317,7 +323,11 @@ _PROFILES: list[tuple[str, CameraProfile]] = [
     ('dmA3536-9gm', _dmA3536_9gm),
     ('a2A3536-31umBAS', _a2A3536_31umBAS),
     ('U3-34L0XCP-M', _U3_34L0XCP_M),  # spec sheet model
-    ('U3-34LxXCP-M', _U3_34L0XCP_M),  # as reported by SDK
+    # SDK reports the U3-34L family as 'U3-34Lx<variant>-M' (XCP, XLS, ...).
+    # The variants are the same IMX676 sensor in different body builds, so the
+    # substring covers all of them; a body whose processor differs gets its own
+    # entry above this one once characterized.
+    ('U3-34Lx', _U3_34L0XCP_M),
     ('SimulatedCamera', _simulated),
     ('MT9P031', _MT9P031_LS620),  # FX2Camera sets model_name='MT9P031-LS620'
     ('LS620', _MT9P031_LS620),  # explicit model-name match
@@ -336,6 +346,37 @@ _DEFAULT = CameraProfile(
     driver='unknown',
     notes='Fallback profile -- camera model not recognized',
 )
+
+
+def ids_default_profile(model_name: str) -> CameraProfile:
+    """Generic IDS profile for a body whose model name matched no static entry.
+
+    The cross-vendor ``_DEFAULT`` advertises Mono8 + ``driver='unknown'``, which
+    is wrong for an IDS body (packed Mono10/12, IDS AOI granularity). The IDS
+    driver substitutes this when ``lookup_profile`` falls through, then fills the
+    capability fields from the live nodemap at connect (pixel formats, gain /
+    exposure range, binning ceiling, ``pixel_size_um`` from ``SensorPixelWidth``).
+    So an unrecognized IDS body is still driven AS IDS; the only thing it lacks
+    is curated sensor metadata, which a real profile entry would supply.
+
+    ``pixel_size_um`` is left 0.0 here on purpose -- the driver reads the true
+    value from the ``SensorPixelWidth`` node; a fabricated default would silently
+    corrupt the micron scale bar and stage-distance math.
+    """
+    return CameraProfile(
+        model_name=model_name,
+        sensor='IDS (unrecognized model)',
+        pixel_size_um=0.0,  # filled from SensorPixelWidth at connect
+        pixel_formats=[],  # filled from the live PixelFormat node at connect
+        binning_sizes=[1],  # widened from the live binning ceiling at connect
+        binning_modes=['Sum'],
+        # IDS delivers any even size via oversize-then-crop, reading the real
+        # AOI grid live -- match the known IDS bodies' deliverable granularity.
+        alignment={'width': 2, 'height': 2},
+        gain=GainInfo(gain_selector='AnalogAll'),  # resolved live against the enum
+        driver='ids',
+        notes='Generic IDS fallback -- capabilities read live from the nodemap',
+    )
 
 
 def lookup_profile(model_name: str | None) -> CameraProfile:

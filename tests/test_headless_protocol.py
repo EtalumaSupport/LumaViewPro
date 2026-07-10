@@ -58,6 +58,7 @@ _purge_kivy_from_sys_modules()
 
 
 # Now import the protocol execution chain -- these MUST not require Kivy
+from modules.image_mode import ImageCaptureConfig
 from modules.lumascope_api import Lumascope
 from modules.sequential_io_executor import SequentialIOExecutor
 from modules.sequenced_capture_runner import (
@@ -233,7 +234,7 @@ class TestHeadlessProtocolExecution:
                 protocol_thread=execs['protocol'],
                 file_io_executor=execs['file_io'],
                 camera_executor=execs['camera'],
-                autofocus_thread=MagicMock(),
+                autofocus_thread=MagicMock(is_running=False),
                 autofocus_runner=mock_af,
             )
             executor._wellplate_loader = WellPlateLoader()
@@ -258,12 +259,9 @@ class TestHeadlessProtocolExecution:
                 'max_duration': datetime.timedelta(seconds=2),
             }
 
-            image_capture_config = {
-                'output_format': {'live': 'TIFF', 'sequenced': 'TIFF'},
-                'use_full_pixel_depth': False,
-            }
+            image_capture_config = ImageCaptureConfig.from_image_mode('8bit')
 
-            executor.run(
+            plan = executor.prepare(
                 protocol=protocol,
                 run_trigger_source='test',
                 run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
@@ -285,6 +283,7 @@ class TestHeadlessProtocolExecution:
                     'Lumi': False,
                 },
             )
+            executor.start(plan)
 
             assert done.wait(timeout=30), 'Protocol did not complete within timeout'
 

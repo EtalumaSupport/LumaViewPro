@@ -349,9 +349,11 @@ class MetricsLogger:
         if start_camera_temp is None and not self._scope.camera_connected:
             return
 
-        # Camera-temp scheduling stays inside Lumascope (LVP-A-2) so the
-        # API keeps full ownership of the event handle and self-
-        # unschedules cleanly when the camera disconnects mid-run.
+        # Camera-temp scheduling stays inside Lumascope so the API keeps
+        # full ownership of the event handle; the tick skips samples while
+        # the camera is disconnected but never self-cancels (a transient
+        # connectivity False must not end logging), and the schedule is
+        # torn down by this logger's stop() and by Lumascope.disconnect().
         # Hand it adapter callables matching the Scheduler so Lumascope
         # doesn't need to learn about Scheduler.
         self._scope.imaging.start_camera_temp_logging(

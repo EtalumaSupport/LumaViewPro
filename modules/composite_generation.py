@@ -5,7 +5,6 @@ import pathlib
 
 import numpy as np
 import pandas as pd
-import tifffile as tf
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
@@ -13,28 +12,10 @@ from modules.composite_builder import build_composite
 import modules.image_utils as image_utils
 from modules.common_utils import PostFunction
 from modules.protocol_post_processor import ProtocolPostProcessor
+from modules.protocol_post_processing_result import PostProcResult
 from modules.protocol_post_record import ProtocolPostRecord
 from modules.settings_init import settings
 from lvp_logger import logger
-
-
-def _strip_channel_token(name: str, channel: str) -> str:
-    """Remove a single channel token from a per-channel step name.
-
-    A composite merges every channel for one (well, position) into a single
-    image, so the per-channel step name (e.g. 'A1_Green') must not tag the
-    composite output with one arbitrary channel. Removes the first
-    '_<channel>' (or a leading '<channel>_') token; returns the name
-    unchanged when channel is empty or not present.
-    """
-    if not channel:
-        return name
-    token = str(channel)
-    if f'_{token}' in name:
-        return name.replace(f'_{token}', '', 1)
-    if name.startswith(f'{token}_'):
-        return name.replace(f'{token}_', '', 1)
-    return name
 
 
 class CompositeGeneration(ProtocolPostProcessor):
@@ -71,30 +52,21 @@ class CompositeGeneration(ProtocolPostProcessor):
             objective_id=row0['Objective']
         )
 
-        # The step name carries the channel (e.g. 'A1_Green'); a composite
-        # spans all channels, so drop that token before it becomes the prefix.
-        base_name = _strip_channel_token(row0['Name'], row0.get('Color', ''))
-
-        # Prepend the protocol's capture_root (passed in via kwargs by
-        # ProtocolPostProcessor.load_folder) so post-processed outputs
-        # carry the same filename root as the per-image saves.
-        capture_root = kwargs.get('capture_root', '')
-        if capture_root:
-            prefix = f'{capture_root}_{base_name}'
-        else:
-            prefix = base_name
-        name = common_utils.generate_default_step_name(
-            custom_name_prefix=prefix,
-            well_label=row0['Well'],
-            color='Composite',
-            z_height_idx=row0['Z-Slice'],
-            scan_count=row0['Scan Count'],
-            objective_short_name=objective_short_name,
-            tile_label=row0['Tile'],
-            stitched=row0['Stitched'],
+        # A composite spans every channel, so it is named 'Composite' in place
+        # of the per-channel token. The identity is built from the authoritative
+        # columns (channel forced to 'Composite'), never re-parsed from the
+        # prior name string, so a stale channel token cannot leak in.
+        name = common_utils.build_step_name(
+            common_utils.step_components(
+                row0,
+                channel='Composite',
+                scan_count=row0['Scan Count'],
+                objective=objective_short_name,
+                post=('stitched',) if row0['Stitched'] else (),
+            )
         )
 
-        outfile = f'{name}.tiff'
+        outfile = f'{self._prepend_capture_root(name, kwargs)}.tiff'
         return outfile
 
     def _filter_ignored_types(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -125,11 +97,13 @@ class CompositeGeneration(ProtocolPostProcessor):
         # channels because cv2.imwrite is BGR-oriented).
         output_file_loc_rel = kwargs.get('output_file_loc')
         output_format = kwargs.get('output_format', 'TIFF')
-        return CompositeGeneration._create_composite_image(
-            path=path,
-            df=df[['Filepath', 'Color']],
-            output_file_loc=path / output_file_loc_rel if output_file_loc_rel else None,
-            output_format=output_format,
+        return PostProcResult.from_group_result(
+            CompositeGeneration._create_composite_image(
+                path=path,
+                df=df[['Filepath', 'Color']],
+                output_file_loc=path / output_file_loc_rel if output_file_loc_rel else None,
+                output_format=output_format,
+            )
         )
 
     @staticmethod
@@ -146,6 +120,7 @@ class CompositeGeneration(ProtocolPostProcessor):
             file_path=file_path,
             timestamp=row0['Timestamp'],
             name=row0['Name'],
+            label=row0['Label'],
             scan_count=row0['Scan Count'],
             x=row0['X'],
             y=row0['Y'],
@@ -193,9 +168,17 @@ class CompositeGeneration(ProtocolPostProcessor):
         # in-memory mono inputs so build_composite consumes the same
         # shape from both orchestrators.
         images = {}
+        input_depths = []
         for _, row in df.iterrows():
             image_filepath = path / row['Filepath']
-            images[row['Filepath']] = tf.imread(str(image_filepath))
+            image, significant_bits = image_utils.load_pixels(
+                image_filepath, collapse_legacy_false_color=False
+            )
+            images[row['Filepath']] = image
+            input_depths.append(significant_bits)
+        # Empty after layer filtering is a handled no-op below (status=False,
+        # no write), so only resolve a depth when inputs were actually loaded.
+        output_depth = image_utils.resolve_output_depth(input_depths) if input_depths else None
 
         error = None
         status = True
@@ -292,6 +275,7 @@ class CompositeGeneration(ProtocolPostProcessor):
                     reference_input_path = path / df.iloc[0]['Filepath']
                     metadata = image_utils.build_composite_output_metadata(
                         reference_input_path=reference_input_path,
+                        significant_bits=output_depth,
                     )
                     # Honor the run's output format. The composite is a
                     # single 2D RGB image, so only plain OME-TIFF applies --
@@ -307,6 +291,8 @@ class CompositeGeneration(ProtocolPostProcessor):
                         metadata=metadata,
                         ome=ome,
                         color='Composite',
+                        significant_bits=metadata['significant_bits'],
+                        save_encoding=image_utils.resolve_output_save_encoding(img),
                     )
 
         except Exception as e:
@@ -331,6 +317,7 @@ class CompositeGeneration(ProtocolPostProcessor):
             'status': status,
             'error': error,
             'image': return_image,
+            'significant_bits': output_depth,
             'metadata': {
                 'color': 'Composite',
             },
@@ -429,8 +416,11 @@ class CompositeGeneration(ProtocolPostProcessor):
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         reference_input_path = red_path or green_path or blue_path or transmitted_path
+        # Depth travels back from _create_composite_image, which read the
+        # inputs via load_pixels -- no second open of the source files.
         metadata = image_utils.build_composite_output_metadata(
             reference_input_path=pathlib.Path(reference_input_path),
+            significant_bits=result['significant_bits'],
         )
         image_utils.write_tiff(
             data=img,
@@ -438,6 +428,8 @@ class CompositeGeneration(ProtocolPostProcessor):
             metadata=metadata,
             ome=(format == 'ome-tiff'),
             color='Composite',
+            significant_bits=metadata['significant_bits'],
+            save_encoding=image_utils.resolve_output_save_encoding(img),
         )
 
         return {

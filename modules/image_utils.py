@@ -1,8 +1,10 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 import datetime
 import enum
+import functools
 import json
 import pathlib
+import re
 import xml.etree.ElementTree as ET
 
 import cv2
@@ -11,21 +13,26 @@ import tifffile as tf
 
 from modules.common_utils import ColorChannel
 import modules.common_utils as common_utils
+import modules.image_mode as image_mode
 import modules.image_utils as image_utils
 
 from fractions import Fraction
 
 from lvp_logger import logger, version
 
-# Pre-built lookup tables for bit-depth conversion (built once at import, ~4 KB each)
-# Using the same float math as the original per-pixel conversion ensures identical results.
-_LUT_12_TO_8 = np.clip(np.arange(4096, dtype=np.float32) / 4095 * 255, 0, 255).astype(np.uint8)
 
-_LUT_16_TO_8 = (np.arange(65536, dtype=np.float64) / 256).astype(np.uint8)
+def is_color_shape(shape) -> bool:
+    """True when an array of this shape is a 3-channel color image (H, W, 3).
+
+    The single channel-count rule, shared by callers that hold a full image and
+    callers that hold only a shape tuple (e.g. a stitcher sizing its canvas from
+    a header read without decoding pixels), so the two cannot disagree.
+    """
+    return len(shape) == 3 and shape[2] == 3
 
 
 def is_color_image(image) -> bool:
-    return len(image.shape) == 3 and image.shape[2] == 3
+    return is_color_shape(image.shape)
 
 
 def fit_frame_to_shape(image: np.ndarray, target_shape: tuple[int, ...]) -> np.ndarray | None:
@@ -51,6 +58,167 @@ def fit_frame_to_shape(image: np.ndarray, target_shape: tuple[int, ...]) -> np.n
     else:
         fitted[:height, :width, :] = image[:height, :width, :]
     return fitted
+
+
+def decimate_for_preview(
+    image: np.ndarray, target_wh: tuple[int, int] | None, *, categorical: bool = False
+) -> np.ndarray:
+    """Downscale a live-preview frame to roughly the on-screen widget size so
+    the main-thread Kivy ``blit_buffer`` uploads far fewer bytes.
+
+    Handles both the 2-D ``uint8`` luminance preview and the 3-D ``(H, W, 3)``
+    RGB bullseye preview -- both blit paths share the identical
+    downscale-to-widget-size need, so they share one helper (``cv2.resize``
+    preserves the channel axis). Only the channel count and the resampling
+    differ; the contain-fit math is the same.
+
+    ``categorical`` picks the resampling to match the data's meaning:
+
+    - ``False`` (default, continuous-tone): area-averaging (``INTER_AREA``),
+      the correct antialiased downscale for a grayscale intensity image.
+    - ``True`` (false-color / label image, e.g. the bullseye contour map):
+      nearest-neighbor. The bullseye LUT is a topographic map -- mostly black
+      with thin pure-color iso-intensity bands -- so area-averaging would blend
+      those one-pixel contour lines toward black and erase the focus aid.
+      Nearest-neighbor keeps each sampled label's exact color (what the GPU's
+      texture minification did before the host-side downscale existed).
+
+    Live-view frame rate is bounded by the per-frame texture upload on the main
+    (Kivy) thread, which serializes against the capture and convert threads on
+    the GIL -- not by the camera or the packed-format converter. A large-sensor
+    frame (e.g. 1900x1900, ~3.6 MB) blitted at full resolution every frame
+    starves the main thread; a frame already near the displayed size does not.
+    The displayed pixels are unchanged because the GPU was downscaling the
+    oversized texture to the widget anyway.
+
+    Preview only. Capture, save, autofocus, histogram, and raw frame-listener
+    paths take the full-resolution image through other code and are untouched.
+
+    Args:
+        image: 2-D ``uint8`` grayscale or 3-D ``(H, W, C)`` ``uint8`` RGB
+            preview frame (already downconverted).
+        target_wh: ``(width, height)`` of the display widget in pixels, or None
+            when the widget has not been laid out yet -- in which case the
+            image is returned unchanged (full-resolution blit, the prior
+            behavior), so a missing target never degrades correctness.
+
+    Returns:
+        The image unchanged when no downscale applies (target unknown, a frame
+        that is neither 2-D luminance nor 3-D with 3/4 channels, or a frame
+        already at/below the target); otherwise a copy scaled to the frame's
+        on-screen size (channels preserved). The widget shows the frame
+        contain-fit (aspect preserved, letterboxed), so the displayed size is the
+        frame scaled by ``min(tw/w, th/h)``; downscaling to exactly that uploads
+        no more pixels than the screen shows and stays as sharp as the widget can
+        display.
+
+    A single contain-fit ratio (not an integer decimation step) is used so the
+    downscale engages for frames only slightly larger than the widget. An
+    integer step rounds down to 1 -- i.e. no downscale -- for any frame under
+    2x the widget on both axes, leaving e.g. a ~2100x2100 sensor frame blitted
+    at full resolution on a normal display and capping live view at ~5-6 fps.
+    """
+    if target_wh is None or image is None:
+        return image
+    # Accept 2-D luminance, or 3-D with a real color channel count (3=RGB,
+    # 4=RGBA). Reject anything else -- notably (H, W, 1), which cv2.resize would
+    # squeeze to a 2-D result, dropping the channel axis the RGB blit assumes.
+    is_luma = image.ndim == 2
+    is_color = image.ndim == 3 and image.shape[2] in (3, 4)
+    if not (is_luma or is_color):
+        return image
+    tw, th = target_wh
+    if tw < 1 or th < 1:
+        return image
+    h, w = image.shape[:2]
+    factor = min(tw / w, th / h)
+    if factor >= 1.0:
+        return image  # frame already <= widget on the limiting axis; never upscale
+    interpolation = cv2.INTER_NEAREST if categorical else cv2.INTER_AREA
+    new_w = max(1, round(w * factor))
+    new_h = max(1, round(h * factor))
+    return cv2.resize(image, (new_w, new_h), interpolation=interpolation)
+
+
+def scaled_preview_target(base_wh: tuple[int, int] | None, scale: float) -> tuple[int, int] | None:
+    """Scale a widget's pixel box up by a zoom (Scatter) factor to get the
+    on-screen size of a digitally-zoomed live image, for ``decimate_for_preview``.
+
+    Zoom-in magnifies each texel, so the displayed image needs more resolution,
+    not less: at a 1:1 zoom the scale equals sensor/widget, so the target reaches
+    sensor size and the decimation factor falls to 1 (full-resolution blit).
+    Zoom-out is clamped to 1.0 -- keep widget-size detail rather than
+    over-shrinking a view that is already small on screen.
+
+    Returns None when ``base_wh`` is None (widget not laid out yet), so the
+    caller leaves the frame at full resolution.
+
+    Rounds to the nearest displayed pixel (not truncates): at 1:1 the scale is
+    ``sensor/widget``, and ``widget * sensor/widget`` lands a sub-LSB below the
+    sensor size for ~6% of widget/sensor pairs. Truncating would make the target
+    one pixel short of the sensor, so the exact-ratio downscale would do a
+    pointless 1-pixel shrink instead of leaving the 1:1 view at true full
+    resolution. Rounding keeps the target on the sensor size, so the factor is
+    exactly 1.0 and the frame is blitted untouched.
+    """
+    if base_wh is None:
+        return None
+    try:
+        s = float(scale)
+    except (TypeError, ValueError):
+        s = 1.0
+    if not s or s < 1.0:
+        s = 1.0
+    return (round(base_wh[0] * s), round(base_wh[1] * s))
+
+
+def click_offset_to_um(
+    norm_offset: float, norm_extent: float, frame_extent: float, pixel_size_um: float
+) -> float:
+    """Physical (micron) distance from the frame center for a click landing
+    ``norm_offset`` widget-pixels from the displayed image's edge, where the
+    displayed image spans ``norm_extent`` widget-pixels and the full-resolution
+    sensor frame is ``frame_extent`` pixels. Used by click-to-center to drive
+    the stage so the clicked feature moves to the optical axis.
+
+    ``frame_extent`` MUST be the full-resolution sensor frame, never the
+    preview-display texture: the live preview is downscaled to ~widget size
+    before the blit, but ``pixel_size_um`` is the size of one SENSOR pixel, so
+    feeding the downscaled texture size under-reports the distance by the
+    downscale factor and the stage stops short of the clicked point. Returns
+    0.0 when the displayed extent is degenerate (no division possible).
+    """
+    if norm_extent <= 0:
+        return 0.0
+    frame_pos = norm_offset * frame_extent / norm_extent
+    return (frame_pos - frame_extent / 2.0) * pixel_size_um
+
+
+def center_crop(image: np.ndarray, x0: int, y0: int, width: int, height: int) -> np.ndarray:
+    """Return the ``[y0:y0+height, x0:x0+width]`` sub-rectangle of ``image``.
+
+    The oversize-then-crop framing path acquires a slightly larger AOI than the
+    caller requested and removes the surplus here so the delivered frame is
+    exactly the requested size. Unlike ``fit_frame_to_shape`` (which keeps the
+    top-left corner), this keeps a caller-chosen window, so the kept region can
+    stay centered on the sensor's optical axis. The leading two axes are sliced,
+    so any channel axis passes through untouched.
+
+    Raises ValueError if the window does not fully fit the image -- a window that
+    ran off the array would otherwise be silently truncated by numpy, delivering
+    a wrong-sized frame instead of failing loudly.
+
+    Returns a VIEW into the larger acquisition buffer, so the surplus rows/cols
+    stay resident as long as the result is held. A caller that retains the frame
+    beyond the current grab (a cache, history ring, async queue) MUST copy it
+    (e.g. np.ascontiguousarray) so the oversized source can be freed.
+    """
+    if x0 < 0 or y0 < 0 or x0 + width > image.shape[1] or y0 + height > image.shape[0]:
+        raise ValueError(
+            f'crop window x0={x0} y0={y0} {width}x{height} does not fit '
+            f'image {image.shape[1]}x{image.shape[0]}'
+        )
+    return image[y0 : y0 + height, x0 : x0 + width]
 
 
 def mono_to_rgb_falsecolor(mono: np.ndarray, layer: str) -> np.ndarray:
@@ -146,15 +314,25 @@ def read_tiff_with_legacy_collapse(path: pathlib.Path) -> np.ndarray:
         2D mono ndarray for mono and collapsed-legacy files; 3D RGB
         ndarray for real color images.
     """
+    return _collapse_legacy_false_color(tf.imread(str(path)), path)
+
+
+def _collapse_legacy_false_color(img: np.ndarray, path: pathlib.Path) -> np.ndarray:
+    """Apply the legacy false-color collapse rule to an already-read array.
+
+    Split out from read_tiff_with_legacy_collapse so load_pixels can decode the
+    pixels from a single open TIFF handle and still reuse the exact collapse
+    logic, instead of opening the file a second time. See
+    read_tiff_with_legacy_collapse for the detection rule and rationale.
+    """
     global _legacy_collapse_warned
-    img = tf.imread(str(path))
     if img.ndim == 3 and img.shape[2] == 3:
         nonzero_channels = [i for i in range(3) if img[..., i].any()]
         # Considered tightening this to a known-LUT match or a metadata
         # marker so a genuine single-color composite is never collapsed;
         # rejected because every 3-channel input that reaches this reader is
         # a false-color replica (a legacy mono->RGB save, or a
-        # false_color_16bit-on save) -- real composites carry signal in
+        # false-color-mode save) -- real composites carry signal in
         # multiple channels -- and the one-shot log line flags any collapse.
         # Revisit if a true single-channel RGB output ever feeds VideoBuilder
         # or CompositeGeneration.
@@ -164,6 +342,253 @@ def read_tiff_with_legacy_collapse(path: pathlib.Path) -> np.ndarray:
                 _legacy_collapse_warned = True
             return img[..., nonzero_channels[0]].copy()
     return img
+
+
+# Private TIFF tag carrying the payload's significant-bit count on outputs that
+# have no OME-XML to hold it (plain + ImageJ TIFFs). In the TIFF private-tag
+# range (32768-65535); FIJI / ImageJ / Windows Preview ignore unknown tags.
+_TIFF_TAG_SIGNIFICANT_BITS = 65123
+
+
+def read_tiff_significant_bits(path: pathlib.Path) -> int:
+    """Meaningful payload bits recorded in a TIFF.
+
+    A reader needs this to scale a uint16 file to 8-bit correctly: a 12-bit
+    payload stored right-aligned (0..4095) reads full-white only when scaled by
+    4095, not by 65535. The depth is read from the OME-XML SignificantBits tag
+    on OME files, and from a durable private tag on plain / ImageJ files (which
+    have no OME-XML to carry it). Falls back to the container width
+    (itemsize * 8) for files that carry neither -- including older files whose
+    stored values were left-justified to fill the container, for which
+    container-width scaling is the correct interpretation.
+    """
+    with tf.TiffFile(str(path)) as tif:
+        return _significant_bits_from_open(tif)
+
+
+def _significant_bits_from_open(tif: 'tf.TiffFile') -> int:
+    """Resolve significant bits from an already-open TiffFile handle.
+
+    Split out from read_tiff_significant_bits so load_pixels can read the depth
+    from the same handle it decodes the pixels with, instead of opening the
+    file a second time just for the tag. See read_tiff_significant_bits for the
+    OME -> private-tag -> container-width resolution order and rationale.
+    """
+    ome = tif.ome_metadata
+    if ome:
+        match = re.search(r'SignificantBits="(\d+)"', ome)
+        if match:
+            return int(match.group(1))
+    tag = tif.pages[0].tags.get(_TIFF_TAG_SIGNIFICANT_BITS)
+    if tag is not None and tag.value:
+        return int(tag.value)
+    return tif.pages[0].dtype.itemsize * 8
+
+
+def load_pixels(
+    path: pathlib.Path,
+    *,
+    collapse_legacy_false_color: bool = True,
+) -> tuple[np.ndarray, int]:
+    """Load a saved frame's pixels together with their significant-bit depth.
+
+    The one sanctioned read for saved pixel data: it returns the array AND the
+    meaningful payload depth in a single call, so a caller cannot obtain the
+    pixels without the depth needed to scale them. A uint16 frame stored
+    right-aligned (0..4095 for a 12-bit sensor) reads ~16x dark if scaled as a
+    full 16-bit value, so the depth is not optional context -- it is part of
+    what the pixels mean. Loading the two apart is the gap that lets a consumer
+    silently mis-scale every frame it touches.
+
+    Depth comes from read_tiff_significant_bits (OME SignificantBits -> private
+    tag -> container width), the single canonical resolver, so every encoding
+    ever written reads correctly: OME right-aligned, plain / ImageJ private-tag,
+    legacy left-justified (SignificantBits=16), and 8-bit. Non-TIFF files
+    (PNG / JPEG) carry no depth tag, so their container width is the depth.
+
+    Args:
+        path: Path to a saved pixel file (TIFF, PNG, or JPEG).
+        collapse_legacy_false_color: When True (the mono-uniform consumers --
+            folder walk, cell-count preview), a 3-channel TIFF with a single
+            populated channel is collapsed to its mono plane so those consumers
+            see one shape regardless of file age. Color-capable consumers
+            (stitch / zproject / composite / stack) pass False to keep the raw
+            channel layout their own color handling expects; the depth is
+            returned either way.
+
+    Returns:
+        (image, significant_bits). image is the stored array with values
+        verbatim (right-aligned, dtype preserved); significant_bits is the
+        payload depth to hand to convert_to_8bit and the display path.
+
+    Raises:
+        FileNotFoundError: the path does not exist.
+        ValueError: the file cannot be decoded as an image.
+    """
+    image, sig, _ = _load_pixels_and_timestamp(
+        path,
+        collapse_legacy_false_color=collapse_legacy_false_color,
+        read_timestamp=False,
+    )
+    return image, sig
+
+
+def load_pixels_with_timestamp(
+    path: pathlib.Path,
+    *,
+    collapse_legacy_false_color: bool = True,
+) -> tuple[np.ndarray, int, 'datetime.datetime | None']:
+    """Load a frame's pixels, significant-bit depth, and capture time in one open.
+
+    The video builder needs all three per frame: the pixels to encode, the depth
+    to scale them to 8-bit, and the per-frame capture time for the optional
+    overlay. Reading them through a single TiffFile handle keeps an
+    overlay-enabled build to one open + IFD parse per frame instead of two (one
+    for pixels + depth, a second just for the timestamp metadata). For non-TIFF
+    inputs (PNG / JPEG), which carry no per-frame timestamp metadata, the
+    timestamp is None.
+
+    See load_pixels for the pixel + depth contract (the array and depth are
+    identical to what load_pixels returns) and read_frame_timestamp for the
+    metadata shapes the timestamp is recovered from.
+
+    Returns:
+        (image, significant_bits, timestamp). timestamp is None when the file
+        carries no readable per-frame capture time.
+    """
+    return _load_pixels_and_timestamp(
+        path,
+        collapse_legacy_false_color=collapse_legacy_false_color,
+        read_timestamp=True,
+    )
+
+
+def _load_pixels_and_timestamp(
+    path: pathlib.Path,
+    *,
+    collapse_legacy_false_color: bool,
+    read_timestamp: bool,
+) -> tuple[np.ndarray, int, 'datetime.datetime | None']:
+    """Shared loader behind load_pixels and load_pixels_with_timestamp.
+
+    Keeps a single source of truth for the pixel + depth read so the two public
+    entry points cannot drift. When read_timestamp is True the per-frame capture
+    time is recovered from the same open TIFF handle, so no caller opens a file
+    twice. A timestamp read that fails leaves the pixels intact: the frame still
+    loads, the overlay just falls back to its caller-supplied time.
+    """
+    path = pathlib.Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f'No such pixel file: {path}')
+
+    if path.suffix.lower() in ('.tif', '.tiff'):
+        # One open serves every read: the pixel array, the significant-bit depth,
+        # and (when asked) the per-frame timestamp come from the same TiffFile
+        # handle. load_pixels runs per tile in stitch / zproject / composite, so a
+        # second open just for the depth tag -- or the timestamp -- would double
+        # the file opens and IFD parses of every post-processing or video run.
+        timestamp = None
+        with tf.TiffFile(str(path)) as tif:
+            image = tif.asarray()
+            sig = _significant_bits_from_open(tif)
+            if read_timestamp:
+                try:
+                    timestamp = _timestamp_from_shaped(tif.shaped_metadata)
+                except Exception:
+                    timestamp = None
+        if collapse_legacy_false_color:
+            image = _collapse_legacy_false_color(image, path)
+        # Debug (not info): load_pixels runs per-tile in stitch/zproject, so this
+        # is high-volume; it records how a saved file was interpreted on read-back
+        # (depth + whether a false-color file collapsed to mono) when diagnosing.
+        logger.debug(
+            f'[ImageLoad tiff] {path.name} dtype={image.dtype} shape={image.shape} '
+            f'color={is_color_image(image)} significant_bits={sig} '
+            f'collapse={collapse_legacy_false_color}'
+        )
+        return image, sig, timestamp
+
+    # Non-TIFF (PNG / JPEG): no depth carrier, so the container width is the
+    # depth, and no per-frame timestamp metadata to recover. cv2 returns color
+    # files in BGR channel order; the depth-sensitive payloads are mono, where
+    # channel order is moot.
+    image = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+    if image is None:
+        raise ValueError(f'Could not decode image: {path}')
+    sig = image.dtype.itemsize * 8
+    logger.debug(
+        f'[ImageLoad cv2] {path.name} dtype={image.dtype} shape={image.shape} '
+        f'color={is_color_image(image)} significant_bits={sig} '
+        f'collapse={collapse_legacy_false_color}'
+    )
+    return image, sig, None
+
+
+def read_image_geometry(path: pathlib.Path) -> tuple[tuple[int, ...], np.dtype]:
+    """Read an image's (shape, dtype) without decoding its pixels when possible.
+
+    A caller that only needs the spatial size and dtype to size an output canvas
+    (the stitcher's per-region setup) should not pay a full pixel decode -- nor a
+    second open for the depth tag it then discards. A TIFF's IFD header carries
+    the page shape and dtype, so a single TiffFile open answers without reading
+    the pixel data. Non-TIFF inputs (PNG / JPEG) have no separable header, so
+    they fall back to a full load through load_pixels.
+
+    The returned shape matches what load_pixels would return for the raw file
+    (no legacy false-color collapse): mono is (H, W); a 3-channel frame is
+    (H, W, 3).
+
+    Args:
+        path: Path to a saved pixel file (TIFF, PNG, or JPEG).
+
+    Returns:
+        (shape, dtype) of the stored array.
+
+    Raises:
+        FileNotFoundError: the path does not exist.
+    """
+    path = pathlib.Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f'No such pixel file: {path}')
+    if path.suffix.lower() in ('.tif', '.tiff'):
+        with tf.TiffFile(str(path)) as tif:
+            page = tif.pages[0]
+            return tuple(page.shape), page.dtype
+    image, _ = load_pixels(path, collapse_legacy_false_color=False)
+    return image.shape, image.dtype
+
+
+def resolve_output_depth(input_depths) -> int:
+    """Pick the significant-bit depth a derived output should carry.
+
+    A projection / stitch / composite copies its inputs' pixel values
+    verbatim, so the output's honest depth is the inputs' depth. The inputs
+    of one derived output are the same channel captured at the same camera
+    bit-depth, so the depths are uniform in normal operation. When they are
+    not (genuinely mixed-source data), the deepest input is the safe label:
+    a shallower payload sits right-aligned in the same container and stays
+    correct under the deeper output's scaling, whereas labeling the output
+    shallower than its deepest input would clip that input on display.
+
+    Args:
+        input_depths: The significant_bits values load_pixels returned for
+            the inputs being combined.
+
+    Returns:
+        The depth to hand to the output write.
+
+    Raises:
+        ValueError: No input depths were supplied (no inputs were loaded).
+    """
+    depths = set(input_depths)
+    if not depths:
+        raise ValueError('resolve_output_depth needs at least one input depth')
+    if len(depths) > 1:
+        logger.warning(
+            f'[ImageUtils] Combining inputs of mixed significant-bit depth '
+            f'{sorted(depths)}; tagging the output as {max(depths)}-bit.'
+        )
+    return max(depths)
 
 
 def _read_ome_input_metadata(ome_xml: str, datetime_value) -> dict | None:
@@ -277,8 +702,6 @@ def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
             },
             'z_pos_um': plane['PositionZ'],
             'objective': plane.get('Objective', {}),
-            'exposure_time_ms': plane['ExposureTime'],
-            'gain_db': plane['Gain'],
             'illumination_ma': plane['Illumination'],
             'pixel_size_um': structured['PhysicalSizeX'],
             'channel': structured['Channel']['Name'][0],
@@ -289,6 +712,16 @@ def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
         # frame type); fall back to defaults rather than crashing the
         # post-processing job, per this function's documented contract.
         return None
+    # Exposure and gain are the writer's optional fields: the producer
+    # omits the key when the value was genuinely unknown at capture.
+    # Mirror that here -- reconstruct them only when present -- so a
+    # frame saved with an unreadable gain still forwards its positions
+    # and pixel size, and no fabricated stand-in value is invented on
+    # the way back out to a derived output.
+    if 'ExposureTime' in plane:
+        flat['exposure_time_ms'] = plane['ExposureTime']
+    if 'Gain' in plane:
+        flat['gain_db'] = plane['Gain']
     if datetime_value is not None:
         flat['datetime'] = datetime_value
 
@@ -359,6 +792,17 @@ def read_frame_timestamp(path: pathlib.Path) -> datetime.datetime | None:
     except Exception:
         return None
 
+    return _timestamp_from_shaped(shaped)
+
+
+def _timestamp_from_shaped(shaped) -> datetime.datetime | None:
+    """Recover a per-frame capture time from an open TIFF's shaped_metadata.
+
+    Split out from read_frame_timestamp so the video loader can recover the
+    timestamp from the same handle it decodes the pixels with, instead of
+    opening the file a second time. See read_frame_timestamp for the metadata
+    shapes and the ISO -> capture-format resolution order.
+    """
     if not shaped:
         return None
     structured = shaped[0]
@@ -392,6 +836,7 @@ def build_postproc_output_metadata(
     input_path: pathlib.Path,
     channel: str,
     *,
+    significant_bits: int,
     plate_pos_mm_override: dict | None = None,
     z_pos_um_override: float | None = None,
 ) -> dict:
@@ -402,6 +847,13 @@ def build_postproc_output_metadata(
     plate, well label) and forwards it into the derived output. Per-frame
     timestamps and frame IDs are stripped because they describe the
     original capture, not the derived image.
+
+    The depth is supplied by the caller, not re-read here: the caller
+    loads its input pixels through load_pixels, so it already holds the
+    significant-bit depth that travels with those pixels. Passing it in
+    keeps a single depth read per output instead of opening the input a
+    second time, and keeps the output's depth coupled to the pixels that
+    were actually projected / stitched / merged.
 
     ``datetime`` is set to the post-processing wall-clock time so derived
     outputs are distinguishable from the captures that fed them.
@@ -452,10 +904,48 @@ def build_postproc_output_metadata(
     if z_pos_um_override is not None:
         metadata['z_pos_um'] = z_pos_um_override
 
+    # A derived output inherits its inputs' depth: a stitch or projection copies
+    # the input pixels verbatim, so the output's true significant-bit depth is
+    # the input's. The caller carries it from the load_pixels read of those
+    # inputs, so the output is tagged honestly instead of defaulting to
+    # container width and reading back dark.
+    metadata['significant_bits'] = significant_bits
+
     return metadata
 
 
-def build_composite_output_metadata(reference_input_path: pathlib.Path) -> dict:
+def require_uniform_geometry(labeled_arrays, operation: str) -> None:
+    """Reject combine inputs that were not stitched to one shared geometry.
+
+    Combining images across a tile-group -- compositing channels, projecting a
+    Z-stack, assembling a hyperstack -- requires every input to share one (H, W)
+    canvas. Producing that geometry is the stitcher's responsibility; when it is
+    violated, the raw numpy failure is a cryptic broadcast / stack error that
+    hides which images disagree. This surfaces the violation as a clear,
+    actionable message naming each input and its shape.
+
+    Args:
+        labeled_arrays: (label, ndarray) pairs -- the images about to be combined.
+        operation: Verb phrase for the message, e.g. 'composite this well'.
+
+    Raises:
+        ValueError: if the inputs do not all share one (H, W).
+    """
+    shapes = [(label, tuple(array.shape[:2])) for label, array in labeled_arrays]
+    if len({hw for _, hw in shapes}) > 1:
+        detail = ', '.join(f'{label} {h}x{w}' for label, (h, w) in shapes)
+        raise ValueError(
+            f'Cannot {operation}: inputs were not stitched to one geometry '
+            f'({detail}). Every layer / slice of a tile-group must be stitched '
+            f'to the same canvas before it can be combined.'
+        )
+
+
+def build_composite_output_metadata(
+    reference_input_path: pathlib.Path,
+    *,
+    significant_bits: int,
+) -> dict:
     """Build a write_tiff metadata dict for a composite output.
 
     Composite outputs merge multiple input channels with different
@@ -473,6 +963,8 @@ def build_composite_output_metadata(reference_input_path: pathlib.Path) -> dict:
         reference_input_path: Any composite-input TIFF; shared metadata
             is read from here. Callers pass the first available channel
             (red -> green -> blue -> transmitted order).
+        significant_bits: Payload depth the caller carried from its
+            load_pixels read of the composite inputs.
 
     Returns:
         Dict ready to pass as write_tiff's ``metadata`` parameter.
@@ -480,6 +972,7 @@ def build_composite_output_metadata(reference_input_path: pathlib.Path) -> dict:
     metadata = build_postproc_output_metadata(
         input_path=reference_input_path,
         channel='Composite',
+        significant_bits=significant_bits,
     )
     metadata['exposure_time_ms'] = 0.0
     metadata['gain_db'] = 0.0
@@ -624,8 +1117,9 @@ def read_hyperstack_private_metadata(path: pathlib.Path) -> dict | None:
         path: Hyperstack TIFF file path.
 
     Returns:
-        Parsed metadata dict matching what was passed to write_tiff's
-        ``hyperstack_metadata`` parameter at write time. Returns None
+        Parsed metadata dict matching what was passed to
+        write_hyperstack_tiff's ``hyperstack_metadata`` parameter at
+        write time. Returns None
         if the file has no private tag (third-party hyperstack TIFFs,
         or LVP files written before this tag was introduced), if the
         tag exists but is not valid JSON, or if the file cannot be
@@ -845,7 +1339,7 @@ def encode_image(image: np.ndarray, fmt: str = 'png', jpeg_quality: int = 80) ->
     return buf.tobytes()
 
 
-def encode_display_jpg(array, color, jpeg_quality: int = 90) -> bytes:
+def encode_display_jpg(array, color, significant_bits: int, jpeg_quality: int = 90) -> bytes:
     """Encode an image to JPEG bytes the way it appears on screen.
 
     JPEG is 8-bit and cannot carry the mono-pixels-plus-color-metadata
@@ -859,12 +1353,15 @@ def encode_display_jpg(array, color, jpeg_quality: int = 90) -> bytes:
     Args:
         array: Source image (2D mono, 8/12/16-bit) for one channel.
         color: Channel color label (BF, Blue, Green, Red, Lumi, ...).
+        significant_bits: Payload depth of ``array`` so the 8-bit downconvert
+            scales against the real range -- a summed 16-bit frame is not
+            indexed as 12-bit (out of range) and a 10-bit frame is not crushed.
         jpeg_quality: JPEG quality, 1-100.
 
     Returns:
         bytes: JPEG-encoded image.
     """
-    img8 = convert_12bit_to_8bit(array)
+    img8 = convert_to_8bit(array, significant_bits)
     if img8.ndim == 3:
         # Already a display RGB image (e.g. a crosshairs / bullseye
         # overlay). These share the false-color RGB convention, so take
@@ -883,40 +1380,52 @@ def encode_display_jpg(array, color, jpeg_quality: int = 90) -> bytes:
 
 
 def convert_12bit_to_8bit(image, out=None):
-    if image.dtype == 'uint8':
-        return image
+    """Downconvert a 12-bit-payload frame to 8-bit via the canonical converter."""
+    return convert_to_8bit(image, 12, out=out)
 
-    # Mirror PIW-5's convert_12bit_to_16bit(out=) pattern. The
-    # caller-supplied out buffer eliminates the per-call fresh allocation
-    # for the LUT indexing result -- saves ~120 MB/s allocator churn on
-    # the 30fps Pylon 12-bit preview path. Mismatched shape/dtype falls
-    # back to fresh allocation rather than failing.
+
+@functools.cache
+def _lut_to_8bit(significant_bits: int) -> np.ndarray:
+    """Build (once per depth) a payload-to-8-bit LUT sized to the value range.
+
+    The table spans ``0 .. (1 << significant_bits) - 1`` so every legal payload
+    value indexes in bounds, and full scale maps to 255. Cached: the handful of
+    depths in use (8/10/12/16) each build a single shared table.
+    """
+    max_value = (1 << significant_bits) - 1
+    # Exact linear rescale (value / max * 255), chosen over the legacy >>8
+    # (i.e. /256) truncation used for 16-bit. Both map full scale to 255, but
+    # they differ by at most 1 LSB at 32640 of the 65536 16-bit inputs (the
+    # rescale rounds where >>8 truncates). The rescale is the deliberate choice;
+    # the converter pin test locks the <=1-LSB bound so a change is caught here.
+    return np.clip(np.arange(max_value + 1, dtype=np.float64) / max_value * 255, 0, 255).astype(
+        np.uint8
+    )
+
+
+def convert_to_8bit(image, significant_bits: int, out=None):
+    """Downconvert a frame to 8-bit, scaling against its significant bits.
+
+    ``significant_bits`` names the meaningful payload range -- 12 for a Mono12
+    frame, 16 for a frame summed into a 16-bit container -- so the divisor and
+    the LUT span both follow the real depth. This is what keeps a summed 12-bit
+    value (which exceeds 4095) from indexing the 12-bit table out of range, and
+    what maps a 10-bit full-white frame to 255 instead of treating it as 12-bit.
+    Already-8-bit frames pass through. ``out`` reuses a caller buffer to avoid a
+    per-call allocation on the preview path.
+    """
+    if image.dtype == np.uint8:
+        return image
+    lut = _lut_to_8bit(int(significant_bits))
     if out is not None and out.shape == image.shape and out.dtype == np.uint8:
-        np.take(_LUT_12_TO_8, image, out=out)
+        np.take(lut, image, out=out)
         return out
-    return _LUT_12_TO_8[image]
-
-
-def convert_12bit_to_16bit(image, out=None):
-    if image.dtype == 'uint8':
-        return image
-
-    # PIW-5: caller-supplied out buffer eliminates the per-save image.copy() (~24 MB).
-    # Mismatched shape/dtype falls back to fresh allocation rather than failing.
-    if out is not None and out.shape == image.shape and out.dtype == image.dtype:
-        np.copyto(out, image)
-        new_image = out
-    else:
-        new_image = image.copy()
-    new_image *= 16
-    return new_image
+    return lut[image]
 
 
 def convert_16bit_to_8bit(image):
-    if image.dtype == 'uint8':
-        return image
-
-    return _LUT_16_TO_8[image]
+    """Downconvert a 16-bit-container frame to 8-bit via the canonical converter."""
+    return convert_to_8bit(image, 16)
 
 
 @enum.unique
@@ -1011,10 +1520,34 @@ def get_imagej_lut(colormap: LvpColormap):
         raise NotImplementedError(f'Unsupported colormap: {colormap}')
 
 
+def resolve_output_save_encoding(array: np.ndarray) -> str:
+    """The save encoding for a derived output, resolved from the live image_mode.
+
+    Derived-product writers (stitch / zproject / composite) consult the one
+    image_mode SSOT for their on-disk encoding, so a stitched fluorescence image
+    honors the user's false-color choice exactly as a freshly captured frame
+    does. This is the explicit replacement for the implicit settings read that
+    used to hide inside maybe_apply_false_color's None default.
+    """
+    # Function-local import breaks the image_utils <-> app_context cycle;
+    # app_context imports image_utils at module load.
+    from modules import app_context as _app_ctx
+
+    # No live app context means no user image_mode to consult (headless /
+    # pre-init), so the only meaningful encoding is the verbatim dtype-based
+    # one. Production post-processing always runs with a context set.
+    if _app_ctx.ctx is None:
+        return image_mode.encoding_for_array(array)
+
+    with _app_ctx.ctx.settings_lock:
+        mode = image_mode.resolve_settings_image_mode(_app_ctx.ctx.settings)
+    return image_mode.save_encoding_for_derived_output(array, mode)
+
+
 def maybe_apply_false_color(
     data: np.ndarray,
     color: str,
-    use_false_color_16bit: bool | None = None,
+    use_false_color_16bit: bool,
     output_buf: np.ndarray | None = None,
 ) -> np.ndarray:
     """Widen single-channel 16-bit fluorescence to 3-channel RGB when the
@@ -1029,11 +1562,10 @@ def maybe_apply_false_color(
     fluorescence also renders in color in Windows Preview / Explorer, at ~3x
     the file size.
 
-    Already-RGB inputs, 8-bit inputs, transmitted layers (BF/PC/DF), and
-    unknown layer names always pass through. Callers may pass the resolved
-    bool to skip the per-save settings_lock acquire; ``None`` triggers a
-    one-shot read so derived-output paths (stitch / zproject) that call
-    write_tiff without the flag still honor the user setting.
+    use_false_color_16bit is the resolved decision (the caller passed write_tiff
+    a save_encoding; widening is save_encoding == 'rgb'). Already-RGB inputs,
+    8-bit inputs, transmitted layers (BF/PC/DF), and unknown layer names always
+    pass through.
     """
     if not (
         data.dtype == np.uint16
@@ -1041,23 +1573,125 @@ def maybe_apply_false_color(
         and color in common_utils.get_image_layers()
     ):
         return data
-    try:
-        if use_false_color_16bit is None:
-            # Function-local import breaks the image_utils <-> app_context
-            # cycle; app_context imports image_utils at module load.
-            from modules import app_context as _app_ctx
-
-            with _app_ctx.ctx.settings_lock:
-                use_false_color_16bit = _app_ctx.ctx.settings.get('false_color_16bit', False)
-        if use_false_color_16bit:
+    if use_false_color_16bit:
+        try:
             return add_false_color(data, color, output=output_buf)
-    except Exception:
-        logger.exception(
-            '[image_utils] maybe_apply_false_color: false-color application '
-            'failed for color=%s; returning input',
-            color,
-        )
+        except Exception:
+            logger.exception(
+                '[image_utils] maybe_apply_false_color: false-color application '
+                'failed for color=%s; returning input',
+                color,
+            )
     return data
+
+
+def write_hyperstack_tiff(
+    data,
+    file_loc: pathlib.Path,
+    hyperstack_metadata: dict,
+    hyperstack_options: dict | None = None,
+    hyperstack_resolution: tuple | None = None,
+):
+    """Write a 5D TZCYX hyperstack with caller-prepared OME metadata.
+
+    Separate from write_tiff because this path shares none of the
+    per-image logic: maybe_apply_false_color expects 2D mono input,
+    generate_tiff_data builds per-image metadata, and _validate_type
+    rejects the ome=True + imagej=True combo that hyperstack readers
+    (FIJI, ImageJ) consume together. The caller (stack_builder) supplies
+    the full OME dict + write options + resolution and they pass through
+    verbatim. Keeping these apart lets write_tiff demand significant_bits
+    as a required argument, which this path carries inside its OME dict
+    rather than as a scalar.
+
+    JSON sidecar: tifffile's auto-OME serializer silently drops
+    Instrument / Plate / Objective from the metadata dict. The full dict
+    is serialized into a private TIFF tag so LVP-aware consumers can
+    recover those fields; FIJI / ImageJ ignore the unknown tag.
+    """
+    use_bigtiff = data.nbytes > 3.8 * 1024 * 1024 * 1024
+    write_options = hyperstack_options or {}
+    # Strip rendering-hint keys from the JSON sidecar copy. LUTs +
+    # Channel.Color are encoded into the file's TIFF / OME-XML
+    # sections directly; the sidecar is for LVP-aware consumers
+    # recovering the dropped-by-tifffile OME subtrees (Instrument /
+    # Plate / Objective), not for re-deriving the file's render
+    # hints. Bloats the sidecar by ~3 KB per channel of LUT data
+    # for zero downstream value if left in.
+    sidecar_metadata = {k: v for k, v in hyperstack_metadata.items() if k != 'LUTs'}
+    sidecar_json = json.dumps(sidecar_metadata, default=_json_default_numpy)
+    sidecar_extratag = (
+        LVP_HYPERSTACK_METADATA_TIFF_TAG,
+        's',
+        0,
+        sidecar_json,
+        True,
+    )
+    caller_extratags = list(write_options.pop('extratags', []) or [])
+    caller_extratags.append(sidecar_extratag)
+    with tf.TiffWriter(
+        str(file_loc),
+        ome=True,
+        imagej=True,
+        bigtiff=use_bigtiff,
+    ) as tif:
+        tif.write(
+            data,
+            resolution=hyperstack_resolution,
+            metadata=hyperstack_metadata,
+            software=f'LumaViewPro {version}',
+            extratags=caller_extratags,
+            **write_options,
+        )
+
+
+def _msb_align_to_container(data: np.ndarray, significant_bits: int) -> tuple[np.ndarray, int]:
+    """Left-justify a right-aligned payload to fill its container width.
+
+    A right-aligned N-bit payload (0..2^N-1 in a wider container) reads dark in
+    viewers that ignore the significant-bits tag. Shifting it up by
+    (container_bits - N) makes it fill the container so those viewers render it
+    bright; the shift is lossless (the top bits were zero) and the stored values
+    then make no narrower-than-container significant-bits claim, so container-
+    width read-back is the correct scale. Returns the shifted array and the new
+    significant_bits; a payload already at container width is returned unchanged.
+    """
+    container_bits = data.itemsize * 8
+    shift = container_bits - significant_bits
+    if shift > 0:
+        data = data << shift
+        significant_bits = container_bits
+    return data, significant_bits
+
+
+def encoding_fills_container_dtype(save_encoding: str, dtype: np.dtype, is_color: bool) -> bool:
+    """Whether this encoding + payload left-justifies to fill its container.
+
+    The one gate write_tiff and depth-reporting callers share, so the rule
+    lives in exactly one place: a container-filling encoding of a narrow uint16
+    mono payload gets shifted up; a color frame or an already-8-bit payload does
+    not.
+    """
+    return (
+        image_mode.encoding_fills_container(save_encoding) and dtype == np.uint16 and not is_color
+    )
+
+
+def written_significant_bits(
+    save_encoding: str, significant_bits: int, dtype: np.dtype, is_color: bool
+) -> int:
+    """The significant-bit depth a write actually stamps on the file.
+
+    A container-filling encoding (scaled / false-color) left-justifies a narrow
+    uint16 mono payload to fill its container, so the file is stamped at the
+    container width, not the acquired depth -- a 12-bit capture saved scaled is
+    a 16-bit file. Every other case keeps the acquired depth. Callers report the
+    on-disk depth through this instead of the pre-encode value, which describes
+    the sensor, not the file. Mirrors the shift write_tiff applies.
+    """
+    if encoding_fills_container_dtype(save_encoding, dtype, is_color):
+        return dtype.itemsize * 8
+    return significant_bits
 
 
 def write_tiff(
@@ -1066,69 +1700,40 @@ def write_tiff(
     metadata: dict,
     ome: bool,
     color: str,
+    significant_bits: int,
+    save_encoding: str,
     video_frame: bool = False,
     extratags: list | None = None,
-    use_false_color_16bit: bool | None = None,
     false_color_buf: np.ndarray | None = None,
     rgb_buf: np.ndarray | None = None,
-    hyperstack_metadata: dict | None = None,
-    hyperstack_options: dict | None = None,
-    hyperstack_resolution: tuple | None = None,
 ):
-    if hyperstack_metadata is not None:
-        # Hyperstack TZCYX path: 5D data with caller-prepared OME
-        # metadata (from build_hyperstack_output_metadata) and explicit
-        # per-tiff options. Bypasses the per-image branches below --
-        # maybe_apply_false_color expects 2D mono input, generate_tiff_data
-        # generates per-image metadata, and _validate_type rejects the
-        # ome=True + imagej=True combo that hyperstack readers (FIJI,
-        # ImageJ) consume together. The caller (stack_builder) supplies
-        # the full OME dict + write options + resolution; this branch
-        # passes them through verbatim.
-        #
-        # JSON sidecar: tifffile's auto-OME serializer silently drops
-        # Instrument / Plate / Objective from the metadata dict. The
-        # full dict gets serialized into a private TIFF tag so
-        # LVP-aware consumers can recover those fields; FIJI / ImageJ
-        # ignore the unknown tag.
-        use_bigtiff = data.nbytes > 3.8 * 1024 * 1024 * 1024
-        write_options = hyperstack_options or {}
-        # Strip rendering-hint keys from the JSON sidecar copy. LUTs +
-        # Channel.Color are encoded into the file's TIFF / OME-XML
-        # sections directly; the sidecar is for LVP-aware consumers
-        # recovering the dropped-by-tifffile OME subtrees (Instrument /
-        # Plate / Objective), not for re-deriving the file's render
-        # hints. Bloats the sidecar by ~3 KB per channel of LUT data
-        # for zero downstream value if left in.
-        sidecar_metadata = {k: v for k, v in hyperstack_metadata.items() if k != 'LUTs'}
-        sidecar_json = json.dumps(sidecar_metadata, default=_json_default_numpy)
-        sidecar_extratag = (
-            LVP_HYPERSTACK_METADATA_TIFF_TAG,
-            's',
-            0,
-            sidecar_json,
-            True,
-        )
-        caller_extratags = list(write_options.pop('extratags', []) or [])
-        caller_extratags.append(sidecar_extratag)
-        with tf.TiffWriter(
-            str(file_loc),
-            ome=True,
-            imagej=True,
-            bigtiff=use_bigtiff,
-        ) as tif:
-            tif.write(
-                data,
-                resolution=hyperstack_resolution,
-                metadata=hyperstack_metadata,
-                software=f'LumaViewPro {version}',
-                extratags=caller_extratags,
-                **write_options,
-            )
-        return
+    # Depth travels with the pixels. A uint16 frame stored right-aligned
+    # (0..4095 for a 12-bit sensor) is bit-identical to a dark 16-bit image, so
+    # a write that does not state its significant-bit depth cannot label the
+    # file correctly -- it silently claims full container width and every
+    # narrow payload reads back ~16x dark. significant_bits is a required
+    # argument so a depth-less write cannot be expressed.
+    metadata = {**metadata, 'significant_bits': significant_bits}
 
     if extratags is None:
         extratags = []
+
+    # save_encoding is the single consolidated image_mode output and the only
+    # thing that decides the on-disk shape: 'rgb' widens to false color,
+    # 'msb_aligned' left-justifies a narrow payload, right_aligned/8bit store
+    # as-is. RGB widening is derived from it alone, so the same fact is never
+    # carried by a second out-of-band flag that could disagree with it.
+    # Brighten BEFORE colorizing so the scaled mono mode and the false-color RGB
+    # mode share one container-fill step and a false-color frame inherits it.
+    # Colorizing a still-narrow (right-aligned) payload would bake dark color
+    # that no plain viewer can show; filling the mono payload first makes the
+    # false color render bright. right_aligned/8bit keep their narrow payload --
+    # the depth tag, not a shift, carries their scale.
+    if encoding_fills_container_dtype(save_encoding, data.dtype, is_color_image(data)):
+        data, sig = _msb_align_to_container(data, metadata['significant_bits'])
+        metadata = {**metadata, 'significant_bits': sig}
+
+    use_false_color_16bit = save_encoding == image_mode.SAVE_ENCODING_RGB
 
     data = maybe_apply_false_color(
         data=data,
@@ -1188,6 +1793,7 @@ def write_tiff(
                 metadata=support_data['metadata'],
                 datetime=metadata['datetime'],
                 software=f'LumaViewPro {version}',
+                extratags=support_data['extratags'],
                 **support_data['options'],
             )
 
@@ -1199,6 +1805,7 @@ def write_tiff(
                 metadata=support_data['metadata'],
                 datetime=metadata['datetime'],
                 software=f'LumaViewPro {version}',
+                extratags=support_data['extratags'],
                 **support_data['options'],
             )
 
@@ -1209,6 +1816,7 @@ def write_tiff(
                 metadata=support_data['metadata'],
                 datetime=metadata['datetime'],
                 software=f'LumaViewPro {version}',
+                extratags=support_data['extratags'],
                 **support_data['options'],
             )
 
@@ -1284,7 +1892,13 @@ def generate_tiff_data(
             options['tile'] = (128, 128)
         return {
             'metadata': metadata,
-            'extratags': [],
+            # Carry the payload depth in the private tag here too. Video-frame
+            # metadata is otherwise passed through untouched, so this tag is the
+            # only depth carrier these files get; without it a right-aligned
+            # narrow frame reads back as full container width (~16x dark).
+            'extratags': [
+                (_TIFF_TAG_SIGNIFICANT_BITS, 3, 1, int(metadata['significant_bits']), True)
+            ],
             'options': options,
         }
 
@@ -1297,13 +1911,21 @@ def generate_tiff_data(
         'PositionYUnit': 'mm',
         'PositionZUnit': 'um',
         'Objective': metadata['objective'],
-        'ExposureTime': metadata['exposure_time_ms'],
-        'ExposureTimeUnit': 'ms',
-        'Gain': metadata['gain_db'],
-        'GainUnit': 'dB',
         'Illumination': metadata['illumination_ma'],
         'IlluminationUnit': 'mA',
     }
+    # Exposure and gain join the same optional-fields contract as the
+    # per-frame timestamps below: the producer omits the key when the value
+    # is genuinely unknown (no chunk data AND the live read failed), because
+    # a fabricated stand-in written here would masquerade downstream as a
+    # real acquisition setting. Present -> written with its unit; absent ->
+    # the TIFF field is omitted, and the frame still saves.
+    if 'exposure_time_ms' in metadata:
+        plane['ExposureTime'] = metadata['exposure_time_ms']
+        plane['ExposureTimeUnit'] = 'ms'
+    if 'gain_db' in metadata:
+        plane['Gain'] = metadata['gain_db']
+        plane['GainUnit'] = 'dB'
 
     # Per-frame timestamps. Each is optional -- callers that don't capture
     # them (older static metadata builders, Stage 2-pending paths) simply
@@ -1326,7 +1948,10 @@ def generate_tiff_data(
     # Base metadata shared by all structured types
     tiff_metadata = {
         'axes': axes,
-        'SignificantBits': data.itemsize * 8,
+        # Payload depth, supplied by write_tiff (which requires it). Stored so
+        # a right-aligned narrow payload is not read back as full container
+        # width and rendered ~16x dark.
+        'SignificantBits': metadata['significant_bits'],
         'PhysicalSizeX': metadata['pixel_size_um'],
         'PhysicalSizeXUnit': 'um',
         'PhysicalSizeY': metadata['pixel_size_um'],
@@ -1417,7 +2042,7 @@ def generate_tiff_data(
             'maxworkers': 0,
         }
         # Resolution for ImageJ types is in pixels/pixel
-        resolution = (1.0 / metadata['pixel_size_um'], 1.0 / metadata['pixel_size_um'])
+        resolution = resolution_for_pixel_size(metadata['pixel_size_um'], per_centimeter=False)
     else:
         # ome and default use same options. maxworkers=0 disables tifffile's
         # per-write ThreadPoolExecutor; the executor's internal queue holds
@@ -1432,15 +2057,20 @@ def generate_tiff_data(
             'resolutionunit': 'CENTIMETER',
             'maxworkers': 0,
         }
-        resolution = (1e4 / metadata['pixel_size_um'], 1e4 / metadata['pixel_size_um'])
+        resolution = resolution_for_pixel_size(metadata['pixel_size_um'])
 
     # Tile setting: 8-bit images use tiles for ImageJ colormap compatibility
     if data.dtype == np.uint8:
         options['tile'] = (128, 128)
 
+    # Carry the payload depth in a durable private TIFF tag so plain / ImageJ
+    # outputs (which have no OME-XML) recover it on read-back; OME files get it
+    # too, harmlessly, and the reader prefers their OME-XML value. SHORT (type
+    # 3), one value, written to the first page only.
+    significant_bits = metadata['significant_bits']
     return {
         'metadata': tiff_metadata,
-        'extratags': [],
+        'extratags': [(_TIFF_TAG_SIGNIFICANT_BITS, 3, 1, int(significant_bits), True)],
         'options': options,
         'resolution': resolution,
     }
@@ -1459,10 +2089,49 @@ def subject_dist_to_rational(distance):
     return fraction.numerator, fraction.denominator
 
 
+# A TIFF resolution tag is an unsigned RATIONAL (two uint32), but Bioformats
+# reads the numerator back as a signed int32 -- a numerator above 2^31 surfaces
+# as a negative PhysicalSize for a high-magnification (small) pixel size.
+# Choosing the denominator here, instead of handing tifffile a float to
+# rationalize, keeps the numerator within int32 by construction.
+_TIFF_RATIONAL_NUMERATOR_MAX = 2**31 - 1
+
+
+def _int32_safe_rational(value: float) -> tuple[int, int]:
+    """Approximate a positive value as a (numerator, denominator) pair whose
+    numerator stays within signed int32 range.
+    """
+    max_denominator = max(1, int(_TIFF_RATIONAL_NUMERATOR_MAX // value))
+    fraction = Fraction(value).limit_denominator(min(1_000_000, max_denominator))
+    return fraction.numerator, fraction.denominator
+
+
+def resolution_for_pixel_size(pixel_size_um: float, *, per_centimeter: bool = True) -> tuple:
+    """Build the (X, Y) TIFF resolution tag for a given pixel size.
+
+    Each axis is returned as an int32-safe RATIONAL so a Bioformats reader
+    cannot interpret a high-magnification pixel size as a negative PhysicalSize.
+
+    Args:
+        pixel_size_um: Image pixel size in microns (must be > 0).
+        per_centimeter: True for the CENTIMETER resolutionunit (pixels per cm,
+            1 cm = 1e4 um); False for the ImageJ pixels-per-pixel convention.
+
+    Returns:
+        ((x_num, x_den), (y_num, y_den)). X and Y match for square pixels but are
+        returned per-axis to satisfy tifffile's resolution= contract.
+    """
+    pixels_per_unit = (1e4 if per_centimeter else 1.0) / pixel_size_um
+    axis = _int32_safe_rational(pixels_per_unit)
+    return (axis, axis)
+
+
 _scale_bar_cache = {}
 
 
-def _compute_scale_bar_overlay(height, width, dtype, is_color, objective, binning_size, color):
+def _compute_scale_bar_overlay(
+    height, width, dtype, is_color, objective, binning_size, color, significant_bits
+):
     """Pre-render scale bar overlay and mask. Returns (overlay, mask, cache_key)."""
     pixel_size_um = common_utils.get_pixel_size(
         focal_length=objective['focal_length'], binning_size=binning_size
@@ -1531,7 +2200,11 @@ def _compute_scale_bar_overlay(height, width, dtype, is_color, objective, binnin
     elif dtype == np.uint8:
         scale_bar_value = 255
     else:
-        scale_bar_value = 4095
+        # White bar = the payload max for this frame's depth, so it downconverts
+        # to full 8-bit white. A summed frame rides in a 16-bit container (depth
+        # 16 -> 65535); a single 12-bit frame is 4095. A fixed 4095 would render
+        # a summed-frame bar as a dim ~16/255 gray.
+        scale_bar_value = (1 << significant_bits) - 1
 
     x_end = width - scale_bar_right_offset
     x_start = x_end - scale_bar_length_pixels
@@ -1544,7 +2217,7 @@ def _compute_scale_bar_overlay(height, width, dtype, is_color, objective, binnin
     # nothing would be written and the BF/PC bar would never appear. The real
     # value (scale_bar_value, 0 for black) is applied at the masked pixels in
     # add_scale_bar.
-    sentinel = 255 if dtype == np.uint8 else 4095
+    sentinel = 255 if dtype == np.uint8 else (1 << significant_bits) - 1
 
     if is_color:
         canvas = np.zeros((height, width, 3), dtype=dtype)
@@ -1596,6 +2269,8 @@ def add_scale_bar(
     objective: dict,
     binning_size: int,
     color: str | None = None,
+    *,
+    significant_bits: int,
 ):
     global _scale_bar_cache
 
@@ -1617,11 +2292,15 @@ def add_scale_bar(
         objective['magnification'],
         binning_size,
         color,
+        # The white bar's value is the payload max for this depth, so two frames
+        # of the same dtype but different significant bits (12-bit single vs
+        # 16-bit summed) must not share a cached overlay.
+        significant_bits,
     )
 
     if _scale_bar_cache.get('key') != cache_key:
         overlay, mask, value = _compute_scale_bar_overlay(
-            height, width, dtype, is_color, objective, binning_size, color
+            height, width, dtype, is_color, objective, binning_size, color, significant_bits
         )
         _scale_bar_cache = {'key': cache_key, 'overlay': overlay, 'mask': mask, 'value': value}
 
@@ -1629,8 +2308,8 @@ def add_scale_bar(
     mask = cached['mask']
 
     # Write the bar's pixel value at the masked geometry. Works for black
-    # (value 0, BF/PC) and white (255 / 4095) alike -- the mask carries the
-    # location, so the value can be 0 without erasing the bar.
+    # (value 0, BF/PC) and white (the payload max) alike -- the mask carries
+    # the location, so the value can be 0 without erasing the bar.
     image[mask] = cached['value']
 
     return image

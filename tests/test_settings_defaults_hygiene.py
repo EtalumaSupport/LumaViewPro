@@ -6,7 +6,8 @@ _deep_merge_defaults. Keys the code reads-with-a-default should be seeded
 here so the schema -- not a scattered .get() default -- is the source of
 truth, and keys the code deletes should not be reintroduced.
 
-- false_color_16bit: read at config_helpers with default False; seeded.
+- image_mode: the consolidated capture/save selector; seeded to the 8-bit
+  default, and the two retired toggles it replaced must not be reintroduced.
 - per-layer video_config.fps: microscope_settings self-heals a missing fps
   to DEFAULT_VIDEO_FPS (30); seeded to match so the default lives in schema.
 - disable_protocol_accordions: popped (permanently disabled, no longer a
@@ -25,8 +26,10 @@ SETTINGS = json.loads(
 )
 
 
-def test_false_color_16bit_seeded_off():
-    assert SETTINGS['false_color_16bit'] is False
+def test_image_mode_seeded_and_legacy_toggles_removed():
+    assert SETTINGS['image_mode'] == '8bit'
+    assert 'use_full_pixel_depth' not in SETTINGS
+    assert 'false_color_16bit' not in SETTINGS
 
 
 def test_dead_disable_protocol_accordions_removed():

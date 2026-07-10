@@ -23,6 +23,8 @@ import threading
 import pandas as pd
 import pytest
 
+from modules.exceptions import ProtocolRunRefusedError
+from modules.image_mode import ImageCaptureConfig
 from modules.protocol import Protocol
 from modules.sequenced_capture_runner import SequencedCaptureRunner, SequencedCaptureRunMode
 from modules.sequential_io_executor import SequentialIOExecutor
@@ -49,10 +51,7 @@ def _make_autogain_settings():
 
 
 def _make_image_capture_config():
-    return {
-        'output_format': {'live': 'TIFF', 'sequenced': 'TIFF'},
-        'use_full_pixel_depth': False,
-    }
+    return ImageCaptureConfig.from_image_mode('8bit')
 
 
 def _default_stim_config():
@@ -119,6 +118,8 @@ def _make_step(
     acquire='image',
     video_config=None,
     stim_config=None,
+    auto_named=True,
+    label='',
 ):
     return {
         'Name': name,
@@ -144,6 +145,8 @@ def _make_step(
         'Video Config': video_config or _default_video_config(),
         'Stim_Config': stim_config or _default_stim_config(),
         'Step Index': 0,
+        'Auto_Named': auto_named,
+        'Label': label,
     }
 
 
@@ -191,9 +194,9 @@ def scope():
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
-    s._camera_driver.start_grabbing()
+    s.imaging.start_streaming()
     yield s
-    s._camera_driver.stop_grabbing()
+    s.imaging.stop_streaming()
     s.disconnect()
 
 
@@ -241,7 +244,7 @@ def executor(scope, executors):
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
         camera_executor=executors['camera'],
-        autofocus_thread=MagicMock(),
+        autofocus_thread=MagicMock(is_running=False),
         autofocus_runner=mock_af,
     )
     mock_loader = MagicMock()
@@ -278,7 +281,7 @@ def real_executor(scope, executors):
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
         camera_executor=executors['camera'],
-        autofocus_thread=MagicMock(),
+        autofocus_thread=MagicMock(is_running=False),
         autofocus_runner=mock_af,
     )
     exc._wellplate_loader = WellPlateLoader()
@@ -299,7 +302,7 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
     callbacks.setdefault('go_to_step', lambda **kw: None)
     callbacks.setdefault('move_position', lambda axis: None)
 
-    executor.run(
+    plan = executor.prepare(
         protocol=protocol,
         run_trigger_source='test',
         run_mode=run_kwargs.pop('run_mode', SequencedCaptureRunMode.SINGLE_SCAN),
@@ -321,6 +324,7 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
         },
         **run_kwargs,
     )
+    executor.start(plan)
     completed = done.wait(timeout=COMPLETION_TIMEOUT)
     return completed, result_holder
 
@@ -709,9 +713,27 @@ class TestRoundTripEdgeCases:
         assert reloaded.step(idx=0)['False_Color'] == True  # noqa: E712 -- exact bool check
 
     def test_special_chars_in_name(self, tmp_path):
-        proto = _build_protocol([_make_step(name='test step (1) - BF')])
+        # The user's text lives in Label; Name is a derived rendering of
+        # (Label, Color, Tile, Z-Slice). Labels round-trip in their
+        # WRITER-SAFE form: every rename entry point sanitizes to
+        # [a-zA-Z0-9-_], and the loader re-applies the same sanitize
+        # (loudly) so a hand-edited file cannot smuggle in characters the
+        # filename writer would strip anyway.
+        proto = _build_protocol(
+            [
+                _make_step(name='test_step-1_BF', label='test_step-1', auto_named=False),
+                _make_step(
+                    name='test step (2)', label='test step (2)', auto_named=False, well='A2'
+                ),
+            ]
+        )
         reloaded = _save_and_reload(proto, tmp_path)
-        assert reloaded.step(idx=0)['Name'] == 'test step (1) - BF'
+        # Allowed specials (dash, underscore) survive byte-exact.
+        assert reloaded.step(idx=0)['Label'] == 'test_step-1'
+        assert reloaded.step(idx=0)['Name'] == 'test_step-1_BF_Z0'
+        # Characters the writer strips normalize at the load boundary.
+        assert reloaded.step(idx=1)['Label'] == 'teststep2'
+        assert reloaded.step(idx=1)['Name'] == 'teststep2_BF_Z0'
 
 
 # ===========================================================================
@@ -1220,10 +1242,16 @@ class TestRoundTripCombinations:
 
     def test_multiple_objectives(self, tmp_path):
         """Steps with different objectives."""
+        # Distinct labels keep the derived Names (and so the load-time
+        # uniqueness key) distinct for three steps at the same well/position.
         steps = [
-            _make_step(name='A1_4x', objective='4x Oly', z=3000.0),
-            _make_step(name='A1_10x', objective='10x Oly', z=5000.0),
-            _make_step(name='A1_20x', objective='20x Oly', z=7000.0),
+            _make_step(name='A1_4x', label='A1_4x', auto_named=False, objective='4x Oly', z=3000.0),
+            _make_step(
+                name='A1_10x', label='A1_10x', auto_named=False, objective='10x Oly', z=5000.0
+            ),
+            _make_step(
+                name='A1_20x', label='A1_20x', auto_named=False, objective='20x Oly', z=7000.0
+            ),
         ]
         proto = _build_protocol(steps)
         reloaded = _save_and_reload(proto, tmp_path)
@@ -1288,8 +1316,7 @@ class TestExecutePixelDepth:
     def test_full_pixel_depth(self, executor, scope, tmp_path):
         steps = [_make_step(color='BF')]
         proto = _build_protocol(steps)
-        icc = _make_image_capture_config()
-        icc['use_full_pixel_depth'] = True
+        icc = ImageCaptureConfig.from_image_mode('12bit_scientific')
         completed, _ = _run_and_wait(executor, proto, tmp_path, image_capture_config=icc)
         assert completed, '12-bit capture protocol did not complete'
 
@@ -1374,7 +1401,12 @@ class TestExecuteCombinations:
 
     def test_large_protocol_50_steps(self, executor, scope, tmp_path):
         """Stress test: 50 steps should complete without timeout."""
-        steps = [_make_step(name=f'step_{i}', color='BF') for i in range(50)]
+        # Distinct labels: 50 same-well BF steps must derive distinct capture
+        # filenames or validate_for_run refuses the run at start.
+        steps = [
+            _make_step(name=f'step_{i}', label=f'step_{i}', auto_named=False, color='BF')
+            for i in range(50)
+        ]
         proto = _build_protocol(steps)
         completed, _ = _run_and_wait(executor, proto, tmp_path)
         assert completed, '50-step protocol did not complete'
@@ -1436,7 +1468,12 @@ class TestExecuteCancellation:
         """Cancel a long protocol after it starts -- should clean up gracefully."""
         import time
 
-        steps = [_make_step(name=f'step_{i}', color='BF') for i in range(20)]
+        # Distinct labels so the same-well BF steps derive distinct capture
+        # filenames (validate_for_run refuses duplicates at run start).
+        steps = [
+            _make_step(name=f'step_{i}', label=f'step_{i}', auto_named=False, color='BF')
+            for i in range(20)
+        ]
         proto = _build_protocol(steps)
 
         done = threading.Event()
@@ -1450,7 +1487,7 @@ class TestExecuteCancellation:
             'move_position': lambda axis: None,
         }
 
-        executor.run(
+        plan = executor.prepare(
             protocol=proto,
             run_trigger_source='test',
             run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
@@ -1471,6 +1508,7 @@ class TestExecuteCancellation:
                 'Lumi': False,
             },
         )
+        executor.start(plan)
 
         # Let it run for a moment then cancel via the protocol_thread
         # abort path (B3: _protocol_ended Event retired; abort signal
@@ -1848,6 +1886,8 @@ class TestProtocolSaveLoadFieldLevel:
         vc = {'duration': 3.5, 'fps': 15}
         step = _make_step(
             name='Test_Step_1',
+            label='Test_Step_1',
+            auto_named=False,
             x=12.345,
             y=67.89,
             z=4567.0,
@@ -1873,7 +1913,11 @@ class TestProtocolSaveLoadFieldLevel:
         reloaded = _save_and_reload(proto, tmp_path)
 
         s = reloaded.step(idx=0)
-        assert s['Name'] == 'Test_Step_1'
+        # Name is derived at load from the structured columns: the user label
+        # base plus the channel/tile/z tokens. The user's text itself
+        # round-trips in Label.
+        assert s['Name'] == 'Test_Step_1_Green_TT02_Z3'
+        assert s['Label'] == 'Test_Step_1'
         assert s['X'] == pytest.approx(12.345)
         assert s['Y'] == pytest.approx(67.89)
         assert s['Z'] == pytest.approx(4567.0)
@@ -1910,33 +1954,31 @@ class TestExecutorEdgeCases:
     def test_empty_protocol_rejected(self, real_executor, scope, tmp_path):
         """Empty protocol (0 steps) should not start."""
         proto = _build_protocol([])
-        # run() should return without starting (no steps to execute)
+        # prepare() refuses an empty protocol before committing any state
         done = threading.Event()
-        real_executor.run(
-            protocol=proto,
-            run_trigger_source='test',
-            run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
-            sequence_name='empty_test',
-            image_capture_config=_make_image_capture_config(),
-            autogain_settings=_make_autogain_settings(),
-            parent_dir=tmp_path / 'output',
-            max_scans=1,
-            callbacks={'run_complete': lambda **kw: done.set()},
-            leds_state_at_end='off',
-            initial_autofocus_states={
-                'BF': False,
-                'PC': False,
-                'DF': False,
-                'Red': False,
-                'Green': False,
-                'Blue': False,
-                'Lumi': False,
-            },
-        )
-        # Should complete quickly (nothing to do)
-        import time
-
-        time.sleep(2.0)
+        with pytest.raises(ProtocolRunRefusedError):
+            real_executor.prepare(
+                protocol=proto,
+                run_trigger_source='test',
+                run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
+                sequence_name='empty_test',
+                image_capture_config=_make_image_capture_config(),
+                autogain_settings=_make_autogain_settings(),
+                parent_dir=tmp_path / 'output',
+                max_scans=1,
+                callbacks={'run_complete': lambda **kw: done.set()},
+                leds_state_at_end='off',
+                initial_autofocus_states={
+                    'BF': False,
+                    'PC': False,
+                    'DF': False,
+                    'Red': False,
+                    'Green': False,
+                    'Blue': False,
+                    'Lumi': False,
+                },
+            )
+        assert not done.is_set(), 'run_complete must not fire for a refused run'
         assert not real_executor.run_in_progress(), (
             'Executor should not be running for empty protocol'
         )
@@ -2037,7 +2079,10 @@ class TestProtocolInsertStep:
             before_step=0,
         )
         assert proto.num_steps() == 2
-        assert proto.step(idx=0)['Name'] == 'new_step'
+        # The typed name becomes the step's Label; the derived Name renders
+        # it with the channel token.
+        assert proto.step(idx=0)['Label'] == 'new_step'
+        assert proto.step(idx=0)['Name'] == 'new_step_Green'
         assert proto.step(idx=0)['Color'] == 'Green'
         assert proto.step(idx=1)['Name'] == 'existing'
 
@@ -2055,7 +2100,8 @@ class TestProtocolInsertStep:
         )
         assert proto.num_steps() == 2
         assert proto.step(idx=0)['Name'] == 'first'
-        assert proto.step(idx=1)['Name'] == 'appended'
+        assert proto.step(idx=1)['Label'] == 'appended'
+        assert proto.step(idx=1)['Name'] == 'appended_Red'
         assert proto.step(idx=1)['Color'] == 'Red'
 
     def test_insert_between_steps(self):
@@ -2077,7 +2123,8 @@ class TestProtocolInsertStep:
         )
         assert proto.num_steps() == 3
         assert proto.step(idx=0)['Name'] == 'step_0'
-        assert proto.step(idx=1)['Name'] == 'middle'
+        assert proto.step(idx=1)['Label'] == 'middle'
+        assert proto.step(idx=1)['Name'] == 'middle_BF'
         assert proto.step(idx=2)['Name'] == 'step_1'
 
     def test_insert_with_video_config(self):
@@ -2203,7 +2250,7 @@ class TestProtocolModifyStep:
         proto = _build_protocol([_make_step(color='BF', illumination=50.0)])
         proto.modify_step(
             step_idx=0,
-            step_name='modified',
+            label='modified',
             layer='Green',
             layer_config=_layer_config(illumination=300.0),
             plate_position={'x': 10.0, 'y': 20.0, 'z': 5000.0},
@@ -2213,7 +2260,11 @@ class TestProtocolModifyStep:
         step = proto.step(idx=0)
         assert step['Color'] == 'Green'
         assert step['Illumination'] == 300.0
-        assert step['Name'] == 'modified'
+        # A rename via modify_step stores the label and derives the display
+        # Name with the (new) channel token.
+        assert step['Label'] == 'modified'
+        assert step['Name'] == 'modified_Green_Z0'
+        assert not step['Auto_Named']
 
     def test_modify_to_video_with_stim(self):
         proto = _build_protocol([_make_step(acquire='image')])
@@ -2221,7 +2272,7 @@ class TestProtocolModifyStep:
         vc = {'duration': 3.0, 'fps': 15}
         proto.modify_step(
             step_idx=0,
-            step_name='now_video',
+            label='now_video',
             layer='Red',
             layer_config=_layer_config(acquire='video', video_config=vc),
             plate_position={'x': 10.0, 'y': 20.0, 'z': 5000.0},
@@ -2238,7 +2289,7 @@ class TestProtocolModifyStep:
         proto = _build_protocol([_make_step(color='BF')])
         proto.modify_step(
             step_idx=0,
-            step_name='modified_red',
+            label='modified_red',
             layer='Red',
             layer_config=_layer_config(illumination=200.0),
             plate_position={'x': 10.0, 'y': 20.0, 'z': 5000.0},
@@ -2413,10 +2464,11 @@ class TestPerRowConfigParsing:
 
     def test_one_corrupt_video_config_preserves_others(self, tmp_path):
         """If one row has corrupt Video Config JSON, only that row gets default."""
+        # Wells match the names so the derived Names stay distinct at load.
         steps = [
-            _make_step(name='A1_BF', video_config={'duration': 5.0, 'fps': 10}),
-            _make_step(name='A2_BF', video_config={'duration': 5.0, 'fps': 10}),
-            _make_step(name='A3_BF', video_config={'duration': 5.0, 'fps': 10}),
+            _make_step(name='A1_BF', well='A1', video_config={'duration': 5.0, 'fps': 10}),
+            _make_step(name='A2_BF', well='A2', video_config={'duration': 5.0, 'fps': 10}),
+            _make_step(name='A3_BF', well='A3', video_config={'duration': 5.0, 'fps': 10}),
         ]
         loaded = self._save_and_corrupt(
             tmp_path,
@@ -2435,10 +2487,11 @@ class TestPerRowConfigParsing:
     def test_one_corrupt_stim_config_preserves_others(self, tmp_path):
         """If one row has corrupt Stim_Config JSON, only that row gets default."""
         sc = _stim_config_enabled(channels=['Red'])
+        # Wells match the names so the derived Names stay distinct at load.
         steps = [
-            _make_step(name='A1_BF', stim_config=sc),
-            _make_step(name='A2_BF', stim_config=sc),
-            _make_step(name='A3_BF', stim_config=sc),
+            _make_step(name='A1_BF', well='A1', stim_config=sc),
+            _make_step(name='A2_BF', well='A2', stim_config=sc),
+            _make_step(name='A3_BF', well='A3', stim_config=sc),
         ]
         loaded = self._save_and_corrupt(
             tmp_path,

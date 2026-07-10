@@ -1164,6 +1164,11 @@ class FX2Camera(Camera):
     # default so capability consumers (buffer sizing, save-format selection)
     # treat FX2 frames as 8-bit from the start, matching IDSCamera.
     native_bit_depth = 8
+    significant_bits = 8
+
+    def significant_bits_for_format(self, pixel_format: str | None) -> int:
+        """FX2 delivers 8-bit payloads regardless of any format string."""
+        return 8
 
     # How often to log streaming stats (seconds). Set to 0 to disable.
     STATS_LOG_INTERVAL = 10.0
@@ -1275,31 +1280,34 @@ class FX2Camera(Camera):
         """Called by Camera base class during construction.
 
         Initializes the MT9P031 sensor, creates the frame handler, loads
-        the camera profile, applies default exposure/gain via
-        ``init_camera_config()``, and **starts ISO streaming**. The
-        start-grabbing-in-connect convention matches PylonCamera
-        (drivers/pyloncamera.py:191), IDSCamera (drivers/idscamera.py:76),
-        and SimulatedCamera (drivers/simulated_camera.py:176). LVP's
-        ScopeDisplay polls the camera assuming it's already grabbing; if
-        connect() returns without starting streaming, the live view stays
-        blank. This bug bit on the first LS620 GUI launch (2026-04-15) --
-        manual Stage 3.5 scripts didn't notice because they all called
-        cam.start_grabbing() explicitly.
+        the camera profile, and applies default exposure/gain via
+        ``init_camera_config()``. Returns the camera CONFIGURED but NOT
+        grabbing -- the camera-lifecycle split: streaming begins exactly
+        once via ``open_and_start()`` (the start gate). ScopeDisplay polls
+        assuming the camera is grabbing, so the live view stays blank until
+        the gate is released; the bring-up sites release it via
+        ``scope.imaging.start_streaming()`` after configuration (the
+        blank-view failure that bit the first LS620 GUI launch 2026-04-15).
         """
         self.model_name = 'MT9P031-LS620'
         self._init_sensor()
         self.cam_image_handler = _FX2ImageHandler()
+        # Fresh handler starts with an empty dispatch list; re-push any durable
+        # listeners so a reconnect keeps delivering frames to recording / plugins.
+        self._reapply_frame_callbacks()
         self._active = True
         self._load_profile()
         self._query_dynamic_capabilities()
         self.init_camera_config()
-        self.start_grabbing()
         logger.info('[FX2 Cam   ] connected: %s', self.model_name)
         return True
 
     def disconnect(self) -> bool:
         self.stop_grabbing()
         self._active = None
+        # Clear the start gate + last-frame buffer so a same-instance reconnect
+        # starts clean (re-grabs, no stale image).
+        self._reset_lifecycle_state()
         logger.info('[FX2 Cam   ] disconnected')
         return True
 
@@ -1427,7 +1435,13 @@ class FX2Camera(Camera):
 
         # Set default window to full 1900x1900 -- also configures the
         # col_size/row_size registers correctly with centering.
-        self.set_frame_size(IMG_WIDTH, IMG_HEIGHT)
+        if self.set_frame_size(IMG_WIDTH, IMG_HEIGHT) is False:
+            # The neighboring init register writes raise on a USB failure and
+            # abort connect(); the window apply must not be quieter. Swallowed
+            # here, connect() would report success with the sensor still at
+            # its power-on window and the ISO frame parser desynced on the
+            # mismatched byte count -- garbage live view with no error.
+            raise RuntimeError('MT9P031 initial window apply failed during sensor init')
 
         logger.info('[FX2 Cam   ] MT9P031 sensor initialized (PLL + BLC)')
 
@@ -1474,7 +1488,11 @@ class FX2Camera(Camera):
         except Exception:
             pass
 
-        self._iso_ctx = usb1.USBContext()
+        # Explicit open: usb1's lazy auto-open on first use is deprecated
+        # (warns at every stream start) and skips the library's shutdown
+        # cleanup registration. open() returns the context; the paired
+        # explicit close() lives in the stop path.
+        self._iso_ctx = usb1.USBContext().open()
         self._iso_handle = self._iso_ctx.openByVendorIDAndProductID(VID, PID_APP)
         if self._iso_handle is None:
             raise RuntimeError('FX2 USB device disappeared before ISO streaming could start')
@@ -1658,6 +1676,11 @@ class FX2Camera(Camera):
         except Exception:
             pass
         self._iso_transfers = []
+        # Paired with the explicit open() at stream start: dropping the
+        # reference without close() leaks the libusb context until GC. The
+        # transfers are cancelled and the handle closed above, so close()
+        # is safe here.
+        self._iso_ctx.close()
         self._iso_ctx = None
         self._iso_handle = None
         self._fx2._iso_handle_for_ctrl = None
@@ -1849,7 +1872,12 @@ class FX2Camera(Camera):
                         remaining, shape=(h, stride), strides=(stride, 1)
                     )
                     image = raw_2d[:, :w].copy()
-                    self.cam_image_handler._store_frame(image, datetime.now())
+                    # The FX2 sensor is 8-bit only, so the delivered array's
+                    # container width IS its payload depth; stamp it from the
+                    # frame so depth and pixels stay paired.
+                    self.cam_image_handler._store_frame(
+                        image, datetime.now(), significant_bits=image.dtype.itemsize * 8
+                    )
                     stats.record_good_frame()
 
                     if not first_frame_logged:
@@ -1900,7 +1928,7 @@ class FX2Camera(Camera):
         self.cam_image_handler.reset()
         deadline = time.monotonic() + timeout_s
         while time.monotonic() < deadline:
-            ok, img, ts = self.cam_image_handler.get_last_image()
+            ok, img, ts, _significant_bits = self.cam_image_handler.get_last_image()
             if ok:
                 with self._array_lock:
                     self.array = img
@@ -1918,14 +1946,23 @@ class FX2Camera(Camera):
         after GPIF processing; the extra row is discarded by the grab
         loop (``skip_first_row``). Dimensions are rounded down to
         multiples of FRAME_SIZE_STEP (4) and clamped to [100, 1900].
+
+        Returns the delivered size ``{'width': int, 'height': int}`` after
+        rounding and clamping, so the caller knows what was actually applied
+        without a read-back; ``False`` when a sensor-register write fails --
+        the same failure contract the Camera base class documents and the
+        pylon / IDS drivers implement, so the camera-write authority
+        upstream sees one rejection signal from every driver. There is no
+        up-front active-flag guard: connect() configures the initial window
+        through this method BEFORE the active flag is set, and with no SDK
+        to consult, a failing USB register write IS the disconnected signal
+        (routed to False by the handler below).
         """
         step = self.FRAME_SIZE_STEP
         w = max(self.FRAME_SIZE_MIN, min(IMG_WIDTH, int(w)))
         h = max(self.FRAME_SIZE_MIN, min(IMG_HEIGHT, int(h)))
         w = (w // step) * step
         h = (h // step) * step
-        self._width = w
-        self._height = h
 
         # Sensor registers want (display + 1) per LVC reference.
         sensor_w = w + 1
@@ -1935,11 +1972,38 @@ class FX2Camera(Camera):
         col_start = max(0, (2592 - sensor_w) // 2 + 16) & ~1
         row_start = max(0, (1944 - sensor_h) // 2 + 54) & ~1
 
-        # Individual 3-byte writes -- firmware truncates multi-byte I2C.
-        self._fx2.sensor_reg_write(REG_ROW_START, row_start)
-        self._fx2.sensor_reg_write(REG_COL_START, col_start)
-        self._fx2.sensor_reg_write(REG_ROW_SIZE, sensor_h)
-        self._fx2.sensor_reg_write(REG_COL_SIZE, sensor_w)
+        try:
+            # Individual 3-byte writes -- firmware truncates multi-byte I2C.
+            self._fx2.sensor_reg_write(REG_ROW_START, row_start)
+            self._fx2.sensor_reg_write(REG_COL_START, col_start)
+            self._fx2.sensor_reg_write(REG_ROW_SIZE, sensor_h)
+            self._fx2.sensor_reg_write(REG_COL_SIZE, sensor_w)
+        except Exception as e:
+            # Translate a USB write failure into the base contract's explicit
+            # False -- the rejection signal the pylon and IDS set_frame_size
+            # already return, which the camera-write authority upstream turns
+            # into its keep-prior-cache branch. The window fields mutate only
+            # after all four writes land, so a failed apply never lets
+            # get_frame_size() report geometry the sensor never took.
+            logger.error(
+                '[FX2 Cam   ] set_frame_size(%dx%d) register write failed: %s: %s '
+                '(sensor window may be partially applied until the next '
+                'successful set_frame_size)',
+                w,
+                h,
+                type(e).__name__,
+                e,
+            )
+            # A partial apply (some of the four registers landed) leaves the
+            # sensor window indeterminate; buffered stream data may match no
+            # known geometry and would desync the frame parser, so drop it on
+            # the failure path too.
+            with self._iso_buf_lock:
+                self._iso_buf = bytearray()
+            return False
+
+        self._width = w
+        self._height = h
 
         # Flush the ISO buffer -- data captured with the old window is
         # now misaligned and would desync the frame parser.
@@ -1955,6 +2019,7 @@ class FX2Camera(Camera):
             row_start,
             col_start,
         )
+        return {'width': w, 'height': h}
 
     def get_frame_size(self):
         return {'width': self._width, 'height': self._height}

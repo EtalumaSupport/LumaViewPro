@@ -76,8 +76,10 @@ The remainder of this document is organized as the sub-API reference (one sectio
 Methods on the L2 surface follow one of two contracts; if a method's docstring has a `Raises:` section it follows the raise contract, otherwise the sentinel contract.
 
 - **Hardware-state queries** (capability probes, status reads, getters like `get_led_ma`, `get_target_position`, `get_led_status`, `camera_max_gain`, `read_motor_voltages`) return a sentinel value -- `None`, `False`, or an empty container -- when the value cannot be read (no hardware, channel not set, firmware does not implement the probe). No exception is raised. The caller branches on the sentinel.
+- **Camera value getters** (`get_gain`, `get_exposure_time`, `get_frame_size`, `get_width`/`get_height`, `get_max_width`/`get_max_height`, `get_binning_size`, `get_pixel_format`) are a stricter subclass of the sentinel contract: a **transient read failure is invisible** -- the getter answers with the validated last-known-good value, so a momentary USB/SDK glitch can never hand you a failure code where a physical value belongs (no `-1` gain into arithmetic, no `None` frame size into a subscript). The documented camera-absent defaults (`get_gain` -1.0, `get_exposure_time` 0.0, `get_frame_size`/`get_pixel_format` `None`, width/height getters 0, `get_binning_size` 1) occur **only** when no camera is active or the value has never been successfully read -- stable states you can see coming via `camera_connected`, not something a transient failure produces mid-session. Callers that must record what the hardware was at a specific moment (file metadata, logs of record) use `get_live_camera_settings()` instead: it returns only fields whose driver read succeeded right now (`gain_db`, `exposure_ms`) and omits the rest -- there, unknown stays unknown by design.
 - **State-changing operations** (setters like `set_gain`, `move_absolute`, `led_on`, etc.) typically return `True` on success and `False` for "couldn't do it" (no driver, mode invalid, driver does not implement, etc.). A `Raises:` section in the docstring documents the typed exception (`HardwareError`, `CaptureError`, `ConfigError` from `modules.exceptions`) that propagates when the underlying SDK call itself fails. The API layer logs (`logger.error`) and fires a user-facing notification (`notifications.error`) before re-raising at the driver boundary; the typed exception is what L2 callers should catch.
 - **Sentinel-return methods log** at `logger.warning` or `logger.info` per Rule 5; they do **not** fire user notifications (no actionable failure occurred -- the value is just unknown).
+- **`camera_connected` is an instantaneous, non-latching poll.** A `False` can be transient (a single flaky connectivity query on an otherwise healthy camera). Consumers may skip work on `False` and re-poll on their next cycle; they must never latch, self-cancel, or tear anything down on it -- one transient `False` on a multi-day run should cost one skipped cycle, not the rest of the session.
 
 If you are writing a new wrapper, the `Raises:` section is the canonical declaration of which contract applies.
 
@@ -247,14 +249,20 @@ save_image(
 runner = session.create_protocol_runner()
 protocol = session.scope.load_protocol('my_protocol.tsv')
 
-runner.run_single_scan(protocol)
+# image_capture_config is REQUIRED: the caller states the run's image mode
+# (bit depth + on-disk encoding) explicitly -- there is no silent default.
+# Modes: '8bit', '12bit_scientific', '12bit_scaled', '12bit_false_color_rgb'.
+runner.run_single_scan(
+    protocol,
+    image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
+)
 runner.wait_for_completion()
 
 # Or abort at any time:
 runner.abort()
 ```
 
-`run_single_scan()` runs one scan; `run_protocol()` runs the full multi-scan protocol. See the `ProtocolRunner` source for optional callbacks, image-output config, etc.
+`run_single_scan()` runs one scan; `run_protocol()` runs the full multi-scan protocol. Both raise `ConfigError` if `image_capture_config` is omitted, and `ProtocolRunRefusedError` (`modules.exceptions`) when the run is refused before any state is committed -- already running, files still writing, empty protocol, a validation failure, or hardware not connected. The refusal is already logged and shown to the user, so an L2 caller catches it to branch on its `reason` / `title` / `message` attributes (they map cleanly to a REST status code or a UI message) without re-notifying. See the `ProtocolRunner` source for optional callbacks, image-output config, etc.
 
 **Canonical entry points.** Build the runner with `session.create_protocol_runner()`. Build the `Protocol` it runs with one of the two scope-level constructors -- `scope.load_protocol(file_path)` (from a `.tsv` on disk) or `scope.create_protocol(config=... | input_config=... | empty_config=...)` (in-memory). Both resolve `data/tiling.json` from the session's registered `source_path`, so prefer them over calling `Protocol.from_file(...)` directly (which makes you pass `tiling_configs_file_loc` by hand).
 
@@ -444,6 +452,17 @@ namespace. The methods below are the L2-stable surface; the underlying
 driver is `scope.imaging._driver` (private; reach through the API).
 
 ```python
+# Streaming control. connect() returns the camera CONFIGURED but NOT
+# grabbing; capture/get_image need a live feed, so start it first. In the
+# GUI this happens automatically at startup; headless callers do it
+# explicitly after constructing the scope.
+scope.imaging.start_streaming()   # begin the live feed (idempotent; also
+                                  # restarts a feed stopped via stop_streaming)
+scope.imaging.stop_streaming()    # stop the feed (get_image then times out)
+scope.imaging.is_streaming()      # True while acquiring (queries the driver)
+```
+
+```python
 # Raw frame grab (no validity wait — use capture_and_wait instead in most cases)
 image = scope.imaging.get_image()
 image = scope.imaging.get_image(force_to_8bit=False)   # keep native 12/16-bit
@@ -458,6 +477,13 @@ image = scope.imaging.get_image(force_to_8bit=False)   # keep native 12/16-bit
 # Dtype is uint8 with force_to_8bit=True (default) or for 8-bit
 # cameras; uint16 with force_to_8bit=False for 12/16-bit cameras
 # (see scope.capabilities.native_bit_depth).
+#
+# Payload depth of a frame you just captured (for scaling / saving a
+# uint16 frame): scope.imaging.last_significant_bits -- the per-frame
+# delivery stamp (e.g. 12 for Mono12 in a uint16 container). Prefer it
+# over scope.imaging.significant_bits (derived from the current pixel
+# format) when you are holding the frame -- the stamp cannot describe a
+# newer format than the frame was captured under.
 
 # Frame-validity capture — PREFERRED for all real captures.
 # Waits for all pending changes (LED, gain, exposure, motion) to settle,
@@ -474,9 +500,14 @@ image = scope.imaging.capture_and_wait(
 
 # Exposure (milliseconds) + gain (dB)
 scope.imaging.set_exposure_time(exposure_ms=50)
-scope.imaging.get_exposure_time()
+scope.imaging.get_exposure_time()                  # last-known-good on transient read failure; 0.0 camera-absent
 scope.imaging.set_gain(gain_db=10.0)
-scope.imaging.get_gain()
+scope.imaging.get_gain()                           # last-known-good on transient read failure; -1.0 camera-absent
+
+# Live-confirmed readings for metadata / records: only fields whose
+# driver read succeeded RIGHT NOW; a field whose read failed is omitted
+# (the value getters above would answer last-known-good instead).
+scope.imaging.get_live_camera_settings()           # {} | {'gain_db': ..., 'exposure_ms': ...}
 
 # `set_exposure_time` warns + logs a stack trace at < 0.005 ms (the
 # common L1 failure is typing 0.05 thinking microseconds and getting
@@ -494,17 +525,29 @@ scope.imaging.apply_layer_camera_settings(
     auto_gain=False, auto_gain_settings=None,
 )
 
-# Frame size
-scope.imaging.set_frame_size(2048, 2048)
-scope.imaging.get_frame_size()                     # {'width': ..., 'height': ...}
+# Frame size (getters answer last-known-good on a transient read
+# failure; None / 0 only when no camera is active or never read)
+delivered = scope.imaging.set_frame_size(2048, 2048)
+# Returns the DELIVERED {'width','height'} -- the clamped/snapped
+# geometry actually in effect, which may differ from the request
+# (drivers clamp to the sensor max and floor to the alignment grid).
+# Raises CameraSettingRejected (modules.exceptions) when a live camera
+# refuses the apply; returns None (no-op) when no camera is active.
+# Base geometry code on the returned dict, never on the request.
+scope.imaging.get_frame_size()                     # {'width': ..., 'height': ...} | None
 scope.imaging.get_max_width()                      # max at the current binning
 scope.imaging.get_max_height()
 scope.imaging.get_native_resolution()              # {'width','height'} unbinned sensor ceiling
-scope.imaging.get_pixel_alignment()                # {'width','height'} frame-size multiple
+scope.imaging.get_pixel_alignment()                # {'width','height'} deliverable frame-size granularity (even on IDS; camera grid on floor-only drivers)
 
 # Binning
 scope.imaging.set_binning_size(2)
-scope.imaging.get_binning_size()
+# True when applied; raises CameraSettingRejected when a live camera
+# refuses; False (no-op) only when no camera is active. Same contract
+# for set_pixel_format. Success is observed by the return value,
+# rejection by the typed raise -- a dropped return cannot silently
+# record a rejected apply.
+scope.imaging.get_binning_size()                   # always >= 1 (last-known-good on failed read)
 scope.imaging.get_available_binning_sizes()        # e.g. [1, 2, 4]
 
 # Acquisition frame-rate cap (camera-side; clamps sensor-readout pace)
@@ -534,6 +577,8 @@ scope.imaging.restore_camera_state(snapshot)
 ```
 
 Symmetric to the LED version, but `restore_camera_state` takes only the snapshot (no `owner` arg — camera state is single-owner by nature).
+
+The snapshot is **omit-if-unknown**: it always carries `tag`, and carries `gain_db` / `exposure_ms` only when a usable value existed at save time (a missing field means that value was never successfully read from the camera; `save_camera_state` logs a warning when it omits one). Use `.get(...)` rather than indexing if you read snapshot fields directly. `restore_camera_state` restores the fields present, quietly skips absent ones (callers may deliberately trim fields they want left at current values), and leaves the camera unchanged for anything it skips.
 
 ### Camera listeners
 
@@ -678,11 +723,12 @@ gc = scope.diagnostics.run_grab_lifecycle_benchmark(
     num_cycles=100, inter_cycle_delay_ms=200, vary_settings=False,
 )
 
-# Pylon-specific cross-host / cross-camera / cross-firmware probe.
-# Captures camera identity, current config, stream-grabber stats
-# deltas over duration_s. Writes JSON to data/pylon_probe/. Returns
-# the driver's {'supported': False, ...} shape unchanged for IDS or
-# other non-Pylon drivers. Does NOT change grab state.
+# Cross-host / cross-camera / cross-firmware diagnostic probe.
+# Captures camera identity, current config, temperatures, and stream
+# stats deltas over duration_s, stamped with the active camera SDK
+# (Basler pylon, IDS peak, ...). Writes JSON to data/camera_probe/.
+# A driver that does not implement the probe returns the driver's
+# {'supported': False, ...} shape unchanged. Does NOT change grab state.
 probe = scope.diagnostics.run_pylon_diagnostic_probe(
     duration_s=3.0, drain_camera_side_errors=True,
 )
@@ -752,7 +798,7 @@ caps.camera_max_frame_size      # (width, height) tuple in pixels; (0, 0) if no 
 
 Important consequences:
 
-- **`camera_max_frame_size` is `(0, 0)` when no camera is connected** -- that is a sentinel meaning "unknown / no camera," not a usable size. Check `scope.camera_connected` (or that the tuple is non-zero / `caps.camera_model` is non-empty) before using it as a `scope.imaging.set_frame_size(w, h)` target; `set_frame_size` itself no-ops when no camera is active, so a naive `set_frame_size(*caps.camera_max_frame_size)` silently does nothing rather than erroring.
+- **`camera_max_frame_size` is `(0, 0)` when no camera is connected** -- that is a sentinel meaning "unknown / no camera," not a usable size. Check `scope.camera_connected` (or that the tuple is non-zero / `caps.camera_model` is non-empty) before using it as a `scope.imaging.set_frame_size(w, h)` target; `set_frame_size` returns `None` (no-op) when no camera is active, so a naive `set_frame_size(*caps.camera_max_frame_size)` does nothing rather than erroring. With a live camera it returns the DELIVERED geometry and raises `CameraSettingRejected` if the apply is refused.
 - **LED channel count varies by scope.** LS560/LS620 (FX2 driver) expose 4 channels (`BF`, `Blue`, `Green`, `Red`); RP2040-based scopes expose 6 (`BF`, `PC`, `DF`, `Blue`, `Green`, `Red`). Don't iterate over a hardcoded list — iterate over `caps.led_colors`.
 - **Some scopes have no motor at all.** LS560/LS620 have `caps.axes == ()`. Calling `scope.motion.move_absolute_position('X', …)` against such a scope is a no-op, not an error — but your UI should hide motion controls based on `caps.has_xy_stage` etc.
 - **`axis_travel_limits_um` is populated only for present axes.** On a Z-only scope, `'X' in caps.axis_travel_limits_um` is `False`; indexing `caps.axis_travel_limits_um['X']` raises `KeyError`. Check `caps.has_xy_stage` (or `axis in caps.axes`) before reading. The mapping is read-only (`MappingProxyType`); mutation attempts raise `TypeError`.
@@ -857,6 +903,15 @@ in the TIFF ImageDescription field; the legacy reader bridges that
 to consumers that previously assumed a 3-channel shape. FIJI, MATLAB
 ``imread``, and tifffile all handle mono 2D natively; the false-
 color is purely a display-time concern.
+
+Full-pixel-depth frames store raw, right-aligned sensor values (a 12-bit
+frame is ``0..4095``) and declare the true depth in the OME-TIFF
+``SignificantBits`` tag (e.g. ``SignificantBits=12`` inside a 16-bit
+container). To render or scale such a file to 8-bit, divide by
+``(1 << SignificantBits) - 1`` -- treating the values as full 16-bit will
+render a 12-bit frame ~16x too dark. ``image_utils.read_tiff_significant_bits``
+returns the tag (falling back to the container width for older files that were
+left-justified into the 16-bit range and carry no payload-depth tag).
 
 ### Coordinate transformations (`modules.coord_transformations`)
 
@@ -1105,7 +1160,10 @@ protocol = Protocol.from_file(
 )
 
 runner = session.create_protocol_runner()
-runner.run_single_scan(protocol)
+runner.run_single_scan(
+    protocol,
+    image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
+)
 runner.wait_for_completion()
 
 session.shutdown_executors()

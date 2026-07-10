@@ -42,6 +42,7 @@ _mock_settings_init.settings = {
 }
 sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
+from modules.image_mode import ImageCaptureConfig
 from modules.lumascope_api import Lumascope
 from modules.sequential_io_executor import SequentialIOExecutor
 from modules.sequenced_capture_runner import SequencedCaptureRunner
@@ -95,13 +96,7 @@ def _make_autogain_settings():
 
 
 def _make_image_capture_config():
-    return {
-        'output_format': {
-            'live': 'TIFF',
-            'sequenced': 'TIFF',
-        },
-        'use_full_pixel_depth': False,
-    }
+    return ImageCaptureConfig.from_image_mode('8bit')
 
 
 TILING_CONFIGS = pathlib.Path(__file__).parent.parent / 'data' / 'tiling.json'
@@ -170,6 +165,10 @@ def _make_protocol(steps_config):
                 'Video Config': merged['video_config'],
                 'Stim_Config': merged['stim_config'],
                 'Step Index': i,
+                # Unique per-step label: steps that differ only in exposure /
+                # gain / position must still derive distinct capture
+                # filenames or validate_for_run refuses the run.
+                'Label': name,
             }
         )
 
@@ -213,7 +212,7 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
     # Don't provide go_to_step -- let the executor use _default_move for real motor movement
     callbacks.setdefault('move_position', lambda axis: None)
 
-    executor.run(
+    plan = executor.prepare(
         protocol=protocol,
         run_trigger_source='test',
         run_mode=run_kwargs.pop('run_mode', SequencedCaptureRunMode.SINGLE_SCAN),
@@ -236,6 +235,7 @@ def _run_and_wait(executor, protocol, tmp_path, **run_kwargs):
         },
         **run_kwargs,
     )
+    executor.start(plan)
 
     completed = done.wait(timeout=COMPLETION_TIMEOUT)
     return completed, result_holder
@@ -255,9 +255,9 @@ def scope():
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
     # Camera must be grabbing for get_image to work
-    s._camera_driver.start_grabbing()
+    s.imaging.start_streaming()
     yield s
-    s._camera_driver.stop_grabbing()
+    s.imaging.stop_streaming()
     s.disconnect()
 
 
@@ -294,7 +294,7 @@ def executor(scope, executors):
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
         camera_executor=executors['camera'],
-        autofocus_thread=MagicMock(),
+        autofocus_thread=MagicMock(is_running=False),
         autofocus_runner=mock_af,
     )
     exc._wellplate_loader = WellPlateLoader()
@@ -319,7 +319,7 @@ def af_executor(scope, executors):
         protocol_thread=executors['protocol'],
         file_io_executor=executors['file_io'],
         camera_executor=executors['camera'],
-        autofocus_thread=MagicMock(),
+        autofocus_thread=MagicMock(is_running=False),
         autofocus_runner=af,
     )
     return exc
@@ -701,7 +701,7 @@ class TestIntegrationStateAssertions:
         assert completed
 
         # Camera grabbing state is managed externally, should still be active
-        assert scope._camera_driver.is_grabbing()
+        assert scope.imaging.is_streaming()
 
     def test_second_run_after_first(self, executor, scope, tmp_path):
         """A second protocol run completes after the first finishes."""
@@ -844,6 +844,7 @@ class TestHeadlessSession:
                 protocol=protocol,
                 sequence_name='headless_test',
                 parent_dir=str(tmp_path),
+                image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
                 callbacks={'run_complete': on_complete, 'files_complete': lambda **kw: None},
             )
 
@@ -882,10 +883,14 @@ class TestRestAPIPrep:
         assert session.scope.imaging.get_pixel_format() == 'Mono12'
 
     def test_set_pixel_format_invalid(self):
-        """set_pixel_format() with invalid format should return False."""
+        """set_pixel_format() with an unsupported format raises the typed
+        rejection (the apply contract: an L2 caller cannot mistake a
+        rejected format for an applied one by dropping the return)."""
+        from modules.exceptions import CameraSettingRejected
+
         session = ScopeSession.create_headless()
-        result = session.scope.imaging.set_pixel_format('InvalidFormat')
-        assert result is False
+        with pytest.raises(CameraSettingRejected):
+            session.scope.imaging.set_pixel_format('InvalidFormat')
 
     def test_get_supported_pixel_formats(self):
         """get_supported_pixel_formats() should return tuple of format strings."""
@@ -1089,6 +1094,7 @@ class TestRestAPIPrep:
 
         session = ScopeSession.create_headless()
         session.start_executors()
+        session.scope.imaging.start_streaming()
         try:
             runner = session.create_protocol_runner()
             af = runner.sequenced_capture_runner._autofocus_runner
@@ -1114,6 +1120,7 @@ class TestRestAPIPrep:
 
         session = ScopeSession.create_headless()
         session.start_executors()
+        session.scope.imaging.start_streaming()
         try:
             runner = session.create_protocol_runner()
             af = runner.sequenced_capture_runner._autofocus_runner
@@ -1180,8 +1187,8 @@ class TestAbortedAutofocusRestoresLeds:
                 keep_led_on=True,
             )
 
-        # AF setup lit the BF channel via leds_exclusive before the
-        # abort was observed; the aborted exit must have turned it off.
+        # AF setup lit the BF channel before the abort was observed; the
+        # aborted exit must have turned it off.
         state = scope.illumination.get_led_state('BF')
         assert not state['enabled'], (
             'Aborted AF left its LED lit: keep_led_on must skip the LED '

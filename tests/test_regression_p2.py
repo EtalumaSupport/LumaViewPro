@@ -303,17 +303,19 @@ class TestVideoBitDepth:
         )
 
     def test_convert_16bit_to_8bit_preserves_relative_intensity(self):
-        """Conversion should preserve relative brightness (divide by 256)."""
+        """Conversion preserves relative brightness, rescaling the full 16-bit
+        range to 8-bit (value / 65535 * 255) -- the one canonical mapping shared
+        with convert_to_8bit, not the legacy high-byte (/256) truncation."""
         import modules.image_utils as image_utils
 
         frame = np.array([[0, 256, 512, 65535]], dtype=np.uint16)
         result = image_utils.convert_16bit_to_8bit(frame)
 
         assert result.dtype == np.uint8
-        assert result[0, 0] == 0  # 0/256 = 0
-        assert result[0, 1] == 1  # 256/256 = 1
-        assert result[0, 2] == 2  # 512/256 = 2
-        assert result[0, 3] == 255  # 65535/256 = 255 (truncated)
+        assert result[0, 0] == 0  # 0 -> 0
+        assert result[0, 1] == 0  # 256/65535*255 = 0.996 -> 0
+        assert result[0, 2] == 1  # 512/65535*255 = 1.992 -> 1
+        assert result[0, 3] == 255  # 65535 -> full white
 
 
 # ---------------------------------------------------------------------------

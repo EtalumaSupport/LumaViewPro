@@ -162,6 +162,7 @@ class ProtocolPostProcessingHelper:
                 {
                     'Filepath': image_name,
                     'Name': step['Name'],
+                    'Label': step['Label'],
                     'Scan Count': file_data['Scan Count'],
                     'Step Index': step_idx,
                     'X': step['X'],
@@ -294,9 +295,30 @@ class ProtocolPostProcessingHelper:
                 logger.info(
                     f'Loaded existing protocol post record {protocol_tsvs["protocol_post_record"]}'
                 )
-            except Exception:
+            except Exception as e:
+                # An unreadable record must be moved aside, not appended to:
+                # constructing a fresh ProtocolPostRecord on it reopens it in
+                # append mode, and current-format rows under its old header
+                # would misalign every column on the next load.
+                record_loc = protocol_tsvs['protocol_post_record']
+                preserved_loc = record_loc.with_name(record_loc.name + '.unreadable')
+                try:
+                    os.replace(record_loc, preserved_loc)
+                except OSError as move_error:
+                    msg = (
+                        f'The post-processing record {record_loc.name} could not be '
+                        f'read ({e}) or moved aside ({move_error}). Close any program '
+                        f'holding it open, or remove it, then retry.'
+                    )
+                    logger.error(f'{self._name}: {msg}')
+                    return {
+                        'status': False,
+                        'message': msg,
+                    }
                 logger.error(
-                    f'Unable to load the protocol post record file {protocol_tsvs["protocol_post_record"]}. Creating new record.'
+                    f'{self._name}: Unable to load the protocol post record file '
+                    f'{record_loc} ({e}). Preserved it as {preserved_loc.name}; '
+                    f'starting a new record.'
                 )
 
         if protocol_post_record is None:

@@ -32,6 +32,7 @@ def _make_metadata():
     return {
         'pixel_size_um': 0.5,
         'channel': 'Green',
+        'significant_bits': 8,
         'objective': '10x',
         'exposure_time_ms': 50.0,
         'gain_db': 0.0,
@@ -118,7 +119,13 @@ class TestTiff8BitBrightfield:
     def test_photometric_minisblack(self, img_8bit, metadata, tmp_tiff, color):
         path = tmp_tiff()
         image_utils.write_tiff(
-            data=img_8bit, file_loc=path, metadata=metadata, ome=False, color=color
+            data=img_8bit,
+            file_loc=path,
+            metadata=metadata,
+            ome=False,
+            color=color,
+            significant_bits=8,
+            save_encoding='8bit',
         )
         info = _read_tiff(path)
         assert info['photometric'] == tf.PHOTOMETRIC.MINISBLACK
@@ -127,7 +134,13 @@ class TestTiff8BitBrightfield:
     def test_no_colormap_tag(self, img_8bit, metadata, tmp_tiff, color):
         path = tmp_tiff()
         image_utils.write_tiff(
-            data=img_8bit, file_loc=path, metadata=metadata, ome=False, color=color
+            data=img_8bit,
+            file_loc=path,
+            metadata=metadata,
+            ome=False,
+            color=color,
+            significant_bits=8,
+            save_encoding='8bit',
         )
         info = _read_tiff(path)
         assert not info['has_colormap_tag'], 'BF/PC/DF should not have colormap tag 320'
@@ -136,7 +149,13 @@ class TestTiff8BitBrightfield:
     def test_single_channel(self, img_8bit, metadata, tmp_tiff, color):
         path = tmp_tiff()
         image_utils.write_tiff(
-            data=img_8bit, file_loc=path, metadata=metadata, ome=False, color=color
+            data=img_8bit,
+            file_loc=path,
+            metadata=metadata,
+            ome=False,
+            color=color,
+            significant_bits=8,
+            save_encoding='8bit',
         )
         info = _read_tiff(path)
         assert info['shape'] == (100, 100), f'Expected (100,100), got {info["shape"]}'
@@ -149,7 +168,13 @@ class TestTiff8BitFluorescence:
     def test_photometric_palette(self, img_8bit, metadata, tmp_tiff, color):
         path = tmp_tiff()
         image_utils.write_tiff(
-            data=img_8bit, file_loc=path, metadata=metadata, ome=False, color=color
+            data=img_8bit,
+            file_loc=path,
+            metadata=metadata,
+            ome=False,
+            color=color,
+            significant_bits=8,
+            save_encoding='8bit',
         )
         info = _read_tiff(path)
         assert info['photometric'] == tf.PHOTOMETRIC.PALETTE
@@ -158,7 +183,13 @@ class TestTiff8BitFluorescence:
     def test_has_colormap(self, img_8bit, metadata, tmp_tiff, color):
         path = tmp_tiff()
         image_utils.write_tiff(
-            data=img_8bit, file_loc=path, metadata=metadata, ome=False, color=color
+            data=img_8bit,
+            file_loc=path,
+            metadata=metadata,
+            ome=False,
+            color=color,
+            significant_bits=8,
+            save_encoding='8bit',
         )
         with tf.TiffFile(str(path)) as f:
             page = f.pages[0]
@@ -170,7 +201,13 @@ class TestTiff8BitFluorescence:
     def test_single_channel(self, img_8bit, metadata, tmp_tiff, color):
         path = tmp_tiff()
         image_utils.write_tiff(
-            data=img_8bit, file_loc=path, metadata=metadata, ome=False, color=color
+            data=img_8bit,
+            file_loc=path,
+            metadata=metadata,
+            ome=False,
+            color=color,
+            significant_bits=8,
+            save_encoding='8bit',
         )
         info = _read_tiff(path)
         assert info['shape'] == (100, 100)
@@ -178,7 +215,13 @@ class TestTiff8BitFluorescence:
     def test_green_colormap_correct(self, img_8bit, metadata, tmp_tiff):
         path = tmp_tiff()
         image_utils.write_tiff(
-            data=img_8bit, file_loc=path, metadata=metadata, ome=False, color='Green'
+            data=img_8bit,
+            file_loc=path,
+            metadata=metadata,
+            ome=False,
+            color='Green',
+            significant_bits=8,
+            save_encoding='8bit',
         )
         with tf.TiffFile(str(path)) as f:
             cmap = f.pages[0].colormap
@@ -190,7 +233,13 @@ class TestTiff8BitFluorescence:
     def test_red_colormap_correct(self, img_8bit, metadata, tmp_tiff):
         path = tmp_tiff()
         image_utils.write_tiff(
-            data=img_8bit, file_loc=path, metadata=metadata, ome=False, color='Red'
+            data=img_8bit,
+            file_loc=path,
+            metadata=metadata,
+            ome=False,
+            color='Red',
+            significant_bits=8,
+            save_encoding='8bit',
         )
         with tf.TiffFile(str(path)) as f:
             cmap = f.pages[0].colormap
@@ -211,7 +260,13 @@ class TestTiff16BitBrightfield:
     def test_photometric_minisblack(self, img_16bit, metadata, tmp_tiff, color):
         path = tmp_tiff()
         image_utils.write_tiff(
-            data=img_16bit, file_loc=path, metadata=metadata, ome=False, color=color
+            data=img_16bit,
+            file_loc=path,
+            metadata=metadata,
+            ome=False,
+            color=color,
+            significant_bits=16,
+            save_encoding='right_aligned',
         )
         info = _read_tiff(path)
         assert info['photometric'] == tf.PHOTOMETRIC.MINISBLACK
@@ -220,7 +275,13 @@ class TestTiff16BitBrightfield:
     def test_no_colormap_tag(self, img_16bit, metadata, tmp_tiff, color):
         path = tmp_tiff()
         image_utils.write_tiff(
-            data=img_16bit, file_loc=path, metadata=metadata, ome=False, color=color
+            data=img_16bit,
+            file_loc=path,
+            metadata=metadata,
+            ome=False,
+            color=color,
+            significant_bits=16,
+            save_encoding='right_aligned',
         )
         info = _read_tiff(path)
         assert not info['has_colormap_tag']
@@ -229,7 +290,13 @@ class TestTiff16BitBrightfield:
     def test_imagej_format(self, img_16bit, metadata, tmp_tiff, color):
         path = tmp_tiff()
         image_utils.write_tiff(
-            data=img_16bit, file_loc=path, metadata=metadata, ome=False, color=color
+            data=img_16bit,
+            file_loc=path,
+            metadata=metadata,
+            ome=False,
+            color=color,
+            significant_bits=16,
+            save_encoding='right_aligned',
         )
         info = _read_tiff(path)
         assert info['is_imagej'], '16-bit non-OME should be ImageJ format'
@@ -238,7 +305,13 @@ class TestTiff16BitBrightfield:
     def test_single_channel(self, img_16bit, metadata, tmp_tiff, color):
         path = tmp_tiff()
         image_utils.write_tiff(
-            data=img_16bit, file_loc=path, metadata=metadata, ome=False, color=color
+            data=img_16bit,
+            file_loc=path,
+            metadata=metadata,
+            ome=False,
+            color=color,
+            significant_bits=16,
+            save_encoding='right_aligned',
         )
         info = _read_tiff(path)
         assert info['shape'] == (100, 100)
@@ -251,7 +324,13 @@ class TestTiff16BitFluorescenceDefault:
     def test_photometric_minisblack(self, img_16bit, metadata, tmp_tiff, color):
         path = tmp_tiff()
         image_utils.write_tiff(
-            data=img_16bit, file_loc=path, metadata=metadata, ome=False, color=color
+            data=img_16bit,
+            file_loc=path,
+            metadata=metadata,
+            ome=False,
+            color=color,
+            significant_bits=16,
+            save_encoding='right_aligned',
         )
         info = _read_tiff(path)
         assert info['photometric'] == tf.PHOTOMETRIC.MINISBLACK
@@ -261,7 +340,13 @@ class TestTiff16BitFluorescenceDefault:
         """Windows Preview requires no tag 320 on uint16 images."""
         path = tmp_tiff()
         image_utils.write_tiff(
-            data=img_16bit, file_loc=path, metadata=metadata, ome=False, color=color
+            data=img_16bit,
+            file_loc=path,
+            metadata=metadata,
+            ome=False,
+            color=color,
+            significant_bits=16,
+            save_encoding='right_aligned',
         )
         info = _read_tiff(path)
         assert not info['has_colormap_tag'], (
@@ -272,7 +357,13 @@ class TestTiff16BitFluorescenceDefault:
     def test_single_channel(self, img_16bit, metadata, tmp_tiff, color):
         path = tmp_tiff()
         image_utils.write_tiff(
-            data=img_16bit, file_loc=path, metadata=metadata, ome=False, color=color
+            data=img_16bit,
+            file_loc=path,
+            metadata=metadata,
+            ome=False,
+            color=color,
+            significant_bits=16,
+            save_encoding='right_aligned',
         )
         info = _read_tiff(path)
         assert info['shape'] == (100, 100)
@@ -281,7 +372,13 @@ class TestTiff16BitFluorescenceDefault:
     def test_imagej_format(self, img_16bit, metadata, tmp_tiff, color):
         path = tmp_tiff()
         image_utils.write_tiff(
-            data=img_16bit, file_loc=path, metadata=metadata, ome=False, color=color
+            data=img_16bit,
+            file_loc=path,
+            metadata=metadata,
+            ome=False,
+            color=color,
+            significant_bits=16,
+            save_encoding='right_aligned',
         )
         info = _read_tiff(path)
         assert info['is_imagej']
@@ -291,7 +388,13 @@ class TestTiff16BitFluorescenceDefault:
         """ImageJ LUT metadata should be present (even though FIJI ignores it for single images)."""
         path = tmp_tiff()
         image_utils.write_tiff(
-            data=img_16bit, file_loc=path, metadata=metadata, ome=False, color=color
+            data=img_16bit,
+            file_loc=path,
+            metadata=metadata,
+            ome=False,
+            color=color,
+            significant_bits=16,
+            save_encoding='right_aligned',
         )
         info = _read_tiff(path)
         ij = info['imagej_metadata']
@@ -305,37 +408,48 @@ class TestTiff16BitFluorescenceDefault:
 
 
 class TestTiff16BitFalseColorOn:
-    """16-bit fluorescence with false_color_16bit=True: 3-channel RGB."""
+    """16-bit fluorescence with a false-color image mode: 3-channel RGB."""
 
     def _mock_settings(self):
-        """Mock app_context so write_tiff reads false_color_16bit=True."""
+        """Mock app_context so write_tiff resolves the false-color RGB mode."""
         mock_ctx = mock.MagicMock()
-        mock_ctx.settings = {'false_color_16bit': True}
+        mock_ctx.settings = {'image_mode': '12bit_false_color_rgb'}
         return mock.patch('modules.app_context.ctx', mock_ctx)
 
     @pytest.mark.parametrize('color', ['Red', 'Green', 'Blue', 'Lumi'])
     def test_widens_to_three_channel_rgb(self, img_16bit, metadata, tmp_tiff, color):
-        # write_tiff reads false_color_16bit from settings (the None-default
-        # path that derived outputs also use), so the toggle widens 16-bit
-        # fluorescence to 3-channel RGB for Windows-Preview color.
+        # save_encoding='rgb' drives the false-color widening: 16-bit
+        # fluorescence widens to 3-channel RGB for Windows-Preview color.
         path = tmp_tiff()
         with self._mock_settings():
             image_utils.write_tiff(
-                data=img_16bit, file_loc=path, metadata=metadata, ome=False, color=color
+                data=img_16bit,
+                file_loc=path,
+                metadata=metadata,
+                ome=False,
+                color=color,
+                significant_bits=16,
+                save_encoding='rgb',
             )
         info = _read_tiff(path)
         assert info['shape'] == (100, 100, 3), (
-            f'{color}: false_color_16bit=True must widen to RGB, got {info["shape"]}'
+            f'{color}: false-color mode must widen to RGB, got {info["shape"]}'
         )
         # RGB carries color in the pixels, not a PALETTE colormap tag.
         assert not info['has_colormap_tag']
 
     def test_bf_not_affected(self, img_16bit, metadata, tmp_tiff):
-        """BF should remain single-channel even when false_color_16bit is on."""
+        """BF should remain single-channel even in a false-color mode."""
         path = tmp_tiff()
         with self._mock_settings():
             image_utils.write_tiff(
-                data=img_16bit, file_loc=path, metadata=metadata, ome=False, color='BF'
+                data=img_16bit,
+                file_loc=path,
+                metadata=metadata,
+                ome=False,
+                color='BF',
+                significant_bits=16,
+                save_encoding='rgb',
             )
         info = _read_tiff(path)
         assert info['shape'] == (100, 100), 'BF should stay single-channel'
@@ -353,7 +467,13 @@ class TestOmeTiff:
     def test_is_ome(self, img_8bit, metadata, tmp_tiff, color):
         path = tmp_tiff()
         image_utils.write_tiff(
-            data=img_8bit, file_loc=path, metadata=metadata, ome=True, color=color
+            data=img_8bit,
+            file_loc=path,
+            metadata=metadata,
+            ome=True,
+            color=color,
+            significant_bits=8,
+            save_encoding='8bit',
         )
         info = _read_tiff(path)
         assert info['is_ome'], 'OME flag should produce OME-TIFF'
@@ -361,7 +481,13 @@ class TestOmeTiff:
     def test_8bit_bf_minisblack(self, img_8bit, metadata, tmp_tiff):
         path = tmp_tiff()
         image_utils.write_tiff(
-            data=img_8bit, file_loc=path, metadata=metadata, ome=True, color='BF'
+            data=img_8bit,
+            file_loc=path,
+            metadata=metadata,
+            ome=True,
+            color='BF',
+            significant_bits=8,
+            save_encoding='8bit',
         )
         info = _read_tiff(path)
         assert info['photometric'] == tf.PHOTOMETRIC.MINISBLACK
@@ -369,7 +495,13 @@ class TestOmeTiff:
     def test_16bit_bf_minisblack(self, img_16bit, metadata, tmp_tiff):
         path = tmp_tiff()
         image_utils.write_tiff(
-            data=img_16bit, file_loc=path, metadata=metadata, ome=True, color='BF'
+            data=img_16bit,
+            file_loc=path,
+            metadata=metadata,
+            ome=True,
+            color='BF',
+            significant_bits=16,
+            save_encoding='right_aligned',
         )
         info = _read_tiff(path)
         assert info['photometric'] == tf.PHOTOMETRIC.MINISBLACK
@@ -377,7 +509,13 @@ class TestOmeTiff:
     def test_16bit_fluorescence_minisblack(self, img_16bit, metadata, tmp_tiff):
         path = tmp_tiff()
         image_utils.write_tiff(
-            data=img_16bit, file_loc=path, metadata=metadata, ome=True, color='Green'
+            data=img_16bit,
+            file_loc=path,
+            metadata=metadata,
+            ome=True,
+            color='Green',
+            significant_bits=16,
+            save_encoding='right_aligned',
         )
         info = _read_tiff(path)
         assert info['photometric'] == tf.PHOTOMETRIC.MINISBLACK
@@ -385,7 +523,13 @@ class TestOmeTiff:
     def test_not_imagej(self, img_16bit, metadata, tmp_tiff):
         path = tmp_tiff()
         image_utils.write_tiff(
-            data=img_16bit, file_loc=path, metadata=metadata, ome=True, color='Green'
+            data=img_16bit,
+            file_loc=path,
+            metadata=metadata,
+            ome=True,
+            color='Green',
+            significant_bits=16,
+            save_encoding='right_aligned',
         )
         info = _read_tiff(path)
         assert not info['is_imagej'], 'OME-TIFF should not be ImageJ format'
@@ -402,7 +546,13 @@ class TestRgbImages:
     def test_8bit_rgb_photometric(self, img_rgb_8bit, metadata, tmp_tiff):
         path = tmp_tiff()
         image_utils.write_tiff(
-            data=img_rgb_8bit, file_loc=path, metadata=metadata, ome=False, color='BF'
+            data=img_rgb_8bit,
+            file_loc=path,
+            metadata=metadata,
+            ome=False,
+            color='BF',
+            significant_bits=8,
+            save_encoding='8bit',
         )
         info = _read_tiff(path)
         assert info['photometric'] == tf.PHOTOMETRIC.RGB
@@ -410,7 +560,13 @@ class TestRgbImages:
     def test_8bit_rgb_3_channels(self, img_rgb_8bit, metadata, tmp_tiff):
         path = tmp_tiff()
         image_utils.write_tiff(
-            data=img_rgb_8bit, file_loc=path, metadata=metadata, ome=False, color='BF'
+            data=img_rgb_8bit,
+            file_loc=path,
+            metadata=metadata,
+            ome=False,
+            color='BF',
+            significant_bits=8,
+            save_encoding='8bit',
         )
         info = _read_tiff(path)
         assert info['shape'] == (100, 100, 3)
@@ -418,7 +574,13 @@ class TestRgbImages:
     def test_16bit_rgb_photometric(self, img_rgb_16bit, metadata, tmp_tiff):
         path = tmp_tiff()
         image_utils.write_tiff(
-            data=img_rgb_16bit, file_loc=path, metadata=metadata, ome=False, color='BF'
+            data=img_rgb_16bit,
+            file_loc=path,
+            metadata=metadata,
+            ome=False,
+            color='BF',
+            significant_bits=16,
+            save_encoding='right_aligned',
         )
         info = _read_tiff(path)
         assert info['photometric'] == tf.PHOTOMETRIC.RGB
@@ -435,7 +597,13 @@ class TestTiffMetadata:
     def test_software_tag(self, img_8bit, metadata, tmp_tiff):
         path = tmp_tiff()
         image_utils.write_tiff(
-            data=img_8bit, file_loc=path, metadata=metadata, ome=False, color='BF'
+            data=img_8bit,
+            file_loc=path,
+            metadata=metadata,
+            ome=False,
+            color='BF',
+            significant_bits=8,
+            save_encoding='8bit',
         )
         info = _read_tiff(path)
         assert info['software'] is not None
@@ -445,7 +613,15 @@ class TestTiffMetadata:
         """Verify pixel data is preserved exactly."""
         data = np.arange(256, dtype=np.uint8).reshape(16, 16)
         path = tmp_tiff()
-        image_utils.write_tiff(data=data, file_loc=path, metadata=metadata, ome=False, color='BF')
+        image_utils.write_tiff(
+            data=data,
+            file_loc=path,
+            metadata=metadata,
+            ome=False,
+            color='BF',
+            significant_bits=8,
+            save_encoding='8bit',
+        )
         with tf.TiffFile(str(path)) as f:
             read_back = f.pages[0].asarray()
         np.testing.assert_array_equal(data, read_back)
@@ -454,7 +630,15 @@ class TestTiffMetadata:
         """Verify pixel data is preserved exactly."""
         data = np.arange(10000, dtype=np.uint16).reshape(100, 100)
         path = tmp_tiff()
-        image_utils.write_tiff(data=data, file_loc=path, metadata=metadata, ome=False, color='BF')
+        image_utils.write_tiff(
+            data=data,
+            file_loc=path,
+            metadata=metadata,
+            ome=False,
+            color='BF',
+            significant_bits=16,
+            save_encoding='right_aligned',
+        )
         with tf.TiffFile(str(path)) as f:
             read_back = f.pages[0].asarray()
         np.testing.assert_array_equal(data, read_back)
@@ -462,7 +646,13 @@ class TestTiffMetadata:
     def test_datetime_tag(self, img_8bit, metadata, tmp_tiff):
         path = tmp_tiff()
         image_utils.write_tiff(
-            data=img_8bit, file_loc=path, metadata=metadata, ome=False, color='BF'
+            data=img_8bit,
+            file_loc=path,
+            metadata=metadata,
+            ome=False,
+            color='BF',
+            significant_bits=8,
+            save_encoding='8bit',
         )
         with tf.TiffFile(str(path)) as f:
             tag_codes = {t.code for t in f.pages[0].tags.values()}
@@ -553,7 +743,13 @@ class TestWindowsPreviewCompat:
         """No 16-bit image should use PALETTE photometric."""
         path = tmp_tiff()
         image_utils.write_tiff(
-            data=img_16bit, file_loc=path, metadata=metadata, ome=False, color=color
+            data=img_16bit,
+            file_loc=path,
+            metadata=metadata,
+            ome=False,
+            color=color,
+            significant_bits=16,
+            save_encoding='right_aligned',
         )
         info = _read_tiff(path)
         assert info['photometric'] != tf.PHOTOMETRIC.PALETTE, (
@@ -565,7 +761,13 @@ class TestWindowsPreviewCompat:
         """No 16-bit single-channel image should have tag 320."""
         path = tmp_tiff()
         image_utils.write_tiff(
-            data=img_16bit, file_loc=path, metadata=metadata, ome=False, color=color
+            data=img_16bit,
+            file_loc=path,
+            metadata=metadata,
+            ome=False,
+            color=color,
+            significant_bits=16,
+            save_encoding='right_aligned',
         )
         info = _read_tiff(path)
         assert not info['has_colormap_tag'], (
@@ -577,7 +779,13 @@ class TestWindowsPreviewCompat:
         """OME-TIFF 16-bit should also not have tag 320."""
         path = tmp_tiff()
         image_utils.write_tiff(
-            data=img_16bit, file_loc=path, metadata=metadata, ome=True, color=color
+            data=img_16bit,
+            file_loc=path,
+            metadata=metadata,
+            ome=True,
+            color=color,
+            significant_bits=16,
+            save_encoding='right_aligned',
         )
         info = _read_tiff(path)
         assert not info['has_colormap_tag']
@@ -682,7 +890,13 @@ class TestOmeMetadataReadback:
     def test_ome_input_recovers_position_and_exposure(self, img_16bit, metadata, tmp_tiff):
         path = tmp_tiff()
         image_utils.write_tiff(
-            data=img_16bit, file_loc=path, metadata=metadata, ome=True, color='Green'
+            data=img_16bit,
+            file_loc=path,
+            metadata=metadata,
+            ome=True,
+            color='Green',
+            significant_bits=16,
+            save_encoding='right_aligned',
         )
         with tf.TiffFile(str(path)) as t:
             assert not t.shaped_metadata, 'OME write should carry no shaped_metadata'
@@ -699,7 +913,13 @@ class TestOmeMetadataReadback:
     def test_ome_input_defaults_dropped_fields(self, img_16bit, metadata, tmp_tiff):
         path = tmp_tiff()
         image_utils.write_tiff(
-            data=img_16bit, file_loc=path, metadata=metadata, ome=True, color='Green'
+            data=img_16bit,
+            file_loc=path,
+            metadata=metadata,
+            ome=True,
+            color='Green',
+            significant_bits=16,
+            save_encoding='right_aligned',
         )
         recovered = image_utils.read_postproc_input_metadata(path)
         # Gain / Illumination / Objective are dropped by tifffile's auto-OME
@@ -708,3 +928,203 @@ class TestOmeMetadataReadback:
         assert recovered['gain_db'] == 0.0
         assert recovered['illumination_ma'] == 0.0
         assert recovered['objective'] == {}
+
+
+class TestStructuredReadbackOptionalGainExposure:
+    """A structured TIFF whose writer omitted the optional ExposureTime /
+    Gain plane fields (value genuinely unknown at capture) must still
+    recover positions and pixel size on read-back, and must not invent
+    stand-in values for the omitted fields on the way to a derived
+    output."""
+
+    def _write(self, img, md, path):
+        # 8-bit non-OME is the shaped-metadata path (16-bit non-OME writes
+        # ImageJ format, which carries no shaped metadata to read back).
+        image_utils.write_tiff(
+            data=img,
+            file_loc=path,
+            metadata=md,
+            ome=False,
+            color='BF',
+            significant_bits=8,
+            save_encoding='8bit',
+        )
+
+    def test_missing_gain_exposure_still_recovers_positions(self, img_8bit, metadata, tmp_tiff):
+        path = tmp_tiff()
+        md = dict(metadata)
+        del md['exposure_time_ms']
+        del md['gain_db']
+        self._write(img_8bit, md, path)
+
+        recovered = image_utils.read_postproc_input_metadata(path)
+        assert recovered is not None, (
+            'A plane missing only the optional gain/exposure fields must '
+            'not be discarded wholesale (positions + pixel size lost)'
+        )
+        assert recovered['plate_pos_mm']['x'] == pytest.approx(md['plate_pos_mm']['x'])
+        assert recovered['plate_pos_mm']['y'] == pytest.approx(md['plate_pos_mm']['y'])
+        assert recovered['z_pos_um'] == pytest.approx(md['z_pos_um'])
+        assert recovered['pixel_size_um'] == pytest.approx(md['pixel_size_um'])
+        assert 'exposure_time_ms' not in recovered, (
+            'An omitted (unknown) exposure must stay omitted, not be fabricated on read-back'
+        )
+        assert 'gain_db' not in recovered, (
+            'An omitted (unknown) gain must stay omitted, not be fabricated on read-back'
+        )
+
+    def test_present_gain_exposure_round_trip(self, img_8bit, metadata, tmp_tiff):
+        path = tmp_tiff()
+        self._write(img_8bit, metadata, path)
+
+        recovered = image_utils.read_postproc_input_metadata(path)
+        assert recovered is not None
+        assert recovered['exposure_time_ms'] == pytest.approx(metadata['exposure_time_ms'])
+        assert recovered['gain_db'] == pytest.approx(metadata['gain_db'])
+
+
+# Largest value a signed-32-bit reader (Bioformats) treats as positive. A TIFF
+# RATIONAL stores unsigned uint32, but Bioformats reads the numerator as int32,
+# so a numerator above this would surface as a negative PhysicalSize.
+_INT32_MAX = 2**31 - 1
+
+
+class TestResolutionRationalOwner:
+    """resolution_for_pixel_size is the single int32-safe owner of the TIFF
+    resolution tag, so a high-magnification (small) pixel size cannot be read
+    back as a negative PhysicalSize and every write path derives from one helper.
+    """
+
+    @pytest.mark.parametrize('pixel_size_um', [0.5, 0.1, 0.0646, 0.0323, 0.01, 0.001])
+    def test_numerator_within_int32_and_value_preserved(self, pixel_size_um):
+        x, y = image_utils.resolution_for_pixel_size(pixel_size_um)
+        for num, den in (x, y):
+            assert 0 < num <= _INT32_MAX, (
+                f'numerator {num} exceeds int32 at pixel_size_um={pixel_size_um}'
+            )
+            assert num / den == pytest.approx(1e4 / pixel_size_um, rel=1e-4)
+
+    def test_imagej_convention_is_pixels_per_pixel(self):
+        x, _ = image_utils.resolution_for_pixel_size(0.5, per_centimeter=False)
+        num, den = x
+        assert num / den == pytest.approx(1.0 / 0.5, rel=1e-4)
+
+    def test_written_tiff_resolution_is_int32_safe(self, img_16bit, tmp_tiff):
+        # Exercise the production OME write path at a high-magnification pixel
+        # size and confirm the on-disk RATIONAL numerator stays int32-safe.
+        meta = _make_metadata()
+        meta['pixel_size_um'] = 0.0646
+        path = tmp_tiff()
+        image_utils.write_tiff(
+            data=img_16bit,
+            file_loc=path,
+            metadata=meta,
+            ome=True,
+            color='Green',
+            significant_bits=16,
+            save_encoding='right_aligned',
+        )
+        with tf.TiffFile(str(path)) as f:
+            xnum = f.pages[0].tags['XResolution'].value[0]
+            ynum = f.pages[0].tags['YResolution'].value[0]
+        assert 0 < xnum <= _INT32_MAX
+        assert 0 < ynum <= _INT32_MAX
+
+
+class TestFalseColorRgbDepth:
+    """12-bit false-color RGB must save bright color (the payload filled to the
+    container), not a dark right-aligned RGB. The mode exists to render in color
+    in plain viewers, so it shares the scaled mode's brightening -- colorizing a
+    still-narrow payload would store dark color that no plain viewer can show.
+    """
+
+    def test_false_color_rgb_fills_container(self, tmp_tiff):
+        # A bright 12-bit Green frame (right-aligned 0..4095) in false-color RGB
+        # mode must brighten to fill the 16-bit container (4095 << 4 = 65520),
+        # not stay dark at 4095.
+        raw = np.full((64, 64), 4095, dtype=np.uint16)
+        meta = _make_metadata()
+        meta['significant_bits'] = 12
+        path = tmp_tiff()
+        image_utils.write_tiff(
+            data=raw,
+            file_loc=path,
+            metadata=meta,
+            ome=False,
+            color='Green',
+            significant_bits=12,
+            save_encoding='rgb',
+        )
+        with tf.TiffFile(str(path)) as f:
+            arr = f.pages[0].asarray()
+        assert arr.ndim == 3, 'false-color RGB must be 3-channel'
+        green_max = int(arr[:, :, 1].max())
+        assert green_max >= 0xF000, (
+            f'false-color RGB saved dark (green max {green_max}); the 12-bit '
+            'payload was not brightened to fill the container'
+        )
+
+    def test_scientific_stays_right_aligned(self, tmp_tiff):
+        # Guard the other side: the scientific (right_aligned) mode must NOT be
+        # filled -- it stays native 0..4095 so it round-trips as true values.
+        raw = np.full((64, 64), 4095, dtype=np.uint16)
+        meta = _make_metadata()
+        meta['significant_bits'] = 12
+        path = tmp_tiff()
+        image_utils.write_tiff(
+            data=raw,
+            file_loc=path,
+            metadata=meta,
+            ome=False,
+            color='Green',
+            significant_bits=12,
+            save_encoding='right_aligned',
+        )
+        with tf.TiffFile(str(path)) as f:
+            arr = f.pages[0].asarray()
+        assert int(arr.max()) == 4095, 'scientific must stay native, not filled'
+
+
+class TestReportedDepthMatchesFile:
+    """The depth a caller reports (in a log / bundle manifest) must equal the
+    depth the file actually carries. A scaled 12-bit capture is left-justified
+    to a 16-bit file, so reporting the pre-scale sensor depth (12) makes a
+    correctly-tagged 16-bit file read as if it were mis-tagged.
+    """
+
+    @pytest.mark.parametrize(
+        'save_encoding,capture_depth,make',
+        [
+            ('8bit', 8, lambda: np.zeros((4, 4), np.uint8)),
+            ('right_aligned', 12, lambda: np.full((4, 4), 4095, np.uint16)),
+            ('msb_aligned', 12, lambda: np.full((4, 4), 4095, np.uint16)),
+            ('rgb', 12, lambda: np.full((4, 4), 4095, np.uint16)),
+        ],
+    )
+    def test_helper_matches_file_tag(self, metadata, tmp_tiff, save_encoding, capture_depth, make):
+        data = make()
+        path = tmp_tiff()
+        image_utils.write_tiff(
+            data=data,
+            file_loc=path,
+            metadata={**metadata, 'significant_bits': capture_depth},
+            ome=False,
+            color='Green',
+            significant_bits=capture_depth,
+            save_encoding=save_encoding,
+        )
+        file_bits = image_utils.read_tiff_significant_bits(path)
+        reported = image_utils.written_significant_bits(
+            save_encoding, capture_depth, data.dtype, image_utils.is_color_image(data)
+        )
+        assert reported == file_bits, (
+            f'{save_encoding}: helper reported {reported} but file carries {file_bits}'
+        )
+
+    def test_scaled_capture_reports_container_depth_not_sensor(self):
+        u16 = np.dtype(np.uint16)
+        # The exact bug: a scaled 12-bit capture is a 16-bit file.
+        assert image_utils.written_significant_bits('msb_aligned', 12, u16, False) == 16
+        # Scientific keeps its narrow depth; 8-bit stays 8.
+        assert image_utils.written_significant_bits('right_aligned', 12, u16, False) == 12
+        assert image_utils.written_significant_bits('8bit', 8, np.dtype(np.uint8), False) == 8

@@ -15,8 +15,10 @@ from modules.config_ui_getters import firmware_stim_supported
 
 
 def _ctx_reporting_stim(supported):
+    # The gate reads the LIVE scope (ctx.lumaview.scope), the reference reconnect
+    # rebuilds -- not the build-time ctx.scope registry field.
     ctx = MagicMock()
-    ctx.scope.capabilities.supports.return_value = supported
+    ctx.lumaview.scope.capabilities.supports.return_value = supported
     return ctx
 
 
@@ -24,7 +26,7 @@ def test_gate_true_when_firmware_supports(monkeypatch):
     ctx = _ctx_reporting_stim(True)
     monkeypatch.setattr(_app_ctx, 'ctx', ctx)
     assert firmware_stim_supported() is True
-    ctx.scope.capabilities.supports.assert_called_with('firmware_stim')
+    ctx.lumaview.scope.capabilities.supports.assert_called_with('firmware_stim')
 
 
 def test_gate_false_when_firmware_lacks_support(monkeypatch):
@@ -34,7 +36,7 @@ def test_gate_false_when_firmware_lacks_support(monkeypatch):
 
 def test_gate_fails_safe_to_hidden_when_no_scope(monkeypatch):
     ctx = MagicMock()
-    ctx.scope = None
+    ctx.lumaview.scope = None
     monkeypatch.setattr(_app_ctx, 'ctx', ctx)
     assert firmware_stim_supported() is False
 

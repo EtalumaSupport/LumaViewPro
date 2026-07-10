@@ -4,7 +4,7 @@
 Bug
 ---
 The Runtime line in the startup banner reported "source / dev" on
-installed MSI builds (visible in Chris's beta9 lumaviewpro.log:
+installed MSI builds (visible in the beta tester's beta9 lumaviewpro.log:
 "Runtime:   source / dev" despite the build being from the MSI
 installer). Root cause: lvp_logger.py is bundled into the PyInstaller
 exe via the .spec datas list, so under sys.frozen=True its __file__

@@ -1102,10 +1102,10 @@ class TestIssue602_AFExecutorLED:
             io_executor=io,
             file_io_executor=file_ex,
         )
-        # AF illuminates its own channel at scan start via the exclusive
-        # primitive (the former _led_on helper was folded into that call);
-        # _led_off still releases AF's channel.
-        assert hasattr(scope.illumination, 'leds_exclusive')
+        # AF illuminates its own channel at scan start through the LED
+        # authority (the AF_ENTER transition, which drives led_on under the
+        # hood); _led_off still releases AF's channel.
+        assert hasattr(scope.illumination, 'led_on')
         assert hasattr(af, '_led_off')
         # Verify _reset_state initializes LED fields
         af._reset_state()
@@ -1131,27 +1131,27 @@ class TestIssue602_AFExecutorLED:
             io_executor=io,
             file_io_executor=file_ex,
         )
-        # Set LED state as if AF were running with LED. AFE.run()'s
-        # finally block calls _led_off regardless of exit path
-        # (success / abort / exception); this checks the invariant.
+        # AF lights its channel at scan start; a non-success exit must end
+        # with that channel dark. AFE.run()'s finally routes the AF-end state
+        # through the authority's AF_TO_CAPTURE transition, whose diff offs the
+        # AF channel on abort -- so this checks the outcome (channel dark), not
+        # which helper emitted the off.
         af._led_color = 'BF'
         af._led_illumination = 100
-        af._saved_led_state = {'channel': 'BF', 'mA': 0}
 
         abort_event = threading.Event()
         abort_event.set()  # pre-set so AFE.run() unwinds via abort path
         with (
-            patch.object(af, '_led_off') as mock_led_off,
             patch.object(af, '_move_absolute_position'),
-            patch.object(scope.illumination, 'save_led_state', return_value={}),
             patch.object(scope.imaging, 'save_camera_state', return_value={}),
             patch.object(scope.motion, 'set_precision_mode'),
-            patch.object(scope.illumination, 'restore_led_state'),
             patch.object(scope.imaging, 'restore_camera_state'),
         ):
             with pytest.raises(AutofocusAborted):
                 af.run(objective_id='4x', abort_event=abort_event)
-            mock_led_off.assert_called_once()
+            assert not scope.illumination.get_led_state('BF')['enabled'], (
+                'aborted AF must leave its channel dark (#602)'
+            )
 
 
 class TestAFPrecisionModeRestoresOn:
@@ -1254,7 +1254,7 @@ class TestIssue606_TurretObjectiveValidation:
         """select_objective source must check turret assignments."""
         import pathlib
 
-        source = pathlib.Path('ui/microscope_settings.py').read_text()
+        source = pathlib.Path('ui/vertical_control.py').read_text()
         assert 'Objective Not in Turret' in source, (
             'select_objective must warn when objective not in turret (#606)'
         )
@@ -1412,6 +1412,7 @@ class TestRule14_A4_PreRunValidationNotify:
     """A4: Pre-run validation errors must surface a user notification (Rule 14)."""
 
     def _run_with_validation_errors(self, monkeypatch, errors):
+        from modules.exceptions import ProtocolRunRefusedError
         from modules.notification_center import notifications
 
         captured = []
@@ -1419,7 +1420,8 @@ class TestRule14_A4_PreRunValidationNotify:
         runner = _bare_capture_runner()
         kwargs = _scr_run_kwargs()
         kwargs['protocol'].validate_for_run.return_value = errors
-        runner.run(**kwargs)
+        with pytest.raises(ProtocolRunRefusedError):
+            runner.prepare(**kwargs)
         return runner, kwargs['protocol'], captured
 
     def test_validation_errors_branch_notifies(self, monkeypatch):
@@ -1459,13 +1461,15 @@ class TestRule14_A5_AreAllConnectedExceptionNotify:
 
     def test_are_all_connected_exception_branch_notifies(self, monkeypatch):
         """A raising connectivity check must notify the user and abort the run."""
+        from modules.exceptions import ProtocolRunRefusedError
         from modules.notification_center import notifications
 
         captured = []
         monkeypatch.setattr(notifications, 'error', lambda *a, **k: captured.append(a))
         runner = _bare_capture_runner()
         runner._scope.are_all_connected.side_effect = RuntimeError('usb tree gone')
-        runner.run(**_scr_run_kwargs())
+        with pytest.raises(ProtocolRunRefusedError):
+            runner.prepare(**_scr_run_kwargs())
         assert captured, (
             'are_all_connected exception path must call notifications.error (A5 -- Rule 14)'
         )
@@ -1536,6 +1540,7 @@ class TestRule14_A7_HyperstackBuildNotify:
         -- without the popup the user only ever sees the optimistic
         'Saving Hyperstacks' info."""
         import modules.config_ui_getters as config_ui_getters
+        from modules.image_mode import ImageCaptureConfig
         from modules.notification_center import notifications
 
         popped = threading.Event()
@@ -1552,7 +1557,9 @@ class TestRule14_A7_HyperstackBuildNotify:
         monkeypatch.setattr(
             config_ui_getters,
             'get_image_capture_config_from_ui',
-            lambda: {'output_format': {'sequenced': 'OME-TIFF Hyperstack'}},
+            lambda: ImageCaptureConfig.from_image_mode(
+                '8bit', output_format_sequenced='OME-TIFF Hyperstack'
+            ),
         )
         monkeypatch.setattr(
             config_ui_getters,
@@ -1591,6 +1598,11 @@ def _run_cleanup_kwargs(**overrides):
     from modules.protocol_callbacks import ProtocolCallbacks
     from modules.protocol_state_machine import ProtocolState
 
+    # The real file executor returns an int drop count (0 on a clean run); the
+    # mock must too, or the run-end dropped-capture check compares a MagicMock.
+    file_io_executor = MagicMock()
+    file_io_executor.protocol_dropped_count.return_value = 0
+
     kwargs = {
         'get_state_fn': MagicMock(return_value=ProtocolState.RUNNING),
         'set_state_fn': MagicMock(),
@@ -1606,15 +1618,15 @@ def _run_cleanup_kwargs(**overrides):
         'protocol_execution_record': None,
         'scope': MagicMock(),
         'callbacks': ProtocolCallbacks(),
-        'leds_off_fn': MagicMock(),
-        'led_on_fn': MagicMock(),
+        'apply_led_transition_fn': MagicMock(),
         'default_move_fn': MagicMock(),
         'cancel_scheduled_events_fn': MagicMock(),
         'io_executor': MagicMock(),
         'autofocus_thread': None,
-        'file_io_executor': MagicMock(),
+        'file_io_executor': file_io_executor,
         'camera_executor': MagicMock(),
         'set_run_in_progress_fn': MagicMock(),
+        'run_status': 'completed',
     }
     kwargs.update(overrides)
     return kwargs
@@ -1645,7 +1657,7 @@ class TestRule14_A10_ProtocolCleanupErrorCollection:
 
         kwargs = _run_cleanup_kwargs(
             cancel_scheduled_events_fn=_raiser('cancel'),
-            leds_off_fn=_raiser('led'),
+            apply_led_transition_fn=_raiser('led'),
             callbacks=ProtocolCallbacks(
                 restore_layer_shader=_raiser('shader'),
                 restore_autofocus_state=_raiser('af'),
@@ -1717,6 +1729,9 @@ class TestSetBinningSizeFailureNotifies:
     camera silently staying at the old binning is invisible otherwise."""
 
     def test_set_binning_size_exception_notifies(self, monkeypatch):
+        import pytest
+
+        from modules.exceptions import CameraSettingRejected
         from modules.notification_center import notifications
 
         imaging, cam = _sim_backed_imaging()
@@ -1727,9 +1742,11 @@ class TestSetBinningSizeFailureNotifies:
             raise RuntimeError('simulated SDK failure')
 
         monkeypatch.setattr(cam, 'set_binning_size', raising_set_binning_size)
-        assert imaging.set_binning_size(2) is False, (
-            'a raising driver must surface as a False return'
-        )
+        # A raising driver surfaces as the typed rejection (the apply
+        # contract: success returns True, rejection raises so a caller
+        # cannot silently record a rejected apply).
+        with pytest.raises(CameraSettingRejected):
+            imaging.set_binning_size(2)
         assert captured, 'set_binning_size exception path must notify the user'
         assert captured[0][1] == 'Binning change failed', (
             f'notification title must name the failed operation; got {captured[0]}'
@@ -1759,16 +1776,21 @@ class TestSetBinningSizeReturnsBool:
         )
 
     def test_set_binning_size_returns_driver_value(self):
-        """The API method must propagate the driver's bool -- dropping it
-        (implicit None) made char-tool's `if not ok:` misreport every
-        successful binning op as a failure."""
+        """Success must surface as True and rejection must be impossible to
+        mistake for success -- dropping the outcome (implicit None) made
+        char-tool's `if not ok:` misreport every successful binning op as
+        a failure, and a silently-returned False let callers record a
+        rejected factor as current."""
+        import pytest
+
+        from modules.exceptions import CameraSettingRejected
+
         imaging, _cam = _sim_backed_imaging()
         assert imaging.set_binning_size(2) is True, (
             'a driver-accepted binning change must propagate as True'
         )
-        assert imaging.set_binning_size(5) is False, (
-            'a driver-rejected binning size (sim supports 1-4) must propagate as False'
-        )
+        with pytest.raises(CameraSettingRejected):
+            imaging.set_binning_size(5)  # sim supports 1-4
 
     def test_set_binning_size_has_returns_docstring_section(self):
         """Rule 38: public methods declare what they return."""
@@ -1850,9 +1872,11 @@ class TestSetBinningSizeReturnsBool:
         with pytest.raises(HardwareError):
             cam.set_binning_size(2)
 
-    def test_idscamera_set_pixel_format_raises_and_annotated(self):
-        """Tier 3a / C3 + Tier 1-A: annotation declared, raises
-        HardwareError and marks disconnected on SDK failure."""
+    def test_idscamera_set_pixel_format_raises_without_disconnect(self):
+        """Tier 3a / C3 + Tier 1-A: annotation declared, raises HardwareError on
+        SDK failure but does NOT mark the camera disconnected -- a transient
+        PixelFormat write fault is recoverable, not a removal, so it must not
+        drop the camera mid-resize (matches set_binning_size, same machinery)."""
         from tests.ast_seams import assert_def
 
         from drivers.exceptions import HardwareError
@@ -1869,7 +1893,7 @@ class TestSetBinningSizeReturnsBool:
         cam.remote_nodemap.FindNode.return_value.SetCurrentEntry.side_effect = RuntimeError('sdk')
         with pytest.raises(HardwareError):
             cam.set_pixel_format('Mono8')
-        cam._mark_disconnected.assert_called_once()
+        cam._mark_disconnected.assert_not_called()
 
 
 class TestHomeReturnsBool:
@@ -2971,7 +2995,7 @@ class TestAOC2_RetrySaturationCheckOutsideCamLock:
         orig_fraction = ImagingAPI._saturated_fraction
         lock_was_free = []
 
-        def probing_fraction(frame):
+        def probing_fraction(frame, significant_bits):
             seen = {}
 
             def try_acquire():
@@ -2984,7 +3008,7 @@ class TestAOC2_RetrySaturationCheckOutsideCamLock:
             probe.start()
             probe.join()
             lock_was_free.append(seen['free'])
-            return orig_fraction(frame)
+            return orig_fraction(frame, significant_bits)
 
         monkeypatch.setattr(ImagingAPI, '_saturated_fraction', staticmethod(probing_fraction))
         out = imaging.get_image(all_ones_check=True)
@@ -3018,6 +3042,7 @@ def _bare_protocol_writer(**overrides):
     """ProtocolImageWriter on stub collaborators; kwargs override any slot."""
     from unittest.mock import MagicMock
 
+    from modules.image_mode import ImageCaptureConfig
     from modules.protocol_callbacks import ProtocolCallbacks
     from modules.protocol_image_writer import ProtocolImageWriter
 
@@ -3029,11 +3054,37 @@ def _bare_protocol_writer(**overrides):
         'abort_fn': lambda: None,
         'execution_record': None,
         'leds_off_fn': lambda: None,
-        'led_on_fn': lambda **kw: None,
         'is_run_in_progress_fn': lambda: True,
+        'image_capture_config': ImageCaptureConfig.from_image_mode('8bit'),
     }
     kwargs.update(overrides)
     return ProtocolImageWriter(**kwargs)
+
+
+def _make_capture_runner(**overrides):
+    """SequencedCaptureRunner on stub collaborators; kwargs override any slot.
+
+    One owner of the seven-MagicMock construction so the constructor signature
+    is pinned in a single place, not re-pasted per test class.
+    """
+    from modules.sequenced_capture_runner import SequencedCaptureRunner
+
+    # The real file executor returns an int drop count (0 on a clean run); the
+    # mock must too, or run-end cleanup compares a MagicMock against an int.
+    file_io_executor = MagicMock()
+    file_io_executor.protocol_dropped_count.return_value = 0
+
+    kwargs = {
+        'scope': MagicMock(),
+        'stage_offset': {'x': 0.0, 'y': 0.0, 'z': 0.0},
+        'io_executor': MagicMock(),
+        'protocol_thread': MagicMock(),
+        'file_io_executor': file_io_executor,
+        'camera_executor': MagicMock(),
+        'autofocus_thread': MagicMock(is_running=False),
+    }
+    kwargs.update(overrides)
+    return SequencedCaptureRunner(**kwargs)
 
 
 def _protocol_step(**overrides):
@@ -3054,9 +3105,73 @@ def _protocol_step(**overrides):
         'X': 0.0,
         'Y': 0.0,
         'Z': 0.0,
+        'Auto_Named': True,
+        'Label': '',
     }
     step.update(overrides)
     return step
+
+
+def test_not_saving_capture_builds_record_task_without_crash():
+    """capture(enable_image_saving=False) must queue its 'unsaved' record task
+    without crashing. The video-leg encoding pair (capture_depth/save_encoding)
+    is read before the save/not-save split, so the not-saving dispatch has them
+    in scope. Pre-fix the depth read lived inside the saving branch, so the
+    not-saving dispatch raised NameError: capture_depth before any row was
+    recorded -- a path no test exercised because the disabled-saving unit tests
+    call write_capture directly rather than through capture()."""
+    from unittest.mock import MagicMock
+
+    writer = _bare_protocol_writer()
+    scope = writer._scope
+    scope.motion.has_turret.return_value = False
+    scope.led_connected = False
+    protocol = MagicMock()
+    protocol.capture_root.return_value = ''
+
+    # Must not raise; the file IO executor is a stub so the queued task is not run.
+    writer.capture(
+        save_folder='/tmp',
+        step=_protocol_step(),
+        output_format='TIFF',
+        protocol=protocol,
+        enable_image_saving=False,
+    )
+    assert writer._file_io_executor.protocol_put.called
+
+
+def test_write_capture_threads_save_encoding_to_write_video(monkeypatch, tmp_path):
+    """write_capture resolves nothing itself -- save_encoding + capture_depth
+    come from the writer's held run config (the one carrier for the run's
+    capture/save intent) and reach write_video so protocol video frames honor
+    the image mode."""
+    from types import SimpleNamespace
+
+    import modules.protocol_image_writer as piw
+    from modules.image_mode import ImageCaptureConfig
+
+    recorded = {}
+    monkeypatch.setattr(
+        piw, 'write_video', lambda **kwargs: recorded.update(kwargs) or (tmp_path / 'vid')
+    )
+
+    writer = _bare_protocol_writer(
+        image_capture_config=ImageCaptureConfig.from_image_mode('12bit_false_color_rgb')
+    )
+    writer.write_capture(
+        is_video=True,
+        video_as_frames=True,
+        video_result=SimpleNamespace(captured_frames=1, duration_sec=1.0),
+        save_folder=tmp_path,
+        name='vid',
+        step=_protocol_step(),
+        enable_image_saving=True,
+    )
+    assert recorded.get('save_encoding') == 'rgb', (
+        f'write_capture must hand the run config save_encoding to write_video; '
+        f'saw {sorted(recorded)}'
+    )
+    assert recorded.get('capture_depth') == 12
 
 
 class TestPIW3_FalseColor16bitCachedAtRunStart:
@@ -3066,11 +3181,10 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
     a protocol run; per-save acquisition is wasteful and contends with GUI thread
     settings updates.
 
-    Fix: thread an `use_false_color_16bit` parameter through write_tiff /
-    save_image / save_image_static / ProtocolImageWriter, read once in
-    sequenced_capture_runner at run start, and pass through. write_tiff
-    falls back to the lock-read path when `use_false_color_16bit=None`,
-    preserving behavior for ad-hoc callers.
+    Fix: thread the resolved `save_encoding` through write_tiff /
+    save_image / ProtocolImageWriter, read once in sequenced_capture_runner
+    at run start, and pass through. write_tiff derives RGB widening solely
+    from `save_encoding == 'rgb'`, so the per-save settings read is gone.
     """
 
     def test_save_image_threads_param_to_write_tiff(self, monkeypatch, tmp_path):
@@ -3086,26 +3200,35 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
         )
         monkeypatch.setattr(image_save, 'generate_image_metadata', lambda scope, color, x, y, z: {})
         image_save.save_image(
-            SimpleNamespace(),
+            SimpleNamespace(
+                imaging=SimpleNamespace(capture_frame_depth=lambda array, sum_count=1: 8)
+            ),
             np.zeros((4, 4), dtype=np.uint8),
             save_folder=str(tmp_path),
             file_root='fc_',
             append='BF',
             color='BF',
             tail_id_mode=None,
-            use_false_color_16bit=True,
+            save_encoding='rgb',
+            significant_bits=8,
         )
-        assert recorded.get('use_false_color_16bit') is True, (
-            'save_image must thread the pre-resolved use_false_color_16bit '
-            f'through to write_tiff; write_tiff saw {sorted(recorded)}'
+        assert recorded.get('save_encoding') == 'rgb', (
+            'save_image must thread the resolved save_encoding through to '
+            f'write_tiff; write_tiff saw {sorted(recorded)}'
         )
 
     def test_protocol_image_writer_caches_at_init(self, monkeypatch, tmp_path):
-        """The writer must hand save_image the value it was CONSTRUCTED
-        with -- the run-start read, not a per-save settings read."""
+        """The writer must hand save_image the config it was CONSTRUCTED
+        with -- the run-start value, not a per-save settings read."""
         import numpy as np
 
-        writer = _bare_protocol_writer(false_color_16bit=True)
+        from modules import image_mode
+        from modules.image_mode import ImageCaptureConfig
+        from modules.protocol_image_writer import CapturedFrame
+
+        writer = _bare_protocol_writer(
+            image_capture_config=ImageCaptureConfig.from_image_mode('12bit_false_color_rgb')
+        )
         recorded = []
         monkeypatch.setattr(
             'modules.protocol_image_writer.save_image',
@@ -3114,7 +3237,9 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
         writer.write_capture(
             enable_image_saving=True,
             is_video=False,
-            captured_image=np.zeros((4, 4), dtype=np.uint8),
+            captured_image=CapturedFrame(
+                image=np.zeros((4, 4), dtype=np.uint8), significant_bits=8
+            ),
             step=_protocol_step(),
             name='stepA_BF',
             save_folder=str(tmp_path),
@@ -3122,131 +3247,37 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
             output_format='TIFF',
         )
         assert recorded, 'write_capture must reach save_image'
-        assert recorded[0]['use_false_color_16bit'] is True, (
-            'the constructor-cached false_color_16bit must arrive at save_image'
+        assert recorded[0]['save_encoding'] == image_mode.SAVE_ENCODING_RGB, (
+            'the constructor-held run config save_encoding must arrive at save_image'
         )
 
-    def test_sequenced_capture_runner_reads_once_at_run_start(self, monkeypatch):
-        """run() must read false_color_16bit exactly once, under
-        settings_lock, and thread the value to the writer it constructs."""
+    def test_sequenced_capture_runner_start_does_not_read_encoding_settings(self, monkeypatch):
+        """start() must not read encoding settings at all: the run's one
+        ImageCaptureConfig (fixed at prepare()) is threaded to the writer,
+        and ctx.settings has no say over the in-flight run's encoding."""
         from types import SimpleNamespace
 
         import modules.app_context as app_context
+        from modules import image_mode
+        from modules.image_mode import ImageCaptureConfig
 
         lock = threading.Lock()
-        settings = _LockWatchingSettings({'false_color_16bit': True}, lock, 'false_color_16bit')
+        settings = _LockWatchingSettings(
+            {'use_full_pixel_depth': False, 'false_color_16bit': False}, lock, 'false_color_16bit'
+        )
         monkeypatch.setattr(
             app_context, 'ctx', SimpleNamespace(settings=settings, settings_lock=lock)
         )
         runner = _bare_capture_runner()
-        runner.run(**_scr_run_kwargs())
-        assert settings.watched_reads == [True], (
-            'PIW-3: false_color_16bit must be read exactly once per run, under '
-            f'settings_lock; reads (lock-held flags): {settings.watched_reads}'
+        config = ImageCaptureConfig.from_image_mode('12bit_false_color_rgb')
+        runner.start(runner.prepare(**_scr_run_kwargs(image_capture_config=config)))
+        assert settings.watched_reads == [], (
+            'the run encoding must come from the run config, never from a '
+            f'settings re-read at start(); reads: {settings.watched_reads}'
         )
-        assert runner._image_writer._false_color_16bit is True, (
-            'PIW-3: the run-start value must be threaded to ProtocolImageWriter'
+        assert runner._image_writer._config.save_encoding == image_mode.SAVE_ENCODING_RGB, (
+            'the prepared run config must be threaded to ProtocolImageWriter'
         )
-
-
-class TestPIW5_Convert12to16OutBuffer:
-    """PIW-5: convert_12bit_to_16bit() allocated a fresh ndarray on every save
-    via image.copy() (~24 MB pulse for protocol-scale images). Same family as
-    F-3 -- fresh allocations on the hot save path.
-
-    Fix: add `out=None` parameter; when caller supplies a buffer with matching
-    shape and dtype, reuse it via np.copyto. Plumb a per-run reusable buffer
-    through ProtocolImageWriter -> save_image -> prepare_image_for_saving ->
-    convert_12bit_to_16bit. file_io_executor runs single-threaded so reuse
-    across sequential saves is safe; mismatched shape/dtype falls back to
-    allocation.
-    """
-
-    def test_convert_function_accepts_out_param(self):
-        import numpy as np
-        from modules.image_utils import convert_12bit_to_16bit
-
-        # Functional: shape/dtype-matched out buffer is reused; result is *= 16 of input.
-        src = np.array([[1, 2], [3, 4]], dtype=np.uint16)
-        buf = np.zeros((2, 2), dtype=np.uint16)
-        result = convert_12bit_to_16bit(src, out=buf)
-        assert result is buf, 'PIW-5: convert should return the supplied out buffer.'
-        np.testing.assert_array_equal(result, src * 16)
-
-        # Mismatched shape: falls back to fresh allocation, no error.
-        bad_buf = np.zeros((3, 3), dtype=np.uint16)
-        result2 = convert_12bit_to_16bit(src, out=bad_buf)
-        assert result2 is not bad_buf, 'PIW-5: shape-mismatch should fall back to fresh alloc.'
-        np.testing.assert_array_equal(result2, src * 16)
-
-        # No out param: original behavior preserved.
-        result3 = convert_12bit_to_16bit(src)
-        assert result3 is not src, 'PIW-5: no-out path should still allocate a fresh array.'
-        np.testing.assert_array_equal(result3, src * 16)
-
-    def test_protocol_image_writer_reuses_convert_buffer(self, monkeypatch, tmp_path):
-        """Consecutive same-shape uint16 saves must share ONE conversion
-        buffer; a shape change reallocates; uint8 saves pass none."""
-        import numpy as np
-
-        writer = _bare_protocol_writer()
-        buffers = []
-        monkeypatch.setattr(
-            'modules.protocol_image_writer.save_image',
-            lambda scope, **kwargs: buffers.append(kwargs['out_12to16']) or (tmp_path / 'out.tiff'),
-        )
-
-        def write(frame):
-            writer.write_capture(
-                enable_image_saving=True,
-                is_video=False,
-                captured_image=frame,
-                step=_protocol_step(),
-                name='stepA_BF',
-                save_folder=str(tmp_path),
-                use_color='BF',
-                output_format='TIFF',
-            )
-
-        write(np.zeros((6, 5), dtype=np.uint16))
-        write(np.zeros((6, 5), dtype=np.uint16))
-        assert buffers[0] is not None and buffers[0].shape == (6, 5)
-        assert buffers[1] is buffers[0], 'same-shape saves must reuse one conversion buffer'
-        write(np.zeros((3, 3), dtype=np.uint16))
-        assert buffers[2] is not buffers[0] and buffers[2].shape == (3, 3), (
-            'a shape change must reallocate the buffer'
-        )
-        write(np.zeros((6, 5), dtype=np.uint8))
-        assert buffers[3] is None, '8-bit saves need no 12->16 conversion buffer'
-
-    def test_save_image_reuses_out_12to16_buffer(self, monkeypatch, tmp_path):
-        """The caller-supplied buffer must be the 12->16 conversion
-        destination on every save -- the whole point of the plumbing."""
-        from types import SimpleNamespace
-
-        import numpy as np
-
-        from modules import image_save
-
-        monkeypatch.setattr('modules.image_utils.write_tiff', lambda **kwargs: None)
-        monkeypatch.setattr(image_save, 'generate_image_metadata', lambda scope, color, x, y, z: {})
-        buf = np.zeros((4, 4), dtype=np.uint16)
-        for fill in (1, 3):
-            arr = np.full((4, 4), fill, dtype=np.uint16)
-            image_save.save_image(
-                SimpleNamespace(),
-                arr,
-                save_folder=str(tmp_path),
-                file_root='buf_',
-                append='BF',
-                color='BF',
-                tail_id_mode=None,
-                out_12to16=buf,
-            )
-            assert np.array_equal(buf, arr * 16), (
-                'save_image must use the caller-supplied out_12to16 buffer '
-                'as the 12->16 conversion destination on every save'
-            )
 
 
 class TestPIW6_PF3_FalseColorRgbPreallocated:
@@ -3410,6 +3441,7 @@ class TestPIW2_DisksUsageDeduped:
         import numpy as np
 
         from modules.notification_center import notifications
+        from modules.protocol_image_writer import CapturedFrame
 
         aborts = []
         writer = _bare_protocol_writer(abort_fn=lambda: aborts.append(1))
@@ -3427,7 +3459,9 @@ class TestPIW2_DisksUsageDeduped:
         writer.write_capture(
             enable_image_saving=True,
             is_video=False,
-            captured_image=np.zeros((4, 4), dtype=np.uint8),
+            captured_image=CapturedFrame(
+                image=np.zeros((4, 4), dtype=np.uint8), significant_bits=8
+            ),
             step=_protocol_step(),
             name='stepA_BF',
             save_folder=str(tmp_path),
@@ -3541,7 +3575,7 @@ class TestProtocolCleanupRestoresLayerShader_ShaderHygiene:
         assert "'restore_layer_shader'" in src or '"restore_layer_shader"' in src, (
             'ui/protocol_settings.py must wire the restore_layer_shader '
             'callback into the callbacks dict it passes to '
-            'sequenced_capture_runner.run(). Without this wire, '
+            'sequenced_capture_runner.prepare(). Without this wire, '
             'protocol_cleanup invokes None and the shader-tint bug '
             'recurs.'
         )
@@ -3810,11 +3844,11 @@ class TestPF5_ImageBufferRetired:
         assert imaging.set_pixel_format('Mono12') is True
         sentinel = np.full((4, 4), 7, dtype=np.uint8)
         monkeypatch.setattr(
-            'modules.image_utils.convert_12bit_to_8bit',
-            lambda image, **kwargs: sentinel,
+            'modules.image_utils.convert_to_8bit',
+            lambda image, *args, **kwargs: sentinel,
         )
         out = imaging.get_image(force_to_8bit=True, timeout_s=2.0)
-        assert out is sentinel, 'get_image must return the convert_12bit_to_8bit result'
+        assert out is sentinel, 'get_image must return the convert_to_8bit result'
 
     def test_get_image_returns_scale_bar_result(self, monkeypatch):
         """The scale-bar step's return value must flow into the returned
@@ -3945,6 +3979,7 @@ class TestFrameValidity_SaveLiveImageDrainsBeforeGrab:
             imaging=SimpleNamespace(
                 capture_and_wait=lambda **kw: calls.append('capture_and_wait') or frame,
                 get_image=lambda **kw: calls.append('get_image') or frame,
+                capture_frame_depth=lambda array, sum_count=1: 8,
             ),
             illumination=SimpleNamespace(leds_off=lambda: None),
         )
@@ -3956,7 +3991,7 @@ class TestFrameValidity_SaveLiveImageDrainsBeforeGrab:
                 saved.update(array=array) or str(tmp_path / 'live.tiff')
             ),
         )
-        out = image_save.save_live_image(scope, save_folder=str(tmp_path))
+        out = image_save.save_live_image(scope, save_folder=str(tmp_path), save_encoding='8bit')
         assert out is not None
         assert calls == ['capture_and_wait'], (
             f'save_live_image must drain via capture_and_wait only; saw {calls}'
@@ -4096,6 +4131,7 @@ def _sim_backed_imaging():
 
     cam = SimulatedCamera()
     cam.connect()
+    cam.open_and_start()
     scope = Lumascope.__new__(Lumascope)
     scope._camera_driver = cam
     scope.runtime_state = RuntimeState(scope)
@@ -4254,7 +4290,9 @@ class TestImageHandlerBaseChunkSlot:
         import numpy as np
 
         b = self._make_base()
-        b._store_frame(np.zeros((4, 4), dtype=np.uint8), datetime.datetime.now())
+        b._store_frame(
+            np.zeros((4, 4), dtype=np.uint8), datetime.datetime.now(), significant_bits=8
+        )
         assert b.last_chunks is None
         assert b.get_last_chunks() is None
 
@@ -4264,7 +4302,12 @@ class TestImageHandlerBaseChunkSlot:
 
         b = self._make_base()
         chunks = {'ExposureTime': 14530.0, 'Gain': 1.0, 'FrameID': 12345}
-        b._store_frame(np.zeros((4, 4), dtype=np.uint8), datetime.datetime.now(), chunks=chunks)
+        b._store_frame(
+            np.zeros((4, 4), dtype=np.uint8),
+            datetime.datetime.now(),
+            chunks=chunks,
+            significant_bits=8,
+        )
         assert b.last_chunks == chunks
         assert b.get_last_chunks() == chunks
 
@@ -4284,6 +4327,7 @@ class TestImageHandlerBaseChunkSlot:
             np.zeros((4, 4), dtype=np.uint8),
             datetime.datetime.now(),
             chunks={'ExposureTime': 14530.0},
+            significant_bits=8,
         )
         b._record_failure()  # last_result becomes False
         assert b.get_last_chunks() is None
@@ -4297,6 +4341,7 @@ class TestImageHandlerBaseChunkSlot:
             np.zeros((4, 4), dtype=np.uint8),
             datetime.datetime.now(),
             chunks={'ExposureTime': 14530.0},
+            significant_bits=8,
         )
         b.reset()
         assert b.last_chunks is None
@@ -4312,11 +4357,13 @@ class TestImageHandlerBaseChunkSlot:
             np.zeros((4, 4), dtype=np.uint8),
             datetime.datetime.now(),
             chunks={'ExposureTime': 14530.0, 'Gain': 1.0},
+            significant_bits=8,
         )
         b._store_frame(
             np.zeros((4, 4), dtype=np.uint8),
             datetime.datetime.now(),
             chunks={'ExposureTime': 30000.0},
+            significant_bits=8,
         )
         assert b.get_last_chunks() == {'ExposureTime': 30000.0}
         assert 'Gain' not in b.get_last_chunks()
@@ -4356,10 +4403,34 @@ class TestRecordInitFpsPreflightAndToggle:
             'user-requested FPS limit binds against the exposure budget '
             "(issue #633 Stage 2C, Eric's 'warn + accept' choice)."
         )
-        # Warn-and-accept: do NOT block recording on this path.
-        assert 'self.recording.clear()' not in body.split('FPS budget exceeded')[0][-500:], (
-            'FPS-budget warning path must not clear self.recording -- '
-            'Eric chose warn-and-accept, not abort.'
+        # Warn-and-accept: the budget-warning branch itself must not
+        # block recording. Asserted on the AST branch (not source
+        # proximity) so unrelated refusal guards earlier in the
+        # preflight -- e.g. the unknown-exposure refusal, which
+        # legitimately clears the claim -- don't false-positive.
+        import ast
+        import pathlib
+
+        tree = ast.parse(pathlib.Path('ui/main_display.py').read_text())
+        method = None
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef) and node.name == 'MainDisplay':
+                for child in node.body:
+                    if isinstance(child, ast.FunctionDef) and child.name == 'record_init':
+                        method = child
+        assert method is not None, 'MainDisplay.record_init not found'
+        budget_ifs = [
+            s
+            for s in ast.walk(method)
+            if isinstance(s, ast.If) and 'FPS budget exceeded' in ast.unparse(s)
+        ]
+        assert budget_ifs, 'FPS-budget warning must sit inside the limit-binds check'
+        innermost = min(budget_ifs, key=lambda s: len(ast.unparse(s)))
+        assert 'recording.clear' not in ast.unparse(innermost) and not any(
+            isinstance(n, ast.Return) for n in ast.walk(innermost)
+        ), (
+            'FPS-budget warning path must not clear self.recording or '
+            'abort -- Eric chose warn-and-accept, not abort.'
         )
 
     def test_disk_space_preflight_aborts_with_notify(self):
@@ -4438,6 +4509,74 @@ class TestSessionManifestHelpers:
         assert abs(result['max'] - 20.0) < 1e-6
         # mean = (10 + 5 + 20) / 3 = 11.667
         assert abs(result['mean'] - 35.0 / 3) < 1e-6
+
+    def test_compute_fps_stats_from_ticks_steady_10fps(self):
+        from modules.recording_manifest import compute_fps_stats_from_ticks
+
+        # 1 GHz tick clock, 100ms spacing -> 0.1e9 ticks/frame -> 10 FPS exactly.
+        ticks = [i * 100_000_000 for i in range(10)]
+        result = compute_fps_stats_from_ticks(ticks, 1_000_000_000)
+        assert result['samples'] == 9
+        assert abs(result['mean'] - 10.0) < 1e-6
+        assert abs(result['min'] - 10.0) < 1e-6
+        assert abs(result['max'] - 10.0) < 1e-6
+
+    def test_compute_fps_stats_from_ticks_insufficient(self):
+        from modules.recording_manifest import compute_fps_stats_from_ticks
+
+        zeros = {'mean': 0.0, 'min': 0.0, 'max': 0.0, 'samples': 0}
+        assert compute_fps_stats_from_ticks([], 1_000_000_000) == zeros
+        assert compute_fps_stats_from_ticks([5], 1_000_000_000) == zeros
+        # No tick frequency -> ticks are uninterpretable, so zeros (caller
+        # falls back to host time).
+        assert compute_fps_stats_from_ticks([0, 100_000_000], None) == zeros
+
+    def test_build_session_manifest_prefers_camera_ticks_over_jittery_host(self):
+        import datetime
+
+        from modules.recording_manifest import build_session_manifest
+
+        # Host wall-clock is jittery (OS scheduling): 50/200/50/200 ms ->
+        # 20/5/20/5 fps, a min/max spread of 5..20.
+        base = datetime.datetime(2026, 5, 9, 14, 0, 0)
+        host_ms = [0, 50, 250, 300, 500]
+        timestamps = [base + datetime.timedelta(milliseconds=m) for m in host_ms]
+        # The camera's own clock recorded steady 100ms spacing -> exactly 10 fps.
+        tick_freq_hz = 1_000_000_000
+        ticks = [i * 100_000_000 for i in range(5)]
+        chunks = [{'Timestamp': t, 'FrameID': i} for i, t in enumerate(ticks)]
+
+        manifest = build_session_manifest(
+            timestamps=timestamps,
+            chunks_per_frame=chunks,
+            tick_freq_hz=tick_freq_hz,
+            captured_frames=5,
+            video_duration=0.5,
+        )
+        fps = manifest['recording']['actual_fps']
+        # From ticks: steady 10 fps, NOT the jittery host 5..20 spread.
+        assert abs(fps['min'] - 10.0) < 1e-6, f'expected tick-derived 10fps, got {fps}'
+        assert abs(fps['max'] - 10.0) < 1e-6, f'expected tick-derived 10fps, got {fps}'
+        assert abs(fps['mean'] - 10.0) < 1e-6
+
+    def test_build_session_manifest_falls_back_to_host_without_ticks(self):
+        import datetime
+
+        from modules.recording_manifest import build_session_manifest
+
+        # No chunk support: tick_freq_hz None, chunks all None -> host time.
+        base = datetime.datetime(2026, 5, 9, 14, 0, 0)
+        timestamps = [base + datetime.timedelta(milliseconds=100 * i) for i in range(5)]
+        manifest = build_session_manifest(
+            timestamps=timestamps,
+            chunks_per_frame=[None] * 5,
+            tick_freq_hz=None,
+            captured_frames=5,
+            video_duration=0.4,
+        )
+        fps = manifest['recording']['actual_fps']
+        assert fps['samples'] == 4
+        assert abs(fps['mean'] - 10.0) < 1e-6
 
     def test_gather_host_provenance_keys(self):
         from modules.recording_manifest import gather_host_provenance
@@ -4650,14 +4789,30 @@ class TestPylonPayloadDiscardedClassification:
         return (Path(__file__).resolve().parent.parent / 'drivers' / 'pyloncamera.py').read_text()
 
     def test_payload_discarded_constant_value(self):
-        """The constant must match the bench-witnessed err_code from
-        Firmware DAILY_LOG (0xE2050012). If Basler renames or splits
-        the code in a future SDK rev, bump this and update the comment."""
+        """The constant must match the bench-witnessed err_code, pinned by
+        the DECIMAL the hardware actually emits: 3791651346 (= 0xE2000212).
+        The decimal was witnessed many times, but was once converted to hex
+        wrong (0xE2050012 = 3791978514) and the constant stored in that bad
+        hex -- so the classifier compared the real 3791651346 against
+        3791978514 and never matched, leaving every discard counted as a
+        failure. Pin by the decimal so a hex slip cannot silently recur. If
+        Basler renames or splits the code in a future SDK rev, bump this."""
         from drivers.pyloncamera import _PYLON_ERR_PAYLOAD_DISCARDED
 
-        assert _PYLON_ERR_PAYLOAD_DISCARDED == 0xE2050012, (
+        assert _PYLON_ERR_PAYLOAD_DISCARDED == 3791651346, (
             'Payload-discarded constant must match the bench-witnessed '
-            'err_code 0xE2050012 from Firmware DAILY_LOG.md.'
+            'err_code decimal 3791651346 (= 0xE2000212). If you found '
+            "3791978514 = 0xE2050012, that's the prior bad hex conversion."
+        )
+
+    def test_payload_discarded_comment_hex_matches_constant(self):
+        """The source comment must show the corrected hex (0xE2000212), the
+        true hex form of the bench decimal 3791651346 -- not the prior
+        miscalculation 0xE2050012 stored as the live value."""
+        src = self._pyloncamera_source()
+        assert '0xE2000212' in src, (
+            'Source comment near _PYLON_ERR_PAYLOAD_DISCARDED must reference '
+            '0xE2000212 (the true hex of decimal 3791651346).'
         )
 
     def test_payload_discarded_comment_explains_disposition(self):
@@ -4911,7 +5066,7 @@ class TestPylonDisconnectDestroyDevice:
 class TestPylonDiagnosticProbe:
     """DiagnosticsAPI.run_pylon_diagnostic_probe captures a one-shot
     cross-host / cross-camera / cross-firmware diagnostic snapshot
-    and writes it to data/pylon_probe/<...>.json. Designed for
+    and writes it to data/camera_probe/<...>.json. Designed for
     bench-wave comparison; replaces /tmp/probe.py-style bespoke
     scripts (Rule 22).
 
@@ -5003,6 +5158,30 @@ class TestPylonDiagnosticProbe:
         assert result['connected'] is False
         assert result.get('supported') is False
 
+    def test_supported_snapshot_stamps_driver_sdk_and_neutral_folder(self, tmp_path, monkeypatch):
+        """A supported=True snapshot is stamped with the active driver's SDK
+        (not a hardcoded Pylon assumption) and written to the driver-neutral
+        camera_probe/ folder."""
+        import modules.lumascope_api.diagnostics as diag
+
+        monkeypatch.setattr(diag, 'log_dir', str(tmp_path))
+
+        class _Driver:
+            active = True
+
+            def read_diagnostic_snapshot(self, duration_s, drain_camera_side_errors):
+                return {'connected': True, 'supported': True, 'camera': {}, 'config': {}}
+
+            def get_sdk_info(self):
+                return {'name': 'IDS peak', 'version': '2.21'}
+
+        result = self._make_scope_with_fake_camera(
+            _Driver()
+        ).diagnostics.run_pylon_diagnostic_probe(duration_s=0.0)
+        assert result['host']['camera_sdk'] == {'name': 'IDS peak', 'version': '2.21'}
+        assert 'pypylon_version' not in result['host']
+        assert 'camera_probe' in result.get('output_path', '')
+
     def test_dltl_filename_token_off(self):
         """Mode=Off -> 'dltloff'."""
         from modules.lumascope_api.diagnostics import DiagnosticsAPI
@@ -5077,10 +5256,10 @@ class TestPylonDiagnosticProbe:
             'DiagnosticsAPI.run_pylon_diagnostic_probe to function.',
         )
 
-    def test_ids_camera_has_read_diagnostic_snapshot_stub(self):
-        """Source-shape lock: IDSCamera must have a stub returning
-        supported=False so the API can report the gap rather than
-        raising AttributeError when an IDS camera is connected."""
+    def test_ids_camera_implements_read_diagnostic_snapshot(self):
+        """IDSCamera must implement read_diagnostic_snapshot (no longer a
+        supported=False stub): it reports supported=True and the parity
+        shape so the API can surface real IDS camera + stream state."""
         from pathlib import Path
 
         from tests.ast_seams import assert_def
@@ -5088,13 +5267,13 @@ class TestPylonDiagnosticProbe:
         assert_def(
             'drivers/idscamera.py',
             'read_diagnostic_snapshot',
-            msg='IDSCamera must have a read_diagnostic_snapshot stub '
-            'returning supported=False until the IDS implementation lands.',
+            msg='IDSCamera must define read_diagnostic_snapshot.',
         )
         src = (Path(__file__).resolve().parent.parent / 'drivers' / 'idscamera.py').read_text()
         body = _function_source(src, 'read_diagnostic_snapshot')
-        assert "'supported': False" in body or '"supported": False' in body, (
-            'IDS read_diagnostic_snapshot stub must return supported=False'
+        assert "'supported': True" in body or '"supported": True' in body, (
+            'IDS read_diagnostic_snapshot is now implemented and must report '
+            'supported=True (the supported=False stub was replaced).'
         )
 
 
@@ -6376,6 +6555,20 @@ class TestPylonIsConnectedCallsSdkQuery:
         cam._device_removed = False
         cam.active.IsCameraDeviceRemoved.return_value = False
         assert cam.is_connected() is True
+        cam._mark_disconnected.assert_not_called()
+
+    def test_is_connected_returns_false_when_removal_query_raises(self):
+        """A removal query that RAISES must read as disconnected, not
+        stale-alive: a query failure means the camera's liveness cannot
+        be confirmed, and reporting True hands consumers (camera_connected,
+        health aggregation) a lie. It must also NOT latch teardown -- a
+        failed query is not proof of physical removal, and the next poll
+        re-queries; the definitive signals (removal callback, a clean
+        IsCameraDeviceRemoved()==True) still latch via their own paths."""
+        cam = _bare_pylon_camera()
+        cam._device_removed = False
+        cam.active.IsCameraDeviceRemoved.side_effect = RuntimeError('transport error')
+        assert cam.is_connected() is False
         cam._mark_disconnected.assert_not_called()
 
 
@@ -7731,10 +7924,17 @@ class TestGigeSetters:
             with pytest.raises(HardwareError):
                 call(cam)
 
-    def test_ids_stubs_return_false(self):
-        from drivers.idscamera import IDSCamera
-
-        camera = IDSCamera.__new__(IDSCamera)
+    def test_ids_gev_setters_return_false_when_unwritable(self):
+        # The IDS GEV setters are now guarded live writes (GigE-ready), not
+        # hardcoded stubs: they return False when they can't apply -- inactive
+        # camera, or the node absent on a USB3 body -- so the bench sweep can
+        # still call them unconditionally per cell. BandwidthReserveMode stays a
+        # stub (no IDS equivalent node).
+        camera = _bare_ids_camera()
+        # USB3 body: the GEV transport nodes are absent, so FindNode returns
+        # None and the guarded write returns False (a GigE body would resolve
+        # the node and write it).
+        camera.remote_nodemap.FindNode.return_value = None
         assert camera.set_bandwidth_reserve_mode('Performance') is False
         assert camera.set_gev_packet_size(9000) is False
         assert camera.set_gev_inter_packet_delay(0) is False
@@ -7811,7 +8011,10 @@ class TestStreamGrabberSetters:
     NumMaxQueuedUrbs is the lever for "insufficient system memory"
     symptoms (USB3 only). The Pylon driver raises HardwareError on SDK
     RuntimeException and on missing-node (GigE / non-USB3); the API
-    layer notifies + re-raises. IDS stubs return False.
+    layer notifies + re-raises. The IDS driver writes the bench-confirmed
+    equivalent nodes (TestPattern, U3vStreamChannelBulkTransferSize,
+    U3vStreamChannelTransferRequestCount), returning False when inactive
+    or the node is absent.
 
     A6 / B16 closure (AUDIT_PYLONCAMERA_2026-05-07.md).
     """
@@ -7901,10 +8104,16 @@ class TestStreamGrabberSetters:
         assert_def('drivers/pyloncamera.py', 'set_max_transfer_size')
         assert_def('drivers/pyloncamera.py', 'set_num_max_queued_urbs')
 
-    def test_ids_driver_stubs_return_false(self):
-        from drivers.idscamera import IDSCamera
+    def test_ids_driver_setters_return_false_when_inactive(self):
+        # These were stubs; they now perform real node writes (TestPattern and
+        # the U3vStreamChannel* transfer-tuning nodes are bench-confirmed
+        # ReadWrite on the U3-34L0XCP-M) but still return False when the camera
+        # is inactive, so the API layer can call them unconditionally. Full
+        # write coverage lives in tests/test_ids_transport_setters.py.
+        from tests.camera_fakes import bare_ids_camera
 
-        camera = IDSCamera.__new__(IDSCamera)
+        camera = bare_ids_camera()
+        camera.active = False
         assert camera.set_max_transfer_size(262144) is False
         assert camera.set_num_max_queued_urbs(64) is False
 
@@ -8297,6 +8506,13 @@ class TestManualVideoSpinners:
 
         return pathlib.Path('ui/microscope_settings.py').read_text()
 
+    def _advanced_text(self):
+        import pathlib
+
+        # The manual-video rows + handlers + load now live in the
+        # Advanced Settings modal, not the microscope panel.
+        return pathlib.Path('ui/advanced_settings.py').read_text()
+
     def _record_init_body(self):
         import pathlib
 
@@ -8307,9 +8523,9 @@ class TestManualVideoSpinners:
         return source[idx:next_def] if next_def > 0 else source[idx:]
 
     def test_kv_has_max_fps_textinput(self):
-        kv = self._kv_text()
+        kv = self._advanced_text()
         assert 'id: manual_video_max_fps_input' in kv, (
-            'ui/lumaviewpro.kv must define a TextInput with id '
+            'ui/advanced_settings.py must define a TextInput with id '
             'manual_video_max_fps_input bound to '
             "settings['manual_video']['max_fps']."
         )
@@ -8318,9 +8534,9 @@ class TestManualVideoSpinners:
         )
 
     def test_kv_has_max_duration_textinput(self):
-        kv = self._kv_text()
+        kv = self._advanced_text()
         assert 'id: manual_video_max_duration_input' in kv, (
-            'ui/lumaviewpro.kv must define a TextInput with id '
+            'ui/advanced_settings.py must define a TextInput with id '
             'manual_video_max_duration_input bound to '
             "settings['manual_video']['max_duration']."
         )
@@ -8329,18 +8545,18 @@ class TestManualVideoSpinners:
             'root.update_manual_video_max_duration() on edit.'
         )
 
-    def test_microscope_settings_has_handlers(self):
-        body = self._ms_text()
+    def test_advanced_settings_has_handlers(self):
+        body = self._advanced_text()
         assert 'def update_manual_video_max_fps' in body, (
-            'MicroscopeSettings must define update_manual_video_max_fps '
-            'to write the spinner value back to settings dict.'
+            'AdvancedSettings must define update_manual_video_max_fps '
+            'to write the value back to the settings dict.'
         )
         assert 'def update_manual_video_max_duration' in body, (
-            'MicroscopeSettings must define update_manual_video_max_duration.'
+            'AdvancedSettings must define update_manual_video_max_duration.'
         )
 
     def test_handlers_validate_and_revert_on_invalid(self):
-        body = self._ms_text()
+        body = self._advanced_text()
         # Both handlers must surface a notifications.warning AND revert
         # the widget text on bad input -- the L1 researcher sees the
         # error and the field doesn't silently accept garbage.
@@ -8356,16 +8572,16 @@ class TestManualVideoSpinners:
                 f'{handler} must revert widget.text on invalid input.'
             )
 
-    def test_load_settings_pushes_manual_video_into_widgets(self):
-        body = self._ms_text()
+    def test_on_open_pushes_manual_video_into_widgets(self):
+        body = self._advanced_text()
         assert 'manual_video_max_fps_input' in body, (
-            "load_settings must push settings['manual_video']['max_fps'] "
-            'into the manual_video_max_fps_input widget on load.'
+            "AdvancedSettings.on_open must push settings['manual_video']['max_fps'] "
+            'into the manual_video_max_fps_input widget when the modal opens.'
         )
         assert 'manual_video_max_duration_input' in body, (
-            'load_settings must push '
+            'AdvancedSettings.on_open must push '
             "settings['manual_video']['max_duration'] into the "
-            'manual_video_max_duration_input widget on load.'
+            'manual_video_max_duration_input widget when the modal opens.'
         )
 
     def test_record_init_reads_via_get_with_defaults(self):
@@ -8568,17 +8784,17 @@ class TestModSliderScrollWheel:
 
 
 class TestModSliderClickThenScrollFocus:
-    """ModSlider scroll-wheel adjust requires the slider to be the most-
-    recently-clicked ModSlider before the wheel will adjust its value.
+    """ModSlider scroll-wheel adjust requires clicking the slider to ARM it
+    first; a bare hover-and-scroll without a prior click must not adjust the
+    value.
 
     Bare-hover scroll without a prior click was reported as too easy to
-    trigger accidentally -- a user grazing the slider with the cursor
-    while scrolling a panel would drift illumination / exposure / gain.
-    The class-level _focused_ref weakref tracks which ModSlider received
-    the most recent left-click; only wheel events landing on that
-    slider adjust its value. All other slider hovers fall through (the
-    scroll event propagates to the parent scroll-view, the standard
-    pre-#677 default).
+    trigger accidentally -- a user grazing the slider with the cursor while
+    scrolling a panel would drift illumination / exposure / gain. Clicking a
+    slider arms it (and highlights it); the armed slider disarms as soon as the
+    cursor leaves its bounds, so the armed state is scoped to the interaction
+    rather than sticky until the next click. All non-armed slider hovers fall
+    through so the wheel scrolls the parent scroll-view.
 
     Static-source assertions: runtime Kivy touch-event tests need a
     Window context that isn't available in unit-test env.
@@ -8589,52 +8805,50 @@ class TestModSliderClickThenScrollFocus:
 
         return pathlib.Path('ui/mod_slider.py').read_text()
 
-    def test_focused_ref_class_attribute_exists(self):
+    def test_armed_state_tracked_with_weakref(self):
         src = self._src()
-        assert '_focused_ref' in src, (
-            'ModSlider must declare _focused_ref class attribute to '
-            'track the most-recently-clicked slider for #677 sticky-'
-            'focus scroll gating.'
+        assert 'armed = BooleanProperty(' in src, (
+            'ModSlider must expose an `armed` BooleanProperty gating scroll '
+            'adjust (and driving the highlight) so only a clicked slider '
+            'responds to the wheel.'
         )
-        assert 'weakref.ref' in src, (
-            '_focused_ref must store a weakref so an unmounted slider '
-            'does not retain past Kivy widget teardown.'
+        assert '_armed_ref' in src and 'weakref.ref' in src, (
+            'A class-level _armed_ref weakref must track the armed slider so '
+            'arming a new one disarms the previous, without retaining an '
+            'unmounted slider past Kivy widget teardown.'
         )
 
-    def test_scroll_branch_checks_focus_before_adjusting(self):
+    def test_scroll_branch_checks_armed_before_adjusting(self):
         src = self._src()
         idx = src.find('def on_touch_down')
         assert idx >= 0
         next_def = src.find('\n    def ', idx + 1)
         body = src[idx:next_def] if next_def > 0 else src[idx:]
-        # The focus check must appear BEFORE the value-adjust assignment.
-        # The scroll branch is gated on the conditional; if the gate is
-        # removed (or moved after the adjust), bare-hover scroll
-        # regresses.
-        focus_idx = body.find('ModSlider._is_focused')
+        # The armed gate must appear BEFORE the value-adjust assignment: a bare
+        # hover-scroll over an un-armed slider must fall through, not adjust.
+        armed_idx = body.find('not self.armed')
         adjust_idx = body.find('self.value + delta')
-        assert focus_idx >= 0, (
-            'Scroll branch must call ModSlider._is_focused(self) before '
-            'adjusting value. If missing, bare-hover scroll regresses '
-            'to the pre-#677 too-easy-to-trigger behavior.'
+        assert armed_idx >= 0, (
+            'Scroll branch must return early when `not self.armed` before '
+            'adjusting value; otherwise bare-hover scroll regresses to the '
+            'too-easy-to-trigger behavior.'
         )
         assert adjust_idx >= 0, 'Sanity: scroll branch should still adjust value.'
-        assert focus_idx < adjust_idx, (
-            'Focus check must come BEFORE the adjust line; otherwise '
-            'the value still changes regardless of focus state.'
+        assert armed_idx < adjust_idx, (
+            'The armed check must come BEFORE the adjust line; otherwise '
+            'the value still changes regardless of armed state.'
         )
 
-    def test_click_on_slider_sets_focus(self):
+    def test_click_on_slider_arms_it(self):
         src = self._src()
         idx = src.find('def on_touch_down')
         assert idx >= 0
         next_def = src.find('\n    def ', idx + 1)
         body = src[idx:next_def] if next_def > 0 else src[idx:]
-        assert 'ModSlider._set_focused(self)' in body, (
-            'on_touch_down must call ModSlider._set_focused(self) on a '
-            'non-scroll touch that collides with this slider; otherwise '
-            'the user can never gain focus and scroll-adjust is '
-            'permanently disabled.'
+        assert 'self._arm()' in body, (
+            'on_touch_down must call self._arm() on a non-scroll touch that '
+            'collides with this slider; otherwise the slider can never be '
+            'armed and scroll-adjust is permanently disabled.'
         )
 
 
@@ -8830,23 +9044,21 @@ class TestFx2DriverLibusbBackendProbe:
 
 
 class TestStageOffsetSnapshot:
-    """SequencedCaptureRunner must snapshot stage_offset at run() start so
-    mid-protocol UI mutations don't change the in-flight coordinate
-    transforms. UI edits between runs must still be visible to the next run.
+    """SequencedCaptureRunner must snapshot stage_offset at run start
+    (prepare() deepcopies the live source into the plan; start() adopts
+    the plan's copy) so mid-protocol UI mutations don't change the
+    in-flight coordinate transforms. UI edits between runs must still be
+    visible to the next run.
     """
 
     def _make_executor(self, stage_offset):
-        from modules.sequenced_capture_runner import SequencedCaptureRunner
+        return _bare_capture_runner(stage_offset=stage_offset)
 
-        return SequencedCaptureRunner(
-            scope=MagicMock(),
-            stage_offset=stage_offset,
-            io_executor=MagicMock(),
-            protocol_thread=MagicMock(),
-            file_io_executor=MagicMock(),
-            camera_executor=MagicMock(),
-            autofocus_thread=MagicMock(),
-        )
+    def _snapshot_via_run_start(self, exc):
+        """Drive the snapshot the way a run takes it: prepare deepcopies
+        the live source, start adopts the plan's copy."""
+        exc._run_in_progress_event.clear()
+        exc.start(exc.prepare(**_scr_run_kwargs()))
 
     def test_constructor_holds_live_reference(self):
         src = {'x': 100.0, 'y': 50.0, 'z': 0.0}
@@ -8859,9 +9071,9 @@ class TestStageOffsetSnapshot:
     def test_snapshot_deepcopies_stage_offset(self):
         src = {'x': 100.0, 'y': 50.0, 'z': 0.0}
         exc = self._make_executor(src)
-        exc._snapshot_run_state()
+        self._snapshot_via_run_start(exc)
         assert exc._stage_offset is not src, (
-            '_snapshot_run_state must produce a new dict, not share the ref.'
+            'the run-start snapshot must produce a new dict, not share the ref.'
         )
         assert exc._stage_offset == src
 
@@ -8869,7 +9081,7 @@ class TestStageOffsetSnapshot:
         """Core race: source mutated mid-protocol must not leak in."""
         src = {'x': 100.0, 'y': 50.0, 'z': 0.0}
         exc = self._make_executor(src)
-        exc._snapshot_run_state()
+        self._snapshot_via_run_start(exc)
         src['x'] = 999.0
         src['y'] = -50.0
         assert exc._stage_offset['x'] == 100.0
@@ -8879,17 +9091,17 @@ class TestStageOffsetSnapshot:
         """Between runs, the next snapshot reflects source updates."""
         src = {'x': 100.0, 'y': 50.0, 'z': 0.0}
         exc = self._make_executor(src)
-        exc._snapshot_run_state()
+        self._snapshot_via_run_start(exc)
         assert exc._stage_offset['x'] == 100.0
         src['x'] = 200.0
-        exc._snapshot_run_state()
+        self._snapshot_via_run_start(exc)
         assert exc._stage_offset['x'] == 200.0
 
     def test_nested_dict_mutation_does_not_affect_snapshot(self):
         """Deep copy: nested dicts must also be private to the run."""
         src = {'x': 100.0, 'y': {'sub': 1.0}, 'z': 0.0}
         exc = self._make_executor(src)
-        exc._snapshot_run_state()
+        self._snapshot_via_run_start(exc)
         src['y']['sub'] = 99.0
         assert exc._stage_offset['y']['sub'] == 1.0
 
@@ -9002,7 +9214,7 @@ class TestSequencedCaptureRunnerRunDirCollision:
             protocol_thread=MagicMock(),
             file_io_executor=MagicMock(),
             camera_executor=MagicMock(),
-            autofocus_thread=MagicMock(),
+            autofocus_thread=MagicMock(is_running=False),
         )
         exc._parent_dir = parent_dir
         return exc
@@ -9060,18 +9272,7 @@ class TestSCEResetSignalsAbort:
     """
 
     def _make_runner(self):
-        from modules.sequenced_capture_runner import SequencedCaptureRunner
-
-        runner = SequencedCaptureRunner(
-            scope=MagicMock(),
-            stage_offset={'x': 0.0, 'y': 0.0, 'z': 0.0},
-            io_executor=MagicMock(),
-            protocol_thread=MagicMock(),
-            file_io_executor=MagicMock(),
-            camera_executor=MagicMock(),
-            autofocus_thread=MagicMock(),
-        )
-        return runner
+        return _make_capture_runner()
 
     def test_reset_calls_protocol_thread_abort_when_in_progress(self):
         runner = self._make_runner()
@@ -9123,7 +9324,7 @@ class TestSCEResetSignalsAbort:
 
         order: list[str] = []
         runner.protocol_thread.abort.side_effect = lambda: order.append('abort')
-        runner._cleanup = MagicMock(side_effect=lambda: order.append('cleanup'))
+        runner._cleanup = MagicMock(side_effect=lambda **kwargs: order.append('cleanup'))
 
         runner.reset()
 
@@ -10400,25 +10601,34 @@ class TestProtocolCleanupLedRestoreKey:
     """
 
     def test_restore_uses_illumination_ma_key(self, monkeypatch):
-        """Restoring an enabled LED must send the snapshot's mA value to
-        the LED on-fn; a stale-key read would raise and silently skip
-        the restore (the original swallowed-KeyError bug)."""
+        """Restoring an enabled LED must carry the snapshot's mA value into
+        the RUN_END transition; a stale-key read would raise and silently
+        skip the restore (the original swallowed-KeyError bug)."""
         from modules.notification_center import notifications
+        from modules.lumascope_api.illumination import LedTransition
         from modules.protocol_cleanup import run_cleanup
 
         captured = []
         monkeypatch.setattr(notifications, 'warning', lambda *a, **k: captured.append(a))
+        scope = MagicMock()
+        scope.illumination.color2ch.side_effect = lambda c: {'Red': 0, 'Green': 1}.get(c)
+        apply_calls = []
         kwargs = _run_cleanup_kwargs(
             leds_state_at_end='return_to_original',
             original_led_states={
                 'Red': {'enabled': True, 'illumination_ma': 250.0},
                 'Green': {'enabled': False, 'illumination_ma': 80.0},
             },
+            scope=scope,
+            apply_led_transition_fn=lambda transition, ctx: apply_calls.append((transition, ctx)),
         )
         run_cleanup(**kwargs)
-        kwargs['led_on_fn'].assert_called_once_with(
-            color='Red', illumination=250.0, block=True, force=True
-        )
+        assert len(apply_calls) == 1
+        transition, ctx = apply_calls[0]
+        assert transition is LedTransition.RUN_END
+        # Red was lit at 250 mA pre-run; Green was off and excluded. The mA
+        # value must survive the snapshot-shape read intact.
+        assert ctx.snapshot_lit == frozenset({(0, 250.0)})
         assert captured == [], (
             f'the snapshot-shape read must not raise into the summary; got {captured}'
         )
@@ -10595,7 +10805,6 @@ class TestAutoGainArmedInScanIterate:
             step=_protocol_step(Auto_Gain=auto_gain),
             output_format='TIFF',
             protocol=protocol,
-            image_capture_config={'use_full_pixel_depth': False},
             enable_image_saving=True,
         )
         return scope.imaging
@@ -10672,7 +10881,7 @@ class TestAutoGainArmedInScanIterate:
 
 
 class TestWindowsBuildIsWindowed_559:
-    """Issue #559 recurrence: Chris reported "extra terminal windows
+    """Issue #559 recurrence: the beta tester reported "extra terminal windows
     that say 'exiting'" on the Windows .exe lock-loser path.
 
     Root cause: the PyInstaller spec had `console=True`, so every
@@ -10734,7 +10943,7 @@ class TestWindowsBuildIsWindowed_559:
         """Lock-loser path at lumaviewpro.py:~129-154 must not write
         to sys.stderr. On a windowed build that stderr write is
         silent anyway; on a console=True build it was the literal
-        line Chris saw left behind in the orphan terminal."""
+        line the beta tester saw left behind in the orphan terminal."""
         src = self._main_src()
         # Locate the lock-loser block by its sentinel _msg assignment.
         msg_idx = src.find("_msg = 'Another instance of LVP may already be running")
@@ -11078,10 +11287,26 @@ class TestHeadlessSettingsResolutionMatchesGui:
         """With no settings loaded, create_headless must resolve the same
         file the GUI reads -- current.json first -- so headless state
         matches the running app."""
+        import importlib.util
         import json
 
         import modules.settings_init as settings_init
         from modules.scope_session import ScopeSession
+        from unittest import mock as _mock
+
+        if isinstance(settings_init, _mock.MagicMock):
+            # Several test modules install a MagicMock as
+            # modules.settings_init at import time (sys.modules.setdefault),
+            # and whichever test module the session collects first decides
+            # who wins -- an order lottery. This test exists to exercise the
+            # REAL resolver, so load the real module explicitly and install
+            # it for this test's duration (monkeypatch restores the mock).
+            spec = importlib.util.spec_from_file_location(
+                'modules.settings_init', 'modules/settings_init.py'
+            )
+            settings_init = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(settings_init)
+            monkeypatch.setitem(sys.modules, 'modules.settings_init', settings_init)
 
         monkeypatch.setattr(settings_init, 'settings', None)
         (tmp_path / 'data').mkdir()
@@ -11108,26 +11333,26 @@ class TestAutogainSettingsSnapshottedAtRunStart:
     The comment claimed "Immutable after assignment" but no deepcopy
     enforced the immutability.
 
-    The fix deepcopies autogain_settings at run() entry, matching the
-    false_color_16bit + stage_offset snapshot pattern already used in
-    the runner.
+    The fix deepcopies autogain_settings at prepare() entry, matching
+    the false_color_16bit + stage_offset snapshot pattern already used
+    in the runner.
     """
 
     def _run_halted_at_artifact_init(self, monkeypatch, autogain_settings):
-        """Drive run() through the autogain snapshot, halting at the
-        artifact-init stage so no run loop is dispatched."""
+        """Drive prepare()+start() through the autogain snapshot, halting
+        at the run-dir setup stage so no run loop is dispatched."""
         runner = _bare_capture_runner()
-        monkeypatch.setattr(
-            runner,
-            '_init_for_new_scan',
-            lambda max_scans: {'status': False, 'data': None, 'error': 'test halt'},
-        )
-        runner.run(**_scr_run_kwargs(autogain_settings=autogain_settings))
+
+        def _halt():
+            raise RuntimeError('test halt')
+
+        monkeypatch.setattr(runner, '_setup_run_dir', _halt)
+        runner.start(runner.prepare(**_scr_run_kwargs(autogain_settings=autogain_settings)))
         return runner
 
     def test_autogain_settings_deepcopied_in_run(self, monkeypatch):
-        """Mutating the caller's dict after run() snapshots it must not
-        leak into the in-flight scan (audit F15)."""
+        """Mutating the caller's dict after prepare() snapshots it must
+        not leak into the in-flight scan (audit F15)."""
         src = {'target_brightness': 0.3, 'limits': {'max_gain_db': 10}}
         runner = self._run_halted_at_artifact_init(monkeypatch, src)
         src['target_brightness'] = 0.9
@@ -11227,14 +11452,14 @@ class TestBfAfForFluorescenceSnapshottedAtRunStart:
     through a scan -- producing inconsistent AF behavior across steps
     within one protocol run.
 
-    The fix snapshots the setting in SequencedCaptureRunner.run()
+    The fix snapshots the setting in SequencedCaptureRunner.start()
     (alongside false_color_16bit, under the same settings_lock take)
     onto self._bf_af_for_fluorescence; protocol_step_runner reads from
     the snapshot via getattr(p, '_bf_af_for_fluorescence', False).
     """
 
     def test_runner_snapshots_bf_af_for_fluorescence_attr(self, monkeypatch):
-        """run() must snapshot bf_af_for_fluorescence onto the runner,
+        """start() must snapshot bf_af_for_fluorescence onto the runner,
         under settings_lock, immune to mid-run toggles."""
         from types import SimpleNamespace
 
@@ -11248,9 +11473,9 @@ class TestBfAfForFluorescenceSnapshottedAtRunStart:
             app_context, 'ctx', SimpleNamespace(settings=settings, settings_lock=lock)
         )
         runner = _bare_capture_runner()
-        runner.run(**_scr_run_kwargs())
+        runner.start(runner.prepare(**_scr_run_kwargs()))
         assert runner._bf_af_for_fluorescence is True, (
-            'run() must snapshot bf_af_for_fluorescence onto self for per-tick reads'
+            'start() must snapshot bf_af_for_fluorescence onto self for per-tick reads'
         )
         assert settings.watched_reads == [True], (
             'the protocol-settings read must happen exactly once, under settings_lock; '
@@ -11325,6 +11550,7 @@ class TestRunPreValidationFiresNotificationOnException:
     def test_validate_for_run_exception_fires_notification_and_returns(self, monkeypatch):
         """A raising validate_for_run must pop a user-facing error and
         abort the run -- not log a warning and proceed anyway."""
+        from modules.exceptions import ProtocolRunRefusedError
         from modules.notification_center import notifications
 
         captured = []
@@ -11332,7 +11558,8 @@ class TestRunPreValidationFiresNotificationOnException:
         runner = _bare_capture_runner()
         kwargs = _scr_run_kwargs()
         kwargs['protocol'].validate_for_run.side_effect = OSError('labware load failed')
-        runner.run(**kwargs)
+        with pytest.raises(ProtocolRunRefusedError):
+            runner.prepare(**kwargs)
         assert captured, (
             'validate_for_run exception path must fire notifications.error '
             '(not just log warning) so the user sees the failure popup.'
@@ -12732,20 +12959,403 @@ class TestPS11VideoCancelledRecordsRow:
 
         record = MagicMock()
         writer = _bare_protocol_writer(execution_record=record)
+        writer._scope.motion.has_turret.return_value = False
 
         fake_session = MagicMock()
         fake_session.capture.return_value = None  # cancelled / zero frames
         monkeypatch.setattr(piw, 'VideoCaptureSession', lambda **kw: fake_session)
 
+        protocol = MagicMock()
+        protocol.capture_root.return_value = ''
         writer.capture(
             save_folder=str(tmp_path),
             step=_protocol_step(Acquire='video'),
             output_format='TIFF',
-            protocol=MagicMock(),
+            protocol=protocol,
             scan_count=0,
             curr_step=0,
-            image_capture_config={'use_full_pixel_depth': False},
         )
 
         assert record.add_step.called, 'cancelled video must leave a record row'
         assert record.add_step.call_args.kwargs['capture_result_file_name'] == 'video_cancelled'
+
+
+class TestRemainingScansAtomicSnapshot:
+    """F10: progress counters must be read under the same lock the protocol
+    worker uses to advance scan_count, so a cross-thread UI reader (the abort
+    popup) never sees a torn 'remaining' where n_scans and scan_count updated
+    between the two field reads. The increment is also encapsulated on the
+    runner (advance_scan_count) so the run loop no longer reaches into the raw
+    field + lock.
+    """
+
+    def _make_runner(self):
+        return _make_capture_runner()
+
+    def test_progress_snapshot_returns_consistent_pair(self):
+        runner = self._make_runner()
+        runner._n_scans = 10
+        runner._scan_count = 3
+        assert runner.progress_snapshot() == (10, 3)
+        assert runner.num_scans() == 10
+        assert runner.scan_count() == 3
+        assert runner.remaining_scans() == 7
+
+    def test_advance_scan_count_increments_and_returns_new_value(self):
+        runner = self._make_runner()
+        runner._n_scans = 5
+        runner._scan_count = 0
+        assert runner.advance_scan_count() == 1
+        assert runner.advance_scan_count() == 2
+        assert runner.scan_count() == 2
+        assert runner.remaining_scans() == 3
+
+    def test_remaining_scans_blocks_on_the_writer_lock(self):
+        """A correctly-locked reader serializes behind the lock the worker
+        holds while advancing scan_count. Holding that lock, a concurrent
+        remaining_scans() must not complete until release -- proving the read
+        cannot tear against an in-flight increment. Fails before the fix
+        (the unlocked read returned immediately while the lock was held)."""
+        import time
+
+        runner = self._make_runner()
+        runner._n_scans = 10
+        runner._scan_count = 2
+        result = []
+        started = threading.Event()
+
+        def reader():
+            started.set()
+            result.append(runner.remaining_scans())
+
+        with runner._protocol_state_lock:
+            t = threading.Thread(target=reader)
+            t.start()
+            assert started.wait(timeout=1)
+            time.sleep(0.05)
+            assert not result, (
+                'remaining_scans() returned while the worker lock was held -- '
+                'it read the counters without the lock (torn-snapshot race)'
+            )
+        t.join(timeout=2)
+        assert result == [8]
+
+    def test_reset_vars_zeroes_scan_pair_under_the_writer_lock(self):
+        """_reset_vars zeroes the (n_scans, scan_count) progress pair on run
+        re-init; it must do so under _protocol_state_lock, the same lock
+        progress_snapshot() reads it under. Holding that lock, a concurrent
+        _reset_vars must not write the pair until release -- proving the reset
+        cannot land a half-written (0, prior_scan_count) for a cross-thread
+        poll. Fails before the fix (the unlocked zero-writes landed while the
+        lock was held)."""
+        import time
+
+        runner = self._make_runner()
+        runner._n_scans = 9
+        runner._scan_count = 4
+        done = threading.Event()
+
+        def resetter():
+            runner._reset_vars()
+            done.set()
+
+        with runner._protocol_state_lock:
+            t = threading.Thread(target=resetter)
+            t.start()
+            time.sleep(0.05)
+            # The reset thread has run up to the locked pair-write and is
+            # blocked; the pair must still hold its pre-reset values, never a
+            # half-written (0, 4).
+            assert (runner._n_scans, runner._scan_count) == (9, 4), (
+                '_reset_vars wrote the scan pair without the lock (torn-reset race)'
+            )
+        t.join(timeout=2)
+        assert done.is_set()
+        assert (runner._n_scans, runner._scan_count) == (0, 0)
+
+
+class TestCaptureFailureAbortNotificationOrdering:
+    """F14: on the consecutive-failure abort, the user-facing 'Camera Failure'
+    notification must fire BEFORE the cleanup side effects (queuing the
+    failed-step record, leds_off), so the cause leads the effects instead of
+    trailing them. Pre-fix the notification fired only after the record queue
+    and leds_off.
+    """
+
+    def test_abort_notification_precedes_record_and_leds_off(self, monkeypatch):
+        from unittest.mock import MagicMock
+
+        import modules.notification_center as nc
+
+        order = []
+        writer = _bare_protocol_writer(
+            file_io_executor=MagicMock(),
+            leds_off_fn=lambda: order.append('leds_off'),
+            abort_fn=lambda: order.append('abort'),
+        )
+        writer._file_io_executor.protocol_put.side_effect = lambda *a, **k: order.append('record')
+        scope = writer._scope
+        scope.led_connected = False
+        scope.motion.has_turret.return_value = False
+        # Force the capture to fail (returns no frame) so the failure branch runs.
+        scope.imaging.capture_and_wait.return_value = None
+        monkeypatch.setattr(nc.notifications, 'critical', lambda *a, **k: order.append('notify'))
+        protocol = MagicMock()
+        protocol.capture_root.return_value = ''
+
+        # Two prior failures so this call crosses the 3-strike abort threshold.
+        writer._consecutive_capture_failures = 2
+
+        result = writer.capture(
+            save_folder='/tmp',
+            step=_protocol_step(),
+            output_format='TIFF',
+            protocol=protocol,
+            enable_image_saving=True,
+            curr_step=0,
+            scan_count=0,
+        )
+
+        assert result is False
+        assert 'notify' in order, 'abort notification must fire on the 3rd consecutive failure'
+        assert order.index('notify') < order.index('record'), (
+            f'notification must precede the failed-step record queue; order={order}'
+        )
+        assert order.index('notify') < order.index('leds_off'), (
+            f'notification must precede leds_off; order={order}'
+        )
+        assert order.index('leds_off') < order.index('abort'), (
+            f'leds_off must precede the abort; order={order}'
+        )
+
+
+class TestTransientClassificationLogIsHonest:
+    """F13: the during-scan transient/fatal classification keys on
+    are_all_connected(), which is a cached handle-state check, NOT a liveness
+    round-trip -- a camera whose handle is valid but whose grab has died still
+    classifies transient. The real fix (a liveness probe) is hardware-visible
+    and bench-gated, so it is deferred; the log must not meanwhile assert the
+    hardware is 'still connected' as if confirmed (a misleading log is itself a
+    bug). This pins the honest wording so the over-claim cannot silently return.
+    """
+
+    def test_transient_warning_qualifies_handle_state_not_liveness(self):
+        import pathlib
+        import re
+
+        src = (
+            pathlib.Path(__file__).resolve().parent.parent / 'modules' / 'protocol_run_loop.py'
+        ).read_text()
+        assert 'handle-state' in src, (
+            'the transient classification must be documented as handle-state only'
+        )
+        assert 'not a confirmed liveness' in src or 'not a liveness' in src, (
+            'the transient warning must qualify that it is not a liveness probe'
+        )
+        assert not re.search(r'hardware\s+still\s+connected\)', src), (
+            'the misleading "(hardware still connected)" transient claim returned'
+        )
+
+
+class TestGreaseRedistributionGateAlwaysReleased:
+    """F9: the grease-redistribution gate (_grease_redistribution_event) is
+    cleared before the fire-and-forget grease task runs and set() only at the
+    task's end. If the task raised mid-move, or was never enqueued, the event
+    stayed clear forever and the next scan's scan_iterate gate blocked silently
+    -- a hang the consecutive-failure cap cannot catch (nothing reaches the run
+    loop). Both windows must always release the gate; the failure still
+    surfaces (a raise propagates to the io_executor task runner, which logs it).
+    """
+
+    def _make_runner(self):
+        return _make_capture_runner()
+
+    def test_grease_task_releases_gate_even_when_a_move_raises(self):
+        import pytest
+
+        from modules.protocol_step_runner import ProtocolStepRunner
+
+        runner = self._make_runner()
+        step = ProtocolStepRunner(runner)
+        runner._grease_redistribution_event.clear()
+        step._move_axis_through_io = MagicMock(side_effect=RuntimeError('Z move timeout'))
+
+        # The failure still propagates (the executor runner logs it), but the
+        # gate must be released by the finally so the next scan is not blocked.
+        with pytest.raises(RuntimeError):
+            step._grease_redist_w_pos()
+        assert runner._grease_redistribution_event.is_set(), (
+            'a grease task that raised mid-move left the scan gate clear (deadlock)'
+        )
+
+    def test_grease_task_releases_gate_on_success(self):
+        from modules.protocol_step_runner import ProtocolStepRunner
+
+        runner = self._make_runner()
+        runner._callbacks = MagicMock(move_position=None)
+        step = ProtocolStepRunner(runner)
+        step._move_axis_through_io = MagicMock()
+        runner._grease_redistribution_event.clear()
+
+        step._grease_redist_w_pos()
+        assert runner._grease_redistribution_event.is_set()
+
+    def test_enqueue_failure_releases_gate(self):
+        from modules.protocol_step_runner import ProtocolStepRunner
+        from modules.sequential_io_executor import PROTOCOL_QUEUE_FULL
+
+        runner = self._make_runner()
+        step = ProtocolStepRunner(runner)
+        runner._io_executor.protocol_put.return_value = PROTOCOL_QUEUE_FULL
+        runner._grease_redistribution_event.set()
+
+        step.perform_grease_redistribution()
+        assert runner._grease_redistribution_event.is_set(), (
+            'a grease task that could not be queued must not leave the gate clear'
+        )
+
+    def test_enqueue_dropped_releases_gate_for_every_non_enqueue_return(self):
+        from modules.protocol_step_runner import ProtocolStepRunner
+        from modules.sequential_io_executor import PROTOCOL_QUEUE_FULL
+
+        # protocol_put returns None when the io executor is disabled or the
+        # protocol is not running, and PROTOCOL_QUEUE_FULL when the bounded
+        # queue is at cap. None of these enqueue the task, so the task's
+        # finally-set() never runs -- perform_grease_redistribution must release
+        # the gate itself for every one of them, not just the queue-full leg.
+        for dropped in (None, PROTOCOL_QUEUE_FULL):
+            runner = self._make_runner()
+            step = ProtocolStepRunner(runner)
+            runner._io_executor.protocol_put.return_value = dropped
+            runner._grease_redistribution_event.set()
+
+            step.perform_grease_redistribution()
+            assert runner._grease_redistribution_event.is_set(), (
+                f'grease task not enqueued (protocol_put -> {dropped!r}) '
+                'left the scan gate clear (deadlock)'
+            )
+
+    def test_enqueue_success_leaves_gate_to_the_task(self):
+        from modules.protocol_step_runner import ProtocolStepRunner
+        from modules.sequential_io_executor import PROTOCOL_ENQUEUED
+
+        # On a real enqueue the grease task's finally owns the set();
+        # perform_grease_redistribution must NOT release the gate itself, which
+        # would race the in-flight grease move (the gate runs at zero period).
+        runner = self._make_runner()
+        step = ProtocolStepRunner(runner)
+        runner._io_executor.protocol_put.return_value = PROTOCOL_ENQUEUED
+        runner._grease_redistribution_event.clear()
+
+        step.perform_grease_redistribution()
+        assert not runner._grease_redistribution_event.is_set(), (
+            'a successfully enqueued grease task must leave the gate for its '
+            'own finally, not have it pre-set by the dispatcher'
+        )
+
+    def test_reset_scan_state_clears_step_and_af_but_not_grease_gate(self):
+        runner = self._make_runner()
+        runner._curr_step = 5
+        runner._af_future = object()
+        runner._grease_redistribution_event.clear()
+
+        runner._reset_scan_state()
+
+        assert runner._curr_step == 0
+        assert runner._af_future is None
+        # The grease gate is owned by the grease task, not the per-scan reset --
+        # re-setting it here would race an in-flight grease move (zero period).
+        assert not runner._grease_redistribution_event.is_set(), (
+            '_reset_scan_state must not touch the grease gate'
+        )
+
+
+class TestStepWriteEstimateSingleOwner:
+    """F7 + F12: disk-write estimation has one owner (estimate_step_write_mb),
+    derived from duration x fps for video, shared by the pre-scan free-space
+    check and the per-write threshold so the two cannot drift. The old flat
+    per-video constant under-counted a long recording by orders of magnitude.
+    """
+
+    def test_image_step_uses_image_estimate(self):
+        from modules.common_utils import ESTIMATED_IMAGE_STEP_MB, estimate_step_write_mb
+
+        assert estimate_step_write_mb({'Acquire': 'image'}) == ESTIMATED_IMAGE_STEP_MB
+        # A step with no Acquire key is treated as an image step.
+        assert estimate_step_write_mb({}) == ESTIMATED_IMAGE_STEP_MB
+
+    def test_short_video_floored_at_legacy_estimate(self):
+        from modules.common_utils import ESTIMATED_VIDEO_STEP_MB, estimate_step_write_mb
+
+        step = {'Acquire': 'video', 'Video Config': {'duration': 1, 'fps': 30}}
+        assert estimate_step_write_mb(step) == ESTIMATED_VIDEO_STEP_MB
+
+    def test_long_video_scales_with_duration_and_fps(self):
+        from modules.common_utils import ESTIMATED_VIDEO_STEP_MB, estimate_step_write_mb
+
+        short = {'Acquire': 'video', 'Video Config': {'duration': 5, 'fps': 30}}
+        long_clip = {'Acquire': 'video', 'Video Config': {'duration': 600, 'fps': 30}}
+        assert estimate_step_write_mb(long_clip) > estimate_step_write_mb(short)
+        assert estimate_step_write_mb(long_clip) > ESTIMATED_VIDEO_STEP_MB
+
+    def test_video_as_frames_costs_one_image_per_frame(self):
+        from modules.common_utils import ESTIMATED_IMAGE_STEP_MB, estimate_step_write_mb
+
+        step = {'Acquire': 'video', 'Video Config': {'duration': 10, 'fps': 30}}
+        # 10 s * 30 fps = 300 frames, each a full image when saved as frames.
+        assert estimate_step_write_mb(step, video_as_frames=True) == 300 * ESTIMATED_IMAGE_STEP_MB
+
+    def test_both_call_sites_use_the_shared_estimator(self):
+        import pathlib
+
+        root = pathlib.Path(__file__).resolve().parent.parent / 'modules'
+        run_loop = (root / 'protocol_run_loop.py').read_text()
+        writer = (root / 'protocol_image_writer.py').read_text()
+        assert 'estimate_step_write_mb' in run_loop, 'pre-scan check must use the shared estimator'
+        assert 'estimate_step_write_mb' in writer, 'per-write check must use the shared estimator'
+        # The flat per-video constant must no longer drive the pre-scan loop.
+        assert 'ESTIMATED_VIDEO_STEP_MB' not in run_loop, (
+            'flat per-video constant should be gone from the run loop'
+        )
+
+    def test_estimator_is_total_on_malformed_step(self):
+        from modules.common_utils import (
+            ESTIMATED_IMAGE_STEP_MB,
+            ESTIMATED_VIDEO_STEP_MB,
+            estimate_step_write_mb,
+        )
+
+        # A None step (a parameter default at some call sites) must not raise --
+        # a raise here is swallowed by the disk-check except, silently skipping
+        # the free-space guard.
+        assert estimate_step_write_mb(None) == ESTIMATED_IMAGE_STEP_MB
+        # A NaN Video Config cell (a truthy float from an unpopulated DataFrame
+        # row) must not raise; the video sizes to the floor, not a crash.
+        nan_cfg = {'Acquire': 'video', 'Video Config': float('nan')}
+        assert estimate_step_write_mb(nan_cfg) == ESTIMATED_VIDEO_STEP_MB
+        # Non-numeric duration/fps coerce to 0 (a missing dimension), floored.
+        bad_nums = {'Acquire': 'video', 'Video Config': {'duration': 'abc', 'fps': 'x'}}
+        assert estimate_step_write_mb(bad_nums) == ESTIMATED_VIDEO_STEP_MB
+
+    def test_read_video_config_guards_every_non_dict(self):
+        from modules.common_utils import read_video_config
+
+        assert read_video_config(None) == {}
+        assert read_video_config({'Video Config': float('nan')}) == {}
+        assert read_video_config({'Video Config': None}) == {}
+        assert read_video_config({}) == {}
+        assert read_video_config({'Video Config': {'fps': 30}}) == {'fps': 30}
+
+    def test_time_estimator_uses_the_shared_video_config_accessor(self):
+        import pathlib
+
+        src = (
+            pathlib.Path(__file__).resolve().parent.parent
+            / 'modules'
+            / 'protocol_time_estimator.py'
+        ).read_text()
+        assert 'read_video_config' in src, (
+            'the time estimator must read Video Config through the shared accessor'
+        )
+        # The old inline isinstance-guarded parse is replaced by the one owner.
+        assert 'isinstance(vc, dict)' not in src

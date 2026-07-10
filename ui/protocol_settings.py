@@ -52,6 +52,7 @@ from ui.ui_helpers import (
     reset_acquire_ui,
     reset_stim_ui,
     reset_title,
+    run_with_refusal_boundary,
     set_last_save_folder,
     set_recording_title,
     set_title_event_text,
@@ -291,6 +292,7 @@ class ProtocolSettings(FloatLayout):
                 self.ids['step_name_input'].text = ''
                 return
             self._protocol.modify_name(step_idx=self.curr_step, step_name=new_name)
+            gui_logger.protocol_action('RENAME_STEP', f'step={self.curr_step} name={new_name!r}')
             self.ids['step_name_input'].text = new_name
         else:
             self.ids['step_name_input'].text = ''
@@ -364,16 +366,6 @@ class ProtocolSettings(FloatLayout):
             except Exception as e:
                 logger.warning(f'[LVP Main  ] Failed to restore labware list on scope switch: {e}')
 
-    def set_show_protocol_step_locations_visibility(self, visible: bool) -> None:
-        if visible:
-            self.ids['show_step_locations_id'].disabled = False
-            self.ids['show_step_locations_id'].opacity = 1
-            self.ids['show_step_locations_label_id'].opacity = 1
-        else:
-            self.ids['show_step_locations_id'].disabled = True
-            self.ids['show_step_locations_id'].opacity = 0
-            self.ids['show_step_locations_label_id'].opacity = 0
-
     def apply_tiling(self):
         try:
             settings = _app_ctx.ctx.settings
@@ -384,12 +376,12 @@ class ProtocolSettings(FloatLayout):
             # Guard against compounding. apply_tiling appends new tile groups
             # to the existing steps, and there is no un-tile path yet, so
             # applying tiling to an already-tiled protocol multiplies the tiles
-            # (e.g. 2x2 on a 2x2 -> 16). Detect the current tiling from the step
-            # names; if already tiled, refuse and tell the user to reload the
-            # untiled base first.
+            # (e.g. 2x2 on a 2x2 -> 16). Detect the current tiling from the
+            # steps' Tile column; if already tiled, refuse and tell the user
+            # to reload the untiled base first.
             no_tiling = self.tiling_config.no_tiling_label()
-            current_tiling = self.tiling_config.determine_tiling_label_from_names(
-                self._protocol.steps()['Name'].tolist()
+            current_tiling = self.tiling_config.determine_tiling_label_from_tiles(
+                self._protocol.steps()['Tile'].tolist()
             )
             if current_tiling not in (None, no_tiling):
                 from ui.notification_popup import show_notification_popup
@@ -444,8 +436,12 @@ class ProtocolSettings(FloatLayout):
             show_notification_popup(title='Error', message=str(e))
 
     def get_tiling_overlap_percent(self) -> float:
-        text = self.ids['tiling_overlap_spinner'].text.strip().rstrip('%')
-        return TilingConfig.validate_overlap_percent(text)
+        """Tile overlap percentage, read from the persisted system setting.
+
+        The single accessor for tile overlap at scan/apply time; the editor
+        (the spinner in Advanced Settings) only ever writes the setting.
+        """
+        return _app_ctx.ctx.settings['tiling_overlap_percent']
 
     def apply_zstacking(self):
         try:
@@ -505,15 +501,16 @@ class ProtocolSettings(FloatLayout):
         num_steps = self._protocol.num_steps()
         if num_steps > 0:
             step = self.get_curr_step()
-            if step['Name'] == '':
-                new_text = step['Name']
-                new_hint = self.get_default_name_for_curr_step()
-            elif step['Custom Step'] and step['Name'].startswith('custom'):
-                # For custom added steps where the user did not change the default name (i.e. custom####)
+            if step['Auto_Named'] or step['Label'] == '':
+                # A step still on its auto-generated name shows the rendered
+                # default as a placeholder hint and leaves the field blank,
+                # so the user can type over it; blank means "keep".
                 new_text = ''
                 new_hint = self.get_default_name_for_curr_step()
             else:
-                new_text = step['Name']
+                # A user-labeled step shows its label -- the user's own text,
+                # not the rendered name it decorates.
+                new_text = step['Label']
                 new_hint = self.ids['step_name_input'].hint_text  # Keep existing hint
 
         else:
@@ -808,14 +805,14 @@ class ProtocolSettings(FloatLayout):
         ctx.stage.set_protocol_steps(df=self._protocol.steps())
 
         # Restore the tiling selection. Tiling is baked into the steps as
-        # expanded tile positions (one row per tile, named ..._T<gridlabel>),
-        # not stored as a scalar, so the spinner otherwise stays at its 1x1
-        # default and misrepresents an already-tiled protocol. Infer the NxN
-        # label back from the tile names; fall back to no-tiling when the
+        # expanded tile positions (one row per tile), not stored as a
+        # scalar, so the spinner otherwise stays at its 1x1 default and
+        # misrepresents an already-tiled protocol. Infer the NxN label back
+        # from the steps' Tile column; fall back to no-tiling when the
         # protocol isn't tiled (or the layout isn't square).
         try:
-            inferred_tiling = self.tiling_config.determine_tiling_label_from_names(
-                self._protocol.steps()['Name'].tolist()
+            inferred_tiling = self.tiling_config.determine_tiling_label_from_tiles(
+                self._protocol.steps()['Tile'].tolist()
             )
         except Exception as e:
             logger.warning(f'[LVP Main  ] Could not infer tiling from protocol: {e}')
@@ -927,37 +924,9 @@ class ProtocolSettings(FloatLayout):
             out[layer_name] = row
         return out
 
-    def get_default_name_for_curr_step(self, color=None):
-        # color=None uses the step's stored channel; pass an override to
-        # compute the default name as it would read for a different channel
-        # (used to rename an auto-named step when its channel changes).
-        ctx = _app_ctx.ctx
-
+    def get_default_name_for_curr_step(self):
         step = self.get_curr_step()
-
-        if ctx.lumaview.scope.motion.has_turret():
-            objective_id = step['Objective']
-            objective_info = ctx.objective_helper.get_objective_info(objective_id=objective_id)
-            if objective_info is None:
-                objective_short_name = objective_id
-            else:
-                objective_short_name = objective_info['short_name']
-        else:
-            objective_short_name = None
-
-        if step['Well'] == '':
-            custom_name_prefix = step['Name']
-        else:
-            custom_name_prefix = None
-
-        return common_utils.generate_default_step_name(
-            well_label=step['Well'],
-            color=step['Color'] if color is None else color,
-            z_height_idx=step['Z-Slice'],
-            objective_short_name=objective_short_name,
-            tile_label=step['Tile'],
-            custom_name_prefix=custom_name_prefix,
-        )
+        return common_utils.build_step_name(common_utils.step_components(step))
 
     # Save Protocol to File
     def save_protocol(self, filepath='', update_protocol_filepath: bool = True):
@@ -1133,6 +1102,7 @@ class ProtocolSettings(FloatLayout):
         if self._protocol.num_steps() < 1:
             return
 
+        gui_logger.protocol_action('MODIFY_STEP', f'curr_step={self.curr_step}')
         io_executor = _app_ctx.ctx.io_executor
         io_executor.put(IOTask(action=self.modify_step_ex, callback=self.update_step_ui))
 
@@ -1142,7 +1112,6 @@ class ProtocolSettings(FloatLayout):
             from ui.notification_popup import show_notification_popup
 
             active_layer, active_layer_config = get_active_layer_config()
-            stim_was_active = False
 
             if (
                 'stim_config' in active_layer_config
@@ -1153,7 +1122,6 @@ class ProtocolSettings(FloatLayout):
                 true_step_layer = self._protocol.step(idx=self.curr_step)['Color']
                 active_layer = true_step_layer
                 active_layer_config = get_layer_configs()[active_layer]
-                stim_was_active = True
 
             plate_position = get_current_plate_position()
             objective_id, _ = get_current_objective_info()
@@ -1177,56 +1145,28 @@ class ProtocolSettings(FloatLayout):
                 )
                 return
 
-            step_name = common_utils.resolve_step_rename(
+            # A non-blank name field is a user rename; blank keeps the step's
+            # existing label and auto/user flag. The rendered Name re-derives
+            # from the updated columns inside modify_step, so an auto-named
+            # step's channel token tracks a channel change and a user label
+            # rides along untouched -- no name branching needed here.
+            label = common_utils.resolve_step_rename(
                 self.ids['step_name_input'].text, ctx.scope.sanitize_step_name
             )
-            # None means a blank field (no rename intended); keep the
-            # existing name so modify_step does not clobber the auto-name.
-            if step_name is None:
-                step_name = self._protocol.step(idx=self.curr_step)['Name']
-
-            # If a well step still carries its auto-generated default name for
-            # the prior channel, regenerate it for the new channel so the
-            # channel token in the step name (and the saved filename derived
-            # from it) tracks the change. A user-customized name -- anything
-            # that does not equal the auto default -- is left untouched.
-            curr_step = self._protocol.step(idx=self.curr_step)
-            if curr_step['Well'] != '' and step_name == self.get_default_name_for_curr_step():
-                regenerated = self.get_default_name_for_curr_step(color=active_layer)
-                logger.info(
-                    "[LVP Main  ] modify_step_ex: channel -> %s; auto step name '%s' -> '%s'",
-                    active_layer,
-                    step_name,
-                    regenerated,
-                )
-                step_name = regenerated
-            else:
-                logger.info(
-                    "[LVP Main  ] modify_step_ex: channel -> %s; step name '%s' kept "
-                    '(custom or non-well step)',
-                    active_layer,
-                    step_name,
-                )
-
-            # If the stim layer was active and the original acquire channel remains enabled,
-            # preserve the existing step name to avoid unintended renaming.
-            if stim_was_active:
-                original_step = self._protocol.step(idx=self.curr_step)
-                original_layer = original_step['Color']
-                layer_configs_all = get_layer_configs()
-                if original_layer in layer_configs_all and (
-                    layer_configs_all[original_layer]['acquire'] is not None
-                ):
-                    step_name = original_step['Name']
 
             self._protocol.modify_step(
                 step_idx=self.curr_step,
-                step_name=step_name,
+                label=label,
                 layer=active_layer,
                 layer_config=active_layer_config,
                 stim_configs=get_stim_configs(),
                 plate_position=plate_position,
                 objective_id=objective_id,
+            )
+            logger.info(
+                "[LVP Main  ] modify_step_ex: channel -> %s; step name -> '%s'",
+                active_layer,
+                self._protocol.step(idx=self.curr_step)['Name'],
             )
 
             # Validate the modified step and warn the user if there are errors.
@@ -1357,7 +1297,6 @@ class ProtocolSettings(FloatLayout):
                     objective_id=objective_id,
                     before_step=before_step,
                     after_step=after_step,
-                    include_objective_in_step_name=ctx.lumaview.scope.motion.has_turret(),
                 )
 
                 if after_current_step or (self.curr_step < 0):
@@ -1391,12 +1330,6 @@ class ProtocolSettings(FloatLayout):
 
     def update_acquire_zstack(self):
         gui_logger.toggle('ACQUIRE_ZSTACK', bool(self.ids['acquire_zstack_id'].active))
-
-    def update_show_step_locations(self):
-        ctx = _app_ctx.ctx
-        enabled = bool(self.ids['show_step_locations_id'].active)
-        gui_logger.toggle('SHOW_STEP_LOCATIONS', enabled)
-        ctx.stage.show_protocol_steps(enable=enabled)
 
     def update_tiling_selection(self):
         gui_logger.select('TILING', self.ids['tiling_size_spinner'].text)
@@ -1468,6 +1401,40 @@ class ProtocolSettings(FloatLayout):
             'run_protocol_btn'
         ].background_down = 'atlas://data/images/defaulttheme/button_pressed'
         ctx.stage.set_motion_capability(True)
+
+    def _commit_running_ui_state(
+        self, button_id: str, text: str, background_down: str | None = None
+    ):
+        """Commit the shared "a run is now underway" UI state.
+
+        Runs between the runner's prepare and start, so running-state
+        commits only once the run can no longer be refused -- a refusal
+        never leaves the event set or motion locked. One implementation
+        for every starter so the commit set cannot drift between them.
+        """
+        ctx = _app_ctx.ctx
+        ctx.protocol_running.set()
+        self._publish_protocol_running(True)
+        ctx.stage.set_motion_capability(False)
+        self.ids[button_id].text = text
+        if background_down is not None:
+            self.ids[button_id].background_down = background_down
+
+    def _reset_run_button_cosmetics(
+        self, button_id: str, text: str, background_down: str | None = None
+    ):
+        """Undo a starter's pre-gate button cosmetics after a run did NOT start.
+
+        Deliberately does NOT touch protocol_running or motion capability:
+        a refused start never committed them, and when the refusal is due
+        to a rival LIVE run, that run still owns them -- the full reset
+        primitives above would unlock stage motion under a running scan.
+        """
+        self.ids[button_id].state = 'normal'
+        self.ids[button_id].text = text
+        self.ids[button_id].disabled = False
+        if background_down is not None:
+            self.ids[button_id].background_down = background_down
 
     def _is_protocol_valid(self) -> bool:
         from ui.notification_popup import show_notification_popup
@@ -1626,16 +1593,21 @@ class ProtocolSettings(FloatLayout):
             run_trigger_source = sequenced_capture_runner.run_trigger_source()
 
             live_histo_off()
-            ctx.stage.set_motion_capability(False)
-            self._publish_protocol_running(True)
+
+            # Not-started paths undo cosmetics only: no running-state was
+            # committed, and a rival live run may own protocol_running /
+            # motion capability -- the full reset would unlock the stage
+            # under that run's scan.
+            def run_refused_func():
+                self._reset_run_button_cosmetics('run_autofocus_btn', 'Autofocus All Steps')
+                live_histo_reverse()
 
             # Only block if starting NEW autofocus scan (button is 'down'), not if aborting (button is 'normal')
             if (
                 self.ids['run_autofocus_btn'].state == 'down'
                 and file_io_executor.is_protocol_queue_active()
             ):
-                run_not_started_func()
-                live_histo_reverse()
+                run_refused_func()
                 logger.warning('Cannot start autofocus scan - files still being written to disk')
                 show_notification_popup(
                     title='Operation Blocked',
@@ -1652,19 +1624,25 @@ class ProtocolSettings(FloatLayout):
             if sequenced_capture_runner.run_in_progress() and (
                 run_trigger_source != trigger_source
             ):
-                run_not_started_func()
-                live_histo_reverse()
+                run_refused_func()
                 logger.warning(
                     f'Cannot start autofocus scan. Run already in progress from {run_trigger_source}'
                 )
                 return
 
             if not self._is_protocol_valid():
-                run_not_started_func()
-                live_histo_reverse()
+                run_refused_func()
                 return
 
-            self.ids['run_autofocus_btn'].text = 'Running Autofocus Scan'
+            def commit_ui_state():
+                # Runs between the runner's prepare and start: running-state
+                # commits only once the run can no longer be refused. The AF
+                # scan deliberately does NOT set ctx.protocol_running (its
+                # completion path never owned that flag), so it keeps its
+                # own commit set instead of _commit_running_ui_state.
+                ctx.stage.set_motion_capability(False)
+                self._publish_protocol_running(True)
+                self.ids['run_autofocus_btn'].text = 'Running Autofocus Scan'
 
             settings = _app_ctx.ctx.settings
 
@@ -1702,22 +1680,32 @@ class ProtocolSettings(FloatLayout):
             sequence = copy.deepcopy(self._protocol)
             sequence.modify_autofocus_all_steps(enabled=True)
 
-            sequenced_capture_runner.run(
-                protocol=sequence,
-                run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
-                run_trigger_source=trigger_source,
-                max_scans=1,
-                sequence_name='af_scan',
-                parent_dir=None,
-                image_capture_config=get_image_capture_config_from_ui(),
-                enable_image_saving=False,
-                separate_folder_per_channel=False,
-                autogain_settings=autogain_settings,
-                callbacks=callbacks,
-                update_z_pos_from_autofocus=True,
-                leds_state_at_end='off',
-                video_as_frames=settings['video_as_frames'],
-            )
+            def prepare_and_start():
+                plan = sequenced_capture_runner.prepare(
+                    protocol=sequence,
+                    run_mode=SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN,
+                    run_trigger_source=trigger_source,
+                    max_scans=1,
+                    sequence_name='af_scan',
+                    parent_dir=None,
+                    image_capture_config=get_image_capture_config_from_ui(),
+                    enable_image_saving=False,
+                    # The autofocus scan deliberately does NOT hold the LED across
+                    # moves (no get_sequenced_run_settings here): keeping the
+                    # excitation LED on during inter-step focus motion would
+                    # photobleach the sample. It also saves nothing, so the
+                    # folder/video params are irrelevant.
+                    separate_folder_per_channel=False,
+                    autogain_settings=autogain_settings,
+                    callbacks=callbacks,
+                    update_z_pos_from_autofocus=True,
+                    leds_state_at_end='off',
+                    video_as_frames=settings['video_as_frames'],
+                )
+                commit_ui_state()
+                sequenced_capture_runner.start(plan)
+
+            run_with_refusal_boundary(prepare_and_start, on_refused=run_refused_func)
         except Exception as e:
             logger.error(f'[UI] run_autofocus_scan_from_ui failed: {e}', exc_info=True)
             from ui.notification_popup import show_notification_popup
@@ -1833,13 +1821,20 @@ class ProtocolSettings(FloatLayout):
         run_complete_func = self._scan_run_complete
         run_not_started_func = self._reset_run_scan_button
 
+        # Not-started paths undo cosmetics only: no running-state was
+        # committed, and a rival live run may own protocol_running /
+        # motion capability -- the full reset would unlock the stage
+        # under that run's scan.
+        def run_refused_func():
+            self._reset_run_button_cosmetics('run_scan_btn', 'Run One Scan')
+
         ctx = _app_ctx.ctx
         sequenced_capture_runner = ctx.sequenced_capture_runner
         file_io_executor = ctx.file_io_executor
 
         # Only block if starting NEW scan (button is 'down'), not if aborting (button is 'normal')
         if self.ids['run_scan_btn'].state == 'down' and file_io_executor.is_protocol_queue_active():
-            run_not_started_func()
+            run_refused_func()
             logger.warning('Cannot start scan - files still being written to disk')
             show_notification_popup(
                 title='Operation Blocked',
@@ -1849,18 +1844,18 @@ class ProtocolSettings(FloatLayout):
 
         # State of button immediately changed upon press, so we are checking if the button was previously not pressed, and if autofocus is happening
         if self.ids['run_scan_btn'].state == 'down' and ctx.autofocus_thread.is_running:
-            run_not_started_func()
+            run_refused_func()
             logger.warning('Cannot start scan. Autofocus still in progress.')
             return
 
         run_trigger_source = sequenced_capture_runner.run_trigger_source()
         if sequenced_capture_runner.run_in_progress() and (run_trigger_source != trigger_source):
-            run_not_started_func()
+            run_refused_func()
             logger.warning(f'Cannot start scan. Run already in progress from {run_trigger_source}')
             return
 
         if not self._is_protocol_valid():
-            run_not_started_func()
+            run_refused_func()
             return
 
         if self.ids['run_scan_btn'].state == 'normal':
@@ -1871,15 +1866,6 @@ class ProtocolSettings(FloatLayout):
             self.ids['run_scan_btn'].text = 'Stopping...'
             self._cleanup_at_end_of_protocol(autofocus_scan=False)
             return
-
-        # All validation passed -- now commit to running
-        protocol_running_global = ctx.protocol_running
-        protocol_running_global.set()
-        self._publish_protocol_running(True)
-        ctx.stage.set_motion_capability(False)
-
-        self.ids['run_scan_btn'].text = 'Abort One Scan'
-        self.ids['run_scan_btn'].background_down = './data/icons/abort_protocol_background.png'
 
         callbacks = {
             'run_scan_pre': self._run_scan_pre_callback,
@@ -1900,11 +1886,19 @@ class ProtocolSettings(FloatLayout):
             ),
         }
 
-        self.run_sequenced_capture(
-            run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
-            run_trigger_source=trigger_source,
-            max_scans=1,
-            callbacks=callbacks,
+        run_with_refusal_boundary(
+            lambda: self.run_sequenced_capture(
+                run_mode=SequencedCaptureRunMode.SINGLE_SCAN,
+                run_trigger_source=trigger_source,
+                max_scans=1,
+                callbacks=callbacks,
+                commit_ui_state=lambda: self._commit_running_ui_state(
+                    'run_scan_btn',
+                    'Abort One Scan',
+                    './data/icons/abort_protocol_background.png',
+                ),
+            ),
+            on_refused=run_refused_func,
         )
 
     def _protocol_run_complete(self, **kwargs):
@@ -2048,18 +2042,28 @@ class ProtocolSettings(FloatLayout):
             logger.info('[LVP Main  ] ProtocolSettings.run_protocol_from_ui()')
             trigger_source = 'protocol'
             run_complete_func = self._protocol_run_complete
-            run_not_started_func = self._reset_run_protocol_button
 
             ctx = _app_ctx.ctx
             sequenced_capture_runner = ctx.sequenced_capture_runner
             file_io_executor = ctx.file_io_executor
+
+            # Not-started paths undo cosmetics only: no running-state was
+            # committed, and a rival live run may own protocol_running /
+            # motion capability -- the full reset would unlock the stage
+            # under that run's scan.
+            def run_refused_func():
+                self._reset_run_button_cosmetics(
+                    'run_protocol_btn',
+                    'Run Full Protocol',
+                    'atlas://data/images/defaulttheme/button_pressed',
+                )
 
             # Only block if starting NEW protocol run (button is 'down'), not if aborting (button is 'normal')
             if (
                 self.ids['run_protocol_btn'].state == 'down'
                 and file_io_executor.is_protocol_queue_active()
             ):
-                run_not_started_func()
+                run_refused_func()
                 logger.warning('Cannot start protocol run - files still being written to disk')
                 show_notification_popup(
                     title='Operation Blocked',
@@ -2071,21 +2075,21 @@ class ProtocolSettings(FloatLayout):
 
             # State of button immediately changed upon press, so we are checking if the button was previously not pressed, and if autofocus is happening
             if self.ids['run_protocol_btn'].state == 'down' and ctx.autofocus_thread.is_running:
-                run_not_started_func()
+                run_refused_func()
                 logger.warning('Cannot start protocol run. Autofocus still in progress.')
                 return
 
             if sequenced_capture_runner.run_in_progress() and (
                 run_trigger_source != trigger_source
             ):
-                run_not_started_func()
+                run_refused_func()
                 logger.warning(
                     f'Cannot start protocol run. Run already in progress from {run_trigger_source}'
                 )
                 return
 
             if not self._is_protocol_valid():
-                run_not_started_func()
+                run_refused_func()
                 return
 
             if self.ids['run_protocol_btn'].state == 'normal':
@@ -2095,15 +2099,6 @@ class ProtocolSettings(FloatLayout):
                 self.ids['run_protocol_btn'].text = 'Stopping...'
                 self._cleanup_at_end_of_protocol(autofocus_scan=False)
                 return
-
-            # All validation passed -- now commit to running
-            protocol_running_global = ctx.protocol_running
-            protocol_running_global.set()
-            self._publish_protocol_running(True)
-            ctx.stage.set_motion_capability(False)
-
-            # Note: This will be quickly overwritten by the remaining number of scans
-            self.ids['run_protocol_btn'].text = 'Running Protocol'
 
             callbacks = {
                 'protocol_iterate_pre': self._update_protocol_run_button_status,
@@ -2130,11 +2125,18 @@ class ProtocolSettings(FloatLayout):
                 duration=time_params['duration'],
             )
 
-            self.run_sequenced_capture(
-                run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
-                run_trigger_source=trigger_source,
-                max_scans=None,
-                callbacks=callbacks,
+            run_with_refusal_boundary(
+                lambda: self.run_sequenced_capture(
+                    run_mode=SequencedCaptureRunMode.FULL_PROTOCOL,
+                    run_trigger_source=trigger_source,
+                    max_scans=None,
+                    callbacks=callbacks,
+                    # Text is quickly overwritten by the remaining-scans status
+                    commit_ui_state=lambda: self._commit_running_ui_state(
+                        'run_protocol_btn', 'Running Protocol'
+                    ),
+                ),
+                on_refused=run_refused_func,
             )
         except Exception as e:
             logger.error(f'[UI] run_protocol_from_ui failed: {e}', exc_info=True)
@@ -2205,7 +2207,19 @@ class ProtocolSettings(FloatLayout):
         callbacks: dict[str, typing.Callable],
         disable_saving_artifacts: bool = False,
         return_to_position: dict | None = None,
+        commit_ui_state: typing.Callable[[], None] | None = None,
     ):
+        """Prepare, commit UI running-state, and start a sequenced run.
+
+        commit_ui_state runs between a successful prepare() and start(),
+        so callers commit their "a run is now underway" state (events,
+        buttons, motion locks) only once the run can no longer be
+        refused -- a refusal raises out of prepare() before it runs.
+
+        Raises:
+            ProtocolRunRefusedError: The runner refused the request; the
+                user was already notified and commit_ui_state never ran.
+        """
         live_histo_off()
 
         logger.info('[LVP Main  ] ProtocolSettings.run_sequenced_capture()')
@@ -2262,7 +2276,7 @@ class ProtocolSettings(FloatLayout):
             layer: settings[layer]['autofocus'] for layer in common_utils.get_layers()
         }
 
-        sequenced_capture_runner.run(
+        plan = sequenced_capture_runner.prepare(
             protocol=self._protocol,
             run_mode=run_mode,
             run_trigger_source=run_trigger_source,
@@ -2271,21 +2285,27 @@ class ProtocolSettings(FloatLayout):
             parent_dir=parent_dir,
             image_capture_config=image_capture_config,
             enable_image_saving=is_image_saving_enabled(),
-            separate_folder_per_channel=ctx.motion_settings.ids[
-                'microscope_settings_id'
-            ]._seperate_folder_per_channel,
             autogain_settings=autogain_settings,
             callbacks=callbacks,
             disable_saving_artifacts=disable_saving_artifacts,
             return_to_position=return_to_position,
             leds_state_at_end='off',
-            video_as_frames=settings['video_as_frames'],
             initial_autofocus_states=initial_autofocus_states,
+            **config_helpers.get_sequenced_run_settings(settings),
         )
+        if commit_ui_state is not None:
+            commit_ui_state()
+        sequenced_capture_runner.start(plan)
 
+        # A start() that failed during setup unwound as a failed run: it
+        # nulled run_dir (set_last_save_folder no-ops on None) and cleared
+        # run-in-progress, so neither follow-up acts on the dead run.
         set_last_save_folder(dir=sequenced_capture_runner.run_dir())
 
-        if run_mode == SequencedCaptureRunMode.FULL_PROTOCOL:
+        if (
+            run_mode == SequencedCaptureRunMode.FULL_PROTOCOL
+            and sequenced_capture_runner.run_in_progress()
+        ):
             self._update_protocol_run_button_status(
                 remaining_scans=sequenced_capture_runner.remaining_scans(),
                 interval=sequenced_capture_runner.protocol_interval(),

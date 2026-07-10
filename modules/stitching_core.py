@@ -15,7 +15,6 @@ from collections.abc import Callable
 import cv2
 import numpy as np
 import pandas as pd
-import tifffile as tf
 
 import modules.common_utils as common_utils
 import modules.image_utils as image_utils
@@ -38,8 +37,13 @@ def _center_metadata(df: pd.DataFrame) -> dict:
     }
 
 
+def _read_tile_with_depth(path: pathlib.Path, filename: str) -> tuple[np.ndarray, int]:
+    return image_utils.load_pixels(path / filename, collapse_legacy_false_color=False)
+
+
 def _read_tile(path: pathlib.Path, filename: str) -> np.ndarray:
-    return tf.imread(str(path / filename))
+    image, _ = _read_tile_with_depth(path, filename)
+    return image
 
 
 def _write_output(
@@ -50,6 +54,7 @@ def _write_output(
     first_tile_path: pathlib.Path,
     color: str,
     center: dict,
+    significant_bits: int,
 ) -> np.ndarray | None:
     if output_file_loc is None:
         return image
@@ -60,6 +65,7 @@ def _write_output(
     metadata = image_utils.build_postproc_output_metadata(
         input_path=first_tile_path,
         channel=color,
+        significant_bits=significant_bits,
         plate_pos_mm_override=center,
     )
     image_utils.write_tiff(
@@ -68,6 +74,8 @@ def _write_output(
         metadata=metadata,
         ome=False,
         color=color,
+        significant_bits=metadata['significant_bits'],
+        save_encoding=image_utils.resolve_output_save_encoding(image),
     )
     logger.info(
         '[StitchPerf] write output %.1fms file=%s shape=%s dtype=%s',
@@ -86,6 +94,7 @@ def _result(
     output_file_loc: pathlib.Path | None,
     df: pd.DataFrame,
     metadata: dict,
+    significant_bits: int,
 ) -> dict:
     first_row = df.iloc[0]
     color = str(first_row.get('Color', ''))
@@ -97,11 +106,13 @@ def _result(
         first_tile_path=path / first_row['Filepath'],
         color=color,
         center=center,
+        significant_bits=significant_bits,
     )
     return {
         'status': True,
         'error': None,
         'image': return_image,
+        'significant_bits': significant_bits,
         'metadata': metadata,
     }
 
@@ -210,10 +221,12 @@ def bf_feature_stitcher(
     center = _center_metadata(df)
     try:
         read_t0 = time.perf_counter()
-        feature_images = [
-            _to_uint8_bgr_for_feature_stitch(_read_tile(path, row['Filepath']))
-            for _, row in df.iterrows()
-        ]
+        feature_images = []
+        input_depths = []
+        for _, row in df.iterrows():
+            image, significant_bits = _read_tile_with_depth(path, row['Filepath'])
+            input_depths.append(significant_bits)
+            feature_images.append(_to_uint8_bgr_for_feature_stitch(image))
         logger.info(
             '[StitchPerf] bf_feature read+convert %.1fms tiles=%d',
             (time.perf_counter() - read_t0) * 1000.0,
@@ -244,6 +257,7 @@ def bf_feature_stitcher(
         output_file_loc=output_file_loc,
         df=df,
         metadata={'center': center, 'algorithm': 'bf_feature_stitcher'},
+        significant_bits=image_utils.resolve_output_depth(input_depths),
     )
 
 
@@ -264,10 +278,12 @@ def overlap_stitcher(
         frame['Y'] = frame['Y'].astype(float)
 
         read_t0 = time.perf_counter()
-        images = {
-            row['Filepath']: _read_tile(path, row['Filepath'])
-            for _, row in frame.iterrows()
-        }
+        images = {}
+        input_depths = []
+        for _, row in frame.iterrows():
+            image, significant_bits = _read_tile_with_depth(path, row['Filepath'])
+            images[row['Filepath']] = image
+            input_depths.append(significant_bits)
         tile_bytes = sum(int(image.nbytes) for image in images.values())
         logger.info(
             '[StitchPerf] overlap read %.1fms tiles=%d bytes=%d',
@@ -289,6 +305,10 @@ def overlap_stitcher(
             frame['y_pix'].max() + image_h
         ) <= 0:
             return _failure('overlap_stitcher', 'invalid stitched image dimensions', center)
+        nominal_output_shape = (
+            int(frame['y_pix'].max() + image_h),
+            int(frame['x_pix'].max() + image_w),
+        )
 
         tiles = [
             {
@@ -299,7 +319,10 @@ def overlap_stitcher(
             for _, row in frame.iterrows()
         ]
         stitch_t0 = time.perf_counter()
-        stitched_img, registered_tiles = stitch_registered_tiles(tiles)
+        stitched_img, registered_tiles = stitch_registered_tiles(
+            tiles,
+            output_shape=nominal_output_shape,
+        )
         logger.info(
             '[StitchPerf] overlap register+blend %.1fms output_shape=%s dtype=%s',
             (time.perf_counter() - stitch_t0) * 1000.0,
@@ -324,6 +347,7 @@ def overlap_stitcher(
             'pixel_size_um': pixel_size_um,
             'registered_tiles': registered_tiles,
         },
+        significant_bits=image_utils.resolve_output_depth(input_depths),
     )
 
 
@@ -344,10 +368,12 @@ def fft_phase_stitcher(
         frame['Y'] = frame['Y'].astype(float)
 
         read_t0 = time.perf_counter()
-        images = {
-            row['Filepath']: _read_tile(path, row['Filepath'])
-            for _, row in frame.iterrows()
-        }
+        images = {}
+        input_depths = []
+        for _, row in frame.iterrows():
+            image, significant_bits = _read_tile_with_depth(path, row['Filepath'])
+            images[row['Filepath']] = image
+            input_depths.append(significant_bits)
         tile_bytes = sum(int(image.nbytes) for image in images.values())
         logger.info(
             '[StitchPerf] fft-phase read %.1fms tiles=%d bytes=%d',
@@ -369,6 +395,10 @@ def fft_phase_stitcher(
             frame['y_pix'].max() + image_h
         ) <= 0:
             return _failure('fft_phase_stitcher', 'invalid stitched image dimensions', center)
+        nominal_output_shape = (
+            int(frame['y_pix'].max() + image_h),
+            int(frame['x_pix'].max() + image_w),
+        )
 
         tiles = [
             {
@@ -383,6 +413,7 @@ def fft_phase_stitcher(
             tiles,
             max_correction_px=24,
             min_overlap_px=16,
+            output_shape=nominal_output_shape,
             estimator=estimate_phase_offset,
         )
         logger.info(
@@ -409,6 +440,7 @@ def fft_phase_stitcher(
             'pixel_size_um': pixel_size_um,
             'registered_tiles': registered_tiles,
         },
+        significant_bits=image_utils.resolve_output_depth(input_depths),
     )
 
 
@@ -428,10 +460,12 @@ def stage_position_stitcher(
         frame['X'] = frame['X'].astype(float)
         frame['Y'] = frame['Y'].astype(float)
         read_t0 = time.perf_counter()
-        images = {
-            row['Filepath']: _read_tile(path, row['Filepath'])
-            for _, row in frame.iterrows()
-        }
+        images = {}
+        input_depths = []
+        for _, row in frame.iterrows():
+            image, significant_bits = _read_tile_with_depth(path, row['Filepath'])
+            images[row['Filepath']] = image
+            input_depths.append(significant_bits)
         tile_bytes = sum(int(image.nbytes) for image in images.values())
         logger.info(
             '[StitchPerf] stage-position read %.1fms tiles=%d bytes=%d',
@@ -505,6 +539,7 @@ def stage_position_stitcher(
             'pixel_size_um': pixel_size_um,
             'placements': placements,
         },
+        significant_bits=image_utils.resolve_output_depth(input_depths),
     )
 
 
@@ -550,8 +585,10 @@ def simple_position_stitcher(
         place_t0 = time.perf_counter()
         tile_count = 0
         tile_bytes = 0
+        input_depths = []
         for _, row in frame.iterrows():
-            image = _read_tile(path, row['Filepath'])
+            image, significant_bits = _read_tile_with_depth(path, row['Filepath'])
+            input_depths.append(significant_bits)
             tile_count += 1
             tile_bytes += int(image.nbytes)
             im_x = image.shape[1]
@@ -603,6 +640,7 @@ def simple_position_stitcher(
         output_file_loc=output_file_loc,
         df=df,
         metadata={'center': center, 'algorithm': 'simple_position_stitcher'},
+        significant_bits=image_utils.resolve_output_depth(input_depths),
     )
 
 
