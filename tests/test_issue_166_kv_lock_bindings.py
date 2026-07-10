@@ -14,7 +14,8 @@ not instantiate widgets) and asserts the binding structure:
 - POSITIVE: a representative LOCK control from every region is disabled during
   a protocol -- either its own widget block carries ``disabled:
   app.protocol_running`` OR an ancestor container (a ``<Class>:`` rule root)
-  does. The OR-combined controls (obj_position, Save, stitch_apply_btn) carry
+  does. The OR-combined controls (obj_position, Save, quality_stitch_btn,
+  fast_preview_stitch_btn) carry
   it on their own block even though another token may be present.
 - NEGATIVE (critical): the KEEP roster -- fit_btn, one2one_btn,
   show_tooltips_btn, btn_support_report, btn_zip_logs, logHistogram_id,
@@ -163,7 +164,8 @@ LOCK_REPRESENTATIVES = {
     'acquire_image': None,
     'false_color': None,
     # Post-processing (stitch is per-widget OR-combine; others container-bound).
-    'stitch_apply_btn': None,
+    'quality_stitch_btn': None,
+    'fast_preview_stitch_btn': None,
     # Microscope settings (mixed region -> per-widget).
     'image_mode_spinner': None,
     'binning_spinner': None,
@@ -212,9 +214,9 @@ def test_xy_stage_control_locked_via_container():
 
 
 def test_or_combined_controls_keep_protocol_running():
-    # obj_position and stitch_apply_btn shipped `disabled: False`; the
+    # obj_position and stitch buttons shipped `disabled: False`; the
     # placeholder is replaced with the property (False OR x == x).
-    for control_id in ('obj_position', 'stitch_apply_btn'):
+    for control_id in ('obj_position', 'quality_stitch_btn', 'fast_preview_stitch_btn'):
         block = _block_for_id(control_id)
         assert _block_has_bind(block), (
             f'{control_id!r} shipped a disabled: placeholder; it must now '

@@ -20,6 +20,10 @@ from modules.protocol_post_record import ProtocolPostRecord
 
 
 class Stitcher(ProtocolPostProcessor):
+    QUALITY_MODE = 'quality'
+    FAST_PREVIEW_MODE = 'fast_preview'
+    _FAST_PREVIEW_SUFFIX = 'FastPreview'
+
     def __init__(self, *args, **kwargs):
         super().__init__(
             *args,
@@ -57,13 +61,16 @@ class Stitcher(ProtocolPostProcessor):
         # a single-channel stitch keeps its channel, and a composite-stitch
         # carries 'Composite' automatically (its Color is 'Composite'), so no
         # leaked channel token needs removing.
+        post = ('stitched',)
+        if kwargs.get('stitching_mode') == self.FAST_PREVIEW_MODE:
+            post = ('stitched', self._FAST_PREVIEW_SUFFIX)
         name = common_utils.build_step_name(
             common_utils.step_components(
                 row0,
                 tile=None,
                 scan_count=row0['Scan Count'],
                 objective=objective_short_name,
-                post=('stitched',),
+                post=post,
             )
         )
 
@@ -121,6 +128,7 @@ class Stitcher(ProtocolPostProcessor):
                 df=df[stitch_columns],
                 pixel_size_um=pixel_size_um,
                 output_file_loc=kwargs.get('output_file_loc'),
+                stitching_mode=kwargs.get('stitching_mode', self.QUALITY_MODE),
             )
         )
 

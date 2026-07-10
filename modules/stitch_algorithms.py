@@ -14,6 +14,7 @@ lens distortion and illumination variation.
 """
 
 from collections import deque
+from collections.abc import Callable
 import time
 
 import cv2
@@ -304,6 +305,41 @@ def estimate_overlap_offset(
     return best
 
 
+def estimate_phase_offset(
+    reference: np.ndarray,
+    moving: np.ndarray,
+    nominal_dx: int,
+    nominal_dy: int,
+    max_correction_px: int = 24,
+    min_overlap_px: int = 16,
+) -> tuple[int, int, float]:
+    """Estimate moving-tile correction with FFT phase correlation."""
+    views = _overlap_views(
+        _gray_float(reference),
+        _gray_float(moving),
+        dx=nominal_dx,
+        dy=nominal_dy,
+    )
+    if views is None:
+        return 0, 0, -1.0
+
+    ref_view, mov_view = views
+    if ref_view.shape[0] < min_overlap_px or ref_view.shape[1] < min_overlap_px:
+        return 0, 0, -1.0
+
+    window = cv2.createHanningWindow((ref_view.shape[1], ref_view.shape[0]), cv2.CV_32F)
+    shift, response = cv2.phaseCorrelate(
+        ref_view.astype(np.float32),
+        mov_view.astype(np.float32),
+        window,
+    )
+    corr_x = int(round(-shift[0]))
+    corr_y = int(round(-shift[1]))
+    corr_x = int(np.clip(corr_x, -max_correction_px, max_correction_px))
+    corr_y = int(np.clip(corr_y, -max_correction_px, max_correction_px))
+    return corr_x, corr_y, float(response)
+
+
 def _grid_keys(tiles: list[dict]) -> tuple[list[int], list[int], dict[tuple[int, int], int]]:
     x_values = sorted({int(tile['x_px']) for tile in tiles})
     y_values = sorted({int(tile['y_px']) for tile in tiles})
@@ -315,6 +351,7 @@ def align_tile_positions(
     tiles: list[dict],
     max_correction_px: int = 12,
     min_overlap_px: int = 16,
+    estimator: Callable[..., tuple[int, int, float]] = estimate_overlap_offset,
 ) -> list[dict]:
     """Return tiles with overlap-registered x/y placement corrections.
 
@@ -374,7 +411,7 @@ def align_tile_positions(
             if nidx is None or nidx in offsets:
                 continue
             edge_t0 = time.perf_counter()
-            corr_x, corr_y, score = estimate_overlap_offset(
+            corr_x, corr_y, score = estimator(
                 reference=tiles[idx]['tile'],
                 moving=tiles[nidx]['tile'],
                 nominal_dx=nx - x,
@@ -439,6 +476,7 @@ def stitch_registered_tiles(
     max_correction_px: int = 12,
     min_overlap_px: int = 16,
     output_shape: tuple[int, int] | None = None,
+    estimator: Callable[..., tuple[int, int, float]] = estimate_overlap_offset,
 ) -> tuple[np.ndarray, list[dict]]:
     """Register overlapping tiles, then average-blend them into one image."""
     if not tiles:
@@ -449,6 +487,7 @@ def stitch_registered_tiles(
         tiles=tiles,
         max_correction_px=max_correction_px,
         min_overlap_px=min_overlap_px,
+        estimator=estimator,
     )
     register_ms = (time.perf_counter() - register_t0) * 1000.0
 

@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 
 from kivy.clock import Clock
-from kivy.properties import BooleanProperty
+from kivy.properties import BooleanProperty, StringProperty
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.popup import Popup
@@ -39,20 +39,29 @@ logger = logging.getLogger('LVP.ui.post_processing')
 
 class StitchControls(BoxLayout):
     done = BooleanProperty(False)
+    stitching_mode = StringProperty('Quality')
+    _MODE_VALUES = {
+        'Quality': Stitcher.QUALITY_MODE,
+        'Fast Preview': Stitcher.FAST_PREVIEW_MODE,
+    }
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         _app_ctx.register_early('stitch_controls', self)
 
     def set_button_enabled_state(self, state: bool):
-        self.ids['stitch_apply_btn'].disabled = not state
+        disabled = not state
+        self.ids['quality_stitch_btn'].disabled = disabled
+        self.ids['fast_preview_stitch_btn'].disabled = disabled
 
     @show_popup
     def run_stitcher(self, popup, path):
-        gui_logger.button('RUN_STITCHER', f'path={path}')
+        mode_label = self.stitching_mode
+        stitching_mode = self._MODE_VALUES.get(mode_label, Stitcher.QUALITY_MODE)
+        gui_logger.button('RUN_STITCHER', f'path={path} mode={stitching_mode}')
         ctx = _app_ctx.ctx
         status_map = {True: 'Success', False: 'FAILED'}
-        popup.title = 'Stitcher'
+        popup.title = f'Stitcher - {mode_label}'
         popup.text = 'Generating stitched images...'
         popup.progress = 0
         popup.auto_dismiss = False
@@ -68,6 +77,7 @@ class StitchControls(BoxLayout):
                     pathlib.Path(ctx.source_path) / 'data' / 'tiling.json',
                     popup,
                 ),
+                kwargs={'stitching_mode': stitching_mode},
                 callback=self.stitcher_callback,
                 cb_args=(popup, status_map),
                 pass_result=True,
