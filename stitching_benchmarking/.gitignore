@@ -2,12 +2,14 @@
 __pycache__/
 benchmark_tools/__pycache__/
 LS800imageAtlas/
+actual_tile_data/
 actual_tile_runs/
 actual_tile_runs_smoke/
 generated_tiles/
 results/
 reports/
 reports_current_compare/
+results_current_compare/
 *.png
 *.jpg
 *.jpeg
