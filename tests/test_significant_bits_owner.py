@@ -471,10 +471,11 @@ class TestConverterCollapse:
     def test_16to8_pins_deviation_from_legacy_truncation(self):
         """Pin the deliberate 16->8 map choice against the legacy >>8 (/256).
 
-        The map is an exact linear rescale (value / 65535 * 255), not the old
-        >>8 truncation. Both send full scale to 255, but they differ by at most
-        1 LSB at exactly 32640 of the 65536 inputs (the rescale rounds where
-        >>8 truncates). Locking the bound and the count documents this as a
+        The map is a linear rescale (value / 65535 * 255) then a truncating
+        .astype(uint8), chosen over the old >>8. Both truncate and send full
+        scale to 255, but they differ by at most 1 LSB at exactly 32640 of the
+        65536 inputs because the divisor differs (65535 vs 65536), not because
+        the rescale rounds. Locking the bound and the count documents this as a
         decision, so a future change to the map is caught rather than absorbed.
         """
         from modules import image_utils

@@ -1394,11 +1394,13 @@ def _lut_to_8bit(significant_bits: int) -> np.ndarray:
     depths in use (8/10/12/16) each build a single shared table.
     """
     max_value = (1 << significant_bits) - 1
-    # Exact linear rescale (value / max * 255), chosen over the legacy >>8
-    # (i.e. /256) truncation used for 16-bit. Both map full scale to 255, but
-    # they differ by at most 1 LSB at 32640 of the 65536 16-bit inputs (the
-    # rescale rounds where >>8 truncates). The rescale is the deliberate choice;
-    # the converter pin test locks the <=1-LSB bound so a change is caught here.
+    # Linear rescale (value / max * 255) then a truncating .astype(uint8),
+    # chosen over the legacy >>8 (i.e. /256) used for 16-bit. Both truncate and
+    # map full scale to 255; they differ by at most 1 LSB at 32640 of the 65536
+    # 16-bit inputs because the divisor differs (65535 vs 65536), NOT because one
+    # rounds. The rescale carries a systematic ~0.5-LSB low bias against the exact
+    # real-valued map -- it is the deliberate choice, and the converter pin test
+    # locks the <=1-LSB bound so a change is caught here.
     return np.clip(np.arange(max_value + 1, dtype=np.float64) / max_value * 255, 0, 255).astype(
         np.uint8
     )
