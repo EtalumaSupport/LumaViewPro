@@ -4294,7 +4294,20 @@ class _PylonImageGrabWorker:
         a raised exception here means the underlying buffer is gone.
         """
         try:
-            img = grabResult.GetArray().copy()
+            # Split grab-array materialization from the decouple copy so a
+            # profiling build can time each stage. GetArray() returns a numpy
+            # view over a private bytearray copy of the SDK buffer -- already
+            # decoupled from the reused pool buffer -- so the trailing .copy()
+            # is a second full-frame memmove whose cost is measured here.
+            _trace_copy = profile_trace is not None and profile_trace.ENABLE_PROFILE_TRACE
+            if _trace_copy:
+                _w0, _p0 = time.perf_counter(), time.thread_time()
+            raw = grabResult.GetArray()
+            if _trace_copy:
+                _w1, _p1 = time.perf_counter(), time.thread_time()
+            img = raw.copy()
+            if _trace_copy:
+                _w2, _p2 = time.perf_counter(), time.thread_time()
         except Exception as e:
             # H2/H3 diagnostic: Stage A enqueued this with GrabSucceeded=True.
             # Re-read GrabSucceeded + GetErrorCode/Description on Stage B's
@@ -4332,6 +4345,28 @@ class _PylonImageGrabWorker:
             self._parent._mark_disconnected()
             self._base._record_failure()
             return
+        if _trace_copy:
+            try:
+                profile_trace.trace(
+                    'pylon_copy_trace.csv',
+                    'ts_ms,base_type,owndata,writeable,c_contig,padding_x,nbytes,'
+                    'getarray_wall_ms,getarray_cpu_ms,copy_wall_ms,copy_cpu_ms',
+                    [
+                        int(time.time() * 1000),
+                        type(raw.base).__name__,
+                        raw.flags['OWNDATA'],
+                        raw.flags['WRITEABLE'],
+                        raw.flags['C_CONTIGUOUS'],
+                        getattr(grabResult, 'PaddingX', -1),
+                        raw.nbytes,
+                        f'{(_w1 - _w0) * 1000:.4f}',
+                        f'{(_p1 - _p0) * 1000:.4f}',
+                        f'{(_w2 - _w1) * 1000:.4f}',
+                        f'{(_p2 - _p1) * 1000:.4f}',
+                    ],
+                )
+            except BaseException as e:
+                _log_safely(f'pylon_copy_trace raised {type(e).__name__}: {e}')
         chunks = _read_validity_chunks(grabResult)
         # Read the depth from the frame's OWN pixel type -- the format the SDK
         # delivered this buffer in -- so the depth stays bound to the frame.
