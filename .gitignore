@@ -27,7 +27,7 @@ scripts/appBuild/tmp/
 scripts/appBuild/_tmp/
 scripts/appBuild/buildvenv/
 scripts/appBuild/.build_config
-.claude/settings.local.json
+.claude/
 .venv/
 data/
 generated_tiles_current_compare/
