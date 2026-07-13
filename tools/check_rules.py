@@ -997,10 +997,10 @@ def main(argv: list[str] | None = None) -> int:
 
     print('', file=sys.stderr)
     if blocks:
-        print('See docs/CLAUDE.md Rules 24, 27, 28, 42.', file=sys.stderr)
+        print('See .claude/rules/ (Rules 24, 27, 28, 42).', file=sys.stderr)
         print('To bypass (NOT recommended): git commit --no-verify', file=sys.stderr)
         return 1
-    print('Warnings only; commit allowed. See docs/CLAUDE.md Rule 42.', file=sys.stderr)
+    print('Warnings only; commit allowed. See .claude/rules/docs.md Rule 42.', file=sys.stderr)
     return 0
 
 
