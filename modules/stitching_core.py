@@ -29,8 +29,13 @@ logger = logging.getLogger('LVP.modules.stitching_core')
 
 
 def _center_metadata(df: pd.DataFrame) -> dict:
-    x_center = df['X'].unique().mean()
-    y_center = df['Y'].unique().mean()
+    # Bounding-box midpoint, not the mean of unique positions: the stitched
+    # image spans the full X/Y extent, so its center is (min + max) / 2.
+    # Averaging unique positions drifts off-center on irregularly-spaced or
+    # non-rectangular (sparse) grids, where the distinct coordinates are not
+    # symmetric about the extent.
+    x_center = (df['X'].min() + df['X'].max()) / 2
+    y_center = (df['Y'].min() + df['Y'].max()) / 2
     return {
         'x': round(x_center, common_utils.max_decimal_precision(parameter='x')),
         'y': round(y_center, common_utils.max_decimal_precision(parameter='y')),

@@ -156,6 +156,7 @@ class TestCropToContent:
 # ---------------------------------------------------------------------------
 
 from modules.stitching_core import (
+    _center_metadata,
     channel_aware_stitcher,
     fft_phase_stitcher,
     overlap_stitcher,
@@ -206,6 +207,26 @@ class TestSimplePositionStitcher:
         center = result['metadata']['center']
         assert center['x'] == 0.5  # mean of [0.0, 1.0]
         assert center['y'] == 0.5
+
+    def test_center_metadata_irregular_grid_uses_extent_midpoint(self):
+        """Center is the bounding-box midpoint, not the mean of unique positions.
+
+        On an irregularly-spaced or non-rectangular grid the two diverge: the
+        unique-mean weights each distinct coordinate equally regardless of
+        spacing, drifting the reported center off the stitched image's true
+        center. Here unique X = [0, 1, 4] (mean 1.667) but the extent midpoint
+        is (0 + 4) / 2 = 2.0; unique Y = [0, 2, 6] (mean 2.667) vs midpoint 3.0.
+        """
+        df = pd.DataFrame(
+            [
+                {'Filepath': 'a.tiff', 'X': 0.0, 'Y': 0.0},
+                {'Filepath': 'b.tiff', 'X': 1.0, 'Y': 2.0},
+                {'Filepath': 'c.tiff', 'X': 4.0, 'Y': 6.0},
+            ]
+        )
+        center = _center_metadata(df)
+        assert center['x'] == 2.0
+        assert center['y'] == 3.0
 
     def test_all_pixels_filled(self, tile_dir, tile_df):
         result = Stitcher._simple_position_stitcher(tile_dir, tile_df)
