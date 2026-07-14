@@ -18,7 +18,9 @@ from __future__ import annotations
 import argparse
 import json
 import platform
+import shutil
 import subprocess
+import sys
 import threading
 import time
 from dataclasses import asdict
@@ -97,19 +99,50 @@ def _sample_total_cpu(pid: int, duration_s: float, out: list[float], stop: threa
             break
 
 
+def _pyspy_path(interpreter_dir: Path | None = None) -> str:
+    """Absolute path to the py-spy binary.
+
+    A bare ``py-spy`` fails under ``sudo`` (needed to attach on macOS) because
+    sudo replaces PATH with a sanitized secure_path that omits the interpreter's
+    bin dir. py-spy is installed alongside the running interpreter, so resolve it
+    there first, then fall back to PATH for the case where it lives elsewhere.
+    """
+    interpreter_dir = interpreter_dir or Path(sys.executable).parent
+    candidate = interpreter_dir / 'py-spy'
+    if candidate.exists():
+        return str(candidate)
+    found = shutil.which('py-spy')
+    if found:
+        return found
+    raise FileNotFoundError(
+        f'py-spy not found next to the interpreter ({candidate}) or on PATH. '
+        f'Install it (pip install py-spy).'
+    )
+
+
 def _run_pyspy(pid: int, duration_s: int, rate_hz: int, raw_path: Path) -> None:
     # -f raw = folded stacks; no --native (Python frames only, the cheap mode).
-    subprocess.run(
+    result = subprocess.run(
         [
-            'py-spy', 'record',
+            _pyspy_path(), 'record',
             '--pid', str(pid),
             '--format', 'raw',
             '--rate', str(rate_hz),
             '--duration', str(duration_s),
             '--output', str(raw_path),
         ],
-        check=True,
+        capture_output=True,
+        text=True,
     )
+    if result.returncode != 0:
+        # Surface py-spy's own reason (permission, dead pid, non-Python target)
+        # instead of a bare CalledProcessError -- the failure must be legible.
+        hint = ''
+        if 'root' in result.stderr.lower() or 'permission' in result.stderr.lower():
+            hint = ' -- on macOS run the whole command under sudo.'
+        raise RuntimeError(
+            f'py-spy failed (exit {result.returncode}): {result.stderr.strip()}{hint}'
+        )
 
 
 def profile(
