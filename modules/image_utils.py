@@ -63,8 +63,16 @@ def fit_frame_to_shape(image: np.ndarray, target_shape: tuple[int, ...]) -> np.n
 def decimate_for_preview(
     image: np.ndarray, target_wh: tuple[int, int] | None, *, categorical: bool = False
 ) -> np.ndarray:
-    """Downscale a live-preview frame to roughly the on-screen widget size so
-    the main-thread Kivy ``blit_buffer`` uploads far fewer bytes.
+    """Host-side downscale of a live-preview frame to roughly the on-screen
+    widget size, so the main-thread Kivy ``blit_buffer`` uploads fewer bytes.
+
+    Fallback path only. The default preview path uploads the full-resolution
+    frame and lets the GPU minify it to the widget; that is cheap (the upload is
+    a small fraction of a core) and constant-cost at any zoom. This host resize
+    exists for machines where the full-res upload is not smooth: enable it with
+    the ``preview_host_downscale`` setting. It is kept because it is fast at any
+    ratio, unlike ``INTER_AREA`` which collapses to a slow per-output-pixel
+    resample at a fractional contain-fit ratio (the common case).
 
     Handles both the 2-D ``uint8`` luminance preview and the 3-D ``(H, W, 3)``
     RGB bullseye preview -- both blit paths share the identical
@@ -74,8 +82,8 @@ def decimate_for_preview(
 
     ``categorical`` picks the resampling to match the data's meaning:
 
-    - ``False`` (default, continuous-tone): area-averaging (``INTER_AREA``),
-      the correct antialiased downscale for a grayscale intensity image.
+    - ``False`` (default, continuous-tone): bilinear (``INTER_LINEAR``), a
+      fixed 4-tap that stays fast at any downscale ratio.
     - ``True`` (false-color / label image, e.g. the bullseye contour map):
       nearest-neighbor. The bullseye LUT is a topographic map -- mostly black
       with thin pure-color iso-intensity bands -- so area-averaging would blend
@@ -134,7 +142,7 @@ def decimate_for_preview(
     factor = min(tw / w, th / h)
     if factor >= 1.0:
         return image  # frame already <= widget on the limiting axis; never upscale
-    interpolation = cv2.INTER_NEAREST if categorical else cv2.INTER_AREA
+    interpolation = cv2.INTER_NEAREST if categorical else cv2.INTER_LINEAR
     new_w = max(1, round(w * factor))
     new_h = max(1, round(h * factor))
     return cv2.resize(image, (new_w, new_h), interpolation=interpolation)

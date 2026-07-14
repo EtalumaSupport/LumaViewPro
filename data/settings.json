@@ -206,6 +206,7 @@
     "tracemalloc_enabled": false,
     "memory_profile_enabled": false,
     "memory_profile_interval_s": 5.0,
+    "preview_host_downscale": false,
     "fx2_debug_wire_enabled": false,
     "profiling": {
         "enabled": false,
