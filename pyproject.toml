@@ -174,4 +174,10 @@ ignore = [
 quote-style = "single"
 indent-style = "space"
 line-ending = "lf"
+# Benchmark tooling (non-shipping) keeps its own double-quote style; format
+# enforcement is skipped here while ruff check still lints it.
+exclude = [
+    "stitching_benchmarking/**",
+    "scripts/compare_tiling_stitch_sample.py",
+]
 

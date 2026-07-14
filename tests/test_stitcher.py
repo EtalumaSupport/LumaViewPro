@@ -799,9 +799,7 @@ class TestLiveStitcherRealGeometry:
             (stage_position_stitcher, 'stage_position_stitcher'),
         ],
     )
-    def test_live_stitcher_places_on_shared_nominal_canvas(
-        self, tmp_path, stitch_fn, algorithm
-    ):
+    def test_live_stitcher_places_on_shared_nominal_canvas(self, tmp_path, stitch_fn, algorithm):
         # Every live wrapper places tiles onto the same stage-position-derived
         # nominal canvas (identical for each channel / Z-slice of a group). The
         # pixel_size_um=None guard is NOT hit here, so the real stage-mm -> pixel
@@ -931,7 +929,13 @@ class TestPositionAwareStitcher:
         df = pd.DataFrame(
             [
                 {'Filepath': 'r0.tiff', 'X': 0.0, 'Y': 0.0, 'Objective': '10x Oly', 'Color': 'Red'},
-                {'Filepath': 'r1.tiff', 'X': -half_fov_mm, 'Y': 0.0, 'Objective': '10x Oly', 'Color': 'Red'},
+                {
+                    'Filepath': 'r1.tiff',
+                    'X': -half_fov_mm,
+                    'Y': 0.0,
+                    'Objective': '10x Oly',
+                    'Color': 'Red',
+                },
             ]
         )
         out = pathlib.Path('stitched_red.tiff')

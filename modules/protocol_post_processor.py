@@ -243,8 +243,7 @@ class ProtocolPostProcessor(abc.ABC):
             if not alg_results.status:
                 last_error = alg_results.error
                 logger.info(
-                    f'[StitchPerf] {self._name} group failed after '
-                    f'{group_ms:.1f}ms: {group_label}'
+                    f'[StitchPerf] {self._name} group failed after {group_ms:.1f}ms: {group_label}'
                 )
                 logger.error(f'Failed to generate {output_file_loc_rel}: {alg_results.error}')
                 continue

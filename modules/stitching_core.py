@@ -125,7 +125,7 @@ def _failure(algorithm: str, error: str, center: dict | None = None) -> dict:
 
 
 def _failure_reason(failures: list[dict[str, str]]) -> str:
-    return '; '.join(f"{item['algorithm']}: {item['error']}" for item in failures)
+    return '; '.join(f'{item["algorithm"]}: {item["error"]}' for item in failures)
 
 
 def _run_fallback_chain(
@@ -142,8 +142,7 @@ def _run_fallback_chain(
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
         last_result = result
         logger.info(
-            '[StitchPerf] algorithm %s finished in %.1fms status=%s '
-            'well=%s color=%s tile_group=%s',
+            '[StitchPerf] algorithm %s finished in %.1fms status=%s well=%s color=%s tile_group=%s',
             algorithm,
             elapsed_ms,
             bool(result.get('status')),
@@ -194,9 +193,7 @@ def _to_uint8_bgr_for_feature_stitch(image: np.ndarray) -> np.ndarray:
         hi = float(image_f[finite].max()) if finite.any() else 1.0
         if hi <= lo:
             hi = lo + 1.0
-        image_u8 = (np.clip((image_f - lo) / (hi - lo), 0.0, 1.0) * 255).astype(
-            np.uint8
-        )
+        image_u8 = (np.clip((image_f - lo) / (hi - lo), 0.0, 1.0) * 255).astype(np.uint8)
 
     if image_u8.ndim == 2:
         return cv2.cvtColor(image_u8, cv2.COLOR_GRAY2BGR)
@@ -296,9 +293,7 @@ def overlap_stitcher(
         frame['x_pix'] = ((x_max - frame['X']) * 1000 / pixel_size_um).round().astype(int)
         frame['y_pix'] = ((frame['Y'] - y_min) * 1000 / pixel_size_um).round().astype(int)
 
-        if int(frame['x_pix'].max() + image_w) <= 0 or int(
-            frame['y_pix'].max() + image_h
-        ) <= 0:
+        if int(frame['x_pix'].max() + image_w) <= 0 or int(frame['y_pix'].max() + image_h) <= 0:
             return _failure('overlap_stitcher', 'invalid stitched image dimensions', center)
         nominal_output_shape = (
             int(frame['y_pix'].max() + image_h),
@@ -386,9 +381,7 @@ def fft_phase_stitcher(
         frame['x_pix'] = ((x_max - frame['X']) * 1000 / pixel_size_um).round().astype(int)
         frame['y_pix'] = ((frame['Y'] - y_min) * 1000 / pixel_size_um).round().astype(int)
 
-        if int(frame['x_pix'].max() + image_w) <= 0 or int(
-            frame['y_pix'].max() + image_h
-        ) <= 0:
+        if int(frame['x_pix'].max() + image_w) <= 0 or int(frame['y_pix'].max() + image_h) <= 0:
             return _failure('fft_phase_stitcher', 'invalid stitched image dimensions', center)
         nominal_output_shape = (
             int(frame['y_pix'].max() + image_h),
@@ -617,8 +610,7 @@ def simple_position_stitcher(
                     else:
                         stitched_img[y_val : y_val + im_y, x_val : x_val + im_x] = image
         logger.info(
-            '[StitchPerf] simple-grid read+place %.1fms tiles=%d bytes=%d '
-            'output_shape=%s dtype=%s',
+            '[StitchPerf] simple-grid read+place %.1fms tiles=%d bytes=%d output_shape=%s dtype=%s',
             (time.perf_counter() - place_t0) * 1000.0,
             tile_count,
             tile_bytes,
