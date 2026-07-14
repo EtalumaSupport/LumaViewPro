@@ -41,11 +41,6 @@ def _read_tile_with_depth(path: pathlib.Path, filename: str) -> tuple[np.ndarray
     return image_utils.load_pixels(path / filename, collapse_legacy_false_color=False)
 
 
-def _read_tile(path: pathlib.Path, filename: str) -> np.ndarray:
-    image, _ = _read_tile_with_depth(path, filename)
-    return image
-
-
 def _write_output(
     *,
     path: pathlib.Path,
@@ -557,7 +552,7 @@ def simple_position_stitcher(
 
         sample_row = frame.iloc[0]
         sample_filename = sample_row['Filepath']
-        sample = _read_tile(path, sample_filename)
+        sample, sample_depth = _read_tile_with_depth(path, sample_filename)
         source_image_h = sample.shape[0]
         source_image_w = sample.shape[1]
 
@@ -587,7 +582,10 @@ def simple_position_stitcher(
         tile_bytes = 0
         input_depths = []
         for _, row in frame.iterrows():
-            image, significant_bits = _read_tile_with_depth(path, row['Filepath'])
+            if row['Filepath'] == sample_filename:
+                image, significant_bits = sample, sample_depth
+            else:
+                image, significant_bits = _read_tile_with_depth(path, row['Filepath'])
             input_depths.append(significant_bits)
             tile_count += 1
             tile_bytes += int(image.nbytes)

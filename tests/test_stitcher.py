@@ -214,10 +214,10 @@ class TestSimplePositionStitcher:
         assert img.min() > 0
 
     def test_first_tile_not_opened_repeatedly(self, tile_dir, tile_df, monkeypatch):
-        """The canvas-sizing geometry probe reads a header only, so the first
-        tile is opened once for geometry plus once for its placement -- not
-        re-decoded a third/fourth time. Each other tile is opened once. The
-        stitched output stays byte-identical to the unspied run."""
+        """The first tile is decoded once for the canvas-sizing geometry probe
+        and reused for its own placement -- not re-decoded in the placement loop.
+        Each tile, including the first, is opened exactly once. The stitched
+        output stays byte-identical to the unspied run."""
         from modules import image_utils
 
         baseline = Stitcher._simple_position_stitcher(tile_dir, tile_df)['image']
@@ -232,8 +232,9 @@ class TestSimplePositionStitcher:
         monkeypatch.setattr(image_utils.tf, 'TiffFile', counting_tifffile)
         result = Stitcher._simple_position_stitcher(tile_dir, tile_df)
 
-        # df.iloc[0] is the geometry-probe + placement tile; up to one open each.
-        assert opens['tile_0_0.tiff'] == 2
+        # df.iloc[0] is the geometry-probe tile, decoded once and reused for its
+        # placement rather than re-read.
+        assert opens['tile_0_0.tiff'] == 1
         assert opens['tile_1_0.tiff'] == 1
         assert opens['tile_0_1.tiff'] == 1
         assert opens['tile_1_1.tiff'] == 1
