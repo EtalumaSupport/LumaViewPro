@@ -827,6 +827,62 @@ class TestGroupAlgorithmPixelSize:
         assert captured['pixel_size_um'] == tile_pixel_size_um
 
 
+class TestBfFeatureOutputContract:
+    """bf_feature_stitcher emits 8-bit BGR output regardless of input depth, and
+    normalizes deep (12/16-bit) tiles against one shared intensity range so the
+    montage seam does not show a per-tile brightness step.
+    """
+
+    def test_shares_intensity_range_across_deep_tiles(self, tmp_path, monkeypatch):
+        import modules.stitching_core as stitching_core
+
+        # Same specimen, two tiles: one peaks at 100, the other at 200.
+        dim = np.zeros((4, 4), dtype=np.uint16)
+        dim[0, 0] = 100
+        bright = np.zeros((4, 4), dtype=np.uint16)
+        bright[0, 0] = 200
+        tifffile.imwrite(str(tmp_path / 'dim.tiff'), dim)
+        tifffile.imwrite(str(tmp_path / 'bright.tiff'), bright)
+        df = pd.DataFrame(
+            [
+                {'Filepath': 'dim.tiff', 'X': 0.0, 'Y': 0.0},
+                {'Filepath': 'bright.tiff', 'X': 1.0, 'Y': 0.0},
+            ]
+        )
+
+        captured = {}
+
+        def spy(images):
+            captured['tiles'] = images
+            return np.full((4, 8, 3), 50, dtype=np.uint8)
+
+        monkeypatch.setattr(stitching_core, 'feature_stitch', spy)
+        stitching_core.bf_feature_stitcher(tmp_path, df)
+
+        dim_bgr, bright_bgr = captured['tiles']
+        # Shared hi=200: the dim tile's 100 maps to 127 (100/200*255), NOT its
+        # own per-tile max of 255; the bright tile's 200 maps to 255.
+        assert dim_bgr[0, 0, 0] == 127
+        assert bright_bgr[0, 0, 0] == 255
+
+    def test_output_depth_couples_to_uint8_output(self, tmp_path, monkeypatch):
+        import modules.stitching_core as stitching_core
+
+        for i in range(2):
+            tifffile.imwrite(str(tmp_path / f't{i}.tiff'), np.full((8, 8), 30000, dtype=np.uint16))
+        df = pd.DataFrame([{'Filepath': f't{i}.tiff', 'X': float(i), 'Y': 0.0} for i in range(2)])
+        monkeypatch.setattr(
+            stitching_core,
+            'feature_stitch',
+            lambda images: np.full((8, 16, 3), 120, dtype=np.uint8),
+        )
+        result = stitching_core.bf_feature_stitcher(tmp_path, df)
+
+        assert result['status'] is True
+        # 16-bit inputs, but the OpenCV feature path emits uint8 -> depth is 8.
+        assert result['significant_bits'] == 8
+
+
 class TestLiveStitcherRealGeometry:
     """Drive the production stage-mm -> pixel wrappers (overlap / fft / stage)
     with a real pixel_size_um so the coordinate math that turns recorded stage

@@ -187,26 +187,47 @@ def _run_fallback_chain(
     return last_result
 
 
-def _to_uint8_bgr_for_feature_stitch(image: np.ndarray) -> np.ndarray:
-    """Convert microscope tiles to BGR uint8 for OpenCV's Stitcher."""
-    if image.dtype == np.uint8:
-        image_u8 = image
-    else:
-        image_f = image.astype(np.float32)
-        finite = np.isfinite(image_f)
-        lo = float(image_f[finite].min()) if finite.any() else 0.0
-        hi = float(image_f[finite].max()) if finite.any() else 1.0
-        if hi <= lo:
-            hi = lo + 1.0
-        image_u8 = (np.clip((image_f - lo) / (hi - lo), 0.0, 1.0) * 255).astype(np.uint8)
-
+def _bgr_from_uint8(image_u8: np.ndarray) -> np.ndarray:
+    """Present a uint8 tile as 3-channel BGR for OpenCV's Stitcher."""
     if image_u8.ndim == 2:
         return cv2.cvtColor(image_u8, cv2.COLOR_GRAY2BGR)
     if image_u8.ndim == 3 and image_u8.shape[2] == 3:
         return cv2.cvtColor(image_u8, cv2.COLOR_RGB2BGR)
     if image_u8.ndim == 3 and image_u8.shape[2] == 4:
         return cv2.cvtColor(image_u8, cv2.COLOR_RGBA2BGR)
-    raise ValueError(f'Unsupported image shape for feature stitch: {image.shape}')
+    raise ValueError(f'Unsupported image shape for feature stitch: {image_u8.shape}')
+
+
+def _feature_stitch_bgr_tiles(images: list[np.ndarray]) -> list[np.ndarray]:
+    """Convert a tile GROUP to BGR uint8 for OpenCV's Stitcher, scaling every
+    deep-input tile against one shared intensity range.
+
+    Per-tile min/max normalization maps each tile's own extremes to 0..255, so
+    a dim tile and a bright tile of the same specimen get different transfer
+    functions and the shared seam shows a brightness step. Deep (12/16-bit)
+    tiles are scaled against a group-wide lo/hi so intensities stay comparable
+    across the montage; tiles already uint8 are display-ready and pass through
+    unscaled.
+    """
+    deep = [image for image in images if image.dtype != np.uint8]
+    if deep:
+        finite_pixels = [np.asarray(image, dtype=np.float32) for image in deep]
+        finite_pixels = [pixels[np.isfinite(pixels)].ravel() for pixels in finite_pixels]
+        pooled = np.concatenate([pixels for pixels in finite_pixels if pixels.size])
+        lo = float(pooled.min()) if pooled.size else 0.0
+        hi = float(pooled.max()) if pooled.size else 1.0
+        if hi <= lo:
+            hi = lo + 1.0
+
+    bgr_tiles = []
+    for image in images:
+        if image.dtype == np.uint8:
+            image_u8 = image
+        else:
+            image_f = np.asarray(image, dtype=np.float32)
+            image_u8 = (np.clip((image_f - lo) / (hi - lo), 0.0, 1.0) * 255).astype(np.uint8)
+        bgr_tiles.append(_bgr_from_uint8(image_u8))
+    return bgr_tiles
 
 
 def bf_feature_stitcher(
@@ -218,12 +239,8 @@ def bf_feature_stitcher(
     center = _center_metadata(df)
     try:
         read_t0 = time.perf_counter()
-        feature_images = []
-        input_depths = []
-        for _, row in df.iterrows():
-            image, significant_bits = _read_tile_with_depth(path, row['Filepath'])
-            input_depths.append(significant_bits)
-            feature_images.append(_to_uint8_bgr_for_feature_stitch(image))
+        raw_images = [_read_tile_with_depth(path, row['Filepath'])[0] for _, row in df.iterrows()]
+        feature_images = _feature_stitch_bgr_tiles(raw_images)
         logger.info(
             '[StitchPerf] bf_feature read+convert %.1fms tiles=%d',
             (time.perf_counter() - read_t0) * 1000.0,
@@ -254,7 +271,10 @@ def bf_feature_stitcher(
         output_file_loc=output_file_loc,
         df=df,
         metadata={'center': center, 'algorithm': 'bf_feature_stitcher'},
-        significant_bits=image_utils.resolve_output_depth(input_depths),
+        # Couple the tag to the ACTUAL output: the OpenCV feature path emits
+        # 8-bit BGR regardless of input depth. Tagging this uint8 montage with a
+        # 16-bit input depth would render it ~256x dark on read-back.
+        significant_bits=stitched_img.dtype.itemsize * 8,
     )
 
 
