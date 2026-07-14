@@ -6,6 +6,7 @@ import pathlib
 import pandas as pd
 
 import modules.common_utils as common_utils
+import modules.image_utils as image_utils
 from modules.stitching_core import (
     channel_aware_stitcher,
     simple_position_stitcher,
@@ -94,17 +95,13 @@ class Stitcher(ProtocolPostProcessor):
         df: pd.DataFrame,
         **kwargs,
     ):
-        pixel_size_um = None
-        try:
-            objective_info = self._objectives_helper.get_objective_info(
-                objective_id=df.iloc[0]['Objective']
-            )
-            pixel_size_um = common_utils.get_pixel_size(
-                focal_length=objective_info['focal_length'],
-                binning_size=1,
-            )
-        except Exception:
-            pixel_size_um = None
+        # Source pixel_size_um from the tile's own PhysicalSizeX, written at
+        # capture with the actual binning already applied. Re-deriving it from
+        # the objective focal length hardcoded binning_size=1, so a binned
+        # (2x/4x) capture got half/quarter the true scale -- doubling the tile
+        # pixel spacing and pulling the registered montage apart.
+        first_tile_meta = image_utils.read_postproc_input_metadata(path / df.iloc[0]['Filepath'])
+        pixel_size_um = first_tile_meta['pixel_size_um'] if first_tile_meta else None
 
         stitch_columns = [
             col

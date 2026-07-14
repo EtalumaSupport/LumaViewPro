@@ -764,6 +764,69 @@ class TestSimplePositionStitcher:
         assert 'FastPreview' in preview
 
 
+class TestGroupAlgorithmPixelSize:
+    """_group_algorithm must source pixel_size_um from each tile's own
+    PhysicalSizeX (written at capture, so it already reflects the binning),
+    not re-derive it from the objective focal length with a hardcoded
+    binning_size=1. A binning=2/4 capture bakes 2x/4x the unbinned per-pixel
+    size into the tile; re-deriving with binning=1 halved (or quartered) the
+    scale and doubled the tile pixel spacing on binned stitches.
+    """
+
+    class _CapturedError(Exception):
+        """Short-circuit the stitch once the wired pixel_size_um is captured."""
+
+    def _write_tile_with_pixel_size(self, path, *, pixel_size_um, x, y, value=200):
+        image_utils.write_tiff(
+            data=np.full((4, 4), value, dtype=np.uint8),
+            file_loc=path,
+            significant_bits=8,
+            save_encoding='8bit',
+            metadata={
+                'datetime': '2026-07-14T12:00:00',
+                'plate_pos_mm': {'x': x, 'y': y},
+                'z_pos_um': 0.0,
+                'objective': {},
+                'illumination_ma': 0.0,
+                'pixel_size_um': pixel_size_um,
+                'channel': 'BF',
+            },
+            ome=False,
+            color='BF',
+        )
+
+    def test_pixel_size_read_from_tile_metadata_not_rederived(self, tmp_path, monkeypatch):
+        import modules.stitcher as stitcher_module
+
+        tile_pixel_size_um = 4.0  # a binned capture's per-pixel size
+        rows = []
+        for ix, x in enumerate((0.0, 1.0)):
+            for iy, y in enumerate((0.0, 1.0)):
+                name = f'tile_{ix}_{iy}.tiff'
+                self._write_tile_with_pixel_size(
+                    tmp_path / name, pixel_size_um=tile_pixel_size_um, x=x, y=y
+                )
+                rows.append({'Filepath': name, 'Color': 'BF', 'X': x, 'Y': y, 'Objective': '20x'})
+        df = pd.DataFrame(rows)
+
+        captured = {}
+
+        def spy(*args, pixel_size_um=None, **kwargs):
+            captured['pixel_size_um'] = pixel_size_um
+            raise self._CapturedError
+
+        monkeypatch.setattr(stitcher_module, 'channel_aware_stitcher', spy)
+        stitcher = Stitcher.__new__(Stitcher)
+        with pytest.raises(self._CapturedError):
+            stitcher._group_algorithm(
+                path=tmp_path,
+                df=df,
+                output_file_loc=pd.Series(['stitched.tiff'])[0],
+            )
+
+        assert captured['pixel_size_um'] == tile_pixel_size_um
+
+
 class TestLiveStitcherRealGeometry:
     """Drive the production stage-mm -> pixel wrappers (overlap / fft / stage)
     with a real pixel_size_um so the coordinate math that turns recorded stage
