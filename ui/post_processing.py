@@ -40,7 +40,7 @@ logger = logging.getLogger('LVP.ui.post_processing')
 class StitchControls(BoxLayout):
     done = BooleanProperty(False)
     stitching_mode = StringProperty('Quality')
-    _MODE_VALUES = {
+    _MODE_VALUES: ClassVar[dict[str, str]] = {
         'Quality': Stitcher.QUALITY_MODE,
         'Fast Preview': Stitcher.FAST_PREVIEW_MODE,
     }
