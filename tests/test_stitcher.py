@@ -155,7 +155,12 @@ class TestCropToContent:
 # Current stitcher.py -- _simple_position_stitcher
 # ---------------------------------------------------------------------------
 
-from modules.stitching_core import channel_aware_stitcher
+from modules.stitching_core import (
+    channel_aware_stitcher,
+    fft_phase_stitcher,
+    overlap_stitcher,
+    stage_position_stitcher,
+)
 from modules.stitcher import Stitcher
 import modules.common_utils as common_utils
 import modules.image_utils as image_utils
@@ -735,6 +740,88 @@ class TestSimplePositionStitcher:
 
         assert quality != preview
         assert 'FastPreview' in preview
+
+
+class TestLiveStitcherRealGeometry:
+    """Drive the production stage-mm -> pixel wrappers (overlap / fft / stage)
+    with a real pixel_size_um so the coordinate math that turns recorded stage
+    positions into a placed montage runs end-to-end -- the exact layer a
+    sparse / blank-labware geometry defect lives in. The primitives
+    (estimate_phase_offset, stitch_registered_tiles, align_tile_positions) are
+    already covered elsewhere; these cover the wrappers that feed them, which
+    every real-tile test to date reached only with pixel_size_um=None (silently
+    short-circuiting to simple-grid) or via monkeypatched stubs.
+    """
+
+    @staticmethod
+    def _two_tile_group(tmp_path):
+        # Two 50x50 flat tiles whose recorded stage positions imply a half-FOV
+        # (25 px) horizontal overlap, so the placed canvas is 75 px wide with a
+        # 100 / blended-150 / 200 band structure -- geometry-derived, not
+        # hand-placed, so the assertions stay non-tautological.
+        left = np.full((50, 50), 100, dtype=np.uint8)
+        right = np.full((50, 50), 200, dtype=np.uint8)
+        cv2.imwrite(str(tmp_path / 'left.tiff'), left)
+        cv2.imwrite(str(tmp_path / 'right.tiff'), right)
+        fov = common_utils.get_field_of_view(
+            focal_length=18.0,
+            frame_size={'width': 50, 'height': 50},
+            binning_size=1,
+        )
+        pixel_size_um = fov['width'] / 50
+        half_fov_mm = fov['width'] / 2 / 1000
+        df = pd.DataFrame(
+            [
+                {'Filepath': 'left.tiff', 'X': 0.0, 'Y': 0.0, 'Objective': '10x Oly'},
+                {'Filepath': 'right.tiff', 'X': -half_fov_mm, 'Y': 0.0, 'Objective': '10x Oly'},
+            ]
+        )
+        return df, pixel_size_um
+
+    def test_overlap_stitcher_preserves_overlap_from_stage_positions(self, tmp_path):
+        df, pixel_size_um = self._two_tile_group(tmp_path)
+
+        result = overlap_stitcher(tmp_path, df, pixel_size_um=pixel_size_um)
+
+        assert result['status'] is True
+        assert result['metadata']['algorithm'] == 'overlap_stitcher'
+        assert result['image'].shape == (50, 75)
+        assert result['image'][:, :25].mean() == pytest.approx(100)
+        assert result['image'][:, 25:50].mean() == pytest.approx(150)
+        assert result['image'][:, 50:].mean() == pytest.approx(200)
+
+    @pytest.mark.parametrize(
+        'stitch_fn, algorithm',
+        [
+            (overlap_stitcher, 'overlap_stitcher'),
+            (fft_phase_stitcher, 'fft_phase_stitcher'),
+            (stage_position_stitcher, 'stage_position_stitcher'),
+        ],
+    )
+    def test_live_stitcher_places_on_shared_nominal_canvas(
+        self, tmp_path, stitch_fn, algorithm
+    ):
+        # Every live wrapper places tiles onto the same stage-position-derived
+        # nominal canvas (identical for each channel / Z-slice of a group). The
+        # pixel_size_um=None guard is NOT hit here, so the real stage-mm -> pixel
+        # math runs rather than the simple-grid short-circuit.
+        df, pixel_size_um = self._two_tile_group(tmp_path)
+
+        result = stitch_fn(tmp_path, df, pixel_size_um=pixel_size_um)
+
+        assert result['status'] is True
+        assert result['metadata']['algorithm'] == algorithm
+        assert result['image'].shape == (50, 75)
+
+    def test_live_stitcher_missing_pixel_size_fails_loudly(self, tmp_path):
+        # A missing pixel scale must FAIL, not silently place tiles at the wrong
+        # pitch and report success.
+        df, _ = self._two_tile_group(tmp_path)
+
+        result = overlap_stitcher(tmp_path, df, pixel_size_um=None)
+
+        assert result['status'] is False
+        assert 'pixel_size_um' in result['error']
 
 
 class TestPositionAwareStitcher:
