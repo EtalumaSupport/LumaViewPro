@@ -87,6 +87,14 @@ def _gray_float(image: np.ndarray) -> np.ndarray:
     return cv2.cvtColor(image[:, :, :3], cv2.COLOR_RGB2GRAY).astype(np.float32)
 
 
+# The FFT estimator, overlap-view slicer, tile blender and grid-key helpers below
+# intentionally re-implement production's stitching primitives rather than importing
+# them. Production fuses registration and blending into stitch_registered_tiles and
+# returns a bare (dx, dy, score) from its phase estimator; this comparison tool needs
+# the stages kept separate and each estimator to report WHY it accepted or rejected an
+# offset (no_overlap / too_small / low_signal / correction_too_large) so strategies can
+# be compared side by side. Consolidating onto the production API would erase those
+# diagnostics -- keep these copies distinct.
 def _overlap_views(
     left: np.ndarray,
     right: np.ndarray,
@@ -141,8 +149,8 @@ def estimate_fft_offset(
 
     win = cv2.createHanningWindow((ref_view.shape[1], ref_view.shape[0]), cv2.CV_32F)
     shift, response = cv2.phaseCorrelate(ref_view.astype(np.float32), mov_view.astype(np.float32), win)
-    corr_x = int(round(-shift[0]))
-    corr_y = int(round(-shift[1]))
+    corr_x = round(-shift[0])
+    corr_y = round(-shift[1])
     if abs(corr_x) > max_correction_px or abs(corr_y) > max_correction_px:
         return corr_x, corr_y, float(response), False, "fft_correction_too_large"
     return corr_x, corr_y, float(response), True, ""
@@ -357,7 +365,7 @@ def _dataframe_from_protocol_record(input_path: pathlib.Path) -> tuple[pathlib.P
         raise FileNotFoundError(f"Protocol file from record not found: {protocol_path}")
     protocol, _ = _load_protocol_steps(protocol_path)
     rows = []
-    for row_idx, rec in record._records.iterrows():  # noqa: SLF001 -- read-only diagnostic script
+    for _row_idx, rec in record._records.iterrows():
         filename = pathlib.Path(str(rec["Filename"]))
         image_path = root / filename
         if not image_path.is_file():
@@ -416,7 +424,7 @@ def _dataframe_from_direct_table(input_path: pathlib.Path) -> tuple[pathlib.Path
         root = tsv.parent
         df = df.copy()
         df["Filepath"] = df["Filepath"].astype(str).map(pathlib.Path)
-        df = df[(df["Filepath"].map(lambda p: (root / p).is_file()))]
+        df = df[(df["Filepath"].map(lambda p, root=root: (root / p).is_file()))]
         if len(df) > 1:
             return root, df
     return None
@@ -451,7 +459,10 @@ def group_dataframe(df: pd.DataFrame) -> list[tuple[str, pd.DataFrame]]:
             continue
         if not isinstance(key, tuple):
             key = (key,)
-        group_id = "__".join(f"{_safe_name(col)}-{_safe_name(value)}" for col, value in zip(group_cols, key))
+        group_id = "__".join(
+            f"{_safe_name(col)}-{_safe_name(value)}"
+            for col, value in zip(group_cols, key, strict=True)
+        )
         groups.append((group_id, group.copy()))
     return groups
 
