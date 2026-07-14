@@ -294,8 +294,8 @@ class TestSimplePositionStitcher:
         assert result['image'].shape == (64, 32)
 
     def test_channel_aware_bf_output_shape_and_dtype(self, tmp_path):
-        for ix, x in enumerate((0.0, 1.0)):
-            for iy, y in enumerate((0.0, 1.0)):
+        for ix, _x in enumerate((0.0, 1.0)):
+            for iy, _y in enumerate((0.0, 1.0)):
                 tile = np.full((12, 10), ix * 40 + iy * 20 + 50, dtype=np.uint8)
                 tifffile.imwrite(str(tmp_path / f'bf_{ix}_{iy}.tiff'), tile)
 
@@ -322,8 +322,8 @@ class TestSimplePositionStitcher:
         assert result['image'].dtype == np.uint8
 
     def test_channel_aware_fluorescence_output_shape_and_dtype(self, tmp_path):
-        for ix, x in enumerate((0.0, 1.0)):
-            for iy, y in enumerate((0.0, 1.0)):
+        for ix, _x in enumerate((0.0, 1.0)):
+            for iy, _y in enumerate((0.0, 1.0)):
                 tile = np.full((8, 6), ix * 1000 + iy * 2000 + 100, dtype=np.uint16)
                 tifffile.imwrite(str(tmp_path / f'green_{ix}_{iy}.tiff'), tile)
 
