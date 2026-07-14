@@ -31,6 +31,12 @@ class Stitcher(ProtocolPostProcessor):
         )
         self._name = self.__class__.__name__
 
+    def _degraded_summary(self, count: int) -> str:
+        # Stitching is the one post-processor with a named registration fallback
+        # chain, so its degraded outputs are the montages that dropped to
+        # unregistered edge-to-edge placement.
+        return f'{count} {self._post_function.value.lower()} artifact(s) used fallback stitching.'
+
     @staticmethod
     def _get_groups(df: pd.DataFrame) -> pd.DataFrame:
         return df.groupby(

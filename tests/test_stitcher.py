@@ -907,6 +907,31 @@ class TestStitchOutputAlgorithmStamp:
         assert structured['Algorithm'] == 'simple_position_stitcher'
 
 
+class TestDegradedSummaryDeleaked:
+    """The degraded-output summary wording lives in a subclass hook, so the
+    shared post-processing loop does not describe zproject / composite / stack
+    outputs with stitch-only vocabulary. Stitcher keeps the fallback-stitching
+    wording; the base states it generically.
+    """
+
+    def test_stitcher_wording_names_fallback_stitching(self):
+        from modules.common_utils import PostFunction
+
+        stitcher = Stitcher.__new__(Stitcher)
+        stitcher._post_function = PostFunction.STITCHED
+        assert 'fallback stitching' in stitcher._degraded_summary(2)
+
+    def test_non_stitch_base_wording_is_generic(self):
+        from modules.common_utils import PostFunction
+        from modules.zprojector import ZProjector
+
+        zproj = ZProjector.__new__(ZProjector)
+        zproj._post_function = PostFunction.ZPROJECT
+        summary = zproj._degraded_summary(2)
+        assert 'stitching' not in summary
+        assert 'fallback' in summary
+
+
 class TestLiveStitcherRealGeometry:
     """Drive the production stage-mm -> pixel wrappers (overlap / fft / stage)
     with a real pixel_size_um so the coordinate math that turns recorded stage
