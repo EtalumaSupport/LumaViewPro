@@ -55,6 +55,7 @@ def _write_output(
     color: str,
     center: dict,
     significant_bits: int,
+    algorithm: str,
 ) -> np.ndarray | None:
     if output_file_loc is None:
         return image
@@ -67,6 +68,7 @@ def _write_output(
         channel=color,
         significant_bits=significant_bits,
         plate_pos_mm_override=center,
+        algorithm=algorithm,
     )
     image_utils.write_tiff(
         data=image,
@@ -107,6 +109,7 @@ def _result(
         color=color,
         center=center,
         significant_bits=significant_bits,
+        algorithm=metadata['algorithm'],
     )
     return {
         'status': True,

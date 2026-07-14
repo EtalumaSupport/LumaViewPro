@@ -883,6 +883,30 @@ class TestBfFeatureOutputContract:
         assert result['significant_bits'] == 8
 
 
+class TestStitchOutputAlgorithmStamp:
+    """The producing algorithm is stamped into the output TIFF metadata, not
+    only the post-processing record, so navigation / re-stitch / analysis can
+    tell a degraded edge-to-edge simple_position montage from a registered one.
+    """
+
+    def test_output_tiff_carries_producing_algorithm(self, tmp_path):
+        import modules.stitching_core as stitching_core
+
+        for i in range(2):
+            tifffile.imwrite(
+                str(tmp_path / f't{i}.tiff'), np.full((8, 8), 100 + i * 20, dtype=np.uint8)
+            )
+        df = pd.DataFrame(
+            [{'Filepath': f't{i}.tiff', 'Color': 'BF', 'X': float(i), 'Y': 0.0} for i in range(2)]
+        )
+        stitching_core.simple_position_stitcher(
+            tmp_path, df, output_file_loc=pathlib.Path('stitched.tiff')
+        )
+        with tifffile.TiffFile(str(tmp_path / 'stitched.tiff')) as tif:
+            structured = tif.shaped_metadata[0]
+        assert structured['Algorithm'] == 'simple_position_stitcher'
+
+
 class TestLiveStitcherRealGeometry:
     """Drive the production stage-mm -> pixel wrappers (overlap / fft / stage)
     with a real pixel_size_um so the coordinate math that turns recorded stage
