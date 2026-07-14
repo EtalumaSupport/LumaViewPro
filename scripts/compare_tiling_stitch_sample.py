@@ -17,9 +17,9 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-import modules.common_utils as common_utils
-from modules.objectives_loader import ObjectiveLoader
-from modules.stitching_core import overlap_stitcher, simple_position_stitcher
+import modules.common_utils as common_utils  # noqa: E402  -- after sys.path setup
+from modules.objectives_loader import ObjectiveLoader  # noqa: E402
+from modules.stitching_core import overlap_stitcher, simple_position_stitcher  # noqa: E402
 
 
 def _read_lvp_protocol(path: pathlib.Path) -> pd.DataFrame:
