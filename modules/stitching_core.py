@@ -214,11 +214,20 @@ def _feature_stitch_bgr_tiles(images: list[np.ndarray]) -> list[np.ndarray]:
     """
     deep = [image for image in images if image.dtype != np.uint8]
     if deep:
-        finite_pixels = [np.asarray(image, dtype=np.float32) for image in deep]
-        finite_pixels = [pixels[np.isfinite(pixels)].ravel() for pixels in finite_pixels]
-        pooled = np.concatenate([pixels for pixels in finite_pixels if pixels.size])
-        lo = float(pooled.min()) if pooled.size else 0.0
-        hi = float(pooled.max()) if pooled.size else 1.0
+        # Group-wide lo/hi via a running reduction over one tile at a time.
+        # Concatenating every tile's finite pixels into one pooled array held
+        # ~2-3x the whole montage as float32 at peak; a large montage could
+        # MemoryError. The running min/max holds a single tile.
+        lo, hi = None, None
+        for image in deep:
+            pixels = np.asarray(image, dtype=np.float32)
+            finite = pixels[np.isfinite(pixels)]
+            if finite.size:
+                tile_lo, tile_hi = float(finite.min()), float(finite.max())
+                lo = tile_lo if lo is None else min(lo, tile_lo)
+                hi = tile_hi if hi is None else max(hi, tile_hi)
+        if lo is None:
+            lo, hi = 0.0, 1.0
         if hi <= lo:
             hi = lo + 1.0
 

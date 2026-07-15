@@ -157,6 +157,7 @@ class TestCropToContent:
 
 from modules.stitching_core import (
     _center_metadata,
+    _feature_stitch_bgr_tiles,
     channel_aware_stitcher,
     fft_phase_stitcher,
     overlap_stitcher,
@@ -165,6 +166,25 @@ from modules.stitching_core import (
 from modules.stitcher import Stitcher
 import modules.common_utils as common_utils
 import modules.image_utils as image_utils
+
+
+class TestFeatureStitchSharedRange:
+    """_feature_stitch_bgr_tiles normalizes deep tiles against a group-wide range."""
+
+    def test_deep_tiles_scaled_against_shared_group_range(self):
+        # A dim and a bright uint16 tile of the same group map against ONE shared
+        # lo/hi so the seam stays continuous; uint8 tiles pass through unscaled.
+        # This locks the group-wide behavior across the running-min/max refactor.
+        dim = np.full((3, 3), 200, dtype=np.uint16)
+        mid = np.full((3, 3), 2100, dtype=np.uint16)
+        bright = np.full((3, 3), 4000, dtype=np.uint16)
+        passthrough = np.full((3, 3), 128, dtype=np.uint8)
+        bgr = _feature_stitch_bgr_tiles([dim, mid, bright, passthrough])
+        # group lo=200 hi=4000: dim -> 0, bright -> 255, mid -> ~127
+        assert int(bgr[0].max()) == 0
+        assert int(bgr[2].max()) == 255
+        assert abs(int(bgr[1].max()) - 127) <= 1
+        assert int(bgr[3].max()) == 128
 
 
 class TestSimplePositionStitcher:
