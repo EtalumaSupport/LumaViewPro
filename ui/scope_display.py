@@ -1023,11 +1023,20 @@ class ScopeDisplay(Image):
         return image_utils.scaled_preview_target(self._preview_target_wh, scale)
 
     def _downscale_for_blit(self, image, *, categorical=False):
-        """Downscale a preview frame to the on-screen widget size and log the
-        factor. Shared by the mono and bullseye blit paths so both derive the
-        target, downscale, and log identically. ``categorical`` selects
-        nearest-neighbor resampling for a false-color image (the bullseye
-        contour map) vs area-averaging for a continuous-tone frame (mono)."""
+        """Prepare a preview frame for the blit.
+
+        Default: return the full-resolution frame unchanged and let the GPU
+        minify it to the widget on upload. The upload is a small fraction of a
+        core and its cost does not grow as the frame gets larger than the
+        widget, whereas a host ``cv2.resize`` at a fractional contain-fit ratio
+        costs roughly a full core. The ``preview_host_downscale`` setting turns
+        the host resize back on for machines where the full-res upload is not
+        smooth; ``categorical`` then selects nearest-neighbor for the false-color
+        bullseye contour map vs bilinear for a continuous-tone frame."""
+        ctx = _app_ctx.ctx
+        if ctx is None or not ctx.settings['preview_host_downscale']:
+            self._log_preview_downscale(image.shape, image.shape, None)
+            return image
         target = self._current_preview_target()
         out = image_utils.decimate_for_preview(image, target, categorical=categorical)
         self._log_preview_downscale(image.shape, out.shape, target)
@@ -1045,10 +1054,14 @@ class ScopeDisplay(Image):
             return
         self._preview_downscale_logged = key
         if dst_shape == src_shape:
+            reason = (
+                'GPU minifies on upload (preview_host_downscale off)'
+                if target is None
+                else 'frame already <= display target'
+            )
             logger.info(
-                f'[LVP Main  ] Preview downscale OFF (blitting full resolution '
-                f'{src_shape[1]}x{src_shape[0]}, display target {target}) -- '
-                f'frame already <= target (or target not yet known)'
+                f'[LVP Main  ] Preview host-downscale OFF (uploading full '
+                f'resolution {src_shape[1]}x{src_shape[0]}) -- {reason}'
             )
         else:
             logger.info(
@@ -1079,6 +1092,12 @@ class ScopeDisplay(Image):
             or self._bullseye_texture.size != size
         ):
             self._bullseye_texture = Texture.create(size=size, colorfmt='rgb')
+            # Nearest sampling both ways: the bullseye LUT is a topographic map,
+            # mostly black with thin pure-color iso-intensity bands. Linear
+            # minification would blend those one-pixel contour lines toward black
+            # and erase the focus aid, so the GPU must sample exact label colors.
+            self._bullseye_texture.min_filter = 'nearest'
+            self._bullseye_texture.mag_filter = 'nearest'
         self._bullseye_texture.blit_buffer(image_bytes, colorfmt='rgb', bufferfmt='ubyte')
         self.texture = self._bullseye_texture
         self.canvas.ask_update()
@@ -1109,7 +1128,10 @@ class ScopeDisplay(Image):
             or self._mono_texture is None
             or self._mono_texture.size != size
         ):
-            self._mono_texture = Texture.create(size=size, colorfmt='luminance')
+            # mipmap=True so the GPU minifies a larger-than-widget frame with a
+            # prefiltered pyramid (trilinear) instead of aliasing. blit_buffer
+            # regenerates the pyramid each frame (mipmap_generation defaults on).
+            self._mono_texture = Texture.create(size=size, colorfmt='luminance', mipmap=True)
         self._mono_texture.blit_buffer(image_bytes, colorfmt='luminance', bufferfmt='ubyte')
         self.texture = self._mono_texture
         self.canvas.ask_update()
