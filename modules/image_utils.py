@@ -1435,22 +1435,21 @@ def convert_to_8bit(image, significant_bits: int, out=None):
     if image.dtype == np.uint8:
         return image
     significant_bits = int(significant_bits)
-    max_value = (1 << significant_bits) - 1
-    # A payload above the declared depth would index the LUT out of range today,
-    # and silently white-clip the frame the moment the downconvert becomes a
-    # scale-and-clip. State the depth contract here so it holds whatever the
-    # arithmetic below becomes. Scan only when the container can actually hold a
-    # value above the depth -- a 16-bit payload fills its uint16 container and
-    # cannot overflow, so it pays nothing.
-    if max_value < np.iinfo(image.dtype).max:
-        peak = int(image.max())
-        if peak > max_value:
-            raise FrameDepthError(peak, significant_bits)
     lut = _lut_to_8bit(significant_bits)
-    if out is not None and out.shape == image.shape and out.dtype == np.uint8:
-        np.take(lut, image, out=out)
-        return out
-    return lut[image]
+    # The LUT has exactly one entry per in-range value, so a payload above the
+    # declared depth indexes it out of range and raises. Re-raise that as a typed
+    # FrameDepthError so a depth-contract violation is loud and named -- without a
+    # per-frame full-frame image.max() scan on the live-preview path. The peak is
+    # read only on the (rare) failure. If the downconvert is ever changed to a
+    # scale-and-clip that would NOT raise on an out-of-range value, the depth-guard
+    # tests go red and this enforcement must be restored eagerly.
+    try:
+        if out is not None and out.shape == image.shape and out.dtype == np.uint8:
+            np.take(lut, image, out=out)
+            return out
+        return lut[image]
+    except IndexError:
+        raise FrameDepthError(int(image.max()), significant_bits) from None
 
 
 def convert_16bit_to_8bit(image):

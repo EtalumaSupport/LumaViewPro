@@ -612,6 +612,18 @@ class TestConvertTo8BitDepthGuard:
         with pytest.raises(FrameDepthError):
             image_utils.convert_to_8bit(frame, 10, out=buf)
 
+    def test_boundary_value_converts_and_first_over_value_raises(self):
+        # The exact edge the guard hinges on: the max in-range value (4095 for
+        # 12-bit) is a valid LUT index and must convert to full scale, while the
+        # first out-of-range value (4096) raises FrameDepthError.
+        in_range = np.full((4, 4), 4095, dtype=np.uint16)
+        result = image_utils.convert_to_8bit(in_range, 12)
+        assert result.dtype == np.uint8
+        assert int(result.max()) == 255
+        over = np.full((4, 4), 4096, dtype=np.uint16)
+        with pytest.raises(FrameDepthError):
+            image_utils.convert_to_8bit(over, 12)
+
     def test_full_scale_value_maps_to_255_and_does_not_raise(self):
         frame = np.full((4, 4), 4095, dtype=np.uint16)  # exactly 12-bit max
         result = image_utils.convert_to_8bit(frame, 12)
