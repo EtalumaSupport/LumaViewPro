@@ -69,6 +69,14 @@ class TestCheckIdentity:
         assert result.passed
         assert result.recovered_a_share == pytest.approx(0.70, abs=1e-9)
 
+    def test_recovered_a_share_single_sources_recovered_split(self):
+        # check_identity must report the SAME ratio as the standalone
+        # recovered_split helper -- they share one formula so the ground-truth
+        # verdict and the helper cannot silently diverge.
+        art = _artifact([(_A, 0.62, 0.02), (_B, 0.38, 0.02), (_SLEEP, 0.0, 0.0)])
+        result = check_identity(art, expected_a_share=0.62)
+        assert result.recovered_a_share == recovered_split(art)
+
     def test_fail_when_split_wrong(self):
         # Seeded 50/50 where the truth is 70/30: the profiler would be lying.
         art = _artifact([(_A, 0.50, 0.02), (_B, 0.50, 0.02), (_SLEEP, 0.0, 0.0)])

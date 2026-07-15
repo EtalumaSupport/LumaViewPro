@@ -108,7 +108,7 @@ def check_identity(
     b_cores, b_err = _leaf_cores(artifact, hot_b)
     sleeper_cores, _ = _leaf_cores(artifact, '_idle_sleeper')
     hot_total = a_cores + b_cores
-    recovered = a_cores / hot_total if hot_total > 0 else 0.0
+    recovered = recovered_split(artifact, hot_a, hot_b)
     # Move the component errors onto the normalized ratio, then floor it.
     err_on_ratio = (a_err + b_err) / hot_total if hot_total > 0 else 1.0
     tolerance = max(_SPLIT_TOLERANCE_FLOOR, err_on_ratio)
