@@ -285,8 +285,8 @@ class TestStitcherDeadCodeRemoved:
     def test_position_stitcher_not_in_stitcher(self):
         from modules.stitcher import Stitcher
 
-        assert not hasattr(Stitcher, 'position_stitcher'), (
-            'Unused position_stitcher() should be removed from Stitcher'
+        assert not hasattr(Stitcher, '_position_stitcher'), (
+            'Unused _position_stitcher() should be removed from Stitcher'
         )
 
     def test_simple_position_stitcher_still_exists(self):

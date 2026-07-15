@@ -840,6 +840,7 @@ def build_postproc_output_metadata(
     significant_bits: int,
     plate_pos_mm_override: dict | None = None,
     z_pos_um_override: float | None = None,
+    algorithm: str | None = None,
 ) -> dict:
     """Build a write_tiff metadata dict for a post-processing output.
 
@@ -873,6 +874,9 @@ def build_postproc_output_metadata(
             the value read from the input.
         z_pos_um_override: Optional z_pos_um to override the value read
             from the input.
+        algorithm: Optional producing-algorithm name. Stamped into the
+            output TIFF so a consumer can tell a degraded edge-to-edge
+            montage from a registered stitch without re-deriving it.
 
     Returns:
         Dict ready to pass as ``write_tiff``'s ``metadata`` parameter.
@@ -911,6 +915,9 @@ def build_postproc_output_metadata(
     # inputs, so the output is tagged honestly instead of defaulting to
     # container width and reading back dark.
     metadata['significant_bits'] = significant_bits
+
+    if algorithm is not None:
+        metadata['algorithm'] = algorithm
 
     return metadata
 
@@ -1974,6 +1981,12 @@ def generate_tiff_data(
         'Channel': {'Name': [metadata['channel']]},
         'Plane': plane,
     }
+
+    # Producing algorithm, when the caller supplied one (post-processing
+    # outputs). Rides along in the structured metadata so a consumer can tell a
+    # degraded edge-to-edge montage from a registered stitch off the file alone.
+    if metadata.get('algorithm'):
+        tiff_metadata['Algorithm'] = metadata['algorithm']
 
     # OME Plate + Instrument blocks (#491). The tifffile dict API
     # serializes well-known OME keys into OME-XML where possible; less-

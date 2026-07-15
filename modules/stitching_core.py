@@ -29,8 +29,13 @@ logger = logging.getLogger('LVP.modules.stitching_core')
 
 
 def _center_metadata(df: pd.DataFrame) -> dict:
-    x_center = df['X'].unique().mean()
-    y_center = df['Y'].unique().mean()
+    # Bounding-box midpoint, not the mean of unique positions: the stitched
+    # image spans the full X/Y extent, so its center is (min + max) / 2.
+    # Averaging unique positions drifts off-center on irregularly-spaced or
+    # non-rectangular (sparse) grids, where the distinct coordinates are not
+    # symmetric about the extent.
+    x_center = (df['X'].min() + df['X'].max()) / 2
+    y_center = (df['Y'].min() + df['Y'].max()) / 2
     return {
         'x': round(x_center, common_utils.max_decimal_precision(parameter='x')),
         'y': round(y_center, common_utils.max_decimal_precision(parameter='y')),
@@ -39,11 +44,6 @@ def _center_metadata(df: pd.DataFrame) -> dict:
 
 def _read_tile_with_depth(path: pathlib.Path, filename: str) -> tuple[np.ndarray, int]:
     return image_utils.load_pixels(path / filename, collapse_legacy_false_color=False)
-
-
-def _read_tile(path: pathlib.Path, filename: str) -> np.ndarray:
-    image, _ = _read_tile_with_depth(path, filename)
-    return image
 
 
 def _write_output(
@@ -55,6 +55,7 @@ def _write_output(
     color: str,
     center: dict,
     significant_bits: int,
+    algorithm: str,
 ) -> np.ndarray | None:
     if output_file_loc is None:
         return image
@@ -67,6 +68,7 @@ def _write_output(
         channel=color,
         significant_bits=significant_bits,
         plate_pos_mm_override=center,
+        algorithm=algorithm,
     )
     image_utils.write_tiff(
         data=image,
@@ -107,6 +109,7 @@ def _result(
         color=color,
         center=center,
         significant_bits=significant_bits,
+        algorithm=metadata['algorithm'],
     )
     return {
         'status': True,
@@ -130,7 +133,7 @@ def _failure(algorithm: str, error: str, center: dict | None = None) -> dict:
 
 
 def _failure_reason(failures: list[dict[str, str]]) -> str:
-    return '; '.join(f"{item['algorithm']}: {item['error']}" for item in failures)
+    return '; '.join(f'{item["algorithm"]}: {item["error"]}' for item in failures)
 
 
 def _run_fallback_chain(
@@ -147,8 +150,7 @@ def _run_fallback_chain(
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
         last_result = result
         logger.info(
-            '[StitchPerf] algorithm %s finished in %.1fms status=%s '
-            'well=%s color=%s tile_group=%s',
+            '[StitchPerf] algorithm %s finished in %.1fms status=%s well=%s color=%s tile_group=%s',
             algorithm,
             elapsed_ms,
             bool(result.get('status')),
@@ -188,28 +190,47 @@ def _run_fallback_chain(
     return last_result
 
 
-def _to_uint8_bgr_for_feature_stitch(image: np.ndarray) -> np.ndarray:
-    """Convert microscope tiles to BGR uint8 for OpenCV's Stitcher."""
-    if image.dtype == np.uint8:
-        image_u8 = image
-    else:
-        image_f = image.astype(np.float32)
-        finite = np.isfinite(image_f)
-        lo = float(image_f[finite].min()) if finite.any() else 0.0
-        hi = float(image_f[finite].max()) if finite.any() else 1.0
-        if hi <= lo:
-            hi = lo + 1.0
-        image_u8 = (np.clip((image_f - lo) / (hi - lo), 0.0, 1.0) * 255).astype(
-            np.uint8
-        )
-
+def _bgr_from_uint8(image_u8: np.ndarray) -> np.ndarray:
+    """Present a uint8 tile as 3-channel BGR for OpenCV's Stitcher."""
     if image_u8.ndim == 2:
         return cv2.cvtColor(image_u8, cv2.COLOR_GRAY2BGR)
     if image_u8.ndim == 3 and image_u8.shape[2] == 3:
         return cv2.cvtColor(image_u8, cv2.COLOR_RGB2BGR)
     if image_u8.ndim == 3 and image_u8.shape[2] == 4:
         return cv2.cvtColor(image_u8, cv2.COLOR_RGBA2BGR)
-    raise ValueError(f'Unsupported image shape for feature stitch: {image.shape}')
+    raise ValueError(f'Unsupported image shape for feature stitch: {image_u8.shape}')
+
+
+def _feature_stitch_bgr_tiles(images: list[np.ndarray]) -> list[np.ndarray]:
+    """Convert a tile GROUP to BGR uint8 for OpenCV's Stitcher, scaling every
+    deep-input tile against one shared intensity range.
+
+    Per-tile min/max normalization maps each tile's own extremes to 0..255, so
+    a dim tile and a bright tile of the same specimen get different transfer
+    functions and the shared seam shows a brightness step. Deep (12/16-bit)
+    tiles are scaled against a group-wide lo/hi so intensities stay comparable
+    across the montage; tiles already uint8 are display-ready and pass through
+    unscaled.
+    """
+    deep = [image for image in images if image.dtype != np.uint8]
+    if deep:
+        finite_pixels = [np.asarray(image, dtype=np.float32) for image in deep]
+        finite_pixels = [pixels[np.isfinite(pixels)].ravel() for pixels in finite_pixels]
+        pooled = np.concatenate([pixels for pixels in finite_pixels if pixels.size])
+        lo = float(pooled.min()) if pooled.size else 0.0
+        hi = float(pooled.max()) if pooled.size else 1.0
+        if hi <= lo:
+            hi = lo + 1.0
+
+    bgr_tiles = []
+    for image in images:
+        if image.dtype == np.uint8:
+            image_u8 = image
+        else:
+            image_f = np.asarray(image, dtype=np.float32)
+            image_u8 = (np.clip((image_f - lo) / (hi - lo), 0.0, 1.0) * 255).astype(np.uint8)
+        bgr_tiles.append(_bgr_from_uint8(image_u8))
+    return bgr_tiles
 
 
 def bf_feature_stitcher(
@@ -221,12 +242,8 @@ def bf_feature_stitcher(
     center = _center_metadata(df)
     try:
         read_t0 = time.perf_counter()
-        feature_images = []
-        input_depths = []
-        for _, row in df.iterrows():
-            image, significant_bits = _read_tile_with_depth(path, row['Filepath'])
-            input_depths.append(significant_bits)
-            feature_images.append(_to_uint8_bgr_for_feature_stitch(image))
+        raw_images = [_read_tile_with_depth(path, row['Filepath'])[0] for _, row in df.iterrows()]
+        feature_images = _feature_stitch_bgr_tiles(raw_images)
         logger.info(
             '[StitchPerf] bf_feature read+convert %.1fms tiles=%d',
             (time.perf_counter() - read_t0) * 1000.0,
@@ -257,7 +274,10 @@ def bf_feature_stitcher(
         output_file_loc=output_file_loc,
         df=df,
         metadata={'center': center, 'algorithm': 'bf_feature_stitcher'},
-        significant_bits=image_utils.resolve_output_depth(input_depths),
+        # Couple the tag to the ACTUAL output: the OpenCV feature path emits
+        # 8-bit BGR regardless of input depth. Tagging this uint8 montage with a
+        # 16-bit input depth would render it ~256x dark on read-back.
+        significant_bits=stitched_img.dtype.itemsize * 8,
     )
 
 
@@ -301,9 +321,7 @@ def overlap_stitcher(
         frame['x_pix'] = ((x_max - frame['X']) * 1000 / pixel_size_um).round().astype(int)
         frame['y_pix'] = ((frame['Y'] - y_min) * 1000 / pixel_size_um).round().astype(int)
 
-        if int(frame['x_pix'].max() + image_w) <= 0 or int(
-            frame['y_pix'].max() + image_h
-        ) <= 0:
+        if int(frame['x_pix'].max() + image_w) <= 0 or int(frame['y_pix'].max() + image_h) <= 0:
             return _failure('overlap_stitcher', 'invalid stitched image dimensions', center)
         nominal_output_shape = (
             int(frame['y_pix'].max() + image_h),
@@ -391,9 +409,7 @@ def fft_phase_stitcher(
         frame['x_pix'] = ((x_max - frame['X']) * 1000 / pixel_size_um).round().astype(int)
         frame['y_pix'] = ((frame['Y'] - y_min) * 1000 / pixel_size_um).round().astype(int)
 
-        if int(frame['x_pix'].max() + image_w) <= 0 or int(
-            frame['y_pix'].max() + image_h
-        ) <= 0:
+        if int(frame['x_pix'].max() + image_w) <= 0 or int(frame['y_pix'].max() + image_h) <= 0:
             return _failure('fft_phase_stitcher', 'invalid stitched image dimensions', center)
         nominal_output_shape = (
             int(frame['y_pix'].max() + image_h),
@@ -557,7 +573,7 @@ def simple_position_stitcher(
 
         sample_row = frame.iloc[0]
         sample_filename = sample_row['Filepath']
-        sample = _read_tile(path, sample_filename)
+        sample, sample_depth = _read_tile_with_depth(path, sample_filename)
         source_image_h = sample.shape[0]
         source_image_w = sample.shape[1]
 
@@ -587,7 +603,10 @@ def simple_position_stitcher(
         tile_bytes = 0
         input_depths = []
         for _, row in frame.iterrows():
-            image, significant_bits = _read_tile_with_depth(path, row['Filepath'])
+            if row['Filepath'] == sample_filename:
+                image, significant_bits = sample, sample_depth
+            else:
+                image, significant_bits = _read_tile_with_depth(path, row['Filepath'])
             input_depths.append(significant_bits)
             tile_count += 1
             tile_bytes += int(image.nbytes)
@@ -619,8 +638,7 @@ def simple_position_stitcher(
                     else:
                         stitched_img[y_val : y_val + im_y, x_val : x_val + im_x] = image
         logger.info(
-            '[StitchPerf] simple-grid read+place %.1fms tiles=%d bytes=%d '
-            'output_shape=%s dtype=%s',
+            '[StitchPerf] simple-grid read+place %.1fms tiles=%d bytes=%d output_shape=%s dtype=%s',
             (time.perf_counter() - place_t0) * 1000.0,
             tile_count,
             tile_bytes,
