@@ -14,10 +14,7 @@ from tools.profiling.aggregate import compute_absolute_cpu, parse_folded
 
 class TestParseFolded:
     def test_leaf_aggregation_and_total(self):
-        text = (
-            'main;hot_a 700\n'
-            'main;hot_b 300\n'
-        )
+        text = 'main;hot_a 700\nmain;hot_b 300\n'
         counts, total, skipped = parse_folded(text)
         assert counts == {'hot_a': 700, 'hot_b': 300}
         assert total == 1000

@@ -124,12 +124,18 @@ def _run_pyspy(pid: int, duration_s: int, rate_hz: int, raw_path: Path) -> None:
     # -f raw = folded stacks; no --native (Python frames only, the cheap mode).
     result = subprocess.run(
         [
-            _pyspy_path(), 'record',
-            '--pid', str(pid),
-            '--format', 'raw',
-            '--rate', str(rate_hz),
-            '--duration', str(duration_s),
-            '--output', str(raw_path),
+            _pyspy_path(),
+            'record',
+            '--pid',
+            str(pid),
+            '--format',
+            'raw',
+            '--rate',
+            str(rate_hz),
+            '--duration',
+            str(duration_s),
+            '--output',
+            str(raw_path),
         ],
         capture_output=True,
         text=True,
@@ -209,28 +215,33 @@ def profile(
 def _print_ranked(artifact: dict, top_n: int = 20) -> None:
     m = artifact['manifest']
     print(
-        f"\nProfile: {m['scenario']} | {m['version']} {m['git_sha'][:8]} | {m['machine']}\n"
-        f"  {m['total_samples']} samples @ {m['rate_hz']} Hz over {m['duration_s']}s | "
-        f"process CPU {m['total_process_cpu_pct']:.0f}% ({m['total_process_cpu_cores']:.2f} cores)"
+        f'\nProfile: {m["scenario"]} | {m["version"]} {m["git_sha"][:8]} | {m["machine"]}\n'
+        f'  {m["total_samples"]} samples @ {m["rate_hz"]} Hz over {m["duration_s"]}s | '
+        f'process CPU {m["total_process_cpu_pct"]:.0f}% ({m["total_process_cpu_cores"]:.2f} cores)'
     )
     if m['skipped_lines']:
-        print(f"  WARNING: {m['skipped_lines']} folded lines skipped (format drift?)")
-    print(f"\n  {'self CPU%':>9}  {'ms/s':>7}  {'+-95%':>6}  function")
+        print(f'  WARNING: {m["skipped_lines"]} folded lines skipped (format drift?)')
+    print(f'\n  {"self CPU%":>9}  {"ms/s":>7}  {"+-95%":>6}  function')
     for fn in artifact['functions'][:top_n]:
         print(
-            f"  {fn['cpu_cores'] * 100:8.1f}%  {fn['cpu_ms_per_s']:7.1f}  "
-            f"{fn['err_cores_95'] * 100:5.1f}%  {fn['function']}"
+            f'  {fn["cpu_cores"] * 100:8.1f}%  {fn["cpu_ms_per_s"]:7.1f}  '
+            f'{fn["err_cores_95"] * 100:5.1f}%  {fn["function"]}'
         )
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description='Absolute per-function CPU profile of a live LVP.')
     parser.add_argument('--pid', type=int, required=True, help='PID of the running LumaViewPro')
-    parser.add_argument('--duration', type=int, default=DEFAULT_DURATION_S, help='seconds to sample')
+    parser.add_argument(
+        '--duration', type=int, default=DEFAULT_DURATION_S, help='seconds to sample'
+    )
     parser.add_argument('--rate', type=int, default=DEFAULT_RATE_HZ, help='py-spy samples/sec')
     parser.add_argument('--scenario', required=True, help='label, e.g. liveview-fit (for compare)')
     parser.add_argument(
-        '--settings-json', type=Path, default=None, help='LVP current.json/settings.json to snapshot'
+        '--settings-json',
+        type=Path,
+        default=None,
+        help='LVP current.json/settings.json to snapshot',
     )
     parser.add_argument('--outdir', type=Path, default=Path('logs/cpu_profile'))
     args = parser.parse_args(argv)

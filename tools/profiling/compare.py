@@ -44,11 +44,11 @@ def compatibility_issues(before: dict, after: dict) -> list[str]:
     mb, ma = before['manifest'], after['manifest']
     for field in ('scenario', 'machine'):
         if mb.get(field) != ma.get(field):
-            issues.append(f"{field} differs: {mb.get(field)!r} vs {ma.get(field)!r}")
+            issues.append(f'{field} differs: {mb.get(field)!r} vs {ma.get(field)!r}')
     cb, ca = mb.get('config', {}), ma.get('config', {})
     for key in _COMPAT_CONFIG_KEYS:
         if cb.get(key) != ca.get(key):
-            issues.append(f"config.{key} differs: {cb.get(key)!r} vs {ca.get(key)!r}")
+            issues.append(f'config.{key} differs: {cb.get(key)!r} vs {ca.get(key)!r}')
     return issues
 
 
@@ -82,23 +82,22 @@ def compare(before: dict, after: dict) -> list[FunctionDelta]:
 def _print_report(before: dict, after: dict, deltas: list[FunctionDelta], top_n: int = 25) -> None:
     mb, ma = before['manifest'], after['manifest']
     print(
-        f"\nCompare  {mb['scenario']}  |  BEFORE {mb['version']} {mb['git_sha'][:8]}"
-        f"  ->  AFTER {ma['version']} {ma['git_sha'][:8]}"
+        f'\nCompare  {mb["scenario"]}  |  BEFORE {mb["version"]} {mb["git_sha"][:8]}'
+        f'  ->  AFTER {ma["version"]} {ma["git_sha"][:8]}'
     )
     tb = mb['total_process_cpu_cores']
     ta = ma['total_process_cpu_cores']
     print(
-        f"  total process CPU: {tb * 100:.0f}% -> {ta * 100:.0f}% "
-        f"(delta {(ta - tb) * 100:+.0f}%)"
+        f'  total process CPU: {tb * 100:.0f}% -> {ta * 100:.0f}% (delta {(ta - tb) * 100:+.0f}%)'
     )
-    print(f"\n  {'before':>8}  {'after':>8}  {'delta':>8}   sig  function")
+    print(f'\n  {"before":>8}  {"after":>8}  {"delta":>8}   sig  function')
     for d in deltas[:top_n]:
         if d.before_cores < 1e-9 and d.after_cores < 1e-9:
             continue
         mark = '**' if d.significant else '  '
         print(
-            f"  {d.before_cores * 100:7.1f}%  {d.after_cores * 100:7.1f}%  "
-            f"{d.delta_cores * 100:+7.1f}%  {mark}   {d.function}"
+            f'  {d.before_cores * 100:7.1f}%  {d.after_cores * 100:7.1f}%  '
+            f'{d.delta_cores * 100:+7.1f}%  {mark}   {d.function}'
         )
 
 

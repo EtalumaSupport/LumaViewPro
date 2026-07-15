@@ -26,8 +26,6 @@ class TestPyspyPath:
         assert _pyspy_path(interpreter_dir=tmp_path) == '/usr/local/bin/py-spy'
 
     def test_raises_when_missing_everywhere(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(
-            'tools.profiling.profile_session.shutil.which', lambda name: None
-        )
+        monkeypatch.setattr('tools.profiling.profile_session.shutil.which', lambda name: None)
         with pytest.raises(FileNotFoundError, match='py-spy not found'):
             _pyspy_path(interpreter_dir=tmp_path)
