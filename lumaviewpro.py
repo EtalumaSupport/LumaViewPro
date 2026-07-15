@@ -279,6 +279,13 @@ if __name__ == '__main__':
     from ui.range_slider import RangeSlider
     from ui.rounded_buttons import RoundedButton, RoundedToggleButton
 
+    # Record the clock's effective frame-rate cap once at startup. A future run
+    # then tells us whether a maxfps override actually took (clock holds the set
+    # value) or was ignored -- distinguishing an import-ordering miss (Config set
+    # after Kivy read it) from vsync governing the swap rate independently. Kept
+    # as a permanent diagnostic for render-rate / on_draw-frequency work.
+    logger.info(f'[LVP Main  ] Kivy effective maxfps={Clock._max_fps}')
+
     # Most state lives on ctx (single source of truth). The few globals
     # that remain below are read by multiple methods (on_start / on_stop
     # / on_request_close / closures); build-only state lives as locals in
