@@ -187,6 +187,31 @@ class TestFeatureStitchSharedRange:
         assert int(bgr[3].max()) == 128
 
 
+class TestStitchLoudDegradeOnMissingPixelSize:
+    """When tiles lack pixel-size metadata the montage degrades loudly, not silently."""
+
+    def test_warns_by_name_when_pixel_size_missing(self):
+        from unittest import mock
+
+        import modules.stitcher as stitcher_mod
+
+        st = stitcher_mod.Stitcher.__new__(stitcher_mod.Stitcher)
+        df = pd.DataFrame({'Filepath': ['tile.tiff'], 'Well': ['A1']})
+        with (
+            mock.patch.object(
+                stitcher_mod.image_utils, 'read_postproc_input_metadata', return_value=None
+            ),
+            mock.patch.object(
+                stitcher_mod, 'channel_aware_stitcher', return_value=mock.MagicMock()
+            ),
+            mock.patch.object(stitcher_mod, 'PostProcResult'),
+            mock.patch.object(stitcher_mod, 'logger') as log,
+        ):
+            st._group_algorithm(pathlib.Path('/tmp'), df)
+        assert log.warning.called
+        assert 'PhysicalSizeX' in log.warning.call_args[0][0]
+
+
 class TestSimplePositionStitcher:
     """Test Stitcher._simple_position_stitcher with synthetic tile images."""
 

@@ -1,5 +1,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
+import logging
 import os
 import pathlib
 
@@ -16,6 +17,8 @@ from modules.common_utils import PostFunction
 from modules.protocol_post_processor import ProtocolPostProcessor
 from modules.protocol_post_processing_result import PostProcResult
 from modules.protocol_post_record import ProtocolPostRecord
+
+logger = logging.getLogger('LVP.modules.stitcher')
 
 
 class Stitcher(ProtocolPostProcessor):
@@ -108,6 +111,18 @@ class Stitcher(ProtocolPostProcessor):
         # pixel spacing and pulling the registered montage apart.
         first_tile_meta = image_utils.read_postproc_input_metadata(path / df.iloc[0]['Filepath'])
         pixel_size_um = first_tile_meta['pixel_size_um'] if first_tile_meta else None
+        if pixel_size_um is None or pixel_size_um <= 0:
+            # No PhysicalSizeX on the tiles (older / third-party / pre-metadata
+            # captures) and binning is not recoverable to re-derive the scale, so
+            # the stitchers cannot register by stage position and fall back to
+            # unregistered edge-to-edge placement. Name the cause instead of
+            # emitting a silently-misregistered montage under a generic reason.
+            logger.warning(
+                '[Stitch] No pixel size in tile metadata (PhysicalSizeX missing) for well=%s; '
+                'montage will be unregistered edge-to-edge. Re-capture with current LVP or '
+                'supply tiles carrying pixel-size metadata.',
+                df.iloc[0].get('Well', '<unknown>'),
+            )
 
         stitch_columns = [
             col
