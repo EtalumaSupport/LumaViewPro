@@ -220,6 +220,13 @@ if __name__ == '__main__':
     # Maximized at launch -- works correctly on macOS, Windows, and Linux
     Config.set('graphics', 'window_state', 'maximized')
 
+    # No multisampling. The live image is a photo with no aliased edges to
+    # smooth, so MSAA (Kivy defaults to 2x) only adds per-draw GL cost on the
+    # integrated GPU. Measured on the acceptance-floor machine: GPU 3d-engine
+    # load dropped from ~55% to ~35% with this off, no visible quality loss.
+    # Line/vector UI edges lose a little smoothing in exchange.
+    Config.set('graphics', 'multisamples', '0')
+
     import kivy
 
     kivy.require('2.1.0')
