@@ -1,4 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
+import ast
 import datetime
 import enum
 import functools
@@ -502,7 +503,7 @@ def _load_pixels_and_timestamp(
             sig = _significant_bits_from_open(tif)
             if read_timestamp:
                 try:
-                    timestamp = _timestamp_from_shaped(tif.shaped_metadata)
+                    timestamp = _timestamp_from_structured(_structured_metadata(tif))
                 except Exception:
                     timestamp = None
         if collapse_legacy_false_color:
@@ -660,6 +661,73 @@ def _read_ome_input_metadata(ome_xml: str, datetime_value) -> dict | None:
     return flat
 
 
+# A numpy scalar left in the metadata dict (e.g. a stage position that stayed
+# np.float64) serializes into the ImageJ description as its repr -- np.float64(N)
+# under numpy >= 2 -- which is a call expression, not a literal, so literal_eval
+# rejects it. Unwrap np.<type>(...) back to the inner value before parsing so a
+# tile whose positions were never cast to plain floats still round-trips. The
+# inner group forbids parentheses, so a numpy scalar (which never nests) is
+# unwrapped without disturbing any surrounding literal.
+_IMAGEJ_NUMPY_SCALAR_RE = re.compile(r'np\.\w+\(([^()]*)\)')
+
+
+def _imagej_to_structured(imagej_metadata: dict) -> dict:
+    """Normalize an ImageJ-container metadata dict to the shaped-metadata shape.
+
+    write_tiff routes a 16-bit mono non-OME frame through tifffile's ImageJ
+    writer, which serializes the structured Plane/Channel/PhysicalSize block
+    into an "ImageJ=..." ImageDescription with the keys lowercased and the
+    nested dicts stringified. Reverse that here -- restore the capitalized keys
+    the readers expect and literal_eval the stringified subtrees -- so an
+    ImageJ tile feeds the exact same extraction as a shaped tile. A subtree that
+    does not parse is left as its raw string; the caller's required-key checks
+    then reject the tile rather than crashing.
+    """
+
+    def parsed(key):
+        value = imagej_metadata.get(key)
+        if isinstance(value, str):
+            try:
+                return ast.literal_eval(_IMAGEJ_NUMPY_SCALAR_RE.sub(r'\1', value))
+            except (ValueError, SyntaxError):
+                return value
+        return value
+
+    structured: dict = {}
+    if 'physicalsizex' in imagej_metadata:
+        structured['PhysicalSizeX'] = imagej_metadata['physicalsizex']
+    for lower, canonical in (
+        ('plane', 'Plane'),
+        ('channel', 'Channel'),
+        ('instrument', 'Instrument'),
+        ('plate', 'Plate'),
+    ):
+        if lower in imagej_metadata:
+            structured[canonical] = parsed(lower)
+    if 'significantbits' in imagej_metadata:
+        structured['SignificantBits'] = imagej_metadata['significantbits']
+    return structured
+
+
+def _structured_metadata(tif: 'tf.TiffFile') -> dict | None:
+    """Resolve one open TIFF's structured acquisition metadata, container-agnostic.
+
+    write_tiff serializes the same structured block into either a tifffile
+    "shaped" JSON ImageDescription (8-bit / color) or an ImageJ ImageDescription
+    (16-bit mono); both deserialize to the same dict shape so readers never have
+    to know which container a tile landed in. OME-XML is a distinct shape the
+    callers handle separately. Returns None when neither structured container is
+    present (a bare or OME-only tile).
+    """
+    shaped = tif.shaped_metadata
+    if shaped:
+        return shaped[0]
+    imagej = tif.imagej_metadata
+    if imagej:
+        return _imagej_to_structured(imagej)
+    return None
+
+
 def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
     """Reverse the write_tiff metadata serialization for one input TIFF.
 
@@ -682,21 +750,21 @@ def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
     """
     try:
         with tf.TiffFile(str(path)) as tif:
-            shaped = tif.shaped_metadata
+            structured = _structured_metadata(tif)
             ome_xml = tif.ome_metadata
             datetime_tag = tif.pages[0].tags.get('DateTime')
             datetime_value = datetime_tag.value if datetime_tag else None
     except Exception:
         return None
 
-    if not shaped:
-        # OME-TIFF inputs carry no shaped_metadata; recover what tifffile's
-        # auto-OME serializer preserved into the ImageDescription XML so an
-        # OME-TIFF tile still forwards acquisition context to derived outputs.
+    if structured is None:
+        # No shaped or ImageJ structured block: an OME-only tile carries its
+        # context in the auto-OME ImageDescription XML instead. Recover what
+        # tifffile's serializer preserved so an OME tile still forwards
+        # acquisition context to derived outputs.
         if ome_xml:
             return _read_ome_input_metadata(ome_xml, datetime_value)
         return None
-    structured = shaped[0]
     if 'Plane' not in structured:
         # Bare tifffile.imwrite (only carries 'shape') or other non-LVP
         # producer; no acquisition context to forward.
@@ -797,24 +865,25 @@ def read_frame_timestamp(path: pathlib.Path) -> datetime.datetime | None:
     """
     try:
         with tf.TiffFile(str(path)) as tif:
-            shaped = tif.shaped_metadata
+            structured = _structured_metadata(tif)
     except Exception:
         return None
 
-    return _timestamp_from_shaped(shaped)
+    return _timestamp_from_structured(structured)
 
 
-def _timestamp_from_shaped(shaped) -> datetime.datetime | None:
-    """Recover a per-frame capture time from an open TIFF's shaped_metadata.
+def _timestamp_from_structured(structured) -> datetime.datetime | None:
+    """Recover a per-frame capture time from a resolved structured metadata dict.
 
     Split out from read_frame_timestamp so the video loader can recover the
     timestamp from the same handle it decodes the pixels with, instead of
     opening the file a second time. See read_frame_timestamp for the metadata
-    shapes and the ISO -> capture-format resolution order.
+    shapes and the ISO -> capture-format resolution order. Takes the dict
+    resolved by _structured_metadata (shaped or ImageJ container) so a 16-bit
+    ImageJ tile forwards its timestamp the same as an 8-bit shaped tile.
     """
-    if not shaped:
+    if not structured:
         return None
-    structured = shaped[0]
 
     # Structured scan images nest the timestamp under Plane; frame
     # recordings keep a flat dict. Check both, ISO first then the
