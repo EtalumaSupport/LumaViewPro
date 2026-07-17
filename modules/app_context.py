@@ -85,6 +85,7 @@ class AppContext:
     composite_gen_controls: object = None
     video_creation_controls: object = None
     zprojection_controls: object = None
+    quick_enhance_controls: object = None
     metrics_logger: object = None  # MetricsLogger (LVP-A-12)
     ui_listener_bridge: object = None  # UIListenerBridge (LVP-A-6)
 
