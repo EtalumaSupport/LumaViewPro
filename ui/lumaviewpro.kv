@@ -1742,6 +1742,149 @@
 	# Empty widget to consume space at bottom of controls panel
 	Widget:
 
+<QuickEnhanceControls>:
+	orientation: 'vertical'
+	padding: '8dp'
+	spacing: '6dp'
+	disabled: app.protocol_running or root.busy
+	canvas.before:
+		Color:
+			rgba: 0.08, 0.11, 0.14, 1
+		RoundedRectangle:
+			pos: self.x + dp(2), self.y + dp(2)
+			size: self.width - dp(4), self.height - dp(4)
+			radius: [dp(8)]
+
+	Label:
+		text: 'Quick Enhance is for visual inspection and derived exports.\\nUse raw images for quantitative analysis.'
+		font_size: '11sp'
+		color: 0.86, 0.91, 0.95, 1
+		text_size: self.width, None
+		size_hint_y: None
+		height: '42dp'
+
+	Label:
+		text: 'Input'
+		font_size: '12sp'
+		bold: True
+		color: 0.96, 0.98, 1, 1
+		size_hint_y: None
+		height: '18dp'
+	BoxLayout:
+		size_hint_y: None
+		height: '36dp'
+		QuickEnhanceFileChooseButton:
+			text: 'Choose Image'
+			on_release: self.choose('load_quick_enhance_input_image')
+		QuickEnhanceFolderChooseButton:
+			text: 'Choose Folder'
+			on_release: self.choose('apply_quick_enhance_to_folder')
+	Label:
+		text: 'Run'
+		font_size: '12sp'
+		bold: True
+		color: 0.96, 0.98, 1, 1
+		size_hint_y: None
+		height: '18dp'
+	Spinner:
+		id: quick_enhance_preset
+		text: root.preset
+		values: ('Auto (Recommended)', 'Brightfield / Phase', 'Contrast Only')
+		size_hint_y: None
+		height: '36dp'
+		background_normal: ''
+		background_color: 0.18, 0.25, 0.31, 1
+		color: 1, 1, 1, 1
+		on_text: root.preset = self.text
+	BoxLayout:
+		size_hint_y: None
+		height: '36dp'
+		QuickEnhanceUtilityButton:
+			text: 'Show Original' if root.show_after else 'Show Enhanced'
+			disabled: not root.source_path
+			on_release: root.toggle_before_after()
+		QuickEnhanceUtilityButton:
+			text: 'Update Preview'
+			disabled: not root.source_path
+			on_release: root.refresh_preview()
+	Label:
+		text: 'Save'
+		font_size: '12sp'
+		bold: True
+		color: 0.96, 0.98, 1, 1
+		size_hint_y: None
+		height: '18dp'
+	QuickEnhancePrimaryButton:
+		text: 'Save Folder' if root.source_folder else 'Save Image'
+		size_hint_y: None
+		height: '38dp'
+		disabled: not root.input_ready
+		on_release: root.export()
+	Label:
+		text: root.status_text
+		font_size: '10sp'
+		text_size: self.width, None
+		size_hint_y: None
+		height: '54dp'
+		halign: 'left'
+		valign: 'middle'
+	QuickEnhanceUtilityButton:
+		text: 'Show Output Folder'
+		size_hint_y: None
+		height: '36dp'
+		disabled: not root.last_output_folder
+		on_release: root.open_output_folder()
+	Image:
+		id: quick_enhance_preview_image
+		fit_mode: 'contain'
+		opacity: 1 if self.texture else 0
+
+<QuickEnhanceUtilityButton@RoundedButton>:
+	font_size: '12sp'
+	color: 0.96, 0.98, 1, 1
+	canvas.before:
+		Color:
+			rgba: (0.22, 0.30, 0.37, 1) if not self.disabled else (0.13, 0.16, 0.19, 1)
+		RoundedRectangle:
+			pos: self.pos
+			size: self.size
+			radius: [dp(6)]
+
+<QuickEnhanceFileChooseButton@FileChooseBTN>:
+	font_size: '12sp'
+	color: 0.96, 0.98, 1, 1
+	canvas.before:
+		Color:
+			rgba: (0.22, 0.30, 0.37, 1) if not self.disabled else (0.13, 0.16, 0.19, 1)
+		RoundedRectangle:
+			pos: self.pos
+			size: self.size
+			radius: [dp(6)]
+
+<QuickEnhanceFolderChooseButton@FolderChooseBTN>:
+	font_size: '12sp'
+	color: 0.96, 0.98, 1, 1
+	canvas.before:
+		Color:
+			rgba: (0.22, 0.30, 0.37, 1) if not self.disabled else (0.13, 0.16, 0.19, 1)
+		RoundedRectangle:
+			pos: self.pos
+			size: self.size
+			radius: [dp(6)]
+
+<QuickEnhancePrimaryButton@RoundedButton>:
+	font_size: '12sp'
+	bold: True
+	color: (1, 1, 1, 1) if not self.disabled else (0.52, 0.59, 0.64, 1)
+	canvas.before:
+		Color:
+			rgba: (0.10, 0.52, 0.78, 1) if self.state == 'normal' and not self.disabled else (0.10, 0.13, 0.16, 1)
+		RoundedRectangle:
+			pos: self.pos
+			size: self.size
+			radius: [dp(6)]
+
+
 # PostProcessingAccordion - Settings for PostProcessingAccordion
 # ------------------------------------------
 <PostProcessingAccordion>:
@@ -1795,6 +1938,15 @@
 
 			ZProjectionControls:
 				id: zprojection_controls_id
+
+		AccordionItem:
+			id: quick_enhance_accordion_id
+			title: 'Quick Enhance'
+			on_collapse: root.accordion_collapse()
+			background_normal: './data/icons/post_processing_background.png'
+
+			QuickEnhanceControls:
+				id: quick_enhance_controls_id
 
 		# AccordionItem:
 		# 	id: open_last_save_folder_accordion_id

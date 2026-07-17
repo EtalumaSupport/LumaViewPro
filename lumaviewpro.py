@@ -369,6 +369,7 @@ from ui.post_processing import (
     CompositeGenControls,
     GraphingControls,
     PostProcessingAccordion,
+    QuickEnhanceControls,
     StitchControls,
     VideoCreationControls,
     ZProjectionControls,

@@ -29,6 +29,7 @@ _POST_PROCESSING_CONTEXTS = (
     'apply_composite_gen_to_folder',
     'apply_video_gen_to_folder',
     'apply_zprojection_to_folder',
+    'apply_quick_enhance_to_folder',
 )
 
 
@@ -218,6 +219,8 @@ class FileChooseBTN(HoverBehavior, Button):
             filetypes_tk = [('TSV', '.tsv')]
         elif self.context == 'load_cell_count_input_image':
             filetypes_tk = [('TIFF', '.tif .tiff')]
+        elif self.context == 'load_quick_enhance_input_image':
+            filetypes_tk = [('Images', '.tif .tiff .png .jpg .jpeg .bmp')]
         elif self.context == 'load_cell_count_method':
             filetypes_tk = [('JSON', '.json')]
         elif self.context == 'load_graphing_data':
@@ -269,6 +272,9 @@ class FileChooseBTN(HoverBehavior, Button):
 
             elif self.context == 'load_cell_count_input_image':
                 ctx.cell_count_content.set_preview_source_file(file=self.selection[0])
+
+            elif self.context == 'load_quick_enhance_input_image':
+                ctx.quick_enhance_controls.set_source_file(file=self.selection[0])
 
             elif self.context == 'load_graphing_data':
                 ctx.graphing_controls.set_graphing_source(file=self.selection[0])
@@ -377,6 +383,8 @@ class FolderChooseBTN(HoverBehavior, Button):
             ctx.video_creation_controls.run_video_gen(path=pathlib.Path(path))
         elif self.context == 'apply_zprojection_to_folder':
             ctx.zprojection_controls.run_zprojection(path=pathlib.Path(path))
+        elif self.context == 'apply_quick_enhance_to_folder':
+            ctx.quick_enhance_controls.set_source_folder(path=pathlib.Path(path))
         else:
             raise Exception(f'on_selection_function(): Unknown selection {self.context}')
 
