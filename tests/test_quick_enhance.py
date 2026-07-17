@@ -7,6 +7,7 @@ import pathlib
 import cv2
 import numpy as np
 import pytest
+import tifffile as tf
 
 from modules import image_utils
 from modules.quick_enhance import QuickEnhanceSettings, QuickEnhancer
@@ -249,6 +250,41 @@ def test_composite_tiff_stays_rgb_and_retains_composite_channel_metadata(tmp_pat
     assert output.dtype == np.uint16
     assert significant_bits == 12
     assert metadata['channel'] == 'Composite'
+
+
+def test_rgba_composite_exports_as_rgb_without_rejecting_composite_metadata(tmp_path):
+    source = tmp_path / 'composite_rgba.tif'
+    source_data = np.zeros((16, 16, 4), dtype=np.uint16)
+    source_data[..., 0] = 4095
+    source_data[..., 1] = 1200
+    source_data[..., 3] = 4095
+    tf.imwrite(source, source_data, photometric='rgb')
+
+    exported = QuickEnhancer().export_file(source, QuickEnhanceSettings.for_preset('Auto (Recommended)'))
+    output, significant_bits = image_utils.load_pixels(
+        exported['output_path'], collapse_legacy_false_color=False
+    )
+
+    assert output.shape == (16, 16, 3)
+    assert output.dtype == np.uint16
+    assert significant_bits == 16
+
+
+def test_rgba_composite_png_drops_alpha_before_rgb_tiff_export(tmp_path):
+    source = tmp_path / 'composite_rgba.png'
+    source_data = np.zeros((16, 16, 4), dtype=np.uint8)
+    source_data[..., 1] = 180
+    source_data[..., 3] = 255
+    assert cv2.imwrite(str(source), source_data)
+
+    exported = QuickEnhancer().export_file(source, QuickEnhanceSettings.for_preset('Auto (Recommended)'))
+    output, significant_bits = image_utils.load_pixels(
+        exported['output_path'], collapse_legacy_false_color=False
+    )
+
+    assert output.shape == (16, 16, 3)
+    assert output.dtype == np.uint8
+    assert significant_bits == 8
 
 
 @pytest.mark.parametrize(

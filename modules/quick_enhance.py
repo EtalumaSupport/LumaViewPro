@@ -299,12 +299,18 @@ class QuickEnhancer:
                 significant_bits=significant_bits,
             )
             output_for_write = self.colorize_mono_for_visual_output(output, channel)
-            if source_path.suffix.lower() not in ('.tif', '.tiff') and output.ndim == 3:
+            if output_for_write.ndim == 3 and output_for_write.shape[2] == 4:
+                # The TIFF writer supports RGB samples, not RGBA. Alpha is a
+                # display-only component for these composite inputs, so retain
+                # the enhanced RGB data and preserve the Composite metadata.
+                output_for_write = output_for_write[..., :3]
+            if source_path.suffix.lower() not in ('.tif', '.tiff') and output_for_write.ndim == 3:
                 # cv2 loads PNG/JPEG in BGR(A), whereas TIFF metadata and the
-                # project's TIFF writer are RGB-native.
+                # project's TIFF writer are RGB-native. Convert the alpha-free
+                # display payload so a Composite PNG cannot reintroduce RGBA.
                 output_for_write = cv2.cvtColor(
-                    output,
-                    cv2.COLOR_BGRA2RGBA if output.shape[2] == 4 else cv2.COLOR_BGR2RGB,
+                    output_for_write,
+                    cv2.COLOR_BGR2RGB,
                 )
             image_utils.write_tiff(
                 data=output_for_write,

@@ -34,3 +34,13 @@ def test_uint8_payload_clears_guard():
     # 8-bit input passes the dtype guard; the downstream blit is mocked Kivy.
     result = image_to_texture(np.zeros((4, 4), dtype=np.uint8))
     assert result is not None
+
+
+def test_rgba_payload_is_converted_to_a_texture_without_grayscale_conversion():
+    rgba = np.zeros((4, 4, 4), dtype=np.uint8)
+    rgba[..., 1] = 255
+    rgba[..., 3] = 255
+
+    result = image_to_texture(rgba)
+
+    assert result is not None

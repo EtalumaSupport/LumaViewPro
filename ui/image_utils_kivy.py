@@ -29,7 +29,11 @@ def image_to_texture(image, existing: Texture | None = None) -> Texture:
     # Vertical flip
     image = cv2.flip(image, 0)
 
-    if not image_utils.is_color_image(image=image):
+    if image.ndim == 3 and image.shape[2] == 4:
+        # TIFF data is RGB-native. Kivy's reusable display texture is BGR,
+        # so discard alpha while converting the RGB components to BGR.
+        image = cv2.cvtColor(image, cv2.COLOR_RGBA2BGR)
+    elif not image_utils.is_color_image(image=image):
         image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
 
     buf = image.tobytes()
