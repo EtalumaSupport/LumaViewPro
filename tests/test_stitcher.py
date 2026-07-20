@@ -154,7 +154,7 @@ class TestCropToContent:
 # Current stitcher.py -- _simple_position_stitcher
 # ---------------------------------------------------------------------------
 
-from modules.stitching_core import channel_aware_stitcher
+from modules.stitching_core import channel_aware_stitcher, infer_stage_overlap
 from modules.stitcher import Stitcher
 import modules.common_utils as common_utils
 import modules.image_utils as image_utils
@@ -856,3 +856,73 @@ def test_float32_blend_is_byte_identical_to_float64(dtype, high, channels):
     )
     reference = _reference_blend_float64(registered, left)
     assert np.array_equal(out, reference), 'float32 blend diverged from float64'
+
+
+class TestStageConstrainedStitchModes:
+    """Production routing must never use unconstrained panorama matching."""
+
+    def test_infers_zero_overlap_from_stage_spacing(self):
+        frame = pd.DataFrame(
+            [
+                {'X': 0.0, 'Y': 0.0},
+                {'X': 0.100, 'Y': 0.0},
+                {'X': 0.0, 'Y': 0.100},
+                {'X': 0.100, 'Y': 0.100},
+            ]
+        )
+        overlap = infer_stage_overlap(frame, pixel_size_um=1.0, tile_shape=(100, 100))
+        assert overlap['has_overlap'] is False
+        assert overlap['x_percent'] == pytest.approx(0.0)
+        assert overlap['y_percent'] == pytest.approx(0.0)
+
+    def test_quality_at_zero_overlap_uses_geometry_without_feature_matching(
+        self, tmp_path, monkeypatch
+    ):
+        frame = pd.DataFrame(
+            [
+                {'Filepath': 'a.tiff', 'X': 0.0, 'Y': 0.0, 'Color': 'BF'},
+                {'Filepath': 'b.tiff', 'X': 0.100, 'Y': 0.0, 'Color': 'BF'},
+            ]
+        )
+        calls = []
+
+        def should_not_run(*args, **kwargs):
+            raise AssertionError('unconstrained registration must not run at 0% overlap')
+
+        def stage_success(*args, **kwargs):
+            calls.append('stage')
+            return {
+                'status': True,
+                'error': None,
+                'image': np.zeros((10, 20), dtype=np.uint8),
+                'significant_bits': 8,
+                'metadata': {'center': {'x': 0.05, 'y': 0.0}},
+            }
+
+        monkeypatch.setattr('modules.stitching_core._read_tile_with_depth', lambda *_: (np.ones((100, 100), dtype=np.uint8), 8))
+        monkeypatch.setattr('modules.stitching_core.bf_feature_stitcher', should_not_run)
+        monkeypatch.setattr('modules.stitching_core.overlap_stitcher', should_not_run)
+        monkeypatch.setattr('modules.stitching_core.stage_position_stitcher', stage_success)
+
+        result = channel_aware_stitcher(
+            tmp_path, frame, pixel_size_um=1.0, stitching_mode='quality'
+        )
+
+        assert result['status'] is True
+        assert calls == ['stage']
+        assert result['metadata']['algorithm'] == 'stage_position_stitcher'
+        assert result['metadata']['overlap']['has_overlap'] is False
+
+    def test_source_preserving_mode_never_averages_overlap_pixels(self):
+        first = np.full((4, 4), 10, dtype=np.uint8)
+        second = np.full((4, 4), 200, dtype=np.uint8)
+        output, _ = stitch_registered_tiles(
+            [
+                {'tile': first, 'x_px': 0, 'y_px': 0},
+                {'tile': second, 'x_px': 2, 'y_px': 0},
+            ],
+            output_shape=(4, 6),
+            blend_mode='source_preserving',
+        )
+        assert np.all(output[:, :4] == 10)
+        assert np.all(output[:, 4:] == 200)
