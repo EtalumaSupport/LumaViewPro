@@ -439,10 +439,33 @@ class TestSimplePositionStitcher:
 
         assert degraded_branch, 'stitcher_callback must branch on result["degraded"]'
         branch_source = ast.unparse(degraded_branch[0])
-        assert 'Success (degraded)' in branch_source
+        assert 'geometry-only fallback' in branch_source
         assert 'popup.text' in branch_source
 
-    def test_bf_route_uses_feature_then_overlap_then_stage_then_simple(
+    def test_stitcher_popup_never_surfaces_raw_worker_message(self):
+        source = (
+            pathlib.Path(__file__).resolve().parent.parent / 'ui' / 'post_processing.py'
+        ).read_text()
+        tree = ast.parse(source)
+        callback = next(
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef) and node.name == 'stitcher_callback'
+        )
+        callback_source = ast.unparse(callback)
+        assert 'result[\'message\']' not in callback_source
+        assert 'Support > Logs' in callback_source
+
+    def test_stitch_ui_explains_modes_and_time_estimation(self):
+        root = pathlib.Path(__file__).resolve().parent.parent
+        kv_source = (root / 'ui' / 'lumaviewpro.kv').read_text()
+        ui_source = (root / 'ui' / 'post_processing.py').read_text()
+        assert 'Fast Preview: bounded FFT geometry check' in kv_source
+        assert 'Quality: bounded local registration' in kv_source
+        assert 'Estimated remaining time' in (root / 'modules' / 'protocol_post_processor.py').read_text()
+        assert 'stitching_mode' in ui_source
+
+    def test_bf_quality_route_never_uses_unconstrained_feature_stitcher(
         self,
         tmp_path,
         monkeypatch,
@@ -458,7 +481,7 @@ class TestSimplePositionStitcher:
                 },
                 {
                     'Filepath': 'b.tiff',
-                    'X': 1.0,
+                    'X': 0.050,
                     'Y': 0.0,
                     'Objective': '10x Oly',
                     'Color': 'BF',
@@ -492,8 +515,12 @@ class TestSimplePositionStitcher:
             }
 
         monkeypatch.setattr(
+            'modules.stitching_core._read_tile_with_depth',
+            lambda *_: (np.ones((100, 100), dtype=np.uint8), 8),
+        )
+        monkeypatch.setattr(
             'modules.stitching_core.bf_feature_stitcher',
-            fail('bf_feature_stitcher'),
+            lambda *_args, **_kwargs: pytest.fail('BF feature stitch must not be automatic'),
         )
         monkeypatch.setattr('modules.stitching_core.overlap_stitcher', fail('overlap_stitcher'))
         monkeypatch.setattr(
@@ -506,13 +533,12 @@ class TestSimplePositionStitcher:
 
         assert result['status'] is True
         assert calls == [
-            'bf_feature_stitcher',
             'overlap_stitcher',
             'stage_position_stitcher',
             'simple_position_stitcher',
         ]
         assert result['metadata']['algorithm'] == 'simple_position_stitcher'
-        assert result['metadata']['fallback_from'] == 'bf_feature_stitcher'
+        assert result['metadata']['fallback_from'] == 'quality_local_ncc'
 
     def test_fallback_logs_operator_visible_warning(
         self,
@@ -533,7 +559,7 @@ class TestSimplePositionStitcher:
                 },
                 {
                     'Filepath': 'b.tiff',
-                    'X': 1.0,
+                    'X': 0.050,
                     'Y': 0.0,
                     'Objective': '10x Oly',
                     'Color': 'Green',
@@ -564,12 +590,16 @@ class TestSimplePositionStitcher:
 
         monkeypatch.setattr('modules.stitching_core.overlap_stitcher', overlap_fail)
         monkeypatch.setattr('modules.stitching_core.stage_position_stitcher', stage_success)
+        monkeypatch.setattr(
+            'modules.stitching_core._read_tile_with_depth',
+            lambda *_: (np.ones((100, 100), dtype=np.uint8), 8),
+        )
 
         with caplog.at_level(logging.WARNING, logger='LVP.modules.stitching_core'):
             result = channel_aware_stitcher(tmp_path, df, pixel_size_um=1.0)
 
         assert result['status'] is True
-        assert result['metadata']['fallback_from'] == 'overlap_stitcher'
+        assert result['metadata']['fallback_from'] == 'quality_local_ncc'
         assert 'using stage_position_stitcher for well=A1 color=Green tile_group=3' in caplog.text
 
     def test_fluorescence_route_uses_overlap_then_stage_then_simple(
@@ -588,7 +618,7 @@ class TestSimplePositionStitcher:
                 },
                 {
                     'Filepath': 'b.tiff',
-                    'X': 1.0,
+                    'X': 0.050,
                     'Y': 0.0,
                     'Objective': '10x Oly',
                     'Color': 'Green',
@@ -631,13 +661,17 @@ class TestSimplePositionStitcher:
             fail('stage_position_stitcher'),
         )
         monkeypatch.setattr('modules.stitching_core.simple_position_stitcher', simple_success)
+        monkeypatch.setattr(
+            'modules.stitching_core._read_tile_with_depth',
+            lambda *_: (np.ones((100, 100), dtype=np.uint8), 8),
+        )
 
         result = channel_aware_stitcher(tmp_path, df, pixel_size_um=1.0)
 
         assert result['status'] is True
         assert calls == ['overlap_stitcher', 'stage_position_stitcher', 'simple_position_stitcher']
         assert result['metadata']['algorithm'] == 'simple_position_stitcher'
-        assert result['metadata']['fallback_from'] == 'overlap_stitcher'
+        assert result['metadata']['fallback_from'] == 'quality_local_ncc'
 
 
 class TestPositionAwareStitcher:
@@ -926,3 +960,22 @@ class TestStageConstrainedStitchModes:
         )
         assert np.all(output[:, :4] == 10)
         assert np.all(output[:, 4:] == 200)
+
+    def test_quality_overlap_route_uses_bounded_local_registration(self, tmp_path):
+        rng = np.random.default_rng(123)
+        base = rng.integers(0, 255, (100, 150), dtype=np.uint8)
+        cv2.imwrite(str(tmp_path / 'left.tiff'), base[:, :100])
+        cv2.imwrite(str(tmp_path / 'right.tiff'), base[:, 50:150])
+        frame = pd.DataFrame(
+            [
+                {'Filepath': 'left.tiff', 'X': 0.050, 'Y': 0.0, 'Color': 'BF'},
+                {'Filepath': 'right.tiff', 'X': 0.0, 'Y': 0.0, 'Color': 'BF'},
+            ]
+        )
+
+        result = channel_aware_stitcher(tmp_path, frame, pixel_size_um=1.0)
+
+        assert result['status'] is True
+        assert result['metadata']['algorithm'] == 'quality_local_ncc'
+        assert result['metadata']['pixel_policy'] == 'source_preserving'
+        assert result['metadata']['overlap']['has_overlap'] is True

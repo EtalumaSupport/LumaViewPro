@@ -241,21 +241,38 @@ class QuickEnhanceControls(BoxLayout):
 
 class StitchControls(BoxLayout):
     done = BooleanProperty(False)
+    stitching_mode = StringProperty('Quality')
+    _MODE_VALUES = {
+        'Quality': Stitcher.QUALITY_MODE,
+        'Fast Preview': Stitcher.FAST_PREVIEW_MODE,
+    }
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         _app_ctx.register_early('stitch_controls', self)
+        Clock.schedule_once(self._init_ui, 0)
+
+    def _init_ui(self, _dt=0):
+        spinner = self.ids['stitching_mode_spinner']
+        spinner.values = tuple(self._MODE_VALUES)
+        spinner.text = self.stitching_mode
 
     def set_button_enabled_state(self, state: bool):
         self.ids['stitch_apply_btn'].disabled = not state
 
     @show_popup
     def run_stitcher(self, popup, path):
-        gui_logger.button('RUN_STITCHER', f'path={path}')
+        mode_label = self.ids['stitching_mode_spinner'].text or self.stitching_mode
+        stitching_mode = self._MODE_VALUES.get(mode_label, Stitcher.QUALITY_MODE)
+        gui_logger.button('RUN_STITCHER', f'path={path} mode={stitching_mode}')
         ctx = _app_ctx.ctx
         status_map = {True: 'Success', False: 'FAILED'}
-        popup.title = 'Stitcher'
-        popup.text = 'Generating stitched images...'
+        popup.title = f'{mode_label} Stitch'
+        popup.text = (
+            f'Running {mode_label} Stitch.\n'
+            'Estimating remaining time after the first tile group.\n'
+            'Source pixels and channel colors are preserved.'
+        )
         popup.progress = 0
         popup.auto_dismiss = False
 
@@ -270,6 +287,7 @@ class StitchControls(BoxLayout):
                     pathlib.Path(ctx.source_path) / 'data' / 'tiling.json',
                     popup,
                 ),
+                kwargs={'stitching_mode': stitching_mode},
                 callback=self.stitcher_callback,
                 cb_args=(popup, status_map),
                 pass_result=True,
@@ -278,20 +296,28 @@ class StitchControls(BoxLayout):
 
     def stitcher_callback(self, popup, status_map, result=None, exception=None):
         if result is None:
-            popup.text = 'Stitching images - FAILED'
+            popup.text = (
+                'Stitching could not be completed. No console error is shown here.\n'
+                'Open Support > Logs and search for “Stitcher:” for the diagnostic details.'
+            )
             Clock.schedule_once(lambda dt: popup.dismiss(), 5)
             return
 
         if result.get('degraded'):
-            final_text = 'Stitching images - Success (degraded)'
-            final_text += f'\n{result.get("message", "Fallback stitching was used.")}'
+            final_text = (
+                'Stitching complete with geometry-only fallback for one or more groups.\n'
+                'Review the mosaic geometry; detailed reasons are in Support > Logs.'
+            )
             popup.text = final_text
             Clock.schedule_once(lambda dt: popup.dismiss(), 5)
             return
 
         final_text = f'Stitching images - {status_map[result["status"]]}'
         if result['status'] is False:
-            final_text += f'\n{result["message"]}'
+            final_text = (
+                'Stitching could not be completed for one or more tile groups.\n'
+                'No console error is shown here. Open Support > Logs and search for “Stitcher:”.'
+            )
             popup.text = final_text
             Clock.schedule_once(lambda dt: popup.dismiss(), 5)
             return

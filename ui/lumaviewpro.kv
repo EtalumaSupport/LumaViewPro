@@ -1639,13 +1639,43 @@
 	# Pad
 	Widget:
 		size_hint_y: None
+		height: '12dp'
+
+	BoxLayout:
+		orientation: 'horizontal'
+		size_hint_y: None
 		height: '30dp'
+		spacing: '5dp'
+		Label:
+			text: 'Stitch Mode'
+			halign: 'left'
+			valign: 'middle'
+			font_size: '12sp'
+			size_hint_x: None
+			width: '120dp'
+		Spinner:
+			id: stitching_mode_spinner
+			text: 'Quality'
+			font_size: '12sp'
+			option_cls: 'SpinnerOption0'
+			on_text: root.stitching_mode = self.text
+
+	Label:
+		text: ('Fast Preview: bounded FFT geometry check; use for rapid review.\n'
+		       'Quality: bounded local registration only when stage data shows real overlap.\n'
+		       'At 0% overlap, both use source-preserving stage placement.')
+		halign: 'left'
+		valign: 'middle'
+		text_size: self.width, None
+		size_hint_y: None
+		height: '54dp'
+		font_size: '11sp'
 
 	FolderChooseBTN:
 
 		id: stitch_apply_btn
-		text: 'Apply Stitching to Protocol Folder'
-        tooltip_text: 'Assemble tiles into stitched montage image of abutted tiles'
+		text: 'Run Selected Stitch Mode…'
+        tooltip_text: 'Fast Preview is the rapid geometry check. Quality is source-preserving and only registers verified overlap.'
 		size_hint_y: None
 		height: '30dp'
 		font_size: '12sp'

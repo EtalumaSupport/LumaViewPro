@@ -187,6 +187,7 @@ class ProtocolPostProcessor(abc.ABC):
         last_error = None
         degraded_outputs = []
         output_significant_bits = None
+        completed_group_ms = []
 
         for _, group in groups:
             if len(group) == 0:
@@ -249,6 +250,8 @@ class ProtocolPostProcessor(abc.ABC):
                 logger.error(f'Failed to generate {output_file_loc_rel}: {alg_results.error}')
                 continue
 
+            completed_group_ms.append(group_ms)
+
             alg_metadata = alg_results.record_metadata
             logger.info(
                 f'[StitchPerf] {self._name} group done in {group_ms:.1f}ms: '
@@ -299,6 +302,20 @@ class ProtocolPostProcessor(abc.ABC):
 
             if popup is not None:
                 popup.progress = (new_count / group_count) * 100
+                if self._name == 'Stitcher':
+                    mode_label = (
+                        'Fast Preview'
+                        if kwargs.get('stitching_mode') == 'fast_preview'
+                        else 'Quality'
+                    )
+                    remaining = max(0, group_count - current_group)
+                    average_ms = sum(completed_group_ms) / len(completed_group_ms)
+                    estimate_seconds = round((remaining * average_ms) / 1000.0)
+                    popup.text = (
+                        f'Running {mode_label} Stitch — group {current_group}/{group_count}.\n'
+                        f'Estimated remaining time: about {estimate_seconds} seconds.\n'
+                        'Source pixels and channel colors are preserved.'
+                    )
 
         protocol_post_record.complete()
 
