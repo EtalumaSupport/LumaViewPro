@@ -22,7 +22,7 @@ The final GREEN run was:
 
 ```text
 .venv/bin/python -m pytest tests/test_stitcher.py tests/test_stitcher_plugin.py tests/test_issue_166_kv_lock_bindings.py -q
-68 passed
+70 passed
 ```
 
 `git diff --check` and `py_compile` also passed for the production Python files.
@@ -37,8 +37,8 @@ The final GREEN run was:
 | Quality with real overlap uses bounded local registration. | `test_quality_overlap_route_uses_bounded_local_registration` | PASS |
 | The user popup does not expose raw worker messages and directs support to logs. | `test_stitcher_popup_never_surfaces_raw_worker_message` | PASS |
 | The UI declares Fast Preview, Quality, and estimate behavior. | `test_stitch_ui_explains_modes_and_time_estimation` | PASS |
+| Prebuilt composites are excluded from raw-channel stitching. | `test_stitcher_ignores_prebuilt_composites` | PASS |
 
 ## Known validation gap
 
 The active virtual environment has neither `ruff` nor `coverage` installed, so lint and coverage could not be run. No claim of 80% coverage is made here. The focused pytest suite and Python compile checks are the completed local validation.
-

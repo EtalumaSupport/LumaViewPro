@@ -1017,3 +1017,30 @@ class TestStageConstrainedStitchModes:
         assert calls == ['fft']
         assert result['metadata']['algorithm'] == 'fast_fft_phase'
         assert result['metadata']['mode'] == 'fast_preview'
+
+    def test_stitcher_ignores_prebuilt_composites(self):
+        stitcher = Stitcher(has_turret=False)
+        frame = pd.DataFrame(
+            [
+                {
+                    'Filepath': 'raw_bf.tiff',
+                    'Composite': False,
+                    'Stitched': False,
+                    'ZProject': False,
+                    'Video': False,
+                    'Hyperstack': False,
+                },
+                {
+                    'Filepath': 'derived_composite.tiff',
+                    'Composite': True,
+                    'Stitched': False,
+                    'ZProject': False,
+                    'Video': False,
+                    'Hyperstack': False,
+                },
+            ]
+        )
+
+        filtered = stitcher._filter_ignored_types(frame)
+
+        assert filtered['Filepath'].tolist() == ['raw_bf.tiff']

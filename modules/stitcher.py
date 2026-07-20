@@ -79,6 +79,11 @@ class Stitcher(ProtocolPostProcessor):
 
     def _filter_ignored_types(self, df: pd.DataFrame) -> pd.DataFrame:
 
+        # A composite is a derived display/analysis artifact, not a raw channel
+        # tile. Stitch raw channels first; a composite can only be generated
+        # after those stitched channel geometries agree.
+        df = df[df[PostFunction.COMPOSITE.value] == False]  # noqa: E712 -- pandas mask
+
         # Skip already stitched outputs
         df = df[df[self._post_function.value] == False]  # noqa: E712 -- pandas mask
 
