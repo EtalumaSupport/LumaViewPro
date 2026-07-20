@@ -979,3 +979,41 @@ class TestStageConstrainedStitchModes:
         assert result['metadata']['algorithm'] == 'quality_local_ncc'
         assert result['metadata']['pixel_policy'] == 'source_preserving'
         assert result['metadata']['overlap']['has_overlap'] is True
+
+    def test_fast_preview_overlap_route_uses_fft_not_quality_ncc(self, tmp_path, monkeypatch):
+        frame = pd.DataFrame(
+            [
+                {'Filepath': 'a.tiff', 'X': 0.050, 'Y': 0.0, 'Color': 'BF'},
+                {'Filepath': 'b.tiff', 'X': 0.0, 'Y': 0.0, 'Color': 'BF'},
+            ]
+        )
+        calls = []
+
+        def fft_success(*args, **kwargs):
+            calls.append('fft')
+            return {
+                'status': True,
+                'error': None,
+                'image': np.zeros((100, 150), dtype=np.uint8),
+                'significant_bits': 8,
+                'metadata': {'center': {'x': 0.025, 'y': 0.0}},
+            }
+
+        monkeypatch.setattr(
+            'modules.stitching_core._read_tile_with_depth',
+            lambda *_: (np.ones((100, 100), dtype=np.uint8), 8),
+        )
+        monkeypatch.setattr('modules.stitching_core.fft_phase_stitcher', fft_success)
+        monkeypatch.setattr(
+            'modules.stitching_core.overlap_stitcher',
+            lambda *_args, **_kwargs: pytest.fail('Fast Preview must not use Quality NCC'),
+        )
+
+        result = channel_aware_stitcher(
+            tmp_path, frame, pixel_size_um=1.0, stitching_mode='fast_preview'
+        )
+
+        assert result['status'] is True
+        assert calls == ['fft']
+        assert result['metadata']['algorithm'] == 'fast_fft_phase'
+        assert result['metadata']['mode'] == 'fast_preview'
