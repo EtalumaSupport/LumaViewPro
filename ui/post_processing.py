@@ -242,7 +242,7 @@ class QuickEnhanceControls(BoxLayout):
 class StitchControls(BoxLayout):
     done = BooleanProperty(False)
     stitching_mode = StringProperty('Quality')
-    _MODE_VALUES = {
+    _MODE_VALUES: ClassVar[dict[str, str]] = {
         'Quality': Stitcher.QUALITY_MODE,
         'Fast Preview': Stitcher.FAST_PREVIEW_MODE,
     }
@@ -263,8 +263,12 @@ class StitchControls(BoxLayout):
         gui_logger.button('RUN_STITCHER', f'path={path} mode={stitching_mode}')
         ctx = _app_ctx.ctx
         status_map = {True: 'Success', False: 'FAILED'}
-        popup.title = f'Stitcher - {mode_label}'
-        popup.text = 'Generating stitched images...'
+        popup.title = f'{mode_label} Stitch'
+        popup.text = (
+            f'Running {mode_label} Stitch.\n'
+            'Estimating remaining time after the first tile group.\n'
+            'Source pixels and channel colors are preserved.'
+        )
         popup.progress = 0
         popup.auto_dismiss = False
 
@@ -288,20 +292,28 @@ class StitchControls(BoxLayout):
 
     def stitcher_callback(self, popup, status_map, result=None, exception=None):
         if result is None:
-            popup.text = 'Stitching images - FAILED'
+            popup.text = (
+                'Stitching could not be completed. No console error is shown here.\n'
+                'Open Support > Logs and search for “Stitcher:” for the diagnostic details.'
+            )
             Clock.schedule_once(lambda dt: popup.dismiss(), 5)
             return
 
         if result.get('degraded'):
-            final_text = 'Stitching images - Success (degraded)'
-            final_text += f'\n{result.get("message", "Fallback stitching was used.")}'
+            final_text = (
+                'Stitching complete with geometry-only fallback for one or more groups.\n'
+                'Review the mosaic geometry; detailed reasons are in Support > Logs.'
+            )
             popup.text = final_text
             Clock.schedule_once(lambda dt: popup.dismiss(), 5)
             return
 
         final_text = f'Stitching images - {status_map[result["status"]]}'
         if result['status'] is False:
-            final_text += f'\n{result["message"]}'
+            final_text = (
+                'Stitching could not be completed for one or more tile groups.\n'
+                'No console error is shown here. Open Support > Logs and search for “Stitcher:”.'
+            )
             popup.text = final_text
             Clock.schedule_once(lambda dt: popup.dismiss(), 5)
             return

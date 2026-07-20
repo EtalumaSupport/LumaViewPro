@@ -313,7 +313,7 @@ def estimate_phase_offset(
     max_correction_px: int = 24,
     min_overlap_px: int = 16,
 ) -> tuple[int, int, float]:
-    """Estimate moving-tile correction with FFT phase correlation."""
+    """Bounded FFT phase correction for an already-known overlap edge."""
     views = _overlap_views(
         _gray_float(reference),
         _gray_float(moving),
@@ -326,6 +326,8 @@ def estimate_phase_offset(
     ref_view, mov_view = views
     if ref_view.shape[0] < min_overlap_px or ref_view.shape[1] < min_overlap_px:
         return 0, 0, -1.0
+    if float(ref_view.std()) <= 1e-6 or float(mov_view.std()) <= 1e-6:
+        return 0, 0, -1.0
 
     window = cv2.createHanningWindow((ref_view.shape[1], ref_view.shape[0]), cv2.CV_32F)
     shift, response = cv2.phaseCorrelate(
@@ -335,8 +337,8 @@ def estimate_phase_offset(
     )
     corr_x = int(round(-shift[0]))
     corr_y = int(round(-shift[1]))
-    corr_x = int(np.clip(corr_x, -max_correction_px, max_correction_px))
-    corr_y = int(np.clip(corr_y, -max_correction_px, max_correction_px))
+    if abs(corr_x) > max_correction_px or abs(corr_y) > max_correction_px:
+        return 0, 0, float(response)
     return corr_x, corr_y, float(response)
 
 
@@ -477,8 +479,9 @@ def stitch_registered_tiles(
     min_overlap_px: int = 16,
     output_shape: tuple[int, int] | None = None,
     estimator: Callable[..., tuple[int, int, float]] = estimate_overlap_offset,
+    blend_mode: str = 'average',
 ) -> tuple[np.ndarray, list[dict]]:
-    """Register overlapping tiles, then average-blend them into one image."""
+    """Register tiles, then compose them with an explicit pixel policy."""
     if not tiles:
         raise ValueError('Need at least one tile to stitch')
 
@@ -516,6 +519,41 @@ def stitch_registered_tiles(
     else:
         acc_shape = (max_y - min_y, max_x - min_x, sample.shape[2])
         weight_shape = (max_y - min_y, max_x - min_x, 1)
+
+    if blend_mode == 'source_preserving':
+        output = np.zeros(acc_shape, dtype=sample.dtype)
+        covered = np.zeros((max_y - min_y, max_x - min_x), dtype=bool)
+        for tile in registered:
+            image = tile['tile']
+            x0 = int(tile['registered_x_px']) - min_x
+            y0 = int(tile['registered_y_px']) - min_y
+            dst_x0, dst_y0 = max(0, x0), max(0, y0)
+            dst_x1 = min(acc_shape[1], x0 + image.shape[1])
+            dst_y1 = min(acc_shape[0], y0 + image.shape[0])
+            if dst_x1 <= dst_x0 or dst_y1 <= dst_y0:
+                continue
+            src_x0, src_y0 = dst_x0 - x0, dst_y0 - y0
+            src_x1 = src_x0 + (dst_x1 - dst_x0)
+            src_y1 = src_y0 + (dst_y1 - dst_y0)
+            take = ~covered[dst_y0:dst_y1, dst_x0:dst_x1]
+            destination = output[dst_y0:dst_y1, dst_x0:dst_x1]
+            source = image[src_y0:src_y1, src_x0:src_x1]
+            if sample.ndim == 2:
+                destination[take] = source[take]
+            else:
+                destination[take, :] = source[take, :]
+            covered[dst_y0:dst_y1, dst_x0:dst_x1][take] = True
+        logger.info(
+            '[StitchPerf] stitch_registered_tiles register=%.1fms source-preserving '
+            'tiles=%d output_shape=%s output_dtype=%s',
+            register_ms,
+            len(tiles),
+            output.shape,
+            output.dtype,
+        )
+        return output, registered
+    if blend_mode != 'average':
+        raise ValueError(f'Unknown stitch blend mode: {blend_mode}')
 
     # float32 (not float64): each whole-mosaic canvas can be multiple GB, and
     # the blend is an integer-pixel average. Products/sums of uint8/uint16

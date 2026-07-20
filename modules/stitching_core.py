@@ -20,6 +20,7 @@ import modules.common_utils as common_utils
 import modules.image_utils as image_utils
 from modules.stitch_algorithms import (
     crop_to_content,
+    estimate_overlap_offset,
     estimate_phase_offset,
     feature_stitch,
     stitch_registered_tiles,
@@ -44,6 +45,48 @@ def _read_tile_with_depth(path: pathlib.Path, filename: str) -> tuple[np.ndarray
 def _read_tile(path: pathlib.Path, filename: str) -> np.ndarray:
     image, _ = _read_tile_with_depth(path, filename)
     return image
+
+
+def infer_stage_overlap(
+    df: pd.DataFrame,
+    *,
+    pixel_size_um: float | None,
+    tile_shape: tuple[int, int],
+) -> dict:
+    """Infer physical overlap from recorded stage spacing, never UI intent.
+
+    A zero-overlap acquisition must not enter any content-registration path.
+    The result is carried into the output/log metadata so support can diagnose
+    what the software actually observed.
+    """
+    result = {
+        'has_overlap': False,
+        'x_percent': None,
+        'y_percent': None,
+        'source': 'stage_coordinates',
+    }
+    if pixel_size_um is None or pixel_size_um <= 0 or len(df) < 2:
+        result['reason'] = 'pixel_size_unavailable'
+        return result
+
+    def percent(values: pd.Series, tile_length: int):
+        positions = np.sort(values.astype(float).unique())
+        steps = np.diff(positions) * 1000.0 / pixel_size_um
+        steps = steps[steps > 0]
+        if steps.size == 0:
+            return None
+        return max(
+            0.0,
+            min(100.0, (1.0 - float(np.median(steps)) / tile_length) * 100.0),
+        )
+
+    result['x_percent'] = percent(df['X'], tile_shape[1])
+    result['y_percent'] = percent(df['Y'], tile_shape[0])
+    result['has_overlap'] = bool(
+        (result['x_percent'] is not None and result['x_percent'] > 0.5)
+        or (result['y_percent'] is not None and result['y_percent'] > 0.5)
+    )
+    return result
 
 
 def _write_output(
@@ -266,6 +309,9 @@ def overlap_stitcher(
     df: pd.DataFrame,
     pixel_size_um: float | None,
     output_file_loc: pathlib.Path | None = None,
+    estimator=estimate_overlap_offset,
+    algorithm: str = 'quality_local_ncc',
+    blend_mode: str = 'source_preserving',
 ) -> dict:
     """Use the newest stage-position + overlap-registration stitch math."""
     center = _center_metadata(df)
@@ -322,6 +368,8 @@ def overlap_stitcher(
         stitched_img, registered_tiles = stitch_registered_tiles(
             tiles,
             output_shape=nominal_output_shape,
+            estimator=estimator,
+            blend_mode=blend_mode,
         )
         logger.info(
             '[StitchPerf] overlap register+blend %.1fms output_shape=%s dtype=%s',
@@ -343,8 +391,9 @@ def overlap_stitcher(
         df=df,
         metadata={
             'center': center,
-            'algorithm': 'overlap_stitcher',
+            'algorithm': algorithm,
             'pixel_size_um': pixel_size_um,
+            'pixel_policy': blend_mode,
             'registered_tiles': registered_tiles,
         },
         significant_bits=image_utils.resolve_output_depth(input_depths),
@@ -357,90 +406,15 @@ def fft_phase_stitcher(
     pixel_size_um: float | None,
     output_file_loc: pathlib.Path | None = None,
 ) -> dict:
-    """Use stage-position placement plus FFT phase-correlation registration."""
-    center = _center_metadata(df)
-    if pixel_size_um is None or pixel_size_um <= 0:
-        return _failure('fft_phase_stitcher', 'pixel_size_um must be greater than 0', center)
-
-    try:
-        frame = df.copy()
-        frame['X'] = frame['X'].astype(float)
-        frame['Y'] = frame['Y'].astype(float)
-
-        read_t0 = time.perf_counter()
-        images = {}
-        input_depths = []
-        for _, row in frame.iterrows():
-            image, significant_bits = _read_tile_with_depth(path, row['Filepath'])
-            images[row['Filepath']] = image
-            input_depths.append(significant_bits)
-        tile_bytes = sum(int(image.nbytes) for image in images.values())
-        logger.info(
-            '[StitchPerf] fft-phase read %.1fms tiles=%d bytes=%d',
-            (time.perf_counter() - read_t0) * 1000.0,
-            len(images),
-            tile_bytes,
-        )
-        sample_row = frame.iloc[0]
-        sample = images[sample_row['Filepath']]
-        image_h = sample.shape[0]
-        image_w = sample.shape[1]
-
-        x_max = frame['X'].max()
-        y_min = frame['Y'].min()
-        frame['x_pix'] = ((x_max - frame['X']) * 1000 / pixel_size_um).round().astype(int)
-        frame['y_pix'] = ((frame['Y'] - y_min) * 1000 / pixel_size_um).round().astype(int)
-
-        if int(frame['x_pix'].max() + image_w) <= 0 or int(
-            frame['y_pix'].max() + image_h
-        ) <= 0:
-            return _failure('fft_phase_stitcher', 'invalid stitched image dimensions', center)
-        nominal_output_shape = (
-            int(frame['y_pix'].max() + image_h),
-            int(frame['x_pix'].max() + image_w),
-        )
-
-        tiles = [
-            {
-                'tile': images[row['Filepath']],
-                'x_px': int(row['x_pix']),
-                'y_px': int(row['y_pix']),
-            }
-            for _, row in frame.iterrows()
-        ]
-        stitch_t0 = time.perf_counter()
-        stitched_img, registered_tiles = stitch_registered_tiles(
-            tiles,
-            max_correction_px=24,
-            min_overlap_px=16,
-            output_shape=nominal_output_shape,
-            estimator=estimate_phase_offset,
-        )
-        logger.info(
-            '[StitchPerf] fft-phase register+blend %.1fms output_shape=%s dtype=%s',
-            (time.perf_counter() - stitch_t0) * 1000.0,
-            stitched_img.shape,
-            stitched_img.dtype,
-        )
-    except Exception as exc:
-        return _failure(
-            'fft_phase_stitcher',
-            f'FFT phase stitching failed: {type(exc).__name__}: {exc}',
-            center,
-        )
-
-    return _result(
-        image=stitched_img,
+    """Fast, stage-constrained preview registration for real overlaps only."""
+    return overlap_stitcher(
         path=path,
-        output_file_loc=output_file_loc,
         df=df,
-        metadata={
-            'center': center,
-            'algorithm': 'fft_phase_stitcher',
-            'pixel_size_um': pixel_size_um,
-            'registered_tiles': registered_tiles,
-        },
-        significant_bits=image_utils.resolve_output_depth(input_depths),
+        pixel_size_um=pixel_size_um,
+        output_file_loc=output_file_loc,
+        estimator=estimate_phase_offset,
+        algorithm='fast_fft_phase',
+        blend_mode='source_preserving',
     )
 
 
@@ -653,56 +627,55 @@ def channel_aware_stitcher(
 ) -> dict:
     """Route channels through the preferred algorithm and fallbacks.
 
-    BF: feature stitch -> overlap registration -> stage-position -> simple grid.
-    Fluorescence/other: overlap registration -> stage-position -> simple grid.
+    Fast Preview uses bounded FFT phase correlation. Quality uses bounded local
+    NCC. Both use recorded stage geometry and retain source pixels; OpenCV's
+    unconstrained panorama stitcher is deliberately not an automatic fallback.
     """
-    color = str(df.iloc[0].get('Color', ''))
+    mode = str(stitching_mode or 'quality').lower()
+    if mode not in {'quality', 'fast_preview'}:
+        return _failure('channel_aware_stitcher', f'unknown stitching mode: {mode}')
+    sample, _ = _read_tile_with_depth(path, df.iloc[0]['Filepath'])
+    overlap = infer_stage_overlap(df, pixel_size_um=pixel_size_um, tile_shape=sample.shape[:2])
+    logger.info(
+        '[Stitch] mode=%s inferred_overlap x=%s%% y=%s%% has_overlap=%s source=%s',
+        mode,
+        overlap['x_percent'],
+        overlap['y_percent'],
+        overlap['has_overlap'],
+        overlap['source'],
+    )
     shared = {
         'path': path,
         'df': df,
         'output_file_loc': output_file_loc,
     }
-    mode = str(stitching_mode or 'quality')
     chain: list[tuple[str, Callable[[], dict]]] = []
-    if mode == 'fast_preview':
-        chain.extend(
-            [
-                (
-                    'fft_phase_stitcher',
-                    lambda: fft_phase_stitcher(**shared, pixel_size_um=pixel_size_um),
-                ),
-                (
-                    'simple_position_stitcher',
-                    lambda: simple_position_stitcher(**shared),
-                ),
-            ]
-        )
-    elif color == 'BF':
+    if overlap['has_overlap'] and mode == 'fast_preview':
         chain.append(
             (
-                'bf_feature_stitcher',
-                lambda: bf_feature_stitcher(**shared),
+                'fast_fft_phase',
+                lambda: fft_phase_stitcher(**shared, pixel_size_um=pixel_size_um),
             )
         )
-    if mode != 'fast_preview':
-        chain.extend(
-            [
-                (
-                    'overlap_stitcher',
-                    lambda: overlap_stitcher(**shared, pixel_size_um=pixel_size_um),
-                ),
-                (
-                    'stage_position_stitcher',
-                    lambda: stage_position_stitcher(**shared, pixel_size_um=pixel_size_um),
-                ),
-                (
-                    'simple_position_stitcher',
-                    lambda: simple_position_stitcher(**shared),
-                ),
-            ]
+    elif overlap['has_overlap']:
+        chain.append(
+            (
+                'quality_local_ncc',
+                lambda: overlap_stitcher(**shared, pixel_size_um=pixel_size_um),
+            )
         )
+    # At zero overlap, stage placement is the quality-preserving operation.
+    chain.extend(
+        [
+            (
+                'stage_position_stitcher',
+                lambda: stage_position_stitcher(**shared, pixel_size_um=pixel_size_um),
+            ),
+            ('simple_position_stitcher', lambda: simple_position_stitcher(**shared)),
+        ]
+    )
     row0 = df.iloc[0]
-    return _run_fallback_chain(
+    result = _run_fallback_chain(
         chain,
         context={
             'well': row0.get('Well', ''),
@@ -710,3 +683,7 @@ def channel_aware_stitcher(
             'tile_group_id': row0.get('Tile Group ID', ''),
         },
     )
+    result.setdefault('metadata', {})['mode'] = mode
+    result['metadata']['overlap'] = overlap
+    result['metadata']['pixel_policy'] = 'source_preserving'
+    return result
