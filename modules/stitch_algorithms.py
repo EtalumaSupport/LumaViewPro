@@ -14,6 +14,7 @@ lens distortion and illumination variation.
 """
 
 from collections import deque
+from collections.abc import Callable
 import time
 
 import cv2
@@ -309,28 +310,30 @@ def estimate_phase_offset(
     moving: np.ndarray,
     nominal_dx: int,
     nominal_dy: int,
-    max_correction_px: int = 12,
+    max_correction_px: int = 24,
     min_overlap_px: int = 16,
 ) -> tuple[int, int, float]:
-    """Bounded FFT phase-correlation correction for a known overlap edge.
-
-    This is deliberately not OpenCV's unconstrained panorama stitcher.  The
-    recorded stage position defines the only search region; a low-signal,
-    no-overlap, or implausibly-large correction returns the nominal placement.
-    """
-    ref_gray = _gray_float(reference)
-    mov_gray = _gray_float(moving)
-    views = _overlap_views(ref_gray, mov_gray, nominal_dx, nominal_dy)
+    """Bounded FFT phase correction for an already-known overlap edge."""
+    views = _overlap_views(
+        _gray_float(reference),
+        _gray_float(moving),
+        dx=nominal_dx,
+        dy=nominal_dy,
+    )
     if views is None:
         return 0, 0, -1.0
+
     ref_view, mov_view = views
     if ref_view.shape[0] < min_overlap_px or ref_view.shape[1] < min_overlap_px:
         return 0, 0, -1.0
     if float(ref_view.std()) <= 1e-6 or float(mov_view.std()) <= 1e-6:
         return 0, 0, -1.0
+
     window = cv2.createHanningWindow((ref_view.shape[1], ref_view.shape[0]), cv2.CV_32F)
     shift, response = cv2.phaseCorrelate(
-        ref_view.astype(np.float32), mov_view.astype(np.float32), window
+        ref_view.astype(np.float32),
+        mov_view.astype(np.float32),
+        window,
     )
     corr_x = int(round(-shift[0]))
     corr_y = int(round(-shift[1]))
@@ -350,7 +353,7 @@ def align_tile_positions(
     tiles: list[dict],
     max_correction_px: int = 12,
     min_overlap_px: int = 16,
-    estimator=estimate_overlap_offset,
+    estimator: Callable[..., tuple[int, int, float]] = estimate_overlap_offset,
 ) -> list[dict]:
     """Return tiles with overlap-registered x/y placement corrections.
 
@@ -475,7 +478,7 @@ def stitch_registered_tiles(
     max_correction_px: int = 12,
     min_overlap_px: int = 16,
     output_shape: tuple[int, int] | None = None,
-    estimator=estimate_overlap_offset,
+    estimator: Callable[..., tuple[int, int, float]] = estimate_overlap_offset,
     blend_mode: str = 'average',
 ) -> tuple[np.ndarray, list[dict]]:
     """Register tiles, then compose them with an explicit pixel policy."""

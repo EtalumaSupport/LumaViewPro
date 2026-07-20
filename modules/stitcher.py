@@ -61,19 +61,20 @@ class Stitcher(ProtocolPostProcessor):
         # a single-channel stitch keeps its channel, and a composite-stitch
         # carries 'Composite' automatically (its Color is 'Composite'), so no
         # leaked channel token needs removing.
+        post = ('stitched',)
+        if kwargs.get('stitching_mode') == self.FAST_PREVIEW_MODE:
+            post = ('stitched', self._FAST_PREVIEW_SUFFIX)
         name = common_utils.build_step_name(
             common_utils.step_components(
                 row0,
                 tile=None,
                 scan_count=row0['Scan Count'],
                 objective=objective_short_name,
-                post=('stitched',),
+                post=post,
             )
         )
 
         prefix = self._prepend_capture_root(name, kwargs)
-        if kwargs.get('stitching_mode') == self.FAST_PREVIEW_MODE:
-            prefix = f'{prefix}_{self._FAST_PREVIEW_SUFFIX}'
         outfile = f'{prefix}.tiff'
         return outfile
 
