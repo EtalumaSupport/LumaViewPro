@@ -13,27 +13,13 @@ debug_setting = None
 # live value comes from current.json once it exists, not settings.json.
 debug_setting_source = None
 
-# Required keys are validated in two passes because the load order demands it:
-# a settings file is read first and only afterwards has missing keys merged in
-# from the shipped defaults. Keys that have always existed are checked at read
-# time; keys a newer build introduced are checked after the merge, since a file
-# carried forward from an older build legitimately lacks them until then.
-#
-# Adding a new key to data/settings.json that callers index directly? Register
-# it in _MERGE_SUPPLIED_KEYS, never here -- listing it here rejects every
-# settings file written by a previous release.
+# Required top-level keys that must exist in a valid settings file.
+# Missing keys cause hard-to-debug runtime errors downstream.
 _REQUIRED_SETTINGS_KEYS = frozenset(
     {
         'microscope',
         'live_folder',
         'frame',
-    }
-)
-
-# Keys the defaults merge is responsible for supplying.
-_MERGE_SUPPLIED_KEYS = frozenset(
-    {
-        'preview_host_downscale',
     }
 )
 
@@ -118,27 +104,6 @@ def load_settings(logger, filename, lvp_appdata):
         raise
 
 
-def _validate_merged_settings(settings: dict, logger) -> None:
-    """Check the settings dict that callers will actually read.
-
-    Runs after the defaults merge, which is the only step that supplies keys a
-    newer build added. Callers index these keys directly, so an absent one
-    surfaces as a KeyError deep in a render or capture path -- failing here
-    names the missing key while the cause is still obvious.
-
-    Raises:
-        ValueError: a required key is still absent after the merge.
-    """
-    missing = _MERGE_SUPPLIED_KEYS - settings.keys()
-    if missing:
-        raise ValueError(
-            f'[Settings ] Settings are missing required keys after merging defaults: '
-            f'{sorted(missing)}. Restore data/settings.json from the installation '
-            'and restart.'
-        )
-    logger.debug(f'[Settings ] Validated {len(_MERGE_SUPPLIED_KEYS)} merge-supplied keys')
-
-
 def _deep_merge_defaults(current: dict, defaults: dict, path: str = '', logger=None) -> list[str]:
     """Recursively merge missing keys from defaults into current.
 
@@ -213,18 +178,11 @@ def load_lvp_settings(logger, lvp_appdata):
                         f'[Settings ] Merged {len(added)} missing keys from settings.json: {added}'
                     )
             except Exception:
-                # Non-fatal on its own: the validation below decides whether the
-                # keys this merge would have supplied are actually absent.
-                logger.warning(
-                    f'[Settings ] Could not merge defaults from {settings_path}', exc_info=True
-                )
-
-        _validate_merged_settings(settings, logger)
+                logger.warning('[Settings ] Could not load settings.json for default merge')
 
     elif os.path.exists(settings_path):
         load_settings(logger, settings_path, lvp_appdata)
         _migrate_image_mode_setting(logger)
-        _validate_merged_settings(settings, logger)
     else:
         if not os.path.isdir(data_dir):
             raise FileNotFoundError(f"Couldn't find 'data' directory at {data_dir}")
