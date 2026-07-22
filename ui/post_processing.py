@@ -83,9 +83,7 @@ class QuickEnhanceControls(BoxLayout):
         self.source_folder = str(folder)
         self.source_path = ''
         self.input_ready = folder.is_dir()
-        self.status_text = (
-            f'Folder selected: {folder.name}. Folder export is ready; preview controls require Select Image.'
-        )
+        self.status_text = f'Folder selected: {folder.name}. Folder export is ready; preview controls require Select Image.'
 
     def _settings(self) -> QuickEnhanceSettings:
         return QuickEnhanceSettings.for_preset(self.preset)
@@ -162,7 +160,9 @@ class QuickEnhanceControls(BoxLayout):
         settings = self._settings()
         errors = self._enhancer.validate(
             settings,
-            np.dtype(np.uint16 if self._significant_bits and self._significant_bits > 8 else np.uint8),
+            np.dtype(
+                np.uint16 if self._significant_bits and self._significant_bits > 8 else np.uint8
+            ),
             self._significant_bits or 8,
         )
         if errors:

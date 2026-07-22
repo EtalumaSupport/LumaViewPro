@@ -74,3 +74,28 @@ class CameraSettingRejected(Exception):  # noqa: N818 -- named for the event it 
         super().__init__(f'{setting}: driver rejected {requested!r}')
         self.setting = setting
         self.requested = requested
+
+
+class FrameDepthError(Exception):
+    """A frame carries a payload value above its declared significant-bits depth.
+
+    The downconvert to 8-bit scales against ``significant_bits`` -- the meaningful
+    payload range the frame was captured under. A pixel larger than that range is
+    a depth-contract violation: the significant-bits value is wrong for the data.
+    Raised explicitly so the failure is loud and typed regardless of the
+    downconvert arithmetic underneath -- a value-indexed LUT happens to raise
+    IndexError today, but a scale-and-clip converter would silently map the
+    over-range frame to white instead.
+
+    Attributes:
+        value: The offending pixel value.
+        significant_bits: The declared depth it exceeded.
+    """
+
+    def __init__(self, value: int, significant_bits: int):
+        super().__init__(
+            f'frame value {value} exceeds the declared {significant_bits}-bit depth '
+            f'(max {(1 << significant_bits) - 1}); the significant-bits contract is wrong'
+        )
+        self.value = value
+        self.significant_bits = significant_bits

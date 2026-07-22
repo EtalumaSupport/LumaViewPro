@@ -23,6 +23,8 @@ XPASS when its fix arrives, at which point the marker is removed in that commit.
 import numpy as np
 import pytest
 
+from modules import image_utils
+from modules.exceptions import FrameDepthError
 from modules.lumascope_api import Lumascope
 
 
@@ -469,10 +471,11 @@ class TestConverterCollapse:
     def test_16to8_pins_deviation_from_legacy_truncation(self):
         """Pin the deliberate 16->8 map choice against the legacy >>8 (/256).
 
-        The map is an exact linear rescale (value / 65535 * 255), not the old
-        >>8 truncation. Both send full scale to 255, but they differ by at most
-        1 LSB at exactly 32640 of the 65536 inputs (the rescale rounds where
-        >>8 truncates). Locking the bound and the count documents this as a
+        The map is a linear rescale (value / 65535 * 255) then a truncating
+        .astype(uint8), chosen over the old >>8. Both truncate and send full
+        scale to 255, but they differ by at most 1 LSB at exactly 32640 of the
+        65536 inputs because the divisor differs (65535 vs 65536), not because
+        the rescale rounds. Locking the bound and the count documents this as a
         decision, so a future change to the map is caught rather than absorbed.
         """
         from modules import image_utils
@@ -541,11 +544,14 @@ class TestEncodeDisplayJpgDepth:
     def test_wrong_depth_on_summed_frame_is_loud(self):
         from modules import image_utils
 
-        # The pre-fix hardcoded-12 path indexed a 4096-entry table with a
-        # summed value > 4095 -- an out-of-range crash, not a silent wrong
-        # image. Pinning it documents why the depth must be stated correctly.
+        # A summed value > 4095 declared as 12-bit violates the depth contract.
+        # The explicit range check raises a typed FrameDepthError naming the
+        # value and depth -- loud and independent of the downconvert arithmetic,
+        # not the bare IndexError that LUT indexing happened to raise before, and
+        # never a silent wrong image. Pinning it documents why the depth must be
+        # stated correctly.
         frame = np.full((8, 8), 60000, dtype=np.uint16)
-        with pytest.raises(IndexError):
+        with pytest.raises(FrameDepthError):
             image_utils.encode_display_jpg(frame, 'BF', significant_bits=12)
 
 
@@ -578,3 +584,53 @@ class TestCellCountConverterRouting:
             passed_sig = args[1]
         assert passed_sig == 16
         legacy.assert_not_called()
+
+
+class TestConvertTo8BitDepthGuard:
+    """The downconvert fails loud + typed when a payload exceeds its declared depth.
+
+    A value above ``(1 << significant_bits) - 1`` is a significant-bits contract
+    violation -- the declared depth is wrong for the data. It must raise
+    FrameDepthError carrying the value and the depth, not the IndexError that is
+    an accident of LUT indexing and not a silent white-clip. Both the direct
+    return and the reused-buffer (``out=``) preview path are covered, since the
+    preview takes the ``out=`` path.
+    """
+
+    def test_over_range_value_raises_frame_depth_error(self):
+        frame = np.full((4, 4), 5000, dtype=np.uint16)  # 5000 > 4095 = 12-bit max
+        with pytest.raises(FrameDepthError) as exc:
+            image_utils.convert_to_8bit(frame, 12)
+        assert '5000' in str(exc.value)
+        assert '12' in str(exc.value)
+        assert exc.value.value == 5000
+        assert exc.value.significant_bits == 12
+
+    def test_over_range_value_raises_on_out_buffer_path(self):
+        frame = np.full((4, 4), 1500, dtype=np.uint16)  # 1500 > 1023 = 10-bit max
+        buf = np.empty((4, 4), dtype=np.uint8)
+        with pytest.raises(FrameDepthError):
+            image_utils.convert_to_8bit(frame, 10, out=buf)
+
+    def test_boundary_value_converts_and_first_over_value_raises(self):
+        # The exact edge the guard hinges on: the max in-range value (4095 for
+        # 12-bit) is a valid LUT index and must convert to full scale, while the
+        # first out-of-range value (4096) raises FrameDepthError.
+        in_range = np.full((4, 4), 4095, dtype=np.uint16)
+        result = image_utils.convert_to_8bit(in_range, 12)
+        assert result.dtype == np.uint8
+        assert int(result.max()) == 255
+        over = np.full((4, 4), 4096, dtype=np.uint16)
+        with pytest.raises(FrameDepthError):
+            image_utils.convert_to_8bit(over, 12)
+
+    def test_full_scale_value_maps_to_255_and_does_not_raise(self):
+        frame = np.full((4, 4), 4095, dtype=np.uint16)  # exactly 12-bit max
+        result = image_utils.convert_to_8bit(frame, 12)
+        assert result.dtype == np.uint8
+        assert np.all(result == 255)
+
+    def test_sixteen_bit_container_never_raises(self):
+        frame = np.full((4, 4), 65535, dtype=np.uint16)  # full uint16 under sig=16
+        result = image_utils.convert_to_8bit(frame, 16)
+        assert np.all(result == 255)

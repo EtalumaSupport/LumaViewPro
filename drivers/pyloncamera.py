@@ -4294,7 +4294,11 @@ class _PylonImageGrabWorker:
         a raised exception here means the underlying buffer is gone.
         """
         try:
-            img = grabResult.GetArray().copy()
+            # GetArray() already returns a numpy array backed by its own copy of
+            # the SDK buffer -- decoupled from the reused grab-result pool, so it
+            # stays valid after grabResult is released downstream. A trailing
+            # .copy() would be a redundant second full-frame memmove per frame.
+            img = grabResult.GetArray()
         except Exception as e:
             # H2/H3 diagnostic: Stage A enqueued this with GrabSucceeded=True.
             # Re-read GrabSucceeded + GetErrorCode/Description on Stage B's

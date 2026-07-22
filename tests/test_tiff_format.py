@@ -13,6 +13,7 @@ Key requirements:
 - Windows Preview compatibility: no tag 320 (colormap) on uint16 MINISBLACK images
 """
 
+import datetime
 from unittest import mock
 
 import numpy as np
@@ -1128,3 +1129,83 @@ class TestReportedDepthMatchesFile:
         # Scientific keeps its narrow depth; 8-bit stays 8.
         assert image_utils.written_significant_bits('right_aligned', 12, u16, False) == 12
         assert image_utils.written_significant_bits('8bit', 8, np.dtype(np.uint8), False) == 8
+
+
+class TestPostprocMetadataRoundTrip:
+    """read_postproc_input_metadata must recover acquisition context from every
+    container write_tiff can emit -- shaped JSON (8-bit), ImageJ (16-bit mono),
+    and OME-XML. A 16-bit non-OME scan tile lands in the ImageJ container; if the
+    reader cannot parse that container, pixel_size comes back None and stitching
+    silently degrades to an unregistered simple_position montage.
+    """
+
+    def _write(self, data, metadata, path, *, ome, significant_bits, save_encoding):
+        image_utils.write_tiff(
+            data=data,
+            file_loc=path,
+            metadata=metadata,
+            ome=ome,
+            color='BF',
+            significant_bits=significant_bits,
+            save_encoding=save_encoding,
+        )
+
+    def _assert_full(self, result):
+        assert result is not None
+        assert result['pixel_size_um'] == 0.5
+        assert result['plate_pos_mm'] == {'x': 10.0, 'y': 20.0}
+        assert result['channel'] == 'Green'
+        assert result['objective'] == '10x'
+
+    def test_shaped_8bit(self, img_8bit, metadata, tmp_tiff):
+        path = tmp_tiff()
+        self._write(img_8bit, metadata, path, ome=False, significant_bits=8, save_encoding='8bit')
+        self._assert_full(image_utils.read_postproc_input_metadata(path))
+
+    def test_imagej_16bit(self, img_16bit, metadata, tmp_tiff):
+        # 16-bit mono non-OME routes through tifffile's ImageJ container -- the
+        # regression case that read the tiles as pixel_size None.
+        path = tmp_tiff()
+        self._write(
+            img_16bit, metadata, path, ome=False, significant_bits=16, save_encoding='right_aligned'
+        )
+        self._assert_full(image_utils.read_postproc_input_metadata(path))
+
+    def test_imagej_16bit_numpy_positions(self, img_16bit, metadata, tmp_tiff):
+        # Real scan tiles keep stage positions as numpy scalars, which the ImageJ
+        # writer reprs as np.float64(N) -- a call expression literal_eval rejects.
+        # The synthetic plain-float case above does not exercise this; the bench
+        # tiles did, and returned None until the adapter unwrapped the reprs.
+        md = {
+            **metadata,
+            'plate_pos_mm': {'x': np.float64(10.0), 'y': np.float64(20.0)},
+            'z_pos_um': np.float64(1000.0),
+        }
+        path = tmp_tiff()
+        self._write(
+            img_16bit, md, path, ome=False, significant_bits=16, save_encoding='right_aligned'
+        )
+        self._assert_full(image_utils.read_postproc_input_metadata(path))
+
+    def test_ome_16bit(self, img_16bit, metadata, tmp_tiff):
+        path = tmp_tiff()
+        self._write(
+            img_16bit, metadata, path, ome=True, significant_bits=16, save_encoding='right_aligned'
+        )
+        result = image_utils.read_postproc_input_metadata(path)
+        # tifffile's auto-OME serializer keeps pixel size, positions, and channel;
+        # objective is dropped (documented OME lossiness, out of scope for this fix).
+        assert result is not None
+        assert result['pixel_size_um'] == 0.5
+        assert result['plate_pos_mm'] == {'x': 10.0, 'y': 20.0}
+        assert result['channel'] == 'Green'
+
+    def test_timestamp_imagej_16bit(self, img_16bit, metadata, tmp_tiff):
+        # The per-frame timestamp reader shared the same ImageJ blindness.
+        md = {**metadata, 'timestamp_iso': '2026-03-16T12:00:00'}
+        path = tmp_tiff()
+        self._write(
+            img_16bit, md, path, ome=False, significant_bits=16, save_encoding='right_aligned'
+        )
+        ts = image_utils.read_frame_timestamp(path)
+        assert ts == datetime.datetime.fromisoformat('2026-03-16T12:00:00')
