@@ -23,6 +23,41 @@ from fractions import Fraction
 from lvp_logger import logger, version
 
 
+TIFF_SUFFIXES = frozenset({'.tif', '.tiff'})
+
+
+def is_tiff(path: pathlib.Path | str) -> bool:
+    """True when this path names a TIFF the project can read.
+
+    The single answer to "is this a TIFF", shared by every caller that scans a
+    folder, gates a post-processing op, or decides how to write a file back.
+    Matching on the SUFFIX rather than a filename glob is what makes the
+    multi-part `.ome.tiff` form safe: its suffix is plain `.tiff`, so one file
+    yields one answer. Glob patterns cannot express that -- `*.tiff` and
+    `*.ome.tiff` both match the same file, so a caller that unions them counts
+    it twice.
+    """
+    return pathlib.Path(path).suffix.lower() in TIFF_SUFFIXES
+
+
+def find_tiff_files(
+    directory: pathlib.Path | str,
+    recursive: bool = False,
+) -> list[pathlib.Path]:
+    """Return every TIFF under `directory`, each exactly once, sorted.
+
+    De-duplication is structural rather than a cleanup pass: files are
+    enumerated once and filtered by suffix, so there is no pattern-union step in
+    which one file could appear twice. A duplicated tile is not cosmetic
+    downstream -- two rows sharing a nominal stage position collide on the
+    stitcher's lattice key, and the loser is placed without registration
+    correction, which reads as a seam in the montage.
+    """
+    directory = pathlib.Path(directory)
+    walk = directory.rglob('*') if recursive else directory.glob('*')
+    return sorted(p for p in walk if p.is_file() and is_tiff(p))
+
+
 def is_color_shape(shape) -> bool:
     """True when an array of this shape is a 3-channel color image (H, W, 3).
 
@@ -491,7 +526,7 @@ def _load_pixels_and_timestamp(
     if not path.exists():
         raise FileNotFoundError(f'No such pixel file: {path}')
 
-    if path.suffix.lower() in ('.tif', '.tiff'):
+    if is_tiff(path):
         # One open serves every read: the pixel array, the significant-bit depth,
         # and (when asked) the per-frame timestamp come from the same TiffFile
         # handle. load_pixels runs per tile in stitch / zproject / composite, so a
@@ -560,7 +595,7 @@ def read_image_geometry(path: pathlib.Path) -> tuple[tuple[int, ...], np.dtype]:
     path = pathlib.Path(path)
     if not path.exists():
         raise FileNotFoundError(f'No such pixel file: {path}')
-    if path.suffix.lower() in ('.tif', '.tiff'):
+    if is_tiff(path):
         with tf.TiffFile(str(path)) as tif:
             page = tif.pages[0]
             return tuple(page.shape), page.dtype

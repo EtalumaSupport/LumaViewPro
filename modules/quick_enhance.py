@@ -28,7 +28,10 @@ QUANTITATIVE_USE_WARNING = (
     'Quick Enhance is for visual inspection and derived exports. '
     'Use raw images for quantitative analysis.'
 )
-SUPPORTED_SUFFIXES = frozenset({'.tif', '.tiff', '.png', '.jpg', '.jpeg', '.bmp'})
+# Quick Enhance reads more than the project's own capture format, so this is a
+# superset of the TIFF suffixes rather than an independent list -- the two must
+# not be able to disagree about what counts as a TIFF.
+SUPPORTED_SUFFIXES = image_utils.TIFF_SUFFIXES | frozenset({'.png', '.jpg', '.jpeg', '.bmp'})
 MAX_IMAGE_PIXELS = 100_000_000
 
 
@@ -313,7 +316,7 @@ class QuickEnhancer:
                 # display-only component for these composite inputs, so retain
                 # the enhanced RGB data and preserve the Composite metadata.
                 output_for_write = output_for_write[..., :3]
-            if source_path.suffix.lower() not in ('.tif', '.tiff') and output_for_write.ndim == 3:
+            if not image_utils.is_tiff(source_path) and output_for_write.ndim == 3:
                 # cv2 loads PNG/JPEG in BGR(A), whereas TIFF metadata and the
                 # project's TIFF writer are RGB-native. Convert the alpha-free
                 # display payload so a Composite PNG cannot reintroduce RGBA.

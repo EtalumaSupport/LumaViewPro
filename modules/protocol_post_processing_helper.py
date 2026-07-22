@@ -6,6 +6,7 @@ import pathlib
 import pandas as pd
 
 import modules.common_utils as common_utils
+import modules.image_utils as image_utils
 from modules.protocol import Protocol
 from modules.protocol_execution_record import ProtocolExecutionRecord
 from modules.common_utils import PostFunction
@@ -37,11 +38,7 @@ class ProtocolPostProcessingHelper:
         if (len(include_subpaths) != 0) and (len(exclude_subpaths) != 0):
             raise Exception('Specify only include_subpaths OR exclude_subpaths. Not both.')
 
-        tiff_images = path.rglob('*.tif[f]')
-        ome_tiff_images = path.rglob('*.ome.tif[f]')
-        images = []
-        images.extend(tiff_images)
-        images.extend(ome_tiff_images)
+        images = image_utils.find_tiff_files(path, recursive=True)
 
         # If folder is a collection of video frames, set the directory of the protocol record to be 1 level higher
         if '_video' in str(path):

@@ -2,6 +2,7 @@
 
 import json
 import pathlib
+import re
 
 import pandas as pd
 
@@ -17,9 +18,10 @@ from lvp_logger import logger
 
 
 # Manual "Frames" recordings name each frame ManualVideo_Frame_<NNNN>_<ts>.tiff.
-# The [0-9] after the prefix keeps the optional ManualVideo_Frame_HyperStack
-# container out of the frame sequence; .tif* covers .tiff and .tif.
-_MANUAL_FRAME_GLOB = 'ManualVideo_Frame_[0-9]*.tif*'
+# The digit after the prefix keeps the optional ManualVideo_Frame_HyperStack
+# container out of the frame sequence. Which suffixes count as a TIFF is not
+# decided here -- callers pair this name test with the shared TIFF finder.
+_MANUAL_FRAME_RE = re.compile(r'ManualVideo_Frame_\d')
 
 
 class VideoBuilder(ProtocolPostProcessor):
@@ -326,7 +328,7 @@ class VideoBuilder(ProtocolPostProcessor):
 
         Public path-based entry point that wraps VideoWriter directly,
         parallel to the protocol-post-processor pipeline (load_folder ->
-        _create_video). Reads source_dir/*.tiff in lexical filename order
+        _create_video). Reads the TIFFs in source_dir in lexical filename order
         via the legacy-collapse helper so pre-1d 3-channel-replica files
         and post-1d mono files both produce uniform mono input.
 
@@ -358,7 +360,7 @@ class VideoBuilder(ProtocolPostProcessor):
                 "Pass e.g. color='Blue' to specify which layer to false-color."
             )
 
-        tiff_paths = sorted(source_dir.glob('*.tiff')) + sorted(source_dir.glob('*.tif'))
+        tiff_paths = image_utils.find_tiff_files(source_dir)
         if not tiff_paths:
             raise ValueError(f'build_video: no .tiff / .tif files in {source_dir}')
 
@@ -440,7 +442,9 @@ class VideoBuilder(ProtocolPostProcessor):
         # missing or broken record still falls through to load_folder so the
         # user gets the informative protocol error instead of a silent raw build.
         try:
-            return path.is_dir() and any(path.glob(_MANUAL_FRAME_GLOB))
+            return path.is_dir() and any(
+                _MANUAL_FRAME_RE.match(p.name) for p in image_utils.find_tiff_files(path)
+            )
         except OSError:
             return False
 
@@ -469,7 +473,9 @@ class VideoBuilder(ProtocolPostProcessor):
         enable_timestamp_overlay: bool = False,
         **_ignored: dict,
     ) -> dict:
-        frame_paths = sorted(path.glob(_MANUAL_FRAME_GLOB))
+        frame_paths = [
+            p for p in image_utils.find_tiff_files(path) if _MANUAL_FRAME_RE.match(p.name)
+        ]
         if not frame_paths:
             return {
                 'status': False,

@@ -11,7 +11,11 @@ from modules.cell_count import CellCount
 
 
 class PostProcessing:
-    SUPPORTED_IMAGE_TYPES = ('.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff')
+    # A superset of the TIFF suffixes, not an independent list, so this cannot
+    # drift out of agreement with what the rest of the project calls a TIFF.
+    SUPPORTED_IMAGE_TYPES = tuple(
+        sorted(image_utils.TIFF_SUFFIXES | {'.jpg', '.jpeg', '.png', '.bmp'})
+    )
 
     def __init__(self):
         self._cell_count = CellCount()

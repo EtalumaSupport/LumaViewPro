@@ -7,6 +7,7 @@ import time
 
 import pandas as pd
 
+import modules.image_utils as image_utils
 from modules.common_utils import PostFunction
 from modules.objectives_loader import ObjectiveLoader
 from modules.protocol_post_processing_helper import ProtocolPostProcessingHelper
@@ -137,7 +138,7 @@ class ProtocolPostProcessor(abc.ABC):
         # re-readable source for these outputs, so stop here with a clear
         # message instead of letting tifffile raise partway through a group.
         source_suffixes = {pathlib.Path(str(fp)).suffix.lower() for fp in df['Filepath']}
-        if source_suffixes and source_suffixes.isdisjoint({'.tif', '.tiff'}):
+        if source_suffixes and source_suffixes.isdisjoint(image_utils.TIFF_SUFFIXES):
             return {
                 'status': False,
                 'message': (
