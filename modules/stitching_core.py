@@ -47,11 +47,6 @@ def _read_tile_with_depth(path: pathlib.Path, filename: str) -> tuple[np.ndarray
     return image_utils.load_pixels(path / filename, collapse_legacy_false_color=False)
 
 
-def _read_tile(path: pathlib.Path, filename: str) -> np.ndarray:
-    image, _ = _read_tile_with_depth(path, filename)
-    return image
-
-
 def infer_stage_overlap(
     df: pd.DataFrame,
     *,
