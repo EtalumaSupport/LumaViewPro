@@ -2755,10 +2755,12 @@ class TestIssue710_LumiLS820PlateViewRestored:
             'the protocol stage holder must not be collapsed to height 0 (#710)'
         )
 
-    def test_crosshair_suppressed_when_motion_disabled(self):
+    def test_crosshair_gated_on_xy_stage_capability(self):
         # The restored plate graphic must NOT show a crosshair on XYStage=false
         # scopes -- there is no live XY position to indicate. The per-frame
-        # crosshair update is gated on self._motion_enabled.
+        # crosshair update is gated on the static self._has_xy_stage capability,
+        # NOT on self._motion_enabled (the transient run/interaction lock) --
+        # otherwise the crosshair vanishes whenever a protocol runs.
         import ast
         import pathlib
 
@@ -2767,16 +2769,38 @@ class TestIssue710_LumiLS820PlateViewRestored:
         for node in ast.walk(tree):
             if (
                 isinstance(node, ast.If)
-                and 'self._motion_enabled' in ast.unparse(node.test)
+                and 'self._has_xy_stage' in ast.unparse(node.test)
                 and '_crosshair_h_line' in '\n'.join(ast.unparse(s) for s in node.body)
                 and 'h_line_points' in '\n'.join(ast.unparse(s) for s in node.body)
             ):
                 found = True
                 break
         assert found, (
-            'the per-frame crosshair update must be gated on self._motion_enabled '
-            'so XYStage=false scopes show no crosshair (#710)'
+            'the per-frame crosshair update must be gated on self._has_xy_stage '
+            'so XYStage=false scopes show no crosshair'
         )
+
+    def test_crosshair_not_gated_on_run_lock(self):
+        # Regression: the live crosshair update must never be gated on
+        # self._motion_enabled. That flag is cleared while a protocol/scan runs
+        # (the interaction lock), so gating the crosshair on it makes the
+        # crosshair disappear during a Protocol Run on a scope that has an XY
+        # stage. The crosshair gate belongs to the static stage capability.
+        import ast
+        import pathlib
+
+        tree = ast.parse(pathlib.Path('ui/stage.py').read_text())
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.If)
+                and 'self._motion_enabled' in ast.unparse(node.test)
+                and 'h_line_points' in '\n'.join(ast.unparse(s) for s in node.body)
+            ):
+                raise AssertionError(
+                    'the live crosshair update must not be gated on '
+                    'self._motion_enabled (the transient run lock); gate it on '
+                    'self._has_xy_stage so it stays visible during a run'
+                )
 
     def test_lumi_and_ls820_have_xystage_false(self):
         """Sanity: scopes.json must declare Lumi and LS820 as XYStage=False
