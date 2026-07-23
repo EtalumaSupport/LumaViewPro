@@ -137,6 +137,15 @@ def build_session_manifest(
     Returns:
         dict suitable for json.dump.
     """
+    # Only the first captured_frames slots hold real frames: the record buffers
+    # are preallocated [None] * max_frames, so the unused tail stays None, and a
+    # frame whose ndim/channel-count is incompatible with the buffer is skipped,
+    # leaving an interior None. Bound to the captured count and treat any None as
+    # a frame that carries no host timestamp.
+    timestamps = timestamps[:captured_frames]
+    chunks_per_frame = chunks_per_frame[:captured_frames]
+    valid_timestamps = [t for t in timestamps if t is not None]
+
     # Prefer the camera's hardware timestamp ticks for the FPS stats: the host
     # wall-clock stamps carry OS scheduling jitter between grab and callback,
     # which widens the min/max spread and misreports true cadence. Ticks are
@@ -146,13 +155,18 @@ def build_session_manifest(
     if tick_freq_hz and len(frame_ticks) >= 2:
         fps_stats = compute_fps_stats_from_ticks(frame_ticks, tick_freq_hz)
     else:
-        fps_stats = compute_fps_stats(timestamps)
-    recording_start_iso = timestamps[0].isoformat(timespec='microseconds') if timestamps else None
-    recording_end_iso = timestamps[-1].isoformat(timespec='microseconds') if timestamps else None
+        fps_stats = compute_fps_stats(valid_timestamps)
+    recording_start_iso = (
+        valid_timestamps[0].isoformat(timespec='microseconds') if valid_timestamps else None
+    )
+    recording_end_iso = (
+        valid_timestamps[-1].isoformat(timespec='microseconds') if valid_timestamps else None
+    )
 
     frame_index = []
     for i in range(captured_frames):
-        ts_iso = timestamps[i].isoformat(timespec='microseconds') if i < len(timestamps) else None
+        ts = timestamps[i] if i < len(timestamps) else None
+        ts_iso = ts.isoformat(timespec='microseconds') if ts is not None else None
         chunks = chunks_per_frame[i] if i < len(chunks_per_frame) else None
         ts_ticks = chunks.get('Timestamp') if chunks else None
         frame_id = chunks.get('FrameID') if chunks else None
