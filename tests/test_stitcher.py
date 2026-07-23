@@ -4,6 +4,7 @@
 import ast
 import logging
 import pathlib
+import re
 
 import cv2
 import numpy as np
@@ -534,8 +535,20 @@ class TestSimplePositionStitcher:
         root = pathlib.Path(__file__).resolve().parent.parent
         kv_source = (root / 'ui' / 'lumaviewpro.kv').read_text()
         ui_source = (root / 'ui' / 'post_processing.py').read_text()
-        assert 'Fast Preview: bounded FFT geometry check' in kv_source
-        assert 'Quality: bounded local registration' in kv_source
+
+        # Scoped to the StitchControls block so guidance sitting anywhere else in
+        # the kv cannot satisfy this. The explanation is carried by the buttons'
+        # own tooltips; asserting on a free-standing Label instead would break on
+        # any legitimate relocation of the same text.
+        stitch_block = kv_source.split('<StitchControls>:')[1].split('\n<')[0]
+        tooltips = re.findall(r"tooltip_text:\s*'([^']*)'", stitch_block)
+        assert len(tooltips) == 2, 'expected a tooltip on each Stitch button'
+        joined = ' '.join(tooltips)
+        assert 'bounded local registration' in joined
+        assert 'bounded FFT registration' in joined
+        # Both modes behave identically at zero overlap, and the user may hover
+        # either button, so each tooltip has to carry the fact on its own.
+        assert all('0% overlap' in tooltip for tooltip in tooltips)
         assert (
             'Estimated remaining time'
             in (root / 'modules' / 'protocol_post_processor.py').read_text()
