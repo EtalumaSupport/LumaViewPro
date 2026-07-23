@@ -35,7 +35,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Add the needs-triage label
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             await github.rest.issues.addLabels({
@@ -68,7 +68,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Strip handled-state labels, add retriage label
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const common = {
@@ -100,7 +100,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Remove the needs-triage and retriage labels
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const common = {
