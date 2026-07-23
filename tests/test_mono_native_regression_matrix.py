@@ -204,12 +204,22 @@ def test_composite_rgb_allchannels_roundtrip(tmp_path):
         output_path=out_path,
     )
 
+    import modules.image_utils as image_utils
+
     result = tf.imread(str(out_path))
     assert result.ndim == 3 and result.shape[2] == 3
-    # Channel order: index 0 = Red, 1 = Green, 2 = Blue
-    assert result[0, 0, 0] == red_val
-    assert result[0, 0, 1] == green_val
-    assert result[0, 0, 2] == blue_val
+    # A composite is a viewing product: always 8-bit RGB, so the 16-bit inputs
+    # are downconverted, not preserved verbatim. What this test guards is the
+    # CHANNEL ROUTING (R->0, G->1, B->2) surviving the merge -- assert each
+    # plane holds the canonical 8-bit downconvert of its own input.
+    assert result.dtype == np.uint8
+
+    def _to8(val):
+        return image_utils.convert_to_8bit(np.full((1, 1), val, dtype=np.uint16), 16)[0, 0]
+
+    assert result[0, 0, 0] == _to8(red_val)
+    assert result[0, 0, 1] == _to8(green_val)
+    assert result[0, 0, 2] == _to8(blue_val)
 
 
 # ---------------------------------------------------------------------------

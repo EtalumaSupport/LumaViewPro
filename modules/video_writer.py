@@ -281,7 +281,8 @@ class VideoWriter:
         significant_bits scales a uint16 frame to 8-bit by its true payload
         depth (e.g. 12 for a right-aligned 12-bit frame). None falls back to
         treating uint16 as full 16-bit, which is correct for left-justified
-        legacy frames.
+        legacy frames. Omitting it for a RIGHT-ALIGNED uint16 frame is the
+        near-black-video hazard -- see the fallback branch below.
         """
         with self._frame_lock:
             if self._finished:
@@ -303,6 +304,14 @@ class VideoWriter:
                 if significant_bits is not None:
                     image = image_utils.convert_to_8bit(image, significant_bits)
                 elif image.dtype == np.uint16:
+                    # A right-aligned 12-bit frame scaled as a 16-bit container
+                    # encodes full scale (4095) at 15/255 -- a near-black video.
+                    # This branch is reachable only if a caller hands over
+                    # native-depth pixels without their depth. Today none can:
+                    # the MP4 encode path runs only when video_as_frames is
+                    # False, and that same flag forces the recording buffer to
+                    # uint8. Making significant_bits a required argument would
+                    # delete this branch and the hazard with it.
                     image = image_utils.convert_to_8bit(image, significant_bits=16)
                 else:
                     image = image.astype(np.uint8)

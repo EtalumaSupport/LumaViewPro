@@ -101,3 +101,65 @@ class TestIsColorShape:
     def test_is_color_image_delegates_to_shape(self):
         assert image_utils.is_color_image(np.zeros((4, 4, 3), dtype=np.uint8)) is True
         assert image_utils.is_color_image(np.zeros((4, 4), dtype=np.uint8)) is False
+
+
+class TestTiffDiscovery:
+    """is_tiff / find_tiff_files are the single answer to "is this a TIFF" and
+    "which TIFFs are in this folder". The bug they exist to prevent: a folder
+    scan that unions a `*.tiff` glob with a `*.ome.tiff` glob counts every
+    OME-TIFF twice (its suffix is plain `.tiff`) while missing single-`f` `.tif`
+    files entirely -- so a 4-tile OME capture loaded as 8 rows, four of them
+    duplicates colliding on the stitcher's lattice key."""
+
+    def _touch(self, directory, *names):
+        for name in names:
+            (directory / name).write_bytes(b'')
+
+    def test_is_tiff_accepts_every_form(self, tmp_path):
+        assert image_utils.is_tiff(tmp_path / 'a.tiff') is True
+        assert image_utils.is_tiff(tmp_path / 'a.tif') is True
+        assert image_utils.is_tiff(tmp_path / 'a.ome.tiff') is True
+        assert image_utils.is_tiff(tmp_path / 'a.ome.tif') is True
+        assert image_utils.is_tiff(tmp_path / 'A.TIFF') is True
+
+    def test_is_tiff_rejects_non_tiff(self, tmp_path):
+        assert image_utils.is_tiff(tmp_path / 'a.png') is False
+        assert image_utils.is_tiff(tmp_path / 'a.jpg') is False
+
+    def test_ome_tiff_counted_once(self, tmp_path):
+        # The exact failure: an OME-TIFF must yield ONE path, not two.
+        self._touch(tmp_path, 'tile.ome.tiff')
+        found = image_utils.find_tiff_files(tmp_path)
+        assert found == [tmp_path / 'tile.ome.tiff']
+
+    def test_single_f_tif_is_found(self, tmp_path):
+        # The other half: `.tif` must not be dropped (Quick Enhance writes it).
+        self._touch(tmp_path, 'enhanced.tif')
+        assert image_utils.find_tiff_files(tmp_path) == [tmp_path / 'enhanced.tif']
+
+    def test_one_row_per_file_all_forms(self, tmp_path):
+        self._touch(
+            tmp_path,
+            'a.tiff',
+            'b.ome.tiff',
+            'c.tif',
+            'd.ome.tif',
+            'skip.png',
+        )
+        found = {p.name for p in image_utils.find_tiff_files(tmp_path)}
+        assert found == {'a.tiff', 'b.ome.tiff', 'c.tif', 'd.ome.tif'}
+
+    def test_no_duplicates_ever(self, tmp_path):
+        self._touch(tmp_path, 'x.ome.tiff', 'y.tiff', 'z.ome.tif')
+        found = image_utils.find_tiff_files(tmp_path)
+        assert len(found) == len(set(found)), 'find_tiff_files must not return a path twice'
+
+    def test_recursive_flag(self, tmp_path):
+        sub = tmp_path / 'Blue'
+        sub.mkdir()
+        self._touch(tmp_path, 'top.tiff')
+        self._touch(sub, 'nested.ome.tiff')
+        flat = {p.name for p in image_utils.find_tiff_files(tmp_path, recursive=False)}
+        deep = {p.name for p in image_utils.find_tiff_files(tmp_path, recursive=True)}
+        assert flat == {'top.tiff'}
+        assert deep == {'top.tiff', 'nested.ome.tiff'}

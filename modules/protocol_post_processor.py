@@ -7,6 +7,7 @@ import time
 
 import pandas as pd
 
+import modules.image_utils as image_utils
 from modules.common_utils import PostFunction
 from modules.objectives_loader import ObjectiveLoader
 from modules.protocol_post_processing_helper import ProtocolPostProcessingHelper
@@ -76,6 +77,15 @@ class ProtocolPostProcessor(abc.ABC):
 
         return short_name
 
+    def _degraded_summary(self, count: int) -> str:
+        """One clause naming what a degraded (fallback-produced) output means for
+        this operation. The base states it generically; a subclass whose
+        algorithm has a named fallback chain (e.g. stitching) overrides with its
+        own wording so the shared loop does not hardcode a stitch-only vocabulary
+        for zproject / composite / stack outputs.
+        """
+        return f'{count} {self._post_function.value.lower()} artifact(s) used a fallback method.'
+
     @staticmethod
     def _prepend_capture_root(name: str, kwargs: dict) -> str:
         """Prefix a post-processed output name with the protocol's capture_root.
@@ -128,7 +138,7 @@ class ProtocolPostProcessor(abc.ABC):
         # re-readable source for these outputs, so stop here with a clear
         # message instead of letting tifffile raise partway through a group.
         source_suffixes = {pathlib.Path(str(fp)).suffix.lower() for fp in df['Filepath']}
-        if source_suffixes and source_suffixes.isdisjoint({'.tif', '.tiff'}):
+        if source_suffixes and source_suffixes.isdisjoint(image_utils.TIFF_SUFFIXES):
             return {
                 'status': False,
                 'message': (
@@ -230,7 +240,7 @@ class ProtocolPostProcessor(abc.ABC):
             kwargs['output_file_loc'] = output_file_loc_rel
 
             group_t0 = time.perf_counter()
-            logger.info(f'[StitchPerf] {self._name} group start: {group_label}')
+            logger.info(f'[PostProcPerf] {self._name} group start: {group_label}')
             alg_results = self._group_algorithm(
                 path=root_path,
                 df=group,
@@ -244,8 +254,7 @@ class ProtocolPostProcessor(abc.ABC):
             if not alg_results.status:
                 last_error = alg_results.error
                 logger.info(
-                    f'[StitchPerf] {self._name} group failed after '
-                    f'{group_ms:.1f}ms: {group_label}'
+                    f'[PostProcPerf] {self._name} group failed after {group_ms:.1f}ms: {group_label}'
                 )
                 logger.error(f'Failed to generate {output_file_loc_rel}: {alg_results.error}')
                 continue
@@ -254,7 +263,7 @@ class ProtocolPostProcessor(abc.ABC):
 
             alg_metadata = alg_results.record_metadata
             logger.info(
-                f'[StitchPerf] {self._name} group done in {group_ms:.1f}ms: '
+                f'[PostProcPerf] {self._name} group done in {group_ms:.1f}ms: '
                 f'algorithm={alg_metadata.get("algorithm", "")} '
                 f'degraded={bool(alg_metadata.get("fallback_reason"))} {group_label}'
             )
@@ -388,16 +397,11 @@ class ProtocolPostProcessor(abc.ABC):
             f'{collision_note}'
         )
         if degraded_outputs:
-            logger.warning(
-                f'{self._name}: Complete with degraded outputs: {len(degraded_outputs)} '
-                f'{self._post_function.value.lower()} artifact(s) used fallback stitching.'
-            )
+            summary = self._degraded_summary(len(degraded_outputs))
+            logger.warning(f'{self._name}: Complete with degraded outputs: {summary}')
             return {
                 'status': True,
-                'message': (
-                    f'Success with degraded output: {len(degraded_outputs)} '
-                    f'{self._post_function.value.lower()} artifact(s) used fallback stitching.'
-                ),
+                'message': f'Success with degraded output: {summary}',
                 'degraded': True,
                 'degraded_outputs': degraded_outputs,
             }

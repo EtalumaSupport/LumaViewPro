@@ -40,7 +40,7 @@ def test_build_composite_rejects_mismatched_channels():
         'Green': np.zeros((9, 7), np.uint8),
     }
     with pytest.raises(ValueError, match=r'not stitched to one geometry'):
-        build_composite(channel_images=channels)
+        build_composite(channel_images=channels, significant_bits=8)
 
 
 def test_build_composite_accepts_uniform_channels():
@@ -48,7 +48,7 @@ def test_build_composite_accepts_uniform_channels():
         'Red': np.full((8, 8), 100, np.uint8),
         'Green': np.full((8, 8), 50, np.uint8),
     }
-    out = build_composite(channel_images=channels)
+    out = build_composite(channel_images=channels, significant_bits=8)
     assert out.shape == (8, 8, 3)
 
 

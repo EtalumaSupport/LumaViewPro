@@ -335,8 +335,8 @@ def estimate_phase_offset(
         mov_view.astype(np.float32),
         window,
     )
-    corr_x = int(round(-shift[0]))
-    corr_y = int(round(-shift[1]))
+    corr_x = round(-shift[0])
+    corr_y = round(-shift[1])
     if abs(corr_x) > max_correction_px or abs(corr_y) > max_correction_px:
         return 0, 0, float(response)
     return corr_x, corr_y, float(response)

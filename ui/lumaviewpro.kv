@@ -1641,20 +1641,11 @@
 		size_hint_y: None
 		height: '12dp'
 
-	Label:
-		text: 'Fast Preview: bounded FFT geometry check; use for rapid review.\nQuality: bounded local registration only when stage data shows real overlap.\nAt 0% overlap, both use source-preserving stage placement.'
-		halign: 'left'
-		valign: 'middle'
-		text_size: self.width, None
-		size_hint_y: None
-		height: '54dp'
-		font_size: '11sp'
-
 	FolderChooseBTN:
 
 		id: quality_stitch_btn
 		text: 'Quality Stitch'
-		tooltip_text: 'Quality uses bounded local registration only when stage data shows real overlap; source pixels and colors are preserved.'
+		tooltip_text: 'Quality uses bounded local registration only when stage data shows real overlap. At 0% overlap, both modes fall back to stage placement. Source pixels and colors are preserved either way.'
 		size_hint_y: None
 		height: '30dp'
 		font_size: '12sp'
@@ -1667,7 +1658,7 @@
 
 		id: fast_preview_stitch_btn
 		text: 'Fast Preview Stitch'
-		tooltip_text: 'Fast Preview uses bounded FFT registration for rapid visual review; source pixels and colors are preserved.'
+		tooltip_text: 'Fast Preview uses bounded FFT registration for rapid visual review. At 0% overlap, both modes fall back to stage placement. Source pixels and colors are preserved either way.'
 		size_hint_y: None
 		height: '30dp'
 		font_size: '12sp'

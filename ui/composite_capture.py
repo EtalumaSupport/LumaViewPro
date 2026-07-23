@@ -367,12 +367,10 @@ class CompositeCapture(FloatLayout):
         acquired_channel_count = 0
         most_recent_aq_channel = None
 
-        if capture_depth == 12:
-            dtype = np.uint16
-            max_value = 4095
-        else:
-            dtype = np.uint8
-            max_value = 255
+        # Native capture dtype for the per-channel grabs below. The composite
+        # itself is always 8-bit (build_composite downconverts), so no 12-bit
+        # max_value is needed here -- thresholds are on the 8-bit output scale.
+        dtype = np.uint16 if capture_depth == 12 else np.uint8
 
         transmitted_image = None
         channel_images = {}
@@ -441,9 +439,10 @@ class CompositeCapture(FloatLayout):
                 # Stage B1: see comment above; update_scopedisplay retired.
                 sum_iteration_callback = None
 
-                # Compute brightness threshold (percentage -> absolute value)
+                # Brightness threshold on the composite's 8-bit output scale
+                # (build_composite downconverts the channels to 8-bit).
                 brightness_thresholds[layer] = (
-                    layer_settings[layer]['composite_brightness_threshold'] / 100 * max_value
+                    layer_settings[layer]['composite_brightness_threshold'] / 100 * 255
                 )
 
                 illumination = layer_settings[layer]['ill_ma']
@@ -487,13 +486,12 @@ class CompositeCapture(FloatLayout):
             logger.warning('[COMPOSITE] No channels selected -- nothing to capture')
             return
 
-        # Build composite image from collected channels
+        # Build composite image from collected channels (8-bit RGB out)
         img = build_composite(
             channel_images=channel_images,
+            significant_bits=capture_depth,
             transmitted_image=transmitted_image,
             brightness_thresholds=brightness_thresholds,
-            dtype=dtype,
-            max_value=max_value,
         )
 
         # File saving can run on this thread (no UI dependency)
@@ -514,7 +512,9 @@ class CompositeCapture(FloatLayout):
                 tail_id_mode='increment',
                 output_format=image_output_format['live'],
                 save_encoding=save_encoding,
-                significant_bits=capture_depth,
+                # Depth follows the composite array, which build_composite
+                # produces at 8-bit -- never the deeper native capture depth.
+                significant_bits=img.dtype.itemsize * 8,
             )
         elif acquired_channel_count != 0:
             save_image(
@@ -527,7 +527,9 @@ class CompositeCapture(FloatLayout):
                 tail_id_mode='increment',
                 output_format=image_output_format['live'],
                 save_encoding=save_encoding,
-                significant_bits=capture_depth,
+                # Depth follows the composite array, which build_composite
+                # produces at 8-bit -- never the deeper native capture depth.
+                significant_bits=img.dtype.itemsize * 8,
             )
         else:
             logger.info('[Composite Capture  ] No image saved as no channels were selected')

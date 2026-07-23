@@ -24,26 +24,40 @@ CHANNEL_RGB_INDEX = {
 
 def build_composite(
     channel_images: dict,
+    significant_bits: int,
     transmitted_image: np.ndarray | None = None,
     brightness_thresholds: dict | None = None,
-    dtype: np.dtype = np.uint8,
-    max_value: float = 255,
 ) -> np.ndarray:
-    """Build a composite RGB image from individual channel grayscale images.
+    """Build an 8-bit-per-channel RGB composite from grayscale channel images.
+
+    A composite is a viewing product: it merges several channels' intensities
+    into distinct color planes for display, and once merged the per-channel
+    values are no longer separable for quantitative use. Its output is therefore
+    always 8-bit RGB -- the form every viewer and monitor renders directly.
+    Storing a composite at the camera's native 12-bit depth (right-aligned in a
+    16-bit container) leaves the brightest pixel at ~6% of full scale, so any
+    viewer that ignores the depth tag shows it near-black. 8-bit sidesteps that
+    entirely; the raw single-channel captures keep their full depth elsewhere.
+
+    Downconversion is owned here, at the one place both the live-capture and the
+    post-processing orchestrators funnel through, so neither can reintroduce a
+    depth-carrying composite.
 
     Args:
         channel_images: Dict mapping channel name ('Red', 'Green', 'Blue', 'Lumi')
-            to a 2D grayscale numpy array.
+            to a 2D grayscale array at the capture's native depth.
+        significant_bits: The meaningful bit depth of the input channels (12 for a
+            Mono12 capture, 8 for 8-bit); drives the downconvert scale. Ignored for
+            inputs already 8-bit.
         transmitted_image: Optional 2D grayscale array for transmitted channel
-            (BF/PC/DF). Used as the base image with fluorescence overlaid.
-        brightness_thresholds: Dict mapping channel name to threshold value
-            (absolute, not percentage). Pixels below threshold are not composited
-            onto the transmitted image. Only used when transmitted_image is provided.
-        dtype: Output array dtype (np.uint8 or np.uint16).
-        max_value: Maximum pixel value for this dtype (255 for 8-bit, 4095 for 12-bit).
+            (BF/PC/DF), at the same native depth. Used as the base with fluorescence
+            overlaid.
+        brightness_thresholds: Dict mapping channel name to threshold value on the
+            OUTPUT 8-bit scale (absolute, not percentage). Pixels below threshold are
+            not composited onto the transmitted image. Only used with transmitted_image.
 
     Returns:
-        3-channel RGB numpy array of shape (H, W, 3).
+        3-channel uint8 RGB array of shape (H, W, 3).
     """
     if brightness_thresholds is None:
         brightness_thresholds = {}
@@ -55,6 +69,17 @@ def build_composite(
     if transmitted_image is not None:
         labeled.append(('transmitted', transmitted_image))
     image_utils.require_uniform_geometry(labeled, operation='composite this tile-group')
+
+    # Downconvert every input to the 8-bit output scale up front, so the blend
+    # below is a single dtype and the thresholds compare against 8-bit values.
+    channel_images = {
+        name: image_utils.convert_to_8bit(img, significant_bits)
+        for name, img in channel_images.items()
+    }
+    if transmitted_image is not None:
+        transmitted_image = image_utils.convert_to_8bit(transmitted_image, significant_bits)
+
+    dtype = np.uint8
 
     # Determine image dimensions from first available image
     if transmitted_image is not None:

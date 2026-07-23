@@ -1,4 +1,5 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
+import ast
 import datetime
 import enum
 import functools
@@ -12,6 +13,7 @@ import numpy as np
 import tifffile as tf
 
 from modules.common_utils import ColorChannel
+from modules.exceptions import FrameDepthError
 import modules.common_utils as common_utils
 import modules.image_mode as image_mode
 import modules.image_utils as image_utils
@@ -19,6 +21,41 @@ import modules.image_utils as image_utils
 from fractions import Fraction
 
 from lvp_logger import logger, version
+
+
+TIFF_SUFFIXES = frozenset({'.tif', '.tiff'})
+
+
+def is_tiff(path: pathlib.Path | str) -> bool:
+    """True when this path names a TIFF the project can read.
+
+    The single answer to "is this a TIFF", shared by every caller that scans a
+    folder, gates a post-processing op, or decides how to write a file back.
+    Matching on the SUFFIX rather than a filename glob is what makes the
+    multi-part `.ome.tiff` form safe: its suffix is plain `.tiff`, so one file
+    yields one answer. Glob patterns cannot express that -- `*.tiff` and
+    `*.ome.tiff` both match the same file, so a caller that unions them counts
+    it twice.
+    """
+    return pathlib.Path(path).suffix.lower() in TIFF_SUFFIXES
+
+
+def find_tiff_files(
+    directory: pathlib.Path | str,
+    recursive: bool = False,
+) -> list[pathlib.Path]:
+    """Return every TIFF under `directory`, each exactly once, sorted.
+
+    De-duplication is structural rather than a cleanup pass: files are
+    enumerated once and filtered by suffix, so there is no pattern-union step in
+    which one file could appear twice. A duplicated tile is not cosmetic
+    downstream -- two rows sharing a nominal stage position collide on the
+    stitcher's lattice key, and the loser is placed without registration
+    correction, which reads as a seam in the montage.
+    """
+    directory = pathlib.Path(directory)
+    walk = directory.rglob('*') if recursive else directory.glob('*')
+    return sorted(p for p in walk if p.is_file() and is_tiff(p))
 
 
 def is_color_shape(shape) -> bool:
@@ -63,8 +100,16 @@ def fit_frame_to_shape(image: np.ndarray, target_shape: tuple[int, ...]) -> np.n
 def decimate_for_preview(
     image: np.ndarray, target_wh: tuple[int, int] | None, *, categorical: bool = False
 ) -> np.ndarray:
-    """Downscale a live-preview frame to roughly the on-screen widget size so
-    the main-thread Kivy ``blit_buffer`` uploads far fewer bytes.
+    """Host-side downscale of a live-preview frame to roughly the on-screen
+    widget size, so the main-thread Kivy ``blit_buffer`` uploads fewer bytes.
+
+    Fallback path only. The default preview path uploads the full-resolution
+    frame and lets the GPU minify it to the widget; that is cheap (the upload is
+    a small fraction of a core) and constant-cost at any zoom. This host resize
+    exists for machines where the full-res upload is not smooth: enable it with
+    the ``preview_host_downscale`` setting. It is kept because it is fast at any
+    ratio, unlike ``INTER_AREA`` which collapses to a slow per-output-pixel
+    resample at a fractional contain-fit ratio (the common case).
 
     Handles both the 2-D ``uint8`` luminance preview and the 3-D ``(H, W, 3)``
     RGB bullseye preview -- both blit paths share the identical
@@ -74,8 +119,8 @@ def decimate_for_preview(
 
     ``categorical`` picks the resampling to match the data's meaning:
 
-    - ``False`` (default, continuous-tone): area-averaging (``INTER_AREA``),
-      the correct antialiased downscale for a grayscale intensity image.
+    - ``False`` (default, continuous-tone): bilinear (``INTER_LINEAR``), a
+      fixed 4-tap that stays fast at any downscale ratio.
     - ``True`` (false-color / label image, e.g. the bullseye contour map):
       nearest-neighbor. The bullseye LUT is a topographic map -- mostly black
       with thin pure-color iso-intensity bands -- so area-averaging would blend
@@ -134,7 +179,7 @@ def decimate_for_preview(
     factor = min(tw / w, th / h)
     if factor >= 1.0:
         return image  # frame already <= widget on the limiting axis; never upscale
-    interpolation = cv2.INTER_NEAREST if categorical else cv2.INTER_AREA
+    interpolation = cv2.INTER_NEAREST if categorical else cv2.INTER_LINEAR
     new_w = max(1, round(w * factor))
     new_h = max(1, round(h * factor))
     return cv2.resize(image, (new_w, new_h), interpolation=interpolation)
@@ -481,7 +526,7 @@ def _load_pixels_and_timestamp(
     if not path.exists():
         raise FileNotFoundError(f'No such pixel file: {path}')
 
-    if path.suffix.lower() in ('.tif', '.tiff'):
+    if is_tiff(path):
         # One open serves every read: the pixel array, the significant-bit depth,
         # and (when asked) the per-frame timestamp come from the same TiffFile
         # handle. load_pixels runs per tile in stitch / zproject / composite, so a
@@ -493,7 +538,7 @@ def _load_pixels_and_timestamp(
             sig = _significant_bits_from_open(tif)
             if read_timestamp:
                 try:
-                    timestamp = _timestamp_from_shaped(tif.shaped_metadata)
+                    timestamp = _timestamp_from_structured(_structured_metadata(tif))
                 except Exception:
                     timestamp = None
         if collapse_legacy_false_color:
@@ -550,7 +595,7 @@ def read_image_geometry(path: pathlib.Path) -> tuple[tuple[int, ...], np.dtype]:
     path = pathlib.Path(path)
     if not path.exists():
         raise FileNotFoundError(f'No such pixel file: {path}')
-    if path.suffix.lower() in ('.tif', '.tiff'):
+    if is_tiff(path):
         with tf.TiffFile(str(path)) as tif:
             page = tif.pages[0]
             return tuple(page.shape), page.dtype
@@ -651,6 +696,73 @@ def _read_ome_input_metadata(ome_xml: str, datetime_value) -> dict | None:
     return flat
 
 
+# A numpy scalar left in the metadata dict (e.g. a stage position that stayed
+# np.float64) serializes into the ImageJ description as its repr -- np.float64(N)
+# under numpy >= 2 -- which is a call expression, not a literal, so literal_eval
+# rejects it. Unwrap np.<type>(...) back to the inner value before parsing so a
+# tile whose positions were never cast to plain floats still round-trips. The
+# inner group forbids parentheses, so a numpy scalar (which never nests) is
+# unwrapped without disturbing any surrounding literal.
+_IMAGEJ_NUMPY_SCALAR_RE = re.compile(r'np\.\w+\(([^()]*)\)')
+
+
+def _imagej_to_structured(imagej_metadata: dict) -> dict:
+    """Normalize an ImageJ-container metadata dict to the shaped-metadata shape.
+
+    write_tiff routes a 16-bit mono non-OME frame through tifffile's ImageJ
+    writer, which serializes the structured Plane/Channel/PhysicalSize block
+    into an "ImageJ=..." ImageDescription with the keys lowercased and the
+    nested dicts stringified. Reverse that here -- restore the capitalized keys
+    the readers expect and literal_eval the stringified subtrees -- so an
+    ImageJ tile feeds the exact same extraction as a shaped tile. A subtree that
+    does not parse is left as its raw string; the caller's required-key checks
+    then reject the tile rather than crashing.
+    """
+
+    def parsed(key):
+        value = imagej_metadata.get(key)
+        if isinstance(value, str):
+            try:
+                return ast.literal_eval(_IMAGEJ_NUMPY_SCALAR_RE.sub(r'\1', value))
+            except (ValueError, SyntaxError):
+                return value
+        return value
+
+    structured: dict = {}
+    if 'physicalsizex' in imagej_metadata:
+        structured['PhysicalSizeX'] = imagej_metadata['physicalsizex']
+    for lower, canonical in (
+        ('plane', 'Plane'),
+        ('channel', 'Channel'),
+        ('instrument', 'Instrument'),
+        ('plate', 'Plate'),
+    ):
+        if lower in imagej_metadata:
+            structured[canonical] = parsed(lower)
+    if 'significantbits' in imagej_metadata:
+        structured['SignificantBits'] = imagej_metadata['significantbits']
+    return structured
+
+
+def _structured_metadata(tif: 'tf.TiffFile') -> dict | None:
+    """Resolve one open TIFF's structured acquisition metadata, container-agnostic.
+
+    write_tiff serializes the same structured block into either a tifffile
+    "shaped" JSON ImageDescription (8-bit / color) or an ImageJ ImageDescription
+    (16-bit mono); both deserialize to the same dict shape so readers never have
+    to know which container a tile landed in. OME-XML is a distinct shape the
+    callers handle separately. Returns None when neither structured container is
+    present (a bare or OME-only tile).
+    """
+    shaped = tif.shaped_metadata
+    if shaped:
+        return shaped[0]
+    imagej = tif.imagej_metadata
+    if imagej:
+        return _imagej_to_structured(imagej)
+    return None
+
+
 def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
     """Reverse the write_tiff metadata serialization for one input TIFF.
 
@@ -673,21 +785,21 @@ def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
     """
     try:
         with tf.TiffFile(str(path)) as tif:
-            shaped = tif.shaped_metadata
+            structured = _structured_metadata(tif)
             ome_xml = tif.ome_metadata
             datetime_tag = tif.pages[0].tags.get('DateTime')
             datetime_value = datetime_tag.value if datetime_tag else None
     except Exception:
         return None
 
-    if not shaped:
-        # OME-TIFF inputs carry no shaped_metadata; recover what tifffile's
-        # auto-OME serializer preserved into the ImageDescription XML so an
-        # OME-TIFF tile still forwards acquisition context to derived outputs.
+    if structured is None:
+        # No shaped or ImageJ structured block: an OME-only tile carries its
+        # context in the auto-OME ImageDescription XML instead. Recover what
+        # tifffile's serializer preserved so an OME tile still forwards
+        # acquisition context to derived outputs.
         if ome_xml:
             return _read_ome_input_metadata(ome_xml, datetime_value)
         return None
-    structured = shaped[0]
     if 'Plane' not in structured:
         # Bare tifffile.imwrite (only carries 'shape') or other non-LVP
         # producer; no acquisition context to forward.
@@ -788,24 +900,25 @@ def read_frame_timestamp(path: pathlib.Path) -> datetime.datetime | None:
     """
     try:
         with tf.TiffFile(str(path)) as tif:
-            shaped = tif.shaped_metadata
+            structured = _structured_metadata(tif)
     except Exception:
         return None
 
-    return _timestamp_from_shaped(shaped)
+    return _timestamp_from_structured(structured)
 
 
-def _timestamp_from_shaped(shaped) -> datetime.datetime | None:
-    """Recover a per-frame capture time from an open TIFF's shaped_metadata.
+def _timestamp_from_structured(structured) -> datetime.datetime | None:
+    """Recover a per-frame capture time from a resolved structured metadata dict.
 
     Split out from read_frame_timestamp so the video loader can recover the
     timestamp from the same handle it decodes the pixels with, instead of
     opening the file a second time. See read_frame_timestamp for the metadata
-    shapes and the ISO -> capture-format resolution order.
+    shapes and the ISO -> capture-format resolution order. Takes the dict
+    resolved by _structured_metadata (shaped or ImageJ container) so a 16-bit
+    ImageJ tile forwards its timestamp the same as an 8-bit shaped tile.
     """
-    if not shaped:
+    if not structured:
         return None
-    structured = shaped[0]
 
     # Structured scan images nest the timestamp under Plane; frame
     # recordings keep a flat dict. Check both, ISO first then the
@@ -839,6 +952,7 @@ def build_postproc_output_metadata(
     significant_bits: int,
     plate_pos_mm_override: dict | None = None,
     z_pos_um_override: float | None = None,
+    algorithm: str | None = None,
 ) -> dict:
     """Build a write_tiff metadata dict for a post-processing output.
 
@@ -872,6 +986,9 @@ def build_postproc_output_metadata(
             the value read from the input.
         z_pos_um_override: Optional z_pos_um to override the value read
             from the input.
+        algorithm: Optional producing-algorithm name. Stamped into the
+            output TIFF so a consumer can tell a degraded edge-to-edge
+            montage from a registered stitch without re-deriving it.
 
     Returns:
         Dict ready to pass as ``write_tiff``'s ``metadata`` parameter.
@@ -910,6 +1027,9 @@ def build_postproc_output_metadata(
     # inputs, so the output is tagged honestly instead of defaulting to
     # container width and reading back dark.
     metadata['significant_bits'] = significant_bits
+
+    if algorithm is not None:
+        metadata['algorithm'] = algorithm
 
     return metadata
 
@@ -1393,11 +1513,13 @@ def _lut_to_8bit(significant_bits: int) -> np.ndarray:
     depths in use (8/10/12/16) each build a single shared table.
     """
     max_value = (1 << significant_bits) - 1
-    # Exact linear rescale (value / max * 255), chosen over the legacy >>8
-    # (i.e. /256) truncation used for 16-bit. Both map full scale to 255, but
-    # they differ by at most 1 LSB at 32640 of the 65536 16-bit inputs (the
-    # rescale rounds where >>8 truncates). The rescale is the deliberate choice;
-    # the converter pin test locks the <=1-LSB bound so a change is caught here.
+    # Linear rescale (value / max * 255) then a truncating .astype(uint8),
+    # chosen over the legacy >>8 (i.e. /256) used for 16-bit. Both truncate and
+    # map full scale to 255; they differ by at most 1 LSB at 32640 of the 65536
+    # 16-bit inputs because the divisor differs (65535 vs 65536), NOT because one
+    # rounds. The rescale carries a systematic ~0.5-LSB low bias against the exact
+    # real-valued map -- it is the deliberate choice, and the converter pin test
+    # locks the <=1-LSB bound so a change is caught here.
     return np.clip(np.arange(max_value + 1, dtype=np.float64) / max_value * 255, 0, 255).astype(
         np.uint8
     )
@@ -1416,11 +1538,22 @@ def convert_to_8bit(image, significant_bits: int, out=None):
     """
     if image.dtype == np.uint8:
         return image
-    lut = _lut_to_8bit(int(significant_bits))
-    if out is not None and out.shape == image.shape and out.dtype == np.uint8:
-        np.take(lut, image, out=out)
-        return out
-    return lut[image]
+    significant_bits = int(significant_bits)
+    lut = _lut_to_8bit(significant_bits)
+    # The LUT has exactly one entry per in-range value, so a payload above the
+    # declared depth indexes it out of range and raises. Re-raise that as a typed
+    # FrameDepthError so a depth-contract violation is loud and named -- without a
+    # per-frame full-frame image.max() scan on the live-preview path. The peak is
+    # read only on the (rare) failure. If the downconvert is ever changed to a
+    # scale-and-clip that would NOT raise on an out-of-range value, the depth-guard
+    # tests go red and this enforcement must be restored eagerly.
+    try:
+        if out is not None and out.shape == image.shape and out.dtype == np.uint8:
+            np.take(lut, image, out=out)
+            return out
+        return lut[image]
+    except IndexError:
+        raise FrameDepthError(int(image.max()), significant_bits) from None
 
 
 def convert_16bit_to_8bit(image):
@@ -1959,6 +2092,12 @@ def generate_tiff_data(
         'Channel': {'Name': [metadata['channel']]},
         'Plane': plane,
     }
+
+    # Producing algorithm, when the caller supplied one (post-processing
+    # outputs). Rides along in the structured metadata so a consumer can tell a
+    # degraded edge-to-edge montage from a registered stitch off the file alone.
+    if metadata.get('algorithm'):
+        tiff_metadata['Algorithm'] = metadata['algorithm']
 
     # OME Plate + Instrument blocks (#491). The tifffile dict API
     # serializes well-known OME keys into OME-XML where possible; less-

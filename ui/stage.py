@@ -43,7 +43,15 @@ class Stage(Widget):
         logger.debug('[LVP Main  ] Stage.__init__()')
         self.ROI_min = [0, 0]
         self.ROI_max = [0, 0]
+        # Two independent flags, deliberately separate:
+        #   _motion_enabled -- transient interaction lock; cleared while a
+        #     protocol/scan runs so stage clicks are blocked mid-run.
+        #   _has_xy_stage -- static scope capability. The crosshair indicates a
+        #     live XY position, so it is meaningless (and hidden) only on scopes
+        #     with no XY stage. It must NOT track the run lock, or the crosshair
+        #     vanishes whenever a protocol runs on a scope that has a stage.
         self._motion_enabled = True
+        self._has_xy_stage = True
         self.ROIs = []
 
         # Track labware state for smart redraws
@@ -128,6 +136,9 @@ class Stage(Widget):
 
     def set_motion_capability(self, enabled: bool):
         self._motion_enabled = enabled
+
+    def set_xy_stage_capability(self, enabled: bool):
+        self._has_xy_stage = enabled
 
     def on_touch_down(self, touch):
         logger.debug('[LVP Main  ] Stage.on_touch_down()')
@@ -588,8 +599,9 @@ class Stage(Widget):
             # Draw crosshairs (updates every frame - but only 2 lines!).
             # Skip on scopes without an XY stage: there is no live XY position
             # to indicate, so the crosshair would be meaningless on the
-            # single-plate view.
-            if self._motion_enabled:
+            # single-plate view. Gated on the static stage capability, NOT the
+            # transient run lock -- the crosshair stays visible during a run.
+            if self._has_xy_stage:
                 pixel_x, pixel_y = coordinate_transformer.stage_to_pixel(
                     labware=labware,
                     stage_offset=settings['stage_offset'],

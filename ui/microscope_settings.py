@@ -1201,6 +1201,7 @@ class MicroscopeSettings(BoxLayout):
             ctx.motion_settings.ids['post_processing_id'].hide_stitch()
 
         ctx.stage.set_motion_capability(enabled=selected_scope_config['XYStage'])
+        ctx.stage.set_xy_stage_capability(enabled=selected_scope_config['XYStage'])
 
         # Size the protocol-tab stage holder to its width-based aspect for
         # every scope. The plate graphic now renders on XYStage=False scopes

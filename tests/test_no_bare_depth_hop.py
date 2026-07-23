@@ -42,6 +42,9 @@ ALLOWLISTED_SINKS = frozenset(
         # caller can report what the file actually carries; the encoding and
         # depth genuinely arrive together here, like the write sinks above.
         ('modules/image_utils.py', 'written_significant_bits'),
+        # Terminal serializer for stitched output: forwards depth+color
+        # straight into the allowlisted write_tiff to write the TIFF.
+        ('modules/stitching_core.py', '_write_output'),
     }
 )
 

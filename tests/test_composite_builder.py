@@ -4,6 +4,7 @@
 import numpy as np
 import pytest
 
+import modules.image_utils as image_utils
 from modules.composite_builder import build_composite, CHANNEL_RGB_INDEX
 
 
@@ -28,7 +29,7 @@ class TestBuildCompositeNoTransmitted:
 
     def test_single_red_channel(self):
         red = np.full((4, 4), 200, dtype=np.uint8)
-        img = build_composite(channel_images={'Red': red})
+        img = build_composite(channel_images={'Red': red}, significant_bits=8)
         assert img.shape == (4, 4, 3)
         assert img.dtype == np.uint8
         np.testing.assert_array_equal(img[:, :, 0], 200)  # Red channel
@@ -37,21 +38,21 @@ class TestBuildCompositeNoTransmitted:
 
     def test_single_green_channel(self):
         green = np.full((4, 4), 150, dtype=np.uint8)
-        img = build_composite(channel_images={'Green': green})
+        img = build_composite(channel_images={'Green': green}, significant_bits=8)
         np.testing.assert_array_equal(img[:, :, 0], 0)
         np.testing.assert_array_equal(img[:, :, 1], 150)
         np.testing.assert_array_equal(img[:, :, 2], 0)
 
     def test_single_blue_channel(self):
         blue = np.full((4, 4), 100, dtype=np.uint8)
-        img = build_composite(channel_images={'Blue': blue})
+        img = build_composite(channel_images={'Blue': blue}, significant_bits=8)
         np.testing.assert_array_equal(img[:, :, 0], 0)
         np.testing.assert_array_equal(img[:, :, 1], 0)
         np.testing.assert_array_equal(img[:, :, 2], 100)
 
     def test_lumi_goes_to_blue_channel(self):
         lumi = np.full((4, 4), 80, dtype=np.uint8)
-        img = build_composite(channel_images={'Lumi': lumi})
+        img = build_composite(channel_images={'Lumi': lumi}, significant_bits=8)
         np.testing.assert_array_equal(img[:, :, 2], 80)
 
     def test_all_three_channels(self):
@@ -60,21 +61,38 @@ class TestBuildCompositeNoTransmitted:
             'Green': np.full((4, 4), 150, dtype=np.uint8),
             'Blue': np.full((4, 4), 200, dtype=np.uint8),
         }
-        img = build_composite(channel_images=channels)
+        img = build_composite(channel_images=channels, significant_bits=8)
         np.testing.assert_array_equal(img[:, :, 0], 100)
         np.testing.assert_array_equal(img[:, :, 1], 150)
         np.testing.assert_array_equal(img[:, :, 2], 200)
 
-    def test_16bit_dtype(self):
+    def test_12bit_input_downconverts_to_8bit(self):
+        """A composite is always 8-bit: a 12-bit input channel is downconverted,
+        not stored right-aligned in a 16-bit container (which renders near-black
+        in any viewer that ignores the depth tag)."""
         red = np.full((4, 4), 3000, dtype=np.uint16)
-        img = build_composite(channel_images={'Red': red}, dtype=np.uint16, max_value=4095)
-        assert img.dtype == np.uint16
-        np.testing.assert_array_equal(img[:, :, 0], 3000)
+        img = build_composite(channel_images={'Red': red}, significant_bits=12)
+        assert img.dtype == np.uint8
+        # The red plane equals the canonical downconvert of the input -- not the
+        # raw 12-bit value (3000), which the old build stored verbatim.
+        expected = image_utils.convert_to_8bit(red, 12)
+        np.testing.assert_array_equal(img[:, :, 0], expected)
+        np.testing.assert_array_equal(img[:, :, 1], 0)
+        np.testing.assert_array_equal(img[:, :, 2], 0)
+
+    def test_full_scale_12bit_maps_to_full_8bit(self):
+        """A full-scale 12-bit channel (4095) becomes a full-scale 8-bit channel
+        (255) -- the composite is bright, not the ~6%-of-full-scale that made
+        12-bit composites read as black."""
+        red = np.full((4, 4), 4095, dtype=np.uint16)
+        img = build_composite(channel_images={'Red': red}, significant_bits=12)
+        assert img.dtype == np.uint8
+        np.testing.assert_array_equal(img[:, :, 0], 255)
 
     def test_empty_channels_returns_black(self):
         """Empty channel dict with no transmitted image should raise."""
         with pytest.raises((StopIteration, ValueError)):
-            build_composite(channel_images={}, dtype=np.uint8, max_value=255)
+            build_composite(channel_images={}, significant_bits=8)
 
 
 class TestBuildCompositeWithTransmitted:
@@ -82,7 +100,7 @@ class TestBuildCompositeWithTransmitted:
 
     def test_transmitted_only_replicates_to_rgb(self):
         bf = np.full((4, 4), 128, dtype=np.uint8)
-        img = build_composite(channel_images={}, transmitted_image=bf)
+        img = build_composite(channel_images={}, significant_bits=8, transmitted_image=bf)
         # Transmitted image replicated to all 3 channels
         np.testing.assert_array_equal(img[:, :, 0], 128)
         np.testing.assert_array_equal(img[:, :, 1], 128)
@@ -93,6 +111,7 @@ class TestBuildCompositeWithTransmitted:
         red = np.full((4, 4), 200, dtype=np.uint8)
         img = build_composite(
             channel_images={'Red': red},
+            significant_bits=8,
             transmitted_image=bf,
             brightness_thresholds={'Red': 50},
         )
@@ -106,6 +125,7 @@ class TestBuildCompositeWithTransmitted:
         red = np.full((4, 4), 30, dtype=np.uint8)
         img = build_composite(
             channel_images={'Red': red},
+            significant_bits=8,
             transmitted_image=bf,
             brightness_thresholds={'Red': 50},
         )
@@ -127,6 +147,7 @@ class TestBuildCompositeWithTransmitted:
         )
         img = build_composite(
             channel_images={'Green': green},
+            significant_bits=8,
             transmitted_image=bf,
             brightness_thresholds={'Green': 50},
         )
@@ -145,6 +166,7 @@ class TestBuildCompositeWithTransmitted:
         green = np.full((4, 4), 150, dtype=np.uint8)
         img = build_composite(
             channel_images={'Red': red, 'Green': green},
+            significant_bits=8,
             transmitted_image=bf,
             brightness_thresholds={'Red': 10, 'Green': 10},
         )
@@ -159,6 +181,7 @@ class TestBuildCompositeWithTransmitted:
         red = np.full((4, 4), 1, dtype=np.uint8)  # Very dim but > 0
         img = build_composite(
             channel_images={'Red': red},
+            significant_bits=8,
             transmitted_image=bf,
         )
         # Default threshold 0: any pixel > 0 replaces transmitted
@@ -170,6 +193,7 @@ class TestBuildCompositeWithTransmitted:
         bf = np.full((4, 4), 100, dtype=np.uint8)
         img = build_composite(
             channel_images={'Unknown': np.full((4, 4), 200, dtype=np.uint8)},
+            significant_bits=8,
             transmitted_image=bf,
         )
         # Unknown channel ignored -- transmitted preserved

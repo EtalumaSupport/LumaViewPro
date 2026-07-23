@@ -38,7 +38,6 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from modules.stitch_algorithms import (  # noqa: E402
-    estimate_overlap_offset,
     feature_stitch,
     stitch_registered_tiles,
 )
@@ -125,12 +124,12 @@ def write_tiff(path: pathlib.Path, image: np.ndarray) -> None:
 
 
 def grid_positions(length: int, grid: int, overlap: float = OVERLAP) -> tuple[int, list[int]]:
-    tile_len = int(round(length / (grid - (grid - 1) * overlap)))
+    tile_len = round(length / (grid - (grid - 1) * overlap))
     tile_len = max(32, min(tile_len, length))
     if grid == 1:
         return tile_len, [0]
     max_start = length - tile_len
-    positions = [int(round(value)) for value in np.linspace(0, max_start, grid)]
+    positions = [round(value) for value in np.linspace(0, max_start, grid)]
     return tile_len, positions
 
 
@@ -441,8 +440,8 @@ def estimate_phase_offset(
         return 0, 0, -1.0
     win = cv2.createHanningWindow((ref_view.shape[1], ref_view.shape[0]), cv2.CV_32F)
     shift, response = cv2.phaseCorrelate(ref_view.astype(np.float32), mov_view.astype(np.float32), win)
-    corr_x = int(round(-shift[0]))
-    corr_y = int(round(-shift[1]))
+    corr_x = round(-shift[0])
+    corr_y = round(-shift[1])
     corr_x = int(np.clip(corr_x, -max_correction_px, max_correction_px))
     corr_y = int(np.clip(corr_y, -max_correction_px, max_correction_px))
     return corr_x, corr_y, float(response)
@@ -463,14 +462,14 @@ def estimate_coarse_to_fine_ncc(
     ref_small = cv2.resize(ref_gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
     mov_small = cv2.resize(mov_gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
     coarse_best = (0, 0, -1.0)
-    coarse_radius = max(1, int(math.ceil(max_correction_px * scale)))
+    coarse_radius = max(1, math.ceil(max_correction_px * scale))
     for cy in range(-coarse_radius, coarse_radius + 1):
         for cx in range(-coarse_radius, coarse_radius + 1):
             views = _overlap_views(
                 ref_small,
                 mov_small,
-                int(round((nominal_dx * scale) + cx)),
-                int(round((nominal_dy * scale) + cy)),
+                round((nominal_dx * scale) + cx),
+                round((nominal_dy * scale) + cy),
             )
             if views is None:
                 continue
@@ -481,8 +480,8 @@ def estimate_coarse_to_fine_ncc(
             if score > coarse_best[2]:
                 coarse_best = (cx, cy, score)
 
-    base_x = int(round(coarse_best[0] / scale))
-    base_y = int(round(coarse_best[1] / scale))
+    base_x = round(coarse_best[0] / scale)
+    base_y = round(coarse_best[1] / scale)
     best = (base_x, base_y, -1.0)
     for corr_y in range(base_y - 3, base_y + 4):
         for corr_x in range(base_x - 3, base_x + 4):
@@ -931,8 +930,8 @@ def compute_metrics(
         y = int(row["nominal_y_px"])
         w = int(row["width_px"])
         h = int(row["height_px"])
-        overlap_w = max(1, int(round(w * OVERLAP)))
-        overlap_h = max(1, int(round(h * OVERLAP)))
+        overlap_w = max(1, round(w * OVERLAP))
+        overlap_h = max(1, round(h * OVERLAP))
         if x > 0:
             bands.append(np.abs(gt_gray[y : y + h, x : x + overlap_w].astype(np.float32) - im_gray[y : y + h, x : x + overlap_w].astype(np.float32)))
         if y > 0:
@@ -994,7 +993,7 @@ def write_visual_grid(
         canvas = np.full((preview.shape[0] + title_h, max(preview.shape[1], 420), 3), 255, dtype=np.uint8)
         canvas[title_h : title_h + preview.shape[0], : preview.shape[1]] = preview
         y = 20
-        for idx, line in enumerate(lines[:4]):
+        for _idx, line in enumerate(lines[:4]):
             color = (180, 0, 0) if "FALLBACK" in line else (0, 0, 0)
             cv2.putText(canvas, line[:78], (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.48, color, 1, cv2.LINE_AA)
             y += 22
