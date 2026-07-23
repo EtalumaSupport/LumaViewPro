@@ -3,7 +3,6 @@
 import os
 import pathlib
 
-import numpy as np
 import pandas as pd
 
 import modules.app_context as _app_ctx
@@ -179,6 +178,9 @@ class CompositeGeneration(ProtocolPostProcessor):
         # Empty after layer filtering is a handled no-op below (status=False,
         # no write), so only resolve a depth when inputs were actually loaded.
         output_depth = image_utils.resolve_output_depth(input_depths) if input_depths else None
+        # The composite's own depth, set from the built array (always 8-bit).
+        # Distinct from output_depth, which is the INPUT depth driving downconvert.
+        composite_significant_bits = None
 
         error = None
         status = True
@@ -232,28 +234,24 @@ class CompositeGeneration(ProtocolPostProcessor):
 
                 channel_images[layer] = img_gray
 
-                # Compute brightness threshold
+                # Compute brightness threshold on the composite's 8-bit output
+                # scale (build_composite downconverts the channels to 8-bit).
                 if BF_present:
-                    if img_dtype == np.uint8:
-                        max_value = 255
-                    else:
-                        max_value = 4095
                     ctx = _app_ctx.ctx
                     if ctx is not None:
                         with ctx.settings_lock:
                             threshold = settings[layer]['composite_brightness_threshold']
                     else:
                         threshold = settings[layer]['composite_brightness_threshold']
-                    brightness_thresholds[layer] = threshold / 100 * max_value
+                    brightness_thresholds[layer] = threshold / 100 * 255
 
             if not channel_images and transmitted_image is None:
                 status = False
                 error = 'Composite Generation Error: no channel images available for this group'
             else:
-                dtype = img_dtype or np.uint8
-                max_value = 255 if dtype == np.uint8 else 4095
-
-                # build_composite returns RGB. Both the manual composite
+                # build_composite returns 8-bit RGB (a composite is a viewing
+                # product; the native depth belongs to the raw single-channel
+                # captures, not the merged image). Both the manual composite
                 # path (ui/composite_capture.py) and this protocol
                 # post-processing path now save RGB-native via tifffile;
                 # no cvtColor RGB->BGR detour (which the old cv2.imwrite
@@ -265,17 +263,17 @@ class CompositeGeneration(ProtocolPostProcessor):
                 # has already written.
                 img = build_composite(
                     channel_images=channel_images,
+                    significant_bits=output_depth,
                     transmitted_image=transmitted_image,
                     brightness_thresholds=brightness_thresholds,
-                    dtype=dtype,
-                    max_value=max_value,
                 )
+                composite_significant_bits = img.dtype.itemsize * 8
                 if output_file_loc is not None:
                     output_file_loc.parent.mkdir(parents=True, exist_ok=True)
                     reference_input_path = path / df.iloc[0]['Filepath']
                     metadata = image_utils.build_composite_output_metadata(
                         reference_input_path=reference_input_path,
-                        significant_bits=output_depth,
+                        significant_bits=composite_significant_bits,
                     )
                     # Honor the run's output format. The composite is a
                     # single 2D RGB image, so only plain OME-TIFF applies --
@@ -317,7 +315,7 @@ class CompositeGeneration(ProtocolPostProcessor):
             'status': status,
             'error': error,
             'image': return_image,
-            'significant_bits': output_depth,
+            'significant_bits': composite_significant_bits,
             'metadata': {
                 'color': 'Composite',
             },

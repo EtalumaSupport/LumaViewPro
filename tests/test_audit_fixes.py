@@ -11622,10 +11622,9 @@ class TestCompositeOrchestrationByteEqualManualVsProtocol:
         # Path A: manual composite path. build_composite -> tifffile.
         manual_rgb = build_composite(
             channel_images=channel_images,
+            significant_bits=8,
             transmitted_image=None,
             brightness_thresholds=None,
-            dtype=np.uint8,
-            max_value=255,
         )
 
         with tempfile.TemporaryDirectory() as tmpdir:
