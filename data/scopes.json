@@ -75,6 +75,10 @@
         "Focus": false,
         "XYStage": false,
         "Turret": false,
+        "Optics": {
+            "LensFocalLength": 47.8,
+            "PixelSize": 2.2
+        },
         "Layers": {
             "Lumi": false,
             "Fluorescence": true,
@@ -87,6 +91,10 @@
         "Focus": false,
         "XYStage": false,
         "Turret": false,
+        "Optics": {
+            "LensFocalLength": 47.8,
+            "PixelSize": 2.2
+        },
         "Layers": {
             "Lumi": false,
             "Fluorescence": true,
