@@ -139,8 +139,6 @@ class TestStackBuilderPropagatesPlanePositions:
             path=tmp_path,
             df=df,
             output_file_loc=output_file_loc,
-            focal_length=47.8,
-            binning_size=1,
         )
         assert result['status'], f'_create_stack failed: {result.get("error")}'
 
@@ -197,8 +195,6 @@ class TestStackBuilderPropagatesPlanePositions:
             path=tmp_path,
             df=df,
             output_file_loc=pathlib.Path('out.ome.tiff'),
-            focal_length=47.8,
-            binning_size=1,
         )
         with tf.TiffFile(str(tmp_path / 'out.ome.tiff')) as tif:
             ome_xml = tif.ome_metadata or ''
@@ -249,8 +245,6 @@ class TestStackBuilderPropagatesPixelSizeAndChannels:
             path=tmp_path,
             df=df,
             output_file_loc=pathlib.Path('out.ome.tiff'),
-            focal_length=47.8,
-            binning_size=1,
         )
         with tf.TiffFile(str(tmp_path / 'out.ome.tiff')) as tif:
             ome_xml = tif.ome_metadata or ''
@@ -289,8 +283,6 @@ class TestStackBuilderPropagatesPixelSizeAndChannels:
             path=tmp_path,
             df=df,
             output_file_loc=pathlib.Path('out.ome.tiff'),
-            focal_length=47.8,
-            binning_size=1,
         )
         with tf.TiffFile(str(tmp_path / 'out.ome.tiff')) as tif:
             ome_xml = tif.ome_metadata or ''
@@ -332,8 +324,6 @@ class TestStackBuilderHandlesInputsWithoutStructuredMetadata:
             path=tmp_path,
             df=df,
             output_file_loc=pathlib.Path('out.ome.tiff'),
-            focal_length=47.8,
-            binning_size=1,
         )
         assert result['status'], f'Bare-input fallback path must not crash: {result.get("error")}'
         # Output should still be a valid OME-TIFF.
@@ -378,8 +368,6 @@ class TestStackBuilderPrivateTagRecoversDroppedMetadata:
             path=tmp_path,
             df=df,
             output_file_loc=pathlib.Path('out.ome.tiff'),
-            focal_length=47.8,
-            binning_size=1,
         )
 
         recovered = image_utils.read_hyperstack_private_metadata(tmp_path / 'out.ome.tiff')
@@ -427,8 +415,6 @@ class TestStackBuilderPrivateTagRecoversDroppedMetadata:
             path=tmp_path,
             df=df,
             output_file_loc=pathlib.Path('out.ome.tiff'),
-            focal_length=47.8,
-            binning_size=1,
         )
 
         recovered = image_utils.read_hyperstack_private_metadata(tmp_path / 'out.ome.tiff')
@@ -464,8 +450,6 @@ class TestStackBuilderPrivateTagRecoversDroppedMetadata:
             path=tmp_path,
             df=df,
             output_file_loc=pathlib.Path('out.ome.tiff'),
-            focal_length=47.8,
-            binning_size=1,
         )
 
         recovered = image_utils.read_hyperstack_private_metadata(tmp_path / 'out.ome.tiff')
@@ -506,8 +490,6 @@ class TestStackBuilderPrivateTagRecoversDroppedMetadata:
             path=tmp_path,
             df=df,
             output_file_loc=pathlib.Path('out.ome.tiff'),
-            focal_length=47.8,
-            binning_size=1,
         )
 
         recovered = image_utils.read_hyperstack_private_metadata(tmp_path / 'out.ome.tiff')
@@ -610,8 +592,6 @@ class TestHyperstackChannelColor:
             path=tmp_path,
             df=df,
             output_file_loc=pathlib.Path('out.ome.tiff'),
-            focal_length=47.8,
-            binning_size=1,
         )
 
         with tf.TiffFile(str(tmp_path / 'out.ome.tiff')) as tif:
@@ -658,8 +638,6 @@ class TestHyperstackChannelColor:
             path=tmp_path,
             df=df,
             output_file_loc=pathlib.Path('out.ome.tiff'),
-            focal_length=47.8,
-            binning_size=1,
         )
 
         recovered = image_utils.read_hyperstack_private_metadata(tmp_path / 'out.ome.tiff')
@@ -710,8 +688,6 @@ class TestHyperstackScaleComesFromTheInput:
             path=tmp_path,
             df=pd.DataFrame(rows),
             output_file_loc=pathlib.Path('out.ome.tiff'),
-            focal_length=47.8,
-            binning_size=1,
         )
 
         with tf.TiffFile(str(tmp_path / 'out.ome.tiff')) as tif:
@@ -754,8 +730,6 @@ class TestHyperstackScaleComesFromTheInput:
             path=tmp_path,
             df=pd.DataFrame(rows),
             output_file_loc=pathlib.Path('out.ome.tiff'),
-            focal_length=47.8,
-            binning_size=1,
         )
 
         out = tmp_path / 'out.ome.tiff'

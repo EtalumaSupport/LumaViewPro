@@ -115,8 +115,6 @@ def test_sparse_grid_refused_not_crashed(tmp_path):
         path=tmp_path,
         df=df,
         output_file_loc=pathlib.Path('out.ome.tiff'),
-        focal_length=47.8,
-        binning_size=1,
     )
 
     assert result['status'] is False, 'a non-rectangular grid must be refused, not built'
@@ -143,8 +141,6 @@ def test_duplicate_cell_refused(tmp_path):
         path=tmp_path,
         df=df,
         output_file_loc=pathlib.Path('dup.ome.tiff'),
-        focal_length=47.8,
-        binning_size=1,
     )
 
     assert result['status'] is False
@@ -166,8 +162,6 @@ def test_rectangular_multichannel_still_builds(tmp_path):
         path=tmp_path,
         df=df,
         output_file_loc=pathlib.Path('good.ome.tiff'),
-        focal_length=47.8,
-        binning_size=1,
     )
 
     assert result['status'] is True, f'valid grid must build: {result.get("error")}'

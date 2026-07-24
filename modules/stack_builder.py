@@ -101,8 +101,6 @@ class StackBuilder(ProtocolPostProcessor):
                 path=path,
                 df=df,
                 output_file_loc=kwargs['output_file_loc'],
-                focal_length=kwargs['focal_length'],
-                binning_size=kwargs['binning_size'],
             )
         )
 
@@ -141,8 +139,6 @@ class StackBuilder(ProtocolPostProcessor):
         path: pathlib.Path,
         output_file_loc: pathlib.Path,
         plane_metadata: dict,
-        binning_size: int,
-        focal_length: float,
         significant_bits: int,
     ):
         channel_names = df['Color'].unique().tolist()
@@ -243,8 +239,6 @@ class StackBuilder(ProtocolPostProcessor):
         path: pathlib.Path,
         df: pd.DataFrame,
         output_file_loc: pathlib.Path,
-        focal_length: float,
-        binning_size: int,
         sort_order: list[str] | None = None,
     ):
         if sort_order is None:
@@ -333,8 +327,6 @@ class StackBuilder(ProtocolPostProcessor):
             path=path,
             output_file_loc=output_file_loc,
             plane_metadata=plane_metadata,
-            focal_length=focal_length,
-            binning_size=binning_size,
             significant_bits=image_utils.resolve_output_depth(input_depths),
         )
 
@@ -364,8 +356,6 @@ class StackBuilder(ProtocolPostProcessor):
         df: pd.DataFrame,
         path: pathlib.Path,
         output_file_loc: pathlib.Path,
-        focal_length: float,
-        binning_size: int,
     ):
         # Manual-recording entry point: sorts by Scan Count alone (Z and
         # Color axes collapse to single values for single recordings)
@@ -383,8 +373,6 @@ class StackBuilder(ProtocolPostProcessor):
             path=path,
             df=df,
             output_file_loc=rel_loc,
-            focal_length=focal_length,
-            binning_size=binning_size,
             sort_order=['Scan Count'],
         )
 
@@ -395,6 +383,4 @@ if __name__ == '__main__':
     stack_builder.load_folder(
         path=os.getenv('SAMPLE_IMAGE_FOLDER'),
         tiling_configs_file_loc=tiling_configs_file_loc,
-        focal_length=45.0,
-        binning_size=1,
     )
