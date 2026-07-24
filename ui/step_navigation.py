@@ -144,10 +144,6 @@ def go_to_step(
             f'protocol_running={ctx.protocol_running.is_set()}'
         )
 
-        def temp():
-            layer_obj.ids['enable_led_btn'].state = 'down'
-            layer_obj.apply_settings(ignore_auto_gain=ignore_auto_gain, protocol=True)
-
         if not called_from_protocol and settings['protocol_led_on']:
             # Manual-nav preview: make the new step's channel the only lit one.
             # The LED authority diffs the target against the cached state, so
@@ -162,7 +158,17 @@ def go_to_step(
                 preview_on=True,
             )
             ctx.scope.illumination.apply_transition_async(LedTransition.MANUAL_STEP, led_ctx)
-            _schedule_ui(lambda dt: temp(), 0)
+            # update_led=False: the transition above is the one LED command.
+            # apply_settings must not re-derive LED intent from the enable
+            # button -- the button REFLECTS driver state (via the listener
+            # bridge); writing or reading it as a command channel re-lights a
+            # channel the user toggled off.
+            _schedule_ui(
+                lambda dt: layer_obj.apply_settings(
+                    ignore_auto_gain=ignore_auto_gain, protocol=True, update_led=False
+                ),
+                0,
+            )
         else:
             layer_obj.apply_settings(ignore_auto_gain=ignore_auto_gain, protocol=True)
 
@@ -203,7 +209,6 @@ def go_to_step_update_ui(step, called_from_protocol: bool = False):
     the step's channel as the user expects.
     """
     ctx = _app_ctx.ctx
-    settings = ctx.settings
     protocol_running_global = ctx.protocol_running
 
     color = step['Color']
@@ -245,10 +250,12 @@ def go_to_step_update_ui(step, called_from_protocol: bool = False):
                 other_obj.set_step_state({'Stim_Config': {layer: sc[layer]}})
 
     # Set LED button state to show which channel is active for this step.
-    # During protocol: show the step's channel as 'down' so user sees which
-    # LED is being used, even though the actual on/off happens in the executor.
-    # Outside protocol: only if protocol_led_on is enabled (preview mode).
-    if protocol_running_global.is_set() or settings.get('protocol_led_on', False):
+    # During protocol only: show the step's channel as 'down' so the user sees
+    # which LED is being used, even though the actual on/off happens in the
+    # executor. Outside a run the listener bridge is the sole button writer,
+    # reflecting driver truth -- a forced 'down' here would go stale and any
+    # later apply_settings(update_led=True) would re-light the channel.
+    if protocol_running_global.is_set():
         from ui.layer_control import LayerControl
 
         LayerControl._suppressing_led_log = True
