@@ -268,6 +268,24 @@ class PylonCamera(Camera):
             except Exception as e:
                 logger.debug(f'[CAM Class ] Could not query exposure range: {e}')
 
+            # Sensor pixel pitch (micrometers). Read live so the micron scale
+            # bar and click-to-center distance are correct for ANY Basler body,
+            # not only ones with a curated profile. Fill only when the profile
+            # did not supply one (the generic fallback carries 0.0) -- never
+            # override a curated, bench-validated value -- but always log the
+            # hardware value so a mismatch is visible. A body that does not
+            # advertise the node leaves pixel_size_um unset; the scale then
+            # degrades honestly rather than inheriting a guessed default.
+            try:
+                px_node = nm.GetNode('SensorPixelWidth')
+                if px_node is not None:
+                    sensor_px_um = px_node.GetValue()
+                    logger.info(f'[CAM Class ] SensorPixelWidth: {sensor_px_um:.4f} um')
+                    if sensor_px_um and sensor_px_um > 0 and not self.profile.pixel_size_um:
+                        self.profile.pixel_size_um = float(sensor_px_um)
+            except Exception as e:
+                logger.debug(f'[CAM Class ] Could not query SensorPixelWidth: {e}')
+
         except Exception as e:
             _cam_log.warning(f'[CAM Class ] _query_dynamic_capabilities failed: {e}')
 
