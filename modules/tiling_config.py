@@ -9,6 +9,7 @@ from typing import ClassVar
 from lvp_logger import logger
 
 import modules.common_utils as common_utils
+from modules.exceptions import ConfigError
 
 
 def _row_label(index: int) -> str:
@@ -162,6 +163,15 @@ class TilingConfig:
             frame_size=frame_size,
             binning_size=binning_size,
         )
+        if fov_size is None:
+            # Tiling steps are derived from the field of view; a scope that
+            # cannot report its pixel size has no field of view to tile
+            # against. A grid laid out from a guessed FOV produces a
+            # misaligned montage, which is worse than no tiling -- refuse.
+            raise ConfigError(
+                'Tiling is unavailable: this scope cannot report its pixel size, '
+                'so the field of view (and therefore the tile spacing) is unknown.'
+            )
 
         x_step = fill_factor * fov_size['width']
         y_step = fill_factor * fov_size['height']

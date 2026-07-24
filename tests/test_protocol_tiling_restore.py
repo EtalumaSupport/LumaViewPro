@@ -161,7 +161,7 @@ def _large_config(tmp_path, m, n):
     return TilingConfig(tiling_configs_file_loc=loc), label
 
 
-def test_large_mosaic_tile_labels_round_trip_through_step_names(tmp_path):
+def test_large_mosaic_tile_labels_round_trip_through_step_names(tmp_path, scale_ctx):
     # End-to-end on the reachable path: a 32-row config (past the chr() break,
     # including row 30 that would have rendered the '_' token separator) produces
     # tile labels that parse back as tiles and round-trip through the step name.

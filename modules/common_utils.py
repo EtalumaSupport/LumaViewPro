@@ -595,39 +595,66 @@ def to_int(val) -> int | None:
 def get_pixel_size(
     focal_length: float,
     binning_size: int,
-):
-    # Read tube focal length and pixel size from scope capabilities
-    # (motorconfig-sourced; per-installation override).
+) -> float | None:
+    """Effective um/pixel for the given objective focal length and binning.
+
+    Reads the tube focal length and sensor pixel size from the active scope's
+    capabilities (the single source of truth for image scale). Returns None
+    when there is no active scope, or when the scope cannot report its optics
+    (unknown camera, no declared optics) -- callers then degrade honestly (no
+    scale bar, no field of view, no PhysicalSizeX) rather than using an
+    invented scale. There is deliberately no hardcoded fallback: a guessed
+    pixel size is written into every image and cannot be told from a measured
+    one.
+    """
     import modules.app_context as _app_ctx
 
     ctx = _app_ctx.ctx
-    if ctx is not None and ctx.scope is not None:
-        tube_focal_length = ctx.scope.capabilities.lens_focal_length_mm
-        pixel_width = ctx.scope.capabilities.pixel_size_um
-    else:
-        tube_focal_length = 47.8  # Etaluma default [mm]
-        pixel_width = 2.0  # Basler default [um/pixel]
+    if ctx is None or ctx.scope is None:
+        return None
+    tube_focal_length = ctx.scope.capabilities.lens_focal_length_mm
+    pixel_width = ctx.scope.capabilities.pixel_size_um
+    if tube_focal_length is None or pixel_width is None:
+        return None
     magnification = tube_focal_length / focal_length
     um_per_pixel = pixel_width / magnification
 
-    um_per_pixel_w_binning = um_per_pixel * binning_size
-
-    return um_per_pixel_w_binning
+    return um_per_pixel * binning_size
 
 
 def get_field_of_view(
     focal_length: float,
     frame_size: dict,
     binning_size: int,
-):
+) -> dict | None:
     um_per_pixel = get_pixel_size(
         focal_length=focal_length,
         binning_size=binning_size,
     )
+    # No scale, no field of view. A fabricated extent reads downstream as a
+    # measurement (tiling steps, FOV readouts); None is the honest signal that
+    # this scope cannot report its field of view.
+    if um_per_pixel is None:
+        return None
     fov_x = um_per_pixel * frame_size['width']
     fov_y = um_per_pixel * frame_size['height']
 
     return {'width': fov_x, 'height': fov_y}
+
+
+FOV_UNKNOWN_TEXT = 'unknown'
+
+
+def format_field_of_view(fov_size: dict | None) -> tuple[str, str]:
+    """Render (width, height) FOV label text for the settings readouts.
+
+    Returns the rounded micron strings, or ('unknown', 'unknown') when the
+    scope cannot report a field of view (no known pixel size). The three FOV
+    readouts share this so an unmeasurable scope reads the same everywhere.
+    """
+    if fov_size is None:
+        return (FOV_UNKNOWN_TEXT, FOV_UNKNOWN_TEXT)
+    return (str(round(fov_size['width'], 0)), str(round(fov_size['height'], 0)))
 
 
 def max_decimal_precision(parameter: str) -> int:

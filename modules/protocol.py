@@ -14,7 +14,7 @@ import copy
 from typing import ClassVar
 
 from lvp_logger import logger
-from modules.exceptions import ProtocolError
+from modules.exceptions import ConfigError, ProtocolError
 from modules.notification_center import notifications
 
 import modules.common_utils as color_channels
@@ -1180,6 +1180,12 @@ class Protocol:
                     fill_factor=fill_factor,
                     binning_size=binning_size,
                 )
+            except ConfigError:
+                # Scale unknown is a scope-wide condition, not a per-step bounds
+                # miss: every step shares the same pixel size, so no step can be
+                # tiled. Propagate to the UI, which reports tiling unavailable
+                # rather than silently building a partial, misaligned grid.
+                raise
             except Exception as e:
                 logger.error(f'Error getting tile centers for step {idx}: {e}')
                 tiles = {}

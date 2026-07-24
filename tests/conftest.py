@@ -309,3 +309,28 @@ def sim_scope():
     yield s
     s.imaging.stop_streaming()
     s.disconnect()
+
+
+@pytest.fixture
+def scale_ctx(monkeypatch):
+    """Install an app context whose scope reports a known image scale.
+
+    ``common_utils.get_pixel_size`` / ``get_field_of_view`` read the pixel
+    size and tube focal length from ``app_context.ctx.scope.capabilities``;
+    production has no hardcoded fallback, so a test that needs a real scale
+    (scale bar, tiling, field-of-view readout) must supply a scope that
+    reports one. The values match Etaluma's Classic optics so geometry
+    assertions written against the previous default stay valid.
+    """
+    from types import SimpleNamespace
+
+    import modules.app_context as app_context
+
+    scope = SimpleNamespace(
+        capabilities=SimpleNamespace(pixel_size_um=2.0, lens_focal_length_mm=47.8)
+    )
+    # A real AppContext (not a bare namespace) so code paths that gate on
+    # "ctx is not None" -- e.g. the save-encoding resolver's settings_lock --
+    # find the services they expect, not a half-built stand-in.
+    monkeypatch.setattr(app_context, 'ctx', app_context.AppContext(scope=scope))
+    return scope

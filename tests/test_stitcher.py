@@ -1123,7 +1123,9 @@ class TestLiveStitcherRealGeometry:
             (stage_position_stitcher, 'stage_position_stitcher'),
         ],
     )
-    def test_live_stitcher_places_on_shared_nominal_canvas(self, tmp_path, stitch_fn, algorithm):
+    def test_live_stitcher_places_on_shared_nominal_canvas(
+        self, tmp_path, stitch_fn, algorithm, scale_ctx
+    ):
         # Every live wrapper places tiles onto the same stage-position-derived
         # nominal canvas (identical for each channel / Z-slice of a group). The
         # pixel_size_um=None guard is NOT hit here, so the real stage-mm -> pixel
@@ -1136,7 +1138,7 @@ class TestLiveStitcherRealGeometry:
         assert result['metadata']['algorithm'] == algorithm
         assert result['image'].shape == (50, 75)
 
-    def test_live_stitcher_missing_pixel_size_fails_loudly(self, tmp_path):
+    def test_live_stitcher_missing_pixel_size_fails_loudly(self, tmp_path, scale_ctx):
         # A missing pixel scale must FAIL, not silently place tiles at the wrong
         # pitch and report success.
         df, _ = self._two_tile_group(tmp_path)
@@ -1235,7 +1237,7 @@ class TestPositionAwareStitcher:
                 continue
             assert 'registration_score' in t, f'tile at ({x},{y}) was not registered'
 
-    def test_position_stitch_save_restores_false_color_and_metadata(self, tmp_path):
+    def test_position_stitch_save_restores_false_color_and_metadata(self, tmp_path, scale_ctx):
         """Saving via the live overlap stitcher must carry the 8-bit PALETTE
         false-color colormap and acquisition metadata -- mirroring the
         simple-grid fallback -- not a bare grayscale, metadata-less TIFF.

@@ -700,8 +700,8 @@ scope.diagnostics.get_microscope_model()   # 'LS850'
 scope.diagnostics.get_motor_info()         # model, serial, firmware, axis config
 scope.diagnostics.get_led_info()           # firmware, cal status
 scope.diagnostics.get_system_info()        # combined summary
-scope.capabilities.pixel_size_um           # raw per-installation um/pixel (Capabilities field). For an objective-adjusted effective um/pixel, call common_utils.get_pixel_size(focal_length, binning_size).
-scope.capabilities.lens_focal_length_mm    # tube-lens focal length, mm (Capabilities field)
+scope.capabilities.pixel_size_um           # raw per-installation um/pixel, or None if the scope cannot report it (unknown camera / no declared optics). For an objective-adjusted effective um/pixel, call common_utils.get_pixel_size(focal_length, binning_size).
+scope.capabilities.lens_focal_length_mm    # tube-lens focal length, mm, or None if the scope cannot report it
 ```
 
 ```python
@@ -776,9 +776,11 @@ caps.led_channels               # e.g. (0, 1, 2, 3) for FX2 scopes; (0..5) for R
 caps.led_colors                 # e.g. ('BF', 'Blue', 'Green', 'Red') — what THIS scope can do
 caps.led_max_ma                 # per-channel current cap
 
-# Optics (per-installation, sourced from motorconfig.json Optics section)
-caps.pixel_size_um              # um/pixel (default 2.0; configurable per install)
-caps.lens_focal_length_mm       # tube lens focal length (default 47.8 mm)
+# Optics -- resolved from the first real source, never a hardcoded default:
+#   motorconfig.json Optics (LS820/850/850T) -> scopes.json Optics (Classic)
+#   -> camera SDK-reported pitch (pixel size only) -> None
+caps.pixel_size_um              # um/pixel, or None if the scope cannot report it
+caps.lens_focal_length_mm       # tube lens focal length mm, or None if unavailable
 
 # Hardware features (cross-cutting capability tokens)
 caps.hardware_features          # frozenset({'trigger_in', 'cooled_sensor', ...}); empty default
@@ -946,10 +948,10 @@ fov = common_utils.get_field_of_view(
     frame_size={'width': 2048, 'height': 2048},
     binning_size=1,
 )
-# Returns: {'width': ..., 'height': ...} in µm
+# Returns: {'width': ..., 'height': ...} in µm, or None if scale is unknown
 ```
 
-These helpers read `scope.capabilities.pixel_size_um` / `scope.capabilities.lens_focal_length_mm` when an LVP context is active, and fall back to defaults (47.8 mm, 2.0 µm/px) otherwise. In a bare script that never constructs a `Lumascope`, you'll get the defaults — pass your objective's focal length explicitly. Note: `capabilities.pixel_size_um` is the raw per-installation pixel pitch; for an effective µm/px adjusted for current objective + binning, call `common_utils.get_pixel_size(focal_length, binning_size)`.
+These helpers read `scope.capabilities.pixel_size_um` / `scope.capabilities.lens_focal_length_mm` from the active scope. Both return `None` when there is no active scope, or when the scope cannot report its optics (unknown camera, no declared optics) — `get_pixel_size` and `get_field_of_view` then return `None` rather than an invented scale, and callers degrade honestly (no scale bar, no field of view, no `PhysicalSizeX`). There is deliberately no hardcoded fallback: a guessed pixel size is written into every image and cannot be told from a measured one. Note: `capabilities.pixel_size_um` is the raw per-installation pixel pitch; for an effective µm/px adjusted for current objective + binning, call `common_utils.get_pixel_size(focal_length, binning_size)`.
 
 ### Composite capture (`modules.composite_builder`)
 

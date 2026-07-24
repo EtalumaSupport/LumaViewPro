@@ -490,7 +490,7 @@ class TestFrameSizeMirrorChain:
         # delivered geometry.
         assert fov_refreshes == [{'width': 1896, 'height': 1900}]
 
-    def test_refresh_fov_labels_computes_from_settings_frame(self):
+    def test_refresh_fov_labels_computes_from_settings_frame(self, scale_ctx):
         from types import SimpleNamespace
 
         import modules.common_utils as common_utils_real

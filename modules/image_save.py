@@ -290,13 +290,19 @@ def generate_image_metadata(scope: Lumascope, color, x, y, z) -> dict:
     py = round(py, common_utils.max_decimal_precision('y'))
     z = round(z, common_utils.max_decimal_precision('z'))
 
-    pixel_size_um = round(
-        common_utils.get_pixel_size(
-            focal_length=scope.runtime_state._objective['focal_length'],
-            binning_size=scope.imaging._binning_size,
-        ),
-        common_utils.max_decimal_precision('pixel_size'),
+    pixel_size_um = common_utils.get_pixel_size(
+        focal_length=scope.runtime_state._objective['focal_length'],
+        binning_size=scope.imaging._binning_size,
     )
+    # A scope with no known pixel size writes no scale rather than an invented
+    # one -- the writer omits PhysicalSizeX and the resolution tag when this is
+    # None. A wrong scale is measured off the file forever and cannot be told
+    # from a real one.
+    if pixel_size_um is not None:
+        pixel_size_um = round(
+            pixel_size_um,
+            common_utils.max_decimal_precision('pixel_size'),
+        )
 
     now_host = datetime.datetime.now()
     microscope_model = scope.diagnostics.get_microscope_model()

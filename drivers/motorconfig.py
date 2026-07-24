@@ -11,6 +11,7 @@ import json
 import pathlib
 from typing import ClassVar
 
+from drivers.exceptions import HardwareError
 from lvp_logger import logger
 
 
@@ -263,13 +264,32 @@ class MotorConfig:
     # --- Optics ---
 
     def lens_focal_length(self) -> float:
+        """Tube-lens focal length (mm) from the loaded Optics block.
+
+        Raises:
+            HardwareError: the motorconfig declares no numeric
+                Optics.LensFocalLength. A scope that has a motorconfig is
+                expected to declare its optics; absence is a malformed
+                config, not a normal state (the Classic, which has no optics
+                here, has no motorconfig at all). The capability builder
+                catches this and degrades the scale honestly.
+        """
         try:
             return float(self._config['Optics']['LensFocalLength'])
-        except (KeyError, TypeError, ValueError):
-            return 47.8
+        except (KeyError, TypeError, ValueError) as ex:
+            raise HardwareError(
+                f'motorconfig declares no numeric Optics.LensFocalLength: {ex}'
+            ) from ex
 
     def pixel_size(self) -> float:
+        """Camera pixel size (um/pixel) from the loaded Optics block.
+
+        Raises:
+            HardwareError: the motorconfig declares no numeric
+                Optics.PixelSize. See lens_focal_length for why absence is a
+                malformed config rather than a normal state.
+        """
         try:
             return float(self._config['Optics']['PixelSize'])
-        except (KeyError, TypeError, ValueError):
-            return 2.0
+        except (KeyError, TypeError, ValueError) as ex:
+            raise HardwareError(f'motorconfig declares no numeric Optics.PixelSize: {ex}') from ex

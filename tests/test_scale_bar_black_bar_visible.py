@@ -9,17 +9,25 @@ fluorescence channels rendered fine, which is why only some channels showed a
 bar). The geometry is now rendered with a nonzero sentinel so the mask captures
 the bar+text location, and the real value (0 for black) is written there.
 
-Scale-bar rendering is pure numpy/cv2; get_pixel_size falls back to default
-optics when there is no app context, so this runs without the Kivy app.
+Scale-bar rendering is pure numpy/cv2, so this runs without the Kivy app. It
+does need a scale, though: get_pixel_size reads the pixel size from the active
+scope (no hardcoded fallback), which the scale_ctx fixture supplies.
 """
 
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 import modules.image_utils as image_utils
 
 _OBJECTIVE = {'focal_length': 10.0, 'magnification': 20}
+
+
+@pytest.fixture(autouse=True)
+def _scale(scale_ctx):
+    """Every test here draws a scale bar, which needs a known pixel size."""
+    return scale_ctx
 
 
 def _add(image, color):

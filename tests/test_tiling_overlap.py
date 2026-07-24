@@ -84,7 +84,7 @@ def test_invalid_overlap_percent_rejected(overlap_percent):
         TilingConfig.fill_factor_from_overlap_percent(overlap_percent)
 
 
-def test_ten_percent_overlap_reduces_tile_spacing_by_ten_percent():
+def test_ten_percent_overlap_reduces_tile_spacing_by_ten_percent(scale_ctx):
     tiling_config = TilingConfig(tiling_configs_file_loc=TILING_CONFIGS)
 
     common_kwargs = {
@@ -110,7 +110,7 @@ def test_ten_percent_overlap_reduces_tile_spacing_by_ten_percent():
     assert y_spacing_overlap == pytest.approx(y_spacing_no_overlap * 0.9, abs=0.02)
 
 
-def test_protocol_from_config_overlap_keeps_tile_count_and_reduces_spacing():
+def test_protocol_from_config_overlap_keeps_tile_count_and_reduces_spacing(scale_ctx):
     protocol_no_overlap = _make_protocol_from_config(overlap_percent=0)
     protocol_ten_percent_overlap = _make_protocol_from_config(overlap_percent=10)
 
@@ -124,7 +124,7 @@ def test_protocol_from_config_overlap_keeps_tile_count_and_reduces_spacing():
     assert y_spacing_overlap == pytest.approx(y_spacing_no_overlap * 0.9, abs=0.0001)
 
 
-def test_overlap_never_adds_tiles():
+def test_overlap_never_adds_tiles(scale_ctx):
     """The tiling label is a tile-count contract: the requested grid is
     what runs, at every allowed overlap. Overlap shrinks the step (and
     the total covered area) instead of growing the grid -- an earlier
