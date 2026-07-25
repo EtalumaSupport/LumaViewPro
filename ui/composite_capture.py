@@ -110,6 +110,11 @@ class CompositeCapture(FloatLayout):
         sum_delay_s = layer_configs[layer]['exposure_ms'] / 1000
         sum_count = layer_configs[layer]['sum']
 
+        # A manual capture with its channel LED driven must never save a
+        # black frame; a channel at illumination 0 is dark by design and
+        # stays exempt (same contract as the protocol writer).
+        dark_floor_check = layer_configs[layer]['illumination'] > 0
+
         if ctx.engineering_mode is False:
             return save_live_image(
                 ctx.scope,
@@ -119,12 +124,14 @@ class CompositeCapture(FloatLayout):
                 color,
                 force_to_8bit=force_to_8bit_pixel_depth,
                 output_format=settings['image_output_format']['live'],
+                all_ones_check=True,
                 sum_count=sum_count,
                 sum_delay_s=sum_delay_s,
                 sum_iteration_callback=sum_iteration_callback,
                 turn_off_all_leds_after=False,
                 jpeg_quality=settings.get('jpg_quality', 90),
                 save_encoding=save_encoding,
+                dark_floor_check=dark_floor_check,
             )
 
         else:
@@ -140,15 +147,22 @@ class CompositeCapture(FloatLayout):
                     color,
                     force_to_8bit=force_to_8bit_pixel_depth,
                     output_format=settings['image_output_format']['live'],
+                    all_ones_check=True,
                     sum_count=sum_count,
                     sum_delay_s=sum_delay_s,
                     sum_iteration_callback=sum_iteration_callback,
                     turn_off_all_leds_after=False,
                     jpeg_quality=settings.get('jpg_quality', 90),
                     save_encoding=save_encoding,
+                    dark_floor_check=dark_floor_check,
                 )
 
-            image_orig = ctx.scope.imaging.capture_and_wait(force_to_8bit=force_to_8bit_pixel_depth)
+            image_orig = ctx.scope.imaging.capture_and_wait(
+                force_to_8bit=force_to_8bit_pixel_depth,
+                all_ones_check=True,
+                dark_floor_check=dark_floor_check,
+                timeout_s=1.0,
+            )
             if image_orig is None:
                 return
 
@@ -401,13 +415,32 @@ class CompositeCapture(FloatLayout):
                     illumination,
                 )
 
-                transmitted_image = np.array(
-                    ctx.scope.imaging.capture_and_wait_sync(
-                        force_to_8bit=capture_depth == 8,
-                    ),
-                    dtype=dtype,
+                # A channel captured with its LED driven must never feed a
+                # black frame into the composite; illumination 0 is dark by
+                # design and exempt (same contract as the protocol writer).
+                transmitted_capture = ctx.scope.imaging.capture_and_wait_sync(
+                    force_to_8bit=capture_depth == 8,
+                    all_ones_check=True,
+                    dark_floor_check=illumination > 0,
+                    grab_timeout_s=1.0,
                 )
                 ctx.scope.illumination.leds_off_sync()
+
+                if transmitted_capture is None:
+                    from modules.notification_center import notifications
+
+                    logger.error(
+                        f'[COMPOSITE] {trans_layer} capture failed -- no usable '
+                        f'frame returned; building composite without it'
+                    )
+                    notifications.error(
+                        'Composite',
+                        'Channel Capture Failed',
+                        f'No usable {trans_layer} image was captured. '
+                        f'The composite will be built without it.',
+                    )
+                else:
+                    transmitted_image = np.array(transmitted_capture, dtype=dtype)
 
                 # Can only use one transmitted channel per composite
                 break
@@ -454,15 +487,35 @@ class CompositeCapture(FloatLayout):
                         illumination,
                     )
 
+                # Same black-frame contract as the transmitted grab above;
+                # a failed channel is skipped loudly rather than silently
+                # written into the composite as garbage.
                 img_gray = ctx.scope.imaging.capture_and_wait_sync(
                     force_to_8bit=capture_depth == 8,
+                    all_ones_check=True,
+                    dark_floor_check=illumination > 0,
+                    grab_timeout_s=1.0,
                     sum_count=sum_count,
                     sum_delay_s=exposure / 1000,
                     sum_iteration_callback=sum_iteration_callback,
                 )
                 ctx.scope.illumination.leds_off_sync()
 
-                channel_images[layer] = np.array(img_gray)
+                if img_gray is None:
+                    from modules.notification_center import notifications
+
+                    logger.error(
+                        f'[COMPOSITE] {layer} capture failed -- no usable frame '
+                        f'returned; building composite without this channel'
+                    )
+                    notifications.error(
+                        'Composite',
+                        'Channel Capture Failed',
+                        f'No usable {layer} image was captured. '
+                        f'The composite will be built without it.',
+                    )
+                else:
+                    channel_images[layer] = np.array(img_gray)
 
             ctx.scope.illumination.leds_off_sync()
 
@@ -474,16 +527,29 @@ class CompositeCapture(FloatLayout):
             Clock.schedule_once(_unschedule_histo, 0)
             logger.info('[LVP Main  ] Clock.unschedule(lumaview...histogram)')
 
-        # Validate: at least one channel must have been captured
+        # Validate: at least one channel must have been captured. Two
+        # distinct causes reach this point and must not share a message:
+        # nothing was selected, or every selected channel's capture failed.
         if transmitted_image is None and len(channel_images) == 0:
             from modules.notification_center import notifications
 
-            notifications.warning(
-                'Composite',
-                'No Channels Selected',
-                'No channels are selected for capture. Enable at least one channel before using Composite Capture.',
-            )
-            logger.warning('[COMPOSITE] No channels selected -- nothing to capture')
+            if acquired_channel_count == 0:
+                notifications.warning(
+                    'Composite',
+                    'No Channels Selected',
+                    'No channels are selected for capture. Enable at least one channel before using Composite Capture.',
+                )
+                logger.warning('[COMPOSITE] No channels selected -- nothing to capture')
+            else:
+                notifications.error(
+                    'Composite',
+                    'Composite Capture Failed',
+                    'Every selected channel failed to capture a usable image. See the per-channel messages for details.',
+                )
+                logger.error(
+                    f'[COMPOSITE] all {acquired_channel_count} selected channel(s) '
+                    f'failed to capture -- no composite built'
+                )
             return
 
         # Build composite image from collected channels (8-bit RGB out)

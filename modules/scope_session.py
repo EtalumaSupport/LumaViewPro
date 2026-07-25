@@ -466,6 +466,7 @@ class ScopeSession:
         force_to_8bit: bool = True,
         exclude_sources: tuple = (),
         all_ones_check: bool = False,
+        dark_floor_check: bool = False,
         earliest_image_ts: 'datetime.datetime | None' = None,
         timeout_s: float = 0.0,
         sum_count: int = 1,
@@ -477,10 +478,16 @@ class ScopeSession:
         Explicit signature symmetric with set_gain_async / set_exposure_time_async
         and with the underlying scope.imaging.capture_and_wait_async; L2 SDK
         autocomplete sees every supported kwarg.
+
+        ``dark_floor_check=True`` rejects frames with essentially no lit
+        pixel (retry until timeout, then None); pass it when your capture
+        expects illumination ON. Defaults False at this L2 surface so
+        existing scripts are behavior-identical.
         """
         self.scope.imaging.capture_and_wait_async(
             callback=callback,
             cb_kwargs=cb_kwargs,
+            dark_floor_check=dark_floor_check,
             force_to_8bit=force_to_8bit,
             exclude_sources=exclude_sources,
             all_ones_check=all_ones_check,
@@ -498,6 +505,7 @@ class ScopeSession:
         force_to_8bit: bool = True,
         exclude_sources: tuple = (),
         all_ones_check: bool = False,
+        dark_floor_check: bool = False,
         earliest_image_ts: 'datetime.datetime | None' = None,
         sum_count: int = 1,
         sum_delay_s: float = 0,
@@ -508,9 +516,15 @@ class ScopeSession:
         Explicit signature symmetric with the other Session imaging forwarders.
         Returns the captured image array, or None on failure (camera-inactive,
         frame-drain failed, executor absent, or future not delivered).
+
+        ``dark_floor_check=True`` rejects frames with essentially no lit
+        pixel (retry until timeout, then None); pass it when your capture
+        expects illumination ON. Defaults False at this L2 surface so
+        existing scripts are behavior-identical.
         """
         return self.scope.imaging.capture_and_wait_sync(
             timeout_s=timeout_s,
+            dark_floor_check=dark_floor_check,
             force_to_8bit=force_to_8bit,
             exclude_sources=exclude_sources,
             all_ones_check=all_ones_check,

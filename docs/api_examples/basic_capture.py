@@ -61,7 +61,9 @@ def main():
 
     # Capture an image. capture_and_wait drains stale frames and
     # returns a frame valid for the current LED + exposure state.
-    image = scope.imaging.capture_and_wait(force_to_8bit=True)
+    # dark_floor_check is required: True because the LED is on, so a
+    # frame with no lit pixel would be a capture fault, not data.
+    image = scope.imaging.capture_and_wait(force_to_8bit=True, dark_floor_check=True)
     if image is None:
         print('Capture failed')
     else:

@@ -542,7 +542,12 @@ class AutofocusRunner:
         num_retries = 5
         count = 0
         while True:
-            image = self._scope.imaging.capture_and_wait(exclude_sources=('z_move',))
+            # dark_floor_check stays False: AF consumes focus scores, not
+            # saved truth, and a hard dark-reject mid-sweep would stall the
+            # scan; the mean-intensity retry below handles dark frames.
+            image = self._scope.imaging.capture_and_wait(
+                dark_floor_check=False, exclude_sources=('z_move',)
+            )
             count += 1
             if isinstance(image, np.ndarray):
                 break
@@ -558,10 +563,15 @@ class AutofocusRunner:
 
         # Detect dark/blank frames -- would score 0, corrupting the curve.
         # Retry once; if still dark, accept (may be genuinely dark sample).
+        # capture_and_wait's required dark_floor_check is False here for the
+        # same reason as the grab loop above: AF must accept a genuinely dark
+        # sample rather than reject the frame.
         mean_intensity = float(np.mean(image))
         if mean_intensity < 1.0:
             _af_log.warning(f'  DARK FRAME: mean={mean_intensity:.2f}, retrying')
-            retry = self._scope.imaging.capture_and_wait(exclude_sources=('z_move',))
+            retry = self._scope.imaging.capture_and_wait(
+                dark_floor_check=False, exclude_sources=('z_move',)
+            )
             if isinstance(retry, np.ndarray):
                 image = retry
 

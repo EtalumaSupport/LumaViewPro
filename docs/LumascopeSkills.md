@@ -228,6 +228,14 @@ session.capture_and_wait_async(callback=lambda img: ..., earliest_image_ts=ts)
 session.set_gain_sync(8.0, timeout_s=5)
 session.set_exposure_time_sync(50.0, timeout_s=5)
 image = session.capture_and_wait_sync(timeout_s=30)   # returns frame-valid grab
+
+# Both capture forwarders accept dark_floor_check (default False at this
+# surface, so existing scripts are unchanged): pass True when your capture
+# expects illumination ON and a frame with no lit pixel should be rejected
+# (retried, then None) instead of returned as data. For a retry budget on
+# the content checks, scope.imaging.capture_and_wait_sync accepts
+# grab_timeout_s (distinct from timeout_s, which bounds the executor wait).
+image = session.capture_and_wait_sync(timeout_s=30, dark_floor_check=True)
 ```
 
 ### Capture
@@ -235,7 +243,9 @@ image = session.capture_and_wait_sync(timeout_s=30)   # returns frame-valid grab
 ```python
 from modules.image_save import save_image
 
-image = session.scope.imaging.capture_and_wait()
+# Direct scope.imaging calls require the dark_floor_check decision
+# (keyword-only): True when illumination is expected ON.
+image = session.scope.imaging.capture_and_wait(dark_floor_check=True)
 save_image(
     session.scope,
     array=image, save_folder='./output',
@@ -488,9 +498,15 @@ image = scope.imaging.get_image(force_to_8bit=False)   # keep native 12/16-bit
 # Frame-validity capture — PREFERRED for all real captures.
 # Waits for all pending changes (LED, gain, exposure, motion) to settle,
 # drains stale frames, returns a valid frame. Returns None on failure.
-image = scope.imaging.capture_and_wait()
+# dark_floor_check is REQUIRED (keyword-only): state whether illumination
+# is expected ON. True rejects frames with essentially no lit pixel
+# (retrying until timeout_s, then None) so a stale pre-LED or starved
+# black frame is never returned as data; False accepts dark frames
+# (brightfield at illumination 0, luminescence, focus-score grabs).
+image = scope.imaging.capture_and_wait(dark_floor_check=True)
 image = scope.imaging.capture_and_wait(
     force_to_8bit=True,
+    dark_floor_check=True,                 # REQUIRED: illumination expected ON?
     all_ones_check=True,                   # detect saturated frames
     sum_count=4,                           # average 4 frames
     sum_delay_s=0.05,                      # delay between sum frames
@@ -1051,7 +1067,7 @@ scope.motion.move_absolute_position('Z', 5000, wait_until_complete=True)
 from modules.image_save import save_image
 
 scope.illumination.led_on('BF', 100)
-image = scope.imaging.capture_and_wait()
+image = scope.imaging.capture_and_wait(dark_floor_check=True)
 scope.illumination.leds_off()
 
 save_image(
@@ -1078,14 +1094,14 @@ for color, mA, exp_ms, gain_db in [
     scope.imaging.set_exposure_time(exp_ms)
     scope.imaging.set_gain(gain_db)
     scope.illumination.led_on(color, mA)
-    channel_images[color] = scope.imaging.capture_and_wait()
+    channel_images[color] = scope.imaging.capture_and_wait(dark_floor_check=True)
     scope.illumination.led_off(color)
 
 # Transmitted (brightfield) base image
 scope.imaging.set_exposure_time(2.0)
 scope.imaging.set_gain(1.0)
 scope.illumination.led_on('BF', 100)
-bf_image = scope.imaging.capture_and_wait()
+bf_image = scope.imaging.capture_and_wait(dark_floor_check=True)
 scope.illumination.leds_off()
 
 composite = build_composite(
@@ -1111,7 +1127,7 @@ scope.illumination.led_on('BF', 100)
 z = z_start
 while z <= z_end:
     scope.motion.move_absolute_position('Z', z, wait_until_complete=True)
-    image = scope.imaging.capture_and_wait()
+    image = scope.imaging.capture_and_wait(dark_floor_check=True)
     save_image(
         scope,
         array=image, save_folder='./zstack',
@@ -1137,7 +1153,7 @@ for well_name, px, py in wells:
     scope.motion.move_absolute_position('X', sx, wait_until_complete=True)
     scope.motion.move_absolute_position('Y', sy, wait_until_complete=True)
 
-    image = scope.imaging.capture_and_wait()
+    image = scope.imaging.capture_and_wait(dark_floor_check=True)
     save_image(
         scope,
         array=image, save_folder='./scan',

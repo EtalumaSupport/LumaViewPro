@@ -86,8 +86,9 @@ def main():
         # Read back the actual position (um, from the push-based cache)
         actual_z_um = scope.motion.get_current_position('Z')
 
-        # Capture a frame valid for the current Z + LED + exposure state
-        image = scope.imaging.capture_and_wait(force_to_8bit=True)
+        # Capture a frame valid for the current Z + LED + exposure state.
+        # dark_floor_check is required: True because the LED is on.
+        image = scope.imaging.capture_and_wait(force_to_8bit=True, dark_floor_check=True)
         if image is None:
             print(f'  Slice {i:3d}: FAILED at Z={z_pos_um:.1f} um')
             z_pos_um += Z_STEP_UM

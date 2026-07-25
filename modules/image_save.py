@@ -686,6 +686,7 @@ def save_live_image(
     jpeg_quality: int = 90,
     *,
     save_encoding: str,
+    dark_floor_check: bool,
 ) -> str | None:
     """Grab the current live image from the camera and save to a TIFF file.
 
@@ -715,12 +716,17 @@ def save_live_image(
         save_encoding: The derived on-disk encoding from the image_mode
             config layer; required and keyword-only, forwarded to save_image
             so the live-capture path cannot drop the image mode.
+        dark_floor_check: Whether illumination is expected ON for this
+            capture; required and keyword-only (same contract shape as
+            save_encoding), forwarded to capture_and_wait so a save-for-truth
+            caller cannot skip the decision.
 
     Returns:
         str | None: Path to saved file, or None on failure.
     """
     array = scope.imaging.capture_and_wait(
         force_to_8bit=force_to_8bit,
+        dark_floor_check=dark_floor_check,
         earliest_image_ts=earliest_image_ts,
         timeout_s=timeout_s,
         all_ones_check=all_ones_check,
