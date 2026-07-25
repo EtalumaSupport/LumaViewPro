@@ -42,12 +42,17 @@ logger = logging.getLogger('LVP.ui.post_processing')
 class QuickEnhanceControls(BoxLayout):
     """GUI shell for the non-destructive Quick Enhance derived-file path."""
 
+    # The caption Label is the ONE rendering home of the disclaimer; it
+    # reflects the store (which export metadata also reads) instead of
+    # duplicating the text, so the wording cannot fork between surfaces.
+    warning_text = QUANTITATIVE_USE_WARNING
+
     done = BooleanProperty(False)
     preset = StringProperty('Auto (Recommended)')
     source_path = StringProperty('')
     source_folder = StringProperty('')
     last_output_folder = StringProperty('')
-    status_text = StringProperty(QUANTITATIVE_USE_WARNING)
+    status_text = StringProperty('')
     input_ready = BooleanProperty(False)
     busy = BooleanProperty(False)
     show_after = BooleanProperty(False)
@@ -67,7 +72,7 @@ class QuickEnhanceControls(BoxLayout):
         self.source_folder = ''
         self.input_ready = False
         self.busy = True
-        self.status_text = 'Updating preview…' if refresh else 'Loading image preview…'
+        self.status_text = 'Updating preview...' if refresh else 'Loading image preview...'
         _app_ctx.ctx.file_io_executor.put(
             IOTask(
                 action=self._load_preview,
@@ -128,7 +133,7 @@ class QuickEnhanceControls(BoxLayout):
         self._enhanced_preview = result['after']
         self._significant_bits = result['significant_bits']
         self.input_ready = True
-        self.status_text = f'{result["detection"]} {QUANTITATIVE_USE_WARNING}'
+        self.status_text = result['detection']
         self._show_selected_preview()
 
     def toggle_before_after(self) -> None:
@@ -210,10 +215,9 @@ class QuickEnhanceControls(BoxLayout):
     @staticmethod
     def _update_folder_progress(popup, completed: int, total: int, path: pathlib.Path) -> None:
         popup.progress = 100 if total == 0 else (completed / total) * 100
-        popup.text = f'Quick Enhance: {completed}/{total} — {path.name}'
+        popup.text = f'Quick Enhance: {completed}/{total} -- {path.name}'
 
     def _export_callback(self, popup, result=None, exception=None) -> None:
-        self.busy = False
         self._export_inflight = False
         from modules.notification_center import notifications
 
@@ -234,7 +238,7 @@ class QuickEnhanceControls(BoxLayout):
             self.last_output_folder = str(output_folder)
             summary += f' Saved in: {output_folder}'
         popup.text = summary
-        self.status_text = f'{summary} {QUANTITATIVE_USE_WARNING}'
+        self.status_text = summary
         notifications.info('Quick Enhance', 'Export complete', summary)
         Clock.schedule_once(lambda _dt: popup.dismiss(), 2)
 

@@ -108,6 +108,28 @@ def test_panel_rules_declare_their_own_minimum_height():
         )
 
 
+def test_quick_enhance_disclaimer_is_single_homed():
+    """The disclaimer's string store is QUANTITATIVE_USE_WARNING; the kv
+    caption REFLECTS it (root.warning_text) rather than duplicating the
+    words, and no status-line append re-introduces a second rendering.
+    Also guards the literal backslash-n regression: the old duplicated
+    caption text carried an escaped newline that rendered as characters."""
+    kv_rule = _rule_block(KV_PATH.read_text(encoding='utf-8'), '<QuickEnhanceControls>:')
+    assert 'text: root.warning_text' in kv_rule, 'caption must reflect the warning store'
+    assert '\\n' not in kv_rule, 'no escaped-newline literals in the Quick Enhance rule'
+    assert 'visual inspection' not in kv_rule, 'disclaimer text must not be duplicated in kv'
+
+    py_src = (Path(__file__).resolve().parents[1] / 'ui' / 'post_processing.py').read_text(
+        encoding='utf-8'
+    )
+    occurrences = py_src.count('QUANTITATIVE_USE_WARNING')
+    assert occurrences == 2, (
+        f'QUANTITATIVE_USE_WARNING must appear exactly twice in ui/post_processing.py '
+        f'(import + warning_text attribute); found {occurrences} -- a status-text '
+        f'append duplicating the caption has likely been re-introduced'
+    )
+
+
 def test_quick_enhance_documentation_explains_the_short_mode_names():
     documentation = (Path(__file__).resolve().parents[1] / 'docs' / 'QUICK_ENHANCE.md').read_text(
         encoding='utf-8'
