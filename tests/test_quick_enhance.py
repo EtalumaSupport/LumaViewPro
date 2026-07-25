@@ -435,7 +435,9 @@ def test_ui_export_callback_restores_controls_on_every_terminal_path():
         if isinstance(node, ast.FunctionDef) and node.name == '_export_callback'
     )
     callback_source = ast.get_source_segment(source, callback)
-    assert 'self.busy = False' in callback_source
+    # busy belongs to the preview path (set/cleared there); the export
+    # path gates on _export_inflight alone, which must clear on every
+    # terminal path so the export button re-enables.
     assert 'self._export_inflight = False' in callback_source
 
 
@@ -454,7 +456,7 @@ def test_refresh_preview_requests_the_rebuilding_status():
     )
 
     assert 'refresh=True' in ast.get_source_segment(source, refresh)
-    assert "'Updating preview…' if refresh" in source
+    assert "'Updating preview...' if refresh" in source
 
 
 def test_preview_worker_imports_the_fluorescence_channel_helper():

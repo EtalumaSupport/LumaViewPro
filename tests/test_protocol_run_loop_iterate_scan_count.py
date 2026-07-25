@@ -43,6 +43,7 @@ def _make_two_scan_parent():
     p._start_t = time.monotonic() - 3600.0
     p._curr_step = 0
     p._af_future = None
+    p._scan_first_capture_t = None
 
     # The run loop drives per-scan state + the scan-count increment through the
     # runner's own methods now (single-owner counters); the stub implements them
@@ -50,6 +51,7 @@ def _make_two_scan_parent():
     def _reset_scan_state():
         p._curr_step = 0
         p._af_future = None
+        p._scan_first_capture_t = None
 
     def _advance_scan_count():
         p._scan_count += 1
