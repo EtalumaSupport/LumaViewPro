@@ -726,15 +726,17 @@ class IlluminationAPI:
             return
         op = err.get('op', '<unknown LED command>')
         reason = err.get('reason', 'unknown')
+        _api_log.warning(f'LED command did not confirm: {op} ({reason})')
         from modules.notification_center import notifications
 
         notifications.warning(
             'LED Safety',
             'LED command did not confirm',
-            f'LED board did not acknowledge {op} ({reason}). If illumination '
-            f'is not behaving as expected, check that the LED board is '
-            f'powered and connected; turn off illumination manually '
-            f'before placing a sample.',
+            'The illumination did not confirm a command, so it may not '
+            'match what the display shows. Confirm the light is off '
+            'before placing a sample. If illumination keeps misbehaving, '
+            'check the USB cable and power connections, then restart '
+            'LumaViewPro.',
         )
         # Clear so subsequent successful calls reset the surface.
         # Drivers that set the field will overwrite again on next failure.
