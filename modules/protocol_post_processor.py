@@ -9,6 +9,7 @@ import pandas as pd
 
 import modules.image_utils as image_utils
 from modules.common_utils import PostFunction
+from modules.notification_center import notifications
 from modules.objectives_loader import ObjectiveLoader
 from modules.protocol_post_processing_helper import ProtocolPostProcessingHelper
 from modules.protocol_post_record import ProtocolPostRecord
@@ -107,6 +108,49 @@ class ProtocolPostProcessor(abc.ABC):
         popup=None,
         **kwargs: dict,
     ) -> dict:
+        """Run this operation over a captured folder; return the result dict.
+
+        The popup is the attended lifecycle surface (the caller renders
+        progress and completion). When no popup is supplied the run is
+        UNATTENDED, so the notification bus becomes the surface: a start
+        notice once the group count is known, and a completion or failure
+        message on every exit path -- inherited by every subclass, so no
+        unattended operation can finish (or fail) silently.
+        """
+        result = self._load_folder_inner(
+            path=path,
+            tiling_configs_file_loc=tiling_configs_file_loc,
+            popup=popup,
+            **kwargs,
+        )
+        if popup is None:
+            self._notify_unattended_result(result)
+        return result
+
+    def _notify_unattended_result(self, result: dict) -> None:
+        fname = self._post_function.value
+        if result.get('status'):
+            new_count = result.get('new_count')
+            output_root = result.get('output_root')
+            if result.get('degraded') or new_count is None or not output_root:
+                body = result.get('message', 'Complete.')
+            else:
+                body = f'{new_count} {fname.lower()}(s) saved to {output_root}.'
+            notifications.notice('Post-processing', f'{fname}s Saved', body)
+        else:
+            notifications.error(
+                'Post-processing',
+                f'{fname} Save Failed',
+                result.get('message', 'See lumaviewpro.log for details.'),
+            )
+
+    def _load_folder_inner(
+        self,
+        path: str | pathlib.Path,
+        tiling_configs_file_loc: pathlib.Path,
+        popup=None,
+        **kwargs: dict,
+    ) -> dict:
         start_ts = datetime.datetime.now()
         if not path:
             return {'status': False, 'message': 'Invalid path provided'}
@@ -166,6 +210,18 @@ class ProtocolPostProcessor(abc.ABC):
         groups = self._get_groups(df)
 
         group_count = len(groups)
+
+        if popup is None:
+            # Unattended run: announce the start so a multi-minute build is
+            # not a silent hang; the paired completion/failure message is
+            # emitted by the load_folder wrapper.
+            fname = self._post_function.value
+            notifications.notice(
+                'Post-processing',
+                f'Saving {fname}s',
+                f'Building {group_count} {fname.lower()}(s). This can take '
+                f'several minutes; a message will confirm completion.',
+            )
 
         # When two DIFFERENT groups would render one output filename,
         # generating them would produce only the first group's artifact (the
@@ -404,5 +460,12 @@ class ProtocolPostProcessor(abc.ABC):
                 'message': f'Success with degraded output: {summary}',
                 'degraded': True,
                 'degraded_outputs': degraded_outputs,
+                'new_count': new_count,
+                'output_root': str(root_path),
             }
-        return {'status': True, 'message': f'Success.{collision_note}'}
+        return {
+            'status': True,
+            'message': f'Success.{collision_note}',
+            'new_count': new_count,
+            'output_root': str(root_path),
+        }
