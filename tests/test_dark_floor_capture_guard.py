@@ -137,3 +137,61 @@ class TestProtocolWriterWiring:
 
     def test_illumination_zero_step_gates_dark_floor_off(self):
         assert self._run_capture(0.0)['dark_floor_check'] is False
+
+
+class TestLiveCaptureConfigSeam:
+    """Every key ui/composite_capture.py reads off a get_layer_configs()
+    entry must exist in the dict get_layer_configs() actually emits.
+
+    The emitted keys carry unit suffixes (illumination_ma, exposure_ms,
+    gain_db) that are easy to drop when writing a new read site; a stale
+    key is a KeyError on the capture worker, surfaced only as a generic
+    task-failure popup. The schema below is taken from a real
+    get_layer_configs() call, so this guard tracks the producer instead
+    of pinning a copy of its key list.
+    """
+
+    def test_layer_config_keys_read_are_emitted(self):
+        import ast
+        from pathlib import Path
+
+        from modules import config_helpers
+
+        layer_settings = {
+            'acquire': None,
+            'video_config': {},
+            'autofocus': False,
+            'false_color': False,
+            'ill_ma': 100.0,
+            'sum': 1,
+            'gain_db': 0.0,
+            'auto_gain': False,
+            'exp_ms': 33.0,
+            'focus': 0.0,
+        }
+        schema = set(
+            config_helpers.get_layer_configs({'BF': layer_settings}, specific_layers=['BF'])['BF']
+        )
+
+        src = (Path(__file__).resolve().parent.parent / 'ui' / 'composite_capture.py').read_text()
+        read_keys = []
+        for node in ast.walk(ast.parse(src)):
+            if (
+                isinstance(node, ast.Subscript)
+                and isinstance(node.slice, ast.Constant)
+                and isinstance(node.slice.value, str)
+                and isinstance(node.value, ast.Subscript)
+                and isinstance(node.value.value, ast.Name)
+                and node.value.value.id == 'layer_configs'
+            ):
+                read_keys.append((node.slice.value, node.lineno))
+
+        assert read_keys, (
+            'expected layer_configs[...][key] reads in composite_capture.py; '
+            'if they moved, retarget this guard to the new reader'
+        )
+        stale = [(key, line) for key, line in read_keys if key not in schema]
+        assert stale == [], (
+            f'keys read but never emitted by get_layer_configs: {stale}; '
+            f'emitted keys: {sorted(schema)}'
+        )

@@ -113,7 +113,7 @@ class CompositeCapture(FloatLayout):
         # A manual capture with its channel LED driven must never save a
         # black frame; a channel at illumination 0 is dark by design and
         # stays exempt (same contract as the protocol writer).
-        dark_floor_check = layer_configs[layer]['illumination'] > 0
+        dark_floor_check = layer_configs[layer]['illumination_ma'] > 0
 
         if ctx.engineering_mode is False:
             return save_live_image(

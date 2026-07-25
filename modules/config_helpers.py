@@ -44,7 +44,7 @@ def get_layer_configs(settings: dict, specific_layers: list | None = None) -> di
     Returns:
         dict of layer_name -> config dict with keys:
         acquire, video_config, stim_config, autofocus, false_color,
-        illumination, gain, auto_gain, exposure, sum, focus
+        illumination_ma, gain_db, auto_gain, exposure_ms, sum, focus
     """
     layer_configs = {}
     for layer in common_utils.get_layers():
