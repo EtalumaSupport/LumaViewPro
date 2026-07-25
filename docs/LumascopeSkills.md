@@ -232,10 +232,12 @@ image = session.capture_and_wait_sync(timeout_s=30)   # returns frame-valid grab
 # Both capture forwarders accept dark_floor_check (default False at this
 # surface, so existing scripts are unchanged): pass True when your capture
 # expects illumination ON and a frame with no lit pixel should be rejected
-# (retried, then None) instead of returned as data. For a retry budget on
-# the content checks, scope.imaging.capture_and_wait_sync accepts
-# grab_timeout_s (distinct from timeout_s, which bounds the executor wait).
-image = session.capture_and_wait_sync(timeout_s=30, dark_floor_check=True)
+# (retried, then None) instead of returned as data. grab_timeout_s is the
+# retry budget for the content checks (distinct from timeout_s, which
+# bounds the executor wait); leave it 0.0 to judge the first grab only.
+image = session.capture_and_wait_sync(
+    timeout_s=30, dark_floor_check=True, grab_timeout_s=2.0
+)
 ```
 
 ### Capture
