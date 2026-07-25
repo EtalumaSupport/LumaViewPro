@@ -282,6 +282,21 @@ class ProtocolRunLoop:
                     f'Protocol scan {p._scan_count} completed in {scan_duration.total_seconds():.2f} seconds'
                 )
 
+                # The pacing anchor has two lifecycle events: it is
+                # ESTABLISHED at the run's first acquisition (here, once the
+                # opening scan has captured), then MAINTAINED at gate-open for
+                # every later scan (above). Before this point _start_t holds
+                # the run()-entry fallback, which includes run setup + initial
+                # motion + step-0 AF -- anchoring the period there shortens
+                # the first interval by that lead-in (toward zero at short
+                # periods). Deliberately NOT re-established from acquisition
+                # on later scans: their gate-open anchor keeps start-to-start
+                # cadence fixed instead of drifting by the per-scan lead-in.
+                # The fallback remains the anchor only when the opening scan
+                # completed no capture at all.
+                if p._scan_count == 0 and p._scan_first_capture_t is not None:
+                    p._start_t = p._scan_first_capture_t
+
                 new_count = p.advance_scan_count()
                 logger.debug(f'[{p.LOGGER_NAME}] Scan {new_count}/{p._n_scans} completed')
 
