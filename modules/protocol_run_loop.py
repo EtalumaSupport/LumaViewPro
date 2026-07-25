@@ -181,7 +181,10 @@ class ProtocolRunLoop:
                             notifications.error(
                                 'Protocol',
                                 'Protocol Aborted',
-                                'Hardware disconnected during protocol run.',
+                                'Hardware disconnected during protocol run. '
+                                'Check the USB cable and power connections, '
+                                'save the protocol, then restart LumaViewPro '
+                                'and the protocol.',
                                 fatal=True,
                             )
                             if p._state not in (ProtocolState.COMPLETING, ProtocolState.IDLE):
@@ -351,8 +354,9 @@ class ProtocolRunLoop:
                         'Protocol',
                         'Protocol Aborted',
                         'Hardware disconnected during protocol run. '
-                        'Check the camera, LED board, and motor board '
-                        'connections, then restart the scan.',
+                        'Check the USB cable and power connections, save '
+                        'the protocol, then restart LumaViewPro and the '
+                        'protocol.',
                         fatal=True,
                     )
                     if p._state not in (
@@ -399,8 +403,9 @@ class ProtocolRunLoop:
                         'Protocol',
                         'Protocol Aborted',
                         f'The scan failed {consecutive_scan_failures} times '
-                        'in a row. Check hardware connections and the log '
-                        'for the cause, then restart the scan.',
+                        'in a row. Check the USB cable and power connections '
+                        'and the log for the cause, save the protocol, then '
+                        'restart LumaViewPro and the protocol.',
                         fatal=True,
                     )
                     p._cleanup(run_status='failed')
