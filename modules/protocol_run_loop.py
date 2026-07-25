@@ -162,6 +162,7 @@ class ProtocolRunLoop:
                         'The protocol stopped after an unrecoverable step '
                         'failure. Review the log for the cause, then restart '
                         'the scan.',
+                        fatal=True,
                     )
                     p._cleanup(run_status='failed')
                     break
@@ -181,6 +182,7 @@ class ProtocolRunLoop:
                                 'Protocol',
                                 'Protocol Aborted',
                                 'Hardware disconnected during protocol run.',
+                                fatal=True,
                             )
                             if p._state not in (ProtocolState.COMPLETING, ProtocolState.IDLE):
                                 p._set_state(ProtocolState.ERROR)
@@ -351,6 +353,7 @@ class ProtocolRunLoop:
                         'Hardware disconnected during protocol run. '
                         'Check the camera, LED board, and motor board '
                         'connections, then restart the scan.',
+                        fatal=True,
                     )
                     if p._state not in (
                         ProtocolState.COMPLETING,
@@ -398,6 +401,7 @@ class ProtocolRunLoop:
                         f'The scan failed {consecutive_scan_failures} times '
                         'in a row. Check hardware connections and the log '
                         'for the cause, then restart the scan.',
+                        fatal=True,
                     )
                     p._cleanup(run_status='failed')
                     break
