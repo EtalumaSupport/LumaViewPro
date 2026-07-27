@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 
 from lib import profile_trace
 from lvp_logger import logger
+from modules.exceptions import ConfigError
 from modules.sequential_io_executor import IOTask
 
 if TYPE_CHECKING:
@@ -425,6 +426,39 @@ class IlluminationAPI:
     listener registry. Stateful bodies live here post-Phase 3d.
     """
 
+    # Marker returned by _resolve_channel for an off-request naming a colour
+    # this scope cannot drive: the request is complete without a command.
+    _OFF_NOOP = object()
+
+    def _resolve_channel(self, channel, *, missing_off_ok: bool):
+        """Map a colour-name channel argument to a numeric channel.
+
+        The single seam where a colour string becomes a channel number.
+        Drivers return None for a colour the scope cannot drive; this is
+        where that None becomes behavior: on-paths raise a named error (the
+        COLOUR reaches the user, never a sentinel channel number), off-paths
+        (``missing_off_ok=True``) return ``_OFF_NOOP`` -- a channel the
+        scope does not have is definitionally off, and the caller must
+        no-op BEFORE any numeric range check. Numeric input (including a
+        literal None) passes through untouched so the range checks keep
+        rejecting it.
+
+        Raises:
+            ConfigError: On-path request for a colour this scope has no LED
+                channel for. Typed so async task-failure popups show the
+                named colour rather than a generic body.
+        """
+        if not isinstance(channel, str):
+            return channel
+        mapped = self.color2ch(color=channel)
+        if mapped is not None:
+            return mapped
+        if missing_off_ok:
+            _api_log.debug(f"led_off no-op: scope has no '{channel}' LED channel")
+            return self._OFF_NOOP
+        available = tuple(self._driver.available_colors()) if self._driver else ()
+        raise ConfigError(f"This scope has no '{channel}' LED channel; available: {available}")
+
     def __init__(self, scope: Lumascope, driver: LEDBoardProtocol) -> None:
         self._scope = scope
         # driver argument kept for API compatibility but unused; `_driver`
@@ -510,12 +544,12 @@ class IlluminationAPI:
 
         Raises:
             ValueError: If channel or mA is out of range.
+            ConfigError: If a colour name this scope cannot drive is given.
         """
         if not self._driver:
             return
 
-        if isinstance(channel, str):
-            channel = self.color2ch(color=channel)
+        channel = self._resolve_channel(channel, missing_off_ok=False)
 
         valid_channels = self._driver.available_channels()
         if channel not in valid_channels:
@@ -610,8 +644,9 @@ class IlluminationAPI:
         if not self._driver:
             return
 
-        if isinstance(channel, str):
-            channel = self.color2ch(color=channel)
+        channel = self._resolve_channel(channel, missing_off_ok=True)
+        if channel is self._OFF_NOOP:
+            return
 
         valid_channels = self._driver.available_channels()
         if channel not in valid_channels:
@@ -759,11 +794,11 @@ class IlluminationAPI:
 
         Raises:
             ValueError: If channel or mA is out of range.
+            ConfigError: If a colour name this scope cannot drive is given.
         """
         if not self._driver:
             return
-        if isinstance(channel, str):
-            channel = self.color2ch(color=channel)
+        channel = self._resolve_channel(channel, missing_off_ok=False)
         valid_channels = self._driver.available_channels()
         if channel not in valid_channels:
             raise ValueError(f'LED channel must be one of {valid_channels}, got {channel}')
@@ -788,8 +823,9 @@ class IlluminationAPI:
         """
         if not self._driver:
             return
-        if isinstance(channel, str):
-            channel = self.color2ch(color=channel)
+        channel = self._resolve_channel(channel, missing_off_ok=True)
+        if channel is self._OFF_NOOP:
+            return
         valid_channels = self._driver.available_channels()
         if channel not in valid_channels:
             raise ValueError(f'LED channel must be one of {valid_channels}, got {channel}')
@@ -1510,7 +1546,8 @@ class IlluminationAPI:
             channel: Channel number (0=Blue, 1=Green, 2=Red, 3=BF, 4=PC, 5=DF).
 
         Returns:
-            Color name (e.g. "Blue", "BF"), or None if LED board unavailable.
+            Color name (e.g. "Blue", "BF"), or None if the LED board is
+            unavailable or the scope has no such channel.
         """
         if not self._driver:
             return None
@@ -1523,7 +1560,8 @@ class IlluminationAPI:
             color: Color name ("Blue", "Green", "Red", "BF", "PC", "DF").
 
         Returns:
-            Channel number (0-5), or None if LED board unavailable.
+            Channel number (0-5), or None if the LED board is unavailable
+            or the scope cannot drive this colour.
         """
         if not self._driver:
             return None

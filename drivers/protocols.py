@@ -145,8 +145,11 @@ class LEDBoardProtocol(Protocol):
     # state via the protocol surface.
 
     # --- Channel mapping ---
-    def color2ch(self, color: str) -> int: ...
-    def ch2color(self, channel: int) -> str: ...
+    # None = a colour/channel this scope cannot drive. An in-band default
+    # (any real channel number) is indistinguishable from data and lights
+    # the wrong LED; None forces the caller to decide at the seam.
+    def color2ch(self, color: str) -> int | None: ...
+    def ch2color(self, channel: int) -> str | None: ...
 
     # --- Channel discovery (B3) ---
     # available_channels()/available_colors() let the API ask the driver

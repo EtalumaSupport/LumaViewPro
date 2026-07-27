@@ -392,7 +392,7 @@ scope.illumination.led_off_fast('Red')
 scope.illumination.leds_off_fast()
 
 # Channel mapping
-scope.illumination.color2ch('Blue')                    # 0  (or -1 if the scope doesn't have this color)
+scope.illumination.color2ch('Blue')                    # 0  (or None if the scope doesn't have this color)
 scope.illumination.ch2color(0)                         # 'Blue'
 
 # Wait for firmware confirmation (mirrors motion.wait_until_finished_moving)

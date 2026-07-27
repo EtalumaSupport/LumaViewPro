@@ -414,10 +414,9 @@ class CompositeCapture(FloatLayout):
                 ctx.scope.imaging.set_exposure_sync(exposure)
                 illumination = layer_settings[trans_layer]['ill_ma']
 
-                ctx.scope.illumination.led_on_sync(
-                    ctx.scope.illumination.color2ch(trans_layer),
-                    illumination,
-                )
+                # Colour string to the seam unmapped: an undrivable colour
+                # fails with the colour named, never a sentinel channel.
+                ctx.scope.illumination.led_on_sync(trans_layer, illumination)
 
                 # A channel captured with its LED driven must never feed a
                 # black frame into the composite; illumination 0 is dark by
@@ -490,10 +489,7 @@ class CompositeCapture(FloatLayout):
                 # be rejected for coming back dark.
                 led_driven = layer in common_utils.get_layers_with_led() and illumination > 0
                 if led_driven:
-                    ctx.scope.illumination.led_on_sync(
-                        ctx.scope.illumination.color2ch(layer),
-                        illumination,
-                    )
+                    ctx.scope.illumination.led_on_sync(layer, illumination)
 
                 # Same black-frame contract as the transmitted grab above;
                 # a failed channel is skipped loudly rather than silently

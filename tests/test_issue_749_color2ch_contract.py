@@ -22,12 +22,108 @@ from __future__ import annotations
 
 import pathlib
 import sys
+from typing import ClassVar
 
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
+import pytest
+
 from modules import common_utils
+
+
+def _driver_classes():
+    from drivers.fx2driver import FX2LEDController
+    from drivers.ledboard import LEDBoard
+    from drivers.null_ledboard import NullLEDBoard
+    from drivers.simulated_ledboard import SimulatedLEDBoard
+
+    return [LEDBoard, NullLEDBoard, SimulatedLEDBoard, FX2LEDController]
+
+
+class TestColor2chContract:
+    """None is the only representation of 'this scope cannot drive it'."""
+
+    def test_color2ch_unknown_is_none_all_drivers(self):
+        for cls in _driver_classes():
+            board = cls.__new__(cls)
+            assert board.color2ch('NoSuchColour') is None, cls.__name__
+            assert board.ch2color(99) is None, cls.__name__
+
+    def test_known_colours_still_map(self):
+        for cls in _driver_classes():
+            board = cls.__new__(cls)
+            assert board.color2ch('BF') == 3, cls.__name__
+            assert board.ch2color(0) == 'Blue', cls.__name__
+
+
+class _FourColourRecordingBoard:
+    """LED-board double shaped like the FX2 (no PC/DF/Lumi channels),
+    recording every command that reaches the driver."""
+
+    _COLOR_TO_CH: ClassVar[dict] = {'Blue': 0, 'Green': 1, 'Red': 2, 'BF': 3}
+    _CH_TO_COLOR: ClassVar[dict] = {v: k for k, v in _COLOR_TO_CH.items()}
+
+    def __init__(self):
+        self.commands = []
+
+    def color2ch(self, color):
+        return self._COLOR_TO_CH.get(color)
+
+    def ch2color(self, channel):
+        return self._CH_TO_COLOR.get(channel)
+
+    def available_channels(self):
+        return (0, 1, 2, 3)
+
+    def available_colors(self):
+        return tuple(self._COLOR_TO_CH)
+
+    def led_on(self, channel, mA, **kwargs):
+        self.commands.append(('on', channel, mA))
+        return True
+
+    def led_off(self, channel, **kwargs):
+        self.commands.append(('off', channel))
+        return True
+
+
+@pytest.fixture
+def sim_scope():
+    from modules.lumascope_api import Lumascope
+
+    s = Lumascope(simulate=True)
+    s._led_driver.set_timing_mode('fast')
+    s._motion_driver.set_timing_mode('fast')
+    s._camera_driver.set_timing_mode('fast')
+    yield s
+    s.disconnect()
+
+
+class TestSeamBehaviour:
+    """The illumination API is the one place a colour becomes a channel."""
+
+    def test_led_on_unknown_colour_names_the_colour(self, sim_scope):
+        from modules.exceptions import ConfigError
+
+        board = _FourColourRecordingBoard()
+        sim_scope._led_driver = board
+        with pytest.raises(ConfigError, match='Lumi'):
+            sim_scope.illumination.led_on(channel='Lumi', mA=50)
+        assert board.commands == [], 'no command may reach the driver'
+
+    def test_led_off_unknown_colour_is_noop(self, sim_scope):
+        board = _FourColourRecordingBoard()
+        sim_scope._led_driver = board
+        sim_scope.illumination.led_off(channel='PC')
+        assert board.commands == [], 'off of an absent channel is already done'
+
+    def test_numeric_none_channel_still_rejected(self, sim_scope):
+        board = _FourColourRecordingBoard()
+        sim_scope._led_driver = board
+        with pytest.raises(ValueError):
+            sim_scope.illumination.led_off(channel=None)
 
 
 class TestLayersWithLedSemantics:

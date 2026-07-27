@@ -1033,15 +1033,15 @@ class LayerControl(BoxLayout):
         # try/except + log + notify pattern rationale.
         ctx = _app_ctx.ctx
         try:
-            channel = ctx.scope.illumination.color2ch(self.layer)
+            # The colour string goes to the seam unmapped: the illumination
+            # API owns colour-to-channel resolution, so turning OFF a colour
+            # this scope cannot drive is a no-op there, and turning one ON
+            # fails with the colour named instead of a sentinel channel.
             if not enabled:
-                ctx.scope.illumination.led_off_async(channel)
+                ctx.scope.illumination.led_off_async(self.layer)
             else:
-                logger.info(
-                    f'[LVP Main  ] lumaview.scope.illumination.led_on('
-                    f'lumaview.scope.illumination.color2ch({self.layer}), {illumination})'
-                )
-                ctx.scope.illumination.led_on_async(channel, illumination)
+                logger.info(f'[LVP Main  ] set_led_state: led_on({self.layer}, {illumination})')
+                ctx.scope.illumination.led_on_async(self.layer, illumination)
         except Exception as e:
             logger.exception(
                 f'[LVP Main  ] set_led_state failed for layer '
