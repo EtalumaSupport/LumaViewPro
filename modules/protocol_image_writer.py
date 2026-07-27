@@ -446,11 +446,13 @@ class ProtocolImageWriter:
                     # dark_floor_check: a step that drives its LED must never
                     # save a black frame (stale pre-LED integration, or an
                     # external consumer starving the feed); a step with
-                    # illumination 0 is dark by design.
+                    # illumination 0, or a colour the scope drives no LED
+                    # for (luminescence), is dark by design.
                     captured_image = self._scope.imaging.capture_and_wait(
                         force_to_8bit=capture_depth == 8,
                         all_ones_check=True,
-                        dark_floor_check=step['Illumination'] > 0,
+                        dark_floor_check=step['Illumination'] > 0
+                        and step['Color'] in common_utils.get_layers_with_led(),
                         timeout_s=1.0,
                         sum_count=sum_count,
                         sum_delay_s=step['Exposure'] / 1000,

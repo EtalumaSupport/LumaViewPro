@@ -111,9 +111,13 @@ class CompositeCapture(FloatLayout):
         sum_count = layer_configs[layer]['sum']
 
         # A manual capture with its channel LED driven must never save a
-        # black frame; a channel at illumination 0 is dark by design and
-        # stays exempt (same contract as the protocol writer).
-        dark_floor_check = layer_configs[layer]['illumination_ma'] > 0
+        # black frame; a channel at illumination 0, or one the scope drives
+        # no LED for (luminescence), is dark by design and stays exempt
+        # (same contract as the protocol writer).
+        dark_floor_check = (
+            layer in common_utils.get_layers_with_led()
+            and layer_configs[layer]['illumination_ma'] > 0
+        )
 
         if ctx.engineering_mode is False:
             return save_live_image(
@@ -480,8 +484,12 @@ class CompositeCapture(FloatLayout):
 
                 illumination = layer_settings[layer]['ill_ma']
 
-                # Luminescence channels don't use an LED
-                if layer not in common_utils.get_transmitted_layers():
+                # Only channels the scope drives an LED for get lit;
+                # luminescence channels have no LED and their frames are
+                # dark by design, so they must neither light a channel nor
+                # be rejected for coming back dark.
+                led_driven = layer in common_utils.get_layers_with_led() and illumination > 0
+                if led_driven:
                     ctx.scope.illumination.led_on_sync(
                         ctx.scope.illumination.color2ch(layer),
                         illumination,
@@ -493,7 +501,7 @@ class CompositeCapture(FloatLayout):
                 img_gray = ctx.scope.imaging.capture_and_wait_sync(
                     force_to_8bit=capture_depth == 8,
                     all_ones_check=True,
-                    dark_floor_check=illumination > 0,
+                    dark_floor_check=led_driven,
                     grab_timeout_s=1.0,
                     sum_count=sum_count,
                     sum_delay_s=exposure / 1000,
