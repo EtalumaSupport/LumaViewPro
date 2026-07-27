@@ -3284,6 +3284,14 @@
 					tooltip_text: 'Go to the previously saved focus'
 					disabled: app.protocol_running
 					on_release: root.goto_focus()
+				RoundedButton:
+					size_hint_y: None
+					height: '30dp'
+					font_size: '12sp'
+					text: 'Apply to Steps'
+					tooltip_text: 'Set every protocol step in this channel to the current focus'
+					disabled: app.protocol_running
+					on_release: root.apply_focus_to_channel_steps()
 			
 			# Protocol Settings
 			Label:

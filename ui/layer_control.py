@@ -870,28 +870,7 @@ class LayerControl(BoxLayout):
                     f'[LVP Main  ] save_focus: layer={self.layer} Z={pos} saved to '
                     f'selected step {selected_step}'
                 )
-
-                # Refresh the stage labware view + the steps table so the
-                # updated Z value is visible immediately.
-                def _refresh(_dt):
-                    try:
-                        ctx.stage.set_protocol_steps(df=protocol.steps())
-                        # The selected step now holds the new Z; refresh the
-                        # step editor so its focus readout reflects it.
-                        ctx.motion_settings.ids['protocol_settings_id'].update_step_ui()
-                    except Exception:
-                        # Scheduled main-thread callback: the steps table
-                        # can be mid-rebuild on this tick. Log so a stale-Z
-                        # labware view / step editor is diagnosable instead
-                        # of failing silently.
-                        logger.exception(
-                            '[LVP Main  ] save_focus: stage / step-editor '
-                            f'refresh failed for layer {self.layer} after '
-                            'saving focus to the selected step; Z readouts '
-                            'may show stale values until the next UI update'
-                        )
-
-                Clock.schedule_once(_refresh, 0)
+                self._schedule_step_views_refresh(ctx, protocol, context='save_focus')
         except Exception as e:
             logger.exception(f'[LVP Main  ] save_focus failed for layer {self.layer}: {e}')
             try:
@@ -900,6 +879,76 @@ class LayerControl(BoxLayout):
                 notifications.error(
                     'Motion',
                     'Save focus failed',
+                    "Couldn't read the Z position. Check that the motor board is connected.",
+                )
+            except Exception:
+                pass
+
+    def _schedule_step_views_refresh(self, ctx, protocol, context: str):
+        """Schedule a main-thread refresh of the stage view + step editor.
+
+        Shared by every focus action that changes step Z values so the
+        labware view and the step editor's focus readout update together.
+        """
+
+        # Refresh the stage labware view + the steps table so the
+        # updated Z values are visible immediately.
+        def _refresh(_dt):
+            try:
+                ctx.stage.set_protocol_steps(df=protocol.steps())
+                ctx.motion_settings.ids['protocol_settings_id'].update_step_ui()
+            except Exception:
+                # Scheduled main-thread callback: the steps table
+                # can be mid-rebuild on this tick. Log so a stale-Z
+                # labware view / step editor is diagnosable instead
+                # of failing silently.
+                logger.exception(
+                    f'[LVP Main  ] {context}: stage / step-editor refresh '
+                    f'failed for layer {self.layer}; Z readouts may show '
+                    'stale values until the next UI update'
+                )
+
+        Clock.schedule_once(_refresh, 0)
+
+    def apply_focus_to_channel_steps(self):
+        gui_logger.button(f'APPLY_FOCUS_TO_STEPS_{self.layer}')
+        logger.info('[LVP Main  ] LayerControl.apply_focus_to_channel_steps()')
+        _app_ctx.ctx.io_executor.put(IOTask(action=self.execute_apply_focus_to_channel_steps))
+
+    def execute_apply_focus_to_channel_steps(self):
+        # See execute_save_focus comment for the pattern rationale.
+        ctx = _app_ctx.ctx
+        settings = ctx.settings
+        try:
+            pos = ctx.scope.motion.get_current_position('Z')
+            with ctx.settings_lock:
+                settings[self.layer]['focus'] = pos
+            protocol = getattr(ctx, 'protocol', None)
+            if protocol is None:
+                logger.info(
+                    f'[LVP Main  ] apply_focus_to_channel_steps: no protocol '
+                    f'loaded; layer {self.layer} focus saved only'
+                )
+                return
+            updated = protocol.apply_focus_all_layer_steps(layer=self.layer, z=pos)
+            logger.info(
+                f'[LVP Main  ] apply_focus_to_channel_steps: layer={self.layer} '
+                f'Z={pos} applied to {updated} step(s)'
+            )
+            if updated > 0:
+                self._schedule_step_views_refresh(
+                    ctx, protocol, context='apply_focus_to_channel_steps'
+                )
+        except Exception as e:
+            logger.exception(
+                f'[LVP Main  ] apply_focus_to_channel_steps failed for layer {self.layer}: {e}'
+            )
+            try:
+                from modules.notification_center import notifications
+
+                notifications.error(
+                    'Motion',
+                    'Apply focus failed',
                     "Couldn't read the Z position. Check that the motor board is connected.",
                 )
             except Exception:

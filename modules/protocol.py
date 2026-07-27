@@ -862,6 +862,34 @@ class Protocol:
     def modify_step_z_height(self, step_idx: int, z: float):
         self._config['steps'].at[step_idx, 'Z'] = z
 
+    def apply_focus_all_layer_steps(self, layer: str, z: float) -> int:
+        """Set Z on EVERY step of the layer, unconditionally.
+
+        The explicit bulk counterpart to the selected-step Save Focus
+        write: covers the fresh-protocol workflow where the user focuses
+        a channel once and wants every step of that channel to start
+        there. Takes no previous-Z parameter by design -- a selective
+        "only steps that still look untouched" update is deliberately
+        not representable, because sibling steps are all born at the
+        identical layer focus, so matching a prior value is the default
+        state and never evidence of user intent.
+
+        Args:
+            layer: Color/layer name (BF, Blue, Green, Red, Lumi, etc.).
+            z: The Z position to write to every step of the layer.
+
+        Returns:
+            Number of steps updated.
+        """
+        steps_df = self._config['steps']
+        if steps_df is None or len(steps_df) == 0:
+            return 0
+        mask = steps_df['Color'] == layer
+        count = int(mask.sum())
+        if count > 0:
+            steps_df.loc[mask, 'Z'] = z
+        return count
+
     def modify_capture_root(self, capture_root: str):
         self._config['capture_root'] = capture_root
 

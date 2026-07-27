@@ -204,6 +204,41 @@ class TestSaveFocusSelectedStepOnly:
         assert ctx.settings['BF']['focus'] == 5000.0
 
 
+class TestApplyFocusAllLayerSteps:
+    """The explicit bulk action: every step of the channel, unconditionally."""
+
+    def test_sets_whole_channel_and_returns_count(self):
+        proto = _make_protocol_with_steps(
+            [
+                {'Name': 'A1_BF', 'Color': 'BF', 'Z': 7000.0, 'X': 1, 'Y': 1},
+                {'Name': 'B1_BF', 'Color': 'BF', 'Z': 6500.0, 'X': 1, 'Y': 1},
+                {'Name': 'A1_Blue', 'Color': 'Blue', 'Z': 7000.0, 'X': 1, 'Y': 1},
+            ]
+        )
+        count = proto.apply_focus_all_layer_steps(layer='BF', z=5000.0)
+        assert count == 2
+        steps = proto.steps()
+        assert steps.loc[0, 'Z'] == 5000.0
+        assert steps.loc[1, 'Z'] == 5000.0, 'per-well-tuned step included -- unconditional'
+        assert steps.loc[2, 'Z'] == 7000.0, 'other channels untouched'
+
+    def test_empty_protocol_returns_zero(self):
+        proto = _make_protocol_with_steps([])
+        assert proto.apply_focus_all_layer_steps(layer='BF', z=5000.0) == 0
+
+    def test_takes_no_previous_z_parameter(self):
+        # The inference has no representation left: the bulk write cannot
+        # be given a baseline to match against.
+        import inspect
+        import sys
+
+        sys.path.insert(0, str(REPO))
+        from modules.protocol import Protocol
+
+        params = list(inspect.signature(Protocol.apply_focus_all_layer_steps).parameters)
+        assert params == ['self', 'layer', 'z']
+
+
 class TestNoBaselineEqualityInferenceRemains:
     """Absence lock: the equality-inference machinery must stay deleted.
 
