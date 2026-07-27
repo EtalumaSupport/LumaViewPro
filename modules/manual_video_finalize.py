@@ -144,7 +144,6 @@ def finalize_manual_video(
 
             if image_capture_config.output_format_sequenced == 'OME-TIFF Hyperstack':
                 include_hyperstack_generation = True
-                _, objective = ui_snapshot['objective_info']
                 stack_builder = StackBuilder(
                     has_turret=scope.motion.has_turret(),
                 )
@@ -266,14 +265,11 @@ def finalize_manual_video(
             if include_hyperstack_generation:
                 logger.info('Manual-Video] Creating hyperstack...')
 
-                _, objective = ui_snapshot['objective_info']
                 frame_metadata_df = pd.DataFrame(frame_metadata)
                 stack_builder.create_single_recording_stack(
                     df=frame_metadata_df,
                     path=save_folder,
                     output_file_loc=save_folder / 'ManualVideo_Frame_HyperStack.ome.tiff',
-                    focal_length=objective['focal_length'],
-                    binning_size=ui_snapshot['binning'],
                 )
 
                 logger.info(

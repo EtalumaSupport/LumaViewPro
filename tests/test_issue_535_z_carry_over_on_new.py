@@ -70,7 +70,7 @@ def _build_input_config(previous_well_z=None):
     return cfg
 
 
-def test_protocol_from_config_applies_previous_well_z():
+def test_protocol_from_config_applies_previous_well_z(scale_ctx):
     """(well, channel) entries get their carried-over Z; others fall back.
 
     The carry-over is keyed by (well, channel) so each channel keeps its own
@@ -93,7 +93,7 @@ def test_protocol_from_config_applies_previous_well_z():
     )
 
 
-def test_protocol_from_config_no_previous_well_z_falls_through():
+def test_protocol_from_config_no_previous_well_z_falls_through(scale_ctx):
     """No previous_well_z key -> every well uses layer_config focus."""
     from modules.protocol import Protocol
 
@@ -108,7 +108,7 @@ def test_protocol_from_config_no_previous_well_z_falls_through():
     )
 
 
-def test_protocol_from_config_empty_previous_well_z_falls_through():
+def test_protocol_from_config_empty_previous_well_z_falls_through(scale_ctx):
     """Empty dict treated the same as missing key."""
     from modules.protocol import Protocol
 

@@ -81,5 +81,7 @@ def test_save_live_image_returns_none_on_capture_failure(monkeypatch, tmp_path):
 
     monkeypatch.setattr(image_save, 'save_image', _fail_save)
 
-    out = image_save.save_live_image(scope, save_folder=str(tmp_path), save_encoding='8bit')
+    out = image_save.save_live_image(
+        scope, save_folder=str(tmp_path), save_encoding='8bit', dark_floor_check=False
+    )
     assert out is None

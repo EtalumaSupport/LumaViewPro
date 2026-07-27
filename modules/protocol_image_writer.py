@@ -442,10 +442,15 @@ class ProtocolImageWriter:
                     return False  # Video always extinguishes; leds_off called above
 
                 else:
-                    # Frame validity drains stale frames, then grabs a valid one
+                    # Frame validity drains stale frames, then grabs a valid one.
+                    # dark_floor_check: a step that drives its LED must never
+                    # save a black frame (stale pre-LED integration, or an
+                    # external consumer starving the feed); a step with
+                    # illumination 0 is dark by design.
                     captured_image = self._scope.imaging.capture_and_wait(
                         force_to_8bit=capture_depth == 8,
                         all_ones_check=True,
+                        dark_floor_check=step['Illumination'] > 0,
                         timeout_s=1.0,
                         sum_count=sum_count,
                         sum_delay_s=step['Exposure'] / 1000,

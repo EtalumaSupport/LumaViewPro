@@ -30,13 +30,24 @@ logger = logging.getLogger('LVP.notifications')
 
 
 class Severity(IntEnum):
-    """Notification severity levels (matches Python logging levels)."""
+    """Notification severity levels (matches Python logging levels).
+
+    NOTICE sits between INFO and WARNING: user-facing status that must
+    reach the popup bridge (start/done of a long unattended operation)
+    without misdeclaring itself as a fault. WARNING stays "something
+    didn't work"; INFO stays log-only for normal users.
+    """
 
     DEBUG = logging.DEBUG  # 10
     INFO = logging.INFO  # 20
+    NOTICE = 25
     WARNING = logging.WARNING  # 30
     ERROR = logging.ERROR  # 40
     CRITICAL = logging.CRITICAL  # 50
+
+
+# Name the custom level so log lines read 'NOTICE', not 'Level 25'.
+logging.addLevelName(int(Severity.NOTICE), 'NOTICE')
 
 
 @dataclass(frozen=True)
@@ -179,6 +190,9 @@ class NotificationCenter:
 
     def info(self, category: str, title: str, message: str, **kw) -> None:
         self.notify(Severity.INFO, category, title, message, **kw)
+
+    def notice(self, category: str, title: str, message: str, **kw) -> None:
+        self.notify(Severity.NOTICE, category, title, message, **kw)
 
     def warning(self, category: str, title: str, message: str, **kw) -> None:
         self.notify(Severity.WARNING, category, title, message, **kw)

@@ -359,20 +359,13 @@ def create_hyperstacks_if_needed():
 
         from modules.notification_center import notifications
 
-        notifications.info(
-            'FileIO',
-            'Saving Hyperstacks',
-            'Building OME-TIFF Hyperstacks from captured data.\n'
-            'This may take several minutes for large datasets.',
-        )
-
+        # Lifecycle notices (start / done / failed) come from load_folder
+        # itself on this unattended (popup-less) path; the backstop below
+        # covers only faults before/around the build.
         logger.info('Building OME-TIFF Hyperstacks from captured data')
-        _, objective = get_current_objective_info()
         run_dir = ctx.sequenced_capture_runner.run_dir()
         tiling_loc = pathlib.Path(ctx.source_path) / 'data' / 'tiling.json'
-        binning = get_binning_from_ui()
         has_turret = ctx.scope.motion.has_turret()
-        focal_length = objective['focal_length']
 
         def _build():
             try:
@@ -380,8 +373,6 @@ def create_hyperstacks_if_needed():
                 stack_builder.load_folder(
                     path=run_dir,
                     tiling_configs_file_loc=tiling_loc,
-                    binning_size=binning,
-                    focal_length=focal_length,
                 )
                 logger.info('Hyperstack creation complete')
             except Exception as ex:

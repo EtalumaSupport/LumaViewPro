@@ -31,6 +31,7 @@ properties, not frozen snapshot fields.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any
@@ -38,6 +39,7 @@ from collections.abc import Callable, Mapping
 
 from drivers.exceptions import HardwareError
 from lvp_logger import logger
+from modules.path_utils import resolve_data_file
 
 
 def _probe(label: str, fn: Callable[[], Any], fallback: Any) -> Any:
@@ -65,6 +67,74 @@ def _probe(label: str, fn: Callable[[], Any], fallback: Any) -> Any:
 # which surfaced the same value on two layers with inconsistent SoT;
 # capabilities is the right home.
 LED_MAX_MA: int = 1000
+
+
+def _scopes_json_optics(model: str) -> dict[str, float]:
+    """Return the numeric Optics block declared for `model` in scopes.json.
+
+    The Lumascope Classic line has no motorconfig, so scopes.json is its
+    declared optics source (keyed by scope model). Returns an empty mapping
+    when the file, the model entry, or the Optics block is absent -- the
+    caller then falls through to the next source in the resolution order. A
+    non-numeric or unreadable entry is logged and treated as absent so a
+    corrupt data file degrades the scale rather than aborting scope bring-up.
+    """
+    if not model:
+        return {}
+    try:
+        with open(resolve_data_file('scopes.json'), encoding='utf-8') as f:
+            scopes = json.load(f)
+        # A model with no scopes.json entry, or an entry with no Optics block,
+        # is a legitimate resolution-order branch (the LS850T sources optics
+        # from motorconfig; an unknown scope has none) -- an empty mapping tells
+        # the caller to fall through to the next source, not a missing value.
+        raw = scopes.get(model, {}).get('Optics', {})
+        return {key: float(raw[key]) for key in ('PixelSize', 'LensFocalLength') if key in raw}
+    except (OSError, ValueError, TypeError) as e:
+        logger.warning(f'[CAPABILITIES] scopes.json Optics unreadable for {model!r}: {e}')
+        return {}
+
+
+def _resolve_pixel_size_um(motorconfig, model: str, camera) -> float | None:
+    """Resolve image pixel pitch (um) from the first real source.
+
+    Order: motorconfig Optics (LS820/850/850T) -> scopes.json Optics
+    (Classic) -> the camera profile / SDK-reported pitch -> None. No
+    hardcoded fallback: a scope that reports none of these cannot measure,
+    and None is the honest signal for that.
+    """
+    if motorconfig is not None:
+        mc = _probe('motorconfig.pixel_size', motorconfig.pixel_size, None)
+        if mc is not None:
+            return float(mc)
+    optics_px = _scopes_json_optics(model).get('PixelSize')
+    if optics_px is not None:
+        return optics_px
+    if camera is not None:
+        profile = getattr(camera, 'profile', None)
+        px = getattr(profile, 'pixel_size_um', None) if profile is not None else None
+        # A generic profile carries 0.0 until the driver fills it live from
+        # the SDK's SensorPixelWidth; only a real, positive pitch counts.
+        if px:
+            return float(px)
+    return None
+
+
+def _resolve_lens_focal_length_mm(motorconfig, model: str) -> float | None:
+    """Resolve tube-lens focal length (mm) from the first real source.
+
+    Order: motorconfig Optics (LS820/850/850T) -> scopes.json Optics
+    (Classic) -> None. No camera source (a lens is not a sensor property)
+    and no hardcoded fallback.
+    """
+    if motorconfig is not None:
+        mc = _probe('motorconfig.lens_focal_length', motorconfig.lens_focal_length, None)
+        if mc is not None:
+            return float(mc)
+    optics_fl = _scopes_json_optics(model).get('LensFocalLength')
+    if optics_fl is not None:
+        return optics_fl
+    return None
 
 
 @dataclass(frozen=True)
@@ -106,19 +176,23 @@ class ScopeCapabilities:
     motion driver has no motorconfig (NullMotionBoard) or all axes
     failed to read."""
 
-    pixel_size_um: float
-    """Per-scope camera pixel size in um/pixel, sourced from
-    motorconfig.json's Optics.PixelSize. Per-installation override of
-    the camera SDK's reported value -- some sites adjust this for
-    calibration. Used by FOV / scale-bar / coordinate-transform
-    helpers. Default 2.0 if motorconfig is unavailable."""
+    pixel_size_um: float | None
+    """Per-scope camera pixel size in um/pixel, resolved from the first
+    real source: motorconfig Optics.PixelSize (LS820/850/850T) ->
+    scopes.json Optics.PixelSize (Classic) -> the camera profile /
+    SDK-reported pitch -> None. None when no source can supply it: the
+    scope cannot measure, and consumers (FOV / scale bar / coordinate
+    transform) degrade honestly rather than using an invented scale.
+    Never a hardcoded default -- a guessed pixel size is written into
+    every image and cannot be told from a measured one."""
 
-    lens_focal_length_mm: float
-    """Tube lens focal length in mm, sourced from motorconfig.json's
-    Optics.LensFocalLength. Per-installation override (default Etaluma
-    47.8 mm). Used together with pixel_size_um and the objective focal
-    length to compute per-objective effective um/pixel. Default 47.8
-    if motorconfig is unavailable."""
+    lens_focal_length_mm: float | None
+    """Tube lens focal length in mm, resolved from motorconfig
+    Optics.LensFocalLength -> scopes.json Optics.LensFocalLength
+    (Classic) -> None. Used with pixel_size_um and the objective focal
+    length to compute per-objective effective um/pixel. None when no
+    source supplies it (there is no camera source -- a lens is not a
+    sensor property); never a hardcoded default."""
 
     # ---- LED ----
     led_channels: tuple[int, ...]
@@ -283,16 +357,8 @@ class ScopeCapabilities:
                 )
                 if limit is not None:
                     travel_limits[ax] = limit
-        pixel_size_um = _probe(
-            'motorconfig.pixel_size',
-            lambda: float(motorconfig.pixel_size()) if motorconfig is not None else 2.0,
-            2.0,
-        )
-        lens_focal_length_mm = _probe(
-            'motorconfig.lens_focal_length',
-            lambda: float(motorconfig.lens_focal_length()) if motorconfig is not None else 47.8,
-            47.8,
-        )
+        pixel_size_um = _resolve_pixel_size_um(motorconfig, model, camera)
+        lens_focal_length_mm = _resolve_lens_focal_length_mm(motorconfig, model)
 
         # Motor firmware command families. Probe-and-cache on the
         # driver: one wire exchange each at boot (motors idle), then

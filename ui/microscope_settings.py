@@ -454,8 +454,9 @@ class MicroscopeSettings(BoxLayout):
                 frame_size=settings['frame'],
                 binning_size=binning_size,
             )
-            self.ids['field_of_view_width_id'].text = str(round(fov_size['width'], 0))
-            self.ids['field_of_view_height_id'].text = str(round(fov_size['height'], 0))
+            fov_w_text, fov_h_text = common_utils.format_field_of_view(fov_size)
+            self.ids['field_of_view_width_id'].text = fov_w_text
+            self.ids['field_of_view_height_id'].text = fov_h_text
 
             # Load previous turret position objectives
             for turret_pos, objective_id in settings['turret_objectives'].items():
@@ -1382,8 +1383,9 @@ class MicroscopeSettings(BoxLayout):
             frame_size=settings['frame'],
             binning_size=get_binning_from_ui(),
         )
-        self.ids['field_of_view_width_id'].text = str(round(fov_size['width'], 0))
-        self.ids['field_of_view_height_id'].text = str(round(fov_size['height'], 0))
+        fov_w_text, fov_h_text = common_utils.format_field_of_view(fov_size)
+        self.ids['field_of_view_width_id'].text = fov_w_text
+        self.ids['field_of_view_height_id'].text = fov_h_text
 
     def open_advanced_settings(self):
         """Open the Advanced Settings modal (power-user / rarely-touched rows)."""

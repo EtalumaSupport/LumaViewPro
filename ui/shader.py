@@ -286,13 +286,17 @@ void main (void) {
                             focal_length=objective['focal_length'],
                             binning_size=get_binning_from_ui(),
                         )
-                        # _mouse_pixel_* are sensor-pixel coords (full frame);
-                        # center on the full-resolution frame, not the
-                        # downscaled preview texture.
-                        frame_w, frame_h = scope_display.full_resolution_frame_size()
-                        dx_um = (self._mouse_pixel_x - frame_w / 2) * pixel_size_um
-                        dy_um = (self._mouse_pixel_y - frame_h / 2) * pixel_size_um
-                        if ctx.lumaview.scope.motor_connected:
+                        # The plate (um) readout converts a cursor offset into a
+                        # stage distance; it needs both a connected motor and a
+                        # known pixel size. Without either, the pixel readout
+                        # above stands alone -- never an invented distance.
+                        if ctx.lumaview.scope.motor_connected and pixel_size_um is not None:
+                            # _mouse_pixel_* are sensor-pixel coords (full frame);
+                            # center on the full-resolution frame, not the
+                            # downscaled preview texture.
+                            frame_w, frame_h = scope_display.full_resolution_frame_size()
+                            dx_um = (self._mouse_pixel_x - frame_w / 2) * pixel_size_um
+                            dy_um = (self._mouse_pixel_y - frame_h / 2) * pixel_size_um
                             pos = ctx.lumaview.scope.motion.get_current_position(axis=None)
                             _, labware = get_selected_labware()
                             px, py = ctx.coordinate_transformer.stage_to_plate(

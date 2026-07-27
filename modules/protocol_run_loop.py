@@ -162,6 +162,7 @@ class ProtocolRunLoop:
                         'The protocol stopped after an unrecoverable step '
                         'failure. Review the log for the cause, then restart '
                         'the scan.',
+                        fatal=True,
                     )
                     p._cleanup(run_status='failed')
                     break
@@ -180,7 +181,11 @@ class ProtocolRunLoop:
                             notifications.error(
                                 'Protocol',
                                 'Protocol Aborted',
-                                'Hardware disconnected during protocol run.',
+                                'Hardware disconnected during protocol run. '
+                                'Check the USB cable and power connections, '
+                                'save the protocol, then restart LumaViewPro '
+                                'and the protocol.',
+                                fatal=True,
                             )
                             if p._state not in (ProtocolState.COMPLETING, ProtocolState.IDLE):
                                 p._set_state(ProtocolState.ERROR)
@@ -282,6 +287,21 @@ class ProtocolRunLoop:
                     f'Protocol scan {p._scan_count} completed in {scan_duration.total_seconds():.2f} seconds'
                 )
 
+                # The pacing anchor has two lifecycle events: it is
+                # ESTABLISHED at the run's first acquisition (here, once the
+                # opening scan has captured), then MAINTAINED at gate-open for
+                # every later scan (above). Before this point _start_t holds
+                # the run()-entry fallback, which includes run setup + initial
+                # motion + step-0 AF -- anchoring the period there shortens
+                # the first interval by that lead-in (toward zero at short
+                # periods). Deliberately NOT re-established from acquisition
+                # on later scans: their gate-open anchor keeps start-to-start
+                # cadence fixed instead of drifting by the per-scan lead-in.
+                # The fallback remains the anchor only when the opening scan
+                # completed no capture at all.
+                if p._scan_count == 0 and p._scan_first_capture_t is not None:
+                    p._start_t = p._scan_first_capture_t
+
                 new_count = p.advance_scan_count()
                 logger.debug(f'[{p.LOGGER_NAME}] Scan {new_count}/{p._n_scans} completed')
 
@@ -334,8 +354,10 @@ class ProtocolRunLoop:
                         'Protocol',
                         'Protocol Aborted',
                         'Hardware disconnected during protocol run. '
-                        'Check the camera, LED board, and motor board '
-                        'connections, then restart the scan.',
+                        'Check the USB cable and power connections, save '
+                        'the protocol, then restart LumaViewPro and the '
+                        'protocol.',
+                        fatal=True,
                     )
                     if p._state not in (
                         ProtocolState.COMPLETING,
@@ -381,8 +403,10 @@ class ProtocolRunLoop:
                         'Protocol',
                         'Protocol Aborted',
                         f'The scan failed {consecutive_scan_failures} times '
-                        'in a row. Check hardware connections and the log '
-                        'for the cause, then restart the scan.',
+                        'in a row. Check the USB cable and power connections '
+                        'and the log for the cause, save the protocol, then '
+                        'restart LumaViewPro and the protocol.',
+                        fatal=True,
                     )
                     p._cleanup(run_status='failed')
                     break

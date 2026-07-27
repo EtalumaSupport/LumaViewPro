@@ -428,6 +428,11 @@ class ProtocolStepRunner:
                 logger.debug(
                     f'[TIMING] Step {p._curr_step} capture+save: {(_t_capture_done - _t_capture_start) * 1000:.1f}ms'
                 )
+                # Record the scan's first completed acquisition; the run loop
+                # anchors scan 1's timelapse period on it (a scan whose every
+                # capture fails keeps the run-start fallback anchor).
+                if completed and p._scan_first_capture_t is None:
+                    p._scan_first_capture_t = _t_capture_start
                 # Drive the step-boundary LED decision through the authority,
                 # but only when the capture completed with the LED left lit. A
                 # failed or aborted capture has already turned the LED off as

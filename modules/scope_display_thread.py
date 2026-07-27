@@ -415,7 +415,8 @@ class ScopeDisplayThread:
                 'Live View',
                 'Live View Stalled',
                 f'The live image stopped updating (no new camera frame for '
-                f'{elapsed:.0f}s). Check the camera connection.',
+                f'{elapsed:.0f}s). Check the USB cable and power '
+                f'connections, then restart LumaViewPro.',
             )
 
     def _dispatch_listeners(self, widget) -> None:

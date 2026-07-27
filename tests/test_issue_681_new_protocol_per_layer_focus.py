@@ -69,7 +69,7 @@ def _well_channel_z(df, well, color):
     return sel['Z'].iloc[0]
 
 
-def test_new_protocol_keeps_each_channel_tuned_z():
+def test_new_protocol_keeps_each_channel_tuned_z(scale_ctx):
     """Per-(well, channel) carry-over: each channel keeps its own tuned Z."""
     from modules.protocol import Protocol
 
@@ -82,7 +82,7 @@ def test_new_protocol_keeps_each_channel_tuned_z():
     assert _well_channel_z(df, 'A1', 'Red') == pytest.approx(9000.0, abs=1e-6)
 
 
-def test_tuned_channel_does_not_clobber_siblings():
+def test_tuned_channel_does_not_clobber_siblings(scale_ctx):
     """The core #681 guarantee: tuning one channel must not paste its Z onto
     the other channels -- untuned channels keep their own focus default."""
     from modules.protocol import Protocol
@@ -97,7 +97,7 @@ def test_tuned_channel_does_not_clobber_siblings():
     assert _well_channel_z(df, 'A1', 'Red') == pytest.approx(300.0, abs=1e-6)
 
 
-def test_no_carry_over_uses_each_channels_focus():
+def test_no_carry_over_uses_each_channels_focus(scale_ctx):
     """No carry-over -> every channel uses its own focus default."""
     from modules.protocol import Protocol
 

@@ -101,8 +101,6 @@ class StackBuilder(ProtocolPostProcessor):
                 path=path,
                 df=df,
                 output_file_loc=kwargs['output_file_loc'],
-                focal_length=kwargs['focal_length'],
-                binning_size=kwargs['binning_size'],
             )
         )
 
@@ -141,8 +139,6 @@ class StackBuilder(ProtocolPostProcessor):
         path: pathlib.Path,
         output_file_loc: pathlib.Path,
         plane_metadata: dict,
-        binning_size: int,
-        focal_length: float,
         significant_bits: int,
     ):
         channel_names = df['Color'].unique().tolist()
@@ -153,13 +149,35 @@ class StackBuilder(ProtocolPostProcessor):
         # what those pixels already came tagged with.
         sample_significant_bits = significant_bits
 
-        pixel_size_um = round(
-            common_utils.get_pixel_size(
-                focal_length=focal_length,
-                binning_size=binning_size,
-            ),
-            common_utils.max_decimal_precision('pixel_size'),
-        )
+        # The scale travels with the input frame as PhysicalSizeX, written at
+        # capture with the real binning already applied. Re-deriving it from an
+        # objective focal length recomputed a value the pixels already carry,
+        # and did so from whatever focal length the caller happened to hold --
+        # which on a scope with no objective selector is a default, not a
+        # measurement. Nothing here rebins; planes are stacked as read, so the
+        # input's own scale is the output's scale.
+        input_meta = image_utils.read_postproc_input_metadata(sample_image_file_loc)
+        pixel_size_um = input_meta['pixel_size_um'] if input_meta else None
+        if pixel_size_um is not None and pixel_size_um <= 0:
+            pixel_size_um = None
+
+        if pixel_size_um is None:
+            # Older / third-party / pre-metadata captures carry no scale, and
+            # binning is not recoverable to re-derive one. Write the hyperstack
+            # with no scale claim rather than an invented one: a wrong
+            # PhysicalSizeX is measured off the file forever and is
+            # indistinguishable from a real value.
+            logger.warning(
+                '[StackBuilder] No pixel size in input metadata (PhysicalSizeX missing) '
+                'for %s; hyperstack will carry no scale. Re-capture with current LVP or '
+                'supply frames carrying pixel-size metadata.',
+                sample_image_file_loc.name,
+            )
+        else:
+            pixel_size_um = round(
+                pixel_size_um,
+                common_utils.max_decimal_precision('pixel_size'),
+            )
 
         metadata = image_utils.build_hyperstack_output_metadata(
             reference_input_path=sample_image_file_loc,
@@ -177,16 +195,26 @@ class StackBuilder(ProtocolPostProcessor):
             'photometric': 'minisblack',
             'tile': (128, 128),
             'compression': 'lzw',
-            'resolutionunit': 'CENTIMETER',
+            # tifffile always emits an XResolution tag, defaulting to 1/1. Under
+            # CENTIMETER that reads as one pixel per centimetre -- a concrete and
+            # wildly wrong scale claim. NONE is the TIFF convention for "ratio
+            # only, no absolute unit", which is what an unknown scale means.
+            'resolutionunit': 'CENTIMETER' if pixel_size_um is not None else 'NONE',
             'maxworkers': 2,
         }
 
-        resolution = image_utils.resolution_for_pixel_size(pixel_size_um)
-
+        # The TIFF resolution tag is a scale claim too, and it is built by
+        # dividing by the pixel size. The key is always present so callers can
+        # index it; None travels through to the writer, which omits the tag
+        # rather than emitting a placeholder that reads as a measurement.
         return {
             'metadata': metadata,
             'options': options,
-            'resolution': resolution,
+            'resolution': (
+                image_utils.resolution_for_pixel_size(pixel_size_um)
+                if pixel_size_um is not None
+                else None
+            ),
         }
 
     @staticmethod
@@ -211,8 +239,6 @@ class StackBuilder(ProtocolPostProcessor):
         path: pathlib.Path,
         df: pd.DataFrame,
         output_file_loc: pathlib.Path,
-        focal_length: float,
-        binning_size: int,
         sort_order: list[str] | None = None,
     ):
         if sort_order is None:
@@ -301,8 +327,6 @@ class StackBuilder(ProtocolPostProcessor):
             path=path,
             output_file_loc=output_file_loc,
             plane_metadata=plane_metadata,
-            focal_length=focal_length,
-            binning_size=binning_size,
             significant_bits=image_utils.resolve_output_depth(input_depths),
         )
 
@@ -332,8 +356,6 @@ class StackBuilder(ProtocolPostProcessor):
         df: pd.DataFrame,
         path: pathlib.Path,
         output_file_loc: pathlib.Path,
-        focal_length: float,
-        binning_size: int,
     ):
         # Manual-recording entry point: sorts by Scan Count alone (Z and
         # Color axes collapse to single values for single recordings)
@@ -351,8 +373,6 @@ class StackBuilder(ProtocolPostProcessor):
             path=path,
             df=df,
             output_file_loc=rel_loc,
-            focal_length=focal_length,
-            binning_size=binning_size,
             sort_order=['Scan Count'],
         )
 
@@ -363,6 +383,4 @@ if __name__ == '__main__':
     stack_builder.load_folder(
         path=os.getenv('SAMPLE_IMAGE_FOLDER'),
         tiling_configs_file_loc=tiling_configs_file_loc,
-        focal_length=45.0,
-        binning_size=1,
     )

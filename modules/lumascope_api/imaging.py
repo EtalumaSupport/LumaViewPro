@@ -1900,6 +1900,7 @@ class ImagingAPI:
         self,
         force_to_8bit: bool = True,
         *,
+        dark_floor_check: bool,
         exclude_sources: tuple = (),
         all_ones_check: bool = False,
         earliest_image_ts: datetime.datetime | None = None,
@@ -1923,6 +1924,13 @@ class ImagingAPI:
             exclude_sources: Sources to ignore for validity (e.g. ('z_move',)
                 for autofocus where Z motion doesn't need to fully settle).
             all_ones_check: Reject all-max-value frames (camera hardware issue).
+            dark_floor_check: Required -- the caller must state whether
+                illumination is expected ON for this capture. True rejects
+                frames with essentially no lit pixel (see get_image);
+                False accepts dark frames (by-design-dark captures:
+                brightfield at illumination 0, luminescence, focus-score
+                grabs). Required rather than defaulted so a new capture
+                site cannot silently skip the decision.
             earliest_image_ts: Reject frames captured before this timestamp.
                 Forwarded to the final get_image call; complements the
                 frame-validity drain for callers that also want a wall-clock
@@ -1992,6 +2000,7 @@ class ImagingAPI:
             force_to_8bit=force_to_8bit,
             earliest_image_ts=earliest_image_ts,
             all_ones_check=all_ones_check,
+            dark_floor_check=dark_floor_check,
             timeout_s=timeout_s,
             sum_count=sum_count,
             sum_delay_s=sum_delay_s,
@@ -2019,6 +2028,7 @@ class ImagingAPI:
         *,
         callback=None,
         cb_kwargs=None,
+        dark_floor_check: bool,
         force_to_8bit: bool = True,
         exclude_sources: tuple = (),
         all_ones_check: bool = False,
@@ -2035,6 +2045,8 @@ class ImagingAPI:
             callback: Completion callback; receives the captured array
                 (or ``None`` on capture failure) as the first arg.
             cb_kwargs: Optional kwargs passed to the callback.
+            dark_floor_check: Required -- whether illumination is expected
+                ON for this capture (see capture_and_wait).
             force_to_8bit: Convert to 8-bit output.
             exclude_sources: Sources to ignore for validity (e.g. ('z_move',)).
             all_ones_check: Reject all-max-value frames.
@@ -2049,6 +2061,7 @@ class ImagingAPI:
             IOTask(
                 action=self.capture_and_wait,
                 kwargs={
+                    'dark_floor_check': dark_floor_check,
                     'force_to_8bit': force_to_8bit,
                     'exclude_sources': exclude_sources,
                     'all_ones_check': all_ones_check,
@@ -2067,6 +2080,8 @@ class ImagingAPI:
         self,
         *,
         timeout_s: float = 30.0,
+        dark_floor_check: bool,
+        grab_timeout_s: float = 0.0,
         force_to_8bit: bool = True,
         exclude_sources: tuple = (),
         all_ones_check: bool = False,
@@ -2080,6 +2095,14 @@ class ImagingAPI:
         Args:
             timeout_s: Max seconds to wait for completion (wraps the executor
                 Future.result wait, not the inner capture_and_wait grab).
+            dark_floor_check: Required -- whether illumination is expected
+                ON for this capture (see capture_and_wait).
+            grab_timeout_s: Retry budget (seconds) for the inner
+                capture_and_wait content gates (saturation, dark floor,
+                chunk verify) -- forwarded as its timeout_s. Distinct from
+                timeout_s above, which only bounds the executor wait; with
+                the default 0.0 a content-gated frame is judged on the
+                first grab with no retry window.
             force_to_8bit: Convert to 8-bit output.
             exclude_sources: Sources to ignore for validity (e.g. ('z_move',)).
             all_ones_check: Reject all-max-value frames.
@@ -2096,6 +2119,8 @@ class ImagingAPI:
         task = IOTask(
             action=self.capture_and_wait,
             kwargs={
+                'dark_floor_check': dark_floor_check,
+                'timeout_s': grab_timeout_s,
                 'force_to_8bit': force_to_8bit,
                 'exclude_sources': exclude_sources,
                 'all_ones_check': all_ones_check,
@@ -2132,12 +2157,36 @@ class ImagingAPI:
         near_max = full_scale * ImagingAPI._SATURATION_NEAR_MAX_FRACTION
         return float(np.count_nonzero(arr >= near_max)) / arr.size
 
+    # Symmetric counterpart of the saturation gate: a frame with essentially
+    # no pixel above the dark floor carries no signal. Field causes: a frame
+    # that began integrating before the LED lit, and an external camera
+    # consumer starving the feed so black frames are delivered. The metric is
+    # lit-pixel COUNT, never mean/median -- a sparse fluorescence field (a few
+    # bright cells on a 99%-black background) must pass, and a handful of hot
+    # pixels must not fake signal (a 3.5 MP frame needs ~350 lit pixels).
+    _DARK_FLOOR_FRACTION = 0.03  # pixel <= 3% of full scale carries no signal
+    _DARK_MIN_LIT_FRACTION = 1e-4  # < 0.01% of pixels lit = dark frame
+
+    @staticmethod
+    def _lit_fraction(arr: np.ndarray | None, significant_bits: int) -> float:
+        """Fraction of pixels above the dark-floor threshold.
+
+        Measured against the frame's payload depth, not the container
+        dtype -- the same depth rule as ``_saturated_fraction``.
+        """
+        if arr is None or arr.size == 0:
+            return 0.0
+        full_scale = (1 << significant_bits) - 1
+        floor = full_scale * ImagingAPI._DARK_FLOOR_FRACTION
+        return float(np.count_nonzero(arr > floor)) / arr.size
+
     def get_image(
         self,
         force_to_8bit: bool = True,
         earliest_image_ts: datetime.datetime | None = None,
         timeout_s: float = 5.0,
         all_ones_check: bool = False,
+        dark_floor_check: bool = False,
         sum_count: int = 1,
         sum_delay_s: float = 0,
         sum_iteration_callback=None,
@@ -2162,6 +2211,12 @@ class ImagingAPI:
             earliest_image_ts: Reject frames captured before this timestamp.
             timeout_s: Max seconds to wait for a valid frame.
             all_ones_check: Reject saturated (all-max-value) frames.
+            dark_floor_check: Reject frames with essentially no pixel above
+                the dark floor, retrying until a lit frame arrives or
+                timeout_s expires. Pass True only when the caller KNOWS
+                illumination is expected ON -- a brightfield step captured
+                with the LED intentionally off is dark by design and must
+                keep this False.
             sum_count: Number of frames to sum for noise reduction.
             sum_delay_s: Delay in seconds between summed frames.
             sum_iteration_callback: Called after each summed frame.
@@ -2292,6 +2347,35 @@ class ImagingAPI:
                             f'saturated -- likely over-exposure or a stale camera gain; '
                             f'the frame may be unusable.'
                         )
+
+                if dark_floor_check:
+                    lit_fraction = self._lit_fraction(tmp, self.last_significant_bits)
+                    if lit_fraction < self._DARK_MIN_LIT_FRACTION:
+                        # The caller declared illumination ON, yet no pixel
+                        # clears the floor: the frame integrated before the
+                        # LED lit, or the camera is delivering black frames.
+                        # Retry (the next frame usually integrates under the
+                        # lit LED), then reject loudly -- a black file must
+                        # become either a good file or a named failure, never
+                        # a silent save.
+                        if datetime.datetime.now() > stop_time:
+                            logger.warning(
+                                f'[SCOPE API ] get_image: frame is dark -- '
+                                f'{lit_fraction:.6f} of pixels above '
+                                f'{self._DARK_FLOOR_FRACTION:.0%} of full scale '
+                                f'(minimum {self._DARK_MIN_LIT_FRACTION}) with '
+                                f'illumination expected ON; no lit frame within '
+                                f'{timeout_s:.1f}s. Capture rejected.'
+                            )
+                            return None
+                        logger.debug(
+                            '[SCOPE API ] get_image: rejecting dark frame; waiting for a lit frame'
+                        )
+                        if not force_new_capture:
+                            # Buffered grabs return the same frame until a new
+                            # one arrives; pace the retry instead of spinning.
+                            time.sleep(0.05)
+                        continue
 
                 if verify_chunk_targets:
                     # The frame must prove its own settings: its chunk

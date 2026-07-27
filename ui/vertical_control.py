@@ -298,12 +298,9 @@ class VerticalControl(BoxLayout):
                 frame_size=settings['frame'],
                 binning_size=get_binning_from_ui(),
             )
-            microscope_settings_id.ids['field_of_view_width_id'].text = str(
-                round(fov_size['width'], 0)
-            )
-            microscope_settings_id.ids['field_of_view_height_id'].text = str(
-                round(fov_size['height'], 0)
-            )
+            fov_w_text, fov_h_text = common_utils.format_field_of_view(fov_size)
+            microscope_settings_id.ids['field_of_view_width_id'].text = fov_w_text
+            microscope_settings_id.ids['field_of_view_height_id'].text = fov_h_text
         except Exception as e:
             logger.error(f'[UI] select_objective failed: {e}', exc_info=True)
             from ui.notification_popup import show_notification_popup

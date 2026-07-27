@@ -748,7 +748,9 @@ class LumaViewProApp(TooltipMixin, App):
 
         notifications.add_listener(
             _ui_notification_bridge,
-            min_severity=Severity.DEBUG if ENGINEERING_MODE else Severity.WARNING,
+            # NOTICE (not WARNING) so user-facing status of long unattended
+            # operations crosses the bridge; INFO stays log-only.
+            min_severity=Severity.DEBUG if ENGINEERING_MODE else Severity.NOTICE,
         )
 
         try:

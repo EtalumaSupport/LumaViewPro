@@ -290,13 +290,19 @@ def generate_image_metadata(scope: Lumascope, color, x, y, z) -> dict:
     py = round(py, common_utils.max_decimal_precision('y'))
     z = round(z, common_utils.max_decimal_precision('z'))
 
-    pixel_size_um = round(
-        common_utils.get_pixel_size(
-            focal_length=scope.runtime_state._objective['focal_length'],
-            binning_size=scope.imaging._binning_size,
-        ),
-        common_utils.max_decimal_precision('pixel_size'),
+    pixel_size_um = common_utils.get_pixel_size(
+        focal_length=scope.runtime_state._objective['focal_length'],
+        binning_size=scope.imaging._binning_size,
     )
+    # A scope with no known pixel size writes no scale rather than an invented
+    # one -- the writer omits PhysicalSizeX and the resolution tag when this is
+    # None. A wrong scale is measured off the file forever and cannot be told
+    # from a real one.
+    if pixel_size_um is not None:
+        pixel_size_um = round(
+            pixel_size_um,
+            common_utils.max_decimal_precision('pixel_size'),
+        )
 
     now_host = datetime.datetime.now()
     microscope_model = scope.diagnostics.get_microscope_model()
@@ -680,6 +686,7 @@ def save_live_image(
     jpeg_quality: int = 90,
     *,
     save_encoding: str,
+    dark_floor_check: bool,
 ) -> str | None:
     """Grab the current live image from the camera and save to a TIFF file.
 
@@ -709,12 +716,17 @@ def save_live_image(
         save_encoding: The derived on-disk encoding from the image_mode
             config layer; required and keyword-only, forwarded to save_image
             so the live-capture path cannot drop the image mode.
+        dark_floor_check: Whether illumination is expected ON for this
+            capture; required and keyword-only (same contract shape as
+            save_encoding), forwarded to capture_and_wait so a save-for-truth
+            caller cannot skip the decision.
 
     Returns:
         str | None: Path to saved file, or None on failure.
     """
     array = scope.imaging.capture_and_wait(
         force_to_8bit=force_to_8bit,
+        dark_floor_check=dark_floor_check,
         earliest_image_ts=earliest_image_ts,
         timeout_s=timeout_s,
         all_ones_check=all_ones_check,

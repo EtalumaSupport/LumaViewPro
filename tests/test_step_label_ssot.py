@@ -218,7 +218,7 @@ def test_zstack_children_keep_parent_label():
         assert name == f'Treatment_10x_BF_Z{i}', name
 
 
-def test_tiling_children_keep_parent_label():
+def test_tiling_children_keep_parent_label(scale_ctx):
     from modules.labware_loader import WellPlateLoader
 
     labware = WellPlateLoader().get_plate('6 well microplate')

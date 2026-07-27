@@ -222,6 +222,11 @@ class SequencedCaptureRunner:
         grease move still in flight when the period is zero (continuous mode).
         """
         self._curr_step = 0
+        # Monotonic time of this scan's first completed capture; None until
+        # it lands. The run loop re-anchors scan 1's timelapse period here
+        # (the first ACQUISITION) so run setup + initial motion/AF cannot
+        # shorten the first interval. Per-scan coupled data, not a latch.
+        self._scan_first_capture_t = None
         # Per-step AF state pointer; None means AF has not been kicked off for
         # the current step. Set by scan_iterate when AF starts; cleared at step
         # transition and at scan start.

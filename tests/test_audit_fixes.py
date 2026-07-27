@@ -4015,7 +4015,9 @@ class TestFrameValidity_SaveLiveImageDrainsBeforeGrab:
                 saved.update(array=array) or str(tmp_path / 'live.tiff')
             ),
         )
-        out = image_save.save_live_image(scope, save_folder=str(tmp_path), save_encoding='8bit')
+        out = image_save.save_live_image(
+            scope, save_folder=str(tmp_path), save_encoding='8bit', dark_floor_check=False
+        )
         assert out is not None
         assert calls == ['capture_and_wait'], (
             f'save_live_image must drain via capture_and_wait only; saw {calls}'
@@ -4191,7 +4193,7 @@ class TestCaptureAndWaitPassesChunksToValidity:
         # The drain loop is the contract under test; the final grab is not.
         imaging.get_image = lambda **kwargs: np.zeros((2, 2), dtype=np.uint8)
 
-        image = imaging.capture_and_wait()
+        image = imaging.capture_and_wait(dark_floor_check=False)
         assert image is not None, 'drain must settle and return the frame'
         assert recorded, 'drain loop must call count_frame at least once'
         assert all(call.get('chunk_data') == chunk for call in recorded), (
@@ -9681,6 +9683,7 @@ class TestSaveLiveImageTimeoutIsFloat:
             sim_scope.imaging.capture_and_wait(
                 force_to_8bit=True,
                 all_ones_check=False,
+                dark_floor_check=False,
                 timeout_s=timeout_default,
                 sum_count=1,
                 sum_delay_s=0,

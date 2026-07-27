@@ -420,6 +420,15 @@ class ScopeDisplay(Image):
                     focal_length=objective['focal_length'],
                     binning_size=get_binning_from_ui(),
                 )
+                if pixel_size_um is None:
+                    # Click-to-center converts the click offset into a stage
+                    # move in um; without a known pixel size there is no
+                    # conversion. Do nothing rather than move the stage by a
+                    # guessed distance.
+                    gui_logger.button(
+                        'SCOPE_CLICK_TO_CENTER', 'unavailable: scope pixel size unknown'
+                    )
+                    return
 
                 # Positive x_dist_um -> click right of center; positive y_dist_um
                 # -> click above center.

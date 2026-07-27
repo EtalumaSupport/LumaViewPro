@@ -148,7 +148,7 @@ def _from_config_input(acquire_by_layer: dict[str, str]) -> dict:
     }
 
 
-def test_protocol_from_config_filters_non_acquire_layers():
+def test_protocol_from_config_filters_non_acquire_layers(scale_ctx):
     """The upstream filter that produces 0 steps: layers whose acquire is
     neither 'image' nor 'video' contribute no steps, so a config where
     every layer is disabled yields an empty (0-step) Protocol -- the

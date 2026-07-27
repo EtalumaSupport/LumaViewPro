@@ -139,8 +139,6 @@ class TestStackBuilderPropagatesPlanePositions:
             path=tmp_path,
             df=df,
             output_file_loc=output_file_loc,
-            focal_length=47.8,
-            binning_size=1,
         )
         assert result['status'], f'_create_stack failed: {result.get("error")}'
 
@@ -197,8 +195,6 @@ class TestStackBuilderPropagatesPlanePositions:
             path=tmp_path,
             df=df,
             output_file_loc=pathlib.Path('out.ome.tiff'),
-            focal_length=47.8,
-            binning_size=1,
         )
         with tf.TiffFile(str(tmp_path / 'out.ome.tiff')) as tif:
             ome_xml = tif.ome_metadata or ''
@@ -249,8 +245,6 @@ class TestStackBuilderPropagatesPixelSizeAndChannels:
             path=tmp_path,
             df=df,
             output_file_loc=pathlib.Path('out.ome.tiff'),
-            focal_length=47.8,
-            binning_size=1,
         )
         with tf.TiffFile(str(tmp_path / 'out.ome.tiff')) as tif:
             ome_xml = tif.ome_metadata or ''
@@ -289,8 +283,6 @@ class TestStackBuilderPropagatesPixelSizeAndChannels:
             path=tmp_path,
             df=df,
             output_file_loc=pathlib.Path('out.ome.tiff'),
-            focal_length=47.8,
-            binning_size=1,
         )
         with tf.TiffFile(str(tmp_path / 'out.ome.tiff')) as tif:
             ome_xml = tif.ome_metadata or ''
@@ -332,8 +324,6 @@ class TestStackBuilderHandlesInputsWithoutStructuredMetadata:
             path=tmp_path,
             df=df,
             output_file_loc=pathlib.Path('out.ome.tiff'),
-            focal_length=47.8,
-            binning_size=1,
         )
         assert result['status'], f'Bare-input fallback path must not crash: {result.get("error")}'
         # Output should still be a valid OME-TIFF.
@@ -378,8 +368,6 @@ class TestStackBuilderPrivateTagRecoversDroppedMetadata:
             path=tmp_path,
             df=df,
             output_file_loc=pathlib.Path('out.ome.tiff'),
-            focal_length=47.8,
-            binning_size=1,
         )
 
         recovered = image_utils.read_hyperstack_private_metadata(tmp_path / 'out.ome.tiff')
@@ -427,8 +415,6 @@ class TestStackBuilderPrivateTagRecoversDroppedMetadata:
             path=tmp_path,
             df=df,
             output_file_loc=pathlib.Path('out.ome.tiff'),
-            focal_length=47.8,
-            binning_size=1,
         )
 
         recovered = image_utils.read_hyperstack_private_metadata(tmp_path / 'out.ome.tiff')
@@ -464,8 +450,6 @@ class TestStackBuilderPrivateTagRecoversDroppedMetadata:
             path=tmp_path,
             df=df,
             output_file_loc=pathlib.Path('out.ome.tiff'),
-            focal_length=47.8,
-            binning_size=1,
         )
 
         recovered = image_utils.read_hyperstack_private_metadata(tmp_path / 'out.ome.tiff')
@@ -506,8 +490,6 @@ class TestStackBuilderPrivateTagRecoversDroppedMetadata:
             path=tmp_path,
             df=df,
             output_file_loc=pathlib.Path('out.ome.tiff'),
-            focal_length=47.8,
-            binning_size=1,
         )
 
         recovered = image_utils.read_hyperstack_private_metadata(tmp_path / 'out.ome.tiff')
@@ -610,8 +592,6 @@ class TestHyperstackChannelColor:
             path=tmp_path,
             df=df,
             output_file_loc=pathlib.Path('out.ome.tiff'),
-            focal_length=47.8,
-            binning_size=1,
         )
 
         with tf.TiffFile(str(tmp_path / 'out.ome.tiff')) as tif:
@@ -658,8 +638,6 @@ class TestHyperstackChannelColor:
             path=tmp_path,
             df=df,
             output_file_loc=pathlib.Path('out.ome.tiff'),
-            focal_length=47.8,
-            binning_size=1,
         )
 
         recovered = image_utils.read_hyperstack_private_metadata(tmp_path / 'out.ome.tiff')
@@ -670,6 +648,108 @@ class TestHyperstackChannelColor:
         # cleanly via JSON.
         assert recovered['Channel']['Name'] == ['Green']
         assert recovered['Channel']['Color'] == [0x00FF00FF]
+
+
+class TestHyperstackScaleComesFromTheInput:
+    """The hyperstack's PhysicalSizeX must be the input frames' own scale.
+
+    Re-deriving it from an objective focal length recomputed a value the input
+    pixels already carry. The derived answer disagreed with the file whenever
+    the capture's real optics differed from the caller's assumed focal length
+    or binning, and on a scope with no objective selector the focal length is
+    a default rather than a measurement -- so the output silently claimed a
+    scale the pixels never had."""
+
+    def test_hyperstack_carries_the_input_frames_pixel_size(self, tmp_path):
+        # The fixture frames declare 0.5 um/px. The retired re-derive returned
+        # 2.0 for these arguments, so this assertion separates the two.
+        rows = []
+        for z_idx in range(2):
+            fname = f'frame_z{z_idx}.tiff'
+            _write_structured_input(
+                tmp_path / fname,
+                channel='Red',
+                plate_pos_mm={'x': 0.0, 'y': 0.0},
+                z_pos_um=float(z_idx) * 10,
+            )
+            rows.append(
+                {
+                    'Filepath': fname,
+                    'Color': 'Red',
+                    'Scan Count': 0,
+                    'Z-Slice': z_idx,
+                    'X': 0.0,
+                    'Y': 0.0,
+                    'Z': float(z_idx) * 10,
+                }
+            )
+
+        StackBuilder._create_stack(
+            path=tmp_path,
+            df=pd.DataFrame(rows),
+            output_file_loc=pathlib.Path('out.ome.tiff'),
+        )
+
+        with tf.TiffFile(str(tmp_path / 'out.ome.tiff')) as tif:
+            ome_xml = tif.ome_metadata or ''
+
+        assert 'PhysicalSizeX="0.5"' in ome_xml, (
+            "Hyperstack must carry the input frames' own PhysicalSizeX (0.5), not a "
+            f'value re-derived from the objective. Got: {ome_xml[:400]}'
+        )
+        assert 'PhysicalSizeX="2.0"' not in ome_xml, (
+            'PhysicalSizeX was re-derived from the focal length instead of read '
+            'from the input frames.'
+        )
+
+    def test_hyperstack_makes_no_scale_claim_when_the_input_has_none(self, tmp_path):
+        # Bare frames (third-party or pre-metadata captures) carry no
+        # PhysicalSizeX, and binning is not recoverable to re-derive one. The
+        # build must succeed and stay silent about scale rather than invent it.
+        rows = []
+        for z_idx in range(2):
+            fname = f'frame_z{z_idx}.tiff'
+            tf.imwrite(
+                str(tmp_path / fname),
+                np.full((4, 4), 100, dtype=np.uint8),
+                compression='lzw',
+            )
+            rows.append(
+                {
+                    'Filepath': fname,
+                    'Color': 'Green',
+                    'Scan Count': 0,
+                    'Z-Slice': z_idx,
+                    'X': 0.0,
+                    'Y': 0.0,
+                    'Z': float(z_idx),
+                }
+            )
+
+        StackBuilder._create_stack(
+            path=tmp_path,
+            df=pd.DataFrame(rows),
+            output_file_loc=pathlib.Path('out.ome.tiff'),
+        )
+
+        out = tmp_path / 'out.ome.tiff'
+        assert out.exists(), 'A scale-less input must still produce a hyperstack.'
+        with tf.TiffFile(str(out)) as tif:
+            ome_xml = tif.ome_metadata or ''
+            resolution_unit = tif.pages[0].tags['ResolutionUnit'].value
+
+        assert 'PhysicalSizeX=' not in ome_xml, (
+            'An input carrying no scale must yield no PhysicalSizeX claim; an '
+            f'invented one is indistinguishable from a measured one. Got: {ome_xml[:400]}'
+        )
+        # tifffile always writes an XResolution tag and defaults it to 1/1.
+        # Under CENTIMETER that reads as one pixel per centimetre, so the unit
+        # is what decides whether the file claims an absolute scale.
+        assert int(resolution_unit) == 1, (
+            'With no known pixel size the resolution unit must be NONE (ratio '
+            'only). CENTIMETER against the default 1/1 resolution claims a '
+            f'1 cm pixel. Got unit {int(resolution_unit)}.'
+        )
 
 
 def test_load_plane_raises_typed_error_naming_the_file(tmp_path):

@@ -1106,7 +1106,7 @@ def build_hyperstack_output_metadata(
     channel_names: list[str],
     plane_positions: dict,
     significant_bits: int,
-    pixel_size_um: float,
+    pixel_size_um: float | None,
 ) -> dict:
     """Build a TZCYX hyperstack OME metadata dict for ``tf.imwrite``.
 
@@ -1117,9 +1117,10 @@ def build_hyperstack_output_metadata(
     in the OME-XML ``<Plane>`` elements via tifffile's per-axis list
     convention.
 
-    Pixel size is supplied separately rather than read from the input
-    because hyperstacks may use a different binning configuration than
-    the source captures; the caller passes the derived pixel_size_um.
+    Pixel size is supplied by the caller, which sources it from the input
+    frames' own PhysicalSizeX. Passing None omits the PhysicalSize keys
+    entirely, for inputs that carry no scale; the output then makes no
+    measurement claim rather than an invented one.
 
     Tifffile-OME-XML constraint: the underlying tifffile serializer
     writes only Image > Pixels > Channel + Plane to OME-XML. Instrument,
@@ -1170,12 +1171,7 @@ def build_hyperstack_output_metadata(
     metadata: dict = {
         'axes': 'TZCYX',
         'SignificantBits': significant_bits,
-        'Pixels': {
-            'PhysicalSizeX': pixel_size_um,
-            'PhysicalSizeXUnit': 'um',
-            'PhysicalSizeY': pixel_size_um,
-            'PhysicalSizeYUnit': 'um',
-        },
+        'Pixels': {},
         'Channel': {'Name': channel_names, 'Color': channel_colors},
         'Plane': {
             'PositionX': plane_positions['PositionX'],
@@ -1186,6 +1182,20 @@ def build_hyperstack_output_metadata(
             'PositionZUnit': ['um'] * num_planes,
         },
     }
+
+    # A scale is written only when one is known. Emitting the keys with a null
+    # value would still read downstream as a PhysicalSize claim, and a reader
+    # cannot tell an invented scale from a measured one -- the absence is the
+    # honest signal that this file cannot be measured.
+    if pixel_size_um is not None:
+        metadata['Pixels'].update(
+            {
+                'PhysicalSizeX': pixel_size_um,
+                'PhysicalSizeXUnit': 'um',
+                'PhysicalSizeY': pixel_size_um,
+                'PhysicalSizeYUnit': 'um',
+            }
+        )
 
     objective_dict = inflat.get('objective') or {}
     instrument = inflat.get('instrument') or {}
@@ -2078,6 +2088,8 @@ def generate_tiff_data(
     if 'frame_id' in metadata:
         plane['FrameID'] = metadata['frame_id']
 
+    pixel_size_um = metadata['pixel_size_um']
+
     # Base metadata shared by all structured types
     tiff_metadata = {
         'axes': axes,
@@ -2085,13 +2097,19 @@ def generate_tiff_data(
         # a right-aligned narrow payload is not read back as full container
         # width and rendered ~16x dark.
         'SignificantBits': metadata['significant_bits'],
-        'PhysicalSizeX': metadata['pixel_size_um'],
-        'PhysicalSizeXUnit': 'um',
-        'PhysicalSizeY': metadata['pixel_size_um'],
-        'PhysicalSizeYUnit': 'um',
         'Channel': {'Name': [metadata['channel']]},
         'Plane': plane,
     }
+
+    # A scale is written only when one is known. Emitting the keys with a null
+    # value would still read downstream as a PhysicalSize claim, and a reader
+    # cannot tell an invented scale from a measured one -- the absence is the
+    # honest signal that this file cannot be measured.
+    if pixel_size_um is not None:
+        tiff_metadata['PhysicalSizeX'] = pixel_size_um
+        tiff_metadata['PhysicalSizeXUnit'] = 'um'
+        tiff_metadata['PhysicalSizeY'] = pixel_size_um
+        tiff_metadata['PhysicalSizeYUnit'] = 'um'
 
     # Producing algorithm, when the caller supplied one (post-processing
     # outputs). Rides along in the structured metadata so a consumer can tell a
@@ -2181,7 +2199,11 @@ def generate_tiff_data(
             'maxworkers': 0,
         }
         # Resolution for ImageJ types is in pixels/pixel
-        resolution = resolution_for_pixel_size(metadata['pixel_size_um'], per_centimeter=False)
+        resolution = (
+            resolution_for_pixel_size(pixel_size_um, per_centimeter=False)
+            if pixel_size_um is not None
+            else None
+        )
     else:
         # ome and default use same options. maxworkers=0 disables tifffile's
         # per-write ThreadPoolExecutor; the executor's internal queue holds
@@ -2193,10 +2215,14 @@ def generate_tiff_data(
         options = {
             'photometric': photometric,
             'compression': 'lzw',
-            'resolutionunit': 'CENTIMETER',
+            # tifffile always emits an XResolution tag, defaulting to 1/1. Under
+            # CENTIMETER that reads as one pixel per centimetre -- a concrete and
+            # wildly wrong scale claim. NONE is the TIFF convention for "ratio
+            # only, no absolute unit", which is what an unknown scale means.
+            'resolutionunit': 'CENTIMETER' if pixel_size_um is not None else 'NONE',
             'maxworkers': 0,
         }
-        resolution = resolution_for_pixel_size(metadata['pixel_size_um'])
+        resolution = resolution_for_pixel_size(pixel_size_um) if pixel_size_um is not None else None
 
     # Tile setting: 8-bit images use tiles for ImageJ colormap compatibility
     if data.dtype == np.uint8:
@@ -2269,13 +2295,9 @@ _scale_bar_cache = {}
 
 
 def _compute_scale_bar_overlay(
-    height, width, dtype, is_color, objective, binning_size, color, significant_bits
+    height, width, dtype, is_color, objective, binning_size, color, significant_bits, pixel_size_um
 ):
     """Pre-render scale bar overlay and mask. Returns (overlay, mask, cache_key)."""
-    pixel_size_um = common_utils.get_pixel_size(
-        focal_length=objective['focal_length'], binning_size=binning_size
-    )
-
     # Scale bar should be 1/8 to 1/4 the image length
     min_px = int(width / 8)
     max_px = int(width / 4)
@@ -2419,6 +2441,14 @@ def add_scale_bar(
     if width < MIN_IMAGE_WIDTH_PIXELS:
         return image
 
+    # A scale bar is a measurement claim; without a known pixel size there is
+    # nothing to claim. Draw nothing rather than a bar of invented length.
+    pixel_size_um = common_utils.get_pixel_size(
+        focal_length=objective['focal_length'], binning_size=binning_size
+    )
+    if pixel_size_um is None:
+        return image
+
     dtype = image.dtype
     is_color = is_color_image(image=image)
 
@@ -2439,7 +2469,15 @@ def add_scale_bar(
 
     if _scale_bar_cache.get('key') != cache_key:
         overlay, mask, value = _compute_scale_bar_overlay(
-            height, width, dtype, is_color, objective, binning_size, color, significant_bits
+            height,
+            width,
+            dtype,
+            is_color,
+            objective,
+            binning_size,
+            color,
+            significant_bits,
+            pixel_size_um,
         )
         _scale_bar_cache = {'key': cache_key, 'overlay': overlay, 'mask': mask, 'value': value}
 

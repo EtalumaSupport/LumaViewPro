@@ -344,7 +344,12 @@ def test_post_processor_resume_skip_unaffected_by_collision_check(tmp_path, monk
 
     result = _drive_load_folder(processor, tmp_path, monkeypatch, images_df, post_record)
 
-    assert result == {'status': True, 'message': 'Success.'}
+    assert result == {
+        'status': True,
+        'message': 'Success.',
+        'new_count': 0,
+        'output_root': str(tmp_path),
+    }
     assert processor.algorithm_calls == [], 'already-recorded outputs are skipped, not regenerated'
     post_record.complete.assert_called_once()
 

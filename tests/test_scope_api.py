@@ -639,6 +639,21 @@ class TestScopeSession:
         assert 'max_duration' in result
         assert isinstance(result['max_duration'], datetime.timedelta)
 
+    def test_capture_sync_forwards_grab_timeout(self):
+        """The sync capture forwarder must pass the content-retry budget
+        through to the imaging layer. Without the passthrough, a caller
+        opting into dark_floor_check gets first-grab judgment with a 0 s
+        retry window -- the transient-dark-frame heal the check promises
+        can never run from this surface."""
+        from unittest.mock import MagicMock
+
+        session = self._make_session()
+        session.scope.imaging.capture_and_wait_sync = MagicMock(return_value=None)
+        session.capture_and_wait_sync(dark_floor_check=True, grab_timeout_s=2.5)
+        kwargs = session.scope.imaging.capture_and_wait_sync.call_args.kwargs
+        assert kwargs['grab_timeout_s'] == 2.5
+        assert kwargs['dark_floor_check'] is True
+
     def test_get_current_objective_info_delegates(self):
         helper = MagicMock()
         helper.get_objective_info.return_value = {'magnification': 10}

@@ -519,15 +519,23 @@ class TestMotorConfigDefaults:
         val = mc._axis_lookup('Nonexistent Section', 'X', default=42)
         assert val == 42
 
-    def test_optics_fallback(self):
+    def test_optics_raises_when_no_optics_declared(self):
+        import pytest
+
+        from drivers.exceptions import HardwareError
         from drivers.motorconfig import MotorConfig
 
-        # Create a config without Optics section
+        # A config with no Optics section cannot report a scale. The accessors
+        # raise rather than substitute a fabricated default; the capability
+        # builder catches this and degrades the scale honestly (no scale bar /
+        # field of view) instead of writing an invented pixel size.
         mc = MotorConfig.__new__(MotorConfig)
         mc._config = {}
         mc._defaults = {}
-        assert mc.lens_focal_length() == 47.8
-        assert mc.pixel_size() == 2.0
+        with pytest.raises(HardwareError):
+            mc.lens_focal_length()
+        with pytest.raises(HardwareError):
+            mc.pixel_size()
 
 
 class TestScaleBarObjectiveInit:

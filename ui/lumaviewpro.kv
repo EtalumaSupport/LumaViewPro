@@ -1556,6 +1556,8 @@
 
 <VideoCreationControls>:
 	orientation: 'vertical'
+	size_hint_y: None
+	height: self.minimum_height
 	disabled: app.protocol_running
 
 	# Pad
@@ -1635,6 +1637,8 @@
 
 <StitchControls>:
 	orientation: 'vertical'
+	size_hint_y: None
+	height: self.minimum_height
 
 	# Pad
 	Widget:
@@ -1673,6 +1677,8 @@
 
 <ZProjectionControls>:
 	orientation: 'vertical'
+	size_hint_y: None
+	height: self.minimum_height
 	disabled: app.protocol_running
 
 	# Pad
@@ -1724,6 +1730,8 @@
 
 <CompositeGenControls>:
 	orientation: 'vertical'
+	size_hint_y: None
+	height: self.minimum_height
 	disabled: app.protocol_running
 
 	# Pad
@@ -1744,6 +1752,8 @@
 
 <QuickEnhanceControls>:
 	orientation: 'vertical'
+	size_hint_y: None
+	height: self.minimum_height
 	padding: '8dp'
 	spacing: '6dp'
 	disabled: app.protocol_running or root.busy
@@ -1756,7 +1766,7 @@
 			radius: [dp(8)]
 
 	Label:
-		text: 'Quick Enhance is for visual inspection and derived exports.\\nUse raw images for quantitative analysis.'
+		text: root.warning_text
 		font_size: '11sp'
 		color: 0.86, 0.91, 0.95, 1
 		text_size: self.width, None
@@ -1838,6 +1848,11 @@
 		id: quick_enhance_preview_image
 		fit_mode: 'contain'
 		opacity: 1 if self.texture else 0
+		# Under a minimum_height parent, size_hint_y contributes 0 --
+		# bound the preview explicitly: zero when empty (no blank band
+		# before an image loads), a scrollable fixed band when showing.
+		size_hint_y: None
+		height: dp(200) if self.texture else 0
 
 <QuickEnhanceUtilityButton@RoundedButton>:
 	font_size: '12sp'
@@ -1885,6 +1900,17 @@
 			radius: [dp(6)]
 
 
+# Shared scroll wrapper for every post-processing panel: the accordion
+# viewport is shorter than several panels at the 1024x600 minimum window,
+# and an unwrapped panel silently clips its lower controls. Same idiom as
+# the ProtocolSettings / MicroscopeSettings / LayerControl wrappers; each
+# panel rule declares its own minimum height so any instantiation scrolls.
+<PostProcessingPanelScroll@ModSliderAwareScrollView>:
+	scroll_type: ['bars']
+	do_scroll_x: False
+	pos_hint: {'top': 1.0}
+
+
 # PostProcessingAccordion - Settings for PostProcessingAccordion
 # ------------------------------------------
 <PostProcessingAccordion>:
@@ -1909,8 +1935,9 @@
 			background_normal: './data/icons/post_processing_background.png'
 			collapse: False
 
-			VideoCreationControls:
-				id: video_creation_controls_id
+			PostProcessingPanelScroll:
+				VideoCreationControls:
+					id: video_creation_controls_id
 			
 		AccordionItem:
 			id: stitch_accordion_id
@@ -1918,8 +1945,9 @@
 			on_collapse: root.accordion_collapse()
 			background_normal: './data/icons/post_processing_background.png'
 
-			StitchControls:
-				id: stitch_controls_id
+			PostProcessingPanelScroll:
+				StitchControls:
+					id: stitch_controls_id
 
 		AccordionItem:
 			id: composite_gen_accordion_id
@@ -1927,8 +1955,9 @@
 			on_collapse: root.accordion_collapse()
 			background_normal: './data/icons/post_processing_background.png'
 
-			CompositeGenControls:
-				id: composite_gen_controls_id
+			PostProcessingPanelScroll:
+				CompositeGenControls:
+					id: composite_gen_controls_id
 
 		AccordionItem:
 			id: zprojection_accordion_id
@@ -1936,8 +1965,9 @@
 			on_collapse: root.accordion_collapse()
 			background_normal: './data/icons/post_processing_background.png'
 
-			ZProjectionControls:
-				id: zprojection_controls_id
+			PostProcessingPanelScroll:
+				ZProjectionControls:
+					id: zprojection_controls_id
 
 		AccordionItem:
 			id: quick_enhance_accordion_id
@@ -1945,8 +1975,9 @@
 			on_collapse: root.accordion_collapse()
 			background_normal: './data/icons/post_processing_background.png'
 
-			QuickEnhanceControls:
-				id: quick_enhance_controls_id
+			PostProcessingPanelScroll:
+				QuickEnhanceControls:
+					id: quick_enhance_controls_id
 
 		# AccordionItem:
 		# 	id: open_last_save_folder_accordion_id
@@ -1977,35 +2008,38 @@
 			on_collapse: root.accordion_collapse()
 			background_normal: './data/icons/post_processing_background.png'
 
-			BoxLayout:
-				orientation: 'vertical'
-
-				# Pad
-				Widget:
+			PostProcessingPanelScroll:
+				BoxLayout:
+					orientation: 'vertical'
 					size_hint_y: None
-					height: '30dp'
+					height: self.minimum_height
 
-				RoundedButton:
-					text:'Analyze'
-					size_hint_y: None
-					height: '30dp'
-					font_size: '12sp'
-					tooltip_text: 'Count and measure objects in images'
-					on_release: root.open_cell_count()
+					# Pad
+					Widget:
+						size_hint_y: None
+						height: '30dp'
 
-				# Pad
-				Widget:
-					size_hint_y: None
-					height: '5dp'
+					RoundedButton:
+						text:'Analyze'
+						size_hint_y: None
+						height: '30dp'
+						font_size: '12sp'
+						tooltip_text: 'Count and measure objects in images'
+						on_release: root.open_cell_count()
 
-				RoundedButton:
-					text: 'Plot'
-					size_hint_y: None
-					height: '30dp'
-					font_size: '12sp'
-					on_release: root.open_graphing()
-			
-				Widget:
+					# Pad
+					Widget:
+						size_hint_y: None
+						height: '5dp'
+
+					RoundedButton:
+						text: 'Plot'
+						size_hint_y: None
+						height: '30dp'
+						font_size: '12sp'
+						on_release: root.open_graphing()
+
+					Widget:
 
 
 <Stage>:
