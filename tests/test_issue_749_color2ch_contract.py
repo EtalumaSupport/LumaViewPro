@@ -126,6 +126,50 @@ class TestSeamBehaviour:
             sim_scope.illumination.led_off(channel=None)
 
 
+class TestTaskFailureNotificationWording:
+    """The failure popup names the failed action; a protocol is blamed only
+    when the task actually came off the protocol queue."""
+
+    def _fire(self, monkeypatch, *, protocol: bool):
+        from modules import notification_center
+        from modules.sequential_io_executor import IOTask, SequentialIOExecutor
+
+        executor = SequentialIOExecutor(max_workers=1, name='TEST_WORDING')
+        try:
+            calls = []
+            monkeypatch.setattr(
+                notification_center.notifications,
+                'error',
+                lambda title, subject, body, **kw: calls.append(body),
+            )
+
+            def sample_operation():
+                pass
+
+            task = IOTask(action=sample_operation, callback=lambda *a, **k: None)
+            task.protocol = protocol
+            # _on_task_done balances task_done() against whichever queue the
+            # task's protocol flag says it came from.
+            queue = executor.protocol_queue if protocol else executor.queue
+            queue.put(task)
+            queue.get_nowait()
+            executor._on_task_done(task, None, RuntimeError('boom'))
+            assert len(calls) == 1
+            return calls[0]
+        finally:
+            executor.shutdown(wait=False)
+
+    def test_live_task_names_action_not_protocol(self, monkeypatch):
+        body = self._fire(monkeypatch, protocol=False)
+        assert 'sample_operation' in body
+        assert 'protocol' not in body.lower()
+
+    def test_protocol_task_may_blame_the_protocol(self, monkeypatch):
+        body = self._fire(monkeypatch, protocol=True)
+        assert 'sample_operation' in body
+        assert 'protocol' in body.lower()
+
+
 class TestLayersWithLedSemantics:
     """The predicate source of truth: which channels drive an LED."""
 

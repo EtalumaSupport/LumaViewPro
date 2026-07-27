@@ -863,10 +863,22 @@ class SequentialIOExecutor:
                 if isinstance(exception, typed) and str(exception):
                     body = str(exception)
                 else:
-                    body = (
-                        'A background task failed. The protocol may have skipped '
-                        'a step; check the main log for details.'
-                    )
+                    # Name the failed action, and blame a protocol only when
+                    # the task actually came off the protocol queue -- the
+                    # old fixed body claimed a protocol skip for every
+                    # failure, including manual live actions.
+                    action_name = getattr(task.action, '__name__', str(task.action))
+                    if task.protocol:
+                        body = (
+                            f"The '{action_name}' step operation failed, so the "
+                            'protocol may have skipped a step. Check the main '
+                            'log for details.'
+                        )
+                    else:
+                        body = (
+                            f"The '{action_name}' background operation failed. "
+                            'Check the main log for details.'
+                        )
                 notifications.error('Task', f'{self.name} task failed', body)
         self.last_task_done_monotonic = time.monotonic()
 

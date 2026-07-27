@@ -475,11 +475,32 @@ class ProtocolImageWriter:
                         if aborting:
                             from modules.notification_center import notifications
 
-                            notifications.critical(
-                                'Protocol',
-                                'Camera Failure',
-                                f'Camera failed {self._consecutive_capture_failures} consecutive captures. Aborting protocol.',
+                            step_color = step.get('Color', '')
+                            undrivable = (
+                                step_color in common_utils.get_layers_with_led()
+                                and self._scope.illumination.color2ch(step_color) is None
                             )
+                            if undrivable:
+                                # The failures were guaranteed by the scope's
+                                # channel set, not by the camera -- blaming the
+                                # camera here misnames the cause the user can
+                                # actually act on.
+                                notifications.critical(
+                                    'Protocol',
+                                    'Channel not available',
+                                    f"This microscope has no '{step_color}' LED "
+                                    f'channel, so its steps cannot capture here. '
+                                    f'The protocol was stopped after '
+                                    f'{self._consecutive_capture_failures} failed '
+                                    f"captures. Remove the '{step_color}' steps to "
+                                    'run this protocol on this microscope.',
+                                )
+                            else:
+                                notifications.critical(
+                                    'Protocol',
+                                    'Camera Failure',
+                                    f'Camera failed {self._consecutive_capture_failures} consecutive captures. Aborting protocol.',
+                                )
                         # Still record the step with "capture_failed" so the record isn't silently missing.
                         # If the file-IO queue is also full, fall back to recording directly (synchronously)
                         # so the failure isn't doubly hidden.
