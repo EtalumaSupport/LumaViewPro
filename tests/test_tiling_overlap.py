@@ -147,3 +147,42 @@ def test_overlap_never_adds_tiles(scale_ctx):
             f'2x2 produced {len(tiles)} tiles at {overlap_percent}% overlap; '
             f'the requested count is the contract'
         )
+
+
+class TestTileCentersWithoutScale:
+    """A scale-less scope (no pixel size -> no field of view) must still
+    lay out the trivial 1x1 grid: its offsets are identically zero
+    whatever the step, so the field of view is not an input. The default
+    protocol built at startup is 1x1, so requiring a field of view there
+    crashed the whole app on a scope that honestly reports no scale.
+    Grids with real spacing must still refuse."""
+
+    def _scaleless(self, monkeypatch):
+        import modules.app_context as app_context
+
+        monkeypatch.setattr(app_context, 'ctx', None)
+        return TilingConfig(tiling_configs_file_loc=TILING_CONFIGS)
+
+    def test_1x1_layout_needs_no_field_of_view(self, monkeypatch):
+        tiling_config = self._scaleless(monkeypatch)
+        tiles = tiling_config.get_tile_centers(
+            config_label='1x1',
+            focal_length=9.0,
+            frame_size={'width': 1900, 'height': 1900},
+            fill_factor=1.0,
+            binning_size=1,
+        )
+        assert tiles == {'': {'x': 0.0, 'y': 0.0}}
+
+    def test_real_grid_still_refuses_without_field_of_view(self, monkeypatch):
+        from modules.exceptions import ConfigError
+
+        tiling_config = self._scaleless(monkeypatch)
+        with pytest.raises(ConfigError):
+            tiling_config.get_tile_centers(
+                config_label='2x2',
+                focal_length=9.0,
+                frame_size={'width': 1900, 'height': 1900},
+                fill_factor=1.0,
+                binning_size=1,
+            )

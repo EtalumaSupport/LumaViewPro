@@ -197,17 +197,26 @@ class TilingConfig:
         fill_factor: int,
         binning_size: int,
     ) -> dict:
-        ranges = self._calc_range(
-            config_label=config_label,
-            focal_length=focal_length,
-            frame_size=frame_size,
-            fill_factor=fill_factor,
-            binning_size=binning_size,
-        )
-
-        tiling_mxn = ranges['mxn']
-        x_step = ranges['step']['x']
-        y_step = ranges['step']['y']
+        tiling_mxn = self.get_mxn_size(config_label)
+        if (tiling_mxn['m'] == 1) and (tiling_mxn['n'] == 1):
+            # The offset formula below multiplies the step by (index -
+            # (count - 1) / 2), which is identically zero for a single
+            # tile -- the step is not an input to this layout, so the
+            # field of view (and therefore the pixel size) is not
+            # required. Grids with real spacing still refuse below when
+            # the scope cannot report its pixel size.
+            x_step = 0.0
+            y_step = 0.0
+        else:
+            ranges = self._calc_range(
+                config_label=config_label,
+                focal_length=focal_length,
+                frame_size=frame_size,
+                fill_factor=fill_factor,
+                binning_size=binning_size,
+            )
+            x_step = ranges['step']['x']
+            y_step = ranges['step']['y']
 
         tiles = {}
 
