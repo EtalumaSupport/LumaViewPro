@@ -330,7 +330,12 @@ class MicroscopeSettings(BoxLayout):
                 logger.info(f'[LVP Main  ] Auto-detected scope as {detected_model}')
                 settings['microscope'] = detected_model
             else:
-                logger.info(f'[LVP Main  ] Using scope selection from {filename}')
+                # Fires whether or not `filename` exists on disk, so naming it
+                # here would be a guess -- report the value actually in effect.
+                logger.info(
+                    f'[LVP Main  ] No scope model reported by hardware; keeping '
+                    f'stored scope selection {settings["microscope"]!r}'
+                )
             self.reconfigure_for_scope()
 
             # Image mode selector: populate the options from the camera's
