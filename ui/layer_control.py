@@ -13,6 +13,7 @@ import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 import modules.image_mode as image_mode
 from modules import gui_logger
+from modules.exceptions import ProtocolError
 from modules.sequential_io_executor import IOTask
 
 logger = logging.getLogger('LVP.ui.layer_control')
@@ -802,11 +803,21 @@ class LayerControl(BoxLayout):
 
     def save_focus(self):
         gui_logger.button(f'SAVE_FOCUS_{self.layer}')
-        io_executor = _app_ctx.ctx.io_executor
+        ctx = _app_ctx.ctx
         logger.info('[LVP Main  ] LayerControl.save_focus()')
-        io_executor.put(IOTask(action=self.execute_save_focus))
+        # The selected-step index is captured HERE, at click time on the main
+        # thread: "the selected step" must mean the one the user was looking
+        # at when they clicked, not whatever is selected when the queued task
+        # eventually runs (the two diverge if the user navigates or deletes
+        # steps in the click-to-execute window). This also keeps the worker
+        # thread out of the widget tree.
+        protocol_settings = ctx.motion_settings.ids.get('protocol_settings_id')
+        selected_step = int(protocol_settings.curr_step) if protocol_settings is not None else -1
+        ctx.io_executor.put(
+            IOTask(action=self.execute_save_focus, kwargs={'selected_step': selected_step})
+        )
 
-    def execute_save_focus(self):
+    def execute_save_focus(self, selected_step: int = -1):
         # Stage 3.5+ pattern: hardware-touching executor actions wrap their
         # body in try/except, log the full error to lumaviewpro.log (per
         # the "all info in the production log" rule), and post a friendly
@@ -818,45 +829,69 @@ class LayerControl(BoxLayout):
         ctx = _app_ctx.ctx
         settings = ctx.settings
         try:
-            old_focus = settings[self.layer].get('focus')
             pos = ctx.scope.motion.get_current_position('Z')
-            settings[self.layer]['focus'] = pos
-            # Propagate the new saved-focus value to in-memory protocol
-            # steps that sit at the previous baseline. Per-well-tuned
-            # steps (Z != old_focus) are preserved untouched. The
-            # propagation is what makes the saved focus reach a fresh
-            # New click without the user having to also tune every well.
+            with ctx.settings_lock:
+                settings[self.layer]['focus'] = pos
+            # Save Focus writes the layer default (what future steps of this
+            # channel are born with) plus the SELECTED step's Z -- never any
+            # other step. Sibling steps once inherited the value through a
+            # baseline-equality guess, which collapsed distinct per-step
+            # focus values into the last save: every step of a layer is
+            # born at the identical layer focus, so equality is the default
+            # state, not evidence of user intent. Only an explicit
+            # selection earns the write.
             protocol = getattr(ctx, 'protocol', None)
-            if protocol is not None:
-                updated = protocol.update_layer_focus(layer=self.layer, old_z=old_focus, new_z=pos)
-                if updated > 0:
+            if protocol is not None and selected_step >= 0:
+                if selected_step >= protocol.num_steps():
                     logger.info(
-                        f'[LVP Main  ] save_focus: propagated layer={self.layer} '
-                        f'Z={old_focus} -> Z={pos} to {updated} step(s)'
+                        f'[LVP Main  ] save_focus: selected step {selected_step} is '
+                        f'out of range; layer {self.layer} focus saved, no step updated'
                     )
+                    return
+                try:
+                    step = protocol.step(idx=selected_step)
+                except ProtocolError:
+                    # Steps changed between the range check and the read (a
+                    # deletion on the main thread while this task ran).
+                    logger.info(
+                        f'[LVP Main  ] save_focus: selected step {selected_step} no '
+                        f'longer exists; layer {self.layer} focus saved, no step updated'
+                    )
+                    return
+                if step['Color'] != self.layer:
+                    logger.info(
+                        f'[LVP Main  ] save_focus: selected step {selected_step} is '
+                        f'{step["Color"]}, not {self.layer}; layer focus saved, '
+                        'step untouched'
+                    )
+                    return
+                protocol.modify_step_z_height(step_idx=selected_step, z=pos)
+                logger.info(
+                    f'[LVP Main  ] save_focus: layer={self.layer} Z={pos} saved to '
+                    f'selected step {selected_step}'
+                )
 
-                    # Refresh the stage labware view + the steps table so
-                    # the updated Z values are visible immediately.
-                    def _refresh(_dt):
-                        try:
-                            ctx.stage.set_protocol_steps(df=protocol.steps())
-                            # Steps that tracked the old baseline now hold the
-                            # new Z; refresh the step editor so its per-step
-                            # focus readout reflects the propagated value.
-                            ctx.motion_settings.ids['protocol_settings_id'].update_step_ui()
-                        except Exception:
-                            # Scheduled main-thread callback: the steps table
-                            # can be mid-rebuild on this tick. Log so a stale-Z
-                            # labware view / step editor is diagnosable instead
-                            # of failing silently.
-                            logger.exception(
-                                '[LVP Main  ] save_focus: stage / step-editor '
-                                f'refresh failed for layer {self.layer} after '
-                                'focus propagation; Z readouts may show stale '
-                                'values until the next UI update'
-                            )
+                # Refresh the stage labware view + the steps table so the
+                # updated Z value is visible immediately.
+                def _refresh(_dt):
+                    try:
+                        ctx.stage.set_protocol_steps(df=protocol.steps())
+                        # The selected step now holds the new Z; refresh the
+                        # step editor so its focus readout reflects it.
+                        ctx.motion_settings.ids['protocol_settings_id'].update_step_ui()
+                    except Exception:
+                        # Scheduled main-thread callback: the steps table
+                        # can be mid-rebuild on this tick. Log so a stale-Z
+                        # labware view / step editor is diagnosable instead
+                        # of failing silently.
+                        logger.exception(
+                            '[LVP Main  ] save_focus: stage / step-editor '
+                            f'refresh failed for layer {self.layer} after '
+                            'saving focus to the selected step; Z readouts '
+                            'may show stale values until the next UI update'
+                        )
 
-                    Clock.schedule_once(_refresh, 0)
+                Clock.schedule_once(_refresh, 0)
         except Exception as e:
             logger.exception(f'[LVP Main  ] save_focus failed for layer {self.layer}: {e}')
             try:

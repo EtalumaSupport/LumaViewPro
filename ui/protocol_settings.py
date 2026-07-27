@@ -129,32 +129,21 @@ class ProtocolSettings(FloatLayout):
             self.ids['step_total_input'].text = new_total
 
         self.generate_step_name_input()
-        self._update_step_focus_cue(num_steps=num_steps)
+        self._update_step_focus_readout(num_steps=num_steps)
 
-    def _update_step_focus_cue(self, num_steps: int):
-        """Show the current step's Z, bold when it tracks the layer's saved
-        focus (so Save Focus would propagate to it) and normal when it was
-        tuned for this well. Mirrors protocol.step_at_layer_focus so the cue
-        matches what Save Focus actually does.
-        """
+    def _update_step_focus_readout(self, num_steps: int):
+        """Show the selected step's Z in the step editor."""
         label = self.ids.get('step_focus_z_label')
         if label is None:
             return
         if num_steps <= 0 or self.curr_step < 0:
             label.text = ''
-            label.bold = False
             return
         try:
             step = self._protocol.step(idx=self.curr_step)
-            z = float(step['Z'])
-            layer = step['Color']
-            layer_config = _app_ctx.ctx.settings.get(layer)
-            saved_focus = layer_config.get('focus') if isinstance(layer_config, dict) else None
-            label.text = f'{z:.0f} um'
-            label.bold = self._protocol.step_at_layer_focus(self.curr_step, saved_focus)
+            label.text = f'{float(step["Z"]):.0f} um'
         except Exception:
             label.text = ''
-            label.bold = False
 
     def _init_ui(self, dt=0):
         ctx = _app_ctx.ctx
