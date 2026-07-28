@@ -9,13 +9,13 @@ capture guard, keyed on `illumination > 0` alone, would reject a genuinely
 dark luminescence frame as a failed capture once the LED correctly stays
 dark.
 
-This module grows with the fix stages:
-- Stage 1 (here): the three dark-floor sites key on "the scope drives an
-  LED for this channel", not illumination alone, and the composite
-  luminescence grab gates its led_on on the same predicate.
-- Stage 2 adds the driver contract tests (color2ch -> None) and the
-  named-colour seam errors.
-- Stage 3 adds the task-failure notification wording tests.
+Coverage: the driver contract (color2ch -> None, all four boards), the
+named-colour / idempotent-off seam behavior through the real illumination
+API, the dark-floor drivability predicate driven through the real
+ProtocolImageWriter.capture(), the consecutive-failure abort wording, the
+task-failure notification wording, and source pins on the two composite
+capture sites (whose worker is not driveable under the mocked-kivy test
+environment -- the pins are seam guards, not behavioral tests).
 """
 
 from __future__ import annotations
@@ -194,18 +194,48 @@ class TestDarkFloorKeysOnLedDrivability:
     seam tests ride the contract stage where the seam is directly drivable.
     """
 
-    def test_protocol_writer_predicate(self):
-        src = (REPO / 'modules' / 'protocol_image_writer.py').read_text()
-        assert (
-            "dark_floor_check=step['Illumination'] > 0\n"
-            "                        and step['Color'] in common_utils.get_layers_with_led()"
-        ) in src, 'protocol capture must exempt LED-less channels from dark-floor rejection'
+    @staticmethod
+    def _run_capture(step_overrides, writer_setup=None):
+        """Drive the REAL ProtocolImageWriter.capture() on stub collaborators
+        and return (capture_and_wait kwargs, scope, writer)."""
+        from unittest.mock import MagicMock
+
+        from tests.test_audit_fixes import _bare_protocol_writer, _protocol_step
+
+        writer = _bare_protocol_writer()
+        scope = writer._scope
+        scope.motion.has_turret.return_value = False
+        scope.led_connected = False
+        if writer_setup is not None:
+            writer_setup(writer, scope)
+        protocol = MagicMock()
+        protocol.capture_root.return_value = ''
+        writer.capture(
+            save_folder='/tmp',
+            step=_protocol_step(**step_overrides),
+            output_format='TIFF',
+            protocol=protocol,
+            enable_image_saving=True,
+        )
+        return scope.imaging.capture_and_wait.call_args.kwargs, scope, writer
+
+    def test_lumi_protocol_step_dark_floor_disabled(self):
+        kwargs, _, _ = self._run_capture({'Color': 'Lumi', 'Illumination': 50.0})
+        assert kwargs['dark_floor_check'] is False, (
+            'a luminescence step is dark by design even at nonzero illumination'
+        )
+
+    def test_led_layer_step_dark_floor_enabled(self):
+        kwargs, _, _ = self._run_capture({'Color': 'BF', 'Illumination': 50.0})
+        assert kwargs['dark_floor_check'] is True
 
     def test_composite_loop_gates_led_and_dark_floor_together(self):
-        src = (REPO / 'ui' / 'composite_capture.py').read_text()
-        assert (
-            'led_driven = layer in common_utils.get_layers_with_led() and illumination > 0'
-        ) in src, 'composite loop must compute LED drivability once'
+        # Source pins (reformat-tolerant single-line fragments): the
+        # composite worker is not driveable under the mocked-kivy test env.
+        src = ' '.join((REPO / 'ui' / 'composite_capture.py').read_text().split())
+        assert 'led_driven = layer in common_utils.get_layers_with_led() and illumination > 0' in (
+            src
+        ), 'composite loop must compute LED drivability once'
         assert 'dark_floor_check=led_driven' in src, (
             'composite grab must expect a dark frame exactly when no LED was driven'
         )
@@ -214,8 +244,58 @@ class TestDarkFloorKeysOnLedDrivability:
         )
 
     def test_live_capture_predicate(self):
-        src = (REPO / 'ui' / 'composite_capture.py').read_text()
+        src = ' '.join((REPO / 'ui' / 'composite_capture.py').read_text().split())
         assert (
-            'layer in common_utils.get_layers_with_led()\n'
-            "            and layer_configs[layer]['illumination_ma'] > 0"
+            "layer in common_utils.get_layers_with_led() and layer_configs[layer]['illumination_ma'] > 0"
         ) in src, 'manual live capture must exempt LED-less channels from dark-floor rejection'
+
+
+class TestCaptureAbortWording:
+    """The consecutive-failure abort blames the actor the user can act on:
+    an un-drivable LED-classed colour names the colour and the remedy;
+    everything else (incl. a board-less run) keeps the camera wording."""
+
+    @staticmethod
+    def _run_abort(monkeypatch, *, color, led_connected, channel):
+        from unittest.mock import MagicMock
+
+        from modules import notification_center
+        from tests.test_audit_fixes import _bare_protocol_writer, _protocol_step
+
+        criticals = []
+        monkeypatch.setattr(
+            notification_center.notifications,
+            'critical',
+            lambda title, subject, body, **kw: criticals.append(body),
+        )
+        writer = _bare_protocol_writer()
+        scope = writer._scope
+        scope.motion.has_turret.return_value = False
+        scope.led_connected = led_connected
+        scope.illumination.color2ch.return_value = channel
+        scope.imaging.capture_and_wait.return_value = None
+        writer._consecutive_capture_failures = writer._MAX_CONSECUTIVE_CAPTURE_FAILURES - 1
+        protocol = MagicMock()
+        protocol.capture_root.return_value = ''
+        writer.capture(
+            save_folder='/tmp',
+            step=_protocol_step(Color=color),
+            output_format='TIFF',
+            protocol=protocol,
+            enable_image_saving=True,
+        )
+        assert len(criticals) == 1, criticals
+        return criticals[0]
+
+    def test_undrivable_colour_names_the_colour(self, monkeypatch):
+        body = self._run_abort(monkeypatch, color='PC', led_connected=True, channel=None)
+        assert 'PC' in body
+        assert 'Camera' not in body
+
+    def test_no_led_board_keeps_camera_wording(self, monkeypatch):
+        body = self._run_abort(monkeypatch, color='BF', led_connected=False, channel=None)
+        assert 'Camera failed' in body
+
+    def test_drivable_colour_keeps_camera_wording(self, monkeypatch):
+        body = self._run_abort(monkeypatch, color='BF', led_connected=True, channel=3)
+        assert 'Camera failed' in body

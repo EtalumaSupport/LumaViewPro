@@ -476,8 +476,13 @@ class ProtocolImageWriter:
                             from modules.notification_center import notifications
 
                             step_color = step.get('Color', '')
+                            # led_connected term: color2ch also returns None
+                            # when no LED board is present at all -- a
+                            # board-less run's failures are not a missing
+                            # channel and must keep the camera wording.
                             undrivable = (
                                 step_color in common_utils.get_layers_with_led()
+                                and self._scope.led_connected
                                 and self._scope.illumination.color2ch(step_color) is None
                             )
                             if undrivable:
