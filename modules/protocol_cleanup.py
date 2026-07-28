@@ -22,7 +22,7 @@ from modules.lumascope_api.illumination import (
     resolve_end_state,
 )
 from modules.protocol_state_machine import ProtocolState
-from modules.sequential_io_executor import IOTask
+from modules.sequential_io_executor import IOTask, PROTOCOL_QUEUE_WEDGED
 
 if TYPE_CHECKING:
     from modules.lumascope_api import Lumascope
@@ -30,6 +30,12 @@ if TYPE_CHECKING:
 
 
 from modules.kivy_utils import schedule_ui as _schedule_ui
+
+# Stall budget for queueing the run-record completion task. Short: on the
+# normal path the queue is draining (the put unblocks within one write), and
+# cleanup must not hang behind a wedged writer for the writer's own longer
+# fatal budget just to file the record.
+_RECORD_COMPLETE_STALL_S = 2.0
 
 
 def run_cleanup(
@@ -259,19 +265,6 @@ def run_cleanup(
         logger.error(f'[PROTOCOL] Error restoring camera gain/exposure during cleanup: {ex}')
         cleanup_errors.append(f'Restore camera gain/exposure: {type(ex).__name__}: {ex}')
 
-    # --- Complete protocol execution record ---
-    try:
-        if not disable_saving_artifacts and protocol_execution_record is not None:
-            # On a clean finish, reconcile attempted captures against rows
-            # written and warn on any shortfall. On abort, pending writes are
-            # dropped on purpose below, so a shortfall is expected -- skip it.
-            file_io_executor.protocol_put(
-                IOTask(action=partial(protocol_execution_record.complete, reconcile=not is_aborted))
-            )
-    except Exception as ex:
-        logger.error(f'[PROTOCOL] Error completing protocol record during cleanup: {ex}')
-        cleanup_errors.append(f'Complete protocol record: {type(ex).__name__}: {ex}')
-
     # --- Return to position ---
     try:
         if return_to_position is not None:
@@ -327,6 +320,38 @@ def run_cleanup(
         # many GB to slowly drain.
         file_io_executor.clear_protocol_pending()
         logger.info(f'[{logger_name}] Cleanup: file_io_executor pending cleared (aborted)')
+
+    # --- Complete protocol execution record ---
+    # Ordering invariant: this enqueue must run AFTER the abort-path clear
+    # above. Enqueued before it, the completion task itself was cancelled by
+    # the clear, so an aborted run's record silently never finalized. After
+    # the clear, an aborted run's queue has room and the put returns
+    # immediately even when the worker is stuck mid-write.
+    try:
+        if not disable_saving_artifacts and protocol_execution_record is not None:
+            # On a clean finish, reconcile attempted captures against rows
+            # written and warn on any shortfall. On abort, pending writes were
+            # dropped on purpose above, so a shortfall is expected -- skip it.
+            # Blocking put: the old fire-and-forget enqueue ignored the
+            # queue-full return, so a backed-up queue silently lost the
+            # record completion.
+            _record_put = file_io_executor.protocol_put_wait(
+                IOTask(
+                    action=partial(protocol_execution_record.complete, reconcile=not is_aborted)
+                ),
+                should_abort=lambda: False,
+                stall_timeout_s=_RECORD_COMPLETE_STALL_S,
+            )
+            if _record_put is PROTOCOL_QUEUE_WEDGED:
+                logger.error(
+                    f'[{logger_name}] Cleanup: run-record completion could not '
+                    f'be queued -- the file writer is stalled on '
+                    f"{file_io_executor.describe_running_task()}; this run's "
+                    f'execution record will not be finalized'
+                )
+    except Exception as ex:
+        logger.error(f'[PROTOCOL] Error completing protocol record during cleanup: {ex}')
+        cleanup_errors.append(f'Complete protocol record: {type(ex).__name__}: {ex}')
 
     with run_lock:
         set_run_in_progress_fn(False)

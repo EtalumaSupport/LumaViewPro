@@ -250,8 +250,8 @@ def _make_executors(file_queue_maxsize=0):
     dead state. The AF-on lifecycle tests (s5-s7) build their own runner.
 
     file_queue_maxsize=0 keeps the file worker's protocol queue unbounded
-    (the historical default); the scan-boundary drop test (s11) passes 1 so
-    the queue can be filled to force a real PROTOCOL_QUEUE_FULL.
+    (the historical default); the wedged-writer test (s11) passes 1 so the
+    queue can be filled to make the blocking write submit stall for real.
     """
     from modules.protocol_thread import ProtocolThread
 
@@ -885,14 +885,12 @@ def test_run_start_refused_by_live_lease_holder_fails_itself(scope, runner, tmp_
 
 
 # ---------------------------------------------------------------------------
-# Scan-boundary dark idle (SCAN_IDLE). The run loop's inter-scan epilogue must
-# leave the sample dark before every inter-scan period wait, even when the
-# step machinery's own boundary decision was skipped: a queue-full dropped
-# write on the last step of a non-final scan (capture() returns False, so the
-# caller's completed gate skips STEP_BOUNDARY), or a mid-scan exception the
-# run loop classifies as transient and retries a full period later. Without
-# the epilogue the channel stays lit on the sample for the whole inter-scan
-# period -- or up to three periods across the consecutive-failure window.
+# Dark sample on write-path failure. A capture that cannot hand its frame to
+# the file writer must never leave the sample lit: the run loop's inter-scan
+# epilogue darkens after a mid-scan exception the loop classifies as
+# transient, and a wedged file writer aborts the run -- whose cleanup owns
+# the darkening. Without those, the channel stays lit on the sample for the
+# whole inter-scan period, or indefinitely on an abort.
 # ---------------------------------------------------------------------------
 
 
@@ -901,8 +899,8 @@ def bounded_file_executors():
     """Executor set whose file-IO worker has a 1-slot bounded protocol queue.
 
     Production bounds the file queue too (the registry passes 32); maxsize=1
-    makes the queue-full drop reachable with one wedge task plus one filler
-    instead of 32 in-flight writes.
+    makes the full-queue condition reachable with one wedge task plus one
+    filler instead of 32 in-flight writes.
     """
     yield from _make_executors(file_queue_maxsize=1)
 
@@ -924,22 +922,22 @@ def _build_two_scan_protocol(specs):
     return protocol
 
 
-def test_s11_queue_full_drop_at_scan_boundary_still_goes_dark(
-    scope, bounded_runner, tmp_path, monkeypatch
-):
-    """A queue-full dropped write on the LAST step of a non-final scan makes
-    capture() return False, so the caller's completed gate skips the
-    STEP_BOUNDARY off -- only the run loop's SCAN_IDLE epilogue darkens the
-    sample before the inter-scan wait. Assert the channel goes OFF after
-    scan 1's capture and BEFORE scan 2's first ON.
+def test_s11_wedged_writer_aborts_run_and_goes_dark(scope, bounded_runner, tmp_path, monkeypatch):
+    """A wedged file writer mid-run declares a stall: the capture fails, a
+    fatal 'File Writer Stalled' notification fires, the run aborts, and the
+    abort's cleanup leaves no LED lit on the sample. No capture is ever
+    silently dropped -- the old queue-full drop path is unreachable by
+    design now that the write submit blocks for a slot.
 
-    Drives the REAL drop path: a bounded file queue (maxsize=1) with the
+    Drives the REAL wedge path: a bounded file queue (maxsize=1) with the
     worker parked on a wedge task and the single slot occupied by a filler,
-    so the write's own protocol_put genuinely returns PROTOCOL_QUEUE_FULL.
-    Fails without the epilogue: the channel then stays lit across the whole
-    inter-scan period (no off event exists between the scans, and scan 2's
-    idempotent re-light emits nothing)."""
+    so the write's blocking submit finds no slot and no task ever retires.
+    The stall budget is shrunk so the wedge declares in test time."""
+    import modules.protocol_image_writer as piw
+    from modules.notification_center import Severity, notifications
     from modules.sequential_io_executor import IOTask, PROTOCOL_ENQUEUED
+
+    monkeypatch.setattr(piw, '_WRITE_STALL_FATAL_S', 0.5)
 
     ill = scope.illumination
     sub = LedSubstream()
@@ -959,13 +957,13 @@ def test_s11_queue_full_drop_at_scan_boundary_still_goes_dark(
 
     def _capture_and_wait_with_wedge(*args, **kwargs):
         # Runs on the protocol worker right before the grab -- i.e. before
-        # this step's write is enqueued, and only once the run is in session
+        # this step's write is submitted, and only once the run is in session
         # (protocol_put drops tasks outside one). First call installs the
         # wedge: the worker parks on _wedge_task and a no-op filler occupies
-        # the single queue slot, so the write's protocol_put returns
-        # PROTOCOL_QUEUE_FULL. Event-gated, no sleeps; results are recorded
-        # (not asserted) here because a raise on this thread would be
-        # classified as a transient scan failure, not a test failure.
+        # the single queue slot, so the write's blocking submit can never get
+        # a slot and the stall declares. Event-gated, no sleeps; results are
+        # recorded (not asserted) here because a raise on this thread would
+        # be classified as a transient scan failure, not a test failure.
         if not installed.is_set():
             install_results.append(file_io.protocol_put(IOTask(action=_wedge_task)))
             install_results.append(wedge_started.wait(timeout=10))
@@ -975,8 +973,14 @@ def test_s11_queue_full_drop_at_scan_boundary_still_goes_dark(
 
     monkeypatch.setattr(scope.imaging, 'capture_and_wait', _capture_and_wait_with_wedge)
 
+    fired = []
+    # remove_listener unregisters by identity, so the exact same callable
+    # object must be handed to both calls.
+    listener = fired.append
+    notifications.add_listener(listener, min_severity=Severity.CRITICAL)
+
     try:
-        completed, _ = _run_protocol(
+        completed, result = _run_protocol(
             bounded_runner,
             _build_two_scan_protocol([('A1', 'Green', {})]),
             tmp_path,
@@ -986,25 +990,27 @@ def test_s11_queue_full_drop_at_scan_boundary_still_goes_dark(
     finally:
         # Unpark the file worker so fixture teardown can drain and shut down.
         wedge_release.set()
+        notifications.remove_listener(listener)
 
-    assert completed, f'protocol did not complete in time\n{sub.render()}'
+    assert completed, f'run_complete never fired after the wedge abort\n{sub.render()}'
+    assert result.get('status') == 'aborted', (
+        f'a wedged writer must abort the run; status={result.get("status")!r}'
+    )
     assert install_results == [PROTOCOL_ENQUEUED, True, PROTOCOL_ENQUEUED], (
         f'wedge install did not follow the expected sequence: {install_results}'
     )
-    # Prove the drop actually happened -- otherwise a successful write's own
-    # scan-boundary off would make these substream assertions pass vacuously.
-    assert file_io._protocol_queue_dropped_count >= 1, (
-        'the bounded file queue never rejected a write; the drop path was not exercised'
+    # The old contract dropped the capture silently; the new one never does.
+    assert file_io.protocol_dropped_count() == 0, (
+        'back-pressure must not silently drop a capture, even against a wedged writer'
     )
+    stall_notes = [n for n in fired if n.title == 'File Writer Stalled']
+    assert len(stall_notes) == 1, f'expected one fatal stall notification, saw {fired}'
 
-    # Scan 1 ON -> SCAN_IDLE OFF (the epilogue; the drop skipped the
-    # boundary) -> scan 2 ON (a real re-light, so the OFF between the scans
-    # is proven by the second on-event existing at all) -> run-end OFF.
-    assert sub.on_events() == [('Green', 250.0), ('Green', 250.0)], sub.render()
-    assert sub.lit_transitions('Green') == [True, False, True, False], sub.render()
+    # Scan 1 ON, then the wedge abort's cleanup darkens; scan 2 never starts.
+    assert sub.on_events() == [('Green', 250.0)], sub.render()
+    assert sub.lit_transitions('Green') == [True, False], sub.render()
     _assert_only_lit(sub, 'Green')
-    assert sub.lit_at_most_one(), f'double illumination\n{sub.render()}'
-    assert sub.final_lit() == set(), sub.render()
+    assert sub.final_lit() == set(), f'wedge abort left the sample lit\n{sub.render()}'
 
 
 def test_s12_transient_scan_failure_goes_dark_before_retry(scope, runner, tmp_path, monkeypatch):
