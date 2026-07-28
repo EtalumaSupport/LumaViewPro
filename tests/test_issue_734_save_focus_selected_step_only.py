@@ -76,8 +76,10 @@ def _make_env(proto, z_positions):
     """Fake ctx + extraction globals wired to a real Protocol.
 
     ``z_positions``: list of Z values get_current_position returns per call.
-    Clock.schedule_once runs the callback immediately so the refresh path
-    executes inside the test.
+    The refresh helper lives on the real LayerControl, so the fake self
+    carries a recording stub for it -- tests assert it fired exactly when a
+    step Z was written, and the extraction logger records any swallowed
+    exception so a silent failure inside the handler cannot pass unnoticed.
     """
     from modules.exceptions import ProtocolError
 
@@ -96,16 +98,22 @@ def _make_env(proto, z_positions):
     )
     fake_app_ctx = SimpleNamespace(ctx=ctx)
     clock = SimpleNamespace(schedule_once=lambda cb, dt=0: cb(0))
+    log = MagicMock()
     fn = _extract_method(
         'execute_save_focus',
         {
             '_app_ctx': fake_app_ctx,
-            'logger': MagicMock(),
+            'logger': log,
             'Clock': clock,
             'ProtocolError': ProtocolError,
         },
     )
-    return fn, ctx
+    fake_self = SimpleNamespace(
+        layer='BF',
+        _schedule_step_views_refresh=MagicMock(),
+        _log=log,
+    )
+    return fn, ctx, fake_self
 
 
 class TestSaveFocusSelectedStepOnly:
@@ -117,11 +125,10 @@ class TestSaveFocusSelectedStepOnly:
                 {'Name': 'C1_BF', 'Color': 'BF', 'Z': 7000.0, 'X': 1, 'Y': 1},
             ]
         )
-        fn, ctx = _make_env(proto, [5000.0])
+        fn, ctx, fake_self = _make_env(proto, [5000.0])
         # Precondition that made the old inference fire: the saved layer
         # focus equals every sibling's Z, so all three sat "at baseline."
         assert ctx.settings['BF']['focus'] == 7000.0
-        fake_self = SimpleNamespace(layer='BF')
 
         fn(fake_self, selected_step=0)
 
@@ -130,6 +137,12 @@ class TestSaveFocusSelectedStepOnly:
         assert steps.loc[1, 'Z'] == 7000.0, 'sibling step must NOT inherit the save'
         assert steps.loc[2, 'Z'] == 7000.0, 'sibling step must NOT inherit the save'
         assert ctx.settings['BF']['focus'] == 5000.0
+        assert fake_self._schedule_step_views_refresh.call_count == 1, (
+            'a step write must schedule the stage/step-editor refresh'
+        )
+        assert not fake_self._log.exception.called, (
+            'the handler must not swallow an exception on the happy path'
+        )
 
     def test_repro_three_distinct_saves_stay_distinct(self):
         # The customer repro: tune + save each of three steps in turn. The
@@ -144,8 +157,7 @@ class TestSaveFocusSelectedStepOnly:
             ]
         )
         saves = [4717.0, 4718.0, 4719.399]
-        fn, ctx = _make_env(proto, saves)
-        fake_self = SimpleNamespace(layer='BF')
+        fn, ctx, fake_self = _make_env(proto, saves)
 
         for i in range(3):
             ctx.settings['BF']['focus'] = float(proto.steps().loc[i, 'Z'])
@@ -155,6 +167,8 @@ class TestSaveFocusSelectedStepOnly:
             'each step must keep its own saved focus; pre-fix all three '
             'collapsed to the last saved value'
         )
+        assert fake_self._schedule_step_views_refresh.call_count == 3
+        assert not fake_self._log.exception.called
 
     def test_save_focus_ignores_selected_step_of_other_color(self):
         proto = _make_protocol_with_steps(
@@ -163,8 +177,7 @@ class TestSaveFocusSelectedStepOnly:
                 {'Name': 'A1_BF', 'Color': 'BF', 'Z': 7000.0, 'X': 1, 'Y': 1},
             ]
         )
-        fn, ctx = _make_env(proto, [5000.0])
-        fake_self = SimpleNamespace(layer='BF')
+        fn, ctx, fake_self = _make_env(proto, [5000.0])
 
         fn(fake_self, selected_step=0)
 
@@ -172,6 +185,7 @@ class TestSaveFocusSelectedStepOnly:
         assert steps.loc[0, 'Z'] == 7000.0, 'selected Blue step untouched by a BF save'
         assert steps.loc[1, 'Z'] == 7000.0, 'unselected BF step untouched'
         assert ctx.settings['BF']['focus'] == 5000.0, 'layer default still saved'
+        assert not fake_self._schedule_step_views_refresh.called, 'no step changed, so no refresh'
 
     def test_stale_selected_step_is_skipped(self):
         # The index is captured at click time; the step can be deleted before
@@ -181,8 +195,7 @@ class TestSaveFocusSelectedStepOnly:
                 {'Name': 'A1_BF', 'Color': 'BF', 'Z': 7000.0, 'X': 1, 'Y': 1},
             ]
         )
-        fn, ctx = _make_env(proto, [5000.0])
-        fake_self = SimpleNamespace(layer='BF')
+        fn, ctx, fake_self = _make_env(proto, [5000.0])
 
         fn(fake_self, selected_step=5)
 
@@ -195,8 +208,7 @@ class TestSaveFocusSelectedStepOnly:
                 {'Name': 'A1_BF', 'Color': 'BF', 'Z': 7000.0, 'X': 1, 'Y': 1},
             ]
         )
-        fn, ctx = _make_env(proto, [5000.0])
-        fake_self = SimpleNamespace(layer='BF')
+        fn, ctx, fake_self = _make_env(proto, [5000.0])
 
         fn(fake_self, selected_step=-1)
 
