@@ -879,7 +879,7 @@ class LayerControl(BoxLayout):
                 notifications.error(
                     'Motion',
                     'Save focus failed',
-                    "Couldn't read the Z position. Check that the motor board is connected.",
+                    "Couldn't read the Z position. Check the USB cable and power, then try again.",
                 )
             except Exception:
                 pass
@@ -949,7 +949,7 @@ class LayerControl(BoxLayout):
                 notifications.error(
                     'Motion',
                     'Apply focus failed',
-                    "Couldn't read the Z position. Check that the motor board is connected.",
+                    "Couldn't read the Z position. Check the USB cable and power, then try again.",
                 )
             except Exception:
                 pass
@@ -992,7 +992,7 @@ class LayerControl(BoxLayout):
                 notifications.error(
                     'Motion',
                     'Focus move failed',
-                    "Couldn't move Z to the saved focus. Check that the motor board is connected.",
+                    "Couldn't move Z to the saved focus. Check the USB cable and power, then try again.",
                 )
             except Exception:
                 pass
@@ -1054,7 +1054,7 @@ class LayerControl(BoxLayout):
                     'LED',
                     f'{self.layer} LED command failed',
                     f"Couldn't {'enable' if enabled else 'disable'} the {self.layer} channel. "
-                    f'Check that the LED board is connected.',
+                    f'Check the USB cable and power, then try again.',
                 )
             except Exception:
                 pass
