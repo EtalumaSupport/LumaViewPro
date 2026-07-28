@@ -279,6 +279,9 @@ class _FakeExecutor:
     def protocol_dropped_count(self):
         return self._dropped
 
+    def protocol_backpressure_blocked_s(self):
+        return 0.0
+
     def protocol_end(self):
         self.protocol_ended = True
 
@@ -308,6 +311,11 @@ class _FakeExecutor:
         return True
 
     def protocol_put(self, task):
+        task.action()
+
+    def protocol_put_wait(self, task, *, should_abort, stall_timeout_s, return_future=False):
+        # Mirror protocol_put: no queue in this stub, so the blocking
+        # variant runs the task inline and can never wedge.
         task.action()
 
 

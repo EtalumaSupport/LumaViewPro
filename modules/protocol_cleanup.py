@@ -22,7 +22,11 @@ from modules.lumascope_api.illumination import (
     resolve_end_state,
 )
 from modules.protocol_state_machine import ProtocolState
-from modules.sequential_io_executor import IOTask, PROTOCOL_QUEUE_WEDGED
+from modules.sequential_io_executor import (
+    IOTask,
+    PROTOCOL_QUEUE_WEDGED,
+    SLOW_WRITE_BLOCKED_WARN_S,
+)
 
 if TYPE_CHECKING:
     from modules.lumascope_api import Lumascope
@@ -405,6 +409,26 @@ def run_cleanup(
             )
         except Exception as ex:
             logger.error(f'[PROTOCOL] Failed to surface dropped-capture notification: {ex}')
+
+    # Sustained-slow-write warning, demand-relative: the time this run's
+    # capture loop spent blocked waiting for a write slot. An absolute MB/s
+    # floor false-fires on healthy machines (PERFORMANCE_BUDGETS.md
+    # protocol_write_backpressure_wait_s), so the trigger is the run's own
+    # unmet demand. Surfaced at run end because mid-run non-fatal popups are
+    # suppressed; the first crossing already logged from the executor.
+    blocked_s = file_io_executor.protocol_backpressure_blocked_s()
+    if blocked_s >= SLOW_WRITE_BLOCKED_WARN_S:
+        try:
+            from modules.notification_center import notifications
+
+            notifications.warning(
+                'Protocol',
+                'Very Slow File Writes',
+                'Very slow writes are occurring on the save disk. '
+                'Please confirm your computer and storage are OK.',
+            )
+        except Exception as ex:
+            logger.error(f'[PROTOCOL] Failed to surface slow-write notification: {ex}')
 
     # --- Fire completion callbacks ---
     _file_queue_active = file_io_executor.is_protocol_queue_active()

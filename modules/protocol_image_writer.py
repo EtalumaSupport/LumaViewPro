@@ -52,7 +52,7 @@ MIN_PER_WRITE_DISK_MB = 500
 # frozen-looking run. A running task that declared a longer
 # slow_task_threshold_sec (whole-recording video writes) raises the bar for
 # itself. Bench-tunable.
-_WRITE_STALL_FATAL_S = 30.0
+WRITE_STALL_FATAL_S = 30.0
 
 # Honest per-frame worst-case for a whole-recording video write task, used to
 # declare its slow_task_threshold_sec: the critical per-frame budget is 5 s
@@ -195,7 +195,7 @@ class ProtocolImageWriter:
                 slow_task_threshold_sec=slow_task_threshold_sec,
             ),
             should_abort=self._aborted.is_set,
-            stall_timeout_s=_WRITE_STALL_FATAL_S,
+            stall_timeout_s=WRITE_STALL_FATAL_S,
         )
         if result is PROTOCOL_QUEUE_WEDGED:
             from modules.notification_center import notifications
@@ -516,7 +516,7 @@ class ProtocolImageWriter:
                         # One video task writes every frame of the recording,
                         # so its honest stall bar scales with frame count.
                         slow_task_threshold_sec=max(
-                            _WRITE_STALL_FATAL_S,
+                            WRITE_STALL_FATAL_S,
                             video_result.captured_frames * _VIDEO_WRITE_WORST_S_PER_FRAME,
                         ),
                     ):

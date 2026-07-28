@@ -937,7 +937,7 @@ def test_s11_wedged_writer_aborts_run_and_goes_dark(scope, bounded_runner, tmp_p
     from modules.notification_center import Severity, notifications
     from modules.sequential_io_executor import IOTask, PROTOCOL_ENQUEUED
 
-    monkeypatch.setattr(piw, '_WRITE_STALL_FATAL_S', 0.5)
+    monkeypatch.setattr(piw, 'WRITE_STALL_FATAL_S', 0.5)
 
     ill = scope.illumination
     sub = LedSubstream()

@@ -64,6 +64,76 @@ from ui.progress_popup import show_popup
 logger = logging.getLogger('LVP.ui.protocol_settings')
 
 
+def _offer_wedged_writer_recovery():
+    """Modal offering discard-and-unlock recovery for a stalled file writer.
+
+    Names the stuck write and the cost of recovery; declining leaves the
+    queue untouched (the gates keep refusing and will re-offer)."""
+    from ui.notification_popup import show_confirmation_popup
+
+    ctx = _app_ctx.ctx
+    file_io_executor = ctx.file_io_executor
+    pending = file_io_executor.protocol_queue_size()
+    stuck = file_io_executor.describe_running_task()
+
+    def _recover():
+        logger.warning('[LVP Main  ] User confirmed wedged-writer recovery')
+        file_io_executor.recover_wedged_protocol_queue()
+
+    show_confirmation_popup(
+        title='File Writer Stalled',
+        message=(
+            f'File saving has stopped making progress ({stuck}). '
+            f'Discarding will unlock the app; {pending} unsaved image(s) '
+            f'from the last run will be lost. A partial file from the stuck '
+            f'write may remain on disk and stay locked until the stuck '
+            f'write releases it.'
+        ),
+        confirm_text=f'Discard {pending} unsaved and unlock',
+        cancel_text='Keep waiting',
+        on_confirm=_recover,
+    )
+
+
+def require_file_writes_idle(operation: str) -> bool:
+    """One gate for operations that must wait for the protocol file queue.
+
+    Returns True when the queue is idle so the operation may proceed.
+    Healthy drain: refuse with the live pending count -- the writes will
+    finish. Stalled drain (the in-flight write ran past the writer's fatal
+    stall budget): offer discard-and-unlock recovery instead of an
+    unfulfillable "please wait"; the operation is still refused this click
+    and the user retries once unlocked.
+    """
+    from modules.protocol_image_writer import WRITE_STALL_FATAL_S
+
+    ctx = _app_ctx.ctx
+    file_io_executor = ctx.file_io_executor
+    if not file_io_executor.is_protocol_queue_active():
+        return True
+    if file_io_executor.protocol_drain_stalled(WRITE_STALL_FATAL_S):
+        logger.warning(
+            f'[LVP Main  ] Cannot {operation} - file writer stalled on '
+            f'{file_io_executor.describe_running_task()}; offering recovery'
+        )
+        _offer_wedged_writer_recovery()
+    else:
+        from ui.notification_popup import show_notification_popup
+
+        pending = file_io_executor.protocol_queue_size()
+        logger.warning(
+            f'[LVP Main  ] Cannot {operation} - {pending} file(s) still being written to disk'
+        )
+        show_notification_popup(
+            title='Operation Blocked',
+            message=(
+                f'Please wait - {pending} file(s) from the previous scan '
+                f'are still being written to disk.'
+            ),
+        )
+    return False
+
+
 class ProtocolSettings(FloatLayout):
     done = BooleanProperty(False)
 
@@ -517,16 +587,7 @@ class ProtocolSettings(FloatLayout):
 
         logger.info('[LVP Main  ] ProtocolSettings.new_protocol()')
 
-        # Check if file writing is in progress
-        file_io_executor = ctx.file_io_executor
-        if file_io_executor.is_protocol_queue_active():
-            logger.warning('[LVP Main  ] Cannot create new protocol - files still being written')
-            from ui.notification_popup import show_notification_popup
-
-            show_notification_popup(
-                title='Operation Blocked',
-                message='Please wait - files are still being written to disk from the previous scan.',
-            )
+        if not require_file_writes_idle('create a new protocol'):
             return
 
         config = get_sequenced_capture_config_from_ui()
@@ -1491,6 +1552,7 @@ class ProtocolSettings(FloatLayout):
         # Check if files are still being written
         if file_io_executor.is_protocol_queue_active():
             # Schedule periodic update to show remaining file count
+            self._wedge_recovery_offered = False
             self._file_write_status_event = Clock.schedule_interval(
                 self._update_autofocus_write_status,
                 0.5,  # Update every 500ms
@@ -1513,14 +1575,35 @@ class ProtocolSettings(FloatLayout):
             reset_acquire_ui()
             self._reset_run_autofocus_scan_button()
 
+    _wedge_recovery_offered = False  # One recovery offer per write-lockout episode
+
+    def _update_write_lockout_button(self, button_id: str) -> None:
+        """Poll-tick body shared by the three 'Writing Files...' lockouts.
+
+        A healthy drain shows the live pending count. A stalled writer would
+        otherwise freeze that label forever -- the surface the stuck-run
+        reports were actually stuck on -- so a stall swaps in the recovery
+        offer (once per episode; the run-start gates re-offer on any later
+        attempt if the user declines)."""
+        from modules.protocol_image_writer import WRITE_STALL_FATAL_S
+
+        file_io_executor = _app_ctx.ctx.file_io_executor
+        if file_io_executor.protocol_drain_stalled(WRITE_STALL_FATAL_S):
+            self.ids[button_id].text = 'File writer stalled'
+            if not self._wedge_recovery_offered:
+                self._wedge_recovery_offered = True
+                _offer_wedged_writer_recovery()
+        else:
+            queue_size = file_io_executor.protocol_queue_size()
+            self.ids[button_id].text = f'Writing Files... ({queue_size})'
+
     def _update_autofocus_write_status(self, dt):
         """Update UI to show file writing progress for autofocus."""
         ctx = _app_ctx.ctx
         file_io_executor = ctx.file_io_executor
 
         if file_io_executor.is_protocol_queue_active():
-            queue_size = file_io_executor.protocol_queue_size()
-            self.ids['run_autofocus_btn'].text = f'Writing Files... ({queue_size})'
+            self._update_write_lockout_button('run_autofocus_btn')
         else:
             # Queue is empty - cancel this scheduled update and trigger completion
             if hasattr(self, '_file_write_status_event') and self._file_write_status_event:
@@ -1577,7 +1660,6 @@ class ProtocolSettings(FloatLayout):
 
             ctx = _app_ctx.ctx
             sequenced_capture_runner = ctx.sequenced_capture_runner
-            file_io_executor = ctx.file_io_executor
 
             run_trigger_source = sequenced_capture_runner.run_trigger_source()
 
@@ -1592,16 +1674,10 @@ class ProtocolSettings(FloatLayout):
                 live_histo_reverse()
 
             # Only block if starting NEW autofocus scan (button is 'down'), not if aborting (button is 'normal')
-            if (
-                self.ids['run_autofocus_btn'].state == 'down'
-                and file_io_executor.is_protocol_queue_active()
+            if self.ids['run_autofocus_btn'].state == 'down' and not require_file_writes_idle(
+                'start the autofocus scan'
             ):
                 run_refused_func()
-                logger.warning('Cannot start autofocus scan - files still being written to disk')
-                show_notification_popup(
-                    title='Operation Blocked',
-                    message='Please wait - files are still being written to disk.',
-                )
                 return
 
             if self.ids['run_autofocus_btn'].state == 'normal' or (
@@ -1715,6 +1791,7 @@ class ProtocolSettings(FloatLayout):
         # Check if files are still being written
         if file_io_executor.is_protocol_queue_active():
             # Schedule periodic update to show remaining file count
+            self._wedge_recovery_offered = False
             self._file_write_status_event = Clock.schedule_interval(
                 self._update_file_write_status,
                 0.5,  # Update every 500ms
@@ -1747,8 +1824,7 @@ class ProtocolSettings(FloatLayout):
         file_io_executor = ctx.file_io_executor
 
         if file_io_executor.is_protocol_queue_active():
-            queue_size = file_io_executor.protocol_queue_size()
-            self.ids['run_scan_btn'].text = f'Writing Files... ({queue_size})'
+            self._update_write_lockout_button('run_scan_btn')
         else:
             # Queue is empty - cancel this scheduled update and trigger completion
             if hasattr(self, '_file_write_status_event') and self._file_write_status_event:
@@ -1802,8 +1878,6 @@ class ProtocolSettings(FloatLayout):
             ProtocolSettings._scan_starting = False
 
     def _run_scan_from_ui_inner(self):
-        from ui.notification_popup import show_notification_popup
-
         gui_logger.protocol_action('SCAN')
         logger.info('[LVP Main  ] ProtocolSettings.run_scan_from_ui()')
         trigger_source = 'scan'
@@ -1819,16 +1893,12 @@ class ProtocolSettings(FloatLayout):
 
         ctx = _app_ctx.ctx
         sequenced_capture_runner = ctx.sequenced_capture_runner
-        file_io_executor = ctx.file_io_executor
 
         # Only block if starting NEW scan (button is 'down'), not if aborting (button is 'normal')
-        if self.ids['run_scan_btn'].state == 'down' and file_io_executor.is_protocol_queue_active():
+        if self.ids['run_scan_btn'].state == 'down' and not require_file_writes_idle(
+            'start the scan'
+        ):
             run_refused_func()
-            logger.warning('Cannot start scan - files still being written to disk')
-            show_notification_popup(
-                title='Operation Blocked',
-                message='Please wait - files are still being written to disk from the previous scan.',
-            )
             return
 
         # State of button immediately changed upon press, so we are checking if the button was previously not pressed, and if autofocus is happening
@@ -1904,6 +1974,7 @@ class ProtocolSettings(FloatLayout):
         # Check if files are still being written
         if file_io_executor.is_protocol_queue_active():
             # Schedule periodic update to show remaining file count
+            self._wedge_recovery_offered = False
             self._file_write_status_event = Clock.schedule_interval(
                 self._update_protocol_write_status,
                 0.5,  # Update every 500ms
@@ -1939,8 +2010,7 @@ class ProtocolSettings(FloatLayout):
         file_io_executor = ctx.file_io_executor
 
         if file_io_executor.is_protocol_queue_active():
-            queue_size = file_io_executor.protocol_queue_size()
-            self.ids['run_protocol_btn'].text = f'Writing Files... ({queue_size})'
+            self._update_write_lockout_button('run_protocol_btn')
         else:
             # Queue is empty - cancel this scheduled update and trigger completion
             if hasattr(self, '_file_write_status_event') and self._file_write_status_event:
@@ -2034,7 +2104,6 @@ class ProtocolSettings(FloatLayout):
 
             ctx = _app_ctx.ctx
             sequenced_capture_runner = ctx.sequenced_capture_runner
-            file_io_executor = ctx.file_io_executor
 
             # Not-started paths undo cosmetics only: no running-state was
             # committed, and a rival live run may own protocol_running /
@@ -2048,16 +2117,10 @@ class ProtocolSettings(FloatLayout):
                 )
 
             # Only block if starting NEW protocol run (button is 'down'), not if aborting (button is 'normal')
-            if (
-                self.ids['run_protocol_btn'].state == 'down'
-                and file_io_executor.is_protocol_queue_active()
+            if self.ids['run_protocol_btn'].state == 'down' and not require_file_writes_idle(
+                'start the protocol run'
             ):
                 run_refused_func()
-                logger.warning('Cannot start protocol run - files still being written to disk')
-                show_notification_popup(
-                    title='Operation Blocked',
-                    message='Please wait - files are still being written to disk.',
-                )
                 return
 
             run_trigger_source = sequenced_capture_runner.run_trigger_source()

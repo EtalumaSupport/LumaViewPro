@@ -1602,6 +1602,7 @@ def _run_cleanup_kwargs(**overrides):
     # mock must too, or the run-end dropped-capture check compares a MagicMock.
     file_io_executor = MagicMock()
     file_io_executor.protocol_dropped_count.return_value = 0
+    file_io_executor.protocol_backpressure_blocked_s.return_value = 0.0
 
     kwargs = {
         'get_state_fn': MagicMock(return_value=ProtocolState.RUNNING),
@@ -3097,6 +3098,7 @@ def _make_capture_runner(**overrides):
     # mock must too, or run-end cleanup compares a MagicMock against an int.
     file_io_executor = MagicMock()
     file_io_executor.protocol_dropped_count.return_value = 0
+    file_io_executor.protocol_backpressure_blocked_s.return_value = 0.0
 
     kwargs = {
         'scope': MagicMock(),

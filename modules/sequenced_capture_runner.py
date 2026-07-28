@@ -13,7 +13,7 @@ from modules.protocol_state_machine import (
     validate_transition,
 )
 from modules.protocol_callbacks import ProtocolCallbacks
-from modules.protocol_image_writer import ProtocolImageWriter
+from modules.protocol_image_writer import ProtocolImageWriter, WRITE_STALL_FATAL_S
 from modules.protocol_cleanup import run_cleanup
 from modules.protocol_step_runner import ProtocolStepRunner
 from modules.protocol_run_loop import ProtocolRunLoop
@@ -569,6 +569,20 @@ class SequencedCaptureRunner:
                 )
 
         if self.file_io_executor.is_protocol_queue_active():
+            # Module layer must not popup-with-buttons, so the refusal only
+            # NAMES the stalled-vs-draining difference; the recovery action
+            # itself lives with the UI gate helper and the Session method.
+            if self.file_io_executor.protocol_drain_stalled(WRITE_STALL_FATAL_S):
+                self._refuse(
+                    reason='files_writing_stalled',
+                    title='File Writer Stalled',
+                    message=(
+                        "Previous run's file writer has stopped making "
+                        f'progress ({self.file_io_executor.describe_running_task()}). '
+                        'Recover it (discard unsaved images) before starting '
+                        'a new run.'
+                    ),
+                )
             self._refuse(
                 reason='files_writing',
                 title='Files Still Writing',
