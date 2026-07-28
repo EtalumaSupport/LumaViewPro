@@ -401,7 +401,10 @@ def generate_image_metadata(scope: Lumascope, color, x, y, z) -> dict:
         ),
         'binning_size': scope.imaging._binning_size,
         'pixel_size_um': pixel_size_um,
-        'well_label': well_label,
+        # Zero-well labware (Blank) has no well: omit the key rather than
+        # stamp an empty or fabricated label, mirroring the no-scale idiom
+        # above -- a fake well is measured off the file forever.
+        **({'well_label': well_label} if well_label else {}),
         'timestamp_iso': now_host.isoformat(timespec='microseconds'),
         'instrument': {
             'manufacturer': 'Etaluma',

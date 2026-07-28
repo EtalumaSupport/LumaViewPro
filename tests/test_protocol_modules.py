@@ -279,6 +279,9 @@ class _FakeExecutor:
     def protocol_dropped_count(self):
         return self._dropped
 
+    def protocol_backpressure_blocked_s(self):
+        return 0.0
+
     def protocol_end(self):
         self.protocol_ended = True
 
@@ -310,6 +313,11 @@ class _FakeExecutor:
     def protocol_put(self, task):
         task.action()
 
+    def protocol_put_wait(self, task, *, should_abort, stall_timeout_s, return_future=False):
+        # Mirror protocol_put: no queue in this stub, so the blocking
+        # variant runs the task inline and can never wedge.
+        task.action()
+
 
 class TestRunCleanup:
     """Test protocol_cleanup.run_cleanup logic."""
@@ -338,6 +346,7 @@ class TestRunCleanup:
             'set_state_fn': set_state,
             'run_lock': threading.Lock(),
             'scan_in_progress': threading.Event(),
+            'fatal_abort': False,
             'leds_state_at_end': 'off',
             'original_led_states': {},
             'original_autofocus_states': {},
@@ -578,6 +587,7 @@ class TestProtocolImageWriterWriteCapture:
             aborted=threading.Event(),
             file_io_executor=_FakeExecutor(),
             abort_fn=lambda: None,
+            fatal_abort_event=threading.Event(),
             execution_record=execution_record,
             leds_off_fn=lambda: None,
             is_run_in_progress_fn=lambda: True,

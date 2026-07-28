@@ -277,6 +277,7 @@ class TestOneRunOneEncoding:
             aborted=threading.Event(),
             file_io_executor=MagicMock(),
             abort_fn=lambda: None,
+            fatal_abort_event=threading.Event(),
             execution_record=None,
             leds_off_fn=lambda: None,
             is_run_in_progress_fn=lambda: True,

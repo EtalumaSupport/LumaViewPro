@@ -24,7 +24,7 @@ import modules.common_utils as common_utils
 from modules.image_save import save_image
 from modules.protocol import Protocol
 from modules.video_capture import VideoCaptureSession, write_video
-from modules.sequential_io_executor import IOTask, PROTOCOL_QUEUE_FULL
+from modules.sequential_io_executor import IOTask, PROTOCOL_QUEUE_WEDGED
 
 try:
     from modules import profile_trace
@@ -44,6 +44,21 @@ if TYPE_CHECKING:
 # must have at least this much headroom beyond its own estimated size before it
 # is allowed to write, so one write cannot fill the last sliver of a disk.
 MIN_PER_WRITE_DISK_MB = 500
+
+# Full-write-queue wait with zero tasks retired before the writer is declared
+# wedged and the run aborts loudly. 12x the per-frame critical write budget
+# (capture_save_disk_ms, PERFORMANCE_BUDGETS.md) -- unambiguously stuck, yet
+# short enough that an attended user gets a named error instead of a
+# frozen-looking run. A running task that declared a longer
+# slow_task_threshold_sec (whole-recording video writes) raises the bar for
+# itself. Bench-tunable.
+WRITE_STALL_FATAL_S = 30.0
+
+# Honest per-frame worst-case for a whole-recording video write task, used to
+# declare its slow_task_threshold_sec: the critical per-frame budget is 5 s
+# (capture_save_disk_ms, PERFORMANCE_BUDGETS.md), and one video task writes
+# every frame of the recording.
+_VIDEO_WRITE_WORST_S_PER_FRAME = 5.0
 
 
 class CapturedFrame(NamedTuple):
@@ -78,6 +93,13 @@ class ProtocolImageWriter:
         aborted: threading.Event,
         file_io_executor: SequentialIOExecutor,
         abort_fn,  # callable -- bound to protocol_thread.abort
+        # THIS run's fatal-abort flag, allocated fresh per run by the runner.
+        # Per-run, not runner-lifetime: queued write tasks keep draining after
+        # the run ends and can fire a fatal abort (disk-full) from the OLD
+        # run's writer after the NEXT run has started -- a shared flag set
+        # then would fatal-brand and force-darken the successor run; a
+        # per-run object lets the late set land on a dead flag.
+        fatal_abort_event: threading.Event,
         execution_record: ProtocolExecutionRecord,
         # Functions borrowed from the parent executor
         leds_off_fn,
@@ -95,6 +117,7 @@ class ProtocolImageWriter:
         self._aborted = aborted
         self._file_io_executor = file_io_executor
         self._abort_fn = abort_fn
+        self._fatal_abort_event = fatal_abort_event
         self._execution_record = execution_record
         self._leds_off = leds_off_fn
         self._is_run_in_progress = is_run_in_progress_fn
@@ -104,6 +127,34 @@ class ProtocolImageWriter:
         self._consecutive_capture_failures = 0
         self._MAX_CONSECUTIVE_CAPTURE_FAILURES = 3
 
+    def _abort_run_fatal(self, domain: str, title: str, message: str) -> None:
+        """The one fatal-abort path: every run-killing fault routes here.
+
+        Ordering is load-bearing:
+        1. abort -- a non-blocking, idempotent Event.set that immediately
+           closes the protocol thread's aborted-gates against lighting the
+           next step; it involves no I/O, so nothing may precede it.
+        2. fatal flag -- read by cleanup (terminal-dark assertion) and by
+           the step-boundary gate; set before the LEDs go dark so a step
+           racing this call cannot observe dark-but-not-fatal.
+        3. force_off -- darkens the sample NOW, on this thread, via the
+           direct driver path (no executor hop), because the fault that
+           brought us here may be wedging the teardown that normally turns
+           the LEDs off; a live sample must not stay illuminated while a
+           dead disk times out. Worst case ~5 s behind an in-flight
+           confirmed LED write on the driver lock.
+        4. the fatal popup -- last, after the hardware is safe.
+        Safe to re-enter: every step is idempotent, so a second fault
+        surfacing while this runs (e.g. the failure-record write itself
+        wedging) changes nothing.
+        """
+        self._abort_fn()
+        self._fatal_abort_event.set()
+        self._scope.illumination.force_off()
+        from modules.notification_center import notifications
+
+        notifications.critical(domain, title, message)
+
     def _record_dropped_capture(
         self,
         *,
@@ -112,14 +163,13 @@ class ProtocolImageWriter:
         scan_count,
         capture_time,
         name,
-        reason='capture_failed_queue_full',
+        reason,
     ):
-        """F-2: log a dropped protocol capture in the execution record.
+        """Log a capture that produced no file in the execution record.
 
-        Called when ``file_io_executor.protocol_put`` returns
-        ``PROTOCOL_QUEUE_FULL`` because the bounded file-IO queue
-        rejected the write. Without this the dropped capture would be
-        silently absent from the run record.
+        Called when a step ends without a write: a cancelled / zero-frame
+        video, a failed save, or a wedged file writer. Without this the
+        missing capture would be silently absent from the run record.
         """
         if self._execution_record is None:
             return
@@ -135,6 +185,87 @@ class ProtocolImageWriter:
             )
         except Exception as ex:
             logger.error(f'[Protocol-Writer] Failed to record dropped capture: {ex}')
+
+    def _submit_write(
+        self,
+        *,
+        kwargs: dict,
+        step,
+        step_index,
+        scan_count,
+        capture_time,
+        name,
+        slow_task_threshold_sec: float | None = None,
+    ) -> bool:
+        """One owner for enqueueing a write_capture task onto the bounded
+        file queue.
+
+        Blocks (back-pressure) instead of dropping when the queue is full:
+        the run paces to disk drain, so a grabbed frame is never silently
+        lost. Abort stays responsive via the writer's aborted event, polled
+        between slot attempts.
+
+        The step-identity kwargs (step, indices, timestamp, name) are
+        normalized onto every write task so the execution-record row and any
+        stall report can always name the step and its file -- some legs
+        historically omitted them and their failures logged as 'unknown'.
+
+        Returns True when the task was handed to the executor (or the
+        executor declined it because no protocol is in session -- the
+        run-teardown race the non-blocking path also tolerated). False only
+        when the run is over: the wait was cancelled by an abort, or the
+        writer was declared wedged -- in which case this method has already
+        fired the fatal user notification, recorded the lost capture, and
+        aborted the run.
+        """
+        kwargs.setdefault('step', step)
+        kwargs.setdefault('step_index', step_index)
+        kwargs.setdefault('scan_count', scan_count)
+        kwargs.setdefault('capture_time', capture_time)
+        kwargs.setdefault('name', name)
+        result = self._file_io_executor.protocol_put_wait(
+            IOTask(
+                action=self.write_capture,
+                kwargs=kwargs,
+                silent_on_failure=True,
+                slow_task_threshold_sec=slow_task_threshold_sec,
+            ),
+            should_abort=self._aborted.is_set,
+            stall_timeout_s=WRITE_STALL_FATAL_S,
+        )
+        if result is PROTOCOL_QUEUE_WEDGED:
+            stuck = self._file_io_executor.describe_running_task()
+            self._abort_run_fatal(
+                'Protocol',
+                'File Writer Stalled',
+                f'Saving stopped making progress ({stuck}), so the protocol '
+                f'was stopped to avoid losing more captures. Check that the '
+                f'save drive is connected and responsive, then run the '
+                f'protocol again. A partial file from the stuck write may '
+                f'remain on disk and stay locked until the writer releases '
+                f'it.',
+            )
+            # The record shares the dead save target; latch it so this row
+            # attempt (and any later one) is a loud no-op instead of a
+            # synchronous write blocking THIS thread against the dead disk
+            # until the OS gives up -- which is what used to delay the abort
+            # (and the LED-off behind it) by the whole OS timeout. The
+            # writer_stalled row is lost; its only trace is this run's
+            # cleanup error log, accepted.
+            if self._execution_record is not None:
+                self._execution_record.mark_target_unresponsive()
+            self._record_dropped_capture(
+                step=step,
+                step_index=step_index,
+                scan_count=scan_count,
+                capture_time=capture_time,
+                name=name,
+                reason='writer_stalled',
+            )
+            return False
+        # None with the abort flag set is a cancelled wait; a bare None is
+        # the executor declining outside a session (tolerated, as before).
+        return not (result is None and self._aborted.is_set())
 
     def _capture_evidence(self, image, significant_bits: int) -> str:
         """One-line provenance for a captured frame: brightness statistics
@@ -199,12 +330,12 @@ class ProtocolImageWriter:
             True if the capture completed normally and left the step channel
             lit, so the caller should drive the step-boundary LED decision
             through the authority. False if the capture returned early
-            (aborted, failed, cancelled, or a dropped write); the caller must
-            not apply a boundary hold in that case -- the failure paths have
-            already turned the LED off, and a dropped write's still-lit
-            channel is resolved by the next step's exclusive illuminate
-            mid-scan, or by the run loop's scan-idle darkening at a scan
-            boundary.
+            (aborted, failed, cancelled, or a fatal fault -- stalled writer,
+            3-strike camera, disk floor -- which aborts the run); the caller
+            must not apply a boundary hold in that case. Failure paths turn
+            the LED off themselves; fatal faults route through
+            _abort_run_fatal, which force-darkens immediately, and cleanup
+            re-asserts dark as the run's terminal LED state.
         """
         if self._aborted.is_set():
             return False
@@ -406,37 +537,31 @@ class ProtocolImageWriter:
                     self._leds_off()
 
                     _capture_time = datetime.datetime.now()
-                    _put_result = self._file_io_executor.protocol_put(
-                        IOTask(
-                            action=self.write_capture,
-                            kwargs={
-                                'is_video': is_video,
-                                'video_as_frames': video_as_frames,
-                                'video_result': video_result,
-                                'save_folder': save_folder,
-                                'use_color': use_color,
-                                'name': name,
-                                'output_format': output_format,
-                                'step': step,
-                                'captured_image': None,
-                                'step_index': curr_step,
-                                'scan_count': scan_count,
-                                'capture_time': _capture_time,
-                                'enable_image_saving': enable_image_saving,
-                                'separate_folder_per_channel': separate_folder_per_channel,
-                            },
-                            silent_on_failure=True,
-                        )
-                    )
-                    if _put_result is PROTOCOL_QUEUE_FULL:
-                        self._record_dropped_capture(
-                            step=step,
-                            step_index=curr_step,
-                            scan_count=scan_count,
-                            capture_time=_capture_time,
-                            name=name,
-                        )
-                        _proto_outcome = 'video_dropped_queue_full'
+                    if not self._submit_write(
+                        kwargs={
+                            'is_video': is_video,
+                            'video_as_frames': video_as_frames,
+                            'video_result': video_result,
+                            'save_folder': save_folder,
+                            'use_color': use_color,
+                            'output_format': output_format,
+                            'captured_image': None,
+                            'enable_image_saving': enable_image_saving,
+                            'separate_folder_per_channel': separate_folder_per_channel,
+                        },
+                        step=step,
+                        step_index=curr_step,
+                        scan_count=scan_count,
+                        capture_time=_capture_time,
+                        name=name,
+                        # One video task writes every frame of the recording,
+                        # so its honest stall bar scales with frame count.
+                        slow_task_threshold_sec=max(
+                            WRITE_STALL_FATAL_S,
+                            video_result.captured_frames * _VIDEO_WRITE_WORST_S_PER_FRAME,
+                        ),
+                    ):
+                        _proto_outcome = 'video_write_aborted'
                         return False
                     _proto_outcome = 'video_success'
                     return False  # Video always extinguishes; leds_off called above
@@ -446,11 +571,13 @@ class ProtocolImageWriter:
                     # dark_floor_check: a step that drives its LED must never
                     # save a black frame (stale pre-LED integration, or an
                     # external consumer starving the feed); a step with
-                    # illumination 0 is dark by design.
+                    # illumination 0, or a colour the scope drives no LED
+                    # for (luminescence), is dark by design.
                     captured_image = self._scope.imaging.capture_and_wait(
                         force_to_8bit=capture_depth == 8,
                         all_ones_check=True,
-                        dark_floor_check=step['Illumination'] > 0,
+                        dark_floor_check=step['Illumination'] > 0
+                        and step['Color'] in common_utils.get_layers_with_led(),
                         timeout_s=1.0,
                         sum_count=sum_count,
                         sum_delay_s=step['Exposure'] / 1000,
@@ -466,47 +593,59 @@ class ProtocolImageWriter:
                             self._consecutive_capture_failures
                             >= self._MAX_CONSECUTIVE_CAPTURE_FAILURES
                         )
-                        # Surface the abort cause to the user BEFORE the cleanup
-                        # side effects (recording the failed step, leds_off), so
-                        # the notification leads the effects rather than trailing
-                        # them. The abort itself runs after leds_off below.
+                        # The fatal funnel runs BEFORE the cleanup side effects
+                        # (recording the failed step, leds_off): abort + dark +
+                        # popup must not wait on a record write that can block
+                        # against a failing disk. In the queue-full case this
+                        # means the capture_failed row below is cancelled where
+                        # it previously waited for a slot -- accepted.
                         if aborting:
-                            from modules.notification_center import notifications
-
-                            notifications.critical(
-                                'Protocol',
-                                'Camera Failure',
-                                f'Camera failed {self._consecutive_capture_failures} consecutive captures. Aborting protocol.',
+                            step_color = step.get('Color', '')
+                            # led_connected term: color2ch also returns None
+                            # when no LED board is present at all -- a
+                            # board-less run's failures are not a missing
+                            # channel and must keep the camera wording.
+                            undrivable = (
+                                step_color in common_utils.get_layers_with_led()
+                                and self._scope.led_connected
+                                and self._scope.illumination.color2ch(step_color) is None
                             )
-                        # Still record the step with "capture_failed" so the record isn't silently missing.
-                        # If the file-IO queue is also full, fall back to recording directly (synchronously)
-                        # so the failure isn't doubly hidden.
+                            if undrivable:
+                                # The failures were guaranteed by the scope's
+                                # channel set, not by the camera -- blaming the
+                                # camera here misnames the cause the user can
+                                # actually act on.
+                                self._abort_run_fatal(
+                                    'Protocol',
+                                    'Channel not available',
+                                    f"This microscope has no '{step_color}' LED "
+                                    f'channel, so its steps cannot capture here. '
+                                    f'The protocol was stopped after '
+                                    f'{self._consecutive_capture_failures} failed '
+                                    f"captures. Remove the '{step_color}' steps to "
+                                    'run this protocol on this microscope.',
+                                )
+                            else:
+                                self._abort_run_fatal(
+                                    'Protocol',
+                                    'Camera Failure',
+                                    f'Camera failed {self._consecutive_capture_failures} consecutive captures. Aborting protocol.',
+                                )
+                        # Still record the step with "capture_failed" so the
+                        # record isn't silently missing this step.
                         _failed_capture_time = datetime.datetime.now()
-                        _put_result = self._file_io_executor.protocol_put(
-                            IOTask(
-                                action=self.write_capture,
-                                kwargs={
-                                    'step': step,
-                                    'step_index': curr_step,
-                                    'scan_count': scan_count,
-                                    'capture_time': _failed_capture_time,
-                                    'enable_image_saving': enable_image_saving,
-                                    'separate_folder_per_channel': separate_folder_per_channel,
-                                },
-                                silent_on_failure=True,
-                            )
+                        self._submit_write(
+                            kwargs={
+                                'enable_image_saving': enable_image_saving,
+                                'separate_folder_per_channel': separate_folder_per_channel,
+                            },
+                            step=step,
+                            step_index=curr_step,
+                            scan_count=scan_count,
+                            capture_time=_failed_capture_time,
+                            name=name,
                         )
-                        if _put_result is PROTOCOL_QUEUE_FULL:
-                            self._record_dropped_capture(
-                                step=step,
-                                step_index=curr_step,
-                                scan_count=scan_count,
-                                capture_time=_failed_capture_time,
-                                name=name,
-                            )
                         self._leds_off()
-                        if aborting:
-                            self._abort_fn()
                         _proto_outcome = 'capture_failed'
                         return False
 
@@ -544,64 +683,44 @@ class ProtocolImageWriter:
                         logger.debug(f'[PROTOCOL] hold_protocol_saved_image failed: {_e}')
 
                     _success_capture_time = datetime.datetime.now()
-                    _put_result = self._file_io_executor.protocol_put(
-                        IOTask(
-                            action=self.write_capture,
-                            kwargs={
-                                'save_folder': save_folder,
-                                'use_color': use_color,
-                                'name': name,
-                                'output_format': output_format,
-                                'step': step,
-                                'captured_image': CapturedFrame(
-                                    image=captured_image,
-                                    significant_bits=frame_significant_bits,
-                                ),
-                                'step_index': curr_step,
-                                'scan_count': scan_count,
-                                'capture_time': _success_capture_time,
-                                'enable_image_saving': enable_image_saving,
-                                'separate_folder_per_channel': separate_folder_per_channel,
-                            },
-                            silent_on_failure=True,
-                        )
-                    )
-                    if _put_result is PROTOCOL_QUEUE_FULL:
-                        self._record_dropped_capture(
-                            step=step,
-                            step_index=curr_step,
-                            scan_count=scan_count,
-                            capture_time=_success_capture_time,
-                            name=name,
-                        )
-                        _proto_outcome = 'dropped_queue_full'
+                    if not self._submit_write(
+                        kwargs={
+                            'save_folder': save_folder,
+                            'use_color': use_color,
+                            'output_format': output_format,
+                            'captured_image': CapturedFrame(
+                                image=captured_image,
+                                significant_bits=frame_significant_bits,
+                            ),
+                            'enable_image_saving': enable_image_saving,
+                            'separate_folder_per_channel': separate_folder_per_channel,
+                        },
+                        step=step,
+                        step_index=curr_step,
+                        scan_count=scan_count,
+                        capture_time=_success_capture_time,
+                        name=name,
+                    ):
+                        _proto_outcome = 'write_aborted'
                         return False
                     _proto_outcome = 'success'
 
             else:
                 _not_saving_capture_time = datetime.datetime.now()
-                _put_result = self._file_io_executor.protocol_put(
-                    IOTask(
-                        action=self.write_capture,
-                        kwargs={
-                            'step': step,
-                            'enable_image_saving': enable_image_saving,
-                            'separate_folder_per_channel': separate_folder_per_channel,
-                        },
-                        silent_on_failure=True,
-                    )
-                )
-                if _put_result is PROTOCOL_QUEUE_FULL:
-                    self._record_dropped_capture(
-                        step=step,
-                        step_index=curr_step,
-                        scan_count=scan_count,
-                        capture_time=_not_saving_capture_time,
-                        name=name,
-                    )
-                    _proto_outcome = 'not_saving_dropped_queue_full'
-                else:
-                    _proto_outcome = 'not_saving'
+                if not self._submit_write(
+                    kwargs={
+                        'enable_image_saving': enable_image_saving,
+                        'separate_folder_per_channel': separate_folder_per_channel,
+                    },
+                    step=step,
+                    step_index=curr_step,
+                    scan_count=scan_count,
+                    capture_time=_not_saving_capture_time,
+                    name=name,
+                ):
+                    _proto_outcome = 'not_saving_write_aborted'
+                    return False
+                _proto_outcome = 'not_saving'
 
             # Completed normally with the step channel still lit. The
             # step-boundary LED decision -- hold within a z-stack or across a
@@ -687,14 +806,15 @@ class ProtocolImageWriter:
                 )
                 ok, free_mb = common_utils.check_disk_space_ok(save_folder, required_mb)
                 if not ok:
-                    from modules.notification_center import notifications
-
-                    notifications.critical(
+                    # Runs on the file-IO thread: the funnel's abort-first
+                    # ordering matters here -- the protocol thread may be
+                    # mid-capture, and abort must close its step-lighting
+                    # gates before force_off darkens the sample.
+                    self._abort_run_fatal(
                         'FileIO',
                         'Disk Space Critical',
                         f'Only {free_mb:.0f} MB free. Aborting protocol to prevent data loss.',
                     )
-                    self._abort_fn()
                     return
             except Exception:
                 pass  # If we can't check, proceed anyway

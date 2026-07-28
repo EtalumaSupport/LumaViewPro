@@ -103,27 +103,29 @@ class LEDBoard(SerialBoard):
 
     _CH_TO_COLOR: ClassVar[dict] = {v: k for k, v in _COLOR_TO_CH.items()}
 
-    def color2ch(self, color: str) -> int:
+    def color2ch(self, color: str) -> int | None:
         """Convert color name to numerical channel.
 
         Args:
             color: Color name (e.g. 'BF', 'Red', 'Blue').
 
         Returns:
-            int: Channel number (0-5). Defaults to 3 (BF) for unknown names.
+            Channel number (0-5), or None for a colour this scope cannot
+            drive -- an in-band default channel here would light the wrong
+            LED for the caller.
         """
-        return self._COLOR_TO_CH.get(color, 3)
+        return self._COLOR_TO_CH.get(color)
 
-    def ch2color(self, channel: int) -> str:
+    def ch2color(self, channel: int) -> str | None:
         """Convert numerical channel to color name.
 
         Args:
             channel: Channel number (0-5).
 
         Returns:
-            str: Color name. Defaults to 'BF' for unknown channels.
+            Color name, or None for a channel this scope does not have.
         """
-        return self._CH_TO_COLOR.get(channel, 'BF')
+        return self._CH_TO_COLOR.get(channel)
 
     def available_channels(self) -> tuple:
         """Return all known LED channel numbers.

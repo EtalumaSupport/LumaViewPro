@@ -276,6 +276,14 @@ runner.abort()
 
 `run_single_scan()` runs one scan; `run_protocol()` runs the full multi-scan protocol. Both raise `ConfigError` if `image_capture_config` is omitted, and `ProtocolRunRefusedError` (`modules.exceptions`) when the run is refused before any state is committed -- already running, files still writing, empty protocol, a validation failure, or hardware not connected. The refusal is already logged and shown to the user, so an L2 caller catches it to branch on its `reason` / `title` / `message` attributes (they map cleanly to a REST status code or a UI message) without re-notifying. See the `ProtocolRunner` source for optional callbacks, image-output config, etc.
 
+A refusal with reason `files_writing` means the previous run's files are still draining -- wait and retry. Reason `files_writing_stalled` means the file writer has stopped making progress entirely (a wedged write, e.g. an unresponsive save drive); waiting will not clear it. Recover with:
+
+```python
+session.recover_file_writer()   # discards pending unsaved writes, unlocks the writer
+```
+
+Recovery is deliberate data loss: pending writes from the wedged run are discarded (they were never going to finish), and a partial file from the stuck write may remain on disk. Returns `False` when the session holds no file-IO executor (a GUI-hosted session -- use the GUI's recovery popup instead).
+
 **Canonical entry points.** Build the runner with `session.create_protocol_runner()`. Build the `Protocol` it runs with one of the two scope-level constructors -- `scope.load_protocol(file_path)` (from a `.tsv` on disk) or `scope.create_protocol(config=... | input_config=... | empty_config=...)` (in-memory). Both resolve `data/tiling.json` from the session's registered `source_path`, so prefer them over calling `Protocol.from_file(...)` directly (which makes you pass `tiling_configs_file_loc` by hand).
 
 ### Configuration queries
@@ -375,6 +383,8 @@ scope.motion.remove_position_listener(on_position)
 
 Channels available depend on the scope — always check `scope.capabilities.led_colors`.
 
+**Colours the scope cannot drive**: `led_on` with a colour name the scope has no LED channel for raises `ConfigError` naming the colour (it never maps to a substitute channel); `led_off` with such a colour is an idempotent no-op — a channel the scope does not have is already off. Numeric channel arguments are always range-checked and raise `ValueError` when invalid.
+
 **Luminescence** (`Lumi`): not an LED channel. In luminescence mode, all LEDs must be off — the image captures emitted light only.
 
 ```python
@@ -392,7 +402,7 @@ scope.illumination.led_off_fast('Red')
 scope.illumination.leds_off_fast()
 
 # Channel mapping
-scope.illumination.color2ch('Blue')                    # 0  (or -1 if the scope doesn't have this color)
+scope.illumination.color2ch('Blue')                    # 0  (or None if the scope doesn't have this color)
 scope.illumination.ch2color(0)                         # 'Blue'
 
 # Wait for firmware confirmation (mirrors motion.wait_until_finished_moving)

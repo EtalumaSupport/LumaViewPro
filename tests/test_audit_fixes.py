@@ -1602,6 +1602,7 @@ def _run_cleanup_kwargs(**overrides):
     # mock must too, or the run-end dropped-capture check compares a MagicMock.
     file_io_executor = MagicMock()
     file_io_executor.protocol_dropped_count.return_value = 0
+    file_io_executor.protocol_backpressure_blocked_s.return_value = 0.0
 
     kwargs = {
         'get_state_fn': MagicMock(return_value=ProtocolState.RUNNING),
@@ -1670,7 +1671,7 @@ class TestRule14_A10_ProtocolCleanupErrorCollection:
             default_move_fn=_raiser('move'),
         )
         kwargs['camera_executor'].protocol_put.side_effect = RuntimeError('camera boom')
-        kwargs['file_io_executor'].protocol_put.side_effect = RuntimeError('record boom')
+        kwargs['file_io_executor'].protocol_put_wait.side_effect = RuntimeError('record boom')
         run_cleanup(**kwargs)
 
         assert captured, 'failing cleanup steps must surface a summary notification'
@@ -3076,6 +3077,7 @@ def _bare_protocol_writer(**overrides):
         'aborted': threading.Event(),
         'file_io_executor': MagicMock(),
         'abort_fn': lambda: None,
+        'fatal_abort_event': threading.Event(),
         'execution_record': None,
         'leds_off_fn': lambda: None,
         'is_run_in_progress_fn': lambda: True,
@@ -3097,6 +3099,7 @@ def _make_capture_runner(**overrides):
     # mock must too, or run-end cleanup compares a MagicMock against an int.
     file_io_executor = MagicMock()
     file_io_executor.protocol_dropped_count.return_value = 0
+    file_io_executor.protocol_backpressure_blocked_s.return_value = 0.0
 
     kwargs = {
         'scope': MagicMock(),
@@ -3161,7 +3164,7 @@ def test_not_saving_capture_builds_record_task_without_crash():
         protocol=protocol,
         enable_image_saving=False,
     )
-    assert writer._file_io_executor.protocol_put.called
+    assert writer._file_io_executor.protocol_put_wait.called
 
 
 def test_write_capture_threads_save_encoding_to_write_video(monkeypatch, tmp_path):
@@ -13119,7 +13122,9 @@ class TestCaptureFailureAbortNotificationOrdering:
             leds_off_fn=lambda: order.append('leds_off'),
             abort_fn=lambda: order.append('abort'),
         )
-        writer._file_io_executor.protocol_put.side_effect = lambda *a, **k: order.append('record')
+        writer._file_io_executor.protocol_put_wait.side_effect = lambda *a, **k: order.append(
+            'record'
+        )
         scope = writer._scope
         scope.led_connected = False
         scope.motion.has_turret.return_value = False

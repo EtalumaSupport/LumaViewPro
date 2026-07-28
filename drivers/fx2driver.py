@@ -2354,11 +2354,11 @@ class FX2LEDController:
     def available_colors(self) -> tuple:
         return tuple(self._COLOR_TO_CH.keys())  # ('Blue', 'Green', 'Red', 'BF')
 
-    def color2ch(self, color: str) -> int:
-        return self._COLOR_TO_CH.get(color, -1)
+    def color2ch(self, color: str) -> int | None:
+        return self._COLOR_TO_CH.get(color)
 
-    def ch2color(self, channel: int) -> str:
-        return self._CH_TO_COLOR.get(channel, '')
+    def ch2color(self, channel: int) -> str | None:
+        return self._CH_TO_COLOR.get(channel)
 
     # -- Core LED control --------------------------------------------------
 

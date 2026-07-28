@@ -469,13 +469,15 @@ class TestLEDBoardConversion:
         assert board.ch2color(4) == 'PC'
         assert board.ch2color(5) == 'DF'
 
-    def test_color2ch_unknown_defaults_bf(self):
+    def test_color2ch_unknown_is_none(self):
+        # An undrivable colour must be unrepresentable as a real channel:
+        # the old in-band default (3 = BF) silently lit brightfield.
         board = LEDBoard.__new__(LEDBoard)
-        assert board.color2ch('Unknown') == 3
+        assert board.color2ch('Unknown') is None
 
-    def test_ch2color_unknown_defaults_bf(self):
+    def test_ch2color_unknown_is_none(self):
         board = LEDBoard.__new__(LEDBoard)
-        assert board.ch2color(99) == 'BF'
+        assert board.ch2color(99) is None
 
     def test_roundtrip_all_channels(self):
         """color2ch -> ch2color should roundtrip for all valid channels."""

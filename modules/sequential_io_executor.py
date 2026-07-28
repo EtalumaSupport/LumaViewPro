@@ -47,6 +47,26 @@ PROTOCOL_ENQUEUED = object()
 # Sentinel returned by put() when a frame-carrying (droppable_live) task is
 # dropped because too many are already in flight on the single worker.
 LIVE_FRAME_DROPPED = object()
+# Sentinel returned from protocol_put_wait when the blocking enqueue gave up:
+# the bounded queue stayed full past the caller's stall budget AND the worker
+# retired nothing in that window. Distinct from PROTOCOL_QUEUE_FULL (a
+# non-blocking drop signal): WEDGED means the writer is stuck, not slow, and
+# the caller owns a loud user-facing abort/recovery decision.
+PROTOCOL_QUEUE_WEDGED = object()
+
+# Slot-poll interval for the blocking protocol enqueue. Short enough that an
+# abort signalled mid-wait is honored promptly; long enough that a full queue
+# does not busy-spin.
+_BACKPRESSURE_POLL_S = 0.25
+
+# Cumulative blocked-enqueue wait per run past which the save disk is called
+# out as too slow for the run's own demand. Demand-relative on purpose: an
+# absolute MB/s floor false-fires on healthy machines (a measured healthy
+# bench sustains under 1.5 MB/s -- see PERFORMANCE_BUDGETS.md
+# protocol_write_backpressure_wait_s), while time the capture loop spent
+# waiting for a write slot is unmet demand by definition. Consumed by the
+# run-end summary in protocol_cleanup; the first crossing also logs here.
+SLOW_WRITE_BLOCKED_WARN_S = 30.0
 
 # Max in-flight frame-carrying (droppable_live) tasks on the default queue
 # before new frames are dropped (latest-wins). Bounds the live/record image
@@ -439,6 +459,20 @@ class SequentialIOExecutor:
 
         self.blocker = threading.Event()
         self.last_task_done_monotonic = time.monotonic()
+        # Stamped by the worker when it starts a task, cleared with
+        # running_task. Tracked state (not an approximation) so a stall
+        # report can say how long the in-flight task has actually run.
+        self._running_task_started_monotonic = None
+        # Wedge-recovery worker generation. A worker thread captures the
+        # generation at entry; recovery bumps it before starting a
+        # replacement, so an abandoned worker stuck inside a task exits
+        # without touching executor state when its call finally returns.
+        self._worker_generation = 0
+        # Per-run total the blocking protocol enqueue spent waiting for a
+        # queue slot -- the demand-relative slow-disk signal. Reset at
+        # protocol_start alongside the drop counter.
+        self._backpressure_blocked_s = 0.0
+        self._slow_write_warned = False
 
         # Protocol completion callback support
         self._callback_lock = threading.Lock()
@@ -552,6 +586,48 @@ class SequentialIOExecutor:
             )
         return False
 
+    def _claim_protocol_future(self, task: IOTask, return_future: bool):
+        """Register a per-thread reusable waiter for a protocol enqueue; see
+        _claim_waiter for the rationale (kernel-handle allocation pressure
+        mitigation). Returns None for fire-and-forget submissions."""
+        if not return_future:
+            return None
+        fut = _claim_waiter()
+        with self._caller_futures_lock:
+            self.caller_futures[task] = fut
+            self._caller_futures_alloc_count += 1
+        return fut
+
+    def _discard_protocol_future(self, task: IOTask, return_future: bool) -> None:
+        """Drop a claimed waiter for a task that never entered the queue, so
+        the caller isn't left holding a never-completed future that pins
+        memory."""
+        if not return_future:
+            return
+        with self._caller_futures_lock:
+            if self.caller_futures.pop(task, None) is not None:
+                self._caller_futures_pop_count += 1
+
+    def _finish_protocol_enqueue(self, task: IOTask, fut, return_future: bool):
+        """Success tail shared by the drop-on-full and blocking enqueues."""
+        task.set_name(self.executor_name)
+
+        # Early warning that file writes are falling behind, before the
+        # bound is reached.
+        depth = self.protocol_queue.qsize()
+        if depth > 20 and depth % 10 == 0:
+            logger.warning(
+                f'[{self.executor_name}] Protocol queue depth: {depth} -- '
+                f'file writes may be falling behind'
+            )
+        # A return_future caller needs the future back to await it; a
+        # fire-and-forget caller gets PROTOCOL_ENQUEUED so it can distinguish
+        # this real enqueue from a dropped task -- disabled, not-running, and
+        # queue-full all return a non-PROTOCOL_ENQUEUED value.
+        if return_future:
+            return fut
+        return PROTOCOL_ENQUEUED
+
     def protocol_put(self, task: IOTask, return_future: bool = False):
         """Add an IOTask to the protocol execution queue.
 
@@ -565,7 +641,8 @@ class SequentialIOExecutor:
         - executor disabled or protocol not running: None (task dropped).
 
         The three non-PROTOCOL_ENQUEUED / non-Future outcomes all mean the task
-        did not enter the queue and will never run.
+        did not enter the queue and will never run. Callers whose task must
+        not be droppable use protocol_put_wait instead.
         """
         if self._disable:
             return None
@@ -573,16 +650,7 @@ class SequentialIOExecutor:
         if not self.protocol_running.is_set():
             return None
 
-        # Per-thread reusable waiter when caller wants to block; see
-        # _claim_waiter for the rationale (kernel-handle allocation
-        # pressure mitigation).
-        if return_future:
-            fut = _claim_waiter()
-            with self._caller_futures_lock:
-                self.caller_futures[task] = fut
-                self._caller_futures_alloc_count += 1
-        else:
-            fut = None
+        fut = self._claim_protocol_future(task, return_future)
         if profile_trace.ENABLE_PROFILE_TRACE:
             task._t_enqueue = time.monotonic()
             task._queue_depth_at_enqueue = self.protocol_queue.qsize() + (
@@ -590,11 +658,10 @@ class SequentialIOExecutor:
             )
             task._queue_kind = 'protocol'
 
-        # F-2: bounded queues use put_nowait so an overflowing save thread
-        # surfaces a drop signal instead of blocking the protocol thread
-        # that's submitting the next frame. Unbounded queues (default,
-        # backwards compat) take the original blocking put -- put_nowait
-        # on an unbounded Queue is identical to put().
+        # Bounded queues use put_nowait so an overflowing save thread
+        # surfaces a drop signal instead of blocking the caller. Unbounded
+        # queues (default, backwards compat) never raise Full, so put_nowait
+        # is identical to put().
         try:
             self.protocol_queue.put_nowait(task)
         except queue.Full:
@@ -613,31 +680,137 @@ class SequentialIOExecutor:
                     f'dropping task; total drops this run: '
                     f'{self._protocol_queue_dropped_count}'
                 )
-            # Discard the future so the caller doesn't get a leaked
-            # never-completed Future that pins memory.
-            if return_future:
-                with self._caller_futures_lock:
-                    if self.caller_futures.pop(task, None) is not None:
-                        self._caller_futures_pop_count += 1
+            self._discard_protocol_future(task, return_future)
             return PROTOCOL_QUEUE_FULL
-        task.set_name(self.executor_name)
+        return self._finish_protocol_enqueue(task, fut, return_future)
 
-        # Warn if file write queue is building up (H23: back-pressure detection).
-        # Kept on the success path as an early-warning before the cap is hit;
-        # bounded queues will trip PROTOCOL_QUEUE_FULL at maxsize anyway.
-        depth = self.protocol_queue.qsize()
-        if depth > 20 and depth % 10 == 0:
-            logger.warning(
-                f'[{self.executor_name}] Protocol queue depth: {depth} -- '
-                f'file writes may be falling behind'
+    def _stall_threshold_s(self, floor_s: float) -> float:
+        """Seconds an in-flight task may run before it counts as stuck.
+
+        Per-task-aware: a running task that declared its own
+        slow_task_threshold_sec (a whole-recording video write can
+        legitimately run for minutes) raises the bar to that value, so a
+        healthy long write is never declared a wedge by a flat constant.
+        """
+        task = self.running_task
+        declared = getattr(task, 'slow_task_threshold_sec', None) if task is not None else None
+        return max(floor_s, declared or 0.0)
+
+    def _running_task_in_flight_s(self) -> float | None:
+        """Age of the in-flight task in seconds, or None when the worker is
+        between tasks. This -- not time-since-last-retirement -- is the
+        stuck-worker signal: an executor idle for an hour before a run
+        would otherwise read as wedged the moment its first write runs
+        long."""
+        task = self.running_task
+        started = self._running_task_started_monotonic
+        if task is None or started is None:
+            return None
+        return time.monotonic() - started
+
+    def protocol_put_wait(
+        self,
+        task: IOTask,
+        *,
+        should_abort,
+        stall_timeout_s: float,
+        return_future: bool = False,
+    ):
+        """Blocking counterpart to protocol_put: wait for a queue slot
+        instead of dropping the task.
+
+        On a full bounded queue the caller blocks, pacing the producer to
+        disk drain, so a submitted task is never silently dropped. Return
+        value reports the outcome:
+
+        - return_future True, enqueued: the task's Future (await its result).
+        - return_future False, enqueued: PROTOCOL_ENQUEUED.
+        - PROTOCOL_QUEUE_WEDGED: the queue stayed full past stall_timeout_s
+          AND the in-flight task has run past its (per-task-aware) stall
+          threshold -- the writer is stuck, not slow. The task did not
+          enter the queue; the caller owns the user-facing consequence.
+        - None: should_abort() went true while waiting (cancelled, not
+          dropped), or the executor is disabled / no protocol in session.
+
+        A queue that is still retiring tasks never trips the wedge return;
+        the wait simply continues and the run paces to the disk.
+
+        Args:
+            should_abort: zero-arg callable polled between slot attempts;
+                passed down by the caller so the executor never reaches up
+                for run state.
+            stall_timeout_s: minimum full-queue wait before a wedge may be
+                declared; also the floor for the no-retirement window.
+        """
+        if self._disable:
+            return None
+
+        if not self.protocol_running.is_set():
+            return None
+
+        fut = self._claim_protocol_future(task, return_future)
+        if profile_trace.ENABLE_PROFILE_TRACE:
+            # Stamped once at entry so queue_wait_ms includes the blocked
+            # wait -- from the producer's view that IS queue wait.
+            task._t_enqueue = time.monotonic()
+            task._queue_depth_at_enqueue = self.protocol_queue.qsize() + (
+                1 if self._running_task else 0
             )
-        # Enqueue succeeded. A return_future caller needs the Future back to
-        # await it; a fire-and-forget caller gets PROTOCOL_ENQUEUED so it can
-        # distinguish this real enqueue from a dropped task -- disabled,
-        # not-running, and queue-full all return a non-PROTOCOL_ENQUEUED value.
-        if return_future:
-            return fut
-        return PROTOCOL_ENQUEUED
+            task._queue_kind = 'protocol'
+
+        waited_s = 0.0
+        while True:
+            try:
+                self.protocol_queue.put(task, timeout=_BACKPRESSURE_POLL_S)
+                break
+            except queue.Full:
+                waited_s += _BACKPRESSURE_POLL_S
+                self._backpressure_blocked_s += _BACKPRESSURE_POLL_S
+                if (
+                    not self._slow_write_warned
+                    and self._backpressure_blocked_s >= SLOW_WRITE_BLOCKED_WARN_S
+                ):
+                    self._slow_write_warned = True
+                    logger.warning(
+                        f'[{self.executor_name}] Capture has spent '
+                        f'{self._backpressure_blocked_s:.0f}s this run waiting '
+                        f'for the save disk -- writes are not keeping up with '
+                        f'capture demand'
+                    )
+                if should_abort():
+                    self._discard_protocol_future(task, return_future)
+                    return None
+                in_flight_s = self._running_task_in_flight_s()
+                if (
+                    waited_s >= stall_timeout_s
+                    and in_flight_s is not None
+                    and in_flight_s >= self._stall_threshold_s(stall_timeout_s)
+                ):
+                    logger.error(
+                        f'[{self.executor_name}] PROTOCOL QUEUE WEDGED -- full '
+                        f'for {waited_s:.0f}s; in flight: '
+                        f'{self.describe_running_task()}'
+                    )
+                    self._discard_protocol_future(task, return_future)
+                    return PROTOCOL_QUEUE_WEDGED
+        return self._finish_protocol_enqueue(task, fut, return_future)
+
+    def describe_running_task(self) -> str:
+        """Name the in-flight task for a stall report: action, target file
+        (the capture's base name rides in the task's ``name`` kwarg), and
+        seconds in flight."""
+        task = self.running_task
+        if task is None:
+            return 'no task in flight'
+        parts = [getattr(task.action, '__name__', str(task.action))]
+        kwargs = task.kwargs if isinstance(task.kwargs, dict) else {}
+        file_name = kwargs.get('name')
+        if file_name:
+            parts.append(f"'{file_name}'")
+        started = self._running_task_started_monotonic
+        if started is not None:
+            parts.append(f'{time.monotonic() - started:.0f}s in flight')
+        return ' '.join(parts)
 
     def protocol_start(self):
         # Clear stale finish flag from previous run. If protocol_finish is
@@ -649,8 +822,11 @@ class SequentialIOExecutor:
             logger.info(f'{self.name} Cleared stale protocol_finish flag')
         # Reset per run so the dropped-capture count -- and the "this run" line
         # in the overflow warning -- reflect only this run, not every run since
-        # the app launched.
+        # the app launched. The blocked-wait total and its warning latch are
+        # per-run for the same reason.
         self._protocol_queue_dropped_count = 0
+        self._backpressure_blocked_s = 0.0
+        self._slow_write_warned = False
         self.protocol_running.set()
         logger.info(f'{self.name} Protocol Started')
 
@@ -752,7 +928,10 @@ class SequentialIOExecutor:
             logger.error(f'{self.name} Worker Error: {e}')
 
     def _run_loop(self):
+        my_generation = self._worker_generation
         while True:
+            if self._worker_generation != my_generation:
+                return
             if self._disable:
                 self.blocker.wait()
             try:
@@ -807,6 +986,7 @@ class SequentialIOExecutor:
                     return
 
                 task._ui_dispatch = self._ui_dispatch
+                self._running_task_started_monotonic = time.monotonic()
                 self.running_task = task
 
                 run_result = None
@@ -815,6 +995,21 @@ class SequentialIOExecutor:
                     run_result = task.run()
                 except BaseException as e:
                     run_exc = e
+
+                if self._worker_generation != my_generation:
+                    # Abandoned by wedge recovery while stuck inside this
+                    # task. The replacement worker owns ALL executor state
+                    # now; running the epilogue here would fire a stale
+                    # task-failure popup, clobber the replacement's
+                    # running_task and timing stamps, complete a cancelled
+                    # future, and unbalance queue bookkeeping the recovery
+                    # already reconciled. Exit without touching anything.
+                    logger.warning(
+                        f'[{self.executor_name}] Abandoned worker finished '
+                        f'{getattr(task.action, "__name__", str(task.action))} '
+                        f'after wedge recovery; exiting without epilogue'
+                    )
+                    return
 
                 if run_exc is not None:
                     self._on_task_done(task, None, run_exc)
@@ -863,10 +1058,21 @@ class SequentialIOExecutor:
                 if isinstance(exception, typed) and str(exception):
                     body = str(exception)
                 else:
-                    body = (
-                        'A background task failed. The protocol may have skipped '
-                        'a step; check the main log for details.'
-                    )
+                    # Name the failed action; blame a protocol only when the
+                    # task came off the protocol queue -- a manual live
+                    # action's failure is not a protocol skip.
+                    action_name = getattr(task.action, '__name__', str(task.action))
+                    if task.protocol:
+                        body = (
+                            f"The '{action_name}' step operation failed, so the "
+                            'protocol may have skipped a step. Check the main '
+                            'log for details.'
+                        )
+                    else:
+                        body = (
+                            f"The '{action_name}' background operation failed. "
+                            'Check the main log for details.'
+                        )
                 notifications.error('Task', f'{self.name} task failed', body)
         self.last_task_done_monotonic = time.monotonic()
 
@@ -927,6 +1133,7 @@ class SequentialIOExecutor:
                 self.cleared_queue = False
 
         self.running_task = None
+        self._running_task_started_monotonic = None
         if self.global_callback is not None:
             self._ui_dispatch(
                 lambda dt: self.global_callback(*self.global_cb_args, **self.global_cb_kwargs), 0
@@ -973,6 +1180,7 @@ class SequentialIOExecutor:
             self._caller_futures_pop_count += len(self.caller_futures)
             self.caller_futures.clear()
         self.running_task = None
+        self._running_task_started_monotonic = None
 
     def join(self, timeout=None):
         # Block until all queued tasks processed (or until timeout)
@@ -1059,5 +1267,69 @@ class SequentialIOExecutor:
         """
         return self._protocol_queue_dropped_count
 
+    def protocol_backpressure_blocked_s(self) -> float:
+        """Total seconds this run's blocking protocol enqueues spent waiting
+        for a queue slot -- the demand-relative slow-save-disk signal. Reset
+        at protocol_start."""
+        return self._backpressure_blocked_s
+
     def seconds_since_last_task(self) -> float:
         return time.monotonic() - self.last_task_done_monotonic
+
+    def protocol_drain_stalled(self, threshold_s: float) -> bool:
+        """True when the protocol queue still gates operations but its
+        in-flight task has run past the (per-task-aware) stall threshold.
+
+        The difference between "draining -- keep waiting" and "wedged --
+        offer recovery": a queue that is retiring tasks keeps the in-flight
+        age short, and a worker between tasks is progress by definition, so
+        neither reads as stalled.
+        """
+        if not self.is_protocol_queue_active():
+            return False
+        in_flight_s = self._running_task_in_flight_s()
+        return in_flight_s is not None and in_flight_s >= self._stall_threshold_s(threshold_s)
+
+    def recover_wedged_protocol_queue(self) -> None:
+        """User-invoked recovery for a wedged protocol worker: discard
+        pending protocol tasks, exit protocol mode, and -- when the worker
+        is still stuck inside a task (unkillable in Python) -- abandon it
+        and start a replacement worker.
+
+        The abandoned worker is a daemon thread; when its stuck call
+        finally returns it sees the moved-on generation and exits without
+        touching executor state. Exactly one ACTIVE worker exists at all
+        times. Replacing (rather than discard-only) is what revives the
+        FILE lane behind the stuck task and lets a deferred
+        protocol-complete callback (files_complete) finally fire.
+        """
+        stuck = self.running_task
+        logger.error(
+            f'[{self.executor_name}] Wedged-queue recovery invoked -- '
+            f'discarding {self.protocol_queue.qsize()} pending task(s); '
+            f'in flight: {self.describe_running_task()}'
+        )
+        if stuck is not None:
+            # Quarantine the stuck worker FIRST: were it to finish between
+            # the queue clear and the generation bump, its epilogue would
+            # run task_done bookkeeping against the already-cleared queue.
+            self._worker_generation += 1
+        self.clear_protocol_pending()
+        self.end_protocol_mode()
+        if stuck is not None:
+            with self._caller_futures_lock:
+                fut = self.caller_futures.pop(stuck, None)
+                if fut is not None:
+                    self._caller_futures_pop_count += 1
+            if fut is not None:
+                try:
+                    fut.cancel()
+                except Exception as ex:
+                    logger.debug(f'[{self.executor_name}] stuck-task future cancel: {ex}')
+            self.start()
+            # The orphan's guarded epilogue will not clear these and the
+            # replacement only sets them when it dequeues something --
+            # left stale, every is_protocol_queue_active gate would keep
+            # refusing forever, which is the lockout recovery exists to end.
+            self.running_task = None
+            self._running_task_started_monotonic = None

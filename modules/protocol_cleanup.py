@@ -22,7 +22,11 @@ from modules.lumascope_api.illumination import (
     resolve_end_state,
 )
 from modules.protocol_state_machine import ProtocolState
-from modules.sequential_io_executor import IOTask
+from modules.sequential_io_executor import (
+    IOTask,
+    PROTOCOL_QUEUE_WEDGED,
+    SLOW_WRITE_BLOCKED_WARN_S,
+)
 
 if TYPE_CHECKING:
     from modules.lumascope_api import Lumascope
@@ -30,6 +34,12 @@ if TYPE_CHECKING:
 
 
 from modules.kivy_utils import schedule_ui as _schedule_ui
+
+# Stall budget for queueing the run-record completion task. Short: on the
+# normal path the queue is draining (the put unblocks within one write), and
+# cleanup must not hang behind a wedged writer for the writer's own longer
+# fatal budget just to file the record.
+_RECORD_COMPLETE_STALL_S = 2.0
 
 
 def run_cleanup(
@@ -39,6 +49,10 @@ def run_cleanup(
     set_state_fn,
     run_lock: threading.Lock,
     scan_in_progress: threading.Event,
+    # True when the run died on a fatal fault (stalled writer, dead camera,
+    # disk floor) rather than finishing or being stopped by the user.
+    # Required, not defaulted: every caller states which kind of end this is.
+    fatal_abort: bool,
     # Saved original states
     leds_state_at_end: str,
     original_led_states: dict,
@@ -152,8 +166,18 @@ def run_cleanup(
     # on the protocol IO queue, so the end-state off cannot race the
     # return-to-position move across the shared serial bus.
     try:
+        # A fatal abort's terminal LED state is DARK regardless of the user's
+        # end policy: force_off already darkened the sample at the fault
+        # site, and this forced-OFF RUN_END re-asserts dark against any step
+        # that raced the abort and re-lit a channel (the OFF diff serializes
+        # after such a re-light on the same FIFO protocol queue, so off
+        # wins). Asserting OFF -- not skipping the restore -- is the point: a
+        # skipped restore would leave a raced re-light on forever. User Stop
+        # keeps the configured policy.
         end_policy, snapshot_lit = resolve_end_state(
-            leds_state_at_end, original_led_states, scope.illumination.color2ch
+            'off' if fatal_abort else leds_state_at_end,
+            original_led_states,
+            scope.illumination.color2ch,
         )
         if end_policy is None:
             logger.error(f'Unsupported LEDs state at end value: {leds_state_at_end}')
@@ -259,19 +283,6 @@ def run_cleanup(
         logger.error(f'[PROTOCOL] Error restoring camera gain/exposure during cleanup: {ex}')
         cleanup_errors.append(f'Restore camera gain/exposure: {type(ex).__name__}: {ex}')
 
-    # --- Complete protocol execution record ---
-    try:
-        if not disable_saving_artifacts and protocol_execution_record is not None:
-            # On a clean finish, reconcile attempted captures against rows
-            # written and warn on any shortfall. On abort, pending writes are
-            # dropped on purpose below, so a shortfall is expected -- skip it.
-            file_io_executor.protocol_put(
-                IOTask(action=partial(protocol_execution_record.complete, reconcile=not is_aborted))
-            )
-    except Exception as ex:
-        logger.error(f'[PROTOCOL] Error completing protocol record during cleanup: {ex}')
-        cleanup_errors.append(f'Complete protocol record: {type(ex).__name__}: {ex}')
-
     # --- Return to position ---
     try:
         if return_to_position is not None:
@@ -328,6 +339,38 @@ def run_cleanup(
         file_io_executor.clear_protocol_pending()
         logger.info(f'[{logger_name}] Cleanup: file_io_executor pending cleared (aborted)')
 
+    # --- Complete protocol execution record ---
+    # Ordering invariant: this enqueue must run AFTER the abort-path clear
+    # above. Enqueued before it, the completion task itself was cancelled by
+    # the clear, so an aborted run's record silently never finalized. After
+    # the clear, an aborted run's queue has room and the put returns
+    # immediately even when the worker is stuck mid-write.
+    try:
+        if not disable_saving_artifacts and protocol_execution_record is not None:
+            # On a clean finish, reconcile attempted captures against rows
+            # written and warn on any shortfall. On abort, pending writes were
+            # dropped on purpose above, so a shortfall is expected -- skip it.
+            # Blocking put: the old fire-and-forget enqueue ignored the
+            # queue-full return, so a backed-up queue silently lost the
+            # record completion.
+            _record_put = file_io_executor.protocol_put_wait(
+                IOTask(
+                    action=partial(protocol_execution_record.complete, reconcile=not is_aborted)
+                ),
+                should_abort=lambda: False,
+                stall_timeout_s=_RECORD_COMPLETE_STALL_S,
+            )
+            if _record_put is PROTOCOL_QUEUE_WEDGED:
+                logger.error(
+                    f'[{logger_name}] Cleanup: run-record completion could not '
+                    f'be queued -- the file writer is stalled on '
+                    f"{file_io_executor.describe_running_task()}; this run's "
+                    f'execution record will not be finalized'
+                )
+    except Exception as ex:
+        logger.error(f'[PROTOCOL] Error completing protocol record during cleanup: {ex}')
+        cleanup_errors.append(f'Complete protocol record: {type(ex).__name__}: {ex}')
+
     with run_lock:
         set_run_in_progress_fn(False)
         # Transition back to IDLE from COMPLETING or ERROR
@@ -380,6 +423,26 @@ def run_cleanup(
             )
         except Exception as ex:
             logger.error(f'[PROTOCOL] Failed to surface dropped-capture notification: {ex}')
+
+    # Sustained-slow-write warning, demand-relative: the time this run's
+    # capture loop spent blocked waiting for a write slot. An absolute MB/s
+    # floor false-fires on healthy machines (PERFORMANCE_BUDGETS.md
+    # protocol_write_backpressure_wait_s), so the trigger is the run's own
+    # unmet demand. Surfaced at run end because mid-run non-fatal popups are
+    # suppressed; the first crossing already logged from the executor.
+    blocked_s = file_io_executor.protocol_backpressure_blocked_s()
+    if blocked_s >= SLOW_WRITE_BLOCKED_WARN_S:
+        try:
+            from modules.notification_center import notifications
+
+            notifications.warning(
+                'Protocol',
+                'Very Slow File Writes',
+                'Very slow writes are occurring on the save disk. '
+                'Please confirm your computer and storage are OK.',
+            )
+        except Exception as ex:
+            logger.error(f'[PROTOCOL] Failed to surface slow-write notification: {ex}')
 
     # --- Fire completion callbacks ---
     _file_queue_active = file_io_executor.is_protocol_queue_active()

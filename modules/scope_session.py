@@ -301,6 +301,27 @@ class ScopeSession:
     # Convenience wrappers (delegate to config_helpers / scope_commands)
     # ------------------------------------------------------------------
 
+    def recover_file_writer(self) -> bool:
+        """Discard pending protocol file writes and unlock a wedged writer.
+
+        L2 counterpart of the GUI's stalled-writer recovery: when a
+        protocol run's file writer stops making progress, every
+        subsequent run is refused with the ``files_writing_stalled``
+        reason until the writer is recovered or the app restarts. This
+        method is that recovery for headless / REST / SDK callers:
+        pending (unsaved) writes are discarded, protocol mode ends, and
+        a worker stuck mid-write is abandoned and replaced.
+
+        Returns:
+            True when a recovery was dispatched; False when this session
+            holds no file-IO executor (the hosting GUI owns the bundle,
+            and its own recovery surface applies).
+        """
+        if self.file_io_executor is None:
+            return False
+        self.file_io_executor.recover_wedged_protocol_queue()
+        return True
+
     def get_layer_configs(self, specific_layers=None) -> dict:
         import modules.config_helpers as config_helpers
 

@@ -1,0 +1,301 @@
+# Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
+"""#749 regression: colours a scope cannot drive must not light other LEDs.
+
+Bug class: an undrivable colour represented in-band. `color2ch` returned a
+real channel number (3 on RP2040-family boards, -1 on FX2) for colours the
+scope has no LED for, so a luminescence acquire silently lit the brightfield
+LED on EL-0940 boards and raised a range error on FX2 -- and the dark-floor
+capture guard, keyed on `illumination > 0` alone, would reject a genuinely
+dark luminescence frame as a failed capture once the LED correctly stays
+dark.
+
+Coverage: the driver contract (color2ch -> None, all four boards), the
+named-colour / idempotent-off seam behavior through the real illumination
+API, the dark-floor drivability predicate driven through the real
+ProtocolImageWriter.capture(), the consecutive-failure abort wording, the
+task-failure notification wording, and source pins on the two composite
+capture sites (whose worker is not driveable under the mocked-kivy test
+environment -- the pins are seam guards, not behavioral tests).
+"""
+
+from __future__ import annotations
+
+import pathlib
+import sys
+from typing import ClassVar
+
+
+REPO = pathlib.Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO))
+
+import pytest
+
+from modules import common_utils
+
+
+def _driver_classes():
+    from drivers.fx2driver import FX2LEDController
+    from drivers.ledboard import LEDBoard
+    from drivers.null_ledboard import NullLEDBoard
+    from drivers.simulated_ledboard import SimulatedLEDBoard
+
+    return [LEDBoard, NullLEDBoard, SimulatedLEDBoard, FX2LEDController]
+
+
+class TestColor2chContract:
+    """None is the only representation of 'this scope cannot drive it'."""
+
+    def test_color2ch_unknown_is_none_all_drivers(self):
+        for cls in _driver_classes():
+            board = cls.__new__(cls)
+            assert board.color2ch('NoSuchColour') is None, cls.__name__
+            assert board.ch2color(99) is None, cls.__name__
+
+    def test_known_colours_still_map(self):
+        for cls in _driver_classes():
+            board = cls.__new__(cls)
+            assert board.color2ch('BF') == 3, cls.__name__
+            assert board.ch2color(0) == 'Blue', cls.__name__
+
+
+class _FourColourRecordingBoard:
+    """LED-board double shaped like the FX2 (no PC/DF/Lumi channels),
+    recording every command that reaches the driver."""
+
+    _COLOR_TO_CH: ClassVar[dict] = {'Blue': 0, 'Green': 1, 'Red': 2, 'BF': 3}
+    _CH_TO_COLOR: ClassVar[dict] = {v: k for k, v in _COLOR_TO_CH.items()}
+
+    def __init__(self):
+        self.commands = []
+
+    def color2ch(self, color):
+        return self._COLOR_TO_CH.get(color)
+
+    def ch2color(self, channel):
+        return self._CH_TO_COLOR.get(channel)
+
+    def available_channels(self):
+        return (0, 1, 2, 3)
+
+    def available_colors(self):
+        return tuple(self._COLOR_TO_CH)
+
+    def led_on(self, channel, mA, **kwargs):
+        self.commands.append(('on', channel, mA))
+        return True
+
+    def led_off(self, channel, **kwargs):
+        self.commands.append(('off', channel))
+        return True
+
+
+@pytest.fixture
+def sim_scope():
+    from modules.lumascope_api import Lumascope
+
+    s = Lumascope(simulate=True)
+    s._led_driver.set_timing_mode('fast')
+    s._motion_driver.set_timing_mode('fast')
+    s._camera_driver.set_timing_mode('fast')
+    yield s
+    s.disconnect()
+
+
+class TestSeamBehaviour:
+    """The illumination API is the one place a colour becomes a channel."""
+
+    def test_led_on_unknown_colour_names_the_colour(self, sim_scope):
+        from modules.exceptions import ConfigError
+
+        board = _FourColourRecordingBoard()
+        sim_scope._led_driver = board
+        with pytest.raises(ConfigError, match='Lumi'):
+            sim_scope.illumination.led_on(channel='Lumi', mA=50)
+        assert board.commands == [], 'no command may reach the driver'
+
+    def test_led_off_unknown_colour_is_noop(self, sim_scope):
+        board = _FourColourRecordingBoard()
+        sim_scope._led_driver = board
+        sim_scope.illumination.led_off(channel='PC')
+        assert board.commands == [], 'off of an absent channel is already done'
+
+    def test_numeric_none_channel_still_rejected(self, sim_scope):
+        board = _FourColourRecordingBoard()
+        sim_scope._led_driver = board
+        with pytest.raises(ValueError):
+            sim_scope.illumination.led_off(channel=None)
+
+
+class TestTaskFailureNotificationWording:
+    """The failure popup names the failed action; a protocol is blamed only
+    when the task actually came off the protocol queue."""
+
+    def _fire(self, monkeypatch, *, protocol: bool):
+        from modules import notification_center
+        from modules.sequential_io_executor import IOTask, SequentialIOExecutor
+
+        executor = SequentialIOExecutor(max_workers=1, name='TEST_WORDING')
+        try:
+            calls = []
+            monkeypatch.setattr(
+                notification_center.notifications,
+                'error',
+                lambda title, subject, body, **kw: calls.append(body),
+            )
+
+            def sample_operation():
+                pass
+
+            task = IOTask(action=sample_operation, callback=lambda *a, **k: None)
+            task.protocol = protocol
+            # _on_task_done balances task_done() against whichever queue the
+            # task's protocol flag says it came from.
+            queue = executor.protocol_queue if protocol else executor.queue
+            queue.put(task)
+            queue.get_nowait()
+            executor._on_task_done(task, None, RuntimeError('boom'))
+            assert len(calls) == 1
+            return calls[0]
+        finally:
+            executor.shutdown(wait=False)
+
+    def test_live_task_names_action_not_protocol(self, monkeypatch):
+        body = self._fire(monkeypatch, protocol=False)
+        assert 'sample_operation' in body
+        assert 'protocol' not in body.lower()
+
+    def test_protocol_task_may_blame_the_protocol(self, monkeypatch):
+        body = self._fire(monkeypatch, protocol=True)
+        assert 'sample_operation' in body
+        assert 'protocol' in body.lower()
+
+
+class TestLayersWithLedSemantics:
+    """The predicate source of truth: which channels drive an LED."""
+
+    def test_luminescence_layers_have_no_led(self):
+        with_led = common_utils.get_layers_with_led()
+        for lumi_layer in common_utils.get_luminescence_layers():
+            assert lumi_layer not in with_led
+
+    def test_transmitted_and_fluorescence_layers_have_leds(self):
+        with_led = common_utils.get_layers_with_led()
+        for layer in (
+            *common_utils.get_transmitted_layers(),
+            *common_utils.get_fluorescence_layers(),
+        ):
+            assert layer in with_led
+
+
+class TestDarkFloorKeysOnLedDrivability:
+    """Seam guards: all three capture sites must key dark-floor rejection
+    (and, for the composite loop, the led_on itself) on LED drivability,
+    never on illumination alone. A source pin per site -- the behavioral
+    seam tests ride the contract stage where the seam is directly drivable.
+    """
+
+    @staticmethod
+    def _run_capture(step_overrides, writer_setup=None):
+        """Drive the REAL ProtocolImageWriter.capture() on stub collaborators
+        and return (capture_and_wait kwargs, scope, writer)."""
+        from unittest.mock import MagicMock
+
+        from tests.test_audit_fixes import _bare_protocol_writer, _protocol_step
+
+        writer = _bare_protocol_writer()
+        scope = writer._scope
+        scope.motion.has_turret.return_value = False
+        scope.led_connected = False
+        if writer_setup is not None:
+            writer_setup(writer, scope)
+        protocol = MagicMock()
+        protocol.capture_root.return_value = ''
+        writer.capture(
+            save_folder='/tmp',
+            step=_protocol_step(**step_overrides),
+            output_format='TIFF',
+            protocol=protocol,
+            enable_image_saving=True,
+        )
+        return scope.imaging.capture_and_wait.call_args.kwargs, scope, writer
+
+    def test_lumi_protocol_step_dark_floor_disabled(self):
+        kwargs, _, _ = self._run_capture({'Color': 'Lumi', 'Illumination': 50.0})
+        assert kwargs['dark_floor_check'] is False, (
+            'a luminescence step is dark by design even at nonzero illumination'
+        )
+
+    def test_led_layer_step_dark_floor_enabled(self):
+        kwargs, _, _ = self._run_capture({'Color': 'BF', 'Illumination': 50.0})
+        assert kwargs['dark_floor_check'] is True
+
+    def test_composite_loop_gates_led_and_dark_floor_together(self):
+        # Source pins (reformat-tolerant single-line fragments): the
+        # composite worker is not driveable under the mocked-kivy test env.
+        src = ' '.join((REPO / 'ui' / 'composite_capture.py').read_text().split())
+        assert 'led_driven = layer in common_utils.get_layers_with_led() and illumination > 0' in (
+            src
+        ), 'composite loop must compute LED drivability once'
+        assert 'dark_floor_check=led_driven' in src, (
+            'composite grab must expect a dark frame exactly when no LED was driven'
+        )
+        assert 'if layer not in common_utils.get_transmitted_layers():' not in src, (
+            'the vacuously-true not-transmitted guard must not gate led_on'
+        )
+
+    def test_live_capture_predicate(self):
+        src = ' '.join((REPO / 'ui' / 'composite_capture.py').read_text().split())
+        assert (
+            "layer in common_utils.get_layers_with_led() and layer_configs[layer]['illumination_ma'] > 0"
+        ) in src, 'manual live capture must exempt LED-less channels from dark-floor rejection'
+
+
+class TestCaptureAbortWording:
+    """The consecutive-failure abort blames the actor the user can act on:
+    an un-drivable LED-classed colour names the colour and the remedy;
+    everything else (incl. a board-less run) keeps the camera wording."""
+
+    @staticmethod
+    def _run_abort(monkeypatch, *, color, led_connected, channel):
+        from unittest.mock import MagicMock
+
+        from modules import notification_center
+        from tests.test_audit_fixes import _bare_protocol_writer, _protocol_step
+
+        criticals = []
+        monkeypatch.setattr(
+            notification_center.notifications,
+            'critical',
+            lambda title, subject, body, **kw: criticals.append(body),
+        )
+        writer = _bare_protocol_writer()
+        scope = writer._scope
+        scope.motion.has_turret.return_value = False
+        scope.led_connected = led_connected
+        scope.illumination.color2ch.return_value = channel
+        scope.imaging.capture_and_wait.return_value = None
+        writer._consecutive_capture_failures = writer._MAX_CONSECUTIVE_CAPTURE_FAILURES - 1
+        protocol = MagicMock()
+        protocol.capture_root.return_value = ''
+        writer.capture(
+            save_folder='/tmp',
+            step=_protocol_step(Color=color),
+            output_format='TIFF',
+            protocol=protocol,
+            enable_image_saving=True,
+        )
+        assert len(criticals) == 1, criticals
+        return criticals[0]
+
+    def test_undrivable_colour_names_the_colour(self, monkeypatch):
+        body = self._run_abort(monkeypatch, color='PC', led_connected=True, channel=None)
+        assert 'PC' in body
+        assert 'Camera' not in body
+
+    def test_no_led_board_keeps_camera_wording(self, monkeypatch):
+        body = self._run_abort(monkeypatch, color='BF', led_connected=False, channel=None)
+        assert 'Camera failed' in body
+
+    def test_drivable_colour_keeps_camera_wording(self, monkeypatch):
+        body = self._run_abort(monkeypatch, color='BF', led_connected=True, channel=3)
+        assert 'Camera failed' in body

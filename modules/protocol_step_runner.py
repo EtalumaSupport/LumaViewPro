@@ -437,7 +437,14 @@ class ProtocolStepRunner:
                 # but only when the capture completed with the LED left lit. A
                 # failed or aborted capture has already turned the LED off as
                 # cleanup, so applying a hold target here would re-light it.
-                if completed:
+                # The fatal gate closes the cross-thread race: a fatal abort
+                # raised from the file-IO thread (disk floor) can land while
+                # this capture is completing, and its force_off must not be
+                # undone by a boundary HOLD here. Keyed on the fatal flag,
+                # NOT the abort flag -- on a user Stop the boundary's common
+                # case is an EXTINGUISH, and skipping that would lengthen
+                # sample illumination; Stop behavior stays exactly as it was.
+                if completed and not p._fatal_abort_event.is_set():
                     self.apply_led_transition(LedTransition.STEP_BOUNDARY, boundary_ctx)
 
             else:

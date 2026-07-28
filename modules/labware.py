@@ -85,8 +85,19 @@ class WellPlate(LabWare):
 
         return x, y
 
+    def has_wells(self) -> bool:
+        """True when the plate defines at least one well. A zero-well plate
+        (the Blank labware) has no well grid: no well index exists, labels
+        are empty, and well UI decorations do not apply."""
+        return self.config['rows'] * self.config['columns'] > 0
+
     # Get index of closest well based on plate position (x, y) in mm
     def get_well_index(self, x, y):
+        if not self.has_wells():
+            # Clipping to [0, -1] would fabricate index -1 for EVERY input
+            # (rendered as label '@0' and a bogus well ring at plate
+            # origin). No valid index exists; callers gate on has_wells().
+            raise ValueError('labware has no wells; no well index exists')
 
         ox = self.config['offset']['x']  # offset to first well x-dir
         dx = self.config['spacing']['x']  # distance b/w wells x-dir
@@ -103,6 +114,10 @@ class WellPlate(LabWare):
         return i, j
 
     def get_well_label(self, x, y):
+        if not self.has_wells():
+            # Empty, not a fabricated token: filename builders and metadata
+            # writers omit an empty well rather than stamping a fake one.
+            return ''
         well_x, well_y = self.get_well_index(x=x, y=y)
 
         # Handling for labware with more than 26 rows

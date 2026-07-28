@@ -1250,7 +1250,7 @@
 				spacing: '3dp'
 				Label:
 					text: 'Focus'
-					tooltip_text: 'Z for this step. Bold means it tracks the saved focus, so Save Focus will update it; normal means it was tuned for this well and will be left alone.'
+					tooltip_text: 'Z position for this step. Save Focus writes the current focus to this step while it is selected; other steps are never changed.'
 					size_hint_x: None
 					width: '75dp'
 					font_size: '12sp'
@@ -3273,7 +3273,7 @@
 					height: '30dp'
 					font_size: '12sp'
 					text: 'Save Focus'
-					tooltip_text: 'Save current focus to use in Protocol and Manual Composite Acquisition'
+					tooltip_text: 'Save the current focus for this channel and write it to the selected protocol step'
 					disabled: app.protocol_running
 					on_release: root.save_focus()
 				RoundedButton:
@@ -3284,6 +3284,14 @@
 					tooltip_text: 'Go to the previously saved focus'
 					disabled: app.protocol_running
 					on_release: root.goto_focus()
+				RoundedButton:
+					size_hint_y: None
+					height: '30dp'
+					font_size: '12sp'
+					text: 'Apply to Steps'
+					tooltip_text: 'Set every protocol step in this channel to the current focus'
+					disabled: app.protocol_running
+					on_release: root.apply_focus_to_channel_steps()
 			
 			# Protocol Settings
 			Label:

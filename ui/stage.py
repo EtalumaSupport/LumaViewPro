@@ -568,33 +568,46 @@ class Stage(Widget):
 
         # Only draw crosshairs and selected well if position is available (after homing)
         if position_available:
-            # Draw selected well (updates when target changes)
-            target_plate_x, target_plate_y = coordinate_transformer.stage_to_plate(
-                labware=labware, stage_offset=settings['stage_offset'], sx=x_target, sy=y_target
-            )
+            if labware.has_wells():
+                # Draw selected well (updates when target changes)
+                target_plate_x, target_plate_y = coordinate_transformer.stage_to_plate(
+                    labware=labware,
+                    stage_offset=settings['stage_offset'],
+                    sx=x_target,
+                    sy=y_target,
+                )
 
-            target_i, target_j = labware.get_well_index(target_plate_x, target_plate_y)
-            target_well_plate_x, target_well_plate_y = labware.get_well_position(target_i, target_j)
-            target_well_pixel_x, target_well_pixel_y = coordinate_transformer.plate_to_pixel(
-                labware=labware,
-                px=target_well_plate_x,
-                py=target_well_plate_y,
-                scale_x=scale_x,
-                scale_y=scale_y,
-            )
-            target_well_center_x = int(x + target_well_pixel_x)  # on screen center
-            target_well_center_y = int(y + target_well_pixel_y)  # on screen center
+                target_i, target_j = labware.get_well_index(target_plate_x, target_plate_y)
+                target_well_plate_x, target_well_plate_y = labware.get_well_position(
+                    target_i, target_j
+                )
+                target_well_pixel_x, target_well_pixel_y = coordinate_transformer.plate_to_pixel(
+                    labware=labware,
+                    px=target_well_plate_x,
+                    py=target_well_plate_y,
+                    scale_x=scale_x,
+                    scale_y=scale_y,
+                )
+                target_well_center_x = int(x + target_well_pixel_x)  # on screen center
+                target_well_center_y = int(y + target_well_pixel_y)  # on screen center
 
-            # Update selected well ellipse properties (instead of recreating)
-            ellipse_params = (
-                target_well_center_x - well_radius_pixel_x,
-                target_well_center_y - well_radius_pixel_y,
-                well_radius_pixel_x * 2,
-                well_radius_pixel_y * 2,
-            )
-            Clock.schedule_once(
-                lambda dt, ep=ellipse_params: setattr(self._selected_well_line, 'ellipse', ep), 0
-            )
+                # Update selected well ellipse properties (instead of recreating)
+                ellipse_params = (
+                    target_well_center_x - well_radius_pixel_x,
+                    target_well_center_y - well_radius_pixel_y,
+                    well_radius_pixel_x * 2,
+                    well_radius_pixel_y * 2,
+                )
+                Clock.schedule_once(
+                    lambda dt, ep=ellipse_params: setattr(self._selected_well_line, 'ellipse', ep),
+                    0,
+                )
+            else:
+                # A zero-well plate has no selected well; collapse the ring
+                # so the previous labware's ring does not linger on screen.
+                Clock.schedule_once(
+                    lambda dt: setattr(self._selected_well_line, 'ellipse', (0, 0, 0, 0)), 0
+                )
 
             # Draw crosshairs (updates every frame - but only 2 lines!).
             # Skip on scopes without an XY stage: there is no live XY position
@@ -759,32 +772,35 @@ class Stage(Widget):
             target_stage_y = result[1]
 
             _, labware = get_selected_labware()
-            target_plate_x, target_plate_y = coordinate_transformer.stage_to_plate(
-                labware=labware,
-                stage_offset=settings['stage_offset'],
-                sx=target_stage_x,
-                sy=target_stage_y,
-            )
-
-            target_i, target_j = labware.get_well_index(target_plate_x, target_plate_y)
-            target_well_plate_x, target_well_plate_y = labware.get_well_position(target_i, target_j)
-            target_well_pixel_x, target_well_pixel_y = coordinate_transformer.plate_to_pixel(
-                labware=labware,
-                px=target_well_plate_x,
-                py=target_well_plate_y,
-                scale_x=scale_x,
-                scale_y=scale_y,
-            )
-            target_well_center_x = int(x + target_well_pixel_x)  # on screen center
-            target_well_center_y = int(y + target_well_pixel_y)  # on screen center
-
-            # Green selection circle
-            with self.canvas:
-                Color(0.0, 1.0, 0.0, 1.0, group='selected_well')
-                Line(
-                    circle=(target_well_center_x, target_well_center_y, well_radius_pixel_x),
-                    group='selected_well',
+            if labware.has_wells():
+                target_plate_x, target_plate_y = coordinate_transformer.stage_to_plate(
+                    labware=labware,
+                    stage_offset=settings['stage_offset'],
+                    sx=target_stage_x,
+                    sy=target_stage_y,
                 )
+
+                target_i, target_j = labware.get_well_index(target_plate_x, target_plate_y)
+                target_well_plate_x, target_well_plate_y = labware.get_well_position(
+                    target_i, target_j
+                )
+                target_well_pixel_x, target_well_pixel_y = coordinate_transformer.plate_to_pixel(
+                    labware=labware,
+                    px=target_well_plate_x,
+                    py=target_well_plate_y,
+                    scale_x=scale_x,
+                    scale_y=scale_y,
+                )
+                target_well_center_x = int(x + target_well_pixel_x)  # on screen center
+                target_well_center_y = int(y + target_well_pixel_y)  # on screen center
+
+                # Green selection circle
+                with self.canvas:
+                    Color(0.0, 1.0, 0.0, 1.0, group='selected_well')
+                    Line(
+                        circle=(target_well_center_x, target_well_center_y, well_radius_pixel_x),
+                        group='selected_well',
+                    )
 
             #  Red Crosshairs
             # ------------------

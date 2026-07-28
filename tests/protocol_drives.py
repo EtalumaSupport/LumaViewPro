@@ -62,6 +62,7 @@ def bare_capture_runner(**overrides):
     # The real executor returns an int drop count (0 on a clean run); the mock
     # must too, or run-end cleanup compares a MagicMock against an int.
     runner.file_io_executor.protocol_dropped_count.return_value = 0
+    runner.file_io_executor.protocol_backpressure_blocked_s.return_value = 0.0
     return runner
 
 
