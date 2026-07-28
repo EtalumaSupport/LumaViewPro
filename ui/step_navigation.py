@@ -51,6 +51,10 @@ def go_to_step(
         return
 
     step = protocol.step(idx=step_idx)
+    # A same-step re-selection (re-clicking / re-typing the current number)
+    # must leave a user-lit channel alone; only a REAL step change drives
+    # the LED preview transition below.
+    step_changed = protocol_settings.curr_step != step_idx
     protocol_settings.curr_step = step_idx
 
     _schedule_ui(lambda dt: protocol_settings.generate_step_name_input(), 0)
@@ -144,32 +148,20 @@ def go_to_step(
             f'protocol_running={ctx.protocol_running.is_set()}'
         )
 
-        if not called_from_protocol and settings['protocol_led_on']:
-            # Manual-nav preview: make the new step's channel the only lit one.
-            # The LED authority diffs the target against the cached state, so
-            # stepping between consecutive same-color steps holds the LED steady
-            # (no off-then-on blink) while a previously-lit channel of a different
-            # color is cleared, so the preview is never double-illuminated.
-            # Outside a run nothing holds the LED lease -- live-UI control is
-            # unleased -- so this routes through the lease-free apply_transition.
-            led_ctx = LedTransitionCtx(
-                channel=ctx.scope.illumination.color2ch(color),
-                mA=step['Illumination'],
-                preview_on=True,
-            )
-            ctx.scope.illumination.apply_transition_async(LedTransition.MANUAL_STEP, led_ctx)
-            # update_led=False: the transition above is the one LED command.
-            # apply_settings must not re-derive LED intent from the enable
-            # button -- the button REFLECTS driver state (via the listener
-            # bridge); writing or reading it as a command channel re-lights a
-            # channel the user toggled off.
-            _schedule_ui(
-                lambda dt: layer_obj.apply_settings(
-                    ignore_auto_gain=ignore_auto_gain, protocol=True, update_led=False
-                ),
-                0,
+        if not called_from_protocol:
+            _apply_manual_nav_outcome(
+                ctx=ctx,
+                settings=settings,
+                layer_obj=layer_obj,
+                step=step,
+                color=color,
+                ignore_auto_gain=ignore_auto_gain,
+                step_changed=step_changed,
             )
         else:
+            # Protocol-cycle invocation runs on the executor thread and must
+            # not submit MANUAL_STEP transitions or widget-writing applies --
+            # the run's own LED authority calls own the hardware.
             layer_obj.apply_settings(ignore_auto_gain=ignore_auto_gain, protocol=True)
 
         # Force stage crosshair + position text update after step navigation.
@@ -193,6 +185,48 @@ def go_to_step(
             lambda dt: go_to_step_update_ui(step, called_from_protocol=called_from_protocol),
             0,
         )
+
+
+def _apply_manual_nav_outcome(
+    *, ctx, settings, layer_obj, step, color, ignore_auto_gain, step_changed
+):
+    """Manual navigation owns its entire outcome: one LED authority
+    transition plus one direct settings apply -- the accordion reconcile is
+    not load-bearing for navigation in either preview state.
+
+    LED: the authority's MANUAL_STEP target is the step's channel when the
+    preview is on and all-dark when it is off, and its diff against cached
+    state clears a previously-lit different-colour channel without blinking
+    a same-colour one. Fires only on a REAL step change: a same-step
+    re-selection leaves a user-lit (or user-darkened) channel exactly as it
+    is. Outside a run nothing holds the LED lease -- live-UI control is
+    unleased -- so this routes through the lease-free apply_transition.
+
+    Camera + histogram: applied directly in BOTH preview states
+    (protocol=False runs the camera block and the histogram-layer sync;
+    with the preview off there is no early-return leaving them to the
+    reconcile). update_led=False: the transition above is the one LED
+    command -- apply_settings must not re-derive LED intent from the
+    enable button, which REFLECTS driver state via the listener bridge;
+    reading it as a command channel re-lights a channel the user toggled
+    off. protocol=False also keeps the autofocus-owns-the-camera
+    suppression: manual nav does not coordinate with a live AF the way the
+    protocol runner does, so pushing camera settings mid-AF would corrupt
+    the sweep.
+    """
+    if step_changed:
+        led_ctx = LedTransitionCtx(
+            channel=ctx.scope.illumination.color2ch(color),
+            mA=step['Illumination'],
+            preview_on=settings['protocol_led_on'],
+        )
+        ctx.scope.illumination.apply_transition_async(LedTransition.MANUAL_STEP, led_ctx)
+    _schedule_ui(
+        lambda dt: layer_obj.apply_settings(
+            ignore_auto_gain=ignore_auto_gain, protocol=False, update_led=False
+        ),
+        0,
+    )
 
 
 def go_to_step_update_ui(step, called_from_protocol: bool = False):

@@ -75,6 +75,14 @@ class ImageSettings(BoxLayout):
     # spot instead of pinning them to the bottom (UI-1, 2026-05-02).
     _LAYER_DISPLAY_ORDER = ('BF', 'PC', 'DF', 'Blue', 'Green', 'Red', 'Lumi')
 
+    # Ownership boundary for the accordion LED/camera reconcile: the
+    # reconcile belongs to genuine USER drawer clicks. A PROGRAMMATIC
+    # expansion (manual step navigation) owns its entire LED + camera
+    # outcome through the LED authority, so while this is True the
+    # reconcile defers to that owner. Same flag idiom as
+    # LayerControl._suppressing_led_log.
+    _suppress_reconcile_for_programmatic_expand = False
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         logger.debug('[LVP Main  ] ImageSettings.__init__()')
@@ -144,29 +152,46 @@ class ImageSettings(BoxLayout):
 
         gui_logger.select('IMAGE_LAYER', layer)
 
-        for a_layer in common_utils.get_layers():
-            accordion_item_obj = self.accordion_item_lookup(layer=a_layer)
+        # Ordering invariant: the guard is set BEFORE the mutation loop
+        # (the collapse events it fires prime the reconcile trigger) and
+        # its CLEAR is scheduled in the finally AFTER the mutations --
+        # Kivy runs same-frame timeout-0 events in scheduling order, so a
+        # clear scheduled before priming would fire first and re-expose
+        # the reconcile race. try/finally: an exception mid-loop must not
+        # wedge the guard (that would permanently disable the user-click
+        # drawer reconcile). The next-tick clear also absorbs a user click
+        # landing on this same frame -- that click's reconcile is skipped
+        # once; the next real click re-fires.
+        self._suppress_reconcile_for_programmatic_expand = True
+        try:
+            for a_layer in common_utils.get_layers():
+                accordion_item_obj = self.accordion_item_lookup(layer=a_layer)
 
-            # Check if we need to collapse this accordion
-            target_collapsed = layer != a_layer
+                # Check if we need to collapse this accordion
+                target_collapsed = layer != a_layer
 
-            if layer == a_layer:
-                accordion_item_obj.collapse = False
-            else:
-                # Before collapsing, clean up ScrollView to prevent memory leak
-                if not accordion_item_obj.collapse and target_collapsed:
-                    layer_control = self.layer_lookup(layer=a_layer)
-                    # Find and clean up ScrollView in this layer control
-                    for child in layer_control.walk():
-                        if isinstance(child, ScrollView):
-                            # Schedule cleanup after collapse animation completes
-                            from ui.ui_helpers import cleanup_scrollview_viewport
+                if layer == a_layer:
+                    accordion_item_obj.collapse = False
+                else:
+                    # Before collapsing, clean up ScrollView to prevent memory leak
+                    if not accordion_item_obj.collapse and target_collapsed:
+                        layer_control = self.layer_lookup(layer=a_layer)
+                        # Find and clean up ScrollView in this layer control
+                        for child in layer_control.walk():
+                            if isinstance(child, ScrollView):
+                                # Schedule cleanup after collapse animation completes
+                                from ui.ui_helpers import cleanup_scrollview_viewport
 
-                            Clock.schedule_once(
-                                lambda dt, sv=child: cleanup_scrollview_viewport(sv), 0.2
-                            )
+                                Clock.schedule_once(
+                                    lambda dt, sv=child: cleanup_scrollview_viewport(sv), 0.2
+                                )
 
-                accordion_item_obj.collapse = True
+                    accordion_item_obj.collapse = True
+        finally:
+            Clock.schedule_once(
+                lambda dt: setattr(self, '_suppress_reconcile_for_programmatic_expand', False),
+                0,
+            )
 
     def set_lumi_layer_control_visibility(self, visible: bool) -> None:
         if visible:
@@ -582,6 +607,13 @@ class ImageSettings(BoxLayout):
 
         # Skip during app initialization - will be called explicitly after init completes
         if ctx.initializing:
+            return
+
+        # Programmatic expansion (manual step navigation) owns its LED +
+        # camera outcome through the authority; the reconcile below is for
+        # genuine user drawer clicks. Checked at FIRE time so a trigger
+        # primed before the guard was set still no-ops.
+        if self._suppress_reconcile_for_programmatic_expand:
             return
 
         # Skip during protocol run: user clicking a different panel
