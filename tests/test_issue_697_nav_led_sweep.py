@@ -272,3 +272,100 @@ def test_set_expanded_layer_pins_the_guard_ordering():
         'the guard clear must be SCHEDULED (next tick), not cleared inline -- '
         'an inline clear before the primed trigger fires re-ships the race'
     )
+
+
+# ---------------------------------------------------------------------------
+# Caller contract: nav callers state their target; no pre-write of curr_step
+# ---------------------------------------------------------------------------
+
+_PS_SRC = (_UI_DIR / 'protocol_settings.py').read_text()
+_PS_TREE = ast.parse(_PS_SRC)
+
+
+def _statement_blocks(fn):
+    for node in ast.walk(fn):
+        for field in ('body', 'orelse', 'finalbody'):
+            stmts = getattr(node, field, None)
+            if isinstance(stmts, list) and stmts and isinstance(stmts[0], ast.stmt):
+                yield stmts
+
+
+def _assigns_self_curr_step(stmt):
+    # Direct assignment at THIS block level only: a write nested inside a
+    # compound statement (e.g. prev_step's empty-protocol early return,
+    # which cannot fall through to the navigation call) is scanned in its
+    # own block by _statement_blocks and is legitimate bookkeeping there.
+    if not isinstance(stmt, (ast.Assign, ast.AugAssign)):
+        return False
+    targets = stmt.targets if isinstance(stmt, ast.Assign) else [stmt.target]
+    return any(
+        isinstance(t, ast.Attribute)
+        and t.attr == 'curr_step'
+        and isinstance(t.value, ast.Name)
+        and t.value.id == 'self'
+        for t in targets
+    )
+
+
+def _calls_go_to_step(stmt):
+    return any(
+        isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Attribute)
+        and n.func.attr == 'go_to_step'
+        for n in ast.walk(stmt)
+    )
+
+
+def test_nav_handlers_never_prewrite_curr_step_before_navigating():
+    """The bug shape: assign self.curr_step, then call go_to_step in the
+    same statement block. The navigation module detects a real step change
+    by comparing the target against curr_step -- a pre-write makes that
+    comparison read itself (always equal) and the LED preview never fires.
+    Bookkeeping writes in blocks that do NOT reach a go_to_step call (e.g.
+    the empty-protocol early return in prev_step) are legitimate."""
+    offenders = []
+    for name in ('handle_step_ui_input_change', 'prev_step', 'next_step'):
+        fn = _find_function(_PS_TREE, name)
+        for stmts in _statement_blocks(fn):
+            write_seen_at = None
+            for idx, stmt in enumerate(stmts):
+                if _assigns_self_curr_step(stmt):
+                    write_seen_at = idx
+                if _calls_go_to_step(stmt) and write_seen_at is not None:
+                    offenders.append(
+                        f'{name}: curr_step written at block stmt '
+                        f'{write_seen_at}, go_to_step called at {idx}'
+                    )
+    assert offenders == [], (
+        'nav handler pre-writes curr_step before calling go_to_step; '
+        'pass the target as step_idx instead: ' + '; '.join(offenders)
+    )
+
+
+def test_wrapper_go_to_step_requires_an_explicit_target():
+    """step_idx must be a required parameter of the ProtocolSettings
+    wrapper: a defaulted (or absent) target re-opens the silent path where
+    a caller relies on a pre-written curr_step and the change comparison
+    reads itself."""
+    fn = _find_function(_PS_TREE, 'go_to_step')
+    arg_names = [a.arg for a in fn.args.args]
+    assert arg_names[:2] == ['self', 'step_idx'], arg_names
+    required_count = len(fn.args.args) - len(fn.args.defaults)
+    assert required_count >= 2, 'step_idx must have no default value'
+
+
+def test_module_go_to_step_compares_before_writing_the_store():
+    """Ordering invariant inside the navigation module: step_changed is
+    computed from curr_step BEFORE curr_step is overwritten with the
+    target; reversing the two statements silently kills every LED preview
+    transition."""
+    fn = _find_function(_NAV_TREE, 'go_to_step')
+    compare_idx = write_idx = None
+    for idx, stmt in enumerate(fn.body):
+        if isinstance(stmt, ast.Assign):
+            if any(isinstance(t, ast.Name) and t.id == 'step_changed' for t in stmt.targets):
+                compare_idx = idx
+            if any(isinstance(t, ast.Attribute) and t.attr == 'curr_step' for t in stmt.targets):
+                write_idx = idx
+    assert compare_idx is not None and write_idx is not None
+    assert compare_idx < write_idx, 'step_changed must be computed before curr_step is overwritten'

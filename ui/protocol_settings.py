@@ -487,7 +487,7 @@ class ProtocolSettings(FloatLayout):
             self._protocol.optimize_step_ordering()
             ctx.stage.set_protocol_steps(df=self._protocol.steps())
             self.update_step_ui()
-            self.go_to_step(protocol=False)
+            self.go_to_step(step_idx=self.curr_step, protocol=False)
         except Exception as e:
             logger.error(f'[UI] apply_tiling failed: {e}', exc_info=True)
             from ui.notification_popup import show_notification_popup
@@ -549,7 +549,7 @@ class ProtocolSettings(FloatLayout):
             self._protocol.optimize_step_ordering()
             ctx.stage.set_protocol_steps(df=self._protocol.steps())
             self.update_step_ui()
-            self.go_to_step(protocol=False)
+            self.go_to_step(step_idx=self.curr_step, protocol=False)
         except Exception as e:
             logger.error(f'[UI] apply_zstacking failed: {e}', exc_info=True)
             from ui.notification_popup import show_notification_popup
@@ -701,7 +701,7 @@ class ProtocolSettings(FloatLayout):
         settings['protocol']['filepath'] = ''
         Clock.schedule_once(lambda dt: temp(), 0)
         self.curr_step = 0
-        self.go_to_step(protocol=False)
+        self.go_to_step(step_idx=0, protocol=False)
 
     def _validate_labware(self, labware: str):
         settings = _app_ctx.ctx.settings
@@ -872,10 +872,11 @@ class ProtocolSettings(FloatLayout):
         )
 
         self.update_step_ui()
-        # Skip go_to_step during startup - will be handled by on_start if initializing,
-        # or called explicitly by user action if loading protocol later
+        # During startup the persisted protocol loads before the user has
+        # asked for anything: no stage move, no LED change until their
+        # first explicit navigation.
         if not ctx.initializing:
-            self.go_to_step(protocol=False)
+            self.go_to_step(step_idx=self.curr_step, protocol=False)
 
         return True
 
@@ -1078,13 +1079,20 @@ class ProtocolSettings(FloatLayout):
             val = num_steps
             obj.text = f'{val}'
 
-        self.curr_step = val - 1
-        self.go_to_step(protocol=False)
+        self.go_to_step(step_idx=val - 1, protocol=False)
 
-    def go_to_step(self, protocol=True):
+    def go_to_step(self, step_idx: int, protocol=True):
+        # step_idx is required so every caller states its target instead of
+        # pre-writing curr_step: the navigation module detects a real step
+        # change by comparing the target against curr_step, and a caller
+        # that writes the store first makes that comparison read itself --
+        # the LED preview then never fires. List-bookkeeping writes (load /
+        # new / insert / delete keeping the pointer valid) stay with the
+        # callers and legitimately compare equal here: protocol edits do
+        # not drive the LEDs, user navigation does.
         go_to_step(
             protocol=self._protocol,
-            step_idx=self.curr_step,
+            step_idx=step_idx,
             ignore_auto_gain=False,
             include_move=True,
             called_from_protocol=protocol,
@@ -1101,9 +1109,8 @@ class ProtocolSettings(FloatLayout):
             self.update_step_ui()
             return
 
-        self.curr_step = max(self.curr_step - 1, 0)
         self.update_step_ui()
-        self.go_to_step(protocol=False)
+        self.go_to_step(step_idx=max(self.curr_step - 1, 0), protocol=False)
 
     # Go to Next Step
     def next_step(self):
@@ -1114,9 +1121,8 @@ class ProtocolSettings(FloatLayout):
         if num_steps <= 0:
             return
 
-        self.curr_step = min(self.curr_step + 1, num_steps - 1)
         self.update_step_ui()
-        self.go_to_step(protocol=False)
+        self.go_to_step(step_idx=min(self.curr_step + 1, num_steps - 1), protocol=False)
 
     # Delete Current Step of Protocol
     def delete_step(self):
@@ -1139,7 +1145,7 @@ class ProtocolSettings(FloatLayout):
                 self.curr_step = max(self.curr_step - 1, 0)
 
             self.update_step_ui()
-            self.go_to_step(protocol=False)
+            self.go_to_step(step_idx=self.curr_step, protocol=False)
         except Exception as e:
             logger.error(f'[UI] delete_step failed: {e}', exc_info=True)
             from ui.notification_popup import show_notification_popup
@@ -1365,7 +1371,7 @@ class ProtocolSettings(FloatLayout):
                 )
 
             ctx.stage.set_protocol_steps(df=self._protocol.steps())
-            self.go_to_step(protocol=False)
+            self.go_to_step(step_idx=self.curr_step, protocol=False)
         except Exception as e:
             logger.error(f'[UI] insert_step_ex failed: {e}', exc_info=True)
             from ui.notification_popup import show_notification_popup
