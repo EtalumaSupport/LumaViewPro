@@ -14,7 +14,7 @@ import pathlib
 import re
 import uuid
 from dataclasses import asdict, dataclass
-from collections.abc import Callable
+from typing import Callable
 
 import cv2
 import numpy as np
@@ -26,7 +26,8 @@ from modules import common_utils, image_utils
 PIPELINE_VERSION = '1'
 QUANTITATIVE_USE_WARNING = (
     'Quick Enhance is for visual inspection and derived exports. '
-    'Use raw images for quantitative analysis.'
+    'Use raw images for quantitative analysis. '
+    'For AI-assisted, validated quantitative enhancement workflows, use LumaQuant Pro.'
 )
 # Quick Enhance reads more than the project's own capture format, so this is a
 # superset of the TIFF suffixes rather than an independent list -- the two must
@@ -37,28 +38,14 @@ MAX_IMAGE_PIXELS = 100_000_000
 
 @dataclass(frozen=True)
 class QuickEnhanceSettings:
-    """Conservative settings for a deterministic visual enhancement."""
+    """Fixed, non-AI recipe for deterministic visual enhancement."""
 
-    preset: str = 'Auto (Recommended)'
     low_percentile: float = 1.0
     high_percentile: float = 99.0
-    gamma: float = 1.0
-    background_enabled: bool = False
-    background_sigma: float = 24.0
+    gamma: float = 0.9
+    illumination_correction_enabled: bool = True
     denoise_enabled: bool = False
     denoise_kernel_size: int = 3
-
-    @classmethod
-    def for_preset(cls, preset: str) -> QuickEnhanceSettings:
-        presets = {
-            'Auto (Recommended)': cls(preset='Auto (Recommended)'),
-            'Brightfield / Phase': cls(preset='Brightfield / Phase', gamma=0.9),
-            'Contrast Only': cls(preset='Contrast Only'),
-        }
-        try:
-            return presets[preset]
-        except KeyError as exc:
-            raise ValueError(f'Unknown Quick Enhance preset: {preset}') from exc
 
 
 class QuickEnhancer:
@@ -75,45 +62,15 @@ class QuickEnhancer:
         if dtype not in (np.dtype(np.uint8), np.dtype(np.uint16)):
             errors.append('Quick Enhance supports uint8 and uint16 images only.')
         container_bits = dtype.itemsize * 8
-        if (
-            not isinstance(significant_bits, (int, np.integer))
-            or not 1 <= significant_bits <= container_bits
-        ):
+        if not isinstance(significant_bits, (int, np.integer)) or not 1 <= significant_bits <= container_bits:
             errors.append(f'Significant bits must be between 1 and {container_bits}.')
         if not 0 <= settings.low_percentile < settings.high_percentile <= 100:
             errors.append('Low percentile must be below high percentile, within 0 to 100.')
         if not 0.5 <= settings.gamma <= 2.0:
             errors.append('Gamma must be between 0.5 and 2.0.')
-        if not 1.0 <= settings.background_sigma <= 100.0:
-            errors.append('Background radius must be between 1 and 100 pixels.')
         if settings.denoise_kernel_size not in (3, 5, 7):
             errors.append('Denoise kernel must be 3, 5, or 7 pixels.')
         return errors
-
-    def settings_for_source(
-        self,
-        source_path: str | pathlib.Path,
-        settings: QuickEnhanceSettings,
-    ) -> tuple[QuickEnhanceSettings, str]:
-        """Resolve Auto per file using acquisition metadata, never pixel guesses."""
-        if settings.preset != 'Auto (Recommended)':
-            return settings, f'{settings.preset} selected.'
-        source_path = pathlib.Path(source_path)
-        channel = self._source_channel(source_path)
-        if channel in common_utils.get_transmitted_layers():
-            return (
-                QuickEnhanceSettings.for_preset('Brightfield / Phase'),
-                f'Detected transmitted channel: {channel}.',
-            )
-        if channel == 'Composite':
-            return QuickEnhanceSettings.for_preset('Auto (Recommended)'), 'Detected Composite TIFF.'
-        if channel in common_utils.get_image_layers():
-            return QuickEnhanceSettings.for_preset(
-                'Auto (Recommended)'
-            ), f'Detected fluorescence channel: {channel}.'
-        return QuickEnhanceSettings.for_preset(
-            'Auto (Recommended)'
-        ), 'Image type unknown; using neutral auto levels.'
 
     @staticmethod
     def _source_channel(source_path: pathlib.Path) -> str | None:
@@ -174,27 +131,35 @@ class QuickEnhancer:
             raise ValueError(f'Invalid Quick Enhance settings: {" ".join(errors)}')
 
         source_max = float((1 << int(significant_bits)) - 1)
-        # Work in float so background subtraction cannot wrap unsigned values.
-        # RGB/RGBA receives one shared levels/gamma curve derived from mean
-        # luminance. That keeps channel relationships predictable instead of
-        # independently stretching the component channels into a new composite.
+        # Work in float so illumination correction cannot wrap unsigned values.
+        # RGB/RGBA uses one corrected luminance plane, then scales its source
+        # RGB values together. This preserves colour relationships rather than
+        # independently remapping channels into a new composite.
         work = np.clip(image.astype(np.float32, copy=False), 0.0, source_max) / source_max
-        channels = work if is_mono else work[..., :3].copy()
+        source_channels = work if is_mono else work[..., :3]
+        channels = source_channels.copy()
         if not np.isfinite(work).all():
             channels = np.nan_to_num(channels, nan=0.0, posinf=1.0, neginf=0.0)
+        intensity = channels if is_mono else channels.mean(axis=2)
 
-        if settings.background_enabled and min(image.shape) >= 3:
-            background = cv2.GaussianBlur(
-                channels,
-                (0, 0),
-                sigmaX=float(settings.background_sigma),
-                sigmaY=float(settings.background_sigma),
-                borderType=cv2.BORDER_REPLICATE,
+        if settings.illumination_correction_enabled and min(image.shape) >= 3:
+            illumination = self._global_illumination_plane(intensity)
+            # The global plane corrects field-scale illumination drift without
+            # following individual objects, so it cannot add dark edge halos.
+            # The reference restores the scene's overall brightness.
+            reference = float(np.median(illumination))
+            intensity = np.clip(
+                intensity / np.maximum(illumination, 1.0 / 65535.0) * reference,
+                0.0,
+                1.0,
             )
-            # Keep a conservative low background pedestal; this avoids an
-            # all-black result while removing large-scale uneven illumination.
-            pedestal = np.percentile(background, 5.0, axis=(0, 1), keepdims=True)
-            channels = np.clip(channels - background + pedestal, 0.0, 1.0)
+
+        if is_mono:
+            channels = intensity
+        else:
+            original_intensity = source_channels.mean(axis=2)
+            gain = intensity / np.maximum(original_intensity, 1.0 / 65535.0)
+            channels = np.clip(source_channels * gain[..., np.newaxis], 0.0, 1.0)
 
         if settings.denoise_enabled and min(image.shape) >= settings.denoise_kernel_size:
             channels = cv2.medianBlur(channels, int(settings.denoise_kernel_size))
@@ -222,6 +187,33 @@ class QuickEnhancer:
             return enhanced_channels
         restored[..., :3] = enhanced_channels
         return restored
+
+    @staticmethod
+    def _global_illumination_plane(intensity: np.ndarray) -> np.ndarray:
+        """Fit a robust field-scale illumination plane, never a local object map."""
+        height, width = intensity.shape
+        stride = max(1, int(np.ceil(np.sqrt(intensity.size / 100_000))))
+        sample = intensity[::stride, ::stride]
+        sample_y, sample_x = np.mgrid[0:height:stride, 0:width:stride]
+        values = sample.reshape(-1)
+        finite = np.isfinite(values)
+        if finite.sum() < 3:
+            return np.full_like(intensity, float(np.nanmedian(intensity)))
+        cutoff = np.percentile(values[finite], 90.0)
+        fit_mask = finite & (values <= cutoff)
+        if fit_mask.sum() < 3:
+            fit_mask = finite
+        x = sample_x.reshape(-1) / max(width - 1, 1)
+        y = sample_y.reshape(-1) / max(height - 1, 1)
+        design = np.column_stack((x[fit_mask], y[fit_mask], np.ones(fit_mask.sum())))
+        coefficients, *_ = np.linalg.lstsq(design, values[fit_mask], rcond=None)
+        full_y, full_x = np.mgrid[0:height, 0:width]
+        plane = (
+            coefficients[0] * (full_x / max(width - 1, 1))
+            + coefficients[1] * (full_y / max(height - 1, 1))
+            + coefficients[2]
+        )
+        return np.maximum(plane.astype(np.float32), 1.0 / 65535.0)
 
     def preview(
         self,
@@ -277,9 +269,10 @@ class QuickEnhancer:
                     'high_percentile': settings.high_percentile,
                 },
                 'gamma': {'enabled': settings.gamma != 1.0, 'value': settings.gamma},
-                'background_correction': {
-                    'enabled': settings.background_enabled,
-                    'sigma': settings.background_sigma,
+                'illumination_correction': {
+                    'enabled': settings.illumination_correction_enabled,
+                    'method': 'global_plane_normalization',
+                    'fit_excludes_upper_percentile': 10.0,
                 },
                 'denoise': {
                     'enabled': settings.denoise_enabled,
@@ -292,7 +285,6 @@ class QuickEnhancer:
 
     def export_file(self, source_path: str | pathlib.Path, settings: QuickEnhanceSettings) -> dict:
         source_path = pathlib.Path(source_path)
-        settings, _ = self.settings_for_source(source_path, settings)
         image, significant_bits = image_utils.load_pixels(source_path)
         output = self.apply(image, settings, significant_bits)
         output_path = self._next_output_path(source_path)
@@ -302,9 +294,7 @@ class QuickEnhancer:
         temp_recipe = recipe_path.with_name(f'.{recipe_path.name}.{uuid.uuid4().hex}.tmp')
         try:
             source_metadata = image_utils.read_postproc_input_metadata(source_path) or {}
-            channel = str(
-                source_metadata.get('channel') or self._source_channel(source_path) or 'BF'
-            )
+            channel = str(source_metadata.get('channel') or self._source_channel(source_path) or 'BF')
             metadata = image_utils.build_postproc_output_metadata(
                 input_path=source_path,
                 channel=channel,
@@ -316,7 +306,7 @@ class QuickEnhancer:
                 # display-only component for these composite inputs, so retain
                 # the enhanced RGB data and preserve the Composite metadata.
                 output_for_write = output_for_write[..., :3]
-            if not image_utils.is_tiff(source_path) and output_for_write.ndim == 3:
+            if source_path.suffix.lower() not in ('.tif', '.tiff') and output_for_write.ndim == 3:
                 # cv2 loads PNG/JPEG in BGR(A), whereas TIFF metadata and the
                 # project's TIFF writer are RGB-native. Convert the alpha-free
                 # display payload so a Composite PNG cannot reintroduce RGBA.
@@ -364,8 +354,7 @@ class QuickEnhancer:
         files = sorted(
             path
             for path in folder.iterdir()
-            if path.is_file()
-            and path.suffix.lower() in SUPPORTED_SUFFIXES
+            if path.is_file() and path.suffix.lower() in SUPPORTED_SUFFIXES
             and '_enhanced' not in path.stem.lower()
         )
         created = []

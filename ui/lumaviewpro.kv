@@ -1769,9 +1769,9 @@
 		text: root.warning_text
 		font_size: '11sp'
 		color: 0.86, 0.91, 0.95, 1
-		text_size: self.width, None
+		text_size: self.width - dp(16), None
 		size_hint_y: None
-		height: '42dp'
+		height: max(dp(66), self.texture_size[1] + dp(12))
 
 	Label:
 		text: 'Input'
@@ -1790,22 +1790,18 @@
 			text: 'Choose Folder'
 			on_release: self.choose('apply_quick_enhance_to_folder')
 	Label:
-		text: 'Run'
+		text: 'Quick Enhance'
 		font_size: '12sp'
 		bold: True
 		color: 0.96, 0.98, 1, 1
 		size_hint_y: None
 		height: '18dp'
-	Spinner:
-		id: quick_enhance_preset
-		text: root.preset
-		values: ('Auto (Recommended)', 'Brightfield / Phase', 'Contrast Only')
+	Label:
+		text: 'Global illumination correction + contrast for visual review'
+		font_size: '10sp'
+		color: 0.86, 0.91, 0.95, 1
 		size_hint_y: None
-		height: '36dp'
-		background_normal: ''
-		background_color: 0.18, 0.25, 0.31, 1
-		color: 1, 1, 1, 1
-		on_text: root.preset = self.text
+		height: '24dp'
 	BoxLayout:
 		size_hint_y: None
 		height: '36dp'
@@ -1825,7 +1821,7 @@
 		size_hint_y: None
 		height: '18dp'
 	QuickEnhancePrimaryButton:
-		text: 'Save Folder' if root.source_folder else 'Save Image'
+		text: 'Quick Enhance Folder' if root.source_folder else 'Quick Enhance Image'
 		size_hint_y: None
 		height: '38dp'
 		disabled: not root.input_ready
@@ -1833,9 +1829,9 @@
 	Label:
 		text: root.status_text
 		font_size: '10sp'
-		text_size: self.width, None
+		text_size: self.width - dp(16), None
 		size_hint_y: None
-		height: '54dp'
+		height: max(dp(78), self.texture_size[1] + dp(12))
 		halign: 'left'
 		valign: 'middle'
 	QuickEnhanceUtilityButton:

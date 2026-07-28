@@ -1,20 +1,22 @@
 # Quick Enhance
 
-Quick Enhance creates a derived TIFF for visual inspection. It never changes the source image. Do not use derived files for quantitative analysis.
+Quick Enhance creates a derived TIFF for visual inspection. It never changes the source image. Do not use derived files for quantitative analysis. For AI-assisted, validated quantitative enhancement workflows, use LumaQuant Pro.
 
 ## Use it
 
 1. Choose Image to inspect and save one image, or Choose Folder to save every supported image in that folder.
-2. Select a mode.
-3. Save Image or Save Folder. Use Show Output Folder when complete.
+2. Select Quick Enhance Image or Quick Enhance Folder. Use Show Output Folder when complete.
 
 Choose Image enables Before / After and Update Preview. A folder is a batch operation, so it has no single-image preview.
 
-## Modes
+## Fixed recipe
 
-- **Auto (Recommended)** — Detects each image independently. BF, phase, and darkfield use the gentle brightfield adjustment. Composite, fluorescence, and unknown images use neutral automatic contrast.
-- **Brightfield / Phase** — Forces the gentle brightfield adjustment (automatic contrast plus light brightening). Use when Auto cannot identify a BF, phase, or darkfield file.
-- **Contrast Only** — Applies automatic contrast only. Use when you do not want the brightfield adjustment.
+Quick Enhance applies the same non-AI recipe to every selected image:
+
+1. **Global illumination correction** fits a field-scale brightness plane and divides by it multiplicatively. It does not follow or subtract individual bright structures, avoiding dark halos around them.
+2. **Auto levels** maps the 1st–99th percentile into the available image range, followed by gentle midtone brightening.
+
+This is classical presentation processing, not AI denoising or restoration. LumaQuant Pro remains the separate AI-assisted cleanup workflow.
 
 ## Buttons
 
