@@ -375,6 +375,8 @@ scope.motion.remove_position_listener(on_position)
 
 Channels available depend on the scope — always check `scope.capabilities.led_colors`.
 
+**Colours the scope cannot drive**: `led_on` with a colour name the scope has no LED channel for raises `ConfigError` naming the colour (it never maps to a substitute channel); `led_off` with such a colour is an idempotent no-op — a channel the scope does not have is already off. Numeric channel arguments are always range-checked and raise `ValueError` when invalid.
+
 **Luminescence** (`Lumi`): not an LED channel. In luminescence mode, all LEDs must be off — the image captures emitted light only.
 
 ```python

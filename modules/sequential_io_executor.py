@@ -863,10 +863,9 @@ class SequentialIOExecutor:
                 if isinstance(exception, typed) and str(exception):
                     body = str(exception)
                 else:
-                    # Name the failed action, and blame a protocol only when
-                    # the task actually came off the protocol queue -- the
-                    # old fixed body claimed a protocol skip for every
-                    # failure, including manual live actions.
+                    # Name the failed action; blame a protocol only when the
+                    # task came off the protocol queue -- a manual live
+                    # action's failure is not a protocol skip.
                     action_name = getattr(task.action, '__name__', str(task.action))
                     if task.protocol:
                         body = (
