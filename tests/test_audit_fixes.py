@@ -1609,6 +1609,7 @@ def _run_cleanup_kwargs(**overrides):
         'set_state_fn': MagicMock(),
         'run_lock': threading.Lock(),
         'scan_in_progress': threading.Event(),
+        'fatal_abort': False,
         'leds_state_at_end': 'off',
         'original_led_states': {},
         'original_autofocus_states': {},
@@ -13104,11 +13105,13 @@ class TestRemainingScansAtomicSnapshot:
 
 
 class TestCaptureFailureAbortNotificationOrdering:
-    """F14: on the consecutive-failure abort, the user-facing 'Camera Failure'
+    """On the consecutive-failure abort, the user-facing 'Camera Failure'
     notification must fire BEFORE the cleanup side effects (queuing the
     failed-step record, leds_off), so the cause leads the effects instead of
-    trailing them. Pre-fix the notification fired only after the record queue
-    and leds_off.
+    trailing them -- and the ABORT plus the sample-darkening force_off come
+    before all of it: a fatal abort must close the step-lighting gates and
+    darken the sample before anything that could block (a record write
+    against a failing disk) gets a chance to run.
     """
 
     def test_abort_notification_precedes_record_and_leds_off(self, monkeypatch):
@@ -13155,8 +13158,9 @@ class TestCaptureFailureAbortNotificationOrdering:
         assert order.index('notify') < order.index('leds_off'), (
             f'notification must precede leds_off; order={order}'
         )
-        assert order.index('leds_off') < order.index('abort'), (
-            f'leds_off must precede the abort; order={order}'
+        assert order.index('abort') < order.index('notify'), (
+            f'the abort must precede everything -- it is a free Event.set '
+            f'that closes the step-lighting gates; order={order}'
         )
 
 
