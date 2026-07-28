@@ -93,6 +93,13 @@ class ProtocolImageWriter:
         aborted: threading.Event,
         file_io_executor: SequentialIOExecutor,
         abort_fn,  # callable -- bound to protocol_thread.abort
+        # THIS run's fatal-abort flag, allocated fresh per run by the runner.
+        # Per-run, not runner-lifetime: queued write tasks keep draining after
+        # the run ends and can fire a fatal abort (disk-full) from the OLD
+        # run's writer after the NEXT run has started -- a shared flag set
+        # then would fatal-brand and force-darken the successor run; a
+        # per-run object lets the late set land on a dead flag.
+        fatal_abort_event: threading.Event,
         execution_record: ProtocolExecutionRecord,
         # Functions borrowed from the parent executor
         leds_off_fn,
@@ -110,6 +117,7 @@ class ProtocolImageWriter:
         self._aborted = aborted
         self._file_io_executor = file_io_executor
         self._abort_fn = abort_fn
+        self._fatal_abort_event = fatal_abort_event
         self._execution_record = execution_record
         self._leds_off = leds_off_fn
         self._is_run_in_progress = is_run_in_progress_fn
@@ -118,6 +126,34 @@ class ProtocolImageWriter:
         self._config = image_capture_config
         self._consecutive_capture_failures = 0
         self._MAX_CONSECUTIVE_CAPTURE_FAILURES = 3
+
+    def _abort_run_fatal(self, domain: str, title: str, message: str) -> None:
+        """The one fatal-abort path: every run-killing fault routes here.
+
+        Ordering is load-bearing:
+        1. abort -- a non-blocking, idempotent Event.set that immediately
+           closes the protocol thread's aborted-gates against lighting the
+           next step; it involves no I/O, so nothing may precede it.
+        2. fatal flag -- read by cleanup (terminal-dark assertion) and by
+           the step-boundary gate; set before the LEDs go dark so a step
+           racing this call cannot observe dark-but-not-fatal.
+        3. force_off -- darkens the sample NOW, on this thread, via the
+           direct driver path (no executor hop), because the fault that
+           brought us here may be wedging the teardown that normally turns
+           the LEDs off; a live sample must not stay illuminated while a
+           dead disk times out. Worst case ~5 s behind an in-flight
+           confirmed LED write on the driver lock.
+        4. the fatal popup -- last, after the hardware is safe.
+        Safe to re-enter: every step is idempotent, so a second fault
+        surfacing while this runs (e.g. the failure-record write itself
+        wedging) changes nothing.
+        """
+        self._abort_fn()
+        self._fatal_abort_event.set()
+        self._scope.illumination.force_off()
+        from modules.notification_center import notifications
+
+        notifications.critical(domain, title, message)
 
     def _record_dropped_capture(
         self,
@@ -198,12 +234,8 @@ class ProtocolImageWriter:
             stall_timeout_s=WRITE_STALL_FATAL_S,
         )
         if result is PROTOCOL_QUEUE_WEDGED:
-            from modules.notification_center import notifications
-
             stuck = self._file_io_executor.describe_running_task()
-            # critical defaults fatal=True -- the one popup class permitted
-            # while a run suppresses non-fatal notifications.
-            notifications.critical(
+            self._abort_run_fatal(
                 'Protocol',
                 'File Writer Stalled',
                 f'Saving stopped making progress ({stuck}), so the protocol '
@@ -213,6 +245,15 @@ class ProtocolImageWriter:
                 f'remain on disk and stay locked until the writer releases '
                 f'it.',
             )
+            # The record shares the dead save target; latch it so this row
+            # attempt (and any later one) is a loud no-op instead of a
+            # synchronous write blocking THIS thread against the dead disk
+            # until the OS gives up -- which is what used to delay the abort
+            # (and the LED-off behind it) by the whole OS timeout. The
+            # writer_stalled row is lost; its only trace is this run's
+            # cleanup error log, accepted.
+            if self._execution_record is not None:
+                self._execution_record.mark_target_unresponsive()
             self._record_dropped_capture(
                 step=step,
                 step_index=step_index,
@@ -221,7 +262,6 @@ class ProtocolImageWriter:
                 name=name,
                 reason='writer_stalled',
             )
-            self._abort_fn()
             return False
         # None with the abort flag set is a cancelled wait; a bare None is
         # the executor declining outside a session (tolerated, as before).
@@ -290,11 +330,12 @@ class ProtocolImageWriter:
             True if the capture completed normally and left the step channel
             lit, so the caller should drive the step-boundary LED decision
             through the authority. False if the capture returned early
-            (aborted, failed, cancelled, or a stalled file writer -- which
-            aborts the run); the caller must not apply a boundary hold in
-            that case -- the failure paths have already turned the LED off,
-            and a stalled-writer abort's still-lit channel is turned off by
-            the abort's cleanup.
+            (aborted, failed, cancelled, or a fatal fault -- stalled writer,
+            3-strike camera, disk floor -- which aborts the run); the caller
+            must not apply a boundary hold in that case. Failure paths turn
+            the LED off themselves; fatal faults route through
+            _abort_run_fatal, which force-darkens immediately, and cleanup
+            re-asserts dark as the run's terminal LED state.
         """
         if self._aborted.is_set():
             return False
@@ -552,13 +593,13 @@ class ProtocolImageWriter:
                             self._consecutive_capture_failures
                             >= self._MAX_CONSECUTIVE_CAPTURE_FAILURES
                         )
-                        # Surface the abort cause to the user BEFORE the cleanup
-                        # side effects (recording the failed step, leds_off), so
-                        # the notification leads the effects rather than trailing
-                        # them. The abort itself runs after leds_off below.
+                        # The fatal funnel runs BEFORE the cleanup side effects
+                        # (recording the failed step, leds_off): abort + dark +
+                        # popup must not wait on a record write that can block
+                        # against a failing disk. In the queue-full case this
+                        # means the capture_failed row below is cancelled where
+                        # it previously waited for a slot -- accepted.
                         if aborting:
-                            from modules.notification_center import notifications
-
                             step_color = step.get('Color', '')
                             # led_connected term: color2ch also returns None
                             # when no LED board is present at all -- a
@@ -574,7 +615,7 @@ class ProtocolImageWriter:
                                 # channel set, not by the camera -- blaming the
                                 # camera here misnames the cause the user can
                                 # actually act on.
-                                notifications.critical(
+                                self._abort_run_fatal(
                                     'Protocol',
                                     'Channel not available',
                                     f"This microscope has no '{step_color}' LED "
@@ -585,7 +626,7 @@ class ProtocolImageWriter:
                                     'run this protocol on this microscope.',
                                 )
                             else:
-                                notifications.critical(
+                                self._abort_run_fatal(
                                     'Protocol',
                                     'Camera Failure',
                                     f'Camera failed {self._consecutive_capture_failures} consecutive captures. Aborting protocol.',
@@ -605,8 +646,6 @@ class ProtocolImageWriter:
                             name=name,
                         )
                         self._leds_off()
-                        if aborting:
-                            self._abort_fn()
                         _proto_outcome = 'capture_failed'
                         return False
 
@@ -767,14 +806,15 @@ class ProtocolImageWriter:
                 )
                 ok, free_mb = common_utils.check_disk_space_ok(save_folder, required_mb)
                 if not ok:
-                    from modules.notification_center import notifications
-
-                    notifications.critical(
+                    # Runs on the file-IO thread: the funnel's abort-first
+                    # ordering matters here -- the protocol thread may be
+                    # mid-capture, and abort must close its step-lighting
+                    # gates before force_off darkens the sample.
+                    self._abort_run_fatal(
                         'FileIO',
                         'Disk Space Critical',
                         f'Only {free_mb:.0f} MB free. Aborting protocol to prevent data loss.',
                     )
-                    self._abort_fn()
                     return
             except Exception:
                 pass  # If we can't check, proceed anyway

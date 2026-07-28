@@ -49,6 +49,10 @@ def run_cleanup(
     set_state_fn,
     run_lock: threading.Lock,
     scan_in_progress: threading.Event,
+    # True when the run died on a fatal fault (stalled writer, dead camera,
+    # disk floor) rather than finishing or being stopped by the user.
+    # Required, not defaulted: every caller states which kind of end this is.
+    fatal_abort: bool,
     # Saved original states
     leds_state_at_end: str,
     original_led_states: dict,
@@ -162,8 +166,18 @@ def run_cleanup(
     # on the protocol IO queue, so the end-state off cannot race the
     # return-to-position move across the shared serial bus.
     try:
+        # A fatal abort's terminal LED state is DARK regardless of the user's
+        # end policy: force_off already darkened the sample at the fault
+        # site, and this forced-OFF RUN_END re-asserts dark against any step
+        # that raced the abort and re-lit a channel (the OFF diff serializes
+        # after such a re-light on the same FIFO protocol queue, so off
+        # wins). Asserting OFF -- not skipping the restore -- is the point: a
+        # skipped restore would leave a raced re-light on forever. User Stop
+        # keeps the configured policy.
         end_policy, snapshot_lit = resolve_end_state(
-            leds_state_at_end, original_led_states, scope.illumination.color2ch
+            'off' if fatal_abort else leds_state_at_end,
+            original_led_states,
+            scope.illumination.color2ch,
         )
         if end_policy is None:
             logger.error(f'Unsupported LEDs state at end value: {leds_state_at_end}')

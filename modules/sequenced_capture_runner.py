@@ -240,6 +240,12 @@ class SequencedCaptureRunner:
         self._run_dir = None
         self._run_trigger_source = None
         self._run_in_progress_event.clear()
+        # Fresh object per run, never a shared Event cleared in place: queued
+        # write tasks keep draining after a run ends, and a drain task hitting
+        # a fatal fault (disk floor) would set a SHARED flag after the next
+        # run's clear -- fatal-branding and force-darkening the wrong run. A
+        # late set on the old run's object lands dead instead.
+        self._fatal_abort_event = threading.Event()
         self._reset_scan_state()
         # _n_scans and _scan_count are the cross-thread progress pair, read
         # together under _protocol_state_lock by progress_snapshot(). Zero them
@@ -888,6 +894,7 @@ class SequencedCaptureRunner:
                 aborted=self._aborted,
                 file_io_executor=self.file_io_executor,
                 abort_fn=self.protocol_thread.abort,
+                fatal_abort_event=self._fatal_abort_event,
                 execution_record=self._protocol_execution_record,
                 leds_off_fn=self._step_executor.leds_off,
                 is_run_in_progress_fn=lambda: self._run_in_progress_event.is_set(),
@@ -1069,11 +1076,15 @@ class SequencedCaptureRunner:
                 self.file_io_executor.end_protocol_mode()
                 return
 
+            # Read once, pass a bool: cleanup's fatal decision must not flip
+            # mid-cleanup if a new run's _reset_vars replaces the Event object
+            # after the run flag clears.
             run_cleanup(
                 get_state_fn=lambda: self._state,
                 set_state_fn=self._set_state,
                 run_lock=self._run_lock,
                 scan_in_progress=self._scan_in_progress,
+                fatal_abort=self._fatal_abort_event.is_set(),
                 leds_state_at_end=self._leds_state_at_end,
                 original_led_states=self._original_led_states,
                 original_autofocus_states=self._original_autofocus_states,

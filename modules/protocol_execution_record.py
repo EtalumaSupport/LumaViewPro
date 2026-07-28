@@ -44,6 +44,16 @@ class ProtocolExecutionRecord:
         # invisible hole in the record that post-processing silently skips.
         self._capture_attempts = 0
         self._rows_written = 0
+        # Latched (never reset) when the save target is declared dead -- a
+        # wedged file writer. Every add_step after that point would block the
+        # calling thread against a filesystem that has already stopped
+        # responding (bench-measured ~60 s per attempt on a dead SMB share,
+        # on the ABORT path of all places), with no chance of landing a row.
+        # The latch makes that write a loud no-op instead. complete() is NOT
+        # latched: it does no filesystem I/O and its reconcile warning must
+        # survive. New runs construct a new record, so the latch scope is
+        # exactly one run's dead target.
+        self._target_unresponsive = False
 
         if outfile is not None:
             self._mode = 'to_file'
@@ -64,6 +74,12 @@ class ProtocolExecutionRecord:
 
     def protocol_file_loc(self) -> pathlib.Path:
         return self._protocol_file_loc
+
+    def mark_target_unresponsive(self) -> None:
+        """Declare the record's disk target dead; see the latch comment in
+        __init__. Set-once, no lock: the two writer threads at worst let one
+        already-started add_step finish -- harmless."""
+        self._target_unresponsive = True
 
     def note_capture_attempt(self) -> None:
         """Record that the protocol is about to attempt one capture.
@@ -119,6 +135,13 @@ class ProtocolExecutionRecord:
             raise Exception(
                 "add_step() can only be called when the instance is initialized with an 'outfile'."
             )
+
+        if self._target_unresponsive:
+            logger.warning(
+                f'ProtocolExecutionRecord: not writing step {step_name} -- the '
+                f'record target was declared unresponsive; the row is lost'
+            )
+            return
 
         try:
             with open(self._outfile, 'a', newline='') as fp:
