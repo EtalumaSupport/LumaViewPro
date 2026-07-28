@@ -449,3 +449,30 @@ def test_session_recover_file_writer_passthrough():
         camera_executor=MagicMock(),
     )
     assert gui_hosted.recover_file_writer() is False
+
+
+def test_blank_labware_has_no_wells_and_fabricates_no_index():
+    """The zero-well Blank plate used to clip every position to well index
+    (-1, -1) -- rendered as label '@0' in filenames/metadata and a bogus
+    selected-well ring at plate origin. A zero-well plate now has no well
+    index at all: has_wells() gates consumers, labels are empty (omitted
+    downstream), and asking for an index is an error, not a fabrication."""
+    import pytest as _pytest
+
+    from modules.labware_loader import WellPlateLoader
+
+    loader = WellPlateLoader()
+    blank = loader.get_plate('Blank')
+
+    assert blank.has_wells() is False
+    assert blank.get_well_label(x=10.0, y=10.0) == ''
+    with _pytest.raises(ValueError):
+        blank.get_well_index(10.0, 10.0)
+    assert blank.get_positions_with_labels() == []
+
+    # A real plate is unaffected.
+    plate = loader.get_plate('6 well microplate')
+    assert plate.has_wells() is True
+    i, j = plate.get_well_index(*plate.get_well_position(0, 0))
+    assert (i, j) == (0, 0)
+    assert plate.get_well_label(*plate.get_well_position(0, 0)) == 'A1'

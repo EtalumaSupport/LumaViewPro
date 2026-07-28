@@ -86,7 +86,9 @@ class CompositeCapture(FloatLayout):
             layer_obj = ctx.image_settings.layer_lookup(layer=layer)
             accordion_item_obj = ctx.image_settings.accordion_item_lookup(layer=layer)
             if not accordion_item_obj.collapse:
-                append = f'{well_label}_{layer}'
+                # Empty well label (zero-well Blank labware): no leading
+                # underscore from a missing segment.
+                append = f'{well_label}_{layer}' if well_label else layer
                 if layer_obj.ids['false_color'].active:
                     color = layer
 

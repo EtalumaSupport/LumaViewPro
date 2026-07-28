@@ -167,7 +167,10 @@ class RuntimeState:
         looks up the matching well label.
 
         Returns:
-            str: Well label (e.g. ``"A1"``).
+            str: Well label (e.g. ``"A1"``), or ``''`` when the selected
+            labware has no wells (the Blank plate) -- consumers omit the
+            well from filenames and metadata rather than stamping a
+            fabricated one.
 
         Raises:
             Exception: Re-raises any error encountered reading target
