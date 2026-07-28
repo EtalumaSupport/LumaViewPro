@@ -5,6 +5,7 @@ import pathlib
 import subprocess
 import sys
 import threading
+import time
 
 from kivy.clock import Clock
 from kivy.properties import ListProperty, StringProperty
@@ -62,11 +63,24 @@ def _zprojection_picker_default_path(live_folder: pathlib.Path) -> str:
 
 
 # ---------------------------------------------------------------------------
-# macOS native file dialogs via osascript (AppleScript)
-# tkinter Tk() crashes on macOS when SDL2 is loaded (cv2 + kivy both ship it).
-# plyer requires pyobjus which may not be installed.
-# osascript uses native Cocoa panels -- no extra dependencies.
+# Native file dialogs.
+# macOS: osascript (AppleScript) Cocoa panels -- tkinter Tk() crashes on
+# macOS when SDL2 is loaded (cv2 + kivy both ship it), and plyer requires
+# pyobjus which may not be installed.
+# Windows/Linux: tkinter, with the Tk root created, used, and destroyed
+# entirely inside one worker thread (Tk objects have thread affinity; the
+# constraint is per-thread confinement, not "tkinter must be on the main
+# thread").
+# Every dialog open flows through _run_native_dialog_async -- a blocking
+# picker on the Kivy main thread freezes the whole app for as long as the
+# panel is open, and the main thread cannot report its own block.
 # ---------------------------------------------------------------------------
+
+# Zombie-osascript backstop only, NOT a user-facing limit: a user may browse
+# a legitimately-open panel far longer than any short timeout, and a
+# timed-out panel is indistinguishable from a cancel. Aligned with the
+# dialog-guard expiry below.
+_MACOS_DIALOG_TIMEOUT_S = 3600
 
 
 def _escape_applescript(s):
@@ -94,7 +108,10 @@ def _macos_open_file(initial_dir=None, filetypes=None):
 
     try:
         result = subprocess.run(
-            ['osascript', '-e', script], capture_output=True, text=True, timeout=120
+            ['osascript', '-e', script],
+            capture_output=True,
+            text=True,
+            timeout=_MACOS_DIALOG_TIMEOUT_S,
         )
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout.strip()
@@ -112,7 +129,10 @@ def _macos_choose_folder(initial_dir=None):
 
     try:
         result = subprocess.run(
-            ['osascript', '-e', script], capture_output=True, text=True, timeout=120
+            ['osascript', '-e', script],
+            capture_output=True,
+            text=True,
+            timeout=_MACOS_DIALOG_TIMEOUT_S,
         )
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout.strip()
@@ -121,28 +141,95 @@ def _macos_choose_folder(initial_dir=None):
     return None
 
 
+def _foregrounded_tk_root():
+    """Build the invisible Tk root a tkinter picker parents to, foregrounded.
+
+    lift + focus_force after -topmost: parent= and -topmost alone still let
+    the picker open buried behind the main window on Windows (the messagebox
+    foregrounding precedent, applied here to the picker roots).
+
+    Thread affinity: the caller creates, uses, and destroys this root
+    entirely inside one (worker) thread; the root never escapes that
+    thread. Destroying it on every path -- including exceptions -- is what
+    avoids the Tcl_AsyncDelete process abort from cross-thread deallocation.
+    """
+    from tkinter import Tk
+
+    root = Tk()
+    root.attributes('-alpha', 0.0)
+    root.attributes('-topmost', True)
+    root.lift()
+    root.focus_force()
+    return root
+
+
 def _platform_native_choose_folder(initial_dir, title='Select folder'):
-    """Platform-native folder picker. Returns path string or None.
+    """Platform-native folder picker (blocking). Returns path string or None.
 
     Canonical for all FolderChooseBTN contexts as of the #675 broader
     revert. Native pickers show file listings on every modern OS, so
     the prior argument for the in-app Kivy picker ("see files inside
     the candidate folder") no longer justifies the extra UX surface.
+    Call only from _run_native_dialog_async's worker.
     """
     if sys.platform == 'darwin':
         return _macos_choose_folder(initial_dir=initial_dir)
 
-    from tkinter import Tk, filedialog
+    from tkinter import filedialog
 
-    root = Tk()
-    root.attributes('-alpha', 0.0)
-    root.attributes('-topmost', True)
-    path = filedialog.askdirectory(
-        parent=root,
-        initialdir=initial_dir,
-        title=title,
-    )
-    root.destroy()
+    root = _foregrounded_tk_root()
+    try:
+        path = filedialog.askdirectory(
+            parent=root,
+            initialdir=initial_dir,
+            title=title,
+        )
+    finally:
+        root.destroy()
+    return path or None
+
+
+def _platform_native_open_file(initial_dir, filetypes):
+    """Platform-native open-file picker (blocking). Returns path or None.
+
+    Call only from _run_native_dialog_async's worker.
+    """
+    if sys.platform == 'darwin':
+        return _macos_open_file(initial_dir=initial_dir, filetypes=filetypes)
+
+    from tkinter import filedialog
+
+    root = _foregrounded_tk_root()
+    try:
+        path = filedialog.askopenfilename(
+            parent=root,
+            initialdir=initial_dir,
+            filetypes=filetypes,
+        )
+    finally:
+        root.destroy()
+    return path or None
+
+
+def _platform_native_save_file(initial_dir, filetypes):
+    """Platform-native save-file picker (blocking). Returns path or None.
+
+    Call only from _run_native_dialog_async's worker.
+    """
+    if sys.platform == 'darwin':
+        return _macos_save_file(initial_dir=initial_dir)
+
+    from tkinter import filedialog
+
+    root = _foregrounded_tk_root()
+    try:
+        path = filedialog.asksaveasfilename(
+            parent=root,
+            initialdir=initial_dir,
+            filetypes=filetypes,
+        )
+    finally:
+        root.destroy()
     return path or None
 
 
@@ -160,7 +247,10 @@ def _macos_save_file(initial_dir=None, default_name=None):
 
     try:
         result = subprocess.run(
-            ['osascript', '-e', script], capture_output=True, text=True, timeout=120
+            ['osascript', '-e', script],
+            capture_output=True,
+            text=True,
+            timeout=_MACOS_DIALOG_TIMEOUT_S,
         )
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout.strip()
@@ -169,31 +259,113 @@ def _macos_save_file(initial_dir=None, default_name=None):
     return None
 
 
-def _run_macos_dialog_async(button, dialog_fn, on_path):
-    """Run a blocking osascript dialog off the Kivy main thread.
+# App-wide single-flight record for native dialogs. Module-level, not
+# per-button: the programmatic save-protocol path constructs a FRESH
+# FileSaveBTN per call, so a per-button flag could never block a stacked
+# dialog there. One dialog in flight at a time; other UI stays live.
+_dialog_in_flight = {'active': False, 'context': '', 'since': 0.0, 'token': 0}
 
-    osascript opens the native panel via subprocess.run; called inline it
-    blocks the Kivy event loop for the whole time the panel is open, so the
-    app beachballs ("Application Not Responding") until the user dismisses
-    it. The panel belongs to the osascript process, not LVP, so it does not
-    freeze interaction the way an in-app modal would -- which is also why the
-    Kivy button stays clickable behind it; the in-flight guard below stops a
-    second click from stacking a second panel.
+# Re-click on a busy guard past this many seconds also notifies the user --
+# at that age the open panel is probably buried, not being browsed.
+_DIALOG_STUCK_NOTIFY_S = 60.0
 
-    subprocess.run is thread-safe, so the dialog runs on a daemon thread and
-    the chosen path is marshalled back to the main thread (Kivy is
-    single-threaded for UI) via Clock before on_path runs. on_path is invoked
-    only for a non-empty selection (user picked something, did not cancel).
+# A dialog still unresolved after this long is treated as wedged and the
+# guard re-arms on its own, so one stuck picker cannot lock out every dialog
+# context until app restart. Matches the macOS osascript backstop; the
+# tkinter path has no fuse at all, so this expiry is its only unlock. A
+# stale dialog that resolves after expiry is dropped by its token.
+_DIALOG_GUARD_EXPIRY_S = 3600.0
+
+
+def _run_native_dialog_async(button, dialog_fn, on_path):
+    """Run a blocking native dialog off the Kivy main thread -- the one
+    path every dialog open flows through, on every platform.
+
+    Called inline, a native picker blocks the Kivy event loop for the whole
+    time the panel is open: the app freezes ("Application Not Responding" /
+    beachball) and, because the main thread is the one blocked, nothing can
+    even report the freeze. The picker belongs to another process (osascript)
+    or a worker-local Tk root, so it does not freeze interaction the way an
+    in-app modal would -- which is also why LVP's buttons stay clickable
+    behind it; the app-wide single-flight guard stops a second click from
+    stacking a second panel.
+
+    dialog_fn runs on a daemon worker thread (the tkinter primitives keep
+    their Tk root confined to that thread) and the chosen path is marshalled
+    back to the main thread via Clock before on_path runs. on_path is
+    invoked only for a non-empty selection. The guard clears ONLY in the
+    delivery step, so a second dialog can never open before the first
+    dialog's callback has run; a raising primitive still delivers (error
+    branch), so it can never leave the guard latched.
+
+    ``button`` supplies the context name for the guard and its logs.
     """
-    if getattr(button, '_dialog_in_flight', False):
-        return
-    button._dialog_in_flight = True
+    now = time.monotonic()
+    context = getattr(button, 'context', '')
+    if _dialog_in_flight['active']:
+        elapsed = now - _dialog_in_flight['since']
+        if elapsed < _DIALOG_GUARD_EXPIRY_S:
+            logger.warning(
+                f"[LVP Main  ] Dialog request '{context}' rejected: "
+                f"'{_dialog_in_flight['context']}' dialog already in flight "
+                f'for {elapsed:.0f}s'
+            )
+            if elapsed >= _DIALOG_STUCK_NOTIFY_S:
+                from modules.notification_center import notifications
+
+                notifications.warning(
+                    'File Dialog',
+                    'A File Dialog May Already Be Open',
+                    'A file dialog appears to be open already -- it may be '
+                    'behind the main window. Find and close it, then try '
+                    'again.',
+                )
+            return
+        logger.warning(
+            f"[LVP Main  ] Dialog guard expired: '{_dialog_in_flight['context']}' "
+            f'unresolved for {elapsed:.0f}s; re-arming for {context!r}. If the '
+            f'old panel ever resolves, its result will be dropped.'
+        )
+
+    _dialog_in_flight['active'] = True
+    _dialog_in_flight['context'] = context
+    _dialog_in_flight['since'] = now
+    _dialog_in_flight['token'] += 1
+    token = _dialog_in_flight['token']
 
     def worker():
-        result = dialog_fn()
+        result = None
+        error = None
+        try:
+            result = dialog_fn()
+        except Exception as e:
+            error = e
 
         def deliver(_dt):
-            button._dialog_in_flight = False
+            if _dialog_in_flight['token'] != token:
+                # The guard expired and re-armed while this panel sat
+                # unresolved; a newer dialog flow may be live. Dropping the
+                # stale result is the only delivery that cannot corrupt it.
+                logger.warning(
+                    f"[LVP Main  ] Stale dialog result for '{context}' "
+                    f'dropped (guard was re-armed while it was open)'
+                )
+                return
+            _dialog_in_flight['active'] = False
+            if error is not None:
+                logger.error(
+                    f"[LVP Main  ] Native dialog '{context}' failed: "
+                    f'{type(error).__name__}: {error}'
+                )
+                from modules.notification_center import notifications
+
+                notifications.error(
+                    'File Dialog',
+                    'File Dialog Failed',
+                    'The file picker could not be opened. Try the button '
+                    'again; if it keeps failing, restart LumaViewPro.',
+                )
+                return
             if result:
                 on_path(result)
 
@@ -229,28 +401,11 @@ class FileChooseBTN(HoverBehavior, Button):
             logger.error(f'Unsupported handling for {self.context}')
             return
 
-        if sys.platform == 'darwin':
-            _run_macos_dialog_async(
-                self,
-                lambda: _macos_open_file(initial_dir=selected_path, filetypes=filetypes_tk),
-                lambda path: self.handle_selection(selection=[path]),
-            )
-            return
-
-        # Windows/Linux: tkinter
-        from tkinter import Tk, filedialog
-
-        root = Tk()
-        root.attributes('-alpha', 0.0)
-        root.attributes('-topmost', True)
-        selection = filedialog.askopenfilename(
-            parent=root, initialdir=selected_path, filetypes=filetypes_tk
+        _run_native_dialog_async(
+            self,
+            lambda: _platform_native_open_file(initial_dir=selected_path, filetypes=filetypes_tk),
+            lambda path: self.handle_selection(selection=[path]),
         )
-        root.destroy()
-
-        if selection == '':
-            return
-        self.handle_selection(selection=[selection])
 
     def handle_selection(self, selection):
         logger.info('[LVP Main  ] FileChooseBTN.handle_selection()')
@@ -325,23 +480,14 @@ class FolderChooseBTN(HoverBehavior, Button):
         # platforms (macOS Finder, Windows Explorer, Linux GTK) already
         # show file listings -- the Kivy picker was duplicating UX that
         # the OS provides better. Reverted per #675.
-        if sys.platform == 'darwin':
-            # Background the osascript panel so the app does not beachball
-            # while it is open (see _run_macos_dialog_async). tkinter (below)
-            # stays on the main thread -- it is not thread-safe.
-            _run_macos_dialog_async(
-                self,
-                lambda: _macos_choose_folder(initial_dir=selected_path),
-                lambda chosen: self.handle_selection(selection=[chosen]),
-            )
-            return
-
-        chosen = _platform_native_choose_folder(
-            initial_dir=selected_path,
-            title=f'Select folder ({context})',
+        _run_native_dialog_async(
+            self,
+            lambda: _platform_native_choose_folder(
+                initial_dir=selected_path,
+                title=f'Select folder ({context})',
+            ),
+            lambda chosen: self.handle_selection(selection=[chosen]),
         )
-        if chosen:
-            self.handle_selection(selection=[chosen])
 
     def handle_selection(self, selection):
         logger.info('[LVP Main  ] FolderChooseBTN.handle_selection()')
@@ -409,28 +555,11 @@ class FileSaveBTN(HoverBehavior, Button):
 
         selected_path = _app_ctx.ctx.settings['live_folder']
 
-        if sys.platform == 'darwin':
-            _run_macos_dialog_async(
-                self,
-                lambda: _macos_save_file(initial_dir=selected_path),
-                lambda path: self.handle_selection(selection=[path]),
-            )
-            return
-
-        # Windows/Linux: tkinter
-        from tkinter import Tk, filedialog
-
-        root = Tk()
-        root.attributes('-alpha', 0.0)
-        root.attributes('-topmost', True)
-        selection = filedialog.asksaveasfilename(
-            parent=root, initialdir=selected_path, filetypes=filetypes
+        _run_native_dialog_async(
+            self,
+            lambda: _platform_native_save_file(initial_dir=selected_path, filetypes=filetypes),
+            lambda path: self.handle_selection(selection=[path]),
         )
-        root.destroy()
-
-        if selection == '':
-            return
-        self.handle_selection(selection=[selection])
 
     def handle_selection(self, selection):
         logger.info('[LVP Main  ] FileSaveBTN.handle_selection()')
