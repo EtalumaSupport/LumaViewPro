@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 from kivy_deps import sdl2, glew
-from PyInstaller.utils.hooks import copy_metadata, collect_submodules
+from PyInstaller.utils.hooks import copy_metadata, collect_all, collect_submodules
 
 app_name = 'lumaviewpro'
 datas = [
@@ -57,6 +57,17 @@ binaries = []
 _fx2_dll = _os.environ.get('FX2_LIBUSB_DLL', '').strip()
 if _fx2_dll and _os.path.exists(_fx2_dll):
     binaries.append((_fx2_dll, '.'))
+
+# ids_peak_afl (host auto-exposure/auto-gain engine) and ids_peak_icv are
+# reached only through runtime probes that build the import path from
+# strings (drivers/idscamera.py), so static analysis never sees them and
+# they silently vanish from frozen builds -- the camera-stack census in
+# build.ps1 fails the build when that happens. Collect them explicitly.
+for _ids_probe_pkg in ('ids_peak_afl', 'ids_peak_icv'):
+    _ids_datas, _ids_binaries, _ids_hidden = collect_all(_ids_probe_pkg)
+    datas += _ids_datas
+    binaries += _ids_binaries
+    hiddenimports += _ids_hidden
 
 a = Analysis(
     ['lumaviewpro.py'],
