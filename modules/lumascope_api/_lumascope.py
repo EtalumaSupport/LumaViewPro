@@ -5,6 +5,8 @@ import pathlib
 import warnings
 from typing import TYPE_CHECKING
 
+from lvp_logger import logger
+
 # Import Lumascope Hardware files
 from drivers.motorboard import MotorBoard
 from drivers.ledboard import LEDBoard
@@ -13,8 +15,12 @@ import modules.image_mode as image_mode
 
 try:
     from drivers.idscamera import IDSCamera
-except ImportError:
+except ImportError as _ids_exc:
     IDSCamera = None
+    # The reason MUST reach the log: the driver silently never registers,
+    # so without it an IDS scope just "has no camera" -- a swallowed
+    # bundling gap in a frozen build cost a full client misdiagnosis.
+    logger.warning(f'[SCOPE API ] IDS camera driver unavailable: {_ids_exc}')
 # FX2 (Lumaview Classic LS560/LS620/LS720) -- the import side-effect is
 # the entire point: it fires the @camera_registry.register('fx2') and
 # @led_registry.register('fx2') decorators inside the module. Nothing
@@ -24,8 +30,10 @@ except ImportError:
 # pyusb / libusb1 don't crash LVP at startup (matches IDS pattern above).
 try:
     import drivers.fx2driver  # noqa: F401
-except ImportError:
-    pass
+except ImportError as _fx2_exc:
+    # Same silent-degradation shape as the IDS guard above: without this
+    # line a Classic scope's missing camera has no named cause anywhere.
+    logger.warning(f'[SCOPE API ] FX2 (Classic) drivers unavailable: {_fx2_exc}')
 from drivers.camera import Camera
 
 # Registration-only imports: loading each driver module fires its
@@ -46,7 +54,6 @@ from modules.exceptions import CameraSettingRejected
 from modules.scope_capabilities import ScopeCapabilities
 
 # Import additional libraries
-from lvp_logger import logger
 import logging as _logging
 
 from modules.notification_center import notifications

@@ -116,3 +116,65 @@ def init_environment(main_file: str) -> AppEnvironment:
         num_cores=num_cores,
         lvp_installed=lvp_installed,
     )
+
+
+def _dist_version(name: str) -> str | None:
+    try:
+        import importlib.metadata as imeta
+
+        return imeta.version(name)
+    except Exception:
+        return None
+
+
+def camera_sdk_probe() -> list[str]:
+    """Describe the camera-SDK Python bindings by IMPORTING them.
+
+    importlib.metadata is the wrong instrument here: frozen (installer)
+    builds bundle the modules but almost none of the dist metadata, so a
+    metadata read reports "not installed" for bindings that import fine --
+    and says nothing useful when the binding genuinely cannot import.
+    Probing by import answers the only question the driver layer cares
+    about (can this SDK be used?) and carries the exact failure reason
+    when it cannot.
+
+    Returns:
+        Human-readable one-line descriptions, one per SDK, suitable for
+        the startup banner and support bundles.
+    """
+    lines = []
+
+    try:
+        from pypylon import pylon
+    except Exception as e:
+        lines.append(f'pypylon: not importable ({type(e).__name__}: {e})')
+    else:
+        import pypylon
+
+        binding = (
+            getattr(pypylon, '__version__', None)
+            or _dist_version('pypylon')
+            or 'importable (version unknown)'
+        )
+        try:
+            sdk = pylon.GetPylonVersionString()
+        except Exception:
+            try:
+                sdk = '.'.join(str(x) for x in pylon.GetPylonVersion())
+            except Exception:
+                sdk = 'unknown'
+        lines.append(f'pypylon binding: {binding} / Pylon SDK: {sdk}')
+
+    try:
+        from ids_peak import ids_peak as ids_binding
+    except Exception as e:
+        lines.append(f'ids_peak: not importable ({type(e).__name__}: {e})')
+    else:
+        version = (
+            getattr(ids_binding, '__version__', None)
+            or _dist_version('ids_peak')
+            or 'importable (version unknown)'
+        )
+        lines.append(f'ids_peak: {version}')
+
+    return lines
