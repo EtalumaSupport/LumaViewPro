@@ -431,6 +431,41 @@ $pyi_exit = $LASTEXITCODE
 $env:FX2_LIBUSB_DLL = $null
 if ($pyi_exit -ne 0) { Write-Host "ERROR: PyInstaller failed"; Set-Location $build_dir; Exit 1 }
 
+# The transcript is the ONLY artifact that survives the _tmp cleanup, so
+# every freeze diagnostic must land in it (and a copy of the warn file
+# lands next to the build log). Losing the warn file cost a full client
+# round-trip diagnosing a module PyInstaller had flagged at build time.
+Write-Host "--- PyInstaller warn file ---"
+$warn_file = Get-ChildItem ".\build\lumaviewpro\warn-*.txt" -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($warn_file) {
+    Get-Content $warn_file.FullName | Write-Host
+    Copy-Item $warn_file.FullName (Join-Path $artifacts "pyinstaller_warn_$version.txt") -Force
+} else {
+    Write-Host "WARNING: no PyInstaller warn file found under .\build\lumaviewpro\"
+}
+
+# Dist census + hard gate: an exe missing a camera-SDK package cannot see
+# that camera class and MUST NOT ship silently -- the gap only surfaces on
+# a client machine otherwise. Folder presence covers the binary halves;
+# the spec asserts the pure-Python halves inside the frozen archive.
+Write-Host "--- Dist camera-stack census (.\dist\lumaviewpro) ---"
+$critical_pkgs = @('pypylon', 'ids_peak', 'ids_peak_ipl', 'ids_peak_afl', 'ids_peak_icv')
+$census_missing = @()
+foreach ($pkg in $critical_pkgs) {
+    if (Test-Path ".\dist\lumaviewpro\$pkg") {
+        Write-Host "  ${pkg}: present"
+    } else {
+        Write-Host "  ${pkg}: MISSING"
+        $census_missing += $pkg
+    }
+}
+if ($census_missing.Count -gt 0) {
+    Write-Host "ERROR: critical camera packages missing from the frozen dist: $($census_missing -join ', ')"
+    Write-Host "The exe would silently lack support for those cameras on client machines."
+    Set-Location $build_dir
+    Exit 1
+}
+
 # Create install directory
 $install = ".\dist\$product"
 New-Item $install -ItemType Directory -Force | Out-Null

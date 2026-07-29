@@ -80,6 +80,28 @@ a = Analysis(
     ],
     noarchive=False,
 )
+
+# Camera-SDK completeness gate. The dist-folder census in build.ps1 sees
+# only the BINARY halves of these packages; the pure-Python wrapper
+# modules live in the frozen archive and are invisible on disk -- a
+# bundle can carry every DLL yet fail `from ids_peak import ids_peak` at
+# runtime. Assert the wrappers made it into the analysis, so a
+# camera-blind exe fails HERE instead of on a client machine.
+_required_pure_modules = [
+    'pypylon.pylon',
+    'ids_peak.ids_peak',
+    'ids_peak.ids_peak_ipl_extension',
+    'ids_peak_ipl',
+]
+_analyzed = {entry[0] for entry in a.pure}
+_missing_pure = [m for m in _required_pure_modules if m not in _analyzed]
+if _missing_pure:
+    raise SystemExit(
+        f'FATAL: camera-SDK modules missing from the frozen bundle: {_missing_pure}. '
+        f'The exe would import-fail these bindings at runtime and silently lose '
+        f'that camera class. Check the build venv wheels and PyInstaller hooks.'
+    )
+
 pyz = PYZ(a.pure, a.zipped_data)
 
 splash = Splash(
