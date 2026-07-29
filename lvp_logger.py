@@ -603,7 +603,7 @@ def _collect_installed_packages() -> dict:
     return dict(sorted(packages.items(), key=lambda kv: kv[0].lower()))
 
 
-def log_environment_banner(install_path: str, version_str: str):
+def log_environment_banner(install_path: str, version_str: str, camera_sdk_lines: list[str]):
     """Emit the standard launch-time environment fingerprint.
 
     ``install_path`` is the directory the executable runs from -- where
@@ -611,11 +611,16 @@ def log_environment_banner(install_path: str, version_str: str):
     the install root, NOT the per-user data directory; on a source/dev run
     the two coincide.
 
+    ``camera_sdk_lines`` is the output of
+    ``modules.app_environment.camera_sdk_probe()`` -- required (not
+    defaulted, not imported here) so no entry point can silently drop the
+    camera-SDK fingerprint, while this foundational module keeps zero
+    dependency on modules/.
+
     Logs git hash, run time, host/OS, Python interpreter + version, Kivy,
-    and camera SDK versions (pypylon binding + Pylon SDK runtime,
-    ids_peak). Every entry point that ships should call this on startup
-    so support bundles always identify the exact environment that
-    produced the log.
+    and the camera-SDK lines. Every entry point that ships should call
+    this on startup so support bundles always identify the exact
+    environment that produced the log.
 
     Centralized here so REST API, headless test runner, CLI tools all
     get the same fingerprint without copy-paste.
@@ -726,15 +731,13 @@ def log_environment_banner(install_path: str, version_str: str):
 
     # Camera SDKs -- log both the Python binding version AND the
     # underlying SDK runtime. Binding/SDK mismatch has bitten us before.
-    # The probe IMPORTS the bindings rather than reading dist metadata:
-    # frozen builds bundle the modules with almost no metadata, so a
-    # metadata read claimed "not installed" for importable bindings and
-    # hid the reason when one truly could not import.
-    # Function-local import keeps this module import-light -- it is the
-    # first LVP import in every entry point.
-    from modules.app_environment import camera_sdk_probe
-
-    for _sdk_line in camera_sdk_probe():
+    # The lines come from the caller (camera_sdk_probe() output), which
+    # probes by IMPORT: frozen builds bundle the modules with almost no
+    # dist metadata, so the metadata read that used to live here claimed
+    # "not installed" for importable bindings and hid the reason when one
+    # truly could not import. Passed in rather than imported so this
+    # foundational module keeps zero dependency on modules/.
+    for _sdk_line in camera_sdk_lines:
         logger.info(f'[LVP Main  ] {_sdk_line}')
 
     # Full installed-package inventory. install.bat / pip upgrades change
