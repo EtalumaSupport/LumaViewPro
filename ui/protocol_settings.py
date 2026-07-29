@@ -1786,6 +1786,12 @@ class ProtocolSettings(FloatLayout):
     def _scan_run_complete(self, **kwargs):
         ctx = _app_ctx.ctx
 
+        # The run's LED restore has settled by the time this callback is
+        # scheduled, so reconcile every enable toggle to driver truth: the
+        # step-nav run indicator can be left stale by a Stop, and an
+        # all-dark restore emits no LED events to correct it.
+        ctx.ui_listener_bridge.reconcile_led_buttons()
+
         # Don't reset protocol_running_global yet - keep it True until files complete
 
         # Reset completion event for this scan (thread-safe)
@@ -1968,6 +1974,10 @@ class ProtocolSettings(FloatLayout):
 
     def _protocol_run_complete(self, **kwargs):
         ctx = _app_ctx.ctx
+
+        # See _scan_run_complete: reconcile enable toggles to driver truth
+        # now that the run's LED restore has settled.
+        ctx.ui_listener_bridge.reconcile_led_buttons()
 
         # Don't reset protocol_running_global yet - keep it True until files complete
 

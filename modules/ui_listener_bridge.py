@@ -108,37 +108,57 @@ class UIListenerBridge:
             return  # Already scheduled, will pick up latest state
         self._pending_led_updates[color] = True
 
-        ctx = self._ctx
-        scope = self._scope
+        def _update_led_ui(dt, c=color):
+            self._pending_led_updates.pop(c, None)
+            self._write_led_button_from_driver(color=c)
 
+        self._ui_dispatch(_update_led_ui, 0)
+
+    def _write_led_button_from_driver(self, color: str) -> None:
+        """Write one channel's enable toggle from CURRENT driver truth.
+
+        Reads the driver state (not event args, which may be stale) and
+        writes 'down'/'normal' with the LED-command suppression flag held,
+        so reflecting driver truth cannot itself drive an LED.
+        """
+        ctx = self._ctx
+        if not ctx.ready:
+            return
+        try:
+            layer_obj = ctx.image_settings.layer_lookup(layer=color)
+        except Exception:
+            return
         # Lazy import keeps the executor layer GUI-agnostic (no GUI
         # module imported at bridge construction time).
         if self._LayerControl is None:
             from ui.layer_control import LayerControl
 
             self._LayerControl = LayerControl
-        LayerControl = self._LayerControl
-
-        def _update_led_ui(dt, c=color):
-            self._pending_led_updates.pop(c, None)
-            if not ctx.ready:
-                return
+        state = self._scope.illumination.get_led_state(color=color)
+        target = 'down' if state.get('enabled', False) else 'normal'
+        if layer_obj.ids['enable_led_btn'].state != target:
+            self._LayerControl._suppressing_led_log = True
             try:
-                layer_obj = ctx.image_settings.layer_lookup(layer=c)
-            except Exception:
-                return
-            # Read CURRENT state from driver (not event args, which
-            # may be stale).
-            state = scope.illumination.get_led_state(color=c)
-            target = 'down' if state.get('enabled', False) else 'normal'
-            if layer_obj.ids['enable_led_btn'].state != target:
-                LayerControl._suppressing_led_log = True
-                try:
-                    layer_obj.ids['enable_led_btn'].state = target
-                finally:
-                    LayerControl._suppressing_led_log = False
+                layer_obj.ids['enable_led_btn'].state = target
+            finally:
+                self._LayerControl._suppressing_led_log = False
 
-        self._ui_dispatch(_update_led_ui, 0)
+    def reconcile_led_buttons(self) -> None:
+        """Level-based reconcile of EVERY channel's enable toggle to driver truth.
+
+        The LED listener above is edge-triggered: a widget left stale by a
+        writer whose expected LED event never fired (e.g. a run-indicator
+        write for a step a Stop cancelled, restored by an all-dark diff that
+        emits no events) is never corrected by events alone. Call this at
+        run completion, AFTER the hardware restore has settled, so the
+        read is the run's true end state.
+        """
+
+        def _reconcile(dt):
+            for color in common_utils.get_layers_with_led():
+                self._write_led_button_from_driver(color=color)
+
+        self._ui_dispatch(_reconcile, 0)
 
     def _on_camera_setting_changed(self, param, value):
         """Camera listener -- fires on set_gain / set_exposure_time.
