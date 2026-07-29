@@ -448,8 +448,11 @@ def _collect_system_info():
         import pypylon.pylon as pylon
 
         info['pylon_version'] = pylon.GetPylonVersion()
-    except Exception:
-        # Try to find Pylon install from registry or filesystem
+    except Exception as e:
+        # The import failure text is the diagnostic (a bundling gap in a
+        # frozen build names its missing module/DLL here); the registry
+        # query only says whether the SDK installer ever ran.
+        info['pylon_import_error'] = f'{type(e).__name__}: {e}'
         if is_win:
             info['pylon_install'] = _run(
                 ['reg', 'query', r'HKLM\SOFTWARE\Basler\pylon', '/ve'], timeout=5
@@ -462,7 +465,8 @@ def _collect_system_info():
         import ids_peak
 
         info['ids_peak_version'] = getattr(ids_peak, '__version__', 'imported but no __version__')
-    except Exception:
+    except Exception as e:
+        info['ids_peak_import_error'] = f'{type(e).__name__}: {e}'
         if is_win:
             info['ids_peak_install'] = _run(
                 ['reg', 'query', r'HKLM\SOFTWARE\IDS\ids peak', '/ve'], timeout=5

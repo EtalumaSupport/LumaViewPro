@@ -726,34 +726,16 @@ def log_environment_banner(install_path: str, version_str: str):
 
     # Camera SDKs -- log both the Python binding version AND the
     # underlying SDK runtime. Binding/SDK mismatch has bitten us before.
-    try:
-        import importlib.metadata as _imeta
+    # The probe IMPORTS the bindings rather than reading dist metadata:
+    # frozen builds bundle the modules with almost no metadata, so a
+    # metadata read claimed "not installed" for importable bindings and
+    # hid the reason when one truly could not import.
+    # Function-local import keeps this module import-light -- it is the
+    # first LVP import in every entry point.
+    from modules.app_environment import camera_sdk_probe
 
-        _pypylon_binding = _imeta.version('pypylon')
-    except Exception:
-        _pypylon_binding = 'unknown'
-    try:
-        from pypylon import pylon as _pylon
-
-        # Prefer the dotted string (e.g. "10.2.1.0471") over the raw
-        # list form GetPylonVersion() returns -- the list renders as
-        # `[10, 2, 1, 471]` in logs, which looks like a bug report
-        # waiting to happen.
-        try:
-            _pylon_ver = _pylon.GetPylonVersionString()
-        except Exception:
-            _v = _pylon.GetPylonVersion()
-            _pylon_ver = '.'.join(str(x) for x in _v)
-        logger.info(f'[LVP Main  ] pypylon binding: {_pypylon_binding} / Pylon SDK: {_pylon_ver}')
-    except Exception as e:
-        logger.info(f'[LVP Main  ] Pylon SDK: unavailable ({e})')
-    try:
-        import importlib.metadata as _imeta
-
-        _ids_ver = _imeta.version('ids_peak')
-        logger.info(f'[LVP Main  ] ids_peak: {_ids_ver}')
-    except Exception:
-        logger.info('[LVP Main  ] ids_peak: not installed')
+    for _sdk_line in camera_sdk_probe():
+        logger.info(f'[LVP Main  ] {_sdk_line}')
 
     # Full installed-package inventory. install.bat / pip upgrades change
     # behavior -- e.g. the ffmpeg + libx264 build bundled inside `av` -- WITHOUT
