@@ -135,7 +135,11 @@ class ProtocolPostProcessor(abc.ABC):
             if result.get('degraded') or new_count is None or not output_root:
                 body = result.get('message', 'Complete.')
             else:
-                body = f'{new_count} {fname.lower()}(s) saved to {output_root}.'
+                # The count-based body drops the message, so the drop/skip
+                # accounting must ride along explicitly or unattended users
+                # never see it (a silently skipped well looks like success).
+                accounting = result.get('accounting_note', '')
+                body = f'{new_count} {fname.lower()}(s) saved to {output_root}.{accounting}'
             notifications.notice('Post-processing', f'{fname}s Saved', body)
         else:
             notifications.error(
@@ -206,7 +210,34 @@ class ProtocolPostProcessor(abc.ABC):
             protocol.capture_root() if protocol is not None else '',
         )
 
+        # Account for every input the subclass filter drops: the completion
+        # and empty-result messages are built from survivors, so uncounted
+        # drops misattribute the outcome (a composite-only folder read as
+        # "lacks multi-tile structure"). Dropped rows self-describe their
+        # category through their own PostFunction flags.
+        pre_filter_df = df
         df = self._filter_ignored_types(df=df)
+        excluded_counts: dict[str, int] = {}
+        dropped_rows = pre_filter_df.loc[pre_filter_df.index.difference(df.index)]
+        for _, dropped in dropped_rows.iterrows():
+            for flag in PostFunction.list_values():
+                if dropped[flag]:
+                    category = f'{flag.lower()} file(s)'
+                    break
+            else:
+                category = 'other file(s)'
+            excluded_counts[category] = excluded_counts.get(category, 0) + 1
+        if excluded_counts:
+            excluded_text = ', '.join(
+                f'{count} {category}' for category, count in sorted(excluded_counts.items())
+            )
+            logger.info(
+                f'[{self._name} ] {len(dropped_rows)} input file(s) excluded from '
+                f'{self._post_function.value.lower()} generation: {excluded_text}'
+            )
+        else:
+            excluded_text = ''
+
         groups = self._get_groups(df)
 
         group_count = len(groups)
@@ -254,12 +285,14 @@ class ProtocolPostProcessor(abc.ABC):
         degraded_outputs = []
         output_significant_bits = None
         completed_group_ms = []
+        skipped_single_paths = []
 
         for _, group in groups:
             if len(group) == 0:
                 continue
 
             if len(group) == 1:
+                skipped_single_paths.append(str(group.iloc[0]['Filepath']))
                 logger.debug(
                     f'[{self._name} ] Skipping generation for {group.iloc[0]["Filepath"]} since only {len(group)} image found.'
                 )
@@ -397,6 +430,22 @@ class ProtocolPostProcessor(abc.ABC):
                 f'artifacts were not generated.'
             )
 
+        if skipped_single_paths:
+            shown = ', '.join(skipped_single_paths[:3])
+            more = ', ...' if len(skipped_single_paths) > 3 else ''
+            logger.info(
+                f'[{self._name} ] Skipped {len(skipped_single_paths)} single-image '
+                f'group(s) (nothing to combine): {shown}{more}'
+            )
+
+        single_skip_note = (
+            f' {len(skipped_single_paths)} single-image group(s) skipped.'
+            if skipped_single_paths
+            else ''
+        )
+        excluded_note = f' Excluded from this operation: {excluded_text}.' if excluded_text else ''
+        accounting_note = f'{single_skip_note}{excluded_note}'
+
         if (new_count == 0) and (existing_count == 0):
             fname = self._post_function.value
             if refused_count > 0:
@@ -411,6 +460,23 @@ class ProtocolPostProcessor(abc.ABC):
                 return {
                     'status': False,
                     'reason': 'collision',
+                    'message': msg,
+                }
+            if excluded_text and last_error is None:
+                # The emptiness is explained by what the filter excluded, not
+                # by the folder's structure -- a structural hint here sent
+                # users hunting for missing tiles a composite folder has.
+                fname_lower = fname.lower()
+                msg = (
+                    f'No {fname_lower} was generated: this folder holds '
+                    f'{excluded_text}, which are derived outputs excluded '
+                    f'from {fname_lower} generation. Only source channel '
+                    f'images are processed.{single_skip_note}'
+                )
+                logger.info(f'[{self._name} ] {msg}')
+                return {
+                    'status': False,
+                    'reason': 'excluded_inputs',
                     'message': msg,
                 }
             needed = _MULTI_FRAME_REQUIREMENT.get(
@@ -441,7 +507,7 @@ class ProtocolPostProcessor(abc.ABC):
                     f'No {fname} was generated. {fname} requires {needed}. '
                     f'The folder may have image files but not the structure '
                     f'this operation needs -- check the log if you expected '
-                    f'the folder to be compatible.'
+                    f'the folder to be compatible.{accounting_note}'
                 ),
             }
 
@@ -450,22 +516,24 @@ class ProtocolPostProcessor(abc.ABC):
         logger.info(
             f'{self._name}: Complete - Created {new_count} {self._post_function.value.lower()} '
             f'artifacts (significant_bits={output_significant_bits}) in {elapsed_time}.'
-            f'{collision_note}'
+            f'{collision_note}{accounting_note}'
         )
         if degraded_outputs:
             summary = self._degraded_summary(len(degraded_outputs))
             logger.warning(f'{self._name}: Complete with degraded outputs: {summary}')
             return {
                 'status': True,
-                'message': f'Success with degraded output: {summary}',
+                'message': f'Success with degraded output: {summary}{accounting_note}',
                 'degraded': True,
                 'degraded_outputs': degraded_outputs,
                 'new_count': new_count,
                 'output_root': str(root_path),
+                'accounting_note': accounting_note,
             }
         return {
             'status': True,
-            'message': f'Success.{collision_note}',
+            'message': f'Success.{collision_note}{accounting_note}',
             'new_count': new_count,
             'output_root': str(root_path),
+            'accounting_note': accounting_note,
         }
