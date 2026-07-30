@@ -58,13 +58,17 @@ _fx2_dll = _os.environ.get('FX2_LIBUSB_DLL', '').strip()
 if _fx2_dll and _os.path.exists(_fx2_dll):
     binaries.append((_fx2_dll, '.'))
 
-# ids_peak_afl (host auto-exposure/auto-gain engine) and ids_peak_icv are
-# reached only through runtime probes that build the import path from
-# strings (drivers/idscamera.py), so static analysis never sees them and
-# they silently vanish from frozen builds -- the camera-stack census in
-# build.ps1 fails the build when that happens. Collect them explicitly.
-for _ids_probe_pkg in ('ids_peak_afl', 'ids_peak_icv'):
-    _ids_datas, _ids_binaries, _ids_hidden = collect_all(_ids_probe_pkg)
+# Every ids_peak* package is collected WHOLESALE, never left to inference:
+# afl/icv are reached only through runtime probes that build the import
+# path from strings (drivers/idscamera.py), so static analysis never sees
+# them at all; and for the graph-visible base packages, binary-dependency
+# inference is NON-DETERMINISTIC for secondary DLLs -- one build included
+# ids_peak's log4cpp DLL and the next silently dropped it, which on a
+# client machine surfaces as a bare "DLL load failed" with no build-time
+# signal. collect_all mirrors each wheel's package dir exactly; the
+# content census in build.ps1 verifies the result name-by-name.
+for _ids_pkg in ('ids_peak', 'ids_peak_ipl', 'ids_peak_afl', 'ids_peak_icv'):
+    _ids_datas, _ids_binaries, _ids_hidden = collect_all(_ids_pkg)
     datas += _ids_datas
     binaries += _ids_binaries
     hiddenimports += _ids_hidden
