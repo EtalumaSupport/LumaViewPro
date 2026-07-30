@@ -14,7 +14,7 @@ import pathlib
 import re
 import uuid
 from dataclasses import asdict, dataclass
-from typing import Callable
+from collections.abc import Callable
 
 import cv2
 import numpy as np
@@ -23,7 +23,7 @@ from lvp_logger import logger
 from modules import common_utils, image_utils
 
 
-PIPELINE_VERSION = '1'
+PIPELINE_VERSION = '2'
 QUANTITATIVE_USE_WARNING = (
     'Quick Enhance is for visual inspection and derived exports. '
     'Use raw images for quantitative analysis. '
@@ -62,7 +62,10 @@ class QuickEnhancer:
         if dtype not in (np.dtype(np.uint8), np.dtype(np.uint16)):
             errors.append('Quick Enhance supports uint8 and uint16 images only.')
         container_bits = dtype.itemsize * 8
-        if not isinstance(significant_bits, (int, np.integer)) or not 1 <= significant_bits <= container_bits:
+        if (
+            not isinstance(significant_bits, (int, np.integer))
+            or not 1 <= significant_bits <= container_bits
+        ):
             errors.append(f'Significant bits must be between 1 and {container_bits}.')
         if not 0 <= settings.low_percentile < settings.high_percentile <= 100:
             errors.append('Low percentile must be below high percentile, within 0 to 100.')
@@ -294,7 +297,9 @@ class QuickEnhancer:
         temp_recipe = recipe_path.with_name(f'.{recipe_path.name}.{uuid.uuid4().hex}.tmp')
         try:
             source_metadata = image_utils.read_postproc_input_metadata(source_path) or {}
-            channel = str(source_metadata.get('channel') or self._source_channel(source_path) or 'BF')
+            channel = str(
+                source_metadata.get('channel') or self._source_channel(source_path) or 'BF'
+            )
             metadata = image_utils.build_postproc_output_metadata(
                 input_path=source_path,
                 channel=channel,
@@ -306,7 +311,7 @@ class QuickEnhancer:
                 # display-only component for these composite inputs, so retain
                 # the enhanced RGB data and preserve the Composite metadata.
                 output_for_write = output_for_write[..., :3]
-            if source_path.suffix.lower() not in ('.tif', '.tiff') and output_for_write.ndim == 3:
+            if not image_utils.is_tiff(source_path) and output_for_write.ndim == 3:
                 # cv2 loads PNG/JPEG in BGR(A), whereas TIFF metadata and the
                 # project's TIFF writer are RGB-native. Convert the alpha-free
                 # display payload so a Composite PNG cannot reintroduce RGBA.
@@ -354,7 +359,8 @@ class QuickEnhancer:
         files = sorted(
             path
             for path in folder.iterdir()
-            if path.is_file() and path.suffix.lower() in SUPPORTED_SUFFIXES
+            if path.is_file()
+            and path.suffix.lower() in SUPPORTED_SUFFIXES
             and '_enhanced' not in path.stem.lower()
         )
         created = []

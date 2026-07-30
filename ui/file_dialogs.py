@@ -32,6 +32,13 @@ _POST_PROCESSING_CONTEXTS = (
     'apply_zprojection_to_folder',
     'apply_quick_enhance_to_folder',
 )
+# The FILE-choose funnel needs the same backstop. The Quick Enhance preview
+# marks its panel busy BEFORE an executor put() that the file executor
+# silently drops while a protocol owns it -- the preview callback then never
+# fires, busy sticks True, and the panel's disabled binding wedges until
+# restart. The other file contexts run synchronously on selection and cannot
+# wedge, so only the executor-backed one is listed.
+_POST_PROCESSING_FILE_CONTEXTS = ('load_quick_enhance_input_image',)
 
 
 def _zprojection_picker_default_path(live_folder: pathlib.Path) -> str:
@@ -418,6 +425,17 @@ class FileChooseBTN(HoverBehavior, Button):
         if self.selection:
             gui_logger.select('FILE_CHOOSE', f'context={self.context} path={self.selection[0]}')
         ctx = _app_ctx.ctx
+
+        if self.context in _POST_PROCESSING_FILE_CONTEXTS and ctx.protocol_running.is_set():
+            from modules.notification_center import notifications
+
+            notifications.warning(
+                'Post-Processing',
+                'Protocol running',
+                'Post-processing cannot run while a protocol scan is in '
+                'progress. Stop or finish the protocol first, then retry.',
+            )
+            return
 
         if self.selection:
             if self.context == 'load_protocol':

@@ -6,6 +6,10 @@ Covers ``convert_12bit_to_8bit(out=...)``, whose reusable out buffer saves
 
 from __future__ import annotations
 
+import ast
+import pathlib
+from typing import ClassVar
+
 import numpy as np
 
 import modules.image_utils as image_utils
@@ -163,3 +167,78 @@ class TestTiffDiscovery:
         deep = {p.name for p in image_utils.find_tiff_files(tmp_path, recursive=True)}
         assert flat == {'top.tiff'}
         assert deep == {'top.tiff', 'nested.ome.tiff'}
+
+
+class TestTiffSuffixSingleSource:
+    """TIFF-ness has ONE production answer: ``is_tiff`` / ``TIFF_SUFFIXES``.
+
+    A hand-rolled suffix comparison silently drifts the moment the canonical
+    set changes, so production source is scanned for the two shapes that
+    reintroduce a second answer: (a) a comparison or endswith/startswith
+    against a literal '.tif'/'.tiff', and (b) a re-declared container
+    holding both suffixes. Filename CONSTRUCTION ('x_enhanced.tif',
+    ``file_extension = '.tiff'``) is deliberately not flagged -- only
+    classification is required to go through the canonical helper.
+    """
+
+    _SUFFIXES: ClassVar[frozenset[str]] = frozenset({'.tif', '.tiff'})
+
+    @staticmethod
+    def _production_files():
+        root = pathlib.Path(__file__).resolve().parents[1]
+        files = [root / 'lumaviewpro.py']
+        for sub in ('modules', 'ui', 'drivers'):
+            files.extend(sorted((root / sub).rglob('*.py')))
+        return root, files
+
+    @classmethod
+    def _container_holds_suffix(cls, node) -> bool:
+        return isinstance(node, (ast.Tuple, ast.List, ast.Set)) and any(
+            isinstance(elt, ast.Constant) and elt.value in cls._SUFFIXES for elt in node.elts
+        )
+
+    @classmethod
+    def _container_holds_both(cls, node) -> bool:
+        if not isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+            return False
+        values = {elt.value for elt in node.elts if isinstance(elt, ast.Constant)}
+        return values >= cls._SUFFIXES
+
+    @classmethod
+    def _is_literal_suffix_classification(cls, node) -> bool:
+        if isinstance(node, ast.Compare):
+            for op, comparator in zip(node.ops, node.comparators, strict=True):
+                if not isinstance(op, (ast.In, ast.NotIn, ast.Eq, ast.NotEq)):
+                    continue
+                if isinstance(comparator, ast.Constant) and comparator.value in cls._SUFFIXES:
+                    return True
+                if cls._container_holds_suffix(comparator):
+                    return True
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in ('endswith', 'startswith')
+        ):
+            for arg in node.args:
+                if isinstance(arg, ast.Constant) and arg.value in cls._SUFFIXES:
+                    return True
+                if cls._container_holds_suffix(arg):
+                    return True
+        return False
+
+    def test_no_second_tiff_suffix_authority_in_production_source(self):
+        root, files = self._production_files()
+        canonical = root / 'modules' / 'image_utils.py'
+        offenders = []
+        for path in files:
+            tree = ast.parse(path.read_text(encoding='utf-8'))
+            for node in ast.walk(tree):
+                hit = self._is_literal_suffix_classification(node) or (
+                    path != canonical and self._container_holds_both(node)
+                )
+                if hit:
+                    offenders.append(f'{path.relative_to(root)}:{node.lineno}')
+        assert offenders == [], (
+            'TIFF classification must go through image_utils.is_tiff / '
+            'TIFF_SUFFIXES; hand-rolled suffix checks found at: ' + ', '.join(offenders)
+        )

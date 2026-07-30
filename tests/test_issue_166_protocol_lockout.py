@@ -143,3 +143,27 @@ def test_postprocessing_funnel_blocks_during_protocol():
     assert guard_idx != -1 and dispatch_idx != -1 and guard_idx < dispatch_idx, (
         'the protocol-running guard must run before the post-processing dispatch'
     )
+
+
+def test_quick_enhance_image_funnel_blocks_during_protocol():
+    """The FILE-choose funnel needs the same backstop as the folder funnel.
+
+    Picking a Quick Enhance input image lands in set_source_file, which sets
+    the panel's ``busy`` flag BEFORE an executor put() that the file executor
+    silently drops while a protocol owns it -- the preview callback then never
+    fires, ``busy`` sticks True, and the kv binding disables the whole panel
+    until restart. The native dialog is async and outlives protocol start, so
+    the disabled button alone cannot stop the selection arriving mid-run.
+    """
+    src = _read('ui/file_dialogs.py')
+    body = _method_in_class(src, 'FileChooseBTN', 'on_selection_function')
+    assert body is not None, 'FileChooseBTN.on_selection_function missing'
+    assert 'protocol_running.is_set' in body.replace(' ', ''), (
+        'the file-choose funnel must refuse post-processing selections mid-protocol'
+    )
+    assert 'notifications.warning' in body
+    guard_idx = body.replace(' ', '').find('protocol_running.is_set')
+    dispatch_idx = body.replace(' ', '').find('set_source_file')
+    assert guard_idx != -1 and dispatch_idx != -1 and guard_idx < dispatch_idx, (
+        'the protocol-running guard must run before the quick-enhance dispatch'
+    )

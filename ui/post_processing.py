@@ -71,7 +71,7 @@ class QuickEnhanceControls(BoxLayout):
         self.source_folder = ''
         self.input_ready = False
         self.busy = True
-        self.status_text = 'Updating preview…' if refresh else 'Loading image preview…'
+        self.status_text = 'Updating preview...' if refresh else 'Loading image preview...'
         _app_ctx.ctx.file_io_executor.put(
             IOTask(
                 action=self._load_preview,
@@ -173,7 +173,7 @@ class QuickEnhanceControls(BoxLayout):
         target_is_folder = bool(self.source_folder)
         self._export_inflight = True
         popup.title = 'Quick Enhance'
-        popup.text = 'Creating derived image export… Closing this window does not cancel export.'
+        popup.text = 'Creating derived image export... Closing this window does not cancel export.'
         popup.progress = 0
         popup.auto_dismiss = False
         _app_ctx.ctx.file_io_executor.put(
@@ -213,7 +213,9 @@ class QuickEnhanceControls(BoxLayout):
         popup.text = f'Quick Enhance: {completed}/{total} -- {path.name}'
 
     def _export_callback(self, popup, result=None, exception=None) -> None:
-        self.busy = False
+        # busy belongs to the preview path (set/cleared there); the export
+        # path gates on _export_inflight alone, which must clear on every
+        # terminal path so the export button re-enables.
         self._export_inflight = False
         from modules.notification_center import notifications
 
