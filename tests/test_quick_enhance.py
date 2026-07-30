@@ -10,7 +10,7 @@ import pytest
 import tifffile as tf
 
 from modules import image_utils
-from modules.quick_enhance import QuickEnhanceSettings, QuickEnhancer
+from modules.quick_enhance import QUANTITATIVE_USE_WARNING, QuickEnhanceSettings, QuickEnhancer
 
 
 def _metadata(significant_bits: int, channel: str = 'Green') -> dict:
@@ -61,9 +61,7 @@ def test_apply_preserves_source_dtype_range_and_input(image, significant_bits, m
 
 def test_uniform_image_is_stable_and_does_not_divide_by_zero():
     image = np.full((12, 12), 1000, dtype=np.uint16)
-    result = QuickEnhancer().apply(
-        image, QuickEnhanceSettings.for_preset('Brightfield / Phase'), 12
-    )
+    result = QuickEnhancer().apply(image, QuickEnhanceSettings(), 12)
 
     assert np.array_equal(result, image)
 
@@ -82,6 +80,27 @@ def test_rgb_images_use_one_shared_tone_curve_without_changing_shape_or_dtype():
     assert result.dtype == np.uint8
     assert int(result.min()) >= 0
     assert int(result.max()) <= 255
+
+
+def test_representative_bf_fluorescence_and_composite_exports_preserve_sources(tmp_path):
+    fixtures = {
+        'bf': (np.arange(256, dtype=np.uint16).reshape(16, 16), 'BF', (16, 16)),
+        'green': (np.arange(256, dtype=np.uint16).reshape(16, 16), 'Green', (16, 16, 3)),
+        'composite': (np.dstack([np.arange(256, dtype=np.uint16).reshape(16, 16)] * 3), 'Composite', (16, 16, 3)),
+    }
+    enhancer = QuickEnhancer()
+
+    for name, (pixels, channel, expected_shape) in fixtures.items():
+        source = tmp_path / f'{name}.tif'
+        _write_source(source, pixels, 12, channel=channel)
+        original = source.read_bytes()
+        exported = enhancer.export_file(source, QuickEnhanceSettings())
+        output, bits = image_utils.load_pixels(exported['output_path'], collapse_legacy_false_color=False)
+
+        assert source.read_bytes() == original
+        assert output.shape == expected_shape
+        assert output.dtype == np.uint16
+        assert bits == 12
 
 
 @pytest.mark.parametrize('suffix', ('.png', '.jpg'))
@@ -113,54 +132,29 @@ def test_invalid_settings_are_rejected_before_processing():
         QuickEnhancer().apply(np.ones((4, 4), dtype=np.uint16), settings, 12)
 
 
-def test_presets_are_stable_and_safe():
-    automatic = QuickEnhanceSettings.for_preset('Auto (Recommended)')
-    brightfield = QuickEnhanceSettings.for_preset('Brightfield / Phase')
-    contrast_only = QuickEnhanceSettings.for_preset('Contrast Only')
+def test_quick_enhance_uses_one_fixed_non_ai_recipe():
+    settings = QuickEnhanceSettings()
 
-    assert automatic.background_enabled is False
-    assert automatic.denoise_enabled is False
-    assert automatic.gamma == 1.0
-    assert brightfield.gamma == 0.9
-    assert contrast_only.gamma == 1.0
-    with pytest.raises(ValueError, match='Unknown Quick Enhance preset'):
-        QuickEnhanceSettings.for_preset('Custom')
-
-
-def test_auto_detects_transmitted_bf_from_tiff_name_when_metadata_is_unavailable(tmp_path):
-    source = tmp_path / 'scan_BF.tif'
-    _write_source(source, np.arange(64, dtype=np.uint16).reshape(8, 8), 12, channel='BF')
-
-    settings, description = QuickEnhancer().settings_for_source(
-        source, QuickEnhanceSettings.for_preset('Auto (Recommended)')
-    )
-
-    assert settings.preset == 'Brightfield / Phase'
+    assert settings.illumination_correction_enabled is True
+    assert settings.denoise_enabled is False
     assert settings.gamma == 0.9
-    assert 'BF' in description
 
 
-def test_auto_uses_neutral_levels_for_composite_and_unknown_images(tmp_path):
-    composite = tmp_path / 'composite.tif'
-    _write_source(composite, np.zeros((8, 8, 3), dtype=np.uint16), 12, channel='Composite')
-    unknown = tmp_path / 'untagged.png'
-    assert cv2.imwrite(str(unknown), np.zeros((8, 8, 3), dtype=np.uint8))
-    auto = QuickEnhanceSettings.for_preset('Auto (Recommended)')
+def test_broad_illumination_correction_improves_dim_feature_visibility_without_dark_ring():
+    image = np.full((128, 128), 500, dtype=np.uint16)
+    image[48:80, 48:80] = 560
 
-    composite_settings, composite_description = QuickEnhancer().settings_for_source(composite, auto)
-    unknown_settings, unknown_description = QuickEnhancer().settings_for_source(unknown, auto)
+    result = QuickEnhancer().apply(image, QuickEnhanceSettings(), 12)
 
-    assert composite_settings.preset == 'Auto (Recommended)'
-    assert 'Composite' in composite_description
-    assert unknown_settings.preset == 'Auto (Recommended)'
-    assert 'neutral' in unknown_description
+    assert np.ptp(result) > np.ptp(image)
+    assert int(result[32, 64]) >= int(result[8, 8])
 
 
-def test_background_correction_never_wraps_unsigned_values():
+def test_illumination_correction_never_wraps_unsigned_values():
     image = np.zeros((64, 64), dtype=np.uint16)
     image[:, 32:] = 100
     image[20:30, 20:30] = 1000
-    settings = QuickEnhanceSettings(background_enabled=True, background_sigma=5.0)
+    settings = QuickEnhanceSettings(illumination_correction_enabled=True)
 
     result = QuickEnhancer().apply(image, settings, 12)
 
@@ -196,6 +190,13 @@ def test_recipe_has_required_provenance_and_quantitative_warning(tmp_path):
     assert recipe['quantitative_use_warning']
     assert recipe['input_dtype'] == 'uint16'
     assert recipe['operations']['auto_levels']['enabled'] is True
+    assert recipe['operations']['illumination_correction']['enabled'] is True
+    assert recipe['operations']['illumination_correction']['method'] == 'global_plane_normalization'
+
+
+def test_quantitative_warning_routes_ai_workflows_to_lumaquant_pro():
+    assert 'raw images' in QUANTITATIVE_USE_WARNING.lower()
+    assert 'LumaQuant Pro' in QUANTITATIVE_USE_WARNING
 
 
 def test_export_preserves_tiff_depth_writes_recipe_and_never_overwrites(tmp_path):
@@ -224,9 +225,7 @@ def test_brightfield_tiff_stays_monochrome_and_preserves_payload_depth(tmp_path)
     source_data = np.linspace(0, 4095, 256, dtype=np.uint16).reshape(16, 16)
     _write_source(source, source_data, 12, channel='BF')
 
-    exported = QuickEnhancer().export_file(
-        source, QuickEnhanceSettings.for_preset('Brightfield / Phase')
-    )
+    exported = QuickEnhancer().export_file(source, QuickEnhanceSettings())
     output, significant_bits = image_utils.load_pixels(exported['output_path'])
 
     assert output.ndim == 2
@@ -260,9 +259,7 @@ def test_rgba_composite_exports_as_rgb_without_rejecting_composite_metadata(tmp_
     source_data[..., 3] = 4095
     tf.imwrite(source, source_data, photometric='rgb')
 
-    exported = QuickEnhancer().export_file(
-        source, QuickEnhanceSettings.for_preset('Auto (Recommended)')
-    )
+    exported = QuickEnhancer().export_file(source, QuickEnhanceSettings())
     output, significant_bits = image_utils.load_pixels(
         exported['output_path'], collapse_legacy_false_color=False
     )
@@ -279,9 +276,7 @@ def test_rgba_composite_png_drops_alpha_before_rgb_tiff_export(tmp_path):
     source_data[..., 3] = 255
     assert cv2.imwrite(str(source), source_data)
 
-    exported = QuickEnhancer().export_file(
-        source, QuickEnhanceSettings.for_preset('Auto (Recommended)')
-    )
+    exported = QuickEnhancer().export_file(source, QuickEnhanceSettings())
     output, significant_bits = image_utils.load_pixels(
         exported['output_path'], collapse_legacy_false_color=False
     )
@@ -308,19 +303,17 @@ def test_fluorescence_mono_output_is_false_colored_without_changing_bf_rules(cha
     assert grayscale_bf.ndim == 2
 
 
-def test_green_auto_export_is_rgb_and_a_second_run_keeps_green_detection(tmp_path):
+def test_green_export_is_rgb_and_a_second_run_keeps_green_metadata(tmp_path):
     source = tmp_path / 'green_sample.tiff'
     source_data = np.linspace(0, 4095, 64, dtype=np.uint16).reshape(8, 8)
     _write_source(source, source_data, 12, channel='Green')
     enhancer = QuickEnhancer()
 
-    first = enhancer.export_file(source, QuickEnhanceSettings.for_preset('Auto (Recommended)'))
+    first = enhancer.export_file(source, QuickEnhanceSettings())
     output, significant_bits = image_utils.load_pixels(
         first['output_path'], collapse_legacy_false_color=False
     )
-    settings, detection = enhancer.settings_for_source(
-        first['output_path'], QuickEnhanceSettings.for_preset('Auto (Recommended)')
-    )
+    metadata = image_utils.read_postproc_input_metadata(first['output_path'])
 
     assert output.shape == (8, 8, 3)
     assert output.dtype == np.uint16
@@ -328,8 +321,7 @@ def test_green_auto_export_is_rgb_and_a_second_run_keeps_green_detection(tmp_pat
     assert output[..., 1].any()
     assert not output[..., 0].any()
     assert not output[..., 2].any()
-    assert settings.preset == 'Auto (Recommended)'
-    assert 'Green' in detection
+    assert metadata['channel'] == 'Green'
 
 
 def test_folder_batch_skips_unreadable_file_and_continues(tmp_path):
@@ -342,9 +334,7 @@ def test_folder_batch_skips_unreadable_file_and_continues(tmp_path):
     result = QuickEnhancer().export_folder(
         tmp_path,
         QuickEnhanceSettings(),
-        progress_callback=lambda completed, total, path: progress.append(
-            (completed, total, path.name)
-        ),
+        progress_callback=lambda completed, total, path: progress.append((completed, total, path.name)),
     )
 
     assert result['status'] is True
@@ -358,7 +348,9 @@ def test_folder_batch_skips_unreadable_file_and_continues(tmp_path):
 def test_mixed_folder_exports_bf_composite_png_jpeg_and_skips_bad_or_derived_files(tmp_path):
     bf = tmp_path / 'bf.tif'
     composite = tmp_path / 'composite.tif'
-    _write_source(bf, np.linspace(0, 4095, 64, dtype=np.uint16).reshape(8, 8), 12, channel='BF')
+    _write_source(
+        bf, np.linspace(0, 4095, 64, dtype=np.uint16).reshape(8, 8), 12, channel='BF'
+    )
     composite_pixels = np.zeros((8, 8, 3), dtype=np.uint16)
     composite_pixels[..., 0] = 4095
     composite_pixels[..., 1] = 1200
@@ -372,28 +364,20 @@ def test_mixed_folder_exports_bf_composite_png_jpeg_and_skips_bad_or_derived_fil
     bad.write_bytes(b'not an image')
     existing_derived = tmp_path / 'old_enhanced.tif'
     _write_source(existing_derived, np.ones((8, 8), dtype=np.uint16), 12, channel='BF')
-    original_bytes = {
-        path: path.read_bytes() for path in (bf, composite, png, jpeg, bad, existing_derived)
-    }
+    original_bytes = {path: path.read_bytes() for path in (bf, composite, png, jpeg, bad, existing_derived)}
     progress = []
 
     result = QuickEnhancer().export_folder(
         tmp_path,
         QuickEnhanceSettings(),
-        progress_callback=lambda completed, total, path: progress.append(
-            (completed, total, path.name)
-        ),
+        progress_callback=lambda completed, total, path: progress.append((completed, total, path.name)),
     )
 
     assert result['total'] == 5
     assert result['created_count'] == 4
     assert [entry['source_path'].name for entry in result['skipped']] == ['bad.tif']
     assert [(completed, total) for completed, total, _ in progress] == [
-        (1, 5),
-        (2, 5),
-        (3, 5),
-        (4, 5),
-        (5, 5),
+        (1, 5), (2, 5), (3, 5), (4, 5), (5, 5)
     ]
     assert all(path.read_bytes() == original for path, original in original_bytes.items())
     assert (tmp_path / 'bf_enhanced.tif').exists()
@@ -419,44 +403,28 @@ def test_ui_export_callback_restores_controls_on_every_terminal_path():
     """The popup wrapper binds ``done`` and failure must clear ``busy``."""
     source = (pathlib.Path(__file__).resolve().parents[1] / 'ui' / 'post_processing.py').read_text()
     tree = ast.parse(source)
-    cls = next(
-        node
-        for node in tree.body
-        if isinstance(node, ast.ClassDef) and node.name == 'QuickEnhanceControls'
-    )
+    cls = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == 'QuickEnhanceControls')
     assert any(
         isinstance(node, ast.Assign)
         and any(isinstance(target, ast.Name) and target.id == 'done' for target in node.targets)
         for node in cls.body
     )
     callback = next(
-        node
-        for node in cls.body
-        if isinstance(node, ast.FunctionDef) and node.name == '_export_callback'
+        node for node in cls.body if isinstance(node, ast.FunctionDef) and node.name == '_export_callback'
     )
     callback_source = ast.get_source_segment(source, callback)
-    # busy belongs to the preview path (set/cleared there); the export
-    # path gates on _export_inflight alone, which must clear on every
-    # terminal path so the export button re-enables.
+    assert 'self.busy = False' in callback_source
     assert 'self._export_inflight = False' in callback_source
 
 
 def test_refresh_preview_requests_the_rebuilding_status():
     source = (pathlib.Path(__file__).resolve().parents[1] / 'ui' / 'post_processing.py').read_text()
     tree = ast.parse(source)
-    cls = next(
-        node
-        for node in tree.body
-        if isinstance(node, ast.ClassDef) and node.name == 'QuickEnhanceControls'
-    )
-    refresh = next(
-        node
-        for node in cls.body
-        if isinstance(node, ast.FunctionDef) and node.name == 'refresh_preview'
-    )
+    cls = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == 'QuickEnhanceControls')
+    refresh = next(node for node in cls.body if isinstance(node, ast.FunctionDef) and node.name == 'refresh_preview')
 
     assert 'refresh=True' in ast.get_source_segment(source, refresh)
-    assert "'Updating preview...' if refresh" in source
+    assert "'Updating preview…' if refresh" in source
 
 
 def test_preview_worker_imports_the_fluorescence_channel_helper():

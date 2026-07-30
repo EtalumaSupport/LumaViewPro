@@ -48,7 +48,6 @@ class QuickEnhanceControls(BoxLayout):
     warning_text = QUANTITATIVE_USE_WARNING
 
     done = BooleanProperty(False)
-    preset = StringProperty('Auto (Recommended)')
     source_path = StringProperty('')
     source_folder = StringProperty('')
     last_output_folder = StringProperty('')
@@ -72,7 +71,7 @@ class QuickEnhanceControls(BoxLayout):
         self.source_folder = ''
         self.input_ready = False
         self.busy = True
-        self.status_text = 'Updating preview...' if refresh else 'Loading image preview...'
+        self.status_text = 'Updating preview…' if refresh else 'Loading image preview…'
         _app_ctx.ctx.file_io_executor.put(
             IOTask(
                 action=self._load_preview,
@@ -91,10 +90,7 @@ class QuickEnhanceControls(BoxLayout):
         self.status_text = f'Folder selected: {folder.name}. Folder export is ready; preview controls require Select Image.'
 
     def _settings(self) -> QuickEnhanceSettings:
-        return QuickEnhanceSettings.for_preset(self.preset)
-
-    def on_preset(self, *_args) -> None:
-        self.refresh_preview()
+        return QuickEnhanceSettings()
 
     def refresh_preview(self) -> None:
         if not self.source_path or self.busy:
@@ -104,7 +100,6 @@ class QuickEnhanceControls(BoxLayout):
     @staticmethod
     def _load_preview(path: pathlib.Path, settings: QuickEnhanceSettings) -> dict:
         enhancer = QuickEnhancer()
-        settings, detection = enhancer.settings_for_source(path, settings)
         image, significant_bits = image_utils.load_pixels(path)
         before, after = enhancer.preview(image, settings, significant_bits)
         channel = enhancer._source_channel(path)
@@ -119,7 +114,7 @@ class QuickEnhanceControls(BoxLayout):
             'before': before,
             'after': after,
             'significant_bits': significant_bits,
-            'detection': detection,
+            'detection': 'Fixed recipe: global illumination correction, auto levels, and gentle gamma.',
         }
 
     def _preview_callback(self, result=None, exception=None) -> None:
@@ -218,6 +213,7 @@ class QuickEnhanceControls(BoxLayout):
         popup.text = f'Quick Enhance: {completed}/{total} -- {path.name}'
 
     def _export_callback(self, popup, result=None, exception=None) -> None:
+        self.busy = False
         self._export_inflight = False
         from modules.notification_center import notifications
 
