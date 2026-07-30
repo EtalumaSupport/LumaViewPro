@@ -23,7 +23,7 @@ from lvp_logger import logger
 from modules import common_utils, image_utils
 
 
-PIPELINE_VERSION = '1'
+PIPELINE_VERSION = '2'
 QUANTITATIVE_USE_WARNING = (
     'Quick Enhance is for visual inspection and derived exports. '
     'Use raw images for quantitative analysis. '
@@ -311,7 +311,7 @@ class QuickEnhancer:
                 # display-only component for these composite inputs, so retain
                 # the enhanced RGB data and preserve the Composite metadata.
                 output_for_write = output_for_write[..., :3]
-            if source_path.suffix.lower() not in ('.tif', '.tiff') and output_for_write.ndim == 3:
+            if not image_utils.is_tiff(source_path) and output_for_write.ndim == 3:
                 # cv2 loads PNG/JPEG in BGR(A), whereas TIFF metadata and the
                 # project's TIFF writer are RGB-native. Convert the alpha-free
                 # display payload so a Composite PNG cannot reintroduce RGBA.

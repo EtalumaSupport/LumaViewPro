@@ -213,7 +213,9 @@ class QuickEnhanceControls(BoxLayout):
         popup.text = f'Quick Enhance: {completed}/{total} -- {path.name}'
 
     def _export_callback(self, popup, result=None, exception=None) -> None:
-        self.busy = False
+        # busy belongs to the preview path (set/cleared there); the export
+        # path gates on _export_inflight alone, which must clear on every
+        # terminal path so the export button re-enables.
         self._export_inflight = False
         from modules.notification_center import notifications
 
