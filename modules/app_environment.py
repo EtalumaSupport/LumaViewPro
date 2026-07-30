@@ -7,6 +7,7 @@ import pathlib
 import re
 import shutil
 import subprocess
+import tempfile
 from dataclasses import dataclass
 
 _logger = logging.getLogger('LVP.app_environment')
@@ -216,6 +217,64 @@ def _loaded_module_census() -> list[str]:
         ):
             paths.append(buffer.value)
     return paths
+
+
+INSTALLER_LOG_PATTERN = 'LumaViewPro*.log'
+_MAX_CAPTURED_INSTALLER_LOGS = 10
+
+
+def capture_installer_logs(
+    log_dir: str | pathlib.Path,
+    temp_dir: str | pathlib.Path | None = None,
+    max_files: int = _MAX_CAPTURED_INSTALLER_LOGS,
+) -> list[str]:
+    """Copy the Windows installer's own logs into the application log folder.
+
+    The installer writes to the user TEMP directory, so a support bundle
+    never carries them: an install that silently failed to replace a
+    binary is then indistinguishable from an application defect. Windows
+    also sweeps TEMP on its own schedule, so the copy happens at every
+    startup rather than on request.
+
+    Args:
+        log_dir: Application log folder; logs land in its ``install``
+            subfolder.
+        temp_dir: Directory to scan. Defaults to the system temp folder.
+        max_files: Newest-first cap, so a long-lived TEMP cannot turn
+            startup into a large copy.
+
+    Returns:
+        Names copied by THIS call. Files already captured at the same
+        size are skipped, so repeated startups converge; a log that grew
+        (an install still writing when the app started) is recaptured.
+    """
+    source_dir = (
+        pathlib.Path(temp_dir) if temp_dir is not None else pathlib.Path(tempfile.gettempdir())
+    )
+    destination = pathlib.Path(log_dir) / 'install'
+    copied: list[str] = []
+    try:
+        candidates = [path for path in source_dir.glob(INSTALLER_LOG_PATTERN) if path.is_file()]
+    except OSError as e:
+        _logger.warning(f'Could not scan {source_dir} for installer logs: {e}')
+        return copied
+
+    candidates.sort(key=lambda path: path.stat().st_mtime, reverse=True)
+    for source in candidates[:max_files]:
+        target = destination / source.name
+        try:
+            if target.exists() and target.stat().st_size == source.stat().st_size:
+                continue
+            destination.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+        except OSError as e:
+            _logger.warning(f'Could not capture installer log {source.name}: {e}')
+            continue
+        copied.append(source.name)
+
+    if copied:
+        _logger.info(f'Captured {len(copied)} installer log(s) into {destination}')
+    return copied
 
 
 def preload_camera_sdks() -> None:
