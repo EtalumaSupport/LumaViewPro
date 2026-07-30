@@ -1,4 +1,3 @@
 4.0.0-beta23
 2026-07-30 15:20
-fix/installer-log-capture
-372f029e
+4.0.0-beta
