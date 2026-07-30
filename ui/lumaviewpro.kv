@@ -1771,7 +1771,7 @@
 		color: 0.86, 0.91, 0.95, 1
 		text_size: self.width - dp(16), None
 		size_hint_y: None
-		height: max(dp(66), self.texture_size[1] + dp(12))
+		height: self.texture_size[1] + dp(12)
 
 	Label:
 		text: 'Input'
@@ -1796,12 +1796,6 @@
 		color: 0.96, 0.98, 1, 1
 		size_hint_y: None
 		height: '18dp'
-	Label:
-		text: 'Global illumination correction + contrast for visual review'
-		font_size: '10sp'
-		color: 0.86, 0.91, 0.95, 1
-		size_hint_y: None
-		height: '24dp'
 	BoxLayout:
 		size_hint_y: None
 		height: '36dp'
@@ -1813,33 +1807,6 @@
 			text: 'Update Preview'
 			disabled: not root.source_path
 			on_release: root.refresh_preview()
-	Label:
-		text: 'Save'
-		font_size: '12sp'
-		bold: True
-		color: 0.96, 0.98, 1, 1
-		size_hint_y: None
-		height: '18dp'
-	QuickEnhancePrimaryButton:
-		text: 'Quick Enhance Folder' if root.source_folder else 'Quick Enhance Image'
-		size_hint_y: None
-		height: '38dp'
-		disabled: not root.input_ready
-		on_release: root.export()
-	Label:
-		text: root.status_text
-		font_size: '10sp'
-		text_size: self.width - dp(16), None
-		size_hint_y: None
-		height: max(dp(78), self.texture_size[1] + dp(12))
-		halign: 'left'
-		valign: 'middle'
-	QuickEnhanceUtilityButton:
-		text: 'Show Output Folder'
-		size_hint_y: None
-		height: '36dp'
-		disabled: not root.last_output_folder
-		on_release: root.open_output_folder()
 	Image:
 		id: quick_enhance_preview_image
 		fit_mode: 'contain'
@@ -1849,6 +1816,26 @@
 		# before an image loads), a scrollable fixed band when showing.
 		size_hint_y: None
 		height: dp(200) if self.texture else 0
+	QuickEnhancePrimaryButton:
+		text: 'Save Enhanced Image'
+		size_hint_y: None
+		height: '38dp'
+		disabled: not root.input_ready
+		on_release: root.export()
+	QuickEnhanceUtilityButton:
+		text: 'Show Output Folder'
+		size_hint_y: None
+		height: '36dp'
+		disabled: not root.last_output_folder
+		on_release: root.open_output_folder()
+	Label:
+		text: root.status_text
+		font_size: '10sp'
+		text_size: self.width - dp(16), None
+		size_hint_y: None
+		height: self.texture_size[1] + dp(12)
+		halign: 'left'
+		valign: 'middle'
 
 <QuickEnhanceUtilityButton@RoundedButton>:
 	font_size: '12sp'

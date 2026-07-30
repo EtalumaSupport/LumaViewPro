@@ -140,9 +140,9 @@ class QuickEnhancer:
         # independently remapping channels into a new composite.
         work = np.clip(image.astype(np.float32, copy=False), 0.0, source_max) / source_max
         source_channels = work if is_mono else work[..., :3]
+        if not np.isfinite(source_channels).all():
+            source_channels = np.nan_to_num(source_channels, nan=0.0, posinf=1.0, neginf=0.0)
         channels = source_channels.copy()
-        if not np.isfinite(work).all():
-            channels = np.nan_to_num(channels, nan=0.0, posinf=1.0, neginf=0.0)
         intensity = channels if is_mono else channels.mean(axis=2)
 
         if settings.illumination_correction_enabled and min(image.shape) >= 3:
@@ -197,7 +197,6 @@ class QuickEnhancer:
         height, width = intensity.shape
         stride = max(1, int(np.ceil(np.sqrt(intensity.size / 100_000))))
         sample = intensity[::stride, ::stride]
-        sample_y, sample_x = np.mgrid[0:height:stride, 0:width:stride]
         values = sample.reshape(-1)
         finite = np.isfinite(values)
         if finite.sum() < 3:
@@ -206,17 +205,21 @@ class QuickEnhancer:
         fit_mask = finite & (values <= cutoff)
         if fit_mask.sum() < 3:
             fit_mask = finite
-        x = sample_x.reshape(-1) / max(width - 1, 1)
-        y = sample_y.reshape(-1) / max(height - 1, 1)
+        sample_y = np.arange(0, height, stride, dtype=np.float32) / max(height - 1, 1)
+        sample_x = np.arange(0, width, stride, dtype=np.float32) / max(width - 1, 1)
+        x = np.broadcast_to(sample_x, sample.shape).reshape(-1)
+        y = np.broadcast_to(sample_y[:, np.newaxis], sample.shape).reshape(-1)
         design = np.column_stack((x[fit_mask], y[fit_mask], np.ones(fit_mask.sum())))
         coefficients, *_ = np.linalg.lstsq(design, values[fit_mask], rcond=None)
-        full_y, full_x = np.mgrid[0:height, 0:width]
+        full_y = np.arange(height, dtype=np.float32) / max(height - 1, 1)
+        full_x = np.arange(width, dtype=np.float32) / max(width - 1, 1)
         plane = (
-            coefficients[0] * (full_x / max(width - 1, 1))
-            + coefficients[1] * (full_y / max(height - 1, 1))
+            coefficients[0] * full_x[np.newaxis, :]
+            + coefficients[1] * full_y[:, np.newaxis]
             + coefficients[2]
         )
-        return np.maximum(plane.astype(np.float32), 1.0 / 65535.0)
+        plane = plane.astype(np.float32, copy=False)
+        return np.maximum(plane, 1.0 / 65535.0, out=plane)
 
     def preview(
         self,

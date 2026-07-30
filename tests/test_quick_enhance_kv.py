@@ -55,7 +55,9 @@ def test_quick_enhance_kv_offers_one_fixed_quick_enhance_action():
     assert "text: 'Show Original' if root.show_after else 'Show Enhanced'" in quick_enhance_rule
     assert "text: 'Update Preview'" in quick_enhance_rule
     assert "text: 'Save Enhanced Image'" in quick_enhance_rule
-    assert "text: 'Quick Enhance'" not in quick_enhance_rule
+    assert quick_enhance_rule.count("text: 'Quick Enhance'") == 1
+    assert "text: 'Save'" not in quick_enhance_rule
+    assert 'Global illumination correction + contrast for visual review' not in quick_enhance_rule
     assert 'disabled: not root.input_ready' in quick_enhance_rule
     assert 'Spinner:' not in quick_enhance_rule
     assert 'text: root.warning_text' in quick_enhance_rule
