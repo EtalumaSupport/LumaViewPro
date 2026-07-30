@@ -86,7 +86,11 @@ def test_representative_bf_fluorescence_and_composite_exports_preserve_sources(t
     fixtures = {
         'bf': (np.arange(256, dtype=np.uint16).reshape(16, 16), 'BF', (16, 16)),
         'green': (np.arange(256, dtype=np.uint16).reshape(16, 16), 'Green', (16, 16, 3)),
-        'composite': (np.dstack([np.arange(256, dtype=np.uint16).reshape(16, 16)] * 3), 'Composite', (16, 16, 3)),
+        'composite': (
+            np.dstack([np.arange(256, dtype=np.uint16).reshape(16, 16)] * 3),
+            'Composite',
+            (16, 16, 3),
+        ),
     }
     enhancer = QuickEnhancer()
 
@@ -95,7 +99,9 @@ def test_representative_bf_fluorescence_and_composite_exports_preserve_sources(t
         _write_source(source, pixels, 12, channel=channel)
         original = source.read_bytes()
         exported = enhancer.export_file(source, QuickEnhanceSettings())
-        output, bits = image_utils.load_pixels(exported['output_path'], collapse_legacy_false_color=False)
+        output, bits = image_utils.load_pixels(
+            exported['output_path'], collapse_legacy_false_color=False
+        )
 
         assert source.read_bytes() == original
         assert output.shape == expected_shape
@@ -334,7 +340,9 @@ def test_folder_batch_skips_unreadable_file_and_continues(tmp_path):
     result = QuickEnhancer().export_folder(
         tmp_path,
         QuickEnhanceSettings(),
-        progress_callback=lambda completed, total, path: progress.append((completed, total, path.name)),
+        progress_callback=lambda completed, total, path: progress.append(
+            (completed, total, path.name)
+        ),
     )
 
     assert result['status'] is True
@@ -348,9 +356,7 @@ def test_folder_batch_skips_unreadable_file_and_continues(tmp_path):
 def test_mixed_folder_exports_bf_composite_png_jpeg_and_skips_bad_or_derived_files(tmp_path):
     bf = tmp_path / 'bf.tif'
     composite = tmp_path / 'composite.tif'
-    _write_source(
-        bf, np.linspace(0, 4095, 64, dtype=np.uint16).reshape(8, 8), 12, channel='BF'
-    )
+    _write_source(bf, np.linspace(0, 4095, 64, dtype=np.uint16).reshape(8, 8), 12, channel='BF')
     composite_pixels = np.zeros((8, 8, 3), dtype=np.uint16)
     composite_pixels[..., 0] = 4095
     composite_pixels[..., 1] = 1200
@@ -364,20 +370,28 @@ def test_mixed_folder_exports_bf_composite_png_jpeg_and_skips_bad_or_derived_fil
     bad.write_bytes(b'not an image')
     existing_derived = tmp_path / 'old_enhanced.tif'
     _write_source(existing_derived, np.ones((8, 8), dtype=np.uint16), 12, channel='BF')
-    original_bytes = {path: path.read_bytes() for path in (bf, composite, png, jpeg, bad, existing_derived)}
+    original_bytes = {
+        path: path.read_bytes() for path in (bf, composite, png, jpeg, bad, existing_derived)
+    }
     progress = []
 
     result = QuickEnhancer().export_folder(
         tmp_path,
         QuickEnhanceSettings(),
-        progress_callback=lambda completed, total, path: progress.append((completed, total, path.name)),
+        progress_callback=lambda completed, total, path: progress.append(
+            (completed, total, path.name)
+        ),
     )
 
     assert result['total'] == 5
     assert result['created_count'] == 4
     assert [entry['source_path'].name for entry in result['skipped']] == ['bad.tif']
     assert [(completed, total) for completed, total, _ in progress] == [
-        (1, 5), (2, 5), (3, 5), (4, 5), (5, 5)
+        (1, 5),
+        (2, 5),
+        (3, 5),
+        (4, 5),
+        (5, 5),
     ]
     assert all(path.read_bytes() == original for path, original in original_bytes.items())
     assert (tmp_path / 'bf_enhanced.tif').exists()
@@ -403,14 +417,20 @@ def test_ui_export_callback_restores_controls_on_every_terminal_path():
     """The popup wrapper binds ``done`` and failure must clear ``busy``."""
     source = (pathlib.Path(__file__).resolve().parents[1] / 'ui' / 'post_processing.py').read_text()
     tree = ast.parse(source)
-    cls = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == 'QuickEnhanceControls')
+    cls = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == 'QuickEnhanceControls'
+    )
     assert any(
         isinstance(node, ast.Assign)
         and any(isinstance(target, ast.Name) and target.id == 'done' for target in node.targets)
         for node in cls.body
     )
     callback = next(
-        node for node in cls.body if isinstance(node, ast.FunctionDef) and node.name == '_export_callback'
+        node
+        for node in cls.body
+        if isinstance(node, ast.FunctionDef) and node.name == '_export_callback'
     )
     callback_source = ast.get_source_segment(source, callback)
     assert 'self.busy = False' in callback_source
@@ -420,11 +440,19 @@ def test_ui_export_callback_restores_controls_on_every_terminal_path():
 def test_refresh_preview_requests_the_rebuilding_status():
     source = (pathlib.Path(__file__).resolve().parents[1] / 'ui' / 'post_processing.py').read_text()
     tree = ast.parse(source)
-    cls = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == 'QuickEnhanceControls')
-    refresh = next(node for node in cls.body if isinstance(node, ast.FunctionDef) and node.name == 'refresh_preview')
+    cls = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == 'QuickEnhanceControls'
+    )
+    refresh = next(
+        node
+        for node in cls.body
+        if isinstance(node, ast.FunctionDef) and node.name == 'refresh_preview'
+    )
 
     assert 'refresh=True' in ast.get_source_segment(source, refresh)
-    assert "'Updating preview…' if refresh" in source
+    assert "'Updating preview...' if refresh" in source
 
 
 def test_preview_worker_imports_the_fluorescence_channel_helper():

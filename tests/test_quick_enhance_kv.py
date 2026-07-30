@@ -46,19 +46,24 @@ def test_lumaviewpro_kv_parses_with_quick_enhance_controls():
 
 def test_quick_enhance_kv_offers_one_fixed_quick_enhance_action():
     content = KV_PATH.read_text(encoding='utf-8')
-    quick_enhance_rule = content[content.index('<QuickEnhanceControls>:'):content.index('<QuickEnhanceUtilityButton@')]
+    quick_enhance_rule = content[
+        content.index('<QuickEnhanceControls>:') : content.index('<QuickEnhanceUtilityButton@')
+    ]
 
     assert "text: 'Choose Image'" in quick_enhance_rule
     assert "text: 'Choose Folder'" in quick_enhance_rule
     assert "text: 'Show Original' if root.show_after else 'Show Enhanced'" in quick_enhance_rule
     assert "text: 'Update Preview'" in quick_enhance_rule
-    assert "text: 'Quick Enhance Folder' if root.source_folder else 'Quick Enhance Image'" in quick_enhance_rule
+    assert (
+        "text: 'Quick Enhance Folder' if root.source_folder else 'Quick Enhance Image'"
+        in quick_enhance_rule
+    )
     assert "text: 'Quick Enhance'" in quick_enhance_rule
     assert 'disabled: not root.input_ready' in quick_enhance_rule
     assert 'Spinner:' not in quick_enhance_rule
     assert 'text: root.warning_text' in quick_enhance_rule
-    assert "height: max(dp(66), self.texture_size[1] + dp(12))" in quick_enhance_rule
-    assert "height: max(dp(78), self.texture_size[1] + dp(12))" in quick_enhance_rule
+    assert 'height: max(dp(66), self.texture_size[1] + dp(12))' in quick_enhance_rule
+    assert 'height: max(dp(78), self.texture_size[1] + dp(12))' in quick_enhance_rule
 
 
 def test_every_post_processing_panel_is_scroll_wrapped():
@@ -106,9 +111,9 @@ def test_quick_enhance_disclaimer_is_single_homed():
 
 
 def test_quick_enhance_documentation_explains_the_fixed_recipe():
-    documentation = (
-        Path(__file__).resolve().parents[1] / 'docs' / 'QUICK_ENHANCE.md'
-    ).read_text(encoding='utf-8')
+    documentation = (Path(__file__).resolve().parents[1] / 'docs' / 'QUICK_ENHANCE.md').read_text(
+        encoding='utf-8'
+    )
 
     assert 'illumination correction' in documentation
     assert 'dark halos' in documentation

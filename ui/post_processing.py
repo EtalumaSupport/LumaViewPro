@@ -71,7 +71,7 @@ class QuickEnhanceControls(BoxLayout):
         self.source_folder = ''
         self.input_ready = False
         self.busy = True
-        self.status_text = 'Updating preview…' if refresh else 'Loading image preview…'
+        self.status_text = 'Updating preview...' if refresh else 'Loading image preview...'
         _app_ctx.ctx.file_io_executor.put(
             IOTask(
                 action=self._load_preview,
@@ -173,7 +173,7 @@ class QuickEnhanceControls(BoxLayout):
         target_is_folder = bool(self.source_folder)
         self._export_inflight = True
         popup.title = 'Quick Enhance'
-        popup.text = 'Creating derived image export… Closing this window does not cancel export.'
+        popup.text = 'Creating derived image export... Closing this window does not cancel export.'
         popup.progress = 0
         popup.auto_dismiss = False
         _app_ctx.ctx.file_io_executor.put(
