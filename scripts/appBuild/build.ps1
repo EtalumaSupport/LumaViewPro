@@ -466,6 +466,43 @@ if ($census_missing.Count -gt 0) {
     Exit 1
 }
 
+# Content census: folder presence is not completeness -- a package dir can
+# exist while the DLLs beside its extension module were dropped or altered,
+# and the exe then fails the import only on a client machine. The build
+# venv's installed wheels are the single source of truth: every pyd/dll in
+# the venv package dir must exist in dist with the same byte size (size
+# inequality also catches post-collection mangling, e.g. compression).
+# pypylon is deliberately NOT content-checked: its PyInstaller hook prunes
+# files legitimately, so a venv diff would false-fail; folder presence
+# above still covers it.
+$content_pkgs = @('ids_peak', 'ids_peak_ipl', 'ids_peak_afl', 'ids_peak_icv')
+$content_bad = @()
+foreach ($pkg in $content_pkgs) {
+    $src_dir = Join-Path $venv "Lib\site-packages\$pkg"
+    if (-not (Test-Path $src_dir)) { continue }
+    $binaries = Get-ChildItem -Path $src_dir -File | Where-Object { $_.Extension -in '.pyd', '.dll' }
+    foreach ($bin in $binaries) {
+        $dist_file = ".\dist\lumaviewpro\$pkg\$($bin.Name)"
+        if (-not (Test-Path $dist_file)) {
+            $content_bad += "$pkg\$($bin.Name) (missing from dist)"
+        } elseif ((Get-Item $dist_file).Length -ne $bin.Length) {
+            $content_bad += "$pkg\$($bin.Name) (dist $((Get-Item $dist_file).Length) bytes vs wheel $($bin.Length))"
+        }
+    }
+}
+if ($content_bad.Count -gt 0) {
+    Write-Host "ERROR: camera-SDK package content incomplete or altered in dist:"
+    $content_bad | ForEach-Object { Write-Host "  $_" }
+    Set-Location $build_dir
+    Exit 1
+}
+Write-Host "  content census: ids_peak* pyd/dll name+size verified against the build venv"
+foreach ($crt in @('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')) {
+    if (-not (Test-Path ".\dist\lumaviewpro\$crt")) {
+        Write-Host "WARNING: $crt not found at dist top level (VC runtime family; IDS/GenICam DLLs need it)"
+    }
+}
+
 # Create install directory
 $install = ".\dist\$product"
 New-Item $install -ItemType Directory -Force | Out-Null

@@ -4,6 +4,7 @@
 import logging
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -177,4 +178,84 @@ def camera_sdk_probe() -> list[str]:
         )
         lines.append(f'ids_peak: {version}')
 
+    lines.extend(_CAMERA_SDK_PRELOAD_REPORT)
     return lines
+
+
+_CAMERA_SDK_PRELOAD_REPORT: list[str] = []
+
+
+def _loaded_module_census() -> list[str]:
+    """Full paths of process-resident DLLs relevant to the camera stacks."""
+    if os.name != 'nt':
+        return []
+    import ctypes
+    from ctypes import wintypes
+
+    psapi = ctypes.WinDLL('psapi')
+    kernel32 = ctypes.WinDLL('kernel32')
+    process = kernel32.GetCurrentProcess()
+    needed = wintypes.DWORD()
+    module_handles = (wintypes.HMODULE * 2048)()
+    ok = psapi.EnumProcessModulesEx(
+        process, module_handles, ctypes.sizeof(module_handles), ctypes.byref(needed), 0x03
+    )
+    if not ok:
+        return ['<module census unavailable>']
+    count = min(needed.value // ctypes.sizeof(wintypes.HMODULE), len(module_handles))
+    interesting = re.compile(
+        r'ids_|tbb|genapi|gcbase|pylon|msvcp|vcruntime|nodemapdata'
+        r'|xmlparser|mathparser|log4cpp|python3',
+        re.IGNORECASE,
+    )
+    paths = []
+    buffer = ctypes.create_unicode_buffer(1024)
+    for handle in module_handles[:count]:
+        if psapi.GetModuleFileNameExW(process, handle, buffer, len(buffer)) and interesting.search(
+            os.path.basename(buffer.value)
+        ):
+            paths.append(buffer.value)
+    return paths
+
+
+def preload_camera_sdks() -> None:
+    """Import the IDS camera stack while the process is still nearly empty.
+
+    The IDS image-processing library initializes cleanly in a bare process
+    (on-machine loader probes passed in every import order and environment
+    variant) but its DLL initialization routine fails once the
+    application's full DLL population -- pylon, Kivy/SDL, numpy, cv2 -- is
+    resident. Importing the stack here, before any of those load, gives it
+    the process state it is known to survive. ids_peak_ipl goes first: its
+    package __init__ registers the DLL directory the core binding and the
+    extension bridge resolve against.
+
+    Failures are recorded per stage with a resident-module census so a
+    support bundle names the failing stage without another on-site
+    round-trip; camera_sdk_probe() folds the report into the startup
+    banner. Machines without the IDS wheels (dev Macs, sim boxes) record
+    nothing -- the probe's own line already reports absence.
+    """
+    stages = (
+        ('ids_peak_ipl', 'import ids_peak_ipl'),
+        ('ids_peak', 'from ids_peak import ids_peak'),
+        ('ids_peak_ipl_extension', 'from ids_peak import ids_peak_ipl_extension'),
+    )
+    for name, statement in stages:
+        try:
+            if name == 'ids_peak_ipl':
+                import ids_peak_ipl  # noqa: F401
+            elif name == 'ids_peak':
+                from ids_peak import ids_peak  # noqa: F401
+            else:
+                from ids_peak import ids_peak_ipl_extension  # noqa: F401
+        except ModuleNotFoundError:
+            return
+        except Exception as e:
+            _CAMERA_SDK_PRELOAD_REPORT.append(
+                f'ids preload FAILED at {name} ({statement}): {type(e).__name__}: {e}'
+            )
+            for path in _loaded_module_census():
+                _CAMERA_SDK_PRELOAD_REPORT.append(f'  resident: {path}')
+            return
+    _CAMERA_SDK_PRELOAD_REPORT.append('ids preload: all stages imported in clean process state')

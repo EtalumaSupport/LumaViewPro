@@ -6,9 +6,14 @@ import re
 import threading
 import time
 
+# ids_peak_ipl first: its package __init__ registers the DLL directory the
+# core binding and the ipl-extension bridge resolve against. The stack is
+# normally already resident from the startup preload
+# (modules/app_environment.preload_camera_sdks); this order keeps a direct
+# driver import correct on its own.
+import ids_peak_ipl
 from ids_peak import ids_peak
 from ids_peak import ids_peak_ipl_extension
-import ids_peak_ipl
 
 from lvp_logger import logger
 
