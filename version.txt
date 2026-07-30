@@ -1,4 +1,3 @@
 4.0.0-beta23
-2026-07-30 14:39
-fix/761-collect-ids-packages
-5e6f514a
+2026-07-30 14:42
+4.0.0-beta
