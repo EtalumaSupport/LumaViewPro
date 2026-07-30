@@ -73,9 +73,16 @@ if __name__ == '__main__':
     # ---------------------Module Imports---------------------------------------#
     ############################################################################
 
-    from lvp_logger import debug, logger
+    from lvp_logger import debug, log_dir, logger
 
     DEBUG_MODE = debug
+
+    # The installer logs to the user TEMP folder, which no support bundle
+    # collects and Windows eventually sweeps -- so an install that failed
+    # to replace a file cannot be told apart from an application defect.
+    from modules.app_environment import capture_installer_logs
+
+    capture_installer_logs(log_dir)
 
     print(f'LumaViewPro {version}')
     logger.info(f'[LVP Main  ] LumaViewPro {version}')
