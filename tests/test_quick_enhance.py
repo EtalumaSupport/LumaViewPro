@@ -169,6 +169,35 @@ def test_illumination_correction_never_wraps_unsigned_values():
     assert int(result.max()) <= 4095
 
 
+def test_illumination_plane_avoids_full_resolution_coordinate_grids(monkeypatch):
+    class RejectFullResolutionGrid:
+        def __getitem__(self, key):
+            row_slice, column_slice = key
+            if row_slice.step in (None, 1) and column_slice.step in (None, 1):
+                raise AssertionError('full-resolution coordinate grids are not allowed')
+            rows = np.arange(row_slice.start, row_slice.stop, row_slice.step)
+            columns = np.arange(column_slice.start, column_slice.stop, column_slice.step)
+            return np.meshgrid(rows, columns, indexing='ij')
+
+    monkeypatch.setattr('modules.quick_enhance.np.mgrid', RejectFullResolutionGrid())
+    plane = QuickEnhancer()._global_illumination_plane(np.ones((1000, 1000), dtype=np.float32))
+
+    assert plane.shape == (1000, 1000)
+    assert plane.dtype == np.float32
+
+
+def test_color_algorithm_sanitizes_non_finite_channels_before_reconstruction(monkeypatch):
+    enhancer = QuickEnhancer()
+    monkeypatch.setattr(enhancer, 'validate', lambda *_: [])
+    image = np.full((8, 8, 3), 64.0, dtype=np.float32)
+    image[0, 0, 0] = np.nan
+    image[1, 1, 1] = np.inf
+
+    result = enhancer.apply(image, QuickEnhanceSettings(), 8)
+
+    assert np.isfinite(result).all()
+
+
 def test_tiny_images_with_denoise_are_safe():
     image = np.array([[1]], dtype=np.uint8)
     settings = QuickEnhanceSettings(denoise_enabled=True, denoise_kernel_size=3)

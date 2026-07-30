@@ -54,16 +54,19 @@ def test_quick_enhance_kv_offers_one_fixed_quick_enhance_action():
     assert "text: 'Choose Folder'" in quick_enhance_rule
     assert "text: 'Show Original' if root.show_after else 'Show Enhanced'" in quick_enhance_rule
     assert "text: 'Update Preview'" in quick_enhance_rule
-    assert (
-        "text: 'Quick Enhance Folder' if root.source_folder else 'Quick Enhance Image'"
-        in quick_enhance_rule
-    )
-    assert "text: 'Quick Enhance'" in quick_enhance_rule
+    assert "text: 'Save Enhanced Image'" in quick_enhance_rule
+    assert "text: 'Quick Enhance'" not in quick_enhance_rule
     assert 'disabled: not root.input_ready' in quick_enhance_rule
     assert 'Spinner:' not in quick_enhance_rule
     assert 'text: root.warning_text' in quick_enhance_rule
-    assert 'height: max(dp(66), self.texture_size[1] + dp(12))' in quick_enhance_rule
-    assert 'height: max(dp(78), self.texture_size[1] + dp(12))' in quick_enhance_rule
+    assert 'height: self.texture_size[1] + dp(12)' in quick_enhance_rule
+
+    preview_index = quick_enhance_rule.index('id: quick_enhance_preview_image')
+    save_index = quick_enhance_rule.index("text: 'Save Enhanced Image'")
+    status_index = quick_enhance_rule.index('text: root.status_text')
+    output_folder_index = quick_enhance_rule.index("text: 'Show Output Folder'")
+    assert preview_index < save_index, 'preview must be visible before export controls'
+    assert output_folder_index < status_index, 'status belongs at the bottom of the panel'
 
 
 def test_every_post_processing_panel_is_scroll_wrapped():
