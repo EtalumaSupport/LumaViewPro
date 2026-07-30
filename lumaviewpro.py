@@ -27,6 +27,14 @@ if sys.version_info < (3, 11):  # noqa: UP036 -- runtime check is load-bearing U
     print(f'ERROR: {_msg}', file=sys.stderr)
     sys.exit(1)
 
+# The IDS camera stack must initialize while the process is still nearly
+# empty: its image-processing DLL fails initialization once the full DLL
+# population (matplotlib->numpy, Kivy/SDL, cv2, pylon) is resident, so the
+# preload precedes every heavy import.
+from modules.app_environment import preload_camera_sdks
+
+preload_camera_sdks()
+
 import functools
 import threading
 
