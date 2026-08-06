@@ -41,6 +41,7 @@ _TREE = ast.parse(_SRC)
 _PRIMITIVE_NAMES = {
     '_foregrounded_tk_root',
     '_platform_native_choose_folder',
+    '_platform_native_choose_file_or_folder',
     '_platform_native_open_file',
     '_platform_native_save_file',
 }
@@ -145,7 +146,7 @@ def test_macos_primitives_use_the_zombie_backstop_timeout():
     """The osascript timeout is the shared hour-long backstop, not a short
     user-facing limit that silently cancels a legitimately-open panel."""
     assert 'timeout=120' not in _SRC
-    assert _SRC.count('timeout=_MACOS_DIALOG_TIMEOUT_S') == 3
+    assert _SRC.count('timeout=_MACOS_DIALOG_TIMEOUT_S') == 4
 
 
 # ---------------------------------------------------------------------------
