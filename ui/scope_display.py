@@ -1193,6 +1193,32 @@ class ScopeDisplay(Image):
         except Exception as e:
             logger.warning(f'[LVP Main  ] hold_protocol_saved_image failed: {e}')
 
+    def hold_derived_image(self, image, significant_bits):
+        """Show a derived post-processing image briefly in the central viewer.
+
+        Derived color TIFFs are RGB-native, while the Kivy helper accepts BGR
+        display bytes. This path is intentionally separate from the live-camera
+        render loop and uses the same bounded display hold as a saved protocol
+        frame, so a just-created output is visible before live frames resume.
+        """
+        if image is None or getattr(image, 'size', 0) == 0:
+            return
+        try:
+            from ui.image_utils_kivy import image_to_texture
+
+            display = image
+            if display.dtype != np.uint8:
+                display = image_utils.convert_to_8bit(display, significant_bits)
+            if display.ndim == 3:
+                display = display[..., :3][..., ::-1].copy()
+            thread = getattr(_app_ctx.ctx, 'scope_display_thread', None)
+            if thread is not None:
+                thread.bump_protocol_hold(self._PROTOCOL_HOLD_MS / 1000.0)
+            self.texture = image_to_texture(display)
+            self.canvas.ask_update()
+        except Exception as e:
+            logger.warning(f'[LVP Main  ] hold_derived_image failed: {e}')
+
     def _count_display_fps(self):
         """Track actual rendered frame rate (called on main thread after blit).
 

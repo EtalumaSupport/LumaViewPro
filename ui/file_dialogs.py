@@ -38,7 +38,7 @@ _POST_PROCESSING_CONTEXTS = (
 # fires, busy sticks True, and the panel's disabled binding wedges until
 # restart. The other file contexts run synchronously on selection and cannot
 # wedge, so only the executor-backed one is listed.
-_POST_PROCESSING_FILE_CONTEXTS = ('load_quick_enhance_input_image',)
+_POST_PROCESSING_FILE_CONTEXTS = ('choose_quick_enhance_target',)
 
 
 def _zprojection_picker_default_path(live_folder: pathlib.Path) -> str:
@@ -148,6 +148,27 @@ def _macos_choose_folder(initial_dir=None):
     return None
 
 
+def _macos_choose_file_or_folder(initial_dir=None):
+    """Show one native macOS picker that accepts either an image or a folder."""
+    script = 'set theItem to choose file or folder'
+    if initial_dir:
+        script += f' default location POSIX file "{_escape_applescript(initial_dir)}"'
+    script += '\nPOSIX path of theItem'
+
+    try:
+        result = subprocess.run(
+            ['osascript', '-e', script],
+            capture_output=True,
+            text=True,
+            timeout=_MACOS_DIALOG_TIMEOUT_S,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except Exception as e:
+        logger.warning(f'[LVP Main  ] macOS file-or-folder dialog error: {e}')
+    return None
+
+
 def _foregrounded_tk_root():
     """Build the invisible Tk root a tkinter picker parents to, foregrounded.
 
@@ -213,6 +234,44 @@ def _platform_native_open_file(initial_dir, filetypes):
             initialdir=initial_dir,
             filetypes=filetypes,
         )
+    finally:
+        root.destroy()
+    return path or None
+
+
+def _platform_native_choose_file_or_folder(initial_dir, filetypes):
+    """Return one user-chosen file or folder on every supported platform.
+
+    Cocoa has a single native panel for both target kinds. Tk does not, so
+    Windows/Linux present one native yes/no/cancel choice followed by the
+    matching native picker. The LVP panel remains a single visible action.
+    """
+    if sys.platform == 'darwin':
+        return _macos_choose_file_or_folder(initial_dir=initial_dir)
+
+    from tkinter import filedialog, messagebox
+
+    root = _foregrounded_tk_root()
+    try:
+        choose_file = messagebox.askyesnocancel(
+            parent=root,
+            title='Enhance',
+            message='Choose an image file?\nSelect No to choose a folder.',
+        )
+        if choose_file is True:
+            path = filedialog.askopenfilename(
+                parent=root,
+                initialdir=initial_dir,
+                filetypes=filetypes,
+            )
+        elif choose_file is False:
+            path = filedialog.askdirectory(
+                parent=root,
+                initialdir=initial_dir,
+                title='Select folder to enhance',
+            )
+        else:
+            path = ''
     finally:
         root.destroy()
     return path or None
@@ -454,6 +513,59 @@ class FileChooseBTN(HoverBehavior, Button):
 
             elif self.context == 'load_cell_count_method':
                 ctx.cell_count_content.load_method_from_file(file=self.selection[0])
+
+
+class FileOrFolderChooseBTN(HoverBehavior, Button):
+    """One Enhance entry action that accepts either a supported image or a folder."""
+
+    context = StringProperty()
+    selection = ListProperty([])
+
+    def choose(self, context):
+        gui_logger.button('FILE_OR_FOLDER_CHOOSE_OPEN', f'context={context}')
+        logger.info(f'[LVP Main  ] FileOrFolderChooseBTN.choose({context})')
+        self.context = context
+        if context != 'choose_quick_enhance_target':
+            logger.error('Unsupported file-or-folder context: %s', context)
+            return
+
+        initial_dir = str(pathlib.Path(_app_ctx.ctx.settings['live_folder']))
+        filetypes = [('Images', '.tif .tiff .png .jpg .jpeg .bmp')]
+        _run_native_dialog_async(
+            self,
+            lambda: _platform_native_choose_file_or_folder(initial_dir, filetypes),
+            lambda path: self.handle_selection(selection=[path]),
+        )
+
+    def handle_selection(self, selection):
+        if selection:
+            self.selection = selection
+            self.on_selection_function()
+
+    def on_selection_function(self, *a, **k):
+        if not self.selection:
+            return
+        path = pathlib.Path(self.selection[0])
+        gui_logger.select('FILE_OR_FOLDER_CHOOSE', f'context={self.context} path={path}')
+        ctx = _app_ctx.ctx
+        if ctx.protocol_running.is_set():
+            from modules.notification_center import notifications
+
+            notifications.warning(
+                'Post-Processing',
+                'Protocol running',
+                'Post-processing cannot run while a protocol scan is in progress. '
+                'Stop or finish the protocol first, then retry.',
+            )
+            return
+        if path.is_dir():
+            ctx.quick_enhance_controls.set_source_folder(path)
+        elif path.is_file():
+            ctx.quick_enhance_controls.set_source_file(path)
+        else:
+            from modules.notification_center import notifications
+
+            notifications.warning('Enhance', 'Selection unavailable', f'Could not open: {path}')
 
 
 class FolderChooseBTN(HoverBehavior, Button):

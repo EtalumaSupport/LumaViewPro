@@ -1765,69 +1765,11 @@
 			size: self.width - dp(4), self.height - dp(4)
 			radius: [dp(8)]
 
-	Label:
-		text: root.warning_text
-		font_size: '11sp'
-		color: 0.86, 0.91, 0.95, 1
-		text_size: self.width - dp(16), None
-		size_hint_y: None
-		height: self.texture_size[1] + dp(12)
-
-	Label:
-		text: 'Input'
-		font_size: '12sp'
-		bold: True
-		color: 0.96, 0.98, 1, 1
-		size_hint_y: None
-		height: '18dp'
-	BoxLayout:
-		size_hint_y: None
-		height: '36dp'
-		QuickEnhanceFileChooseButton:
-			text: 'Choose Image'
-			on_release: self.choose('load_quick_enhance_input_image')
-		QuickEnhanceFolderChooseButton:
-			text: 'Choose Folder'
-			on_release: self.choose('apply_quick_enhance_to_folder')
-	Label:
-		text: 'Quick Enhance'
-		font_size: '12sp'
-		bold: True
-		color: 0.96, 0.98, 1, 1
-		size_hint_y: None
-		height: '18dp'
-	BoxLayout:
-		size_hint_y: None
-		height: '36dp'
-		QuickEnhanceUtilityButton:
-			text: 'Show Original' if root.show_after else 'Show Enhanced'
-			disabled: not root.source_path
-			on_release: root.toggle_before_after()
-		QuickEnhanceUtilityButton:
-			text: 'Update Preview'
-			disabled: not root.source_path
-			on_release: root.refresh_preview()
-	Image:
-		id: quick_enhance_preview_image
-		fit_mode: 'contain'
-		opacity: 1 if self.texture else 0
-		# Under a minimum_height parent, size_hint_y contributes 0 --
-		# bound the preview explicitly: zero when empty (no blank band
-		# before an image loads), a scrollable fixed band when showing.
-		size_hint_y: None
-		height: dp(200) if self.texture else 0
-	QuickEnhancePrimaryButton:
-		text: 'Save Enhanced Image'
+	FileOrFolderChooseBTN:
+		text: 'Enhance'
 		size_hint_y: None
 		height: '38dp'
-		disabled: not root.input_ready
-		on_release: root.export()
-	QuickEnhanceUtilityButton:
-		text: 'Show Output Folder'
-		size_hint_y: None
-		height: '36dp'
-		disabled: not root.last_output_folder
-		on_release: root.open_output_folder()
+		on_release: self.choose('choose_quick_enhance_target')
 	Label:
 		text: root.status_text
 		font_size: '10sp'
