@@ -4,10 +4,9 @@ Quick Enhance creates a derived TIFF for visual inspection. It never changes the
 
 ## Use it
 
-1. Choose Image to inspect and save one image, or Choose Folder to save every supported image in that folder.
-2. Select Quick Enhance Image or Quick Enhance Folder. Use Show Output Folder when complete.
-
-Choose Image enables Before / After and Update Preview. A folder is a batch operation, so it has no single-image preview.
+1. Select **Enhance**.
+2. In the native picker, choose either one supported image or a folder.
+3. Enhancement starts immediately. Every output is saved as a derived TIFF, and the main viewer briefly shows each completed image. The panel reports `Image x of y` while a folder runs, then the saved output path.
 
 ## Fixed recipe
 
@@ -18,8 +17,6 @@ Quick Enhance applies the same non-AI recipe to every selected image:
 
 This is classical presentation processing, not AI denoising or restoration. LumaQuant Pro remains the separate AI-assisted cleanup workflow.
 
-## Buttons
+## Progress
 
-- **Before / After** switches the single-image preview between the source and its enhanced version.
-- **Update Preview** redraws the single-image preview using the selected mode.
-- **Show Output Folder** opens the folder containing the most recently saved derived TIFFs.
+Folder processing runs one image at a time. Unsupported or unreadable images are skipped; source images and prior derived outputs are never overwritten.

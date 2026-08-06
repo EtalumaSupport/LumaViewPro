@@ -407,11 +407,15 @@ def test_mixed_folder_exports_bf_composite_png_jpeg_and_skips_bad_or_derived_fil
     }
     progress = []
 
+    displayed = []
     result = QuickEnhancer().export_folder(
         tmp_path,
         QuickEnhanceSettings(),
         progress_callback=lambda completed, total, path: progress.append(
             (completed, total, path.name)
+        ),
+        display_callback=lambda image, significant_bits: displayed.append(
+            (image.shape, significant_bits)
         ),
     )
 
@@ -430,6 +434,7 @@ def test_mixed_folder_exports_bf_composite_png_jpeg_and_skips_bad_or_derived_fil
     assert (tmp_path / 'composite_enhanced.tif').exists()
     assert (tmp_path / 'share_enhanced.tif').exists()
     assert (tmp_path / 'share_enhanced_2.tif').exists()
+    assert len(displayed) == 4
 
 
 def test_output_folder_is_reported_from_a_completed_export(tmp_path):
@@ -446,12 +451,7 @@ def test_output_folder_is_reported_from_a_completed_export(tmp_path):
 
 
 def test_ui_export_callback_restores_controls_on_every_terminal_path():
-    """The popup wrapper binds ``done``; ``_export_inflight`` must clear
-    UNCONDITIONALLY at the top of ``_export_callback`` so the export button
-    re-enables on success and failure alike. ``busy`` is preview-owned
-    (``set_source_file`` sets it, ``_preview_callback`` clears it) and must
-    never be written here: an export completing while a preview loads would
-    re-enable the whole panel mid-load and allow overlapping preview tasks."""
+    """Automatic Enhance owns ``busy`` for the complete export lifetime."""
     source = (pathlib.Path(__file__).resolve().parents[1] / 'ui' / 'post_processing.py').read_text()
     tree = ast.parse(source)
     cls = next(
@@ -485,20 +485,17 @@ def test_ui_export_callback_restores_controls_on_every_terminal_path():
             and target.value.id == 'self'
         ]
 
-    busy_writes = [node.lineno for node in ast.walk(callback) if 'busy' in _self_attr_targets(node)]
-    assert busy_writes == [], (
-        f'_export_callback must not write the preview-owned busy flag (lines {busy_writes})'
-    )
-    assert any(
-        '_export_inflight' in _self_attr_targets(stmt)
-        and isinstance(stmt, ast.Assign)
-        and isinstance(stmt.value, ast.Constant)
-        and stmt.value.value is False
-        for stmt in callback.body
-    ), '_export_inflight = False must be an unconditional top-level statement of _export_callback'
+    for attr in ('_export_inflight', 'busy'):
+        assert any(
+            attr in _self_attr_targets(stmt)
+            and isinstance(stmt, ast.Assign)
+            and isinstance(stmt.value, ast.Constant)
+            and stmt.value.value is False
+            for stmt in callback.body
+        ), f'{attr} = False must be an unconditional top-level statement of _export_callback'
 
 
-def test_refresh_preview_requests_the_rebuilding_status():
+def test_file_and_folder_selection_start_enhance_automatically():
     source = (pathlib.Path(__file__).resolve().parents[1] / 'ui' / 'post_processing.py').read_text()
     tree = ast.parse(source)
     cls = next(
@@ -506,17 +503,8 @@ def test_refresh_preview_requests_the_rebuilding_status():
         for node in tree.body
         if isinstance(node, ast.ClassDef) and node.name == 'QuickEnhanceControls'
     )
-    refresh = next(
-        node
-        for node in cls.body
-        if isinstance(node, ast.FunctionDef) and node.name == 'refresh_preview'
-    )
-
-    assert 'refresh=True' in ast.get_source_segment(source, refresh)
-    assert "'Updating preview...' if refresh" in source
-
-
-def test_preview_worker_imports_the_fluorescence_channel_helper():
-    source = (pathlib.Path(__file__).resolve().parents[1] / 'ui' / 'post_processing.py').read_text()
-
-    assert 'from modules import common_utils' in source
+    for method in ('set_source_file', 'set_source_folder'):
+        body = next(
+            node for node in cls.body if isinstance(node, ast.FunctionDef) and node.name == method
+        )
+        assert '_start_export' in ast.get_source_segment(source, body)

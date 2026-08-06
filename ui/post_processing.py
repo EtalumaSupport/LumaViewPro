@@ -27,11 +27,10 @@ from modules.sequential_io_executor import IOTask
 from modules.stitcher import Stitcher
 from modules.composite_generation import CompositeGeneration
 from modules.video_builder import VideoBuilder
-from modules import common_utils
 from modules.common_utils import CustomJSONizer
 import modules.zprojector as zprojector
 import modules.post_processing as post_processing
-from modules.quick_enhance import QuickEnhanceSettings, QuickEnhancer, QUANTITATIVE_USE_WARNING
+from modules.quick_enhance import QuickEnhanceSettings, QuickEnhancer
 import modules.image_utils as image_utils
 import ui.image_utils_kivy as image_utils_kivy
 import modules.app_context as _app_ctx
@@ -42,138 +41,45 @@ logger = logging.getLogger('LVP.ui.post_processing')
 class QuickEnhanceControls(BoxLayout):
     """GUI shell for the non-destructive Quick Enhance derived-file path."""
 
-    # The caption Label is the ONE rendering home of the disclaimer; it
-    # reflects the store (which export metadata also reads) instead of
-    # duplicating the text, so the wording cannot fork between surfaces.
-    warning_text = QUANTITATIVE_USE_WARNING
-
     done = BooleanProperty(False)
-    source_path = StringProperty('')
-    source_folder = StringProperty('')
     last_output_folder = StringProperty('')
     status_text = StringProperty('')
-    input_ready = BooleanProperty(False)
     busy = BooleanProperty(False)
-    show_after = BooleanProperty(False)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         _app_ctx.register_early('quick_enhance_controls', self)
         self._enhancer = QuickEnhancer()
-        self._source_preview = None
-        self._enhanced_preview = None
-        self._significant_bits = None
         self._export_inflight = False
 
-    def set_source_file(self, file, *, refresh: bool = False) -> None:
-        path = pathlib.Path(file)
-        self.source_path = str(path)
-        self.source_folder = ''
-        self.input_ready = False
-        self.busy = True
-        self.status_text = 'Updating preview...' if refresh else 'Loading image preview...'
-        _app_ctx.ctx.file_io_executor.put(
-            IOTask(
-                action=self._load_preview,
-                args=(path, self._settings()),
-                callback=self._preview_callback,
-                pass_result=True,
-                silent_on_failure=True,
-            )
-        )
+    def set_source_file(self, file) -> None:
+        self._start_export(pathlib.Path(file), target_is_folder=False)
 
     def set_source_folder(self, path) -> None:
-        folder = pathlib.Path(path)
-        self.source_folder = str(folder)
-        self.source_path = ''
-        self.input_ready = folder.is_dir()
-        self.status_text = f'Folder selected: {folder.name}. Folder export is ready; preview controls require Select Image.'
+        self._start_export(pathlib.Path(path), target_is_folder=True)
 
     def _settings(self) -> QuickEnhanceSettings:
         return QuickEnhanceSettings()
 
-    def refresh_preview(self) -> None:
-        if not self.source_path or self.busy:
+    def _start_export(self, target: pathlib.Path, target_is_folder: bool) -> None:
+        if self.busy or self._export_inflight:
+            self.status_text = 'Enhance is already running.'
             return
-        self.set_source_file(self.source_path, refresh=True)
-
-    @staticmethod
-    def _load_preview(path: pathlib.Path, settings: QuickEnhanceSettings) -> dict:
-        enhancer = QuickEnhancer()
-        image, significant_bits = image_utils.load_pixels(path)
-        before, after = enhancer.preview(image, settings, significant_bits)
-        channel = enhancer._source_channel(path)
-        before = enhancer.colorize_mono_for_visual_output(before, channel)
-        after = enhancer.colorize_mono_for_visual_output(after, channel)
-        if channel in common_utils.get_image_layers() and before.ndim == 3:
-            # image_to_texture receives BGR bytes; the false-color helper
-            # deliberately returns RGB for TIFF export and metadata symmetry.
-            before = before[..., ::-1].copy()
-            after = after[..., ::-1].copy()
-        return {
-            'before': before,
-            'after': after,
-            'significant_bits': significant_bits,
-            'detection': 'Fixed recipe: global illumination correction, auto levels, and gentle gamma.',
-        }
-
-    def _preview_callback(self, result=None, exception=None) -> None:
-        self.busy = False
-        if exception is not None or result is None:
-            logger.error('[QuickEnhance] Preview failed', exc_info=exception)
-            self.input_ready = False
-            self.status_text = 'Could not load this image. Choose a supported image file.'
-            return
-        self._source_preview = result['before']
-        self._enhanced_preview = result['after']
-        self._significant_bits = result['significant_bits']
-        self.input_ready = True
-        self.status_text = result['detection']
-        self._show_selected_preview()
-
-    def toggle_before_after(self) -> None:
-        self.show_after = not self.show_after
-        self._show_selected_preview()
-
-    def _show_selected_preview(self) -> None:
-        image = self._enhanced_preview if self.show_after else self._source_preview
-        if image is None or 'quick_enhance_preview_image' not in self.ids:
-            return
-        widget = self.ids['quick_enhance_preview_image']
-        widget.texture = image_utils_kivy.image_to_texture(image, existing=widget.texture)
-
-    def open_output_folder(self) -> None:
-        if not self.last_output_folder:
-            return
-        _app_ctx.ctx.last_save_folder = self.last_output_folder
-        open_last_save_folder()
+        self.busy = True
+        self.status_text = ''
+        self.export(target, target_is_folder)
 
     @show_popup
-    def export(self, popup) -> None:
+    def export(self, popup, target: pathlib.Path, target_is_folder: bool) -> None:
         if self._export_inflight:
-            self.status_text = 'Quick Enhance export is still running in the background.'
-            popup.dismiss()
-            return
-        if not self.input_ready:
+            self.status_text = 'Enhance is already running.'
+            self.busy = False
             popup.dismiss()
             return
         settings = self._settings()
-        errors = self._enhancer.validate(
-            settings,
-            np.dtype(
-                np.uint16 if self._significant_bits and self._significant_bits > 8 else np.uint8
-            ),
-            self._significant_bits or 8,
-        )
-        if errors:
-            self.status_text = ' '.join(errors)
-            popup.dismiss()
-            return
-        target = pathlib.Path(self.source_folder or self.source_path)
-        target_is_folder = bool(self.source_folder)
         self._export_inflight = True
-        popup.title = 'Quick Enhance'
-        popup.text = 'Creating derived image export... Closing this window does not cancel export.'
+        popup.title = 'Enhance'
+        popup.text = ''
         popup.progress = 0
         popup.auto_dismiss = False
         _app_ctx.ctx.file_io_executor.put(
@@ -196,48 +102,72 @@ class QuickEnhanceControls(BoxLayout):
         settings: QuickEnhanceSettings,
     ) -> dict:
         if target_is_folder:
-            return self._enhancer.export_folder(
+            result = self._enhancer.export_folder(
                 target,
                 settings,
                 progress_callback=lambda done, total, path: self._update_folder_progress(
                     popup, done, total, path
                 ),
+                display_callback=self._queue_derived_image,
             )
-        result = self._enhancer.export_file(target, settings)
+            result['target_is_folder'] = True
+            return result
+        result = self._enhancer.export_file(
+            target,
+            settings,
+            display_callback=self._queue_derived_image,
+        )
         self._update_folder_progress(popup, 1, 1, target)
-        return {'status': True, 'created_count': 1, 'created': [result], 'skipped': [], 'total': 1}
+        return {
+            'status': True,
+            'created_count': 1,
+            'created': [result],
+            'skipped': [],
+            'total': 1,
+            'target_is_folder': False,
+        }
 
-    @staticmethod
-    def _update_folder_progress(popup, completed: int, total: int, path: pathlib.Path) -> None:
+    def _update_folder_progress(self, popup, completed: int, total: int, path: pathlib.Path) -> None:
         popup.progress = 100 if total == 0 else (completed / total) * 100
-        popup.text = f'Quick Enhance: {completed}/{total} -- {path.name}'
+        text = f'Image {completed} of {total}'
+        popup.text = text
+        Clock.schedule_once(lambda _dt: setattr(self, 'status_text', text), 0)
+
+    def _queue_derived_image(self, image: np.ndarray, significant_bits: int) -> None:
+        display_image = image.copy()
+
+        def _show(_dt):
+            scope_display = getattr(_app_ctx.ctx, 'scope_display', None)
+            if scope_display is not None:
+                scope_display.hold_derived_image(display_image, significant_bits)
+
+        Clock.schedule_once(_show, 0)
 
     def _export_callback(self, popup, result=None, exception=None) -> None:
-        # busy belongs to the preview path (set/cleared there); the export
-        # path gates on _export_inflight alone, which must clear on every
-        # terminal path so the export button re-enables.
         self._export_inflight = False
+        self.busy = False
         from modules.notification_center import notifications
 
         if exception is not None or result is None:
-            logger.error('[QuickEnhance] Export failed', exc_info=exception)
+            logger.error('[Enhance] Export failed', exc_info=exception)
             popup.dismiss()
-            self.status_text = 'Quick Enhance failed. See the log for details.'
-            notifications.warning('Quick Enhance', 'Export failed', self.status_text)
+            self.status_text = 'Enhance failed. See the log for details.'
+            notifications.warning('Enhance', 'Failed', self.status_text)
             return
         popup.progress = 100
-        created = result['created_count']
-        skipped = len(result['skipped'])
-        summary = f'Created {created} derived image(s).'
-        if skipped:
-            summary += f' Skipped {skipped} unreadable image(s).'
         output_folder = self._enhancer.output_folder(result)
-        if output_folder is not None:
-            self.last_output_folder = str(output_folder)
-            summary += f' Saved in: {output_folder}'
+        if output_folder is None:
+            self.status_text = 'Enhance failed. No supported images were saved.'
+            popup.text = self.status_text
+            return
+        self.last_output_folder = str(output_folder)
+        if result.get('target_is_folder'):
+            saved_path = output_folder
+        else:
+            saved_path = result['created'][0]['output_path']
+        summary = f'Saved: {saved_path}'
         popup.text = summary
         self.status_text = summary
-        notifications.info('Quick Enhance', 'Export complete', summary)
         Clock.schedule_once(lambda _dt: popup.dismiss(), 2)
 
 
@@ -312,10 +242,13 @@ class StitchControls(BoxLayout):
 
         final_text = f'Stitching images - {status_map[result["status"]]}'
         if result['status'] is False:
-            final_text = (
-                'Stitching could not be completed for one or more tile groups.\n'
-                'No console error is shown here. Open Support > Logs and search for “Stitcher:”.'
-            )
+            if result.get('reason') == 'unsupported_source_format':
+                final_text = result['message']
+            else:
+                final_text = (
+                    'Stitching could not be completed for one or more tile groups.\n'
+                    'No console error is shown here. Open Support > Logs and search for “Stitcher:”.'
+                )
             popup.text = final_text
             Clock.schedule_once(lambda dt: popup.dismiss(), 5)
             return

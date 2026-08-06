@@ -289,7 +289,12 @@ class QuickEnhancer:
             'quantitative_use_warning': QUANTITATIVE_USE_WARNING,
         }
 
-    def export_file(self, source_path: str | pathlib.Path, settings: QuickEnhanceSettings) -> dict:
+    def export_file(
+        self,
+        source_path: str | pathlib.Path,
+        settings: QuickEnhanceSettings,
+        display_callback: Callable[[np.ndarray, int], None] | None = None,
+    ) -> dict:
         source_path = pathlib.Path(source_path)
         image, significant_bits = image_utils.load_pixels(source_path)
         output = self.apply(image, settings, significant_bits)
@@ -350,6 +355,12 @@ class QuickEnhancer:
                     logger.warning('[QuickEnhance] Could not remove temporary file %s', temporary)
             raise
 
+        if display_callback is not None:
+            try:
+                display_callback(output_for_write, significant_bits)
+            except Exception:
+                logger.warning('[QuickEnhance] Could not queue derived image for display', exc_info=True)
+
         return {'source_path': source_path, 'output_path': output_path, 'recipe_path': recipe_path}
 
     def export_folder(
@@ -357,6 +368,7 @@ class QuickEnhancer:
         folder: str | pathlib.Path,
         settings: QuickEnhanceSettings,
         progress_callback: Callable[[int, int, pathlib.Path], None] | None = None,
+        display_callback: Callable[[np.ndarray, int], None] | None = None,
     ) -> dict:
         folder = pathlib.Path(folder)
         files = sorted(
@@ -371,7 +383,13 @@ class QuickEnhancer:
         total = len(files)
         for completed, source_path in enumerate(files, start=1):
             try:
-                created.append(self.export_file(source_path, settings))
+                created.append(
+                    self.export_file(
+                        source_path,
+                        settings,
+                        display_callback=display_callback,
+                    )
+                )
             except (OSError, ValueError, cv2.error, MemoryError) as exc:
                 logger.warning('[QuickEnhance] Skipping %s: %s', source_path, exc, exc_info=True)
                 skipped.append({'source_path': source_path, 'error': str(exc)})

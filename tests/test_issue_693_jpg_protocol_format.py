@@ -122,8 +122,25 @@ def test_composite_rejects_jpg_source_with_clear_message():
     _stub_helper(comp, df)
     result = comp.load_folder(path='run', tiling_configs_file_loc=pathlib.Path('tiling.json'))
     assert result['status'] is False
+    assert result['reason'] == 'unsupported_source_format'
     assert 'JPG' in result['message']
     assert 'TIFF' in result['message']
+    assert 'A1_Green_0000.jpg' in result['message']
+
+
+def test_mixed_tiff_and_jpg_rejects_the_first_unsupported_source():
+    comp = _make_composite()
+    df = pd.DataFrame(
+        {'Filepath': ['A1_Green_0000.tiff', 'A1_Red_0000.jpg', 'A1_Blue_0000.jpg']}
+    )
+    _stub_helper(comp, df)
+
+    result = comp.load_folder(path='run', tiling_configs_file_loc=pathlib.Path('tiling.json'))
+
+    assert result['status'] is False
+    assert result['reason'] == 'unsupported_source_format'
+    assert 'A1_Red_0000.jpg' in result['message']
+    assert 'A1_Blue_0000.jpg' not in result['message']
 
 
 def test_composite_does_not_trip_guard_for_tiff_source():

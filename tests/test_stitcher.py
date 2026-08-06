@@ -517,7 +517,7 @@ class TestSimplePositionStitcher:
         assert 'geometry-only fallback' in branch_source
         assert 'popup.text' in branch_source
 
-    def test_stitcher_popup_never_surfaces_raw_worker_message(self):
+    def test_stitcher_popup_surfaces_only_the_structured_unsupported_format_message(self):
         source = (
             pathlib.Path(__file__).resolve().parent.parent / 'ui' / 'post_processing.py'
         ).read_text()
@@ -528,7 +528,8 @@ class TestSimplePositionStitcher:
             if isinstance(node, ast.FunctionDef) and node.name == 'stitcher_callback'
         )
         callback_source = ast.unparse(callback)
-        assert "result['message']" not in callback_source
+        assert "result.get('reason') == 'unsupported_source_format'" in callback_source
+        assert "result['message']" in callback_source
         assert 'Support > Logs' in callback_source
 
     def test_stitch_ui_explains_modes_and_time_estimation(self):

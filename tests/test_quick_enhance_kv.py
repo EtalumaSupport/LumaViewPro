@@ -44,31 +44,25 @@ def test_lumaviewpro_kv_parses_with_quick_enhance_controls():
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_quick_enhance_kv_offers_one_fixed_quick_enhance_action():
+def test_quick_enhance_kv_offers_one_click_enhance_without_panel_prose():
     content = KV_PATH.read_text(encoding='utf-8')
     quick_enhance_rule = content[
         content.index('<QuickEnhanceControls>:') : content.index('<QuickEnhanceUtilityButton@')
     ]
 
-    assert "text: 'Choose Image'" in quick_enhance_rule
-    assert "text: 'Choose Folder'" in quick_enhance_rule
-    assert "text: 'Show Original' if root.show_after else 'Show Enhanced'" in quick_enhance_rule
-    assert "text: 'Update Preview'" in quick_enhance_rule
-    assert "text: 'Save Enhanced Image'" in quick_enhance_rule
-    assert quick_enhance_rule.count("text: 'Quick Enhance'") == 1
-    assert "text: 'Save'" not in quick_enhance_rule
-    assert 'Global illumination correction + contrast for visual review' not in quick_enhance_rule
-    assert 'disabled: not root.input_ready' in quick_enhance_rule
-    assert 'Spinner:' not in quick_enhance_rule
-    assert 'text: root.warning_text' in quick_enhance_rule
+    assert quick_enhance_rule.count('FileOrFolderChooseBTN:') == 1
+    assert "text: 'Enhance'" in quick_enhance_rule
+    assert 'text: root.status_text' in quick_enhance_rule
+    for removed in (
+        "text: 'Choose Image'",
+        "text: 'Choose Folder'",
+        "text: 'Quick Enhance'",
+        "text: 'Save Enhanced Image'",
+        'text: root.warning_text',
+        'quick_enhance_preview_image',
+    ):
+        assert removed not in quick_enhance_rule
     assert 'height: self.texture_size[1] + dp(12)' in quick_enhance_rule
-
-    preview_index = quick_enhance_rule.index('id: quick_enhance_preview_image')
-    save_index = quick_enhance_rule.index("text: 'Save Enhanced Image'")
-    status_index = quick_enhance_rule.index('text: root.status_text')
-    output_folder_index = quick_enhance_rule.index("text: 'Show Output Folder'")
-    assert preview_index < save_index, 'preview must be visible before export controls'
-    assert output_folder_index < status_index, 'status belongs at the bottom of the panel'
 
 
 def test_every_post_processing_panel_is_scroll_wrapped():
@@ -103,16 +97,14 @@ def test_panel_rules_declare_their_own_minimum_height():
         )
 
 
-def test_quick_enhance_disclaimer_is_single_homed():
+def test_quick_enhance_disclaimer_is_not_rendered_in_the_panel():
     kv_rule = _rule_block(KV_PATH.read_text(encoding='utf-8'), '<QuickEnhanceControls>:')
-    assert 'text: root.warning_text' in kv_rule
-    assert '\\n' not in kv_rule
-    assert 'visual inspection' not in kv_rule
+    assert 'warning_text' not in kv_rule
 
     py_src = (Path(__file__).resolve().parents[1] / 'ui' / 'post_processing.py').read_text(
         encoding='utf-8'
     )
-    assert py_src.count('QUANTITATIVE_USE_WARNING') == 2
+    assert 'QUANTITATIVE_USE_WARNING' not in py_src
 
 
 def test_quick_enhance_documentation_explains_the_fixed_recipe():
