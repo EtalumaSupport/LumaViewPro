@@ -242,10 +242,13 @@ class StitchControls(BoxLayout):
 
         final_text = f'Stitching images - {status_map[result["status"]]}'
         if result['status'] is False:
-            final_text = (
-                'Stitching could not be completed for one or more tile groups.\n'
-                'No console error is shown here. Open Support > Logs and search for “Stitcher:”.'
-            )
+            if result.get('reason') == 'unsupported_source_format':
+                final_text = result['message']
+            else:
+                final_text = (
+                    'Stitching could not be completed for one or more tile groups.\n'
+                    'No console error is shown here. Open Support > Logs and search for “Stitcher:”.'
+                )
             popup.text = final_text
             Clock.schedule_once(lambda dt: popup.dismiss(), 5)
             return

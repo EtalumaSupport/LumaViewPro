@@ -181,14 +181,23 @@ class ProtocolPostProcessor(abc.ABC):
         # tifffile, which cannot decode JPG. A scan saved as JPG has no
         # re-readable source for these outputs, so stop here with a clear
         # message instead of letting tifffile raise partway through a group.
-        source_suffixes = {pathlib.Path(str(fp)).suffix.lower() for fp in df['Filepath']}
-        if source_suffixes and source_suffixes.isdisjoint(image_utils.TIFF_SUFFIXES):
+        unsupported_source = next(
+            (
+                pathlib.Path(str(filepath))
+                for filepath in df['Filepath']
+                if pathlib.Path(str(filepath)).suffix.lower() not in image_utils.TIFF_SUFFIXES
+            ),
+            None,
+        )
+        if unsupported_source is not None:
+            source_format = unsupported_source.suffix.lstrip('.').upper() or 'unknown'
             return {
                 'status': False,
+                'reason': 'unsupported_source_format',
                 'message': (
-                    'Composite, stitch, and z-projection require TIFF or '
-                    'OME-TIFF source images. This scan was saved as JPG, '
-                    'which cannot be re-read for post-processing.'
+                    f'{self._post_function.value} requires TIFF or OME-TIFF source images. '
+                    f'First unsupported {source_format} file: {unsupported_source.name}. '
+                    'Reacquire the scan as TIFF or OME-TIFF before post-processing.'
                 ),
             }
 
