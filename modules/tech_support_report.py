@@ -2664,7 +2664,7 @@ def main():
 
     def cli_progress(pct, msg):
         filled = int(30 * pct / 100)
-        bar = '█' * filled + '░' * (30 - filled)
+        bar = '#' * filled + '-' * (30 - filled)
         # Progress bar uses carriage return -- keep as print for CLI display
         print(f'\r  [{bar}] {pct:3d}%  {msg:<50s}', end='', flush=True)
 

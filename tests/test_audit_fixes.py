@@ -8270,8 +8270,14 @@ class TestPylonAcquisitionIdleWait:
         result = camera._wait_for_acquisition_idle(timeout_s=2.0)
         elapsed = _time.monotonic() - t0
         assert result is True
-        assert elapsed < 0.5, (
-            f'idle-wait took {elapsed:.3f}s on already-idle camera; should return immediately'
+        # Threshold is 1.0s against a 2.0s timeout, not a tight 0.5s: the
+        # claim under test is "returns early instead of waiting the whole
+        # timeout", and 1.0s still discriminates that cleanly while leaving
+        # room for a loaded CI runner to deschedule this thread. A tighter
+        # bound tests the runner's load, not the camera's idle-wait.
+        assert elapsed < 1.0, (
+            f'idle-wait took {elapsed:.3f}s on already-idle camera against a '
+            f'2.0s timeout; should return early, not wait it out'
         )
 
     def test_idle_wait_returns_false_when_node_absent(self):
@@ -8299,8 +8305,12 @@ class TestPylonAcquisitionIdleWait:
         result = camera._wait_for_acquisition_idle(timeout_s=2.0)
         elapsed = _time.monotonic() - t0
         assert result is False
-        assert elapsed < 0.1, (
-            f'idle-wait should bail immediately when nodes absent; took {elapsed:.3f}s'
+        # Same reasoning as the already-idle case: 1.0s against a 2.0s
+        # timeout proves the absent-node path bails instead of waiting. The
+        # old 0.1s bound measured scheduler latency on a no-op call.
+        assert elapsed < 1.0, (
+            f'idle-wait should bail early when nodes absent, not wait out the '
+            f'2.0s timeout; took {elapsed:.3f}s'
         )
 
     def test_idle_wait_times_out_when_stuck_active(self):
@@ -10612,7 +10622,11 @@ class TestGetLedStateShape:
         # pin-justified: the published doc example text is the L2 contract
         # surface; this guards doc-vs-API sync.
         doc = pathlib.Path('docs/LumascopeSkills.md').read_text()
-        assert "'owner': '…'" in doc or "'owner': '...'" in doc, (
+        # \u2026 escape rather than a literal ellipsis: the doc currently
+        # uses the Unicode character, so this is the branch that matches,
+        # but source files stay ASCII. Both forms are accepted so a doc
+        # edit to '...' does not break the check.
+        assert "'owner': '\u2026'" in doc or "'owner': '...'" in doc, (
             'LumascopeSkills get_led_state example must include the '
             "'owner' key in the return-shape example."
         )

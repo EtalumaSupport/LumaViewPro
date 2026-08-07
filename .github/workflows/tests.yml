@@ -1,0 +1,73 @@
+# Test + lint gate. Before this existed nothing ran the suite automatically:
+# the only gate was a pre-commit hook on one developer's machine, which vets
+# nothing from the seven-plus outside authors who open pull requests against
+# this public repo.
+#
+# Reports, does not block. Branch protection is a separate decision.
+#
+# Targets 4.0.0-beta only, on purpose. `tools/check_rules.py` does not exist
+# on `main` yet, so a `main` job today would fail for the wrong reason and
+# teach everyone to ignore it. Add `main` when 4.0.0 promotes.
+#
+# FIRST-RUN RISK, named in advance so a red first run is diagnosed rather than
+# guessed at. It cannot be settled without executing this on a real runner,
+# and it is not worth pre-emptively patching: the ids-peak wheels have never
+# been installed on Linux anywhere, and this job is the first place that gets
+# tested -- which is part of why it exists. If a wheel has no manylinux build,
+# split the camera SDKs into a separate optional requirements file rather than
+# dropping the whole install step, so the rest of the install still gets
+# exercised.
+#
+# NOT a risk, though it looks like one: pyenchant needs the system libenchant
+# library on Linux, which this runner does not have. It installs anyway -- the
+# package is a ctypes wrapper that loads the C library at IMPORT time, not
+# install time -- and nothing here imports it. We never import enchant
+# ourselves; only Kivy's spelling provider does, and conftest replaces kivy
+# with a MagicMock, so that provider never loads under pytest. pyenchant is in
+# requirements.txt purely to keep a CRITICAL line out of the app and
+# PyInstaller logs. Do not add an apt step for it.
+
+name: tests
+
+on:
+  push:
+    branches: [4.0.0-beta]
+  pull_request:
+    branches: [4.0.0-beta]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      # No extra -q: pyproject addopts already carries `-q --tb=short`, and a
+      # second one makes -qq, which suppresses the failure summary and leaves
+      # a red run with nothing to read. -rfE restores the short summary of
+      # failures and errors.
+      - name: Tests
+        run: python -m pytest -rfE
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Format
+        run: ruff format --check .
+
+      # --paths, never --staged: nothing is staged in CI, so --staged would
+      # check zero files and exit 0 -- a guard that cannot fire.
+      - name: Project rules
+        run: git ls-files '*.py' '*.kv' | xargs python tools/check_rules.py --paths

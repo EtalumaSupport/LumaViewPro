@@ -6,6 +6,15 @@
 pytest==8.3.5
 pyinstaller==6.19.0
 
+# Linter + formatter. PINNED EXACTLY, and the pin is load-bearing: ruff
+# changes its rule set and its formatting between releases, so a floating
+# version turns CI red on a commit that touched nothing. Verified clean
+# repo-wide at this version -- `ruff check .` passes and all 456 files are
+# already formatted -- so a CI failure here means the change, not the tool.
+# Bumping it is a deliberate step: bump, run `ruff format .`, and land the
+# reformat as its own commit.
+ruff==0.15.12
+
 # Static analysis used by tests/test_lumaviewpro_app_smoke.py to catch
 # undefined-name regressions in lumaviewpro.py — pre-2026-05-04 a
 # mechanical refactor (LVP-A-3 partial) deleted module-level globals
