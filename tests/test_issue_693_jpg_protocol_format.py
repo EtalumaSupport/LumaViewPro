@@ -130,9 +130,7 @@ def test_composite_rejects_jpg_source_with_clear_message():
 
 def test_mixed_tiff_and_jpg_rejects_the_first_unsupported_source():
     comp = _make_composite()
-    df = pd.DataFrame(
-        {'Filepath': ['A1_Green_0000.tiff', 'A1_Red_0000.jpg', 'A1_Blue_0000.jpg']}
-    )
+    df = pd.DataFrame({'Filepath': ['A1_Green_0000.tiff', 'A1_Red_0000.jpg', 'A1_Blue_0000.jpg']})
     _stub_helper(comp, df)
 
     result = comp.load_folder(path='run', tiling_configs_file_loc=pathlib.Path('tiling.json'))

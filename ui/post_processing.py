@@ -127,7 +127,9 @@ class QuickEnhanceControls(BoxLayout):
             'target_is_folder': False,
         }
 
-    def _update_folder_progress(self, popup, completed: int, total: int, path: pathlib.Path) -> None:
+    def _update_folder_progress(
+        self, popup, completed: int, total: int, path: pathlib.Path
+    ) -> None:
         popup.progress = 100 if total == 0 else (completed / total) * 100
         text = f'Image {completed} of {total}'
         popup.text = text

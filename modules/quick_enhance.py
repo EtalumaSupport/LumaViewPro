@@ -359,7 +359,9 @@ class QuickEnhancer:
             try:
                 display_callback(output_for_write, significant_bits)
             except Exception:
-                logger.warning('[QuickEnhance] Could not queue derived image for display', exc_info=True)
+                logger.warning(
+                    '[QuickEnhance] Could not queue derived image for display', exc_info=True
+                )
 
         return {'source_path': source_path, 'output_path': output_path, 'recipe_path': recipe_path}
 

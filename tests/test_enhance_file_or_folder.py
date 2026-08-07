@@ -10,8 +10,12 @@ REPO = Path(__file__).resolve().parents[1]
 def _class_method_source(path, class_name, method_name):
     source = (REPO / path).read_text(encoding='utf-8')
     tree = ast.parse(source)
-    cls = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == class_name)
-    method = next(node for node in cls.body if isinstance(node, ast.FunctionDef) and node.name == method_name)
+    cls = next(
+        node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == class_name
+    )
+    method = next(
+        node for node in cls.body if isinstance(node, ast.FunctionDef) and node.name == method_name
+    )
     return ast.get_source_segment(source, method)
 
 
@@ -32,7 +36,8 @@ def test_non_macos_enhance_picker_offers_both_native_target_kinds():
     method = next(
         node
         for node in tree.body
-        if isinstance(node, ast.FunctionDef) and node.name == '_platform_native_choose_file_or_folder'
+        if isinstance(node, ast.FunctionDef)
+        and node.name == '_platform_native_choose_file_or_folder'
     )
     body = ast.get_source_segment(source, method)
     assert 'askyesnocancel' in body
@@ -41,7 +46,9 @@ def test_non_macos_enhance_picker_offers_both_native_target_kinds():
 
 
 def test_enhance_picker_routes_files_and_folders_after_the_protocol_guard():
-    body = _class_method_source('ui/file_dialogs.py', 'FileOrFolderChooseBTN', 'on_selection_function')
+    body = _class_method_source(
+        'ui/file_dialogs.py', 'FileOrFolderChooseBTN', 'on_selection_function'
+    )
     guard_idx = body.find('protocol_running.is_set')
     folder_idx = body.find('path.is_dir')
     file_idx = body.find('path.is_file')
@@ -55,7 +62,9 @@ def test_enhance_progress_is_counted_and_each_saved_image_reaches_the_main_viewe
     assert "f'Image {completed} of {total}'" in post_processing
     assert 'hold_derived_image' in post_processing
 
-    viewer_method = _class_method_source('ui/scope_display.py', 'ScopeDisplay', 'hold_derived_image')
+    viewer_method = _class_method_source(
+        'ui/scope_display.py', 'ScopeDisplay', 'hold_derived_image'
+    )
     assert 'image_to_texture' in viewer_method
     assert 'bump_protocol_hold' in viewer_method
 
