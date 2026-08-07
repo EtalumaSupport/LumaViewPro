@@ -59,7 +59,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from tests.ast_seams import REPO_ROOT
+from tests.ast_seams import iter_package_modules
 
 # Packages that hold callers of the scope API. `drivers/` is excluded on
 # purpose: it sits BELOW the API and never holds a scope reference.
@@ -137,23 +137,20 @@ def _probe_name(node: ast.Call) -> str | None:
 
 def iter_probe_sites(packages=SCANNED_PACKAGES):
     """Yield every literal-name capability probe under `packages`."""
-    for package in packages:
-        for path in sorted((REPO_ROOT / package).rglob('*.py')):
-            tree = ast.parse(path.read_text(encoding='utf-8'), filename=str(path))
-            rel_path = path.relative_to(REPO_ROOT).as_posix()
-            for node in ast.walk(tree):
-                if not isinstance(node, ast.Call):
-                    continue
-                name = _probe_name(node)
-                if name is None:
-                    continue
-                yield ProbeSite(
-                    rel_path=rel_path,
-                    lineno=node.lineno,
-                    func=node.func.id,
-                    receiver=ast.unparse(node.args[0]),
-                    name=name,
-                )
+    for rel_path, tree in iter_package_modules(packages):
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            name = _probe_name(node)
+            if name is None:
+                continue
+            yield ProbeSite(
+                rel_path=rel_path,
+                lineno=node.lineno,
+                func=node.func.id,
+                receiver=ast.unparse(node.args[0]),
+                name=name,
+            )
 
 
 def scope_probe_sites():
