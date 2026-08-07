@@ -344,15 +344,30 @@ class SimulatedLEDBoard:
             return f'RE: STATUS {status_str}'
         return 'RE: STATUS ALL_OFF'
 
-    def wait_until_on(self) -> None:
+    def wait_until_on(self, timeout_s: float = 5.0) -> bool:
         """Block until ``get_status()`` reports a STATUS line.
 
-        The simulator returns a STATUS line on the first call, so this
-        is effectively non-blocking; provided for API parity.
+        The simulator answers STATUS on the first call, so this returns
+        almost immediately. It still honors ``timeout_s`` and returns a
+        bool rather than looping forever, because a failure-injected
+        board can withhold STATUS indefinitely.
+
+        The real board's STATUS command is unimplemented in firmware, so
+        it always returns False. A caller must therefore not read a True
+        here as a hardware guarantee -- it says the SIMULATOR confirmed,
+        which is the strongest thing this class can honestly report.
+
+        Args:
+            timeout_s: Maximum wait in seconds.
+
+        Returns:
+            bool: True once a STATUS line is observed, False on timeout.
         """
-        status = self.get_status()
-        while 'STATUS' not in status:
-            status = self.get_status()
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            if 'STATUS' in self.get_status():
+                return True
+        return False
 
     # State-query methods have been retired; see ledboard.py for
     # rationale.
