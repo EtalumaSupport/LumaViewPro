@@ -83,7 +83,7 @@ class QuickEnhancer:
             return channel
         # Some ImageJ-style monochrome TIFFs do not round-trip the channel
         # field through read_postproc_input_metadata. LVP names include the
-        # layer as a token, so use that explicit label—not pixel appearance.
+        # layer as a token, so use that explicit label -- not pixel appearance.
         tokens = {token.upper() for token in re.split(r'[^A-Za-z0-9]+', source_path.stem)}
         channel_by_token = {
             'BF': 'BF',

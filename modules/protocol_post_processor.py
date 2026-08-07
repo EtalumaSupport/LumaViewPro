@@ -419,7 +419,7 @@ class ProtocolPostProcessor(abc.ABC):
                     average_ms = sum(completed_group_ms) / len(completed_group_ms)
                     estimate_seconds = round((remaining * average_ms) / 1000.0)
                     popup.text = (
-                        f'Running {mode_label} Stitch — group {current_group}/{group_count}.\n'
+                        f'Running {mode_label} Stitch -- group {current_group}/{group_count}.\n'
                         f'Estimated remaining time: about {estimate_seconds} seconds.\n'
                         'Source pixels and channel colors are preserved.'
                     )

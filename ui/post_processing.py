@@ -228,7 +228,7 @@ class StitchControls(BoxLayout):
         if result is None:
             popup.text = (
                 'Stitching could not be completed. No console error is shown here.\n'
-                'Open Support > Logs and search for “Stitcher:” for the diagnostic details.'
+                'Open Support > Logs and search for "Stitcher:" for the diagnostic details.'
             )
             Clock.schedule_once(lambda dt: popup.dismiss(), 5)
             return
@@ -249,7 +249,7 @@ class StitchControls(BoxLayout):
             else:
                 final_text = (
                     'Stitching could not be completed for one or more tile groups.\n'
-                    'No console error is shown here. Open Support > Logs and search for “Stitcher:”.'
+                    'No console error is shown here. Open Support > Logs and search for "Stitcher:".'
                 )
             popup.text = final_text
             Clock.schedule_once(lambda dt: popup.dismiss(), 5)
