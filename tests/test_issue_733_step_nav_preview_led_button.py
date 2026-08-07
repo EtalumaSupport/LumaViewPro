@@ -98,6 +98,7 @@ def stepnav_env(monkeypatch):
             ),
         ),
         protocol_running=SimpleNamespace(is_set=MagicMock(return_value=False)),
+        sequenced_capture_runner=SimpleNamespace(run_in_progress=lambda: False),
         stage=SimpleNamespace(draw_labware=MagicMock()),
     )
     monkeypatch.setattr('modules.app_context.ctx', ctx)

@@ -2171,22 +2171,31 @@ class TechSupportReport:
             (d / 'none_found.txt').write_text('No protocol files found.\n')
             return
 
+        # Same-named protocols are the normal case (every run folder emits
+        # protocol_record.tsv / protocol_post_record.tsv), so copying by bare
+        # basename silently overwrote all but one. One numbered bundle name is
+        # derived per entry and shared by the copied file, the index entry,
+        # and the metadata mirror, so the three cannot disagree.
+        for i, p in enumerate(protocols, 1):
+            p['bundle_name'] = f'{i:02d}_{p["name"]}{p["path"].suffix}'
+
         with open(d / '_index.txt', 'w') as f:
             f.write(f'Most Recent {len(protocols)} Protocols\n{"=" * 40}\n\n')
             for i, p in enumerate(protocols, 1):
-                f.write(f'{i:2d}. {p["name"]}\n')
+                f.write(f'{i:2d}. {p["bundle_name"]}\n')
                 f.write(f'    Modified: {p["modified"]}\n')
                 f.write(f'    Path:     {p["path"]}\n')
                 f.write(f'    Size:     {p["size"]} bytes\n\n')
 
         for p in protocols:
             try:
-                shutil.copy2(p['path'], d / f'{p["name"]}{p["path"].suffix}')
+                shutil.copy2(p['path'], d / p['bundle_name'])
             except Exception as e:
                 logger.warning(f'Could not copy protocol {p["path"]}: {e}')
 
         self._meta['recent_protocols'] = [
-            {'name': p['name'], 'modified': p['modified'].isoformat()} for p in protocols
+            {'name': pathlib.Path(p['bundle_name']).stem, 'modified': p['modified'].isoformat()}
+            for p in protocols
         ]
 
     def _step_hardware_tests(self, tmp):

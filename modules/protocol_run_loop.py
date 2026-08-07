@@ -283,8 +283,11 @@ class ProtocolRunLoop:
                 end_scan_time = datetime.datetime.now()
                 scan_duration = end_scan_time - start_scan_time
 
+                scan_aborted = p._aborted.is_set()
+                scan_outcome = 'aborted after' if scan_aborted else 'completed in'
                 logger.info(
-                    f'Protocol scan {p._scan_count} completed in {scan_duration.total_seconds():.2f} seconds'
+                    f'Protocol scan {p._scan_count} {scan_outcome} '
+                    f'{scan_duration.total_seconds():.2f} seconds'
                 )
 
                 # The pacing anchor has two lifecycle events: it is
@@ -303,7 +306,10 @@ class ProtocolRunLoop:
                     p._start_t = p._scan_first_capture_t
 
                 new_count = p.advance_scan_count()
-                logger.debug(f'[{p.LOGGER_NAME}] Scan {new_count}/{p._n_scans} completed')
+                logger.debug(
+                    f'[{p.LOGGER_NAME}] Scan {new_count}/{p._n_scans} '
+                    f'{"aborted" if scan_aborted else "completed"}'
+                )
 
                 if p._callbacks.scan_iterate_post:
                     _schedule_ui(lambda dt: p._callbacks.scan_iterate_post(), 0)

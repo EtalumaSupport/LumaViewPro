@@ -243,7 +243,6 @@ def go_to_step_update_ui(step, called_from_protocol: bool = False):
     the step's channel as the user expects.
     """
     ctx = _app_ctx.ctx
-    protocol_running_global = ctx.protocol_running
 
     color = step['Color']
     layer_obj = ctx.image_settings.layer_lookup(layer=color)
@@ -289,7 +288,11 @@ def go_to_step_update_ui(step, called_from_protocol: bool = False):
     # executor. Outside a run the listener bridge is the sole button writer,
     # reflecting driver truth -- a forced 'down' here would go stale and any
     # later apply_settings(update_led=True) would re-light the channel.
-    if protocol_running_global.is_set():
+    # "During protocol" is the RUNNER's truth, not ctx.protocol_running: that
+    # lockout flag deliberately stays set through the post-run writing-files
+    # window, when stepping is manual and no LED event will ever correct a
+    # forced 'down' left here.
+    if ctx.sequenced_capture_runner.run_in_progress():
         from ui.layer_control import LayerControl
 
         LayerControl._suppressing_led_log = True
