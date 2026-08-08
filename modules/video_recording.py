@@ -31,18 +31,27 @@ event fails silent):
 - A start refusal (exclusive activity already running) raises
   ``RecordingRefusedError`` directly to the refused caller, outside the
   mute's scope.
-
-This module is currently a signatures-only skeleton: the contract tests
-in tests/test_video_recording_contract.py define the behavior; the
-implementation follows them.
 """
 
+import json
 import pathlib
+import queue
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from modules.video_cadence import frame_budget
+from lib import profile_trace
+from lvp_logger import logger
+from modules.exceptions import RecordingRefusedError
+from modules.video_cadence import CadenceSelector, frame_budget
+
+
+MANIFEST_FILENAME = 'recording_manifest.json'
+
+# Queue sentinel closing the writer lane's drain loop. Enqueued exactly
+# once per recording, when selection closes.
+_END_OF_RECORDING = object()
 
 
 class ExclusivityClaim(Protocol):
@@ -163,22 +172,49 @@ class VideoRecordingEngine:
         clock: Callable[[], float],
         notify: Any = None,
     ):
-        raise NotImplementedError('VideoRecordingEngine is a contract skeleton')
+        self._write_frame = write_frame
+        self._claim = claim
+        self._clock = clock
+        self._notify = notify
+        # One lock covers selection state and counters. ingest_frame runs
+        # on the camera ingest thread, stop()/start() on callers' threads,
+        # and the writer lane decrements the pending count -- all under
+        # this lock, held only for cheap bookkeeping (never across a
+        # write or a queue wait).
+        self._lock = threading.Lock()
+        self._queue: queue.SimpleQueue = queue.SimpleQueue()
+        self._drained = threading.Event()
+        self._drained.set()
+        self._config: RecordingConfig | None = None
+        self._selector: CadenceSelector | None = None
+        self._writer_thread: threading.Thread | None = None
+        self._recording = False
+        self._selection_closed = True
+        self._discarding = False
+        self._pending = 0
+        self._frames_selected = 0
+        self._frames_written = 0
+        self._write_failures = 0
+        self._timestamps: list[float] = []
+        self._all_frames_carried_chunks = True
+        self._aborted = False
+        self._abort_reason = ''
+        self._result: RecordingResult | None = None
 
     @property
     def is_recording(self) -> bool:
         """True from a successful ``start`` until selection closes."""
-        raise NotImplementedError
+        return self._recording
 
     @property
     def is_draining(self) -> bool:
         """True while the writer lane still holds queued frames."""
-        raise NotImplementedError
+        return not self._drained.is_set()
 
     @property
     def pending_writes(self) -> int:
         """Frames enqueued but not yet written (the writer's current lag)."""
-        raise NotImplementedError
+        return self._pending
 
     def start(self, config: RecordingConfig) -> None:
         """Open selection for one recording.
@@ -191,7 +227,45 @@ class VideoRecordingEngine:
                 run or another recording) already holds the claim, or
                 this engine is already recording or draining.
         """
-        raise NotImplementedError
+        with self._lock:
+            if self._recording or not self._drained.is_set():
+                raise RecordingRefusedError(
+                    reason='recording_active',
+                    title='Recording Active',
+                    message='A recording is already in progress. Stop it, then record again.',
+                )
+            if not self._claim.try_claim('recording'):
+                raise RecordingRefusedError(
+                    reason='exclusive_activity_running',
+                    title='Another Activity Running',
+                    message=(
+                        'Another exclusive activity is using the microscope. '
+                        'Let it finish, then start the recording.'
+                    ),
+                )
+            self._config = config
+            start_ts = self._clock()
+            self._selector = CadenceSelector(
+                fps=config.fps, max_frames=config.frame_budget, start_ts=start_ts
+            )
+            self._start_ts = start_ts
+            self._recording = True
+            self._selection_closed = False
+            self._discarding = False
+            self._drained.clear()
+            self._pending = 0
+            self._frames_selected = 0
+            self._frames_written = 0
+            self._write_failures = 0
+            self._timestamps = []
+            self._all_frames_carried_chunks = True
+            self._aborted = False
+            self._abort_reason = ''
+            self._result = None
+            self._writer_thread = threading.Thread(
+                target=self._drain_loop, name='VideoRecordingWriter', daemon=True
+            )
+            self._writer_thread.start()
 
     def ingest_frame(self, image: Any, timestamp_s: float, chunks: Any = None) -> None:
         """Offer one delivered camera frame: select + enqueue only.
@@ -201,7 +275,37 @@ class VideoRecordingEngine:
         capture-side drop. Frame numbers derive from enqueue order
         (contiguous ordinals), so holes are unrepresentable.
         """
-        raise NotImplementedError
+        with (
+            profile_trace.timer(
+                'video_ingest_trace.csv',
+                'ts_ms,duration_ms,selected,pending',
+                lambda: [self._frames_selected, self._pending],
+            ),
+            self._lock,
+        ):
+            if not self._recording:
+                return
+            # No separate duration cutoff: the frame budget
+            # (ceil(fps * duration)) IS the duration boundary, and the
+            # selector's catch-up semantics require late frames to
+            # claim outstanding slots -- an independent wall-clock
+            # close would truncate exactly that catch-up.
+            if not self._selector.slot_open(timestamp_s):
+                return
+            self._selector.reserve()
+            frame_number = self._frames_selected
+            self._frames_selected += 1
+            self._pending += 1
+            self._timestamps.append(timestamp_s)
+            if chunks is None:
+                self._all_frames_carried_chunks = False
+            # Enqueue the delivered array as-is: no copy (pypylon's
+            # GetArray already returns an owned array) and no flip --
+            # orientation and contiguity are the write edge's business,
+            # never paid per-frame in the callback.
+            self._queue.put((image, timestamp_s, frame_number))
+            if self._selector.at_capacity:
+                self._close_selection_locked()
 
     def stop(self) -> None:
         """Close selection promptly (within one selection decision).
@@ -210,11 +314,12 @@ class VideoRecordingEngine:
         lane is empty. Stopping does not require the writer to have kept
         up -- it never does.
         """
-        raise NotImplementedError
+        with self._lock:
+            self._close_selection_locked()
 
     def wait_for_drain(self, timeout: float | None = None) -> bool:
         """Block until every queued frame is written; True when drained."""
-        raise NotImplementedError
+        return self._drained.wait(timeout)
 
     def discard_pending(self) -> None:
         """Drop the queued backlog loudly (explicit user choice at close).
@@ -222,8 +327,174 @@ class VideoRecordingEngine:
         The discarded count lands in the manifest and the result as a
         short delivery; discard is never silent.
         """
-        raise NotImplementedError
+        with self._lock:
+            self._close_selection_locked()
+            self._discarding = True
+        discarded = 0
+        while True:
+            try:
+                item = self._queue.get_nowait()
+            except queue.Empty:
+                break
+            if item is _END_OF_RECORDING:
+                continue
+            discarded += 1
+        with self._lock:
+            self._pending -= discarded
+        # The lane may reach get() after this drain emptied the queue
+        # (including the close sentinel); re-post it so the lane always
+        # wakes and exits instead of parking forever.
+        self._queue.put(_END_OF_RECORDING)
+        logger.warning(
+            f'[VideoEngine] Discarded {discarded} unwritten frames at user request; '
+            'the manifest records the short delivery'
+        )
+        self._finalize(aborted=False)
 
     def result(self) -> RecordingResult:
         """Measured truth of the finished recording; valid after drain."""
-        raise NotImplementedError
+        result = self._result
+        if result is None:
+            raise RuntimeError('result() before the recording finished draining')
+        return result
+
+    def _close_selection_locked(self) -> None:
+        """Close selection exactly once; the caller holds the lock."""
+        if self._selection_closed:
+            return
+        self._selection_closed = True
+        self._recording = False
+        self._queue.put(_END_OF_RECORDING)
+
+    def _drain_loop(self) -> None:
+        """Writer lane: pop each frame and write it as its final artifact.
+
+        A single frame's write failure costs exactly that frame (counted,
+        never fatal). Any other escape -- including SystemExit from a
+        dying dependency -- is writer-lane death: the recording aborts
+        loudly and the backlog is discarded.
+        """
+        while True:
+            item = self._queue.get()
+            if item is _END_OF_RECORDING:
+                break
+            image, timestamp_s, frame_number = item
+            try:
+                with profile_trace.timer(
+                    'video_write_trace.csv',
+                    'ts_ms,duration_ms,frame_number,pending',
+                    lambda n=frame_number: [n, self._pending],
+                ):
+                    self._write_frame(image, timestamp_s, frame_number, self._config)
+            except Exception as ex:
+                with self._lock:
+                    self._write_failures += 1
+                logger.error(
+                    f'[VideoEngine] Frame {frame_number} write failed and is lost '
+                    f'({ex}); the recording continues'
+                )
+            except BaseException as ex:
+                self._abort_from_lane_death(ex)
+                return
+            else:
+                with self._lock:
+                    self._frames_written += 1
+            finally:
+                with self._lock:
+                    self._pending -= 1
+            if self._discarding:
+                return
+        self._finalize(aborted=False)
+
+    def _abort_from_lane_death(self, ex: BaseException) -> None:
+        reason = f'writer lane died: {ex}'
+        with self._lock:
+            self._aborted = True
+            self._abort_reason = reason
+        logger.critical(f'[VideoEngine] {reason} -- recording aborted')
+        if self._notify is not None:
+            self._notify.critical(
+                'Recording',
+                'Recording Failed',
+                'The video writer stopped working and the recording was aborted. '
+                'Frames already written are on disk; check the log for the cause.',
+            )
+        self._finalize(aborted=True)
+
+    def _finalize(self, aborted: bool) -> None:
+        """Compute measured truth, write the manifest, release the claim.
+
+        Runs exactly once per recording: both the lane's normal drain end
+        and a caller's discard_pending() route here, and whichever comes
+        second is a no-op.
+        """
+        with self._lock:
+            if self._result is not None:
+                return
+            timestamps = tuple(self._timestamps)
+            if len(timestamps) >= 2:
+                span = timestamps[-1] - timestamps[0]
+                measured_duration = span
+                measured_fps = (len(timestamps) - 1) / span if span > 0 else 0.0
+            else:
+                measured_duration = 0.0
+                measured_fps = 0.0
+            grade = 'camera' if timestamps and self._all_frames_carried_chunks else 'host'
+            short_delivery = self._frames_written < self._config.frame_budget
+            manifest_path = None
+            if not aborted:
+                manifest_path = self._write_manifest(
+                    measured_fps=measured_fps,
+                    measured_duration=measured_duration,
+                    grade=grade,
+                    short_delivery=short_delivery,
+                    timestamps=timestamps,
+                )
+            self._result = RecordingResult(
+                frames_selected=self._frames_selected,
+                frames_written=self._frames_written,
+                write_failures=self._write_failures,
+                short_delivery=short_delivery,
+                aborted=self._aborted,
+                abort_reason=self._abort_reason,
+                configured_fps=self._config.fps,
+                measured_fps=measured_fps,
+                measured_duration_s=measured_duration,
+                timestamp_grade=grade,
+                frame_timestamps_s=timestamps,
+                manifest_path=manifest_path,
+            )
+            # Release BEFORE signalling drained: a caller woken by
+            # wait_for_drain must observe the claim already free.
+            self._claim.release('recording')
+            self._drained.set()
+
+    def _write_manifest(
+        self,
+        measured_fps: float,
+        measured_duration: float,
+        grade: str,
+        short_delivery: bool,
+        timestamps: tuple,
+    ) -> pathlib.Path | None:
+        manifest = {
+            'manifest_version': 1,
+            'frames_selected': self._frames_selected,
+            'frames_written': self._frames_written,
+            'write_failures': self._write_failures,
+            'short_delivery': short_delivery,
+            'timestamp_grade': grade,
+            'configured_fps': self._config.fps,
+            'measured_fps': measured_fps,
+            'measured_duration_s': measured_duration,
+            'frame_index': [{'i': i, 'ts_s': ts} for i, ts in enumerate(timestamps)],
+        }
+        path = pathlib.Path(self._config.output_dir) / MANIFEST_FILENAME
+        try:
+            path.write_text(json.dumps(manifest, indent=2))
+        except OSError as ex:
+            # The frames on disk are the artifact; a manifest write
+            # failure degrades reporting, never the recording.
+            logger.error(f'[VideoEngine] Manifest write failed ({ex}); frames are unaffected')
+            return None
+        return path

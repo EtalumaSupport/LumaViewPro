@@ -87,8 +87,24 @@ class CadenceSelector:
         """Whether a frame delivered at ``now`` claims the next slot.
 
         Pure query -- ``reserve`` commits the claim.
+
+        The deadline and the timestamp are independently-rounded float
+        representations of physical instants (the deadline is an
+        accumulated sum of the rounded interval; the timestamp carries
+        its own rounding), so when both encode the SAME instant -- a
+        camera delivering at exactly the configured cadence -- either
+        may land a few ulps below the other and exact ``>=`` would
+        silently lose that slot (the recording's final frame, at the
+        boundary). Equality is therefore judged with a closeness bound
+        scaled to a millionth of the slot width: representation error
+        never approaches it, and no two distinct real frames can sit
+        within a millionth of a slot of the same deadline.
         """
-        return not self.at_capacity and now >= self._next_slot_ts
+        if self.at_capacity:
+            return False
+        return now >= self._next_slot_ts or math.isclose(
+            now, self._next_slot_ts, rel_tol=0.0, abs_tol=self._interval_s * 1e-6
+        )
 
     def reserve(self) -> int:
         """Commit the pending slot claim and return the reserved slot index.

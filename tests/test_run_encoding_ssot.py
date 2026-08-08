@@ -401,6 +401,7 @@ RUN_PIPELINE_MODULES = [
     'modules/protocol_image_writer.py',
     'modules/protocol_step_runner.py',
     'modules/video_capture.py',
+    'modules/video_recording.py',
 ]
 
 FORBIDDEN_CONFIG_SOURCES = {

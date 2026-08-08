@@ -25,15 +25,6 @@ from tests.video_engine_harness import (
     WriterStub,
 )
 
-# Executable-spec marker: these tests define behavior the engine build
-# delivers; they must FAIL (not error) until then, and strict=True turns
-# each one that starts passing into an XPASS error so the marker cannot
-# outlive the implementation.
-ENGINE_XFAIL = pytest.mark.xfail(
-    reason='executable spec: the video engine implementation is not built yet',
-    strict=True,
-)
-
 # Every recording manifest must carry at least these keys; downstream
 # consumers (support bundles, char tooling, the end-of-run report) key
 # off them.
@@ -87,7 +78,6 @@ class TestBudgetContract:
         # An hour at 40 fps is 144,000 frames; no cap anywhere.
         assert make_config(tmp_path, fps=40, duration_s=3600).frame_budget == 144000
 
-    @ENGINE_XFAIL
     def test_budget_full_closes_selection(self, tmp_path):
         engine, _writer, clock, _ = make_engine(tmp_path)
         config = make_config(tmp_path, fps=5, duration_s=1)  # budget 5
@@ -97,7 +87,6 @@ class TestBudgetContract:
         assert engine.wait_for_drain(timeout=5)
         assert engine.result().frames_selected == 5
 
-    @ENGINE_XFAIL
     def test_duration_elapsed_closes_selection(self, tmp_path):
         engine, _writer, clock, _ = make_engine(tmp_path)
         engine.start(make_config(tmp_path, fps=5, duration_s=1))
@@ -110,7 +99,6 @@ class TestBudgetContract:
         assert engine.result().frames_selected == 5
 
 
-@ENGINE_XFAIL
 class TestRateContract:
     def test_configured_rate_honored_under_fast_delivery(self, tmp_path):
         engine, _writer, clock, _ = make_engine(tmp_path)
@@ -133,7 +121,6 @@ class TestRateContract:
         assert result.short_delivery is True
 
 
-@ENGINE_XFAIL
 class TestEnqueueIsUnconditional:
     def test_lagging_writer_never_causes_capture_drop(self, tmp_path):
         writer = WriterStub(tmp_path, blocked=True)
@@ -151,7 +138,6 @@ class TestEnqueueIsUnconditional:
         assert result.write_failures == 0
 
 
-@ENGINE_XFAIL
 class TestDrainContinuesAfterCapture:
     def test_backlog_drains_after_stop(self, tmp_path):
         writer = WriterStub(tmp_path, blocked=True)
@@ -169,7 +155,6 @@ class TestDrainContinuesAfterCapture:
         assert [n for n, _, _ in writer.written] == list(range(10))
 
 
-@ENGINE_XFAIL
 class TestStopPromptness:
     def test_stop_closes_selection_within_one_decision(self, tmp_path):
         engine, writer, clock, _ = make_engine(tmp_path)
@@ -186,7 +171,6 @@ class TestStopPromptness:
         assert engine.result().frames_selected == selected_at_stop
 
 
-@ENGINE_XFAIL
 class TestLossIsNeverSilent:
     def test_per_frame_write_failure_costs_that_frame_only(self, tmp_path):
         writer = WriterStub(tmp_path, fail_frames={3})
@@ -233,7 +217,6 @@ class TestLossIsNeverSilent:
         assert result.measured_duration_s == 0.0
 
 
-@ENGINE_XFAIL
 class TestFatalityClassification:
     def test_writer_lane_death_aborts_the_recording(self, tmp_path):
         writer = WriterStub(tmp_path, die_on_frame=2)
@@ -259,7 +242,6 @@ class TestFatalityClassification:
         assert 'critical' not in notify.severities()
 
 
-@ENGINE_XFAIL
 class TestMeasuredTruth:
     def test_result_reports_measured_not_configured(self, tmp_path):
         engine, _writer, clock, _ = make_engine(tmp_path)
@@ -290,7 +272,6 @@ class TestMeasuredTruth:
         assert engine.result().timestamp_grade == 'host'
 
 
-@ENGINE_XFAIL
 class TestManifestTruth:
     def test_manifest_written_with_required_schema(self, tmp_path):
         engine, _writer, clock, _ = make_engine(tmp_path)
@@ -305,7 +286,6 @@ class TestManifestTruth:
         assert not missing, f'manifest missing keys: {sorted(missing)}'
 
 
-@ENGINE_XFAIL
 class TestExclusivity:
     def test_engine_refuses_second_capture(self, tmp_path):
         engine, _writer, _clock, _ = make_engine(tmp_path)
