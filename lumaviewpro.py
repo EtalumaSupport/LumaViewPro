@@ -1154,8 +1154,49 @@ class LumaViewProApp(TooltipMixin, App):
 
             return True  # Prevent window from closing
 
-        # No protocol running - allow normal close
+        recording = ctx.session.manual_recording
+        if recording.is_busy:
+            # Queued video frames are still being written to their final
+            # artifacts. A silent block reads as a hang and a silent
+            # close eats the tail of the recording, so the close shows
+            # drain progress with one explicit discard escape.
+            logger.info('[LVP Main  ] Close requested during video drain; showing progress')
+            Clock.schedule_once(lambda dt: self._close_with_drain_progress())
+            return True  # Prevent window from closing
+
+        # No exclusive activity - allow normal close
         return False
+
+    def _close_with_drain_progress(self) -> None:
+        """PR flow for closing mid-recording: stop, show drain progress,
+        exit when the finish lands (or on explicit discard)."""
+        from ui.notification_popup import show_blocking_progress_popup
+
+        recording = ctx.session.manual_recording
+        recording.stop()
+
+        def _discard(*_a):
+            recording.discard_pending()
+
+        popup, set_message = show_blocking_progress_popup(
+            title='Finishing Video Writes',
+            message='Finishing video writes...',
+            action_text='Discard Remaining Frames',
+            on_action=_discard,
+        )
+
+        def _watch(dt):
+            if recording.is_busy:
+                set_message(
+                    f'Finishing video writes -- {recording.pending_writes} frames remaining.'
+                )
+                return
+            Clock.unschedule(self._drain_close_watch)
+            self._drain_close_watch = None
+            popup.dismiss()
+            self.stop()
+
+        self._drain_close_watch = Clock.schedule_interval(_watch, 0.2)
 
     def _flush_current_json(self, dt: float) -> None:
         """Periodic current.json snapshot (Clock interval callback).

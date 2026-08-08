@@ -130,6 +130,16 @@ class ManualRecordingController:
         return self._engine.pending_writes if self._engine is not None else 0
 
     @property
+    def is_busy(self) -> bool:
+        """True until the recording, its drain, AND the finish complete.
+
+        The app-close gate reads this: the recording is not safely over
+        until the post-drain finish (MP4 close, hyperstack) has run.
+        """
+        thread = self._finish_thread
+        return self.is_recording or self.is_draining or (thread is not None and thread.is_alive())
+
+    @property
     def elapsed_s(self) -> float:
         """Seconds since the recording started; 0.0 when idle."""
         if self._start_ts is None or not self.is_recording:

@@ -324,6 +324,37 @@ class TestLossIsNotified:
         assert 'error' in recorder.severities()
 
 
+class TestCloseWithProgress:
+    def test_is_busy_spans_recording_drain_and_finish(self, tmp_path):
+        controller, scope, clock = make_controller(tmp_path)
+        assert not controller.is_busy
+        controller.start()
+        assert controller.is_busy
+        feed_frames(scope, clock, 3, fps=10.0)
+        controller.stop()
+        finish(controller)
+        assert not controller.is_busy
+
+    def test_discard_pending_releases_busy(self, tmp_path):
+        controller, scope, clock = make_controller(tmp_path)
+        controller.start()
+        feed_frames(scope, clock, 3, fps=10.0)
+        controller.discard_pending()
+        finish(controller)
+        assert not controller.is_busy
+
+    def test_app_close_gate_reads_the_controller(self):
+        # The close hook must consult the recording controller and route
+        # through the progress-with-discard flow; kv/Window plumbing has
+        # no headless seam, so pin the wiring on source.
+        repo = manual_recording_module.Path(__file__).resolve().parent.parent
+        app_src = (repo / 'lumaviewpro.py').read_text()
+        assert 'recording.is_busy' in app_src
+        assert '_close_with_drain_progress' in app_src
+        assert 'show_blocking_progress_popup' in app_src
+        assert 'Discard Remaining Frames' in app_src
+
+
 class TestScratchSweep:
     def test_leftover_scratch_deleted(self, tmp_path):
         scratch = tmp_path / 'recording_temp.dat'
