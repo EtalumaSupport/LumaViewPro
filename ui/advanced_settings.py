@@ -154,9 +154,9 @@ class AdvancedSettings(Popup):
         ctx.camera_executor.put(IOTask(action=_set_line_noise))
 
     def update_video_max_fps(self):
-        # 0 = no limit (camera free-run rate). record_init keys
-        # _user_requested_fps_limit on this; non-zero requests the
-        # camera-side rate cap.
+        # 0 = no limit: the recording rate is then bounded only by
+        # exposure and the delivery constant; non-zero is the user's
+        # explicit cap on the recording cadence.
         settings = _app_ctx.ctx.settings
         widget = self.ids['video_max_fps_input']
         try:
@@ -180,8 +180,8 @@ class AdvancedSettings(Popup):
         gui_logger.text_input_debounced('VIDEO_MAX_FPS', value)
 
     def update_video_max_duration(self):
-        # Memmap allocates max_fps * duration frames; the disk-space
-        # pre-flight in record_init catches infeasible sizes.
+        # Bounds the recording's frame budget (fps * duration); the
+        # record start's disk floor check guards feasibility.
         settings = _app_ctx.ctx.settings
         widget = self.ids['video_max_duration_input']
         try:

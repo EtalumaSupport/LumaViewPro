@@ -73,8 +73,8 @@ class _FakeScope:
         self.motion = _FakeMotion()
 
 
-def make_settings(tmp_path, *, video_as_frames=True, max_fps=0, duration_s=60):
-    return {
+def make_settings(tmp_path, *, video_as_frames=True, max_fps=0, duration_s=60, hyperstack=False):
+    settings = {
         'live_folder': str(tmp_path),
         'video_as_frames': video_as_frames,
         'video': {
@@ -83,6 +83,9 @@ def make_settings(tmp_path, *, video_as_frames=True, max_fps=0, duration_s=60):
             'timestamp_overlay': True,
         },
     }
+    if hyperstack:
+        settings['image_output_format'] = {'sequenced': 'OME-TIFF Hyperstack'}
+    return settings
 
 
 def make_controller(tmp_path, *, scope=None, clock=None, **settings_kwargs):
@@ -175,6 +178,35 @@ class TestRateClamp:
         controller.stop()
         finish(controller)
 
+    def test_uncapped_never_fires_fps_budget_warning(self, tmp_path, monkeypatch):
+        # max_fps == 0 means uncapped: a fresh install must not see the
+        # FPS-budget warning at every long exposure (the regression the
+        # legacy _user_requested_fps_limit flag closed).
+        recorder = NotifyRecorder()
+        monkeypatch.setattr(manual_recording_module, 'notifications', recorder)
+        controller, _, _ = make_controller(tmp_path, max_fps=0)
+        controller.start()
+        assert 'warning' not in recorder.severities()
+        controller.stop()
+        finish(controller)
+
+    def test_missing_video_settings_dict_tolerated(self, tmp_path):
+        # A partially-edited settings file without the video dict must
+        # start with defaults, never KeyError.
+        scope = _FakeScope()
+        settings = make_settings(tmp_path)
+        del settings['video']
+        controller = ManualRecordingController(
+            scope=scope,
+            settings=settings,
+            activity_claim=ClaimStub(),
+            clock=FakeClock(),
+        )
+        controller.start()
+        assert controller.is_recording
+        controller.stop()
+        finish(controller)
+
 
 class TestFramesLeg:
     def test_end_to_end_frames_and_manifest(self, tmp_path):
@@ -242,6 +274,65 @@ class TestDurationCap:
         controller.tick()
         assert not controller.is_recording
         finish(controller)
+
+
+class TestLossIsNotified:
+    def test_write_failure_notifies_short_video(self, tmp_path, monkeypatch):
+        # A frame lost to a write error costs that frame and the finish
+        # must say so -- the invariant the legacy finalize guards pinned.
+        controller, scope, clock = make_controller(tmp_path)
+        recorder = NotifyRecorder()
+        monkeypatch.setattr(manual_recording_module, 'notifications', recorder)
+
+        real_write = manual_recording_module.image_save.write_video_frame
+        calls = {'n': 0}
+
+        def _flaky_write(**kwargs):
+            calls['n'] += 1
+            if calls['n'] == 2:
+                raise OSError('scripted write failure')
+            return real_write(**kwargs)
+
+        monkeypatch.setattr(manual_recording_module.image_save, 'write_video_frame', _flaky_write)
+        controller.start()
+        feed_frames(scope, clock, 5, fps=10.0)
+        controller.stop()
+        finish(controller)
+
+        folder = next((tmp_path / 'Manual').glob('Video_*'))
+        assert len(list(folder.glob('ManualVideo_Frame_*.tiff'))) == 4
+        manifest = json.loads((folder / 'recording_manifest.json').read_text())
+        assert manifest['write_failures'] == 1
+        assert 'warning' in recorder.severities()
+
+    def test_finish_failure_notifies(self, tmp_path, monkeypatch):
+        # A post-drain finish failure (here the hyperstack build) must
+        # reach the user, never vanish behind a log line.
+        controller, scope, clock = make_controller(tmp_path, hyperstack=True)
+        recorder = NotifyRecorder()
+        monkeypatch.setattr(manual_recording_module, 'notifications', recorder)
+
+        class _ExplodingBuilder:
+            def __init__(self, **kwargs):
+                raise RuntimeError('scripted hyperstack failure')
+
+        monkeypatch.setattr(manual_recording_module, 'StackBuilder', _ExplodingBuilder)
+        controller.start()
+        feed_frames(scope, clock, 3, fps=10.0)
+        controller.stop()
+        finish(controller)
+        assert 'error' in recorder.severities()
+
+
+class TestScratchSweep:
+    def test_leftover_scratch_deleted(self, tmp_path):
+        scratch = tmp_path / 'recording_temp.dat'
+        scratch.write_bytes(b'x' * 4096)
+        manual_recording_module.sweep_recording_scratch(tmp_path)
+        assert not scratch.exists()
+
+    def test_no_scratch_is_a_quiet_no_op(self, tmp_path):
+        manual_recording_module.sweep_recording_scratch(tmp_path)
 
 
 class TestDiskFloor:

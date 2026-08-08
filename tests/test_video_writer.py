@@ -465,12 +465,12 @@ class TestFpsFromFrames:
 
         assert fps_from_frames(100, 10.0) == pytest.approx(10.0)
 
-    def test_both_recording_paths_use_the_shared_helper(self):
-        # The protocol and manual recording modules both import the one helper,
-        # so the rate policy cannot drift between them again.
-        import modules.manual_video_finalize as mvf
+    def test_protocol_path_uses_the_shared_helper(self):
+        # The protocol video module imports the one helper so the rate
+        # policy cannot drift. The manual path no longer computes a
+        # playback rate at all: its MP4 timing rides per-frame pts (VFR)
+        # and its measured rate comes from the engine manifest.
         import modules.video_capture as vc
         from modules.video_writer import fps_from_frames
 
         assert vc.fps_from_frames is fps_from_frames
-        assert mvf.fps_from_frames is fps_from_frames

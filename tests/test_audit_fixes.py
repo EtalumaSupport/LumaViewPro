@@ -4400,93 +4400,6 @@ class TestImageHandlerBaseChunkSlot:
         assert 'Gain' not in b.get_last_chunks()
 
 
-class TestRecordInitFpsPreflightAndToggle:
-    """Issue #633 Stage 2C: record_init pre-flight + camera FPS toggle.
-
-    Static-source assertions because record_init has Kivy Clock + camera
-    dependencies that aren't mockable in the unit-test env. Bench
-    verification per the Monday plan covers the runtime behavior.
-    """
-
-    def _record_init_body(self):
-        import pathlib
-
-        source = pathlib.Path('ui/main_display.py').read_text()
-        idx = source.find('def record_init')
-        assert idx >= 0, 'record_init not found in ui/main_display.py'
-        # Slice through the next def at class indent (4 spaces).
-        next_def = source.find('\n    def ', idx + 1)
-        return source[idx:next_def] if next_def > 0 else source[idx:]
-
-    def _finalize_body(self):
-        import pathlib
-
-        source = pathlib.Path('ui/main_display.py').read_text()
-        idx = source.find('def _finalize_recording_state')
-        assert idx >= 0, '_finalize_recording_state not found'
-        next_def = source.find('\n    def ', idx + 1)
-        return source[idx:next_def] if next_def > 0 else source[idx:]
-
-    def test_fps_budget_warning_fires_when_limit_binds(self):
-        body = self._record_init_body()
-        assert 'FPS budget exceeded' in body, (
-            'record_init must surface a notifications.warning when the '
-            'user-requested FPS limit binds against the exposure budget '
-            "(issue #633 Stage 2C, Eric's 'warn + accept' choice)."
-        )
-        # Warn-and-accept: the budget-warning branch itself must not
-        # block recording. Asserted on the AST branch (not source
-        # proximity) so unrelated refusal guards earlier in the
-        # preflight -- e.g. the unknown-exposure refusal, which
-        # legitimately clears the claim -- don't false-positive.
-        import ast
-        import pathlib
-
-        tree = ast.parse(pathlib.Path('ui/main_display.py').read_text())
-        method = None
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ClassDef) and node.name == 'MainDisplay':
-                for child in node.body:
-                    if isinstance(child, ast.FunctionDef) and child.name == 'record_init':
-                        method = child
-        assert method is not None, 'MainDisplay.record_init not found'
-        budget_ifs = [
-            s
-            for s in ast.walk(method)
-            if isinstance(s, ast.If) and 'FPS budget exceeded' in ast.unparse(s)
-        ]
-        assert budget_ifs, 'FPS-budget warning must sit inside the limit-binds check'
-        innermost = min(budget_ifs, key=lambda s: len(ast.unparse(s)))
-        assert 'recording.clear' not in ast.unparse(innermost) and not any(
-            isinstance(n, ast.Return) for n in ast.walk(innermost)
-        ), (
-            'FPS-budget warning path must not clear self.recording or '
-            'abort -- Eric chose warn-and-accept, not abort.'
-        )
-
-    def test_disk_space_preflight_aborts_with_notify(self):
-        body = self._record_init_body()
-        assert 'Insufficient disk space' in body, (
-            'record_init must pre-flight disk space and abort with '
-            'notifications.error when insufficient (issue #633 Stage 2C).'
-        )
-        assert 'self.recording.clear()' in body, (
-            'Disk-space abort must clear self.recording so a retry '
-            'after freeing disk can claim recording again.'
-        )
-
-    def test_finalize_disables_camera_fps_limit(self):
-        body = self._finalize_body()
-        assert 'set_max_acquisition_frame_rate(False' in body, (
-            '_finalize_recording_state must disable the camera-side rate '
-            'limit so live preview returns to free-run (issue #633 Stage 2C).'
-        )
-        assert '_fps_limit_was_enabled' in body, (
-            '_finalize must guard the disable on _fps_limit_was_enabled '
-            "to avoid touching the knob when we didn't enable it."
-        )
-
-
 class TestSessionManifestHelpers:
     """Issue #633 Stage 2B: session_manifest.json helpers in ui/main_display.py
     are pure functions (input dict -> output dict). Unit-testable without Kivy.
@@ -8544,15 +8457,6 @@ class TestManualVideoSpinners:
         # Advanced Settings modal, not the microscope panel.
         return pathlib.Path('ui/advanced_settings.py').read_text()
 
-    def _record_init_body(self):
-        import pathlib
-
-        source = pathlib.Path('ui/main_display.py').read_text()
-        idx = source.find('def record_init')
-        assert idx >= 0, 'record_init not found in ui/main_display.py'
-        next_def = source.find('\n    def ', idx + 1)
-        return source[idx:next_def] if next_def > 0 else source[idx:]
-
     def test_kv_has_max_fps_textinput(self):
         kv = self._advanced_text()
         assert 'id: video_max_fps_input' in kv, (
@@ -8612,41 +8516,6 @@ class TestManualVideoSpinners:
             'AdvancedSettings.on_open must push '
             "settings['video']['max_duration'] into the "
             'video_max_duration_input widget when the modal opens.'
-        )
-
-    def test_record_init_reads_via_get_with_defaults(self):
-        body = self._record_init_body()
-        # No bare KeyError when the video dict is missing or its
-        # keys are missing -- a partially-edited settings.json won't
-        # crash record_init.
-        # Quote-style agnostic: ruff format may use single or double quotes.
-        assert 'settings.get("video"' in body or "settings.get('video'" in body, (
-            "record_init must read settings.get('video', {}) "
-            'to tolerate missing dict on a fresh / partial install.'
-        )
-        assert 'video_settings.get("max_fps"' in body or "video_settings.get('max_fps'" in body, (
-            'record_init must read max_fps via .get with a default.'
-        )
-
-    def test_user_requested_fps_limit_keys_on_max_fps_zero(self):
-        body = self._record_init_body()
-        assert 'self._user_requested_fps_limit = max_fps > 0' in body, (
-            'max_fps == 0 means uncapped (camera free-run); only '
-            'max_fps > 0 sets _user_requested_fps_limit = True. This '
-            'closes the Stage 2C regression where the shipped 40fps '
-            'default fired the FPS-budget warning at every '
-            '>25ms exposure.'
-        )
-
-    def test_video_fps_falls_back_to_exposure_freq_when_uncapped(self):
-        body = self._record_init_body()
-        # When _user_requested_fps_limit is False, video_fps must NOT
-        # take min(exposure_freq, 0) (which would set video_fps=0 and
-        # break the memmap allocation).
-        assert 'video_fps = exposure_freq' in body, (
-            'When the user has not requested an FPS limit, video_fps '
-            'must default to exposure_freq -- not min(exposure_freq, '
-            'max_fps) which would be 0 and break recording.'
         )
 
     def test_shipped_settings_max_fps_is_zero(self):

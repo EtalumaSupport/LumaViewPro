@@ -54,6 +54,32 @@ from modules.video_writer import VideoWriter
 DISK_FLOOR_CHECK_INTERVAL_S = 2.0
 
 
+def sweep_recording_scratch(live_folder) -> None:
+    """Delete a leftover pre-engine recording scratch file at startup.
+
+    Earlier releases recorded through a multi-GB ``recording_temp.dat``
+    memmap in the user's live folder; a crash mid-recording stranded it
+    there (headerless raw -- nothing recoverable exists). The engine
+    writes final artifacts directly, so any such file is pure litter:
+    delete it with one INFO line carrying its size. Only the current
+    live folder is swept; an orphan in a previously-used folder is
+    unreachable and stays.
+    """
+    path = Path(live_folder) / 'recording_temp.dat'
+    try:
+        size_mb = path.stat().st_size / (1024 * 1024)
+    except FileNotFoundError:
+        return
+    except OSError as e:
+        logger.warning(f'[ManualRecord] Could not stat leftover scratch {path}: {e}')
+        return
+    try:
+        path.unlink()
+        logger.info(f'[ManualRecord] Deleted leftover recording scratch {path} ({size_mb:.0f} MB)')
+    except OSError as e:
+        logger.warning(f'[ManualRecord] Could not delete leftover scratch {path}: {e}')
+
+
 class ManualRecordingController:
     """One manual-recording flow: snapshot, record, drain, finish.
 

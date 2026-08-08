@@ -836,6 +836,12 @@ class LumaViewProApp(TooltipMixin, App):
         scope_display_thread = executor_bundle.scope_display_thread
         worker_pool = executor_bundle.worker_pool
 
+        # A crash in a pre-engine release can strand a multi-GB recording
+        # scratch in the live folder; sweep it before anything records.
+        from modules.manual_recording import sweep_recording_scratch
+
+        sweep_recording_scratch(settings['live_folder'])
+
         # GUI-independent scope session; persisted to ctx.session and
         # ctx.protocol_running so other methods read off ctx.
         protocol_running_global = threading.Event()
