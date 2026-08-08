@@ -234,7 +234,7 @@
         ToggleButton:
             id: record_btn
             disabled: app.protocol_running
-			tooltip_text: 'Record live image stream as an mp4 video or as individual frames\n(30 seconds maximum record time)'
+			tooltip_text: 'Record live image stream as an mp4 video or as individual frames\n(time limit set in Advanced Settings)'
             border: 0, 0, 0, 0
             background_normal: './data/icons/record.png' # Press to Record Live Stream
             background_down: './data/icons/stop.png' # Press to Stop Recording
@@ -3291,7 +3291,7 @@
 
 				Label:
 					text: 'Duration (s)'
-					tooltip_text: 'Recording time for Protocol videos\n30 seconds maximum'
+					tooltip_text: 'Recording time for Protocol videos'
 					halign: 'left'
 					valign: 'middle'
 					font_size: '12sp'

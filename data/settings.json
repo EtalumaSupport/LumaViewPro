@@ -224,7 +224,7 @@
     },
     "video": {
         "max_fps": 0,
-        "max_duration_seconds": 30,
+        "max_duration_seconds": 300,
         "timestamp_overlay": true
     },
 

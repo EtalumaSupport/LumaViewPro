@@ -138,10 +138,12 @@ def get_sequenced_run_settings(settings: dict) -> dict:
 def get_manual_video_max_duration(settings: dict) -> float:
     """Return the max recording duration in seconds (video.max_duration_seconds).
 
-    Owns the canonical 30-second default so it lives in one place instead of
-    being repeated at each read site, where one copy could drift from the rest.
+    Owns the canonical 300-second default so it lives in one place instead
+    of being repeated at each read site, where one copy could drift from
+    the rest. Manual recording is stop-when-I-say bounded by this cap;
+    the default is what every un-configured user gets.
     """
-    return settings.get('video', {}).get('max_duration_seconds', 30)
+    return settings.get('video', {}).get('max_duration_seconds', 300)
 
 
 def get_ag_ae_max_exposure_ms(layer: str, settings: dict | None = None) -> float:
