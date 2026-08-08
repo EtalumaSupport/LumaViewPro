@@ -147,7 +147,7 @@ def unregister(ctx: Any) -> None:
 | `requires_lvp_version` | yes | PEP-440-ish requirement (`>=4.0.0`, `==4.0.0`, `~=4.0.0`). Host strips pre-release suffixes (`-beta8`) before comparing. |
 | `description` | yes | One sentence shown in the plugin list and the tech-support report. |
 | `capabilities` | no | Tuple of dotted paths the plugin uses (`scope.imaging`, `modules.image_save`). Recorded in tech-support reports; not sandbox-enforced in 4.x. |
-| `subscribes_to` | no | Tuple of settings-tree keys (`manual_video.max_fps`). If non-empty, the host will call your `on_settings_changed(ctx, settings)` when one of those keys changes. Empty tuple = hook never fires. |
+| `subscribes_to` | no | Tuple of settings-tree keys (`video.max_fps`). If non-empty, the host will call your `on_settings_changed(ctx, settings)` when one of those keys changes. Empty tuple = hook never fires. |
 | `author` | no | Free-form. |
 | `url` | no | Free-form. |
 

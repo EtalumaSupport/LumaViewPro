@@ -8515,7 +8515,7 @@ class TestPylonPublicMethodAnnotationsAndDocstrings:
 
 
 class TestManualVideoSpinners:
-    """Issue #633 Stage 2D: manual_video FPS + duration UI binding.
+    """Issue #633 Stage 2D: video FPS + duration UI binding.
 
     Static-source assertions: kv ID + handlers exist, record_init reads
     via .get with defaults, and max_fps == 0 maps to
@@ -8554,35 +8554,34 @@ class TestManualVideoSpinners:
 
     def test_kv_has_max_fps_textinput(self):
         kv = self._advanced_text()
-        assert 'id: manual_video_max_fps_input' in kv, (
+        assert 'id: video_max_fps_input' in kv, (
             'ui/advanced_settings.py must define a TextInput with id '
-            'manual_video_max_fps_input bound to '
-            "settings['manual_video']['max_fps']."
+            'video_max_fps_input bound to '
+            "settings['video']['max_fps']."
         )
-        assert 'root.update_manual_video_max_fps()' in kv, (
-            'manual_video_max_fps_input must call root.update_manual_video_max_fps() on edit.'
+        assert 'root.update_video_max_fps()' in kv, (
+            'video_max_fps_input must call root.update_video_max_fps() on edit.'
         )
 
     def test_kv_has_max_duration_textinput(self):
         kv = self._advanced_text()
-        assert 'id: manual_video_max_duration_input' in kv, (
+        assert 'id: video_max_duration_input' in kv, (
             'ui/advanced_settings.py must define a TextInput with id '
-            'manual_video_max_duration_input bound to '
-            "settings['manual_video']['max_duration']."
+            'video_max_duration_input bound to '
+            "settings['video']['max_duration']."
         )
-        assert 'root.update_manual_video_max_duration()' in kv, (
-            'manual_video_max_duration_input must call '
-            'root.update_manual_video_max_duration() on edit.'
+        assert 'root.update_video_max_duration()' in kv, (
+            'video_max_duration_input must call root.update_video_max_duration() on edit.'
         )
 
     def test_advanced_settings_has_handlers(self):
         body = self._advanced_text()
-        assert 'def update_manual_video_max_fps' in body, (
-            'AdvancedSettings must define update_manual_video_max_fps '
+        assert 'def update_video_max_fps' in body, (
+            'AdvancedSettings must define update_video_max_fps '
             'to write the value back to the settings dict.'
         )
-        assert 'def update_manual_video_max_duration' in body, (
-            'AdvancedSettings must define update_manual_video_max_duration.'
+        assert 'def update_video_max_duration' in body, (
+            'AdvancedSettings must define update_video_max_duration.'
         )
 
     def test_handlers_validate_and_revert_on_invalid(self):
@@ -8590,7 +8589,7 @@ class TestManualVideoSpinners:
         # Both handlers must surface a notifications.warning AND revert
         # the widget text on bad input -- the L1 researcher sees the
         # error and the field doesn't silently accept garbage.
-        for handler in ('update_manual_video_max_fps', 'update_manual_video_max_duration'):
+        for handler in ('update_video_max_fps', 'update_video_max_duration'):
             idx = body.find(f'def {handler}')
             assert idx >= 0
             next_def = body.find('\n    def ', idx + 1)
@@ -8602,29 +8601,29 @@ class TestManualVideoSpinners:
                 f'{handler} must revert widget.text on invalid input.'
             )
 
-    def test_on_open_pushes_manual_video_into_widgets(self):
+    def test_on_open_pushes_video_settings_into_widgets(self):
         body = self._advanced_text()
-        assert 'manual_video_max_fps_input' in body, (
-            "AdvancedSettings.on_open must push settings['manual_video']['max_fps'] "
-            'into the manual_video_max_fps_input widget when the modal opens.'
+        assert 'video_max_fps_input' in body, (
+            "AdvancedSettings.on_open must push settings['video']['max_fps'] "
+            'into the video_max_fps_input widget when the modal opens.'
         )
-        assert 'manual_video_max_duration_input' in body, (
+        assert 'video_max_duration_input' in body, (
             'AdvancedSettings.on_open must push '
-            "settings['manual_video']['max_duration'] into the "
-            'manual_video_max_duration_input widget when the modal opens.'
+            "settings['video']['max_duration'] into the "
+            'video_max_duration_input widget when the modal opens.'
         )
 
     def test_record_init_reads_via_get_with_defaults(self):
         body = self._record_init_body()
-        # No bare KeyError when manual_video dict is missing or its
+        # No bare KeyError when the video dict is missing or its
         # keys are missing -- a partially-edited settings.json won't
         # crash record_init.
         # Quote-style agnostic: ruff format may use single or double quotes.
-        assert 'settings.get("manual_video"' in body or "settings.get('manual_video'" in body, (
-            "record_init must read settings.get('manual_video', {}) "
+        assert 'settings.get("video"' in body or "settings.get('video'" in body, (
+            "record_init must read settings.get('video', {}) "
             'to tolerate missing dict on a fresh / partial install.'
         )
-        assert 'manual_video.get("max_fps"' in body or "manual_video.get('max_fps'" in body, (
+        assert 'video_settings.get("max_fps"' in body or "video_settings.get('max_fps'" in body, (
             'record_init must read max_fps via .get with a default.'
         )
 
@@ -8660,8 +8659,8 @@ class TestManualVideoSpinners:
         # contract a fresh install receives.
         path = pathlib.Path('data/settings.json')
         data = json.loads(path.read_text())
-        assert data.get('manual_video', {}).get('max_fps') == 0, (
-            'data/settings.json must ship with manual_video.max_fps = 0 '
+        assert data.get('video', {}).get('max_fps') == 0, (
+            'data/settings.json must ship with video.max_fps = 0 '
             "(uncapped) so a fresh install does not fire 'FPS budget "
             "exceeded' on every record."
         )

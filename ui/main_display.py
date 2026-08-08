@@ -224,8 +224,8 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
 
         self.video_false_color = color
 
-        manual_video = settings.get('manual_video', {})
-        max_fps = manual_video.get('max_fps', 0)
+        video_settings = settings.get('video', {})
+        max_fps = video_settings.get('max_fps', 0)
         max_duration = get_manual_video_max_duration(settings)
         # max_fps == 0 means uncapped (camera free-run rate). The
         # spinner ships at 0; non-zero is the explicit user opt-in

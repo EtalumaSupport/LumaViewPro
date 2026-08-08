@@ -222,7 +222,7 @@
     "motion": {
         "acceleration_max_pct": 100
     },
-    "manual_video": {
+    "video": {
         "max_fps": 0,
         "max_duration_seconds": 30
     },

@@ -77,11 +77,9 @@ class AdvancedSettings(Popup):
             and camera_settings.get('line_noise_reduction', False)
         )
 
-        manual_video = settings.get('manual_video', {})
-        self.ids['manual_video_max_fps_input'].text = str(manual_video.get('max_fps', 0))
-        self.ids['manual_video_max_duration_input'].text = str(
-            get_manual_video_max_duration(settings)
-        )
+        video_settings = settings.get('video', {})
+        self.ids['video_max_fps_input'].text = str(video_settings.get('max_fps', 0))
+        self.ids['video_max_duration_input'].text = str(get_manual_video_max_duration(settings))
 
         self.ids['separate_folder_per_channel_id'].state = (
             'down' if settings.get('separate_folder_per_channel') else 'normal'
@@ -152,12 +150,12 @@ class AdvancedSettings(Popup):
 
         ctx.camera_executor.put(IOTask(action=_set_line_noise))
 
-    def update_manual_video_max_fps(self):
+    def update_video_max_fps(self):
         # 0 = no limit (camera free-run rate). record_init keys
         # _user_requested_fps_limit on this; non-zero requests the
         # camera-side rate cap.
         settings = _app_ctx.ctx.settings
-        widget = self.ids['manual_video_max_fps_input']
+        widget = self.ids['video_max_fps_input']
         try:
             value = int(widget.text)
         except (ValueError, TypeError):
@@ -168,21 +166,21 @@ class AdvancedSettings(Popup):
             notifications.warning(
                 'Settings',
                 'Invalid FPS limit',
-                'Manual Video Max FPS must be between 0 and 200 (0 = no limit). '
+                'Video max FPS must be between 0 and 200 (0 = no limit). '
                 'Reverting to previous value.',
             )
-            settings.setdefault('manual_video', {})
-            widget.text = str(settings['manual_video'].get('max_fps', 0))
+            settings.setdefault('video', {})
+            widget.text = str(settings['video'].get('max_fps', 0))
             return
-        settings.setdefault('manual_video', {})
-        settings['manual_video']['max_fps'] = value
-        gui_logger.text_input_debounced('MANUAL_VIDEO_MAX_FPS', value)
+        settings.setdefault('video', {})
+        settings['video']['max_fps'] = value
+        gui_logger.text_input_debounced('VIDEO_MAX_FPS', value)
 
-    def update_manual_video_max_duration(self):
+    def update_video_max_duration(self):
         # Memmap allocates max_fps * duration frames; the disk-space
         # pre-flight in record_init catches infeasible sizes.
         settings = _app_ctx.ctx.settings
-        widget = self.ids['manual_video_max_duration_input']
+        widget = self.ids['video_max_duration_input']
         try:
             value = int(widget.text)
         except (ValueError, TypeError):
@@ -195,12 +193,12 @@ class AdvancedSettings(Popup):
                 'Invalid time limit',
                 'Video Time Limit must be between 1 and 3600 seconds. Reverting to previous value.',
             )
-            settings.setdefault('manual_video', {})
+            settings.setdefault('video', {})
             widget.text = str(get_manual_video_max_duration(settings))
             return
-        settings.setdefault('manual_video', {})
-        settings['manual_video']['max_duration_seconds'] = value
-        gui_logger.text_input_debounced('MANUAL_VIDEO_MAX_DURATION_S', value)
+        settings.setdefault('video', {})
+        settings['video']['max_duration_seconds'] = value
+        gui_logger.text_input_debounced('VIDEO_MAX_DURATION_S', value)
 
     def update_separate_folders_per_channel(self):
         settings = _app_ctx.ctx.settings
@@ -566,14 +564,14 @@ kv = Builder.load_string(
                     size_hint_y: None
                     height: '30dp'
                     Label:
-                        text: 'Manual Video Max FPS'
+                        text: 'Video max FPS'
                         tooltip_text: 'Maximum frames per second for manual recording.\\n0 = no limit (camera free-run rate).\\nAt low FPS the camera is rate-limited so live preview slows too;\\nrestored to free-run when recording stops.'
                         halign: 'left'
                         valign: 'middle'
                         text_size: self.size
                         font_size: '12sp'
                     TextInput:
-                        id: manual_video_max_fps_input
+                        id: video_max_fps_input
                         disabled: app.protocol_running
                         size_hint_x: None
                         width: '45dp'
@@ -583,8 +581,8 @@ kv = Builder.load_string(
                         halign: 'right'
                         input_filter: 'int'
                         text: '0'
-                        on_text_validate: root.update_manual_video_max_fps()
-                        on_focus: if not self.focus: root.update_manual_video_max_fps()
+                        on_text_validate: root.update_video_max_fps()
+                        on_focus: if not self.focus: root.update_video_max_fps()
 
                 BoxLayout:
                     orientation: 'horizontal'
@@ -598,7 +596,7 @@ kv = Builder.load_string(
                         text_size: self.size
                         font_size: '12sp'
                     TextInput:
-                        id: manual_video_max_duration_input
+                        id: video_max_duration_input
                         disabled: app.protocol_running
                         size_hint_x: None
                         width: '45dp'
@@ -608,8 +606,8 @@ kv = Builder.load_string(
                         halign: 'right'
                         input_filter: 'int'
                         text: '30'
-                        on_text_validate: root.update_manual_video_max_duration()
-                        on_focus: if not self.focus: root.update_manual_video_max_duration()
+                        on_text_validate: root.update_video_max_duration()
+                        on_focus: if not self.focus: root.update_video_max_duration()
 
                 BoxLayout:
                     orientation: 'horizontal'
