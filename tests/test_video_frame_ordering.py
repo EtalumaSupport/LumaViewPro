@@ -99,7 +99,7 @@ def test_manual_leg_orders_frames_numerically_across_10k(tmp_path):
 
     with patch.object(VideoBuilder, '_create_video', _capture_df):
         builder = VideoBuilder(has_turret=False)
-        result = builder._build_manual_recording_video(tmp_path)
+        result = builder._build_manual_recording_video(tmp_path, frames_per_sec=10)
 
     assert result['status'] is True
     assert captured['order'] == sorted(frames)

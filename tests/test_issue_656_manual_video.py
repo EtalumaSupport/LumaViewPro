@@ -238,15 +238,15 @@ def test_read_manifest_channel_color(tmp_path):
     folder = tmp_path / 'rec'
     folder.mkdir()
     # No manifest -> None.
-    assert builder._read_manifest_channel_color(folder) is None
+    assert builder._read_recording_manifest(folder)['channel_color'] is None
     # Manifest without the key -> None.
     (folder / 'session_manifest.json').write_text(json.dumps({'manifest_version': 1}))
-    assert builder._read_manifest_channel_color(folder) is None
+    assert builder._read_recording_manifest(folder)['channel_color'] is None
     # Manifest with the key -> the color.
     (folder / 'session_manifest.json').write_text(
         json.dumps({'recording': {'channel_color': 'Green'}})
     )
-    assert builder._read_manifest_channel_color(folder) == 'Green'
+    assert builder._read_recording_manifest(folder)['channel_color'] == 'Green'
 
 
 def test_build_session_manifest_includes_channel_color():

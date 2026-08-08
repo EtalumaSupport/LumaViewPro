@@ -423,17 +423,26 @@ class VideoCreationControls(BoxLayout):
         popup.progress = 0
         popup.auto_dismiss = False
 
-        try:
-            fps = int(self.ids['video_gen_fps_id'].text)
-        except Exception:
-            fps = 5
-            logger.error(f'Could not retrieve valid FPS for video generation. Using {fps} fps.')
+        # Blank (or 'auto') = the recording's own measured rate; the
+        # builder resolves it from the folder's manifest. An explicit
+        # number is the user's playback-rate override.
+        fps_text = self.ids['video_gen_fps_id'].text.strip().lower()
+        if fps_text in ('', 'auto'):
+            fps = None
+        else:
+            try:
+                fps = int(fps_text)
+            except ValueError:
+                fps = -1
 
         ts_overlay_btn = self.ids['enable_timestamp_overlay_btn']
         enable_timestamp_overlay = ts_overlay_btn.state == 'down'
 
-        if fps < 1:
-            msg = 'Video generation frames/second must be >= 1 fps'
+        if fps is not None and fps < 1:
+            msg = (
+                'Video generation frames/second must be >= 1 fps '
+                "(or blank for the recording's own rate)"
+            )
             final_text = f'Generating video(s) - {status_map[False]}'
             final_text += f'\n{msg}'
             popup.text = final_text

@@ -1593,7 +1593,7 @@
 			font_size: '12sp'
             size_hint_x: None
             width: '120dp'
-			tooltip_text: 'Define FPS for video creation'
+			tooltip_text: "Playback FPS for video creation\n(blank = the recording's own measured rate)"
 			
         TextInput:
             id: video_gen_fps_id
@@ -1601,7 +1601,8 @@
 			padding: ['2dp', (self.height-self.line_height)/2]
 			halign: 'center'
 			input_filter: 'int'
-			text: '5'
+			text: ''
+			hint_text: 'auto'
 			font_size: '12sp'
 
 	# Timestamp Overlay
