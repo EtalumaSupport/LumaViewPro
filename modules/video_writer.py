@@ -16,6 +16,11 @@ import modules.image_utils as image_utils
 from lvp_logger import logger
 
 
+# 90 kHz is the conventional MPEG timescale; sub-ms capture jitter
+# survives pts quantization at this resolution.
+VFR_TIME_BASE = Fraction(1, 90000)
+
+
 def fps_from_frames(captured_frames: int, duration_sec: float) -> float:
     """Playback frames-per-second for captured_frames recorded over duration_sec.
 
@@ -39,6 +44,7 @@ class VideoWriter:
         *,
         color: str | None = None,
         include_timestamp_overlay: bool = False,
+        vfr: bool = False,
     ):
         """Encode a video file. Accepts mono frames + applies false-color
         internally when `color` is set; also accepts pre-colored RGB input.
@@ -49,17 +55,25 @@ class VideoWriter:
 
         Args:
             output_path: Destination video file (H.264 via PyAV).
-            fps: Frames per second.
+            fps: Frames per second. In VFR mode this is the container's
+                nominal rate only; real timing rides per-frame pts.
             width: Frame width in pixels. Optional; None defers to first frame.
             height: Frame height in pixels. Optional; None defers to first frame.
             color: Layer name ('Red', 'Green', 'Blue', 'Lumi', ...) for
                 in-writer false-color. None encodes grayscale (gray pixfmt).
             include_timestamp_overlay: Overlay frame timestamps via image_utils.
+            vfr: Variable-frame-rate timing: each frame's presentation
+                time comes from its real capture timestamp, so a delivery
+                stall plays at its true duration. Every ``add_frame`` call
+                must then supply ``timestamp``.
         """
         self._output_path = pathlib.Path(output_path)
         self._fps = fps
         self._color = color
         self._include_timestamp_overlay = include_timestamp_overlay
+        self._vfr = vfr
+        # First-frame capture time; the pts origin so playback starts at 0.
+        self._vfr_origin_s: float | None = None
         self._shape = (height, width) if (width is not None and height is not None) else None
         self._frame_count = 0
         # Frames the encoder accepted but failed to write -- counted so the
@@ -124,11 +138,20 @@ class VideoWriter:
 
     @staticmethod
     def _get_timestamp_str(timestamp=None):
-        if timestamp is not None:
+        if timestamp is None:
+            ts = datetime.datetime.now()
+        elif isinstance(timestamp, datetime.datetime):
             ts = timestamp
         else:
-            ts = datetime.datetime.now()
+            ts = datetime.datetime.fromtimestamp(float(timestamp))
         return ts.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+
+    @staticmethod
+    def _timestamp_seconds(timestamp) -> float:
+        """Normalize a caller timestamp (datetime or epoch seconds) to seconds."""
+        if isinstance(timestamp, datetime.datetime):
+            return timestamp.timestamp()
+        return float(timestamp)
 
     def _encoder_rate(self) -> Fraction:
         """Canonical encoder frame rate for every writer-init path.
@@ -173,7 +196,17 @@ class VideoWriter:
         # Quality: CRF 23 is visually lossless for microscopy at reasonable file size
         # ultrafast: minimal CPU cost, slightly larger files. Microscopy
         # frames have low noise so quality difference is negligible.
-        self._stream.options = {'crf': '23', 'preset': 'ultrafast'}
+        options = {'crf': '23', 'preset': 'ultrafast'}
+        if self._vfr:
+            # B-frames must be disabled for VFR: MP4 container duration
+            # sums dts-based sample durations, and x264's B-frame
+            # reordering compacts dts while the true times ride pts --
+            # frames decode at the right times but the container reports
+            # a fraction of the real duration. With bf=0, dts == pts and
+            # the container duration is honest.
+            options['bf'] = '0'
+            self._stream.codec_context.time_base = VFR_TIME_BASE
+        self._stream.options = options
         self._is_color = is_color
         logger.info(
             f'VideoWriter: Opened H.264 encoder ({width}x{height} @ {float(self._fps):g}fps)'
@@ -214,7 +247,20 @@ class VideoWriter:
         treating uint16 as full 16-bit, which is correct for left-justified
         legacy frames. Omitting it for a RIGHT-ALIGNED uint16 frame is the
         near-black-video hazard -- see the fallback branch below.
+
+        In VFR mode ``timestamp`` (datetime or epoch seconds) is REQUIRED:
+        it is the frame's presentation time, not decoration. A missing
+        timestamp raises immediately rather than silently degrading the
+        file's timing.
+
+        Raises:
+            ValueError: VFR mode and ``timestamp`` is None.
         """
+        if self._vfr and timestamp is None:
+            raise ValueError(
+                'VideoWriter(vfr=True) requires a timestamp for every frame: '
+                'per-frame pts is the timing authority'
+            )
         with self._frame_lock:
             if self._finished:
                 return
@@ -268,6 +314,12 @@ class VideoWriter:
                     frame = av.VideoFrame.from_ndarray(image, format='rgb24')
                 else:
                     frame = av.VideoFrame.from_ndarray(image, format='gray')
+                if self._vfr:
+                    ts_s = self._timestamp_seconds(timestamp)
+                    if self._vfr_origin_s is None:
+                        self._vfr_origin_s = ts_s
+                    frame.pts = round((ts_s - self._vfr_origin_s) / VFR_TIME_BASE)
+                    frame.time_base = VFR_TIME_BASE
                 for packet in self._stream.encode(frame):
                     self._container.mux(packet)
                 self._frame_count += 1
