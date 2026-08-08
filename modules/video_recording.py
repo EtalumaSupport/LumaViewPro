@@ -87,6 +87,13 @@ class RecordingConfig:
             manifest.
         filename_template: Caller-supplied naming template so each caller
             keeps its existing filename tokens.
+        timestamp_overlay: The user's burn-timestamps-into-video choice,
+            snapshotted with the rest of the config. REQUIRED so no
+            caller can silently decide it; the write edge consumes it.
+        manifest_extra: Caller-supplied static metadata (provenance,
+            camera identity, channel color) merged into the manifest.
+            Engine-measured fields always win on key collision -- the
+            engine is the authority on measured truth.
     """
 
     fps: float
@@ -96,6 +103,8 @@ class RecordingConfig:
     bit_depth: int
     output_dir: pathlib.Path
     filename_template: str
+    timestamp_overlay: bool
+    manifest_extra: dict | None = None
 
     @property
     def frame_budget(self) -> int:
@@ -153,8 +162,11 @@ class VideoRecordingEngine:
 
     Args:
         write_frame: Writer edge invoked on the writer lane once per kept
-            frame: ``write_frame(image, timestamp_s, frame_number, config)
-            -> pathlib.Path``. Raising costs exactly that frame.
+            frame: ``write_frame(image, timestamp_s, frame_number, config,
+            chunks) -> pathlib.Path``. ``chunks`` is the frame's camera
+            chunk metadata (or None) -- frame identity travels WITH the
+            frame so the write edge never re-derives it. Raising costs
+            exactly that frame.
         claim: The session-owned exclusivity claim handle; ``start``
             acquires it and refuses when an exclusive activity already
             holds it.
@@ -196,6 +208,7 @@ class VideoRecordingEngine:
         self._frames_written = 0
         self._write_failures = 0
         self._timestamps: list[float] = []
+        self._chunks: list = []
         self._all_frames_carried_chunks = True
         self._aborted = False
         self._abort_reason = ''
@@ -258,6 +271,7 @@ class VideoRecordingEngine:
             self._frames_written = 0
             self._write_failures = 0
             self._timestamps = []
+            self._chunks = []
             self._all_frames_carried_chunks = True
             self._aborted = False
             self._abort_reason = ''
@@ -297,13 +311,16 @@ class VideoRecordingEngine:
             self._frames_selected += 1
             self._pending += 1
             self._timestamps.append(timestamp_s)
+            self._chunks.append(chunks)
             if chunks is None:
                 self._all_frames_carried_chunks = False
             # Enqueue the delivered array as-is: no copy (pypylon's
             # GetArray already returns an owned array) and no flip --
             # orientation and contiguity are the write edge's business,
-            # never paid per-frame in the callback.
-            self._queue.put((image, timestamp_s, frame_number))
+            # never paid per-frame in the callback. Chunk metadata rides
+            # the queue with its frame so identity and pixels never
+            # separate.
+            self._queue.put((image, timestamp_s, frame_number, chunks))
             if self._selector.at_capacity:
                 self._close_selection_locked()
 
@@ -378,14 +395,14 @@ class VideoRecordingEngine:
             item = self._queue.get()
             if item is _END_OF_RECORDING:
                 break
-            image, timestamp_s, frame_number = item
+            image, timestamp_s, frame_number, chunks = item
             try:
                 with profile_trace.timer(
                     'video_write_trace.csv',
                     'ts_ms,duration_ms,frame_number,pending',
                     lambda n=frame_number: [n, self._pending],
                 ):
-                    self._write_frame(image, timestamp_s, frame_number, self._config)
+                    self._write_frame(image, timestamp_s, frame_number, self._config, chunks)
             except Exception as ex:
                 with self._lock:
                     self._write_failures += 1
@@ -477,18 +494,34 @@ class VideoRecordingEngine:
         short_delivery: bool,
         timestamps: tuple,
     ) -> pathlib.Path | None:
-        manifest = {
-            'manifest_version': 1,
-            'frames_selected': self._frames_selected,
-            'frames_written': self._frames_written,
-            'write_failures': self._write_failures,
-            'short_delivery': short_delivery,
-            'timestamp_grade': grade,
-            'configured_fps': self._config.fps,
-            'measured_fps': measured_fps,
-            'measured_duration_s': measured_duration,
-            'frame_index': [{'i': i, 'ts_s': ts} for i, ts in enumerate(timestamps)],
-        }
+        # Caller metadata first, engine truth second: on any key collision
+        # the engine's measured fields win -- a caller cannot overwrite
+        # measured truth with configuration echoes.
+        manifest = dict(self._config.manifest_extra or {})
+        manifest.update(
+            {
+                'manifest_version': 1,
+                'frames_selected': self._frames_selected,
+                'frames_written': self._frames_written,
+                'write_failures': self._write_failures,
+                'short_delivery': short_delivery,
+                'timestamp_grade': grade,
+                'configured_fps': self._config.fps,
+                'measured_fps': measured_fps,
+                'measured_duration_s': measured_duration,
+                # Chunk dicts are stored verbatim: their keys are the
+                # camera driver's vocabulary, which the engine does not
+                # interpret -- downstream readers do.
+                'frame_index': [
+                    {
+                        'i': i,
+                        'ts_s': ts,
+                        'chunks': self._chunks[i] if i < len(self._chunks) else None,
+                    }
+                    for i, ts in enumerate(timestamps)
+                ],
+            }
+        )
         path = pathlib.Path(self._config.output_dir) / MANIFEST_FILENAME
         try:
             path.write_text(json.dumps(manifest, indent=2))

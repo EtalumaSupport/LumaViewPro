@@ -78,6 +78,10 @@ class WriterStub:
         self.fail_frames = set(fail_frames)
         self.die_on_frame = die_on_frame
         self.written = []
+        # Per-frame chunk metadata as delivered to the write edge, in
+        # write order; parallel to written so existing tuple consumers
+        # are untouched.
+        self.written_chunks = []
         self._gate = threading.Event()
         if not blocked:
             self._gate.set()
@@ -88,7 +92,7 @@ class WriterStub:
     def block(self) -> None:
         self._gate.clear()
 
-    def __call__(self, image, timestamp_s, frame_number, config) -> pathlib.Path:
+    def __call__(self, image, timestamp_s, frame_number, config, chunks=None) -> pathlib.Path:
         self._gate.wait()
         if self.die_on_frame is not None and frame_number == self.die_on_frame:
             raise SystemExit('writer lane death (scripted)')
@@ -97,6 +101,7 @@ class WriterStub:
         path = self.out_dir / f'frame_{frame_number:06d}.tiff'
         path.write_bytes(image.tobytes())
         self.written.append((frame_number, timestamp_s, path))
+        self.written_chunks.append(chunks)
         return path
 
 

@@ -39,7 +39,16 @@ REQUIRED_MANIFEST_KEYS = {
 }
 
 
-def make_config(tmp_path, fps=5.0, duration_s=2.0, width=8, height=6, bit_depth=8):
+def make_config(
+    tmp_path,
+    fps=5.0,
+    duration_s=2.0,
+    width=8,
+    height=6,
+    bit_depth=8,
+    timestamp_overlay=True,
+    manifest_extra=None,
+):
     return RecordingConfig(
         fps=fps,
         duration_s=duration_s,
@@ -48,6 +57,8 @@ def make_config(tmp_path, fps=5.0, duration_s=2.0, width=8, height=6, bit_depth=
         bit_depth=bit_depth,
         output_dir=pathlib.Path(tmp_path),
         filename_template='frame_{n:06d}.tiff',
+        timestamp_overlay=timestamp_overlay,
+        manifest_extra=manifest_extra,
     )
 
 
@@ -284,6 +295,68 @@ class TestManifestTruth:
         manifest = json.loads(manifest_path.read_text())
         missing = REQUIRED_MANIFEST_KEYS - set(manifest)
         assert not missing, f'manifest missing keys: {sorted(missing)}'
+
+
+class TestFrameIdentityTravelsWithTheFrame:
+    """Chunk metadata rides the queue to the write edge and the manifest.
+
+    The write edge stamps per-frame TIFF metadata (camera ticks, frame
+    id) and the manifest is the downstream reader's index; if the engine
+    dropped chunks at the queue boundary, both would silently lose the
+    camera-grade identity the frames were captured with.
+    """
+
+    def test_chunks_reach_the_write_edge(self, tmp_path):
+        engine, writer, clock, _ = make_engine(tmp_path)
+        engine.start(make_config(tmp_path, fps=5, duration_s=1))
+        feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=1)
+        engine.stop()
+        assert engine.wait_for_drain(timeout=5)
+        assert writer.written, 'no frames written'
+        assert len(writer.written_chunks) == len(writer.written)
+        assert all(c is not None for c in writer.written_chunks)
+
+    def test_manifest_frame_index_carries_chunks(self, tmp_path):
+        engine, _writer, clock, _ = make_engine(tmp_path)
+        engine.start(make_config(tmp_path, fps=5, duration_s=1))
+        feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=1)
+        engine.stop()
+        assert engine.wait_for_drain(timeout=5)
+        manifest = json.loads(engine.result().manifest_path.read_text())
+        assert manifest['frame_index'], 'empty frame index'
+        for entry in manifest['frame_index']:
+            assert entry['chunks'] is not None
+
+
+class TestConfigSnapshotContract:
+    def test_timestamp_overlay_is_required(self, tmp_path):
+        # The overlay choice may never be silently defaulted: a config
+        # without it must be unconstructible.
+        with pytest.raises(TypeError):
+            RecordingConfig(
+                fps=5.0,
+                duration_s=1.0,
+                width=8,
+                height=6,
+                bit_depth=8,
+                output_dir=pathlib.Path(tmp_path),
+                filename_template='frame_{n:06d}.tiff',
+            )
+
+    def test_manifest_extra_merges_and_engine_truth_wins(self, tmp_path):
+        extra = {
+            'provenance': {'hostname': 'bench-host'},
+            'measured_fps': 'caller-lie',
+        }
+        engine, _writer, clock, _ = make_engine(tmp_path)
+        engine.start(make_config(tmp_path, fps=5, duration_s=1, manifest_extra=extra))
+        feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=1)
+        engine.stop()
+        assert engine.wait_for_drain(timeout=5)
+        manifest = json.loads(engine.result().manifest_path.read_text())
+        assert manifest['provenance'] == {'hostname': 'bench-host'}
+        # The colliding key is the engine's measurement, not the caller's.
+        assert manifest['measured_fps'] != 'caller-lie'
 
 
 class TestExclusivity:
