@@ -116,12 +116,21 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
     def _begin_recording_ui(self):
         """Main thread: recording is live -- start the status poll."""
         controller = _app_ctx.ctx.session.manual_recording
+        self._set_recording_active(True)
         # Set immediately so "Open Last Save Folder" works during the
         # recording, not only after cleanup lands (issue #603's shape).
         if controller.save_folder is not None:
             set_last_save_folder(controller.save_folder)
         if self._recording_poll is None:
             self._recording_poll = Clock.schedule_interval(self._poll_recording_state, 0.1)
+
+    def _set_recording_active(self, value):
+        """Main-thread write of the app-level lock mirror (controls_locked)."""
+        from kivy.app import App
+
+        app = App.get_running_app()
+        if app is not None:
+            app.recording_active = value
 
     def _poll_recording_state(self, dt=None):
         """Main-thread poll: duration cap, titles, button state.
@@ -137,9 +146,12 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         if controller.is_recording:
             set_title_event_text(f'Recording Manual Video: {controller.elapsed_s:.1f}s')
             return
-        # Selection closed (Stop, duration cap, or budget full). Reflect
-        # it on the button, and show drain progress until the writer
-        # lane empties.
+        # Selection closed (Stop, duration cap, or budget full). Unlock
+        # the controls, reflect it on the button, and show drain
+        # progress until the writer lane empties. (The session claim is
+        # held until the drain ends, so a protocol start attempted
+        # during the drain still gets its loud refusal.)
+        self._set_recording_active(False)
         self._reset_record_button()
         if controller.is_draining:
             set_title_event_text(
@@ -157,6 +169,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         if self._recording_poll is not None:
             Clock.unschedule(self._recording_poll)
             self._recording_poll = None
+        self._set_recording_active(False)
         controller = _app_ctx.ctx.session.manual_recording
         if controller.save_folder is not None:
             set_last_save_folder(controller.save_folder)

@@ -179,7 +179,7 @@
 
         FolderChooseBTN:
             id: live_folder_btn
-            disabled: app.protocol_running
+            disabled: app.controls_locked
 			tooltip_text: 'Set destination folder for image & video files'
             border: 0, 0, 0, 0
             size_hint: None, None
@@ -199,7 +199,7 @@
 
         ToggleButton:
             id: live_btn
-            disabled: app.protocol_running
+            disabled: app.controls_locked
 			tooltip_text: 'Freeze live image'
             border: 0, 0, 0, 0
             background_normal: './data/icons/pause.png' # Press to Pause Live Stream
@@ -211,7 +211,7 @@
 
         Button:
             id: capture_btn
-            disabled: app.protocol_running
+            disabled: app.controls_locked
 			tooltip_text: 'Snap live image'
             border: 0, 0, 0, 0
             background_normal: './data/icons/capture.png' # Press to Capture Image
@@ -222,7 +222,7 @@
 
         ToggleButton:
             id: composite_btn
-            disabled: app.protocol_running
+            disabled: app.controls_locked
 			tooltip_text: 'Acquire composite fluorescence image for channels set to acquire\nincluding either bright field or phase contrast'
             border: 0, 0, 0, 0
             background_normal: './data/icons/composite.png' # Press to Capture Composite Image
@@ -295,6 +295,7 @@
 	Accordion:
 		orientation: 'vertical'
 		id: motionsettings_accordion_id
+		disabled: app.controls_locked
 
         # MICROSCOPE SETTINGS
         AccordionItem:
@@ -2059,6 +2060,7 @@
     Accordion:
         orientation: 'vertical'
         id: accordion_id
+        disabled: app.controls_locked
 
         # BRIGHTFIELD SETTINGS
         AccordionItem:

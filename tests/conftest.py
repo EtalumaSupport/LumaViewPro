@@ -112,6 +112,9 @@ def install_mock_deps():
         'kivy': MagicMock(),
         'kivy.clock': MagicMock(),
         'kivy.base': MagicMock(),
+        'kivy.app': MagicMock(),
+        'kivy.uix': MagicMock(),
+        'kivy.uix.scrollview': MagicMock(),
         # FX2 / libusb -- skipped when --run-fx2-hardware is set.
         'usb': MagicMock(),
         'usb.core': MagicMock(),

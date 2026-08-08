@@ -261,7 +261,13 @@ if __name__ == '__main__':
     from kivy.graphics.texture import Texture
     from kivy.input.motionevent import MotionEvent
     from kivy.metrics import dp
-    from kivy.properties import BooleanProperty, ListProperty, ObjectProperty, StringProperty
+    from kivy.properties import (
+        AliasProperty,
+        BooleanProperty,
+        ListProperty,
+        ObjectProperty,
+        StringProperty,
+    )
 
     # User Interface
     from kivy.uix.accordion import AccordionItem
@@ -433,6 +439,23 @@ class LumaViewProApp(TooltipMixin, App):
     # this property is written only on the Kivy main thread when a run
     # starts and stops, so widgets grey out for the duration of a scan.
     protocol_running = BooleanProperty(False)
+
+    # UI mirror of the manual-recording controller's selection-open
+    # state, written only on the Kivy main thread (the session claim
+    # stays authoritative for worker-thread arbitration).
+    recording_active = BooleanProperty(False)
+
+    def _get_controls_locked(self):
+        return self.protocol_running or self.recording_active
+
+    # THE one derived lock every full-lockout kv binding reads: an
+    # exclusive activity (protocol run OR live recording) locks the
+    # control surface; only the record/stop toggle stays actionable
+    # during a recording. Never add a second per-site flag -- bind to
+    # this.
+    controls_locked = AliasProperty(
+        _get_controls_locked, None, bind=['protocol_running', 'recording_active']
+    )
 
     def on_start(self) -> None:
         """Kivy lifecycle hook: fires after build() and before the main loop runs."""

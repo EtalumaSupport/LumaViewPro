@@ -128,6 +128,28 @@ def _handle_autofocus_ui(pos: float):
     ctx.motion_settings.ids['verticalcontrol_id'].update_autofocus_gui(pos=pos)
 
 
+def _user_motion_locked(axis: str) -> bool:
+    """True while an exclusive activity locks the control surface.
+
+    kv ``disabled:`` reaches widgets, but bound input observers (the
+    viewer's right-click-to-center, scroll-to-focus) fire before any
+    widget's disabled state is consulted -- so the user-gesture motion
+    funnel enforces the lock itself, once, for every gesture path.
+    Headless callers run without a Kivy app and are never locked here.
+    """
+    from kivy.app import App
+
+    app = App.get_running_app()
+    locked = getattr(app, 'controls_locked', False) if app is not None else False
+    # The lock engages only on the App property's explicit True: the
+    # real BooleanProperty always yields a bool, and anything else means
+    # there is no real app (headless / mocked hosts are never locked).
+    if locked is not True:
+        return False
+    logger.info(f'[UI] {axis} move blocked: controls locked (protocol run or recording active)')
+    return True
+
+
 # Wrapper to move and update the UI position. `protocol=False` (UI
 # thread) dispatches via the API's async path. `protocol=True` runs on
 # protocol_thread -- a DIFFERENT thread from the io_executor worker --
@@ -146,6 +168,9 @@ def move_absolute_position(
     restore_z: bool = True,
 ):
     ctx = _app_ctx.ctx
+
+    if not protocol and _user_motion_locked(axis):
+        return
 
     if axis == 'T':
         # Turret moves go through the GUI widget which manages homing and objective settings
@@ -194,6 +219,8 @@ def move_absolute_position(
 def move_relative_position(
     axis: str, um: float, wait_until_complete: bool = False, overshoot_enabled: bool = True
 ):
+    if _user_motion_locked(axis):
+        return
     ctx = _app_ctx.ctx
     ctx.scope.motion.move_relative_async(
         axis,
@@ -206,6 +233,8 @@ def move_relative_position(
 
 
 def move_home(axis: str):
+    if _user_motion_locked(axis):
+        return
     ctx = _app_ctx.ctx
     axis = axis.upper()
     set_title_event_text('Homing, please wait...')
