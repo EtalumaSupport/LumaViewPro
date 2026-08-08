@@ -23,6 +23,26 @@ from lvp_logger import logger
 # decided here -- callers pair this name test with the shared TIFF finder.
 _MANUAL_FRAME_RE = re.compile(r'ManualVideo_Frame_\d')
 
+# The producers pad the frame number (:04), so it grows to five digits at
+# frame 10,000. Any fixed-width or lexical ordering therefore wraps there
+# (frame 10000 collides with or sorts beside frame 1000); ordering must
+# parse the number and compare numerically.
+_FRAME_NUM_RE = re.compile(r'_Frame_(\d+)')
+
+
+def _frame_number(filename: str) -> int:
+    """Numeric frame index from a video-frame filename.
+
+    Raises:
+        ValueError: The name carries no ``_Frame_<digits>`` token. A name
+            that cannot be ordered must fail the build loudly -- a guessed
+            key would scramble the output video silently.
+    """
+    match = _FRAME_NUM_RE.search(str(filename))
+    if match is None:
+        raise ValueError(f'No frame number in video frame filename {filename!r}')
+    return int(match.group(1))
+
 
 class VideoBuilder(ProtocolPostProcessor):
     def __init__(self, *args, **kwargs):
@@ -198,24 +218,8 @@ class VideoBuilder(ProtocolPostProcessor):
         current_group=1,
     ) -> dict:
 
-        def strip_filetype(filename: str):
-            filename_flipped = filename[::-1]
-            if '.' in filename_flipped:
-                while filename_flipped[0] != '.':
-                    filename_flipped = filename_flipped[1:]
-                filename_flipped = filename_flipped[1:]
-                return filename_flipped[::-1]
-            else:
-                logger.error(f'Invalid filename {filename}')
-                return
-
-        def get_frame_num(filename):
-            filename = str(filename)
-            stripped_filename = strip_filetype(filename)
-            return stripped_filename[-4:]
-
         if 'video_Frame' in str(df['Filepath'].values[0]):
-            df['Frame Num'] = df['Filepath'].apply(get_frame_num)
+            df['Frame Num'] = df['Filepath'].apply(_frame_number)
             df = df.sort_values(by=['Frame Num'], ascending=True)
 
         else:
@@ -474,6 +478,9 @@ class VideoBuilder(ProtocolPostProcessor):
         frame_paths = [
             p for p in image_utils.find_tiff_files(path) if _MANUAL_FRAME_RE.match(p.name)
         ]
+        # The TIFF finder returns lexical order, which wraps at frame
+        # 10,000 (five digits sort beside four); order numerically.
+        frame_paths.sort(key=lambda p: _frame_number(p.name))
         if not frame_paths:
             return {
                 'status': False,
