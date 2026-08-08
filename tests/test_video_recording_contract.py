@@ -215,6 +215,23 @@ class TestLossIsNeverSilent:
         assert result.short_delivery is True
         assert result.frames_written < result.frames_selected
 
+    def test_zero_frame_recording_reports_honestly(self, tmp_path):
+        # A recording that never received a frame (camera stalled or
+        # disconnected) completes as an honest empty result -- it is
+        # never treated as a clean normal recording, and computing the
+        # measured statistics from zero timestamps must not crash.
+        engine, _writer, _clock, _ = make_engine(tmp_path)
+        engine.start(make_config(tmp_path, fps=10, duration_s=1))
+        engine.stop()
+        assert engine.wait_for_drain(timeout=5)
+        result = engine.result()
+        assert result.frames_selected == 0
+        assert result.frames_written == 0
+        assert result.short_delivery is True
+        assert result.aborted is False
+        assert result.measured_fps == 0.0
+        assert result.measured_duration_s == 0.0
+
 
 @ENGINE_XFAIL
 class TestFatalityClassification:
