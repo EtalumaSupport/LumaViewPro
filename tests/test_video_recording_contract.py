@@ -353,7 +353,6 @@ class TestExclusivity:
         assert claim.owner is None
 
 
-@ENGINE_XFAIL
 class TestSessionActivityClaim:
     """The session-tier half of the exclusivity contract.
 

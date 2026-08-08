@@ -25,6 +25,7 @@ import modules.coord_transformations as coord_transformations
 import modules.image_mode as image_mode
 
 import modules.labware_loader as labware_loader
+from modules.activity_claim import ActivityClaim
 from modules.autofocus_runner import AutofocusRunner
 from modules.exceptions import ProtocolRunRefusedError
 from modules.protocol import Protocol
@@ -122,6 +123,7 @@ class SequencedCaptureRunner:
         autofocus_thread,
         autofocus_runner: AutofocusRunner | None = None,
         z_ui_update_func: typing.Callable | None = None,
+        activity_claim: ActivityClaim | None = None,
     ):
         self._coordinate_transformer = coord_transformations.CoordinateTransformer()
         self._wellplate_loader = labware_loader.WellPlateLoader()
@@ -158,6 +160,14 @@ class SequencedCaptureRunner:
         self._protocol = None
         self._cleanup_lock = threading.Lock()
         self._run_lock = threading.Lock()
+        # Session-tier exclusivity: a protocol run and a video recording
+        # can never run concurrently, arbitrated by one compare-and-claim
+        # both acquire. Callers composing through ScopeSession inject its
+        # claim; the GUI still constructs the runner session-less, so a
+        # private claim preserves the refusal semantics locally until the
+        # GUI wiring threads the session's claim through.
+        self._activity_claim = activity_claim if activity_claim is not None else ActivityClaim()
+        self._activity_claim_held = False
         self._grease_redistribution_event = threading.Event()
         self._grease_redistribution_event.set()
 
@@ -768,16 +778,20 @@ class SequencedCaptureRunner:
         same cleanup as a mid-run failure (with status 'failed_at_start').
         There is no path on which a caller waits forever.
 
-        The single exception is the prepare-to-start race: when another
-        run started between this plan's prepare() and its start(), the
-        typed refusal raises here BEFORE any commitment. Treating that
-        race as a failed run instead would fire this plan's completion
-        callbacks while the other, live run is mid-flight -- clearing
-        running-state the live run still owns.
+        The exceptions are the pre-commitment refusals: when another
+        run started between this plan's prepare() and its start(), or
+        an exclusive activity (a video recording) holds the session's
+        activity claim, the typed refusal raises here BEFORE any
+        commitment. Treating those as a failed run instead would fire
+        this plan's completion callbacks while the other, live activity
+        is mid-flight -- clearing running-state the live activity still
+        owns.
 
         Raises:
-            ProtocolRunRefusedError: reason 'already_running', only for
-                the prepare-to-start race described above.
+            ProtocolRunRefusedError: reason 'already_running' for the
+                prepare-to-start race, or 'exclusive_activity_running'
+                when the session's activity claim is held (e.g. a video
+                recording in progress).
         """
         # Gate and commit under ONE lock hold: releasing between the
         # already-running check and the event set would let two
@@ -790,6 +804,27 @@ class SequencedCaptureRunner:
                     title='Already Running',
                     message='A protocol run is already in progress.',
                 )
+
+            if not self._activity_claim.try_claim('protocol'):
+                holder = self._activity_claim.owner
+                if holder == 'recording':
+                    title = 'Recording Active'
+                    message = (
+                        'A video recording is in progress. Stop it or let it '
+                        'finish, then start the run.'
+                    )
+                else:
+                    title = 'Another Activity Running'
+                    message = (
+                        'Another exclusive activity is using the microscope. '
+                        'Let it finish, then start the run.'
+                    )
+                self._refuse(
+                    reason='exclusive_activity_running',
+                    title=title,
+                    message=message,
+                )
+            self._activity_claim_held = True
 
             self._reset_vars()
             self._run_generation += 1
@@ -1056,6 +1091,18 @@ class SequencedCaptureRunner:
             led_lease.release(leave_on=True)
             self._led_lease = None
 
+    def _release_activity_claim(self):
+        """Release the run's exclusivity claim (idempotent).
+
+        The held flag flips first so a re-entrant cleanup cannot release
+        twice; the claim itself raises on a mismatched release, keeping
+        any double-release loud instead of silently freeing a claim a
+        newer activity now holds.
+        """
+        if self._activity_claim_held:
+            self._activity_claim_held = False
+            self._activity_claim.release('protocol')
+
     def _cleanup_inner(self, run_status: str):
         from modules.notification_center import notifications
 
@@ -1115,3 +1162,6 @@ class SequencedCaptureRunner:
             # inside it and the authority refuses a released lease, so the lease
             # stays held through it; this release still runs once it returns.
             self._release_scan_led_lease()
+            # The activity claim releases on the same every-path guarantee:
+            # a leaked claim would refuse every future run AND recording.
+            self._release_activity_claim()

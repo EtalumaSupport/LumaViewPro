@@ -84,6 +84,7 @@ class ProtocolRunner:
             file_io_executor=self._file_io_executor,
             camera_executor=session.camera_executor,
             autofocus_thread=self._autofocus_thread,
+            activity_claim=session.activity_claim,
         )
 
         self._owned_resources_started = False

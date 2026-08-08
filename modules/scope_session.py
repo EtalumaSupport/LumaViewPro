@@ -21,6 +21,7 @@ import threading
 from typing import TYPE_CHECKING
 
 from lvp_logger import logger
+from modules.activity_claim import ActivityClaim
 
 # numpy and ProtocolRunner are referenced only in return annotations;
 # ProtocolRunner is imported function-locally to avoid a circular import.
@@ -67,6 +68,13 @@ class ScopeSession:
 
         self.protocol_running = threading.Event()
         self.focus_round = 0
+        # The single arbitration point for exclusive activities: a
+        # protocol run and a video recording each claim here before
+        # committing, so the two can never run concurrently. Enforcement
+        # lives with the claimants (the sequenced-capture runner's
+        # refusal gate and the recording engine's start), which take
+        # this handle by injection.
+        self.activity_claim = ActivityClaim()
 
     @property
     def is_protocol_running(self) -> bool:
@@ -589,6 +597,30 @@ class ScopeSession:
         """Shut down the IO and camera executors."""
         self.io_executor.shutdown()
         self.camera_executor.shutdown()
+
+    def shutdown(self) -> None:
+        """Tear down everything this session constructed.
+
+        For a session that built its own executor bundle (create /
+        create_headless with no caller-supplied executors), stops the
+        long-lived consumer threads BEFORE the executor lanes they
+        consume -- a consumer mid-iteration that finds its lane already
+        shut down can hang on a dispatch that never fires.
+        scope_display_thread consumes camera_executor; protocol_thread
+        drives io + camera + file lanes. For a session running on a
+        caller's executors, only the handles the caller passed in are
+        stopped; the caller owns the rest of its topology.
+        """
+        bundle = self.executor_bundle
+        if bundle is None:
+            self.shutdown_executors()
+            return
+        bundle.scope_display_thread.stop()
+        bundle.protocol_thread.stop(timeout=2.0)
+        bundle.io_executor.shutdown(wait=False)
+        bundle.camera_executor.shutdown(wait=False)
+        bundle.file_io_executor.shutdown(wait=False)
+        bundle.worker_pool.shutdown(wait=False)
 
     def start_application_session(self, *, disable_homing: bool = False) -> None:
         """LVP-A-5: queue the standard startup home + turret-positioning sequence.
