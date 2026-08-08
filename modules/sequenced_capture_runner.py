@@ -162,10 +162,9 @@ class SequencedCaptureRunner:
         self._run_lock = threading.Lock()
         # Session-tier exclusivity: a protocol run and a video recording
         # can never run concurrently, arbitrated by one compare-and-claim
-        # both acquire. Callers composing through ScopeSession inject its
-        # claim; the GUI still constructs the runner session-less, so a
-        # private claim preserves the refusal semantics locally until the
-        # GUI wiring threads the session's claim through.
+        # both acquire. Production callers (the GUI composition root and
+        # ScopeSession) inject the session's claim; the private fallback
+        # exists so a bare runner keeps the refusal semantics locally.
         self._activity_claim = activity_claim if activity_claim is not None else ActivityClaim()
         self._activity_claim_held = False
         self._grease_redistribution_event = threading.Event()

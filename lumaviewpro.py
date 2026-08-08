@@ -890,6 +890,10 @@ class LumaViewProApp(TooltipMixin, App):
             camera_executor=camera_executor,
             autofocus_thread=autofocus_thread,
             z_ui_update_func=_handle_autofocus_ui,
+            # The session's compare-and-claim is the one arbitration point
+            # for protocol-XOR-recording exclusivity; a runner left on its
+            # private fallback claim would refuse nothing app-wide.
+            activity_claim=scope_session.activity_claim,
         )
 
         # Create AppContext -- central service registry
