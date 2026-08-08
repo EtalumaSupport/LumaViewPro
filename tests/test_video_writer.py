@@ -293,6 +293,7 @@ class TestWriteVideoDropNotification:
             callbacks={},
             save_encoding='8bit',
             capture_depth=8,
+            timestamp_overlay=True,
         )
         assert fired == [], 'drops must not pop a modal during a protocol'
         assert any('dropped' in m and '2' in m for m in logged), (
@@ -312,6 +313,7 @@ class TestWriteVideoDropNotification:
             callbacks={},
             save_encoding='8bit',
             capture_depth=8,
+            timestamp_overlay=True,
         )
         assert fired == [], 'a clean recording must not warn'
 

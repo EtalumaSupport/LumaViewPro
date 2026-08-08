@@ -914,8 +914,15 @@ class SequencedCaptureRunner:
                     self._bf_af_for_fluorescence = ctx.settings.get('protocol', {}).get(
                         'bf_af_for_fluorescence', False
                     )
+                    # Snapshot once per run so a mid-run toggle cannot make
+                    # some video steps stamped and others clean; overlay-on
+                    # is the shipped default.
+                    self._timestamp_overlay = ctx.settings.get('video', {}).get(
+                        'timestamp_overlay', True
+                    )
             else:
                 self._bf_af_for_fluorescence = False
+                self._timestamp_overlay = True
 
             # Borrow protocol_thread's abort Event as SCE's _aborted reference.
             # Cross-thread readers (protocol_step_runner, protocol_run_loop)
@@ -936,6 +943,7 @@ class SequencedCaptureRunner:
                 stim_profiling=stim_profiling,
                 run_dir=self._run_dir,
                 image_capture_config=self._image_capture_config,
+                timestamp_overlay=self._timestamp_overlay,
             )
 
             self.camera_executor.disable()

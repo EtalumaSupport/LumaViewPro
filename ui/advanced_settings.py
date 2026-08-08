@@ -80,6 +80,9 @@ class AdvancedSettings(Popup):
         video_settings = settings.get('video', {})
         self.ids['video_max_fps_input'].text = str(video_settings.get('max_fps', 0))
         self.ids['video_max_duration_input'].text = str(get_manual_video_max_duration(settings))
+        self.ids['video_timestamp_overlay_id'].active = video_settings.get(
+            'timestamp_overlay', True
+        )
 
         self.ids['separate_folder_per_channel_id'].state = (
             'down' if settings.get('separate_folder_per_channel') else 'normal'
@@ -199,6 +202,12 @@ class AdvancedSettings(Popup):
         settings.setdefault('video', {})
         settings['video']['max_duration_seconds'] = value
         gui_logger.text_input_debounced('VIDEO_MAX_DURATION_S', value)
+
+    def update_video_timestamp_overlay(self):
+        settings = _app_ctx.ctx.settings
+        state = self.ids['video_timestamp_overlay_id'].active
+        gui_logger.toggle('VIDEO_TIMESTAMP_OVERLAY', state)
+        settings.setdefault('video', {})['timestamp_overlay'] = state
 
     def update_separate_folders_per_channel(self):
         settings = _app_ctx.ctx.settings
@@ -608,6 +617,25 @@ kv = Builder.load_string(
                         text: '30'
                         on_text_validate: root.update_video_max_duration()
                         on_focus: if not self.focus: root.update_video_max_duration()
+
+                BoxLayout:
+                    orientation: 'horizontal'
+                    size_hint_y: None
+                    height: '30dp'
+                    Label:
+                        text: 'Video Timestamp Overlay'
+                        tooltip_text: 'Burn the capture timestamp into each video frame.\\nApplies to manual recordings and protocol video steps.'
+                        halign: 'left'
+                        valign: 'middle'
+                        text_size: self.size
+                        font_size: '12sp'
+                    CheckBox:
+                        id: video_timestamp_overlay_id
+                        disabled: app.protocol_running
+                        size_hint_x: None
+                        width: '25dp'
+                        active: True
+                        on_release: root.update_video_timestamp_overlay()
 
                 BoxLayout:
                     orientation: 'horizontal'

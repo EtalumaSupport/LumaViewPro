@@ -59,6 +59,7 @@ def _kwargs(tmp_path, **overrides):
         'video_as_frames': False,
         'memmap_path': 'sentinel-memmap.dat',
         'video_false_color': None,
+        'timestamp_overlay': True,
         'ui_snapshot': {
             'active_layer_config': ('Green', {}),
             'image_capture_config': _valid_image_capture_config(),

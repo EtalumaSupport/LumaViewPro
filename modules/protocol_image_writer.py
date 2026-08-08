@@ -111,6 +111,10 @@ class ProtocolImageWriter:
         # config (rather than a loose save_encoding) leaves no second
         # channel for the capture depth and the save encoding to diverge.
         image_capture_config: ImageCaptureConfig,
+        # Whether video steps burn the capture timestamp into each encoded
+        # frame. The user's choice, snapshotted at run start like the rest
+        # of the run config; required so no writer can silently decide it.
+        timestamp_overlay: bool,
     ):
         self._scope = scope
         self._callbacks = callbacks
@@ -124,6 +128,7 @@ class ProtocolImageWriter:
         self._stim_profiling = stim_profiling
         self._run_dir = run_dir
         self._config = image_capture_config
+        self._timestamp_overlay = timestamp_overlay
         self._consecutive_capture_failures = 0
         self._MAX_CONSECUTIVE_CAPTURE_FAILURES = 3
 
@@ -836,6 +841,7 @@ class ProtocolImageWriter:
                         callbacks=self._callbacks.to_dict(),
                         save_encoding=self._config.save_encoding,
                         capture_depth=self._config.capture_depth,
+                        timestamp_overlay=self._timestamp_overlay,
                     )
                 except Exception:
                     self._record_dropped_capture(

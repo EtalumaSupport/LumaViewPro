@@ -227,6 +227,10 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         video_settings = settings.get('video', {})
         max_fps = video_settings.get('max_fps', 0)
         max_duration = get_manual_video_max_duration(settings)
+        # Snapshot the overlay choice with the rest of the recording
+        # config so a mid-recording toggle cannot change what this
+        # recording's frames look like.
+        self._timestamp_overlay = video_settings.get('timestamp_overlay', True)
         # max_fps == 0 means uncapped (camera free-run rate). The
         # spinner ships at 0; non-zero is the explicit user opt-in
         # that gates pre-flight + camera-rate-toggle below.
@@ -698,6 +702,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
             memmap_path=kwargs.get('memmap_path'),
             video_false_color=kwargs.get('video_false_color'),
             ui_snapshot=kwargs.get('ui_snapshot', {}),
+            timestamp_overlay=self._timestamp_overlay,
             scope=_app_ctx.ctx.scope,
             progress_cb=_progress_cb,
         )

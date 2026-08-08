@@ -17,8 +17,8 @@ Layers covered:
 - Post-processor load_folder pre-scans planned output names and refuses
   exactly the colliding groups (per-group), still generating the clean ones;
   resume skips are unaffected.
-- VideoWriter resolves collisions at encoder init (so the cv2 .avi rewrite
-  cannot dodge the check) and `output_path` is the record authority.
+- VideoWriter resolves collisions at encoder init and `output_path` is the
+  record authority.
 - Tiling inference reads the Tile column, never step names, so tile-shaped
   user text cannot fake a tiling; malformed Tile cells are skipped loudly.
 """
@@ -470,6 +470,7 @@ def test_write_video_records_writers_actual_path(tmp_path, monkeypatch):
         callbacks={},
         save_encoding='8bit',
         capture_depth=8,
+        timestamp_overlay=True,
     )
 
     assert capture_result is not None

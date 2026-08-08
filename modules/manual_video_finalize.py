@@ -42,6 +42,7 @@ def finalize_manual_video(
     memmap_path: str | None,
     video_false_color: str | None,
     ui_snapshot: dict,
+    timestamp_overlay: bool,
     scope: Any = None,
     progress_cb: Callable[[int], None] | None = None,
 ) -> str | None:
@@ -60,6 +61,10 @@ def finalize_manual_video(
         memmap_path: Scratch memmap path, returned so the caller can release it.
         video_false_color: Layer false-color name, or None for grayscale.
         ui_snapshot: Main-thread snapshot of layer/capture/objective config.
+        timestamp_overlay: Burn each frame's capture timestamp into the
+            encoded MP4. The user's choice, snapshotted with the rest of
+            the recording config; required so no caller can silently
+            decide it.
         scope: Live Lumascope (for turret/position/camera-model metadata).
         progress_cb: Optional callback invoked with the 1-based frames-written
             count for UI progress; None disables progress reporting.
@@ -285,7 +290,7 @@ def finalize_manual_video(
             video_writer = VideoWriter(
                 output_path=output_file_loc,
                 fps=calculated_fps,
-                include_timestamp_overlay=True,
+                include_timestamp_overlay=timestamp_overlay,
                 # The memmap is mono; colorize false-color layers at the
                 # encoder. None (transmitted / false-color off) gray-encodes.
                 color=video_false_color,

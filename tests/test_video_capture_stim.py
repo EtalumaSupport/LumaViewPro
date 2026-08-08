@@ -495,6 +495,7 @@ def test_failed_stim_writes_status_sidecar(tmp_path):
         callbacks={},
         save_encoding='8bit',
         capture_depth=8,
+        timestamp_overlay=True,
     )
     sidecar = tmp_path / 'rec_stim_status.txt'
     assert sidecar.exists(), 'a failed stim run must leave a status sidecar'
@@ -514,6 +515,7 @@ def test_clean_and_intentional_stim_runs_write_no_sidecar(tmp_path):
             callbacks={},
             save_encoding='8bit',
             capture_depth=8,
+            timestamp_overlay=True,
         )
         assert not (tmp_path / f'rec_{reason}_stim_status.txt').exists(), (
             f'end_reason={reason!r} is clean/intentional and must not write a sidecar'
@@ -545,6 +547,7 @@ def test_dropped_frames_are_logged_not_a_modal(tmp_path, monkeypatch):
         callbacks={},
         save_encoding='8bit',
         capture_depth=8,
+        timestamp_overlay=True,
     )
     assert not notified, 'dropped frames must not pop a modal during a protocol'
     assert any('dropped' in w for w in warnings), 'the dropped-frame count must be logged'
@@ -836,6 +839,7 @@ def test_late_scheduler_finally_cannot_clobber_join_timeout(tmp_path, monkeypatc
         callbacks={},
         save_encoding='8bit',
         capture_depth=8,
+        timestamp_overlay=True,
     )
     sidecar = tmp_path / 'rec_stim_status.txt'
     assert sidecar.exists(), (

@@ -282,6 +282,7 @@ class TestOneRunOneEncoding:
             leds_off_fn=lambda: None,
             is_run_in_progress_fn=lambda: True,
             image_capture_config=config,
+            timestamp_overlay=True,
         )
 
     def test_still_and_video_legs_read_the_same_held_config(self, monkeypatch, tmp_path):

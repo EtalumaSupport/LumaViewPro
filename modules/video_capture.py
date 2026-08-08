@@ -376,6 +376,7 @@ def write_video(
     callbacks: dict,
     save_encoding: str,
     capture_depth: int,
+    timestamp_overlay: bool,
 ):
     """Write captured video frames to disk.
 
@@ -388,6 +389,9 @@ def write_video(
         video_as_frames: True for TIFF frames, False for MP4
         step: Protocol step dict (for color info)
         callbacks: Dict with optional 'set_writing_title' and 'reset_title'
+        timestamp_overlay: Burn each frame's capture timestamp into the
+            encoded video. The user's choice, snapshotted at run start;
+            required so no caller can silently decide it.
 
     Returns:
         pathlib.Path or None: Path to the output file/folder
@@ -457,7 +461,7 @@ def write_video(
         video_writer = VideoWriter(
             output_path=output_file_loc,
             fps=result.calculated_fps,
-            include_timestamp_overlay=True,
+            include_timestamp_overlay=timestamp_overlay,
             # The queued frames are mono; colorize at the encoder. The layer
             # color applies when False_Color is on; 'BF' gray-encodes otherwise
             # -- the same gate the per-frame TIFF write uses above.

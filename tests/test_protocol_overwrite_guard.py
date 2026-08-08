@@ -78,6 +78,7 @@ def test_protocol_image_writer_uses_if_collision(monkeypatch, tmp_path):
         leds_off_fn=lambda: None,
         is_run_in_progress_fn=lambda: True,
         image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
+        timestamp_overlay=True,
     )
     recorded = []
     monkeypatch.setattr(
