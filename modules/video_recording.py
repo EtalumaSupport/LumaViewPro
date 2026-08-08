@@ -94,6 +94,10 @@ class RecordingConfig:
             camera identity, channel color) merged into the manifest.
             Engine-measured fields always win on key collision -- the
             engine is the authority on measured truth.
+        manifest_filename: Manifest name inside ``output_dir``. Callers
+            whose artifacts share a folder across recordings (the flat
+            MP4 leg) name it per recording so manifests never overwrite
+            each other; per-recording folders keep the default.
     """
 
     fps: float
@@ -105,6 +109,7 @@ class RecordingConfig:
     filename_template: str
     timestamp_overlay: bool
     manifest_extra: dict | None = None
+    manifest_filename: str = MANIFEST_FILENAME
 
     @property
     def frame_budget(self) -> int:
@@ -522,7 +527,7 @@ class VideoRecordingEngine:
                 ],
             }
         )
-        path = pathlib.Path(self._config.output_dir) / MANIFEST_FILENAME
+        path = pathlib.Path(self._config.output_dir) / self._config.manifest_filename
         try:
             path.write_text(json.dumps(manifest, indent=2))
         except OSError as ex:

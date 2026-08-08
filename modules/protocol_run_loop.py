@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 
 from lvp_logger import logger
 
-from modules.common_utils import check_disk_space_ok, estimate_step_write_mb
+from modules.common_utils import MIN_REQUIRED_DISK_MB, check_disk_space_ok, estimate_step_write_mb
 from modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
 from modules.protocol_state_machine import ProtocolState
 
@@ -22,9 +22,6 @@ if TYPE_CHECKING:
     from modules.sequenced_capture_runner import SequencedCaptureRunner
 
 from modules.kivy_utils import schedule_ui as _schedule_ui
-
-# --- Disk-space estimation constants ---
-MIN_REQUIRED_DISK_MB = 2048  # Minimum free disk space to start a scan (2 GB)
 
 # --- Hardware health check ---
 HW_CHECK_INTERVAL_S = 30  # Seconds between hardware connection checks

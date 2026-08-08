@@ -1,0 +1,577 @@
+# Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
+"""Manual video recording: the controller between callers and the engine.
+
+Drives ``VideoRecordingEngine`` for manual recordings (the GUI Record
+button today, REST/SDK callers tomorrow). The controller owns everything
+caller-shaped the engine deliberately does not: reading settings into
+the immutable ``RecordingConfig`` snapshot, building the per-leg write
+edge (TIFF-per-frame or VFR MP4), registering the camera frame listener,
+the rolling disk-floor stop, the wall-clock duration cap, and the
+post-drain finish (MP4 close, optional hyperstack, drop notification).
+
+GUI-agnostic by construction: no Kivy imports; the caller polls status
+properties for titles/buttons and passes ``on_complete`` for its own
+cleanup dispatch.
+
+Timing axis: the engine receives host-epoch seconds. When the camera
+reports hardware timestamp ticks and a tick frequency, per-frame times
+are the camera's own clock rebased onto the host epoch at the first
+frame -- camera-grade intervals on the host axis, which cadence
+selection and the VFR pts both need. Without usable ticks the host
+arrival time is used and the manifest's timestamp grade reports it.
+"""
+
+import datetime
+import threading
+import time
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import pandas as pd
+
+import modules.image_save as image_save
+import modules.image_utils as image_utils
+from lvp_logger import logger, version as lvp_version
+from modules.common_utils import MIN_REQUIRED_DISK_MB, check_disk_space_ok
+from modules.config_helpers import (
+    get_image_capture_config_from_settings,
+    get_manual_video_max_duration,
+)
+from modules.exceptions import RecordingRefusedError
+from modules.notification_center import notifications
+from modules.recording_manifest import gather_host_provenance
+from modules.stack_builder import StackBuilder
+from modules.video_cadence import INTERIM_DELIVERY_BOUND_FPS
+from modules.video_recording import RecordingConfig, VideoRecordingEngine
+from modules.video_writer import VideoWriter
+
+# How often the write edge re-probes free disk while draining. Frequent
+# enough that a filling disk stops the recording within a few frames'
+# worth of writes; rare enough that the probe never shapes drain speed.
+DISK_FLOOR_CHECK_INTERVAL_S = 2.0
+
+
+class ManualRecordingController:
+    """One manual-recording flow: snapshot, record, drain, finish.
+
+    Args:
+        scope: The Lumascope instance (frame listener, camera identity,
+            exposure, stage position).
+        settings: The live settings dict; read ONLY at ``start`` -- the
+            recording runs from its immutable snapshot.
+        activity_claim: The session's compare-and-claim handle; passed
+            through to the engine so a recording and a protocol run are
+            mutually exclusive.
+        clock: Injectable time source (seconds); tests drive it.
+    """
+
+    def __init__(self, *, scope: Any, settings: dict, activity_claim: Any, clock=time.time):
+        self._scope = scope
+        self._settings = settings
+        self._claim = activity_claim
+        self._clock = clock
+        self._engine: VideoRecordingEngine | None = None
+        self._config: RecordingConfig | None = None
+        self._plan: _RecordingPlan | None = None
+        self._writer: VideoWriter | None = None
+        self._start_ts: float | None = None
+        self._tick_offset: float | None = None
+        self._hyperstack_rows: list | None = None
+        self._last_disk_check_ts = 0.0
+        self._on_complete: Callable[[], None] | None = None
+        self._finish_thread: threading.Thread | None = None
+
+    # ------------------------------------------------------------------
+    # Status surface (GUI polls these; all None-safe)
+    # ------------------------------------------------------------------
+
+    @property
+    def is_recording(self) -> bool:
+        """True while cadence selection is open."""
+        return self._engine is not None and self._engine.is_recording
+
+    @property
+    def is_draining(self) -> bool:
+        """True while queued frames are still being written."""
+        return self._engine is not None and self._engine.is_draining
+
+    @property
+    def pending_writes(self) -> int:
+        """Frames enqueued but not yet on disk."""
+        return self._engine.pending_writes if self._engine is not None else 0
+
+    @property
+    def elapsed_s(self) -> float:
+        """Seconds since the recording started; 0.0 when idle."""
+        if self._start_ts is None or not self.is_recording:
+            return 0.0
+        return self._clock() - self._start_ts
+
+    @property
+    def save_folder(self) -> Path | None:
+        """The active (or last) recording's output folder."""
+        return self._plan.save_folder if self._plan is not None else None
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    def start(
+        self,
+        *,
+        false_color: str | None = None,
+        on_complete: Callable[[], None] | None = None,
+    ) -> None:
+        """Snapshot configuration and open a recording.
+
+        Args:
+            false_color: Active layer name when its false-color toggle is
+                on; None records/encodes grayscale.
+            on_complete: Invoked (on the finish thread) after the drain
+                and all post-drain work; the caller dispatches its own
+                UI cleanup from it.
+
+        Raises:
+            RecordingRefusedError: The start cannot proceed -- another
+                exclusive activity is running, a recording is still
+                draining, the camera is inactive or has no known
+                exposure, or free disk is below the floor. Nothing is
+                committed when this raises.
+        """
+        settings = self._settings
+        scope = self._scope
+
+        if not scope.imaging.camera_active:
+            raise RecordingRefusedError(
+                reason='camera_inactive',
+                title='Camera Not Active',
+                message='The camera is not streaming, so there is nothing to record. '
+                'Check the camera connection and try again.',
+            )
+
+        exposure = scope.imaging.camera_exposure_ms
+        # The exposure cache seeds 0.0 and keeps the prior value when a
+        # read fails, so a camera whose exposure was never successfully
+        # read reports 0 here; the recording rate derives from it, so
+        # refuse loudly instead of fabricating a rate.
+        if exposure is None or exposure <= 0:
+            raise RecordingRefusedError(
+                reason='camera_exposure_unknown',
+                title='Camera Exposure Unavailable',
+                message='The camera has not reported its exposure time, so the '
+                'recording rate cannot be set. Reconnect the camera and try again.',
+            )
+        exposure_fps = 1000.0 / exposure
+
+        video_settings = settings.get('video', {})
+        max_fps = video_settings.get('max_fps', 0)
+        if max_fps > 0 and max_fps > exposure_fps:
+            notifications.warning(
+                'Recording',
+                'FPS budget exceeded',
+                f'Requested {max_fps:.1f} FPS at {exposure:.0f} ms exposure exceeds '
+                f"the camera's max {exposure_fps:.1f} FPS for that exposure. "
+                f'Recording will run at {exposure_fps:.1f} FPS instead. '
+                'Reduce exposure to hit the requested rate.',
+            )
+        # The effective-rate clamp: exposure bounds what the sensor can
+        # produce, the user's cap applies when set, and the delivery
+        # bound caps an uncapped fast-exposure config -- the frame budget
+        # must reflect a rate the camera can actually deliver, never a
+        # bare 1/exposure.
+        effective_fps = min(exposure_fps, INTERIM_DELIVERY_BOUND_FPS)
+        if max_fps > 0:
+            effective_fps = min(effective_fps, max_fps)
+
+        duration_s = get_manual_video_max_duration(settings)
+        video_as_frames = settings['video_as_frames']
+        capture_config = get_image_capture_config_from_settings(settings)
+        identity = scope.imaging.camera_identity
+
+        start_dt = datetime.datetime.now()
+        start_time_str = start_dt.strftime('%Y-%m-%d_%H.%M.%S')
+        if video_as_frames:
+            save_folder = Path(settings['live_folder']) / 'Manual' / f'Video_{start_time_str}'
+        else:
+            save_folder = Path(settings['live_folder']) / 'Manual'
+
+        # PR-2 floor semantics: manual recording is stop-when-I-say, so
+        # the pre-flight is a floor check (can we start safely?), not a
+        # whole-budget reservation; the rolling check in the write edge
+        # carries the guarantee through the recording. Probed on the
+        # live folder -- the save subfolders may not exist yet.
+        ok, free_mb = check_disk_space_ok(Path(settings['live_folder']), MIN_REQUIRED_DISK_MB)
+        if not ok:
+            raise RecordingRefusedError(
+                reason='insufficient_disk',
+                title='Insufficient Disk Space',
+                message=f'Only {free_mb / 1024:.1f} GB free at the save location; '
+                f'at least {MIN_REQUIRED_DISK_MB / 1024:.0f} GB is required to '
+                'start a recording. Free up space and try again.',
+            )
+
+        frame_size = scope.imaging.camera_frame_size
+        manifest_extra = {
+            'channel_color': false_color,
+            'camera': {
+                'model': identity['model'],
+                'serial': identity['serial'],
+                'timestamp_tick_hz': identity['timestamp_tick_frequency_hz'],
+            },
+            'provenance': {
+                'host': gather_host_provenance(),
+                'software': {'lvp_version': lvp_version},
+            },
+        }
+        config = RecordingConfig(
+            fps=effective_fps,
+            duration_s=duration_s,
+            width=frame_size['width'],
+            height=frame_size['height'],
+            bit_depth=capture_config.capture_depth,
+            output_dir=save_folder,
+            filename_template='ManualVideo_Frame_{n:04d}_{ts}.tiff',
+            timestamp_overlay=video_settings.get('timestamp_overlay', True),
+            manifest_extra=manifest_extra,
+            # The MP4 leg's artifacts share the flat Manual folder, so
+            # its manifest is named per recording; the frames leg owns a
+            # per-recording folder and keeps the default name.
+            manifest_filename=(
+                'recording_manifest.json'
+                if video_as_frames
+                else f'Video_{start_time_str}_manifest.json'
+            ),
+        )
+
+        hyperstack = (
+            video_as_frames and capture_config.output_format_sequenced == 'OME-TIFF Hyperstack'
+        )
+        plan = _RecordingPlan(
+            video_as_frames=video_as_frames,
+            save_folder=save_folder,
+            false_color=false_color,
+            save_encoding=capture_config.save_encoding,
+            capture_depth=capture_config.capture_depth,
+            tick_freq_hz=identity['timestamp_tick_frequency_hz'],
+            hyperstack=hyperstack,
+            # One position snapshot for the whole recording: the stage
+            # does not move during a manual record, and the writer lane
+            # must never query hardware per frame.
+            stage_position=(scope.motion.get_current_position() if hyperstack else None),
+        )
+
+        writer = None
+        if not video_as_frames:
+            save_folder.mkdir(exist_ok=True, parents=True)
+            writer = VideoWriter(
+                output_path=save_folder / f'Video_{start_time_str}.mp4',
+                fps=effective_fps,
+                width=frame_size['width'],
+                height=frame_size['height'],
+                color=false_color,
+                include_timestamp_overlay=config.timestamp_overlay,
+                vfr=True,
+            )
+
+        engine = VideoRecordingEngine(
+            write_frame=self._write_frame,
+            claim=self._claim,
+            clock=self._clock,
+            notify=notifications,
+        )
+        # Engine start is the commit point: it acquires the claim or
+        # raises. Assign controller state only after it succeeds.
+        engine.start(config)
+        self._engine = engine
+        self._config = config
+        self._plan = plan
+        self._writer = writer
+        self._start_ts = self._clock()
+        self._tick_offset = None
+        self._hyperstack_rows = [] if hyperstack else None
+        self._last_disk_check_ts = 0.0
+        self._on_complete = on_complete
+        if plan.video_as_frames:
+            save_folder.mkdir(exist_ok=True, parents=True)
+
+        scope.imaging.add_frame_listener(self._on_camera_frame, name='manual_recording')
+        self._finish_thread = threading.Thread(
+            target=self._finish_after_drain, name='ManualRecordingFinish', daemon=True
+        )
+        self._finish_thread.start()
+        logger.info(
+            f'[ManualRecord] Recording started: {effective_fps:.2f} fps, '
+            f'max {duration_s:.0f} s, {"frames" if video_as_frames else "mp4"} '
+            f'-> {save_folder}'
+        )
+
+    def stop(self) -> None:
+        """Close selection; the drain and finish continue on their own."""
+        engine = self._engine
+        if engine is None:
+            return
+        try:
+            self._scope.imaging.remove_frame_listener(self._on_camera_frame)
+        except Exception as e:
+            logger.warning(f'[ManualRecord] remove_frame_listener failed: {e}')
+        engine.stop()
+
+    def tick(self) -> None:
+        """Enforce the wall-clock duration cap; the caller polls this.
+
+        The engine deliberately has no wall-clock cutoff (its frame
+        budget plus catch-up semantics are the boundary); the manual
+        max-duration is a hard cap this controller owns.
+        """
+        if (
+            self.is_recording
+            and self._start_ts is not None
+            and self._config is not None
+            and self._clock() - self._start_ts >= self._config.duration_s
+        ):
+            self.stop()
+
+    def discard_pending(self) -> None:
+        """Drop the unwritten backlog loudly (the app-close discard path)."""
+        if self._engine is not None:
+            self._engine.discard_pending()
+
+    # ------------------------------------------------------------------
+    # Camera-thread ingest
+    # ------------------------------------------------------------------
+
+    def _on_camera_frame(self, image, timestamp, chunks) -> None:
+        """SDK-thread listener: rebase the timestamp, offer to the engine."""
+        engine = self._engine
+        if engine is None or not engine.is_recording:
+            return
+        engine.ingest_frame(image, self._frame_time_s(timestamp, chunks), chunks)
+
+    def _frame_time_s(self, timestamp, chunks) -> float:
+        """Host-epoch seconds for one frame; camera ticks when usable.
+
+        Camera hardware ticks are the frame's own clock, free of the OS
+        scheduling jitter host arrival stamps carry; rebasing them onto
+        the host epoch at the first tick-carrying frame keeps
+        camera-grade intervals on the axis cadence selection runs on.
+        """
+        if isinstance(timestamp, datetime.datetime):
+            host_s = timestamp.timestamp()
+        elif timestamp is not None:
+            host_s = float(timestamp)
+        else:
+            host_s = self._clock()
+        freq = self._plan.tick_freq_hz if self._plan is not None else None
+        ticks = chunks.get('Timestamp') if chunks else None
+        if freq and ticks is not None:
+            if self._tick_offset is None:
+                self._tick_offset = host_s - ticks / freq
+            return self._tick_offset + ticks / freq
+        return host_s
+
+    # ------------------------------------------------------------------
+    # Writer-lane edge
+    # ------------------------------------------------------------------
+
+    def _write_frame(self, image, timestamp_s, frame_number, config, chunks) -> Path:
+        """Write one kept frame as its final artifact (runs on the lane)."""
+        self._check_disk_floor(config)
+
+        image = np.flip(image, 0)
+        target_shape = (config.height, config.width)
+        if image.shape != target_shape:
+            fitted = image_utils.fit_frame_to_shape(image, target_shape)
+            if fitted is None:
+                # Costs exactly this frame (counted as a write failure);
+                # a frame that cannot fit the recording geometry must not
+                # abort the recording.
+                raise ValueError(
+                    f'frame shape {image.shape} incompatible with recording geometry {target_shape}'
+                )
+            image = fitted
+
+        plan = self._plan
+        if plan.video_as_frames:
+            return self._write_tiff_frame(image, timestamp_s, frame_number, config, chunks)
+        return self._write_mp4_frame(image, timestamp_s)
+
+    def _write_tiff_frame(self, image, timestamp_s, frame_number, config, chunks) -> Path:
+        plan = self._plan
+        if config.bit_depth == 8 and image.dtype != np.uint8:
+            image = image_utils.convert_to_8bit(image, config.bit_depth)
+
+        ts = datetime.datetime.fromtimestamp(timestamp_s)
+        # Colon-free ISO variant for Windows path-safety; millisecond
+        # precision. The timestamp travels in metadata, not pixels --
+        # Create Video draws it at build time when the overlay is on.
+        ts_filename = ts.strftime('%Y-%m-%d_%H-%M-%S-%f')[:-3]
+        file_loc = config.output_dir / config.filename_template.format(
+            n=frame_number, ts=ts_filename
+        )
+
+        metadata = {
+            'datetime': ts.strftime('%Y:%m:%d %H:%M:%S'),
+            'timestamp': ts.strftime('%Y:%m:%d %H:%M:%S.%f'),
+            'timestamp_iso': ts.isoformat(timespec='microseconds'),
+            'frame_num': frame_number,
+        }
+        if chunks is not None:
+            ts_ticks = chunks.get('Timestamp')
+            if ts_ticks is not None:
+                metadata['timestamp_camera_ticks'] = int(ts_ticks)
+            if plan.tick_freq_hz is not None:
+                metadata['timestamp_camera_tick_hz'] = int(plan.tick_freq_hz)
+            frame_id = chunks.get('FrameID')
+            if frame_id is not None:
+                metadata['frame_id'] = int(frame_id)
+
+        image_save.write_video_frame(
+            frame=image,
+            file_loc=file_loc,
+            metadata=metadata,
+            layer_color=plan.false_color,
+            false_color_on=plan.false_color is not None,
+            save_encoding=plan.save_encoding,
+            capture_depth=plan.capture_depth,
+        )
+
+        if self._hyperstack_rows is not None:
+            position = plan.stage_position or {}
+            self._hyperstack_rows.append(
+                {
+                    'Filepath': file_loc.name,
+                    'Scan Count': frame_number,
+                    'Color': plan.false_color,
+                    'Z-Slice': 0,
+                    'X': position.get('X'),
+                    'Y': position.get('Y'),
+                    'Z': position.get('Z'),
+                }
+            )
+        return file_loc
+
+    def _write_mp4_frame(self, image, timestamp_s) -> Path:
+        writer = self._writer
+        significant_bits = self._plan.capture_depth if image.dtype != np.uint8 else None
+        writer.add_frame(image=image, timestamp=timestamp_s, significant_bits=significant_bits)
+        return writer.output_path
+
+    def _check_disk_floor(self, config) -> None:
+        """Rolling floor probe; a breach stops selection, never the drain.
+
+        Runs on the write lane -- the thread consuming disk -- so the
+        probe needs no scheduler and works headless. Stopping selection
+        yields an honest short delivery; frames already on disk stay.
+        """
+        now = self._clock()
+        if now - self._last_disk_check_ts < DISK_FLOOR_CHECK_INTERVAL_S:
+            return
+        self._last_disk_check_ts = now
+        try:
+            ok, free_mb = check_disk_space_ok(config.output_dir, MIN_REQUIRED_DISK_MB)
+        except Exception as e:
+            logger.warning(f'[ManualRecord] Disk-floor probe failed: {e}')
+            return
+        if not ok and self._engine is not None and self._engine.is_recording:
+            logger.error(
+                f'[ManualRecord] Free disk fell to {free_mb:.0f} MB (floor '
+                f'{MIN_REQUIRED_DISK_MB} MB); stopping the recording'
+            )
+            notifications.error(
+                'Recording',
+                'Recording Stopped -- Disk Almost Full',
+                'Free disk space fell below the safety floor, so the recording '
+                'was stopped early. Frames captured so far are saved; free up '
+                'space before recording again.',
+            )
+            self.stop()
+
+    # ------------------------------------------------------------------
+    # Post-drain finish (its own short-lived thread, one per recording)
+    # ------------------------------------------------------------------
+
+    def _finish_after_drain(self) -> None:
+        """Wait out the drain, then finish the artifacts and report.
+
+        Runs on the per-recording finish thread: the work here (MP4
+        close, hyperstack build) is too heavy for a UI poll and must not
+        occupy the shared FILE lane for the length of a drain tail.
+        """
+        engine = self._engine
+        engine.wait_for_drain()
+        try:
+            self._scope.imaging.remove_frame_listener(self._on_camera_frame)
+        except Exception as e:
+            logger.debug(f'[ManualRecord] listener removal at finish: {e}')
+
+        result = engine.result()
+        dropped = result.write_failures
+        try:
+            if self._writer is not None:
+                self._writer.close()
+                # The MP4 writer swallows per-frame encode errors into its
+                # own counter; fold them into the user-facing total. The
+                # manifest carries the engine-counted failures -- the
+                # frames+manifest leg is the reference artifact.
+                dropped += self._writer.dropped_frames
+                logger.info(f'[ManualRecord] Video written to {self._writer.output_path}')
+
+            if self._hyperstack_rows:
+                self._build_hyperstack()
+        except Exception:
+            logger.exception('[ManualRecord] Post-drain finish failed')
+            notifications.error(
+                'Recording',
+                'Recording Finalize Failed',
+                'The recording finished but its output could not be fully '
+                'assembled. Frames already written are on disk; check the log.',
+            )
+        finally:
+            if dropped > 0 and not result.aborted:
+                notifications.warning(
+                    'Recording',
+                    'Video Frames Dropped',
+                    f'{dropped} of {result.frames_selected} frame(s) could not '
+                    'be written, so the saved video is shorter than the '
+                    'recording. Check the log for the cause.',
+                )
+            logger.info(
+                f'[ManualRecord] Finished: {result.frames_written} written, '
+                f'{result.write_failures} failed, measured '
+                f'{result.measured_fps:.2f} fps over {result.measured_duration_s:.2f} s'
+            )
+            if self._on_complete is not None:
+                try:
+                    self._on_complete()
+                except Exception:
+                    logger.exception('[ManualRecord] on_complete callback failed')
+
+    def _build_hyperstack(self) -> None:
+        plan = self._plan
+        df = pd.DataFrame(self._hyperstack_rows)
+        output = plan.save_folder / 'ManualVideo_Frame_HyperStack.ome.tiff'
+        StackBuilder(has_turret=self._scope.motion.has_turret()).create_single_recording_stack(
+            df=df,
+            path=plan.save_folder,
+            output_file_loc=output,
+        )
+        logger.info(f'[ManualRecord] Hyperstack created at {output}')
+
+
+@dataclass(frozen=True)
+class _RecordingPlan:
+    """Frozen caller-side snapshot the write edges read (leg, encoding,
+    identity); the engine's RecordingConfig carries the engine-visible
+    half of the same snapshot."""
+
+    video_as_frames: bool
+    save_folder: Path
+    false_color: str | None
+    save_encoding: str
+    capture_depth: int
+    tick_freq_hz: float | None
+    hyperstack: bool
+    stage_position: dict | None

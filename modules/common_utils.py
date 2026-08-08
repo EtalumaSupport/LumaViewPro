@@ -1525,6 +1525,13 @@ def estimate_step_write_mb(step, *, video_as_frames: bool = False) -> float:
     )
 
 
+# Free-space floor (2 GB) below which capture work refuses to start and
+# a running manual recording stops gracefully. One canonical value: the
+# protocol scan loop and the manual-record controller share it so the
+# two capture paths cannot drift on what "disk almost full" means.
+MIN_REQUIRED_DISK_MB = 2048
+
+
 def check_disk_space_ok(path, required_mb: float) -> tuple[bool, float]:
     """Probe free disk space and compare against a threshold.
 

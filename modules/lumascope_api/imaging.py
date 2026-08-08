@@ -2709,6 +2709,25 @@ class ImagingAPI:
             return dict(self._camera_cache['frame_size'])
 
     @property
+    def camera_identity(self) -> dict:
+        """Connected camera's identity for provenance records.
+
+        Returns:
+            dict: ``{'model': str | None, 'serial': str | None,
+            'timestamp_tick_frequency_hz': float | None}``. All None when
+            no camera is connected -- callers record the absence rather
+            than probe drivers directly.
+        """
+        driver = self._driver
+        if not driver or not driver.active:
+            return {'model': None, 'serial': None, 'timestamp_tick_frequency_hz': None}
+        return {
+            'model': getattr(driver, 'model_name', None),
+            'serial': getattr(driver, '_device_serial', None),
+            'timestamp_tick_frequency_hz': getattr(driver, 'timestamp_tick_frequency_hz', None),
+        }
+
+    @property
     def camera_min_frame_size(self) -> dict:
         """Minimum camera frame size (reads cache).
 

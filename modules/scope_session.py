@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING
 
 from lvp_logger import logger
 from modules.activity_claim import ActivityClaim
+from modules.manual_recording import ManualRecordingController
 
 # numpy and ProtocolRunner are referenced only in return annotations;
 # ProtocolRunner is imported function-locally to avoid a circular import.
@@ -75,6 +76,14 @@ class ScopeSession:
         # refusal gate and the recording engine's start), which take
         # this handle by injection.
         self.activity_claim = ActivityClaim()
+        # Manual video recording, composed with the session claim so a
+        # recording and a protocol run are mutually exclusive for every
+        # caller tier (GUI, L2, REST).
+        self.manual_recording = ManualRecordingController(
+            scope=scope,
+            settings=settings,
+            activity_claim=self.activity_claim,
+        )
 
     @property
     def is_protocol_running(self) -> bool:

@@ -11,6 +11,15 @@ sampling, not loss.
 import math
 
 
+# Interim per-camera delivery bound in frames per second: what the
+# capture chain (sensor readout + USB bandwidth) actually sustains at
+# typical resolutions, used to bound uncapped recording rates so a frame
+# budget never derives from a bare 1/exposure the camera cannot deliver.
+# Resolution-dependent in reality; the per-camera characterization map
+# replaces this single value when it lands.
+INTERIM_DELIVERY_BOUND_FPS = 40
+
+
 def frame_budget(fps: float, duration_s: float) -> int:
     """Number of frame slots a recording of ``duration_s`` at ``fps`` can fill.
 
