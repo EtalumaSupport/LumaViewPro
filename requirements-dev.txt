@@ -14,6 +14,11 @@ pyinstaller==6.19.0
 # analysis speed (<100ms) without needing a Kivy headless harness.
 pyflakes==3.4.0
 
+# Property-based testing for the video cadence selector and frame-budget
+# arithmetic (tests/test_video_cadence.py). Dev/CI only; the test module
+# loads a derandomized profile when CI is set so CI runs are reproducible.
+hypothesis==6.165.2
+
 # Profiling — see Firmware/docs/PROFILING_PRACTICE.md
 # py-spy: sampling profiler, attaches to live LVP process without restart,
 # low overhead so it can run for hours without warping timing data.

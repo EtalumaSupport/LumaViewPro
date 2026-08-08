@@ -6,7 +6,6 @@ extracted from lumaviewpro.py.
 
 import datetime
 import logging
-import math
 import pathlib
 import threading
 import time
@@ -25,6 +24,7 @@ from modules.config_helpers import (
 import modules.image_utils as image_utils
 from modules.manual_video_finalize import finalize_manual_video
 from modules.sequential_io_executor import IOTask
+from modules.video_cadence import CadenceSelector, frame_budget
 from ui.ui_helpers import set_last_save_folder
 from ui.composite_capture import CompositeCapture
 
@@ -50,10 +50,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         # Clock save timer). Slot index reserved by callback under
         # _record_lock; the IOTask on camera_executor writes the slot.
         self._record_lock = threading.Lock()
-        self._save_interval_s = 0.0
-        self._next_save_slot_ts = 0.0
-        self._reserved_frames = 0
-        self._max_frames = 0
+        self._cadence: CadenceSelector | None = None
         self.writing_progress_update = None
         self.video_writing_progress = 0
         self.video_writing_total_frames = 0
@@ -279,7 +276,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         else:
             video_fps = exposure_freq
 
-        max_frames = math.ceil(video_fps * max_duration)
+        max_frames = frame_budget(video_fps, max_duration)
 
         start_time = datetime.datetime.now()
         self.start_time_str = start_time.strftime('%Y-%m-%d_%H.%M.%S')
@@ -424,10 +421,9 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         # on the ingest thread at sub-ms accuracy. check_recording_state
         # stays on Clock for button-state and time-stop detection
         # (main-thread Kivy widget reads).
-        self._save_interval_s = 1.0 / video_fps
-        self._next_save_slot_ts = self.start_ts + self._save_interval_s
-        self._reserved_frames = 0
-        self._max_frames = max_frames
+        self._cadence = CadenceSelector(
+            fps=video_fps, max_frames=max_frames, start_ts=self.start_ts
+        )
         capture_interval = 1.0 / video_fps
         self.recording_title_update = Clock.schedule_interval(self.update_recording_title, 0.1)
         self.recording_check = Clock.schedule_interval(self.check_recording_state, capture_interval)
@@ -446,9 +442,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         with self._record_lock:
             if not self.recording.is_set():
                 return
-            if self._reserved_frames >= self._max_frames:
-                return
-            if now < self._next_save_slot_ts:
+            if not self._cadence.slot_open(now):
                 return
             # Backpressure: if the single CAMERA_WORKER is behind on memmap
             # writes, drop this frame BEFORE reserving a slot -- reserving then
@@ -456,9 +450,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
             # in-flight image backlog that was the manual-record RAM balloon.
             if not _app_ctx.ctx.camera_executor.admit_live_frame():
                 return
-            slot_index = self._reserved_frames
-            self._reserved_frames += 1
-            self._next_save_slot_ts += self._save_interval_s
+            slot_index = self._cadence.reserve()
         _app_ctx.ctx.camera_executor.put(
             IOTask(
                 self.record_helper,
@@ -475,7 +467,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
     def check_recording_state(self, dt=None):
         # Time-stop or capacity-stop: max_frames reserved means the
         # memmap is full; no more callbacks will reserve a slot.
-        if time.time() >= self.stop_ts or self._reserved_frames >= self._max_frames:
+        if time.time() >= self.stop_ts or self._cadence.at_capacity:
             self._stop_recording_clocks()
             self.video_duration = time.time() - self.start_ts
             self.recording_complete_event = Clock.schedule_once(self._enqueue_recording_complete, 0)
