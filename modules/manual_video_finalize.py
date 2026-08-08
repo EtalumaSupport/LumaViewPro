@@ -311,8 +311,7 @@ def finalize_manual_video(
             # by the writer; fold them in so the total reflects every loss.
             dropped_frames += video_writer.dropped_frames
             # The writer is the authority on where the file landed (a
-            # collision suffix or the cv2 .avi fallback may have moved it
-            # from the requested path).
+            # collision suffix may have moved it from the requested path).
             output_file_loc = video_writer.output_path
             logger.info(f'Manual-Video] Video written to {output_file_loc}')
 

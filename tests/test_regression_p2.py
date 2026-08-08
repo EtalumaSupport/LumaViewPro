@@ -10,7 +10,6 @@ Tests that the following bugs stay fixed:
 """
 
 import datetime
-import pathlib
 import sys
 import threading
 from unittest.mock import MagicMock, patch
@@ -215,92 +214,13 @@ class TestDurationPrecision:
 
 
 class TestVideoBitDepth:
-    """Verify that 16-bit images are converted to 8-bit before codec write.
+    """Converter-level bit-depth regression coverage.
 
-    Bug #424: mp4v codec silently degrades 12/16-bit frames, producing
-    corrupted video. Must convert to uint8 before writing.
+    The encoder-boundary half of this class (uint16 frames must reach the
+    codec as uint8 -- bug #424) lives with the writer's own tests in
+    test_video_writer.py::TestVideoBitDepth, harnessed on the PyAV
+    backend; this class keeps the pure-converter invariant.
     """
-
-    def test_videowriter_converts_16bit_frame(self):
-        """VideoWriter.add_frame() must convert uint16 to uint8."""
-        from modules.video_writer import VideoWriter
-
-        out_path = pathlib.Path('/tmp/test_video_16bit.avi')
-        writer = VideoWriter(
-            output_path=out_path,
-            fps=10.0,
-            include_timestamp_overlay=False,
-        )
-
-        # Create a 16-bit grayscale frame
-        frame_16bit = np.ones((100, 100), dtype=np.uint16) * 1000
-
-        # Force cv2 backend and mock it so we can inspect what gets written
-        writer._use_pyav = False
-        mock_cv2_writer = MagicMock()
-        writer._cv2_video = mock_cv2_writer
-        writer._shape = (100, 100)
-
-        writer.add_frame(image=frame_16bit)
-
-        # Verify write was called
-        mock_cv2_writer.write.assert_called_once()
-
-        # The written image must be uint8
-        written_image = mock_cv2_writer.write.call_args[0][0]
-        assert written_image.dtype == np.uint8, (
-            '16-bit frame must be converted to uint8 before write (bug #424)'
-        )
-
-    def test_videowriter_passes_8bit_unchanged(self):
-        """VideoWriter.add_frame() must not modify uint8 frames."""
-        from modules.video_writer import VideoWriter
-
-        out_path = pathlib.Path('/tmp/test_video_8bit.avi')
-        writer = VideoWriter(
-            output_path=out_path,
-            fps=10.0,
-            include_timestamp_overlay=False,
-        )
-
-        frame_8bit = np.ones((100, 100), dtype=np.uint8) * 128
-
-        writer._use_pyav = False
-        mock_cv2_writer = MagicMock()
-        writer._cv2_video = mock_cv2_writer
-        writer._shape = (100, 100)
-
-        writer.add_frame(image=frame_8bit)
-
-        mock_cv2_writer.write.assert_called_once()
-        written_image = mock_cv2_writer.write.call_args[0][0]
-        assert written_image.dtype == np.uint8
-
-    def test_videowriter_converts_color_16bit(self):
-        """VideoWriter.add_frame() must handle 16-bit color (3-channel) frames."""
-        from modules.video_writer import VideoWriter
-
-        out_path = pathlib.Path('/tmp/test_video_color16.avi')
-        writer = VideoWriter(
-            output_path=out_path,
-            fps=10.0,
-            include_timestamp_overlay=False,
-        )
-
-        frame_16bit_color = np.ones((100, 100, 3), dtype=np.uint16) * 500
-
-        writer._use_pyav = False
-        mock_cv2_writer = MagicMock()
-        writer._cv2_video = mock_cv2_writer
-        writer._shape = (100, 100)
-
-        writer.add_frame(image=frame_16bit_color)
-
-        mock_cv2_writer.write.assert_called_once()
-        written_image = mock_cv2_writer.write.call_args[0][0]
-        assert written_image.dtype == np.uint8, (
-            '16-bit color frame must be converted to uint8 (bug #424)'
-        )
 
     def test_convert_16bit_to_8bit_preserves_relative_intensity(self):
         """Conversion preserves relative brightness, rescaling the full 16-bit

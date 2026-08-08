@@ -303,9 +303,8 @@ class VideoBuilder(ProtocolPostProcessor):
             'status': True,
             'error': None,
             # The writer is the authority on where the file landed (a
-            # collision suffix or the cv2 .avi fallback may have moved it
-            # from the requested path); the record must point at the real
-            # file, not the request.
+            # collision suffix may have moved it from the requested path);
+            # the record must point at the real file, not the request.
             'actual_output_file_loc': video.output_path,
             # Video encodes an 8-bit stream (every frame is downconverted to
             # 8 bits inside the writer), so the output artifact's depth is 8
@@ -334,8 +333,7 @@ class VideoBuilder(ProtocolPostProcessor):
 
         Args:
             source_dir: Directory of TIFF inputs, one per frame.
-            output_file: Destination video file. .mp4 routes to PyAV H.264;
-                cv2 fallback rewrites the suffix to .avi.
+            output_file: Destination video file (H.264 via PyAV).
             false_color: When True, the layer false-color is applied inside
                 VideoWriter. Requires ``color``; raises ValueError otherwise.
                 When False, encode grayscale.
@@ -406,8 +404,8 @@ class VideoBuilder(ProtocolPostProcessor):
             'error': error,
             'frame_count': frame_count,
             'dropped_frames': dropped,
-            # Where the file actually landed (collision suffix / cv2 .avi
-            # fallback may have moved it from output_file).
+            # Where the file actually landed (a collision suffix may have
+            # moved it from output_file).
             'output_file': writer.output_path,
         }
 

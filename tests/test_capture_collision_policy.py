@@ -417,28 +417,6 @@ def test_video_writer_uniquifies_existing_output_path(tmp_path, monkeypatch):
     )
 
 
-def test_video_writer_cv2_fallback_suffix_cannot_dodge_collision_check(tmp_path, monkeypatch):
-    # The cv2 fallback rewrites .mp4 -> .avi at encoder init. A collision
-    # check against the REQUESTED .mp4 path would miss an existing .avi;
-    # the check must run against the path the backend actually opens.
-    from modules import video_writer as vw_mod
-    from modules.video_writer import VideoWriter
-
-    _patch_video_writer_logger(monkeypatch)
-    monkeypatch.setattr(vw_mod, '_HAS_PYAV', False)  # force the cv2/.avi fallback
-
-    (tmp_path / 'X.avi').write_bytes(b'previous avi recording')
-    writer = VideoWriter(output_path=tmp_path / 'X.mp4', fps=5.0)
-    _write_one_frame_and_close(writer)
-
-    actual = writer.output_path
-    assert actual.name == 'X_000001.avi', (
-        f'requesting X.mp4 with X.avi taken must land X_000001.avi; got {actual.name}'
-    )
-    assert actual.exists() and actual.stat().st_size > 0
-    assert (tmp_path / 'X.avi').read_bytes() == b'previous avi recording'
-
-
 def test_video_writer_keeps_fresh_output_path(tmp_path, monkeypatch):
     from modules.video_writer import VideoWriter
 
