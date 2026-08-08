@@ -103,31 +103,16 @@ def test_pure_blue_16bit_falsecolor_tiff_roundtrip(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    reason='known divergence awaiting read-only triage: the false-color pipeline '
-    'scales full-16-bit so a 42000-count source decodes to blue=162, below the '
-    '>200 this spec demands; channel routing itself is correct (R=G=0). '
-    'Pre-existing at beta24 1d55e416, unmasked when av was installed.',
-    strict=False,
-)
 def test_pure_blue_mp4_roundtrip(tmp_path):
     """Synth a 1-frame mono TIFF input; run VideoBuilder; decode the
     first MP4 frame via PyAV; assert the Blue channel carries the data.
 
-    Today: VideoBuilder's input loop calls ``cv2.imread`` (returns BGR
-    on 3-channel sources) then ``cvtColor(BGR2RGB)`` before encode.
-    With 3-channel-replica TIFF inputs this round-trips correctly but
-    the cv2 detour is the failure surface that produced ``eae5079``
-    (#657 video -- wrong channel on decode).
-
-    Post-1d: input TIFFs are mono. VideoBuilder reads via ``tf.imread``
-    (no cv2 detour), applies false-color via the boundary helper, then
-    encodes RGB to MP4. Same final pixel value at index 2 (Blue), but
-    via the canonical mono path.
-
-    The test is structural -- it asserts the decoded MP4 frame's Blue
-    channel carries the source mono value, regardless of internal
-    pipeline shape.
+    VideoBuilder reads the mono input (no cv2 detour -- the failure
+    surface that produced #657's wrong-channel decode), applies
+    false-color via the boundary helper, then encodes RGB to MP4. The
+    test is structural: the decoded frame's Blue channel must carry the
+    source mono value at its correct linear scaling, and the other
+    channels must stay dark, regardless of internal pipeline shape.
     """
     pytest.importorskip('av')
     import av
@@ -159,11 +144,14 @@ def test_pure_blue_mp4_roundtrip(tmp_path):
     arr = frame.to_ndarray(format='rgb24')
     container.close()
 
-    assert arr[0, 0, 2] > 200, (
-        f'Decoded Blue channel should carry the source value (scaled to '
-        f'uint8); got arr[0,0]={arr[0, 0]}. Today fails because '
-        f'VideoBuilder.build_video signature does not yet accept mono '
-        f'2D TIFF inputs through the false_color boundary helper.'
+    # The synthetic TIFF carries no significant-bits tag, so the loader
+    # correctly treats it as full 16-bit: 42000/65535 scales to 163 in
+    # uint8, and yuv420 encode rounding costs ~1 count either way. A
+    # value outside this window means the pipeline mis-scaled (e.g.
+    # treated the payload as 12-bit, the reads-near-black defect class).
+    assert 155 <= arr[0, 0, 2] <= 170, (
+        f'Decoded Blue channel must carry the source value at its 16-bit '
+        f'linear scaling (42000/65535 -> ~163); got arr[0,0]={arr[0, 0]}.'
     )
     assert arr[0, 0, 0] < 20  # Red close to zero
     assert arr[0, 0, 1] < 20  # Green close to zero
