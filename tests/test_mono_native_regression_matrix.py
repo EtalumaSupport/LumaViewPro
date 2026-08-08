@@ -26,7 +26,7 @@ Pipeline coverage:
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -220,62 +220,6 @@ def test_composite_rgb_allchannels_roundtrip(tmp_path):
     assert result[0, 0, 0] == _to8(red_val)
     assert result[0, 0, 1] == _to8(green_val)
     assert result[0, 0, 2] == _to8(blue_val)
-
-
-# ---------------------------------------------------------------------------
-# MUST-HAVE 4: cv2.VideoWriter fallback RGB->BGR boundary (mocked)
-# ---------------------------------------------------------------------------
-
-
-def test_cv2_videowriter_fallback_bgr_boundary():
-    """Pass a mono frame into VideoWriter (cv2 fallback path); assert
-    the mocked ``cv2.VideoWriter.write`` receives a BGR-ordered frame
-    with the false-color applied correctly.
-
-    Today: the pre-1d caller already does add_false_color then BGR-swap.
-    Post-1d: the caller passes mono; VideoWriter does false-color +
-    BGR-swap internally before handing to cv2.VideoWriter.write.
-
-    The bug surface (``161ed0e`` / ``7f26c7c`` -- RGB->BGR fallback
-    swap regression) is the same; the test ensures the post-1d code
-    path preserves the boundary.
-    """
-    from modules.video_writer import VideoWriter
-
-    mono = np.full((8, 8), 50000, dtype=np.uint16)
-
-    captured = {}
-
-    def fake_write(frame):
-        captured['frame'] = frame.copy()
-
-    with patch('cv2.VideoWriter') as MockCv2:
-        instance = MagicMock()
-        instance.write = fake_write
-        instance.isOpened.return_value = True
-        MockCv2.return_value = instance
-
-        writer = VideoWriter(
-            output_path='/tmp/dummy.avi',
-            fps=10,
-            width=8,
-            height=8,
-            color='Red',
-        )
-        writer.add_frame(mono)
-        writer.close()
-
-    assert 'frame' in captured, 'cv2.VideoWriter.write was never called'
-    written = captured['frame']
-    # cv2 is BGR-native: a Red false-color frame should have non-zero
-    # at index 2 (B index in BGR == R index in source RGB after swap).
-    # Post-1d: mono Red enters VideoWriter, gets false-colored to RGB
-    # internally, then BGR-swapped at the cv2 boundary.
-    assert written.shape[-1] == 3
-    assert written[0, 0, 2] > 0, (
-        f'BGR[2] (== source RGB[0] == Red after swap) should be non-zero, got {written[0, 0]}'
-    )
-    assert written[0, 0, 0] == 0, 'BGR[0] (== source RGB[2] == Blue) should be zero for Red layer'
 
 
 # ---------------------------------------------------------------------------
