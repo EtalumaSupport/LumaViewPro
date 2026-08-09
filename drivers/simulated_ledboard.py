@@ -363,11 +363,21 @@ class SimulatedLEDBoard:
         Returns:
             bool: True once a STATUS line is observed, False on timeout.
         """
+        # Check once before consulting the clock, so timeout_s=0 still
+        # reports the CURRENT state instead of a reflexive False.
         deadline = time.monotonic() + timeout_s
-        while time.monotonic() < deadline:
+        while True:
             if 'STATUS' in self.get_status():
                 return True
-        return False
+            if time.monotonic() >= deadline:
+                return False
+            # Yield between polls. `get_status()` takes the state lock, so
+            # a bare spin here would hammer that lock for the whole timeout
+            # on a board that never reports STATUS. Nothing does today --
+            # get_status always contains the word -- but a spin waiting for
+            # a condition that cannot arrive is a trap for whoever changes
+            # it, and 5 ms costs nothing when the answer arrives first try.
+            time.sleep(0.005)
 
     # State-query methods have been retired; see ledboard.py for
     # rationale.
