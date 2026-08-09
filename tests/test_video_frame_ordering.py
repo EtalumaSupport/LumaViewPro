@@ -103,3 +103,93 @@ def test_manual_leg_orders_frames_numerically_across_10k(tmp_path):
 
     assert result['status'] is True
     assert captured['order'] == sorted(frames)
+
+
+def _protocol_df(rows):
+    """Post-processing df shaped like the helper's load, one row per file.
+
+    rows: (filepath, scan_count) pairs. Carries every column the video
+    grouping and filename generation read.
+    """
+    from modules.common_utils import PostFunction
+
+    data = {
+        'Filepath': [],
+        'Scan Count': [],
+    }
+    for path, scan in rows:
+        data['Filepath'].append(pathlib.Path(path))
+        data['Scan Count'].append(scan)
+    n = len(rows)
+    data.update(
+        {
+            'Well': ['A1'] * n,
+            'Label': [''] * n,
+            'Color': ['BF'] * n,
+            'Objective': [''] * n,
+            'X': [1.0] * n,
+            'Y': [2.0] * n,
+            'Z': [3.0] * n,
+            'Z-Slice': [''] * n,
+            'Tile': [''] * n,
+            'Custom Step': [False] * n,
+            'Timestamp': [''] * n,
+            'Raw': [True] * n,
+        }
+    )
+    for column in PostFunction.list_values():
+        data[column] = [False] * n
+    return pd.DataFrame(data)
+
+
+class TestMultiScanVideoGrouping:
+    def test_each_scan_is_its_own_video_group(self):
+        # Two scans of one video step share every positional column and
+        # re-use frame numbers 0..N -- grouped together their sort keys
+        # collide and the output interleaves both scans scrambled. Each
+        # recording must build its own video.
+        rows = []
+        for scan in (0, 1):
+            folder = f'BF/A1_BF_{scan:04}_video'
+            for n in range(3):
+                rows.append((f'{folder}/A1_BF_{scan:04}_video_Frame_{n:04}.tiff', scan))
+        df = _protocol_df(rows)
+
+        groups = VideoBuilder._get_groups(df)
+
+        assert len(groups) == 2
+        for _, group in groups:
+            assert group['Scan Count'].nunique() == 1
+            assert len(group) == 3
+
+    def test_video_group_filenames_carry_the_scan_token(self):
+        rows = []
+        for scan in (0, 1):
+            folder = f'BF/A1_BF_{scan:04}_video'
+            for n in range(3):
+                rows.append((f'{folder}/A1_BF_{scan:04}_video_Frame_{n:04}.tiff', scan))
+        df = _protocol_df(rows)
+
+        builder = VideoBuilder(has_turret=False)
+        names = {
+            builder._generate_filename(df=group.reset_index(drop=True), capture_root=None)
+            for _, group in VideoBuilder._get_groups(df)
+        }
+
+        # One name per recording, mirroring the on-disk folder names.
+        assert names == {'A1_BF_0000_video.mp4', 'A1_BF_0001_video.mp4'}
+
+    def test_stills_timelapse_still_groups_across_scans(self):
+        # Behavior-preservation guard: passes before and after the
+        # grouping change. A still capture's time axis IS the scan axis,
+        # so scans share one group and one output video.
+        rows = [(f'BF/A1_BF_{scan:04}.tiff', scan) for scan in (0, 1, 2)]
+        df = _protocol_df(rows)
+
+        groups = VideoBuilder._get_groups(df)
+
+        assert len(groups) == 1
+        builder = VideoBuilder(has_turret=False)
+        ((_, group),) = groups
+        name = builder._generate_filename(df=group.reset_index(drop=True), capture_root=None)
+        assert name == 'A1_BF_video.mp4'

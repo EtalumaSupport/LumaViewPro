@@ -35,6 +35,19 @@ class VideoBuilder(ProtocolPostProcessor):
 
     @staticmethod
     def _get_groups(df: pd.DataFrame) -> pd.DataFrame:
+        # A group is one output video, and the two source kinds carry
+        # different temporal identities: a still's time axis runs ACROSS
+        # scans (a timelapse -- every scan shares its group), while a
+        # recorded video frame's time axis runs WITHIN one recording
+        # (T = frame), so the recording's scan is part of its identity.
+        # Without the derived key, a multi-scan run's video steps land
+        # in ONE group whose per-scan frame numbers collide, and the
+        # output interleaves all scans scrambled. Stills share the one
+        # sentinel so their timelapse grouping is untouched.
+        recording_scan = df['Scan Count'].where(
+            df['Filepath'].map(recording_frames.is_video_frame), -1
+        )
+        df = df.assign(**{'Recording Scan': recording_scan})
         return df.groupby(
             by=[
                 'Well',
@@ -46,6 +59,7 @@ class VideoBuilder(ProtocolPostProcessor):
                 'Tile',
                 'Custom Step',
                 'Raw',
+                'Recording Scan',
                 *PostFunction.list_values(),
             ],
             dropna=False,
@@ -63,10 +77,20 @@ class VideoBuilder(ProtocolPostProcessor):
         # matching the per-image save).
         post = ('stitched',) if row0['Stitched'] else ()
         post = (*post, common_utils.POST_TOKEN_VIDEO)
+
+        # One output per recording means one output PER SCAN for recorded
+        # video frames; the scan token keeps those names distinct (and
+        # mirrors the on-disk recording folder's own name). A stills
+        # timelapse spans scans, so its name carries no scan token.
+        scan_count = None
+        if recording_frames.is_video_frame(row0['Filepath']):
+            scan_count = int(row0['Scan Count'])
+
         name = common_utils.build_step_name(
             common_utils.step_components(
                 row0,
                 objective=objective_short_name,
+                scan_count=scan_count,
                 post=post,
             )
         )
