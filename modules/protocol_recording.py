@@ -46,7 +46,12 @@ import modules.image_save as image_save
 import modules.image_utils as image_utils
 from modules.kivy_utils import schedule_ui as _schedule_ui
 from modules.notification_center import notifications
-from modules.recording_frames import CameraTickRebaser, orient_and_fit, tiff_frame_metadata
+from modules.recording_frames import (
+    CameraTickRebaser,
+    orient_and_fit,
+    protocol_frame_filename_template,
+    tiff_frame_metadata,
+)
 from modules.recording_manifest import gather_host_provenance
 from modules.video_cadence import effective_recording_fps
 from modules.video_recording import RecordingConfig, VideoRecordingEngine
@@ -262,7 +267,7 @@ class ProtocolVideoStep:
             height=frame_size['height'],
             bit_depth=self._capture_config.capture_depth,
             output_dir=self._output_dir,
-            filename_template=f'{self._name}_Frame_{{n:04d}}.tiff',
+            filename_template=protocol_frame_filename_template(self._name),
             timestamp_overlay=self._timestamp_overlay,
             manifest_extra={
                 'step_name': self._name,

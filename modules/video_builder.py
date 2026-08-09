@@ -2,12 +2,12 @@
 
 import json
 import pathlib
-import re
 
 import pandas as pd
 
 import modules.image_utils as image_utils
 import modules.common_utils as common_utils
+import modules.recording_frames as recording_frames
 from modules.common_utils import PostFunction
 from modules.protocol_post_processor import ProtocolPostProcessor
 from modules.protocol_post_processing_result import PostProcResult
@@ -17,37 +17,11 @@ from modules.video_writer import VideoWriter
 from lvp_logger import logger
 
 
-# Manual "Frames" recordings name each frame ManualVideo_Frame_<NNNN>_<ts>.tiff.
-# The digit after the prefix keeps the optional ManualVideo_Frame_HyperStack
-# container out of the frame sequence. Which suffixes count as a TIFF is not
-# decided here -- callers pair this name test with the shared TIFF finder.
-_MANUAL_FRAME_RE = re.compile(r'ManualVideo_Frame_\d')
-
-# The producers pad the frame number (:04), so it grows to five digits at
-# frame 10,000. Any fixed-width or lexical ordering therefore wraps there
-# (frame 10000 collides with or sorts beside frame 1000); ordering must
-# parse the number and compare numerically.
-_FRAME_NUM_RE = re.compile(r'_Frame_(\d+)')
-
 # Build rate for folders with no measured capture rate ('auto' on a
 # protocol scan, or a recording that predates rate manifests): the
 # long-standing Create Video default, kept so those builds keep working
 # instead of refusing.
 DEFAULT_BUILD_FPS = 5
-
-
-def _frame_number(filename: str) -> int:
-    """Numeric frame index from a video-frame filename.
-
-    Raises:
-        ValueError: The name carries no ``_Frame_<digits>`` token. A name
-            that cannot be ordered must fail the build loudly -- a guessed
-            key would scramble the output video silently.
-    """
-    match = _FRAME_NUM_RE.search(str(filename))
-    if match is None:
-        raise ValueError(f'No frame number in video frame filename {filename!r}')
-    return int(match.group(1))
 
 
 class VideoBuilder(ProtocolPostProcessor):
@@ -88,7 +62,7 @@ class VideoBuilder(ProtocolPostProcessor):
         # authoritative columns (a video keeps the source slice's z token,
         # matching the per-image save).
         post = ('stitched',) if row0['Stitched'] else ()
-        post = (*post, 'video')
+        post = (*post, common_utils.POST_TOKEN_VIDEO)
         name = common_utils.build_step_name(
             common_utils.step_components(
                 row0,
@@ -224,8 +198,8 @@ class VideoBuilder(ProtocolPostProcessor):
         current_group=1,
     ) -> dict:
 
-        if 'video_Frame' in str(df['Filepath'].values[0]):
-            df['Frame Num'] = df['Filepath'].apply(_frame_number)
+        if recording_frames.is_video_frame(df['Filepath'].values[0]):
+            df['Frame Num'] = df['Filepath'].apply(recording_frames.frame_number)
             df = df.sort_values(by=['Frame Num'], ascending=True)
 
         else:
@@ -468,7 +442,8 @@ class VideoBuilder(ProtocolPostProcessor):
         # user gets the informative protocol error instead of a silent raw build.
         try:
             return path.is_dir() and any(
-                _MANUAL_FRAME_RE.match(p.name) for p in image_utils.find_tiff_files(path)
+                recording_frames.is_manual_video_frame(p.name)
+                for p in image_utils.find_tiff_files(path)
             )
         except OSError:
             return False
@@ -525,11 +500,13 @@ class VideoBuilder(ProtocolPostProcessor):
         **_ignored: dict,
     ) -> dict:
         frame_paths = [
-            p for p in image_utils.find_tiff_files(path) if _MANUAL_FRAME_RE.match(p.name)
+            p
+            for p in image_utils.find_tiff_files(path)
+            if recording_frames.is_manual_video_frame(p.name)
         ]
         # The TIFF finder returns lexical order, which wraps at frame
         # 10,000 (five digits sort beside four); order numerically.
-        frame_paths.sort(key=lambda p: _frame_number(p.name))
+        frame_paths.sort(key=lambda p: recording_frames.frame_number(p.name))
         if not frame_paths:
             return {
                 'status': False,

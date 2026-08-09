@@ -7,6 +7,7 @@ import pandas as pd
 
 import modules.common_utils as common_utils
 import modules.image_utils as image_utils
+import modules.recording_frames as recording_frames
 from modules.protocol import Protocol
 from modules.protocol_execution_record import ProtocolExecutionRecord
 from modules.common_utils import PostFunction
@@ -40,14 +41,18 @@ class ProtocolPostProcessingHelper:
 
         images = image_utils.find_tiff_files(path, recursive=True)
 
-        # If folder is a collection of video frames, set the directory of the protocol record to be 1 level higher
-        if '_video' in str(path):
+        # A video recording folder holds frames one level below the
+        # protocol folder that owns the execution record; step up so
+        # relative names compute against the protocol folder. Tested on
+        # the final path component only -- a protocol ROOT that happens
+        # to carry the token in its name must not step out of itself.
+        if recording_frames.is_video_recording_dir_name(path.name):
             path = path.parent
 
         for image in images:
             image_name = pathlib.Path(os.path.relpath(image, path))
 
-            if 'video_Frame' in str(image_name):
+            if recording_frames.is_protocol_video_frame(image_name.name):
                 parent_dir = str(image_name.parent.parent)
 
             else:
@@ -140,8 +145,9 @@ class ProtocolPostProcessingHelper:
         image_data = []
 
         for image_name in image_names:
-            # If video frame, then set the filepath to be one level higher
-            if '_video_Frame' in str(image_name):
+            # A video frame's execution-record row is keyed by its
+            # recording folder, not the frame file.
+            if recording_frames.is_protocol_video_frame(image_name.name):
                 file_data = protocol_execution_record.get_data_from_filename(
                     file_path=image_name.parent
                 )
@@ -328,9 +334,11 @@ class ProtocolPostProcessingHelper:
         else:
             include_subpaths = [selected_path.name]
 
-        # If the selected folder is a specific folder of image frames, send the path as the selected folder instead of the root folder
-        # Also ensure that we are only checking this folder for images
-        if '_video' in str(path):
+        # A selected video recording folder scans itself for images
+        # instead of the root folder. Tested on the final path component
+        # only -- a root that carries the token elsewhere in its path
+        # must keep the normal root scan.
+        if recording_frames.is_video_recording_dir_name(path.name):
             image_names = self._get_image_filenames_from_folder(
                 path=path, exclude_subpaths=[], include_subpaths=[]
             )

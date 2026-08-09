@@ -10,10 +10,99 @@ identity or geometry.
 """
 
 import datetime
+import pathlib
+import re
 
 import numpy as np
 
+import modules.common_utils as common_utils
 import modules.image_utils as image_utils
+
+# --- Frame filename contract ------------------------------------------------
+#
+# The recording engine's on-disk frame names, built AND parsed here, in one
+# place. The names are load-bearing beyond the capture code: Create Video,
+# post-processing discovery, and the hyperstack loader classify files by
+# these tokens, and folders of existing user recordings must keep parsing
+# forever. Changing a token means changing every consumer below plus a
+# two-generation reader for old folders -- never change one in isolation.
+#
+# Protocol video steps write   <step_name>_Frame_<NNNN>.tiff   into a
+# per-recording folder named <step_name>, where <step_name> ends with the
+# 'video' post suffix (common_utils.build_step_name) -- so protocol frame
+# names carry '_video_Frame_'. Manual "Frames" recordings write
+# ManualVideo_Frame_<NNNN>_<ts>.tiff. The two vocabularies differ by case
+# ('Video_Frame' vs 'video_Frame'), so the predicates below are disjoint;
+# consumers must never re-derive them with ad-hoc substring checks.
+
+_FRAME_TOKEN = '_Frame_'
+
+# Protocol frame names juxtapose the step name's 'video' suffix with the
+# frame token; the recording folder is the step name itself.
+_VIDEO_RECORDING_DIR_SUFFIX = f'_{common_utils.POST_TOKEN_VIDEO}'
+_PROTOCOL_FRAME_TOKEN = f'{_VIDEO_RECORDING_DIR_SUFFIX}{_FRAME_TOKEN}'
+
+_MANUAL_FRAME_PREFIX = f'ManualVideo{_FRAME_TOKEN}'
+MANUAL_HYPERSTACK_FILENAME = f'{_MANUAL_FRAME_PREFIX}HyperStack.ome.tiff'
+
+# The producers pad the frame number (:04), so it grows to five digits at
+# frame 10,000. Any fixed-width or lexical ordering therefore wraps there
+# (frame 10000 collides with or sorts beside frame 1000); ordering must
+# parse the number and compare numerically.
+_FRAME_NUM_RE = re.compile(rf'{_FRAME_TOKEN}(\d+)')
+
+# The digit after the prefix keeps the optional hyperstack container file
+# out of the frame sequence.
+_MANUAL_FRAME_RE = re.compile(rf'{re.escape(_MANUAL_FRAME_PREFIX)}\d')
+
+
+def protocol_frame_filename_template(step_name: str) -> str:
+    """Frame-file template for a protocol video step's recording."""
+    return f'{step_name}{_FRAME_TOKEN}{{n:04d}}.tiff'
+
+
+def manual_frame_filename_template() -> str:
+    """Frame-file template for a manual "Frames" recording."""
+    return f'{_MANUAL_FRAME_PREFIX}{{n:04d}}_{{ts}}.tiff'
+
+
+def frame_number(filename: str | pathlib.Path) -> int:
+    """Numeric frame index from a video-frame filename.
+
+    Raises:
+        ValueError: The name carries no frame-number token. A name that
+            cannot be ordered must fail the build loudly -- a guessed
+            key would scramble the output video silently.
+    """
+    match = _FRAME_NUM_RE.search(str(filename))
+    if match is None:
+        raise ValueError(f'No frame number in video frame filename {filename!r}')
+    return int(match.group(1))
+
+
+def is_manual_video_frame(filename: str) -> bool:
+    """True for a manual recording's frame file (not its hyperstack)."""
+    return _MANUAL_FRAME_RE.match(filename) is not None
+
+
+def is_protocol_video_frame(filename: str | pathlib.Path) -> bool:
+    """True for a frame file written by a protocol video step."""
+    return _PROTOCOL_FRAME_TOKEN in str(filename)
+
+
+def is_video_frame(filename: str | pathlib.Path) -> bool:
+    """True for any recording-engine frame file, manual or protocol."""
+    name = pathlib.PurePath(str(filename)).name
+    return is_manual_video_frame(name) or is_protocol_video_frame(name)
+
+
+def is_video_recording_dir_name(dirname: str) -> bool:
+    """True when a directory NAME is a protocol video recording folder.
+
+    Tests the final path component only -- a parent folder that happens
+    to carry the token anywhere in its path must not classify.
+    """
+    return dirname.endswith(_VIDEO_RECORDING_DIR_SUFFIX)
 
 
 class CameraTickRebaser:

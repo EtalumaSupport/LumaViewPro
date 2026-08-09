@@ -104,9 +104,15 @@ class StepNameComponents:
     post: tuple[str, ...] = ()
 
 
+# The 'video' post token is the one suffix other modules build on: the
+# recording engine derives video-recording folder names and frame-file
+# tokens from it (modules/recording_frames.py), so it gets a named
+# constant instead of living only inside the frozenset literal.
+POST_TOKEN_VIDEO = 'video'
+
 # Single-token post-output suffixes occupying StepNameComponents.post. A
 # z-projection is two segments ('zproj_<method>'); the rest are single tokens.
-_POST_SUFFIX_TOKENS = frozenset({'stitched', 'video', 'stack', 'hyperstack'})
+_POST_SUFFIX_TOKENS = frozenset({'stitched', POST_TOKEN_VIDEO, 'stack', 'hyperstack'})
 
 
 def build_step_name(c: StepNameComponents) -> str:

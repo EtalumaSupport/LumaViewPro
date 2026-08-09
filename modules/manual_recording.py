@@ -46,7 +46,13 @@ from modules.config_helpers import (
 )
 from modules.exceptions import RecordingRefusedError
 from modules.notification_center import notifications
-from modules.recording_frames import CameraTickRebaser, orient_and_fit, tiff_frame_metadata
+from modules.recording_frames import (
+    MANUAL_HYPERSTACK_FILENAME,
+    CameraTickRebaser,
+    manual_frame_filename_template,
+    orient_and_fit,
+    tiff_frame_metadata,
+)
 from modules.recording_manifest import gather_host_provenance
 from modules.stack_builder import StackBuilder
 from modules.video_cadence import effective_recording_fps
@@ -267,7 +273,7 @@ class ManualRecordingController:
             height=frame_size['height'],
             bit_depth=capture_config.capture_depth,
             output_dir=save_folder,
-            filename_template='ManualVideo_Frame_{n:04d}_{ts}.tiff',
+            filename_template=manual_frame_filename_template(),
             timestamp_overlay=video_settings.get('timestamp_overlay', True),
             manifest_extra=manifest_extra,
             # The MP4 leg's artifacts share the flat Manual folder, so
@@ -535,7 +541,7 @@ class ManualRecordingController:
     def _build_hyperstack(self) -> None:
         plan = self._plan
         df = pd.DataFrame(self._hyperstack_rows)
-        output = plan.save_folder / 'ManualVideo_Frame_HyperStack.ome.tiff'
+        output = plan.save_folder / MANUAL_HYPERSTACK_FILENAME
         StackBuilder(has_turret=self._scope.motion.has_turret()).create_single_recording_stack(
             df=df,
             path=plan.save_folder,
