@@ -899,11 +899,6 @@ class SequencedCaptureRunner:
                 self._original_autofocus_states = self.get_initial_autofocus_states()
 
             ctx = _app_ctx.ctx
-            stim_profiling = (
-                ctx.settings.get('profiling', {}).get('stim_profiling', False)
-                if ctx is not None
-                else False
-            )
             # bf_af_for_fluorescence is snapshotted once per run under
             # settings_lock so mid-run toggles do not produce inconsistent AF
             # behavior across steps within one scan; protocol_step_runner
@@ -939,8 +934,6 @@ class SequencedCaptureRunner:
                 execution_record=self._protocol_execution_record,
                 leds_off_fn=self._step_executor.leds_off,
                 is_run_in_progress_fn=lambda: self._run_in_progress_event.is_set(),
-                stim_profiling=stim_profiling,
-                run_dir=self._run_dir,
                 image_capture_config=self._image_capture_config,
                 timestamp_overlay=self._timestamp_overlay,
             )

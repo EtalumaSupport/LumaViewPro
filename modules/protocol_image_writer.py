@@ -104,8 +104,6 @@ class ProtocolImageWriter:
         # Functions borrowed from the parent executor
         leds_off_fn,
         is_run_in_progress_fn,
-        stim_profiling: bool = False,
-        run_dir: pathlib.Path | None = None,
         # The run's one immutable capture/save intent. Required so a run
         # cannot be built without its image mode; holding the whole frozen
         # config (rather than a loose save_encoding) leaves no second
@@ -125,8 +123,6 @@ class ProtocolImageWriter:
         self._execution_record = execution_record
         self._leds_off = leds_off_fn
         self._is_run_in_progress = is_run_in_progress_fn
-        self._stim_profiling = stim_profiling
-        self._run_dir = run_dir
         self._config = image_capture_config
         self._timestamp_overlay = timestamp_overlay
         self._consecutive_capture_failures = 0
@@ -514,12 +510,6 @@ class ProtocolImageWriter:
                         is_protocol_running_fn=self._is_run_in_progress,
                         callbacks=self._callbacks.to_dict(),
                         leds_off_fn=self._leds_off,
-                        stim_profiling=self._stim_profiling,
-                        run_dir=self._run_dir,
-                        # Passed so a zero-frame recording can still drop the
-                        # incomplete-stim sidecar (no write_video runs in that case).
-                        save_folder=save_folder,
-                        name=name,
                     )
                     video_result = session.capture()
 
