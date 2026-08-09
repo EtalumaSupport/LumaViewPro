@@ -542,7 +542,9 @@ class VideoBuilder(ProtocolPostProcessor):
 
         # Manual frames are saved as mono with no protocol record. Build the
         # minimal dataframe _create_video needs and drive the one canonical
-        # encode path. The channel color comes from the recording manifest
+        # encode path. 'Scan Count' carries the temporal ordinal per the
+        # execution-record contract -- within one recording that is the
+        # frame ordinal. The channel color comes from the recording manifest
         # (the frames themselves are mono, so the color isn't recoverable
         # from them); without it a false-colored recording would encode
         # grayscale. None (no manifest / old recording / brightfield)

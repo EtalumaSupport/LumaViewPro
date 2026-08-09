@@ -429,6 +429,10 @@ class ManualRecordingController:
 
         if self._hyperstack_rows is not None:
             position = plan.stage_position or {}
+            # 'Scan Count' is the T-axis ordinal per the execution-record
+            # contract; within one recording the temporal ordinal IS the
+            # frame number (this dataframe never mixes with scan-indexed
+            # rows -- it feeds only the per-recording hyperstack build).
             self._hyperstack_rows.append(
                 {
                     'Filepath': file_loc.name,

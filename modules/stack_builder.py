@@ -244,6 +244,9 @@ class StackBuilder(ProtocolPostProcessor):
         if sort_order is None:
             sort_order = ['Scan Count', 'Z-Slice', 'Color Index']
 
+        # 'Scan Count' is the T axis per the execution-record contract:
+        # scan ordinal for protocol wells, frame ordinal for a
+        # per-recording (manual frames) build.
         num_t = df['Scan Count'].nunique()
         num_z = df['Z-Slice'].nunique()
         num_c = df['Color'].nunique()
