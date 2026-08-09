@@ -266,6 +266,20 @@ def center_crop(image: np.ndarray, x0: int, y0: int, width: int, height: int) ->
     return image[y0 : y0 + height, x0 : x0 + width]
 
 
+# The one false-color table: which layer labels place the mono signal
+# into an RGB channel. A label absent from this table -- the transmitted
+# layers (BF, PC, DF) and any unknown name -- renders grayscale: there
+# is no chromatic map to apply. Consumers deciding whether a layer's
+# output is gray ask layer_renders_grayscale; re-deriving the set at a
+# consumer is how the gray-as-RGB encode divergence happened.
+FALSE_COLOR_RGB_CHANNEL = {'Red': 0, 'Green': 1, 'Blue': 2, 'Lumi': 2}
+
+
+def layer_renders_grayscale(layer: str | None) -> bool:
+    """True when a layer label has no false-color map, so output is gray."""
+    return layer not in FALSE_COLOR_RGB_CHANNEL
+
+
 def mono_to_rgb_falsecolor(mono: np.ndarray, layer: str) -> np.ndarray:
     """Map a 2D mono array to a 3-channel RGB array via the layer's false color.
 
@@ -296,16 +310,13 @@ def mono_to_rgb_falsecolor(mono: np.ndarray, layer: str) -> np.ndarray:
     h, w = mono.shape
     rgb = np.zeros((h, w, 3), dtype=mono.dtype)
 
-    if layer in ('Blue', 'Lumi'):
-        rgb[:, :, 2] = mono
-    elif layer == 'Green':
-        rgb[:, :, 1] = mono
-    elif layer == 'Red':
+    channel = FALSE_COLOR_RGB_CHANNEL.get(layer)
+    if channel is None:
         rgb[:, :, 0] = mono
+        rgb[:, :, 1] = mono
+        rgb[:, :, 2] = mono
     else:
-        rgb[:, :, 0] = mono
-        rgb[:, :, 1] = mono
-        rgb[:, :, 2] = mono
+        rgb[:, :, channel] = mono
     return rgb
 
 
