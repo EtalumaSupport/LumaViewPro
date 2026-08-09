@@ -278,8 +278,31 @@ class ProtocolImageWriter:
 
         Shared by the stills leg (no frame drained) and the video leg (no
         frames delivered for the whole step) so the two capture paths
-        cannot drift on failure accounting.
+        cannot drift on failure accounting. A camera-lost video step with
+        kept frames takes _note_capture_strike instead: its finish thread
+        owns the step's row (measured, truncated truth), so the
+        capture_failed row here would contradict it.
         """
+        self._note_capture_strike(
+            step=step, curr_step=curr_step, scan_count=scan_count, cause=cause
+        )
+        # Still record the step with "capture_failed" so the
+        # record isn't silently missing this step.
+        self._submit_write(
+            kwargs={
+                'enable_image_saving': enable_image_saving,
+                'separate_folder_per_channel': separate_folder_per_channel,
+            },
+            step=step,
+            step_index=curr_step,
+            scan_count=scan_count,
+            capture_time=datetime.datetime.now(),
+            name=name,
+        )
+        self._leds_off()
+
+    def _note_capture_strike(self, *, step, curr_step, scan_count, cause: str) -> None:
+        """The strike counter + the 3-strike fatal abort, row-free."""
         self._consecutive_capture_failures += 1
         logger.error(
             f'[PROTOCOL] Capture failed for step {curr_step} ({step.get("Name", "?")}), '
@@ -325,20 +348,6 @@ class ProtocolImageWriter:
                     'Camera Failure',
                     f'Camera failed {self._consecutive_capture_failures} consecutive captures. Aborting protocol.',
                 )
-        # Still record the step with "capture_failed" so the
-        # record isn't silently missing this step.
-        self._submit_write(
-            kwargs={
-                'enable_image_saving': enable_image_saving,
-                'separate_folder_per_channel': separate_folder_per_channel,
-            },
-            step=step,
-            step_index=curr_step,
-            scan_count=scan_count,
-            capture_time=datetime.datetime.now(),
-            name=name,
-        )
-        self._leds_off()
 
     def _submit_write(
         self,
@@ -704,6 +713,20 @@ class ProtocolImageWriter:
                         return False
                     if outcome == protocol_recording.ABORTED:
                         _proto_outcome = 'video_disk_abort'
+                        return False
+                    if outcome == protocol_recording.CAMERA_LOST:
+                        # Kept frames drain and the finish thread records
+                        # the step's measured (truncated) row; the strike
+                        # is the failure accounting. This branch exists to
+                        # skip the counter reset below -- a camera loss
+                        # must accumulate toward the 3-strike abort.
+                        self._note_capture_strike(
+                            step=step,
+                            curr_step=curr_step,
+                            scan_count=scan_count,
+                            cause='camera went inactive mid-video-step; kept frames are on disk',
+                        )
+                        _proto_outcome = 'video_camera_lost'
                         return False
 
                     self._consecutive_capture_failures = 0

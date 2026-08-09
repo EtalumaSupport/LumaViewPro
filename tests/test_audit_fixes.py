@@ -12873,6 +12873,68 @@ class TestPS11VideoCancelledRecordsRow:
         )
 
 
+class TestVideoCameraLostFeedsStrikeCounter:
+    """A camera lost mid-video-step must strike WITHOUT resetting the
+    counter and WITHOUT a capture_failed row (the step's finish thread
+    records the measured row; two rows for one step would contradict)."""
+
+    def _capture_with_outcome(self, monkeypatch, tmp_path, outcome, preset_failures):
+        from unittest.mock import MagicMock
+
+        import modules.protocol_image_writer as piw
+
+        record = MagicMock()
+        writer = _bare_protocol_writer(execution_record=record)
+        writer._scope.motion.has_turret.return_value = False
+        writer._consecutive_capture_failures = preset_failures
+
+        fake_recorder = MagicMock()
+        fake_recorder.run_blocking.return_value = outcome
+        monkeypatch.setattr(piw, 'ProtocolVideoStep', lambda **kw: fake_recorder)
+
+        submitted = []
+        writer._file_io_executor.protocol_put_wait = lambda task, **kw: (
+            submitted.append(task) or True
+        )
+
+        protocol = MagicMock()
+        protocol.capture_root.return_value = ''
+        step = _protocol_step(Acquire='video', **{'Video Config': {'fps': 5, 'duration': 1}})
+        writer.capture(
+            save_folder=str(tmp_path),
+            step=step,
+            output_format='TIFF',
+            protocol=protocol,
+            scan_count=0,
+            curr_step=0,
+        )
+        return writer, submitted
+
+    def test_camera_lost_increments_strike_and_writes_no_row(self, monkeypatch, tmp_path):
+        import modules.protocol_image_writer as piw
+
+        writer, submitted = self._capture_with_outcome(
+            monkeypatch, tmp_path, piw.protocol_recording.CAMERA_LOST, preset_failures=1
+        )
+        assert writer._consecutive_capture_failures == 2, (
+            'a camera-lost video step must strike without resetting the counter'
+        )
+        assert submitted == [], (
+            'a camera-lost video step must NOT submit a capture_failed row; '
+            "the step's finish thread owns the measured row"
+        )
+
+    def test_completed_video_step_still_clears_the_counter(self, monkeypatch, tmp_path):
+        import modules.protocol_image_writer as piw
+
+        writer, _submitted = self._capture_with_outcome(
+            monkeypatch, tmp_path, piw.protocol_recording.COMPLETED, preset_failures=2
+        )
+        assert writer._consecutive_capture_failures == 0, (
+            'a genuinely completed video step must clear the strike counter'
+        )
+
+
 class TestRemainingScansAtomicSnapshot:
     """F10: progress counters must be read under the same lock the protocol
     worker uses to advance scan_count, so a cross-thread UI reader (the abort

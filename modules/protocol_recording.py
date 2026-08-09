@@ -56,6 +56,7 @@ from modules.video_writer import VideoWriter
 COMPLETED = 'completed'  # recording ended normally (full or honest short delivery)
 CANCELLED = 'cancelled'  # run stop/abort ended the step early; kept frames are final
 NO_FRAMES = 'no_frames'  # the camera delivered nothing -- a capture failure (strike)
+CAMERA_LOST = 'camera_lost'  # camera went inactive mid-step; kept frames are final (strike)
 ABORTED = 'aborted'  # the controller aborted the run (disk); no strike, no row here
 
 # The wait loop's tick: how quickly Stop/abort is honored during a video
@@ -204,7 +205,8 @@ class ProtocolVideoStep:
         """Record this video step; blocks the protocol thread until
         selection closes (the drain finishes on its own).
 
-        Returns one of COMPLETED / CANCELLED / NO_FRAMES / ABORTED.
+        Returns one of COMPLETED / CANCELLED / NO_FRAMES / CAMERA_LOST /
+        ABORTED.
         """
         step = self._step
         video_config = step['Video Config']
@@ -394,6 +396,7 @@ class ProtocolVideoStep:
                 logger.warning(
                     '[PROTOCOL-VIDEO] Camera went inactive mid-step; ending the recording'
                 )
+                outcome = CAMERA_LOST
                 break
             if elapsed >= duration_s:
                 # The frame budget is the primary boundary; this wall cap
