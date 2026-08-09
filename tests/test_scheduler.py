@@ -68,9 +68,19 @@ class TestThreadingTimerScheduler:
             # loaded runner the 50 ms interval can slip enough that b has not
             # passed a's frozen count yet, which fails for scheduling reasons
             # rather than because unschedule() misbehaved.
-            deadline = time.monotonic() + 5.0
+            #
+            # Still hold the floor at 300 ms. Polling alone can exit as soon
+            # as b overtakes, which would SHRINK the window in which a stray
+            # _a callback -- the thing the next assertion looks for -- has a
+            # chance to fire. Keeping the original floor means this change
+            # makes the b assertion robust without weakening the a assertion.
+            started = time.monotonic()
+            deadline = started + 5.0
             while time.monotonic() < deadline and counter['b'] <= a_before:
                 time.sleep(0.01)
+            remaining_floor = 0.3 - (time.monotonic() - started)
+            if remaining_floor > 0:
+                time.sleep(remaining_floor)
             assert counter['a'] == a_before, '_a should NOT fire after unschedule'
             assert counter['b'] > a_before, '_b should keep firing after _a is unscheduled'
         finally:
