@@ -389,3 +389,41 @@ class TestDiskFloor:
         assert 'error' in recorder.severities()
         folder = next((tmp_path / 'Manual').glob('Video_*'))
         assert list(folder.glob('ManualVideo_Frame_*.tiff')), 'drained frames must stay'
+
+
+class TestD15LiveSettingsBackDoor:
+    """Loading a protocol writes video config into LIVE settings while a
+    recording can be running (the layer-control load path). The running
+    recording is immune by construction: its RecordingConfig snapshot was
+    baked at start and neither the controller nor the engine re-reads
+    live settings mid-recording."""
+
+    def test_mid_recording_settings_mutation_is_harmless(self, tmp_path):
+        controller, scope, clock = make_controller(tmp_path, max_fps=0, duration_s=60)
+        controller.start()
+        baked = controller._config
+
+        # The back door: a protocol load rewrites the live video settings
+        # (rate cap, duration, overlay) under the running recording.
+        controller._settings['video'].update(
+            {'max_fps': 1, 'max_duration_seconds': 1, 'timestamp_overlay': False}
+        )
+        controller._settings['video_as_frames'] = False
+
+        feed_frames(scope, clock, 5, fps=10.0)
+        clock.advance(2.0)  # past the mutated 1 s duration, far under the baked 60 s
+        controller.tick()
+        assert controller.is_recording, (
+            'the duration cap must read the baked snapshot, not the mutated setting'
+        )
+
+        controller.stop()
+        finish(controller)
+        result = controller._engine.result()
+        assert controller._config is baked, 'the snapshot object must never be rebuilt mid-run'
+        assert result.configured_fps == baked.fps, (
+            'the manifest must carry the rate baked at start, not the mutated cap'
+        )
+        assert result.frames_selected == 5, (
+            'every delivered frame within the baked budget must stay selected'
+        )
