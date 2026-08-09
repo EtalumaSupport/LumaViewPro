@@ -42,9 +42,10 @@ from modules.config_helpers import (
 )
 from modules.exceptions import RecordingRefusedError
 from modules.notification_center import notifications
+from modules.recording_frames import CameraTickRebaser, orient_and_fit, tiff_frame_metadata
 from modules.recording_manifest import gather_host_provenance
 from modules.stack_builder import StackBuilder
-from modules.video_cadence import INTERIM_DELIVERY_BOUND_FPS
+from modules.video_cadence import effective_recording_fps
 from modules.video_recording import RecordingConfig, VideoRecordingEngine
 from modules.video_writer import VideoWriter
 
@@ -104,7 +105,7 @@ class ManualRecordingController:
         self._plan: _RecordingPlan | None = None
         self._writer: VideoWriter | None = None
         self._start_ts: float | None = None
-        self._tick_offset: float | None = None
+        self._rebaser: CameraTickRebaser | None = None
         self._hyperstack_rows: list | None = None
         self._last_disk_check_ts = 0.0
         self._on_complete: Callable[[], None] | None = None
@@ -218,9 +219,7 @@ class ManualRecordingController:
         # bound caps an uncapped fast-exposure config -- the frame budget
         # must reflect a rate the camera can actually deliver, never a
         # bare 1/exposure.
-        effective_fps = min(exposure_fps, INTERIM_DELIVERY_BOUND_FPS)
-        if max_fps > 0:
-            effective_fps = min(effective_fps, max_fps)
+        effective_fps = effective_recording_fps(exposure_fps, max_fps)
 
         duration_s = get_manual_video_max_duration(settings)
         video_as_frames = settings['video_as_frames']
@@ -326,7 +325,7 @@ class ManualRecordingController:
         self._plan = plan
         self._writer = writer
         self._start_ts = self._clock()
-        self._tick_offset = None
+        self._rebaser = CameraTickRebaser(identity['timestamp_tick_frequency_hz'], self._clock)
         self._hyperstack_rows = [] if hyperstack else None
         self._last_disk_check_ts = 0.0
         self._on_complete = on_complete
@@ -384,29 +383,7 @@ class ManualRecordingController:
         engine = self._engine
         if engine is None or not engine.is_recording:
             return
-        engine.ingest_frame(image, self._frame_time_s(timestamp, chunks), chunks)
-
-    def _frame_time_s(self, timestamp, chunks) -> float:
-        """Host-epoch seconds for one frame; camera ticks when usable.
-
-        Camera hardware ticks are the frame's own clock, free of the OS
-        scheduling jitter host arrival stamps carry; rebasing them onto
-        the host epoch at the first tick-carrying frame keeps
-        camera-grade intervals on the axis cadence selection runs on.
-        """
-        if isinstance(timestamp, datetime.datetime):
-            host_s = timestamp.timestamp()
-        elif timestamp is not None:
-            host_s = float(timestamp)
-        else:
-            host_s = self._clock()
-        freq = self._plan.tick_freq_hz if self._plan is not None else None
-        ticks = chunks.get('Timestamp') if chunks else None
-        if freq and ticks is not None:
-            if self._tick_offset is None:
-                self._tick_offset = host_s - ticks / freq
-            return self._tick_offset + ticks / freq
-        return host_s
+        engine.ingest_frame(image, self._rebaser.frame_time_s(timestamp, chunks), chunks)
 
     # ------------------------------------------------------------------
     # Writer-lane edge
@@ -416,18 +393,7 @@ class ManualRecordingController:
         """Write one kept frame as its final artifact (runs on the lane)."""
         self._check_disk_floor(config)
 
-        image = np.flip(image, 0)
-        target_shape = (config.height, config.width)
-        if image.shape != target_shape:
-            fitted = image_utils.fit_frame_to_shape(image, target_shape)
-            if fitted is None:
-                # Costs exactly this frame (counted as a write failure);
-                # a frame that cannot fit the recording geometry must not
-                # abort the recording.
-                raise ValueError(
-                    f'frame shape {image.shape} incompatible with recording geometry {target_shape}'
-                )
-            image = fitted
+        image = orient_and_fit(image, config.width, config.height)
 
         plan = self._plan
         if plan.video_as_frames:
@@ -439,30 +405,12 @@ class ManualRecordingController:
         if config.bit_depth == 8 and image.dtype != np.uint8:
             image = image_utils.convert_to_8bit(image, config.bit_depth)
 
-        ts = datetime.datetime.fromtimestamp(timestamp_s)
-        # Colon-free ISO variant for Windows path-safety; millisecond
-        # precision. The timestamp travels in metadata, not pixels --
-        # Create Video draws it at build time when the overlay is on.
-        ts_filename = ts.strftime('%Y-%m-%d_%H-%M-%S-%f')[:-3]
+        metadata, ts_filename = tiff_frame_metadata(
+            timestamp_s, frame_number, chunks, plan.tick_freq_hz
+        )
         file_loc = config.output_dir / config.filename_template.format(
             n=frame_number, ts=ts_filename
         )
-
-        metadata = {
-            'datetime': ts.strftime('%Y:%m:%d %H:%M:%S'),
-            'timestamp': ts.strftime('%Y:%m:%d %H:%M:%S.%f'),
-            'timestamp_iso': ts.isoformat(timespec='microseconds'),
-            'frame_num': frame_number,
-        }
-        if chunks is not None:
-            ts_ticks = chunks.get('Timestamp')
-            if ts_ticks is not None:
-                metadata['timestamp_camera_ticks'] = int(ts_ticks)
-            if plan.tick_freq_hz is not None:
-                metadata['timestamp_camera_tick_hz'] = int(plan.tick_freq_hz)
-            frame_id = chunks.get('FrameID')
-            if frame_id is not None:
-                metadata['frame_id'] = int(frame_id)
 
         image_save.write_video_frame(
             frame=image,

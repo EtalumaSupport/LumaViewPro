@@ -20,6 +20,30 @@ import math
 INTERIM_DELIVERY_BOUND_FPS = 40
 
 
+def effective_recording_fps(requested_fps: float, global_max_fps: float) -> float:
+    """The one rate authority: clamp a requested recording rate.
+
+    CLAMP semantics, not fallback: ``min(requested, global max if
+    nonzero, interim delivery bound)``. The global "Video max FPS" limit
+    applies over a present per-caller request; a global value of 0 means
+    uncapped, in which case the delivery bound alone keeps the frame
+    budget at a rate the camera can actually deliver.
+
+    Args:
+        requested_fps: The caller's rate -- a protocol step's Video
+            Config fps, or the manual path's exposure-derived rate.
+        global_max_fps: The user's global cap (``video.max_fps``); 0
+            means uncapped.
+
+    Returns:
+        The effective recording rate in frames per second.
+    """
+    fps = min(requested_fps, INTERIM_DELIVERY_BOUND_FPS)
+    if global_max_fps > 0:
+        fps = min(fps, global_max_fps)
+    return fps
+
+
 def frame_budget(fps: float, duration_s: float) -> int:
     """Number of frame slots a recording of ``duration_s`` at ``fps`` can fill.
 
