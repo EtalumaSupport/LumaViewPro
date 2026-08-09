@@ -236,6 +236,7 @@ class ProtocolRunLoop:
                                     estimate_step_write_mb(
                                         p._protocol.step(idx=i),
                                         video_as_frames=p._video_as_frames,
+                                        global_max_fps=p._video_max_fps,
                                     )
                                     for i in range(num_steps)
                                 ),

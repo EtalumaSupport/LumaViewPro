@@ -593,6 +593,7 @@ class TestProtocolImageWriterWriteCapture:
             is_run_in_progress_fn=lambda: True,
             image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
             timestamp_overlay=True,
+            video_max_fps=0,
         )
         return writer
 
@@ -642,7 +643,6 @@ class TestProtocolImageWriterWriteCapture:
         # returns None on grab failure.
         writer.write_capture(
             enable_image_saving=True,
-            is_video=False,
             captured_image=None,
             step={'Name': 'test_step'},
             name='test_name',
@@ -658,7 +658,6 @@ class TestProtocolImageWriterWriteCapture:
         writer = self._make_writer(execution_record=None)
         writer.write_capture(
             enable_image_saving=True,
-            is_video=False,
             captured_image=None,
             step={'Name': 'test'},
         )

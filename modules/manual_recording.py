@@ -35,7 +35,11 @@ import pandas as pd
 import modules.image_save as image_save
 import modules.image_utils as image_utils
 from lvp_logger import logger, version as lvp_version
-from modules.common_utils import MIN_REQUIRED_DISK_MB, check_disk_space_ok
+from modules.common_utils import (
+    DISK_FLOOR_CHECK_INTERVAL_S,
+    MIN_REQUIRED_DISK_MB,
+    check_disk_space_ok,
+)
 from modules.config_helpers import (
     get_image_capture_config_from_settings,
     get_manual_video_max_duration,
@@ -48,11 +52,6 @@ from modules.stack_builder import StackBuilder
 from modules.video_cadence import effective_recording_fps
 from modules.video_recording import RecordingConfig, VideoRecordingEngine
 from modules.video_writer import VideoWriter
-
-# How often the write edge re-probes free disk while draining. Frequent
-# enough that a filling disk stops the recording within a few frames'
-# worth of writes; rare enough that the probe never shapes drain speed.
-DISK_FLOOR_CHECK_INTERVAL_S = 2.0
 
 
 def sweep_recording_scratch(live_folder) -> None:

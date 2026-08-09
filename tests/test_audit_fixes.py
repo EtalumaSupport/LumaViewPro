@@ -3084,6 +3084,7 @@ def _bare_protocol_writer(**overrides):
         'is_run_in_progress_fn': lambda: True,
         'image_capture_config': ImageCaptureConfig.from_image_mode('8bit'),
         'timestamp_overlay': True,
+        'video_max_fps': 0,
     }
     kwargs.update(overrides)
     return ProtocolImageWriter(**kwargs)
@@ -3169,38 +3170,19 @@ def test_not_saving_capture_builds_record_task_without_crash():
     assert writer._file_io_executor.protocol_put_wait.called
 
 
-def test_write_capture_threads_save_encoding_to_write_video(monkeypatch, tmp_path):
-    """write_capture resolves nothing itself -- save_encoding + capture_depth
-    come from the writer's held run config (the one carrier for the run's
-    capture/save intent) and reach write_video so protocol video frames honor
-    the image mode."""
-    from types import SimpleNamespace
+def test_global_fps_cap_bounds_the_disk_estimate():
+    """The estimator sizes a video step at the EFFECTIVE rate -- the same
+    rate-authority clamp the recording runs at -- so a global cap below the
+    configured fps shrinks the reservation instead of over-reserving and
+    falsely aborting a run that fits."""
+    from modules.common_utils import estimate_step_write_mb
 
-    import modules.protocol_image_writer as piw
-    from modules.image_mode import ImageCaptureConfig
-
-    recorded = {}
-    monkeypatch.setattr(
-        piw, 'write_video', lambda **kwargs: recorded.update(kwargs) or (tmp_path / 'vid')
+    step = {'Acquire': 'video', 'Video Config': {'duration': 600, 'fps': 30}}
+    uncapped = estimate_step_write_mb(step, video_as_frames=True, global_max_fps=0)
+    capped = estimate_step_write_mb(step, video_as_frames=True, global_max_fps=10)
+    assert capped * 3 == uncapped, (
+        'a global 10 fps cap on a 30 fps step must size a third of the frames'
     )
-
-    writer = _bare_protocol_writer(
-        image_capture_config=ImageCaptureConfig.from_image_mode('12bit_false_color_rgb')
-    )
-    writer.write_capture(
-        is_video=True,
-        video_as_frames=True,
-        video_result=SimpleNamespace(captured_frames=1, duration_sec=1.0),
-        save_folder=tmp_path,
-        name='vid',
-        step=_protocol_step(),
-        enable_image_saving=True,
-    )
-    assert recorded.get('save_encoding') == 'rgb', (
-        f'write_capture must hand the run config save_encoding to write_video; '
-        f'saw {sorted(recorded)}'
-    )
-    assert recorded.get('capture_depth') == 12
 
 
 class TestPIW3_FalseColor16bitCachedAtRunStart:
@@ -3265,7 +3247,6 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
         )
         writer.write_capture(
             enable_image_saving=True,
-            is_video=False,
             captured_image=CapturedFrame(
                 image=np.zeros((4, 4), dtype=np.uint8), significant_bits=8
             ),
@@ -3487,7 +3468,6 @@ class TestPIW2_DisksUsageDeduped:
         monkeypatch.setattr(notifications, 'critical', lambda *args, **kwargs: notes.append(args))
         writer.write_capture(
             enable_image_saving=True,
-            is_video=False,
             captured_image=CapturedFrame(
                 image=np.zeros((4, 4), dtype=np.uint8), significant_bits=8
             ),
@@ -12851,7 +12831,7 @@ class TestPS11VideoCancelledRecordsRow:
     """A cancelled / zero-frame video step must leave an execution-record row,
     matching the image path which records a 'capture_failed' row (PS-11)."""
 
-    def test_video_none_result_records_dropped_capture(self, monkeypatch, tmp_path):
+    def test_video_no_frames_records_capture_failed_row(self, monkeypatch, tmp_path):
         from unittest.mock import MagicMock
 
         import modules.protocol_image_writer as piw
@@ -12860,23 +12840,37 @@ class TestPS11VideoCancelledRecordsRow:
         writer = _bare_protocol_writer(execution_record=record)
         writer._scope.motion.has_turret.return_value = False
 
-        fake_session = MagicMock()
-        fake_session.capture.return_value = None  # cancelled / zero frames
-        monkeypatch.setattr(piw, 'VideoCaptureSession', lambda **kw: fake_session)
+        fake_recorder = MagicMock()
+        fake_recorder.run_blocking.return_value = piw.protocol_recording.NO_FRAMES
+        monkeypatch.setattr(piw, 'ProtocolVideoStep', lambda **kw: fake_recorder)
+
+        submitted = []
+        writer._file_io_executor.protocol_put_wait = lambda task, **kw: (
+            submitted.append(task) or True
+        )
 
         protocol = MagicMock()
         protocol.capture_root.return_value = ''
+        step = _protocol_step(Acquire='video', **{'Video Config': {'fps': 5, 'duration': 1}})
         writer.capture(
             save_folder=str(tmp_path),
-            step=_protocol_step(Acquire='video'),
+            step=step,
             output_format='TIFF',
             protocol=protocol,
             scan_count=0,
             curr_step=0,
         )
 
-        assert record.add_step.called, 'cancelled video must leave a record row'
-        assert record.add_step.call_args.kwargs['capture_result_file_name'] == 'video_cancelled'
+        assert submitted, 'a frame-less video step must submit its failure-record task'
+        # Run the submitted write task the way the file thread would; the
+        # row it leaves is the record's evidence of the failed step.
+        task = submitted[0]
+        task.action(**task.kwargs)
+        assert record.add_step.called, 'a frame-less video step must leave a record row'
+        assert record.add_step.call_args.kwargs['capture_result_file_name'] == 'capture_failed'
+        assert writer._consecutive_capture_failures == 1, (
+            'a frame-less video step must feed the 3-strike camera counter'
+        )
 
 
 class TestRemainingScansAtomicSnapshot:
@@ -13184,30 +13178,38 @@ class TestStepWriteEstimateSingleOwner:
     def test_image_step_uses_image_estimate(self):
         from modules.common_utils import ESTIMATED_IMAGE_STEP_MB, estimate_step_write_mb
 
-        assert estimate_step_write_mb({'Acquire': 'image'}) == ESTIMATED_IMAGE_STEP_MB
+        assert (
+            estimate_step_write_mb({'Acquire': 'image'}, global_max_fps=0)
+            == ESTIMATED_IMAGE_STEP_MB
+        )
         # A step with no Acquire key is treated as an image step.
-        assert estimate_step_write_mb({}) == ESTIMATED_IMAGE_STEP_MB
+        assert estimate_step_write_mb({}, global_max_fps=0) == ESTIMATED_IMAGE_STEP_MB
 
     def test_short_video_floored_at_legacy_estimate(self):
         from modules.common_utils import ESTIMATED_VIDEO_STEP_MB, estimate_step_write_mb
 
         step = {'Acquire': 'video', 'Video Config': {'duration': 1, 'fps': 30}}
-        assert estimate_step_write_mb(step) == ESTIMATED_VIDEO_STEP_MB
+        assert estimate_step_write_mb(step, global_max_fps=0) == ESTIMATED_VIDEO_STEP_MB
 
     def test_long_video_scales_with_duration_and_fps(self):
         from modules.common_utils import ESTIMATED_VIDEO_STEP_MB, estimate_step_write_mb
 
         short = {'Acquire': 'video', 'Video Config': {'duration': 5, 'fps': 30}}
         long_clip = {'Acquire': 'video', 'Video Config': {'duration': 600, 'fps': 30}}
-        assert estimate_step_write_mb(long_clip) > estimate_step_write_mb(short)
-        assert estimate_step_write_mb(long_clip) > ESTIMATED_VIDEO_STEP_MB
+        assert estimate_step_write_mb(long_clip, global_max_fps=0) > estimate_step_write_mb(
+            short, global_max_fps=0
+        )
+        assert estimate_step_write_mb(long_clip, global_max_fps=0) > ESTIMATED_VIDEO_STEP_MB
 
     def test_video_as_frames_costs_one_image_per_frame(self):
         from modules.common_utils import ESTIMATED_IMAGE_STEP_MB, estimate_step_write_mb
 
         step = {'Acquire': 'video', 'Video Config': {'duration': 10, 'fps': 30}}
         # 10 s * 30 fps = 300 frames, each a full image when saved as frames.
-        assert estimate_step_write_mb(step, video_as_frames=True) == 300 * ESTIMATED_IMAGE_STEP_MB
+        assert (
+            estimate_step_write_mb(step, video_as_frames=True, global_max_fps=0)
+            == 300 * ESTIMATED_IMAGE_STEP_MB
+        )
 
     def test_both_call_sites_use_the_shared_estimator(self):
         import pathlib
@@ -13232,14 +13234,14 @@ class TestStepWriteEstimateSingleOwner:
         # A None step (a parameter default at some call sites) must not raise --
         # a raise here is swallowed by the disk-check except, silently skipping
         # the free-space guard.
-        assert estimate_step_write_mb(None) == ESTIMATED_IMAGE_STEP_MB
+        assert estimate_step_write_mb(None, global_max_fps=0) == ESTIMATED_IMAGE_STEP_MB
         # A NaN Video Config cell (a truthy float from an unpopulated DataFrame
         # row) must not raise; the video sizes to the floor, not a crash.
         nan_cfg = {'Acquire': 'video', 'Video Config': float('nan')}
-        assert estimate_step_write_mb(nan_cfg) == ESTIMATED_VIDEO_STEP_MB
+        assert estimate_step_write_mb(nan_cfg, global_max_fps=0) == ESTIMATED_VIDEO_STEP_MB
         # Non-numeric duration/fps coerce to 0 (a missing dimension), floored.
         bad_nums = {'Acquire': 'video', 'Video Config': {'duration': 'abc', 'fps': 'x'}}
-        assert estimate_step_write_mb(bad_nums) == ESTIMATED_VIDEO_STEP_MB
+        assert estimate_step_write_mb(bad_nums, global_max_fps=0) == ESTIMATED_VIDEO_STEP_MB
 
     def test_read_video_config_guards_every_non_dict(self):
         from modules.common_utils import read_video_config

@@ -248,6 +248,7 @@ class SequencedCaptureRunner:
     def _reset_vars(self):
         self._run_dir = None
         self._run_trigger_source = None
+        self._image_writer = None
         self._run_in_progress_event.clear()
         # Fresh object per run, never a shared Event cleared in place: queued
         # write tasks keep draining after a run ends, and a drain task hitting
@@ -914,9 +915,14 @@ class SequencedCaptureRunner:
                     self._timestamp_overlay = ctx.settings.get('video', {}).get(
                         'timestamp_overlay', True
                     )
+                    # Same snapshot discipline for the global rate cap: the
+                    # recording rate and the disk sizing must read one
+                    # per-run value, never live settings mid-run.
+                    self._video_max_fps = ctx.settings.get('video', {}).get('max_fps', 0)
             else:
                 self._bf_af_for_fluorescence = False
                 self._timestamp_overlay = True
+                self._video_max_fps = 0
 
             # Borrow protocol_thread's abort Event as SCE's _aborted reference.
             # Cross-thread readers (protocol_step_runner, protocol_run_loop)
@@ -936,6 +942,7 @@ class SequencedCaptureRunner:
                 is_run_in_progress_fn=lambda: self._run_in_progress_event.is_set(),
                 image_capture_config=self._image_capture_config,
                 timestamp_overlay=self._timestamp_overlay,
+                video_max_fps=self._video_max_fps,
             )
 
             self.camera_executor.disable()
@@ -1122,6 +1129,14 @@ class SequencedCaptureRunner:
                 self._io_executor.end_protocol_mode()
                 self.file_io_executor.end_protocol_mode()
                 return
+
+            # A video step's drain tail writes on its own thread; its
+            # execution-record row must land before the record reconciles
+            # inside run_cleanup, so wait it out here (bounded).
+            writer = self._image_writer
+            if writer is not None and writer.video_busy:
+                logger.info('[Protocol] Waiting for video write drain before run cleanup')
+                writer.wait_for_video_drains()
 
             # Read once, pass a bool: cleanup's fatal decision must not flip
             # mid-cleanup if a new run's _reset_vars replaces the Event object

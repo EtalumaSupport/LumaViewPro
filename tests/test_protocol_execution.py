@@ -2024,41 +2024,6 @@ class TestStepTimeout:
 
 
 # ---------------------------------------------------------------------------
-# P1-7: Video frame queue bounded
-# ---------------------------------------------------------------------------
-
-
-class TestVideoQueueBounded:
-    """P1-7: Video frame queue has maxsize=500."""
-
-    def test_video_queue_has_maxsize(self, executor, scope, tmp_path):
-        """Verify the queue.Queue is created with maxsize."""
-        import queue as queue_mod
-
-        original_queue = queue_mod.Queue
-        created_queues = []
-
-        class TrackingQueue(original_queue):
-            def __init__(self, *args, **kwargs):
-                super().__init__(*args, **kwargs)
-                created_queues.append(self)
-
-        with patch('modules.video_capture.queue.Queue', TrackingQueue):
-            protocol = _make_single_step_protocol(
-                color='BF',
-                acquire='video',
-                video_config={'duration': 0.5, 'fps': 5},
-            )
-            completed, _ = _run_and_wait(executor, protocol, tmp_path)
-
-        assert completed
-        # At least one queue should have been created with maxsize > 0
-        video_queues = [q for q in created_queues if q.maxsize > 0]
-        assert len(video_queues) >= 1
-        assert video_queues[0].maxsize == 500
-
-
-# ---------------------------------------------------------------------------
 # P1-8: Camera gain/exposure restoration
 # ---------------------------------------------------------------------------
 

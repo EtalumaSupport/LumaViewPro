@@ -251,71 +251,104 @@ class TestVideoWriterDropAccounting:
         assert writer.dropped_frames == 1
 
 
-class TestWriteVideoDropNotification:
-    """write_video must surface a recording that lost frames -- otherwise a short
-    video is discovered only by frame arithmetic, if ever. write_video runs only
-    on the protocol path, so it surfaces drops via a LOG line, never a modal (an
-    unattended protocol does not pop a dialog for a non-fatal drop)."""
+class TestProtocolVideoDropNotification:
+    """A protocol video step that lost frames must surface the loss as ONE
+    non-fatal warning through the central NotificationCenter -- whose
+    protocol mute owns whether an unattended run pops it -- plus the
+    manifest counts. A clean step posts nothing."""
 
-    def _capture_warnings(self, monkeypatch):
-        from modules.notification_center import notifications
+    def _capture_notifications(self, monkeypatch):
+        import modules.protocol_recording as protocol_recording
 
-        fired = []
-        monkeypatch.setattr(notifications, 'warning', lambda *a, **k: fired.append((a, k)))
+        fired = {'warning': [], 'error': [], 'critical': []}
+        for level in fired:
+            monkeypatch.setattr(
+                protocol_recording.notifications,
+                level,
+                lambda *a, _lv=level, **k: fired[_lv].append((a, k)),
+            )
         return fired
 
-    def _empty_result(self, dropped):
-        import queue as _queue
+    def _run_one_frame_step(self, tmp_path, monkeypatch, *, write_fails):
+        import threading
+        import time as _time
+        from unittest.mock import MagicMock
 
-        from modules.video_capture import VideoCaptureResult
+        import modules.protocol_recording as protocol_recording
+        from modules.protocol_recording import ProtocolVideoStep
 
-        return VideoCaptureResult(
-            captured_frames=5,
-            calculated_fps=10,
-            video_images=_queue.Queue(),
-            duration_sec=0.5,
-            dropped_frames=dropped,
+        monkeypatch.setattr(
+            protocol_recording, 'check_disk_space_ok', lambda *a, **k: (True, 999999)
         )
 
-    def test_producer_drops_log_not_modal(self, tmp_path, monkeypatch):
-        import modules.video_capture as vc
-        from modules.video_capture import write_video
+        def _write_frame(**kwargs):
+            if write_fails:
+                raise OSError('disk said no')
 
-        fired = self._capture_warnings(monkeypatch)
-        logged = []
-        monkeypatch.setattr(vc.logger, 'warning', lambda msg, *a, **k: logged.append(str(msg)))
-        write_video(
-            result=self._empty_result(dropped=2),
+        monkeypatch.setattr(protocol_recording.image_save, 'write_video_frame', _write_frame)
+
+        listeners = {}
+        scope = MagicMock()
+        scope.imaging.frames_until_valid.return_value = 0
+        scope.imaging.camera_active = True
+        scope.imaging.camera_identity = {
+            'model': 'sim',
+            'serial': '0',
+            'timestamp_tick_frequency_hz': None,
+        }
+        scope.imaging.camera_frame_size = {'width': 8, 'height': 8}
+        scope.imaging.add_frame_listener = lambda cb, name=None: listeners.update(cb=cb)
+
+        clock = {'t': 1000.0}
+        recorder = ProtocolVideoStep(
+            scope=scope,
+            step={
+                'Video Config': {'fps': 5, 'duration': 1},
+                'Color': 'Blue',
+                'False_Color': False,
+                'Auto_Gain': False,
+                'Exposure': 10.0,
+            },
             save_folder=tmp_path,
             name='clip',
             video_as_frames=True,
-            step={'Color': 'Blue'},
-            callbacks={},
-            save_encoding='8bit',
-            capture_depth=8,
+            capture_config=MagicMock(capture_depth=8, save_encoding='8bit'),
             timestamp_overlay=True,
-        )
-        assert fired == [], 'drops must not pop a modal during a protocol'
-        assert any('dropped' in m and '2' in m for m in logged), (
-            'a recording that dropped frames must log the count'
-        )
-
-    def test_no_drops_is_silent(self, tmp_path, monkeypatch):
-        from modules.video_capture import write_video
-
-        fired = self._capture_warnings(monkeypatch)
-        write_video(
-            result=self._empty_result(dropped=0),
-            save_folder=tmp_path,
-            name='clip',
-            video_as_frames=True,
-            step={'Color': 'Blue'},
+            global_max_fps=0,
+            autogain_settings={},
             callbacks={},
-            save_encoding='8bit',
-            capture_depth=8,
-            timestamp_overlay=True,
+            aborted_event=threading.Event(),
+            is_run_in_progress=lambda: True,
+            abort_run_fatal=MagicMock(),
+            abort_run_on_writer_death=MagicMock(),
+            record_step_row=MagicMock(),
+            record_dropped_capture=MagicMock(),
+            clock=lambda: clock['t'],
         )
-        assert fired == [], 'a clean recording must not warn'
+        worker = threading.Thread(target=recorder.run_blocking)
+        worker.start()
+        deadline = _time.monotonic() + 5.0
+        while 'cb' not in listeners and _time.monotonic() < deadline:
+            _time.sleep(0.01)
+        listeners['cb'](np.zeros((8, 8), dtype=np.uint8), 1000.3, None)
+        clock['t'] = 1002.0
+        worker.join(timeout=10.0)
+        assert recorder.wait_until_finished(timeout=10.0)
+        return recorder
+
+    def test_write_failure_posts_one_nonfatal_warning(self, tmp_path, monkeypatch):
+        fired = self._capture_notifications(monkeypatch)
+        self._run_one_frame_step(tmp_path, monkeypatch, write_fails=True)
+        assert len(fired['warning']) == 1, (
+            'a step that lost frames must post exactly one warning through the '
+            f'center (the protocol mute owns popup policy); got {fired}'
+        )
+        assert fired['critical'] == [], 'a per-frame loss is non-fatal, never critical'
+
+    def test_no_drops_posts_nothing(self, tmp_path, monkeypatch):
+        fired = self._capture_notifications(monkeypatch)
+        self._run_one_frame_step(tmp_path, monkeypatch, write_fails=False)
+        assert fired['warning'] == [] and fired['error'] == [], 'a clean recording must not notify'
 
 
 class TestVideoBuilderDropAccounting:
@@ -446,31 +479,3 @@ class TestSubOneFpsRate:
 
         assert fake_container.rate != 0, 'sub-1 fps must not open the encoder at rate 0'
         assert float(fake_container.rate) == pytest.approx(0.3)
-
-
-class TestFpsFromFrames:
-    """fps_from_frames is the single owner of the frames-per-recorded-second
-    rate both recording paths (protocol video and manual recording) use. A
-    sub-1-fps recording must keep its true float rate, not floor to 0 (which
-    loses the file) or clamp to 1 (which distorts duration)."""
-
-    def test_sub_one_rate_is_preserved_not_floored(self):
-        from modules.video_writer import fps_from_frames
-
-        # 3 frames over 10 s -> 0.3 fps, not 0 and not 1.
-        assert fps_from_frames(3, 10.0) == pytest.approx(0.3)
-
-    def test_normal_rate(self):
-        from modules.video_writer import fps_from_frames
-
-        assert fps_from_frames(100, 10.0) == pytest.approx(10.0)
-
-    def test_protocol_path_uses_the_shared_helper(self):
-        # The protocol video module imports the one helper so the rate
-        # policy cannot drift. The manual path no longer computes a
-        # playback rate at all: its MP4 timing rides per-frame pts (VFR)
-        # and its measured rate comes from the engine manifest.
-        import modules.video_capture as vc
-        from modules.video_writer import fps_from_frames
-
-        assert vc.fps_from_frames is fps_from_frames

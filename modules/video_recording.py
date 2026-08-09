@@ -234,6 +234,11 @@ class VideoRecordingEngine:
         """Frames enqueued but not yet written (the writer's current lag)."""
         return self._pending
 
+    @property
+    def frames_selected(self) -> int:
+        """Frames the cadence selector has kept so far."""
+        return self._frames_selected
+
     def start(self, config: RecordingConfig) -> None:
         """Open selection for one recording.
 

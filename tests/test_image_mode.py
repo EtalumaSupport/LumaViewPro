@@ -506,16 +506,16 @@ def test_mp4_writers_pass_layer_color():
     the encoder every false-colored MP4 would silently gray-encode. Both call
     sites need a live scope to exercise end to end, so assert on source."""
     repo = pathlib.Path(__file__).resolve().parent.parent
-    # The manual-record MP4 writer lives in the recording controller;
-    # the protocol writer in video_capture.
+    # Both MP4 writers live in the recording controllers (manual, protocol
+    # video step).
     manual_src = (repo / 'modules' / 'manual_recording.py').read_text()
-    cap_src = (repo / 'modules' / 'video_capture.py').read_text()
-    # The manual-record writer colorizes from the recorded layer's false-color
-    # signal; the protocol-video writer from the step's color gated by its
-    # False_Color toggle ('BF' gray-encodes when off).
+    cap_src = (repo / 'modules' / 'protocol_recording.py').read_text()
+    # Both colorize from the recorded layer's false-color signal, and both
+    # encode true grayscale (None) when false color is off -- one contract,
+    # no 'BF' gray-colormap divergence between the paths.
     assert 'color=false_color' in manual_src
-    assert "color=step['Color'] if step['False_Color'] else 'BF'" in cap_src
-    # The inline protocol-capture bake is gone (one colorization authority).
+    assert "color=step['Color'] if false_color_on else None" in cap_src
+    # The inline protocol-capture bake stays gone (one colorization authority).
     assert 'add_false_color' not in cap_src
 
 

@@ -10,6 +10,7 @@ during the protocol-decomposition refactor.
 from __future__ import annotations
 
 import datetime
+import functools
 import pathlib
 import logging
 import threading
@@ -23,7 +24,8 @@ from lvp_logger import protocol_logger as logger
 import modules.common_utils as common_utils
 from modules.image_save import save_image
 from modules.protocol import Protocol
-from modules.video_capture import VideoCaptureSession, write_video
+import modules.protocol_recording as protocol_recording
+from modules.protocol_recording import ProtocolVideoStep
 from modules.sequential_io_executor import IOTask, PROTOCOL_QUEUE_WEDGED
 
 try:
@@ -39,26 +41,13 @@ if TYPE_CHECKING:
     from modules.sequential_io_executor import SequentialIOExecutor
 
 
-# Minimum free disk space to allow a SINGLE protocol write, in MB. Distinct from
-# the run loop's larger whole-run MIN_REQUIRED_DISK_MB: each individual capture
-# must have at least this much headroom beyond its own estimated size before it
-# is allowed to write, so one write cannot fill the last sliver of a disk.
-MIN_PER_WRITE_DISK_MB = 500
-
 # Full-write-queue wait with zero tasks retired before the writer is declared
 # wedged and the run aborts loudly. 12x the per-frame critical write budget
 # (capture_save_disk_ms, PERFORMANCE_BUDGETS.md) -- unambiguously stuck, yet
 # short enough that an attended user gets a named error instead of a
 # frozen-looking run. A running task that declared a longer
-# slow_task_threshold_sec (whole-recording video writes) raises the bar for
-# itself. Bench-tunable.
+# slow_task_threshold_sec raises the bar for itself. Bench-tunable.
 WRITE_STALL_FATAL_S = 30.0
-
-# Honest per-frame worst-case for a whole-recording video write task, used to
-# declare its slow_task_threshold_sec: the critical per-frame budget is 5 s
-# (capture_save_disk_ms, PERFORMANCE_BUDGETS.md), and one video task writes
-# every frame of the recording.
-_VIDEO_WRITE_WORST_S_PER_FRAME = 5.0
 
 
 class CapturedFrame(NamedTuple):
@@ -113,6 +102,10 @@ class ProtocolImageWriter:
         # frame. The user's choice, snapshotted at run start like the rest
         # of the run config; required so no writer can silently decide it.
         timestamp_overlay: bool,
+        # The run's snapshot of the global "Video max FPS" cap (0 =
+        # uncapped). Required so video-step sizing and the recording rate
+        # can never read live settings mid-run.
+        video_max_fps: float,
     ):
         self._scope = scope
         self._callbacks = callbacks
@@ -125,6 +118,8 @@ class ProtocolImageWriter:
         self._is_run_in_progress = is_run_in_progress_fn
         self._config = image_capture_config
         self._timestamp_overlay = timestamp_overlay
+        self._video_max_fps = video_max_fps
+        self._video_steps: list[ProtocolVideoStep] = []
         self._consecutive_capture_failures = 0
         self._MAX_CONSECUTIVE_CAPTURE_FAILURES = 3
 
@@ -156,6 +151,75 @@ class ProtocolImageWriter:
 
         notifications.critical(domain, title, message)
 
+    def _abort_run_on_writer_death(self) -> None:
+        """Arm the run abort after the engine surfaced writer-lane death.
+
+        The engine's critical notification already reached the user
+        through the protocol mute; this is _abort_run_fatal's ordering
+        minus a second popup: abort, fatal flag, force-dark.
+        """
+        self._abort_fn()
+        self._fatal_abort_event.set()
+        self._scope.illumination.force_off()
+
+    @property
+    def video_busy(self) -> bool:
+        """True while any video step's drain or post-drain finish runs."""
+        return any(step.is_busy for step in self._video_steps)
+
+    def wait_for_video_drains(self, timeout_s: float = 600.0) -> bool:
+        """Block until every video step's drain and finish complete.
+
+        Called by the runner before the execution record reconciles, so a
+        drain tail's row cannot land after the record closes. True when
+        everything finished inside the timeout.
+        """
+        deadline = time.monotonic() + timeout_s
+        finished = True
+        for step in self._video_steps:
+            remaining = deadline - time.monotonic()
+            if not step.wait_until_finished(max(0.0, remaining)):
+                logger.error(
+                    '[Protocol-Writer] A video step was still draining after '
+                    f'{timeout_s:.0f} s; its execution-record row may be missing'
+                )
+                finished = False
+        return finished
+
+    def _record_video_step_row(
+        self,
+        *,
+        step,
+        step_index,
+        scan_count,
+        name,
+        capture_result_file_name,
+        frame_count,
+        duration_sec,
+        timestamp,
+    ) -> None:
+        """Record one finished video step: the attempt and its row, paired.
+
+        The stills lane pairs note_capture_attempt with add_step inside
+        write_capture; the video lane pairs them here so the end-of-run
+        reconcile stays balanced.
+        """
+        if self._execution_record is None:
+            return
+        self._execution_record.note_capture_attempt()
+        try:
+            self._execution_record.add_step(
+                capture_result_file_name=capture_result_file_name,
+                step_name=name if name else 'unknown',
+                step_index=step_index,
+                scan_count=scan_count,
+                timestamp=timestamp,
+                frame_count=frame_count,
+                duration_sec=duration_sec,
+            )
+        except Exception as ex:
+            logger.error(f'[Protocol-Writer] Failed to record video step row: {ex}')
+
     def _record_dropped_capture(
         self,
         *,
@@ -186,6 +250,84 @@ class ProtocolImageWriter:
             )
         except Exception as ex:
             logger.error(f'[Protocol-Writer] Failed to record dropped capture: {ex}')
+
+    def _note_capture_failure(
+        self,
+        *,
+        step,
+        curr_step,
+        scan_count,
+        name,
+        enable_image_saving,
+        separate_folder_per_channel,
+        cause: str,
+    ) -> None:
+        """One home for a step-level capture failure: the strike counter,
+        the 3-strike fatal abort, the capture_failed row, and LED cleanup.
+
+        Shared by the stills leg (no frame drained) and the video leg (no
+        frames delivered for the whole step) so the two capture paths
+        cannot drift on failure accounting.
+        """
+        self._consecutive_capture_failures += 1
+        logger.error(
+            f'[PROTOCOL] Capture failed for step {curr_step} ({step.get("Name", "?")}), '
+            f'scan {scan_count} -- {cause} (failure '
+            f'{self._consecutive_capture_failures}/{self._MAX_CONSECUTIVE_CAPTURE_FAILURES})'
+        )
+        aborting = self._consecutive_capture_failures >= self._MAX_CONSECUTIVE_CAPTURE_FAILURES
+        # The fatal funnel runs BEFORE the cleanup side effects
+        # (recording the failed step, leds_off): abort + dark +
+        # popup must not wait on a record write that can block
+        # against a failing disk. In the queue-full case this
+        # means the capture_failed row below is cancelled where
+        # it previously waited for a slot -- accepted.
+        if aborting:
+            step_color = step.get('Color', '')
+            # led_connected term: color2ch also returns None
+            # when no LED board is present at all -- a
+            # board-less run's failures are not a missing
+            # channel and must keep the camera wording.
+            undrivable = (
+                step_color in common_utils.get_layers_with_led()
+                and self._scope.led_connected
+                and self._scope.illumination.color2ch(step_color) is None
+            )
+            if undrivable:
+                # The failures were guaranteed by the scope's
+                # channel set, not by the camera -- blaming the
+                # camera here misnames the cause the user can
+                # actually act on.
+                self._abort_run_fatal(
+                    'Protocol',
+                    'Channel not available',
+                    f"This microscope has no '{step_color}' LED "
+                    f'channel, so its steps cannot capture here. '
+                    f'The protocol was stopped after '
+                    f'{self._consecutive_capture_failures} failed '
+                    f"captures. Remove the '{step_color}' steps to "
+                    'run this protocol on this microscope.',
+                )
+            else:
+                self._abort_run_fatal(
+                    'Protocol',
+                    'Camera Failure',
+                    f'Camera failed {self._consecutive_capture_failures} consecutive captures. Aborting protocol.',
+                )
+        # Still record the step with "capture_failed" so the
+        # record isn't silently missing this step.
+        self._submit_write(
+            kwargs={
+                'enable_image_saving': enable_image_saving,
+                'separate_folder_per_channel': separate_folder_per_channel,
+            },
+            step=step,
+            step_index=curr_step,
+            scan_count=scan_count,
+            capture_time=datetime.datetime.now(),
+            name=name,
+        )
+        self._leds_off()
 
     def _submit_write(
         self,
@@ -503,63 +645,62 @@ class ProtocolImageWriter:
 
             if enable_image_saving:
                 if is_video:
-                    session = VideoCaptureSession(
+                    recorder = ProtocolVideoStep(
                         scope=self._scope,
                         step=step,
+                        save_folder=pathlib.Path(save_folder),
+                        name=name,
+                        video_as_frames=video_as_frames,
+                        capture_config=self._config,
+                        timestamp_overlay=self._timestamp_overlay,
+                        global_max_fps=self._video_max_fps,
                         autogain_settings=autogain_settings,
-                        is_protocol_running_fn=self._is_run_in_progress,
                         callbacks=self._callbacks.to_dict(),
-                        leds_off_fn=self._leds_off,
-                    )
-                    video_result = session.capture()
-
-                    if video_result is None:
-                        # Cancelled or zero frames -- no file to write, but
-                        # still leave a row so the run record isn't silently
-                        # missing the step (image captures record one too).
-                        self._leds_off()
-                        self._record_dropped_capture(
+                        aborted_event=self._aborted,
+                        is_run_in_progress=self._is_run_in_progress,
+                        abort_run_fatal=self._abort_run_fatal,
+                        abort_run_on_writer_death=self._abort_run_on_writer_death,
+                        record_step_row=functools.partial(
+                            self._record_video_step_row,
                             step=step,
                             step_index=curr_step,
                             scan_count=scan_count,
-                            capture_time=datetime.datetime.now(),
                             name=name,
-                            reason='video_cancelled',
-                        )
-                        _proto_outcome = 'video_cancelled'
-                        return False
-
+                        ),
+                        record_dropped_capture=functools.partial(
+                            self._record_dropped_capture,
+                            step=step,
+                            step_index=curr_step,
+                            scan_count=scan_count,
+                            name=name,
+                        ),
+                    )
+                    self._video_steps.append(recorder)
+                    outcome = recorder.run_blocking()
                     self._leds_off()
 
-                    _capture_time = datetime.datetime.now()
-                    if not self._submit_write(
-                        kwargs={
-                            'is_video': is_video,
-                            'video_as_frames': video_as_frames,
-                            'video_result': video_result,
-                            'save_folder': save_folder,
-                            'use_color': use_color,
-                            'output_format': output_format,
-                            'captured_image': None,
-                            'enable_image_saving': enable_image_saving,
-                            'separate_folder_per_channel': separate_folder_per_channel,
-                        },
-                        step=step,
-                        step_index=curr_step,
-                        scan_count=scan_count,
-                        capture_time=_capture_time,
-                        name=name,
-                        # One video task writes every frame of the recording,
-                        # so its honest stall bar scales with frame count.
-                        slow_task_threshold_sec=max(
-                            WRITE_STALL_FATAL_S,
-                            video_result.captured_frames * _VIDEO_WRITE_WORST_S_PER_FRAME,
-                        ),
-                    ):
-                        _proto_outcome = 'video_write_aborted'
+                    if outcome == protocol_recording.NO_FRAMES:
+                        self._note_capture_failure(
+                            step=step,
+                            curr_step=curr_step,
+                            scan_count=scan_count,
+                            name=name,
+                            enable_image_saving=enable_image_saving,
+                            separate_folder_per_channel=separate_folder_per_channel,
+                            cause='the video step received no camera frames',
+                        )
+                        _proto_outcome = 'video_no_frames'
                         return False
-                    _proto_outcome = 'video_success'
-                    return False  # Video always extinguishes; leds_off called above
+                    if outcome == protocol_recording.ABORTED:
+                        _proto_outcome = 'video_disk_abort'
+                        return False
+
+                    self._consecutive_capture_failures = 0
+                    # The drain and the execution-record row finish on the
+                    # step's own thread; the run moves on. Video always
+                    # extinguishes -- leds_off called above.
+                    _proto_outcome = f'video_{outcome}'
+                    return False
 
                 else:
                     # Frame validity drains stale frames, then grabs a valid one.
@@ -580,67 +721,15 @@ class ProtocolImageWriter:
                     )
 
                     if captured_image is None:
-                        self._consecutive_capture_failures += 1
-                        logger.error(
-                            f'[PROTOCOL] Capture failed for step {curr_step} ({step.get("Name", "?")}), scan {scan_count} -- camera inactive or frame drain failed (failure {self._consecutive_capture_failures}/{self._MAX_CONSECUTIVE_CAPTURE_FAILURES})'
-                        )
-                        aborting = (
-                            self._consecutive_capture_failures
-                            >= self._MAX_CONSECUTIVE_CAPTURE_FAILURES
-                        )
-                        # The fatal funnel runs BEFORE the cleanup side effects
-                        # (recording the failed step, leds_off): abort + dark +
-                        # popup must not wait on a record write that can block
-                        # against a failing disk. In the queue-full case this
-                        # means the capture_failed row below is cancelled where
-                        # it previously waited for a slot -- accepted.
-                        if aborting:
-                            step_color = step.get('Color', '')
-                            # led_connected term: color2ch also returns None
-                            # when no LED board is present at all -- a
-                            # board-less run's failures are not a missing
-                            # channel and must keep the camera wording.
-                            undrivable = (
-                                step_color in common_utils.get_layers_with_led()
-                                and self._scope.led_connected
-                                and self._scope.illumination.color2ch(step_color) is None
-                            )
-                            if undrivable:
-                                # The failures were guaranteed by the scope's
-                                # channel set, not by the camera -- blaming the
-                                # camera here misnames the cause the user can
-                                # actually act on.
-                                self._abort_run_fatal(
-                                    'Protocol',
-                                    'Channel not available',
-                                    f"This microscope has no '{step_color}' LED "
-                                    f'channel, so its steps cannot capture here. '
-                                    f'The protocol was stopped after '
-                                    f'{self._consecutive_capture_failures} failed '
-                                    f"captures. Remove the '{step_color}' steps to "
-                                    'run this protocol on this microscope.',
-                                )
-                            else:
-                                self._abort_run_fatal(
-                                    'Protocol',
-                                    'Camera Failure',
-                                    f'Camera failed {self._consecutive_capture_failures} consecutive captures. Aborting protocol.',
-                                )
-                        # Still record the step with "capture_failed" so the
-                        # record isn't silently missing this step.
-                        _failed_capture_time = datetime.datetime.now()
-                        self._submit_write(
-                            kwargs={
-                                'enable_image_saving': enable_image_saving,
-                                'separate_folder_per_channel': separate_folder_per_channel,
-                            },
+                        self._note_capture_failure(
                             step=step,
-                            step_index=curr_step,
+                            curr_step=curr_step,
                             scan_count=scan_count,
-                            capture_time=_failed_capture_time,
                             name=name,
+                            enable_image_saving=enable_image_saving,
+                            separate_folder_per_channel=separate_folder_per_channel,
+                            cause='camera inactive or frame drain failed',
                         )
-                        self._leds_off()
                         _proto_outcome = 'capture_failed'
                         return False
 
@@ -750,9 +839,6 @@ class ProtocolImageWriter:
 
     def write_capture(
         self,
-        is_video=False,
-        video_as_frames=False,
-        video_result=None,
         save_folder=None,
         use_color=None,
         name=None,
@@ -766,38 +852,34 @@ class ProtocolImageWriter:
         enable_image_saving=True,
         separate_folder_per_channel=False,
     ):
-        """Write captured image/video to disk and record in execution log.
+        """Write a captured still image to disk and record it in the run log.
 
         Runs on the file-IO thread. Encoding, depth, and JPEG quality come
         from the writer's held run config -- the one carrier for the run's
-        capture/save intent -- so the video and image legs cannot receive
-        different values for one run.
+        capture/save intent. Video steps never ride this lane: their frames
+        write continuously on the recording engine's own writer thread.
 
         Args:
             captured_image: ``CapturedFrame`` (frame + the payload depth it
-                was captured at) for the still-image leg, or None. The depth
-                travels with the frame because this save is asynchronous --
-                deriving depth here would read the camera's state at save
-                time, when the format may have changed or the camera may be
-                unreadable.
+                was captured at), or None to record a capture_failed row.
+                The depth travels with the frame because this save is
+                asynchronous -- deriving depth here would read the camera's
+                state at save time, when the format may have changed or the
+                camera may be unreadable.
         """
         # Count the attempt up front so end-of-run reconciliation can detect a
         # capture that returns without leaving a row in the execution record.
         if self._execution_record is not None:
             self._execution_record.note_capture_attempt()
 
-        captured_frames = 0
-        duration_sec = 0.0
-
         # Check disk space before writing -- long protocols can fill disk.
-        # Require headroom for THIS step's predicted write (a long
-        # video_as_frames recording can far exceed the flat floor), never below
-        # the per-write minimum.
+        # Require headroom for THIS step's predicted write, never below the
+        # per-write minimum.
         if save_folder is not None:
             try:
                 required_mb = max(
-                    MIN_PER_WRITE_DISK_MB,
-                    common_utils.estimate_step_write_mb(step, video_as_frames=video_as_frames),
+                    common_utils.MIN_PER_WRITE_DISK_MB,
+                    common_utils.estimate_step_write_mb(step, global_max_fps=self._video_max_fps),
                 )
                 ok, free_mb = common_utils.check_disk_space_ok(save_folder, required_mb)
                 if not ok:
@@ -811,99 +893,65 @@ class ProtocolImageWriter:
                         f'Only {free_mb:.0f} MB free. Aborting protocol to prevent data loss.',
                     )
                     return
-            except Exception:
-                pass  # If we can't check, proceed anyway
+            except Exception as e:
+                logger.warning(f'[Protocol-Writer] Disk space check failed (proceeding): {e}')
 
         if enable_image_saving:
-            if is_video:
-                # A write failure must still leave a row in the execution
-                # record -- the record is what post-processing and run
-                # accounting key off. The queue-full and capture-failed
-                # legs already record their failures; image-on-disk
-                # missing AND row missing was the last silent-gap leg.
-                try:
-                    capture_result = write_video(
-                        result=video_result,
-                        save_folder=save_folder,
-                        name=name,
-                        video_as_frames=video_as_frames,
-                        step=step,
-                        callbacks=self._callbacks.to_dict(),
-                        save_encoding=self._config.save_encoding,
-                        capture_depth=self._config.capture_depth,
-                        timestamp_overlay=self._timestamp_overlay,
-                    )
-                except Exception:
-                    self._record_dropped_capture(
-                        step=step,
+            if captured_image is None:
+                logger.warning(
+                    f'[PROTOCOL] _write_capture: captured_image is None for step {step_index} ({step.get("Name", "?") if step is not None else "?"}), scan {scan_count}, recording as capture_failed'
+                )
+                if self._execution_record is not None:
+                    self._execution_record.add_step(
+                        capture_result_file_name='capture_failed',
+                        step_name=name if name else 'unknown',
                         step_index=step_index,
                         scan_count=scan_count,
-                        capture_time=capture_time,
-                        name=name,
-                        reason='save_failed',
+                        timestamp=capture_time,
+                        frame_count=0,
+                        duration_sec=0.0,
                     )
-                    raise
+                return
 
-                captured_frames = video_result.captured_frames
-                duration_sec = video_result.duration_sec
-
-            else:
-                if captured_image is None:
-                    logger.warning(
-                        f'[PROTOCOL] _write_capture: captured_image is None for step {step_index} ({step.get("Name", "?") if step is not None else "?"}), scan {scan_count}, recording as capture_failed'
-                    )
-                    if self._execution_record is not None:
-                        self._execution_record.add_step(
-                            capture_result_file_name='capture_failed',
-                            step_name=name if name else 'unknown',
-                            step_index=step_index,
-                            scan_count=scan_count,
-                            timestamp=capture_time,
-                            frame_count=0,
-                            duration_sec=0.0,
-                        )
-                    return
-
-                # The frame arrives coupled with the payload depth it was
-                # captured at (uint8 -> 8, summed -> 16, else the per-frame
-                # delivery stamp) -- recorded at capture time on the executor
-                # thread, because by the time this save runs the camera may
-                # be at a different format or unreadable.
-                # Same failure-row contract as the video leg above: a
-                # raise from save_image must not leave the record without
-                # a row for this step.
-                try:
-                    capture_result = save_image(
-                        self._scope,
-                        array=captured_image.image,
-                        save_folder=save_folder,
-                        file_root=None,
-                        append=name,
-                        color=use_color,
-                        # Defense-in-depth against duplicate step Names that
-                        # slip past load-time validation (#636). Plain
-                        # filename when no file exists; numeric suffix only
-                        # on actual collision.
-                        tail_id_mode='if_collision',
-                        output_format=output_format,
-                        jpeg_quality=self._config.jpg_quality,
-                        true_color=step['Color'],
-                        x=step['X'],
-                        y=step['Y'],
-                        z=step['Z'],
-                        save_encoding=self._config.save_encoding,
-                        significant_bits=captured_image.significant_bits,
-                    )
-                except Exception:
-                    self._record_dropped_capture(
-                        step=step,
-                        step_index=step_index,
-                        scan_count=scan_count,
-                        capture_time=capture_time,
-                        name=name,
-                        reason='save_failed',
-                    )
-                    raise
+            # The frame arrives coupled with the payload depth it was
+            # captured at (uint8 -> 8, summed -> 16, else the per-frame
+            # delivery stamp) -- recorded at capture time on the executor
+            # thread, because by the time this save runs the camera may
+            # be at a different format or unreadable.
+            # A raise from save_image must not leave the record without
+            # a row for this step.
+            try:
+                capture_result = save_image(
+                    self._scope,
+                    array=captured_image.image,
+                    save_folder=save_folder,
+                    file_root=None,
+                    append=name,
+                    color=use_color,
+                    # Defense-in-depth against duplicate step Names that
+                    # slip past load-time validation (#636). Plain
+                    # filename when no file exists; numeric suffix only
+                    # on actual collision.
+                    tail_id_mode='if_collision',
+                    output_format=output_format,
+                    jpeg_quality=self._config.jpg_quality,
+                    true_color=step['Color'],
+                    x=step['X'],
+                    y=step['Y'],
+                    z=step['Z'],
+                    save_encoding=self._config.save_encoding,
+                    significant_bits=captured_image.significant_bits,
+                )
+            except Exception:
+                self._record_dropped_capture(
+                    step=step,
+                    step_index=step_index,
+                    scan_count=scan_count,
+                    capture_time=capture_time,
+                    name=name,
+                    reason='save_failed',
+                )
+                raise
 
             if capture_result is None:
                 capture_result_filepath_name = 'unsaved'
@@ -925,10 +973,13 @@ class ProtocolImageWriter:
                     step_index=step_index,
                     scan_count=scan_count,
                     timestamp=capture_time,
-                    frame_count=captured_frames if is_video else 1,
-                    duration_sec=duration_sec if is_video else 0.0,
+                    # This lane writes stills only: a video step's row lands
+                    # from its own finish thread (_record_video_step_row)
+                    # with the MEASURED frame count and duration.
+                    frame_count=1,
+                    duration_sec=0.0,
                 )
-                logger.info('Protocol-Writer] Added step to protocol execution record')
+                logger.debug('[Protocol-Writer] Added step to protocol execution record')
             except Exception as ex:
                 logger.error(
                     f'[Protocol-Writer] Failed to add step to protocol execution record: {ex}'
