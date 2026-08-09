@@ -257,6 +257,10 @@ def _enable_driver_logging(config):
     if lvp is not None:
         lvp.logger = real
         lvp.camera_logger = real
+        # Without this, modules bound to the protocol lane
+        # (protocol_image_writer) log into the swallowing MagicMock and
+        # their narrative vanishes from --driver-log bench captures.
+        lvp.protocol_logger = real
 
     config._driver_log_path = log_path
     config._driver_log_handlers = (file_handler, stream_handler)
