@@ -363,15 +363,19 @@ class TestExclusivity:
     def test_engine_refuses_second_capture(self, tmp_path):
         engine, _writer, _clock, _ = make_engine(tmp_path)
         engine.start(make_config(tmp_path, fps=5, duration_s=10))
-        with pytest.raises(RecordingRefusedError):
+        with pytest.raises(RecordingRefusedError) as excinfo:
             engine.start(make_config(tmp_path, fps=5, duration_s=10))
+        # The reason codes are L2 vocabulary (SDK/REST callers dispatch
+        # on them), so the strings are pinned, not just the raise.
+        assert excinfo.value.reason == 'recording_active'
 
     def test_engine_refuses_when_claim_held_by_protocol(self, tmp_path):
         claim = ClaimStub()
         assert claim.try_claim('protocol')
         engine, _writer, _clock, _ = make_engine(tmp_path, claim=claim)
-        with pytest.raises(RecordingRefusedError):
+        with pytest.raises(RecordingRefusedError) as excinfo:
             engine.start(make_config(tmp_path, fps=5, duration_s=1))
+        assert excinfo.value.reason == 'exclusive_activity_running'
 
     def test_concurrent_starts_exactly_one_wins(self, tmp_path):
         claim = ClaimStub()
