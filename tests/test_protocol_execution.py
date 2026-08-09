@@ -11,6 +11,7 @@ and SimulatedCamera -- no hardware or Kivy needed.
 """
 
 import datetime
+import json
 import pathlib
 import sys
 import threading
@@ -648,7 +649,10 @@ class TestSingleScanFluorescence:
 
 
 class TestSingleScanVideo:
-    """Test 6: Single scan with video capture."""
+    """Test 6: Single scan with video capture (the engine-driven path,
+    end to end on the simulated scope): the run completes AND leaves the
+    real artifacts -- the recording, its measured-truth manifest, and an
+    execution-record row."""
 
     def test_completes_with_video(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(
@@ -658,6 +662,14 @@ class TestSingleScanVideo:
         )
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
+        manifests = list(tmp_path.rglob('*_manifest.json'))
+        assert manifests, 'the MP4 leg must write a per-recording manifest'
+        manifest = json.loads(manifests[0].read_text())
+        assert manifest['frames_written'] > 0
+        assert manifest['configured_fps'] == 5
+        assert manifest['write_failures'] == 0
+        mp4s = list(tmp_path.rglob('*.mp4'))
+        assert mp4s and mp4s[0].stat().st_size > 0, 'the MP4 must land beside its manifest'
 
     def test_video_as_frames(self, executor, scope, tmp_path):
         protocol = _make_single_step_protocol(
@@ -667,6 +679,12 @@ class TestSingleScanVideo:
         )
         completed, _ = _run_and_wait(executor, protocol, tmp_path, video_as_frames=True)
         assert completed
+        frames = list(tmp_path.rglob('*_Frame_*.tiff'))
+        assert frames, 'the frames leg must write per-frame TIFF artifacts'
+        manifests = list(tmp_path.rglob('recording_manifest.json'))
+        assert manifests, 'the frames leg must write its manifest in the recording folder'
+        manifest = json.loads(manifests[0].read_text())
+        assert manifest['frames_written'] == len(frames)
 
 
 class TestFullProtocol:
