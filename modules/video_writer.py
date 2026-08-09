@@ -241,11 +241,12 @@ class VideoWriter:
         Also accepts pre-colored RGB input for back-compat callers that
         produce their own RGB.
 
-        significant_bits scales a uint16 frame to 8-bit by its true payload
-        depth (e.g. 12 for a right-aligned 12-bit frame). None falls back to
-        treating uint16 as full 16-bit, which is correct for left-justified
-        legacy frames. Omitting it for a RIGHT-ALIGNED uint16 frame is the
-        near-black-video hazard -- see the fallback branch below.
+        significant_bits scales a non-uint8 frame to 8-bit by its true
+        payload depth (e.g. 12 for a right-aligned 12-bit frame). It is
+        REQUIRED with non-uint8 pixels -- a missing depth raises rather
+        than guessing, because either guess (full-width scale or a raw
+        truncating cast) silently corrupts every pixel. None is legal
+        only for uint8 input, which needs no scaling.
 
         In VFR mode ``timestamp`` (datetime or epoch seconds) is REQUIRED:
         it is the frame's presentation time, not decoration. A missing
@@ -275,22 +276,24 @@ class VideoWriter:
             if not self._is_correct_image_shape(image):
                 logger.error('VideoWriter: Inconsistent Image Shape. Video will likely corrupt')
 
-            # Ensure 8-bit
+            # Ensure 8-bit. A native-depth frame's payload depth is part
+            # of what its pixels mean: a right-aligned 12-bit frame
+            # scaled as 16-bit encodes full scale (4095) at 15/255 -- a
+            # near-black video -- and a raw astype() truncates instead
+            # of scaling. So depth is REQUIRED with non-uint8 pixels;
+            # guessing either way produces a silently wrong video. Every
+            # producer has the true depth (load_pixels returns it with
+            # the pixels; the recording legs read it from their capture
+            # config), so this raise is unreachable except through a new
+            # caller that dropped the depth on the floor.
             if image.dtype != np.uint8:
-                if significant_bits is not None:
-                    image = image_utils.convert_to_8bit(image, significant_bits)
-                elif image.dtype == np.uint16:
-                    # A right-aligned 12-bit frame scaled as a 16-bit container
-                    # encodes full scale (4095) at 15/255 -- a near-black video.
-                    # This branch is reachable only if a caller hands over
-                    # native-depth pixels without their depth. Today none can:
-                    # the MP4 encode path runs only when video_as_frames is
-                    # False, and that same flag forces the recording buffer to
-                    # uint8. Making significant_bits a required argument would
-                    # delete this branch and the hazard with it.
-                    image = image_utils.convert_to_8bit(image, significant_bits=16)
-                else:
-                    image = image.astype(np.uint8)
+                if significant_bits is None:
+                    raise ValueError(
+                        'VideoWriter.add_frame: significant_bits is required '
+                        f'for {image.dtype} frames -- scaling without the true '
+                        'payload depth corrupts every pixel'
+                    )
+                image = image_utils.convert_to_8bit(image, significant_bits)
 
             # Mono + chromatic label -> apply false-color inside the writer.
             # Mono + None or gray-rendering label -> pass through; gray encode.
