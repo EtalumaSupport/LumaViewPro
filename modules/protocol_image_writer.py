@@ -167,6 +167,17 @@ class ProtocolImageWriter:
         """True while any video step's drain or post-drain finish runs."""
         return any(step.is_busy for step in self._video_steps)
 
+    @property
+    def video_pending_writes(self) -> int:
+        """Frames across all video steps enqueued but not yet on disk."""
+        return sum(step.pending_writes for step in self._video_steps)
+
+    def discard_video_pending(self) -> None:
+        """Drop every video step's unwritten backlog loudly (app-close
+        discard); frames already on disk stay."""
+        for step in self._video_steps:
+            step.discard_pending()
+
     def wait_for_video_drains(self, timeout_s: float = 600.0) -> bool:
         """Block until every video step's drain and finish complete.
 

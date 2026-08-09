@@ -1155,11 +1155,14 @@ class LumaViewProApp(TooltipMixin, App):
             return True  # Prevent window from closing
 
         recording = ctx.session.manual_recording
-        if recording.is_busy:
-            # Queued video frames are still being written to their final
-            # artifacts. A silent block reads as a hang and a silent
-            # close eats the tail of the recording, so the close shows
-            # drain progress with one explicit discard escape.
+        runner = ctx.sequenced_capture_runner
+        protocol_tail_busy = runner is not None and runner.video_drain_busy
+        if recording.is_busy or protocol_tail_busy:
+            # Queued video frames -- a manual recording's, or a finished
+            # run's video-step tail -- are still being written to their
+            # final artifacts. A silent block reads as a hang and a
+            # silent close eats the tail of the recording, so the close
+            # shows drain progress with one explicit discard escape.
             logger.info('[LVP Main  ] Close requested during video drain; showing progress')
             Clock.schedule_once(lambda dt: self._close_with_drain_progress())
             return True  # Prevent window from closing
@@ -1168,15 +1171,26 @@ class LumaViewProApp(TooltipMixin, App):
         return False
 
     def _close_with_drain_progress(self) -> None:
-        """PR flow for closing mid-recording: stop, show drain progress,
-        exit when the finish lands (or on explicit discard)."""
+        """PR flow for closing mid-drain: stop, show drain progress, exit
+        when the finish lands (or on explicit discard). Covers both drain
+        sources -- the manual recording and a run's video-step tail."""
         from ui.notification_popup import show_blocking_progress_popup
 
         recording = ctx.session.manual_recording
+        runner = ctx.sequenced_capture_runner
         recording.stop()
+
+        def _busy() -> bool:
+            return recording.is_busy or (runner is not None and runner.video_drain_busy)
+
+        def _pending() -> int:
+            tail = runner.video_pending_writes if runner is not None else 0
+            return recording.pending_writes + tail
 
         def _discard(*_a):
             recording.discard_pending()
+            if runner is not None:
+                runner.discard_video_pending()
 
         popup, set_message = show_blocking_progress_popup(
             title='Finishing Video Writes',
@@ -1186,10 +1200,8 @@ class LumaViewProApp(TooltipMixin, App):
         )
 
         def _watch(dt):
-            if recording.is_busy:
-                set_message(
-                    f'Finishing video writes -- {recording.pending_writes} frames remaining.'
-                )
+            if _busy():
+                set_message(f'Finishing video writes -- {_pending()} frames remaining.')
                 return
             Clock.unschedule(self._drain_close_watch)
             self._drain_close_watch = None

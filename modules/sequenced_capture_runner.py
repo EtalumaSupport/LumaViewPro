@@ -461,6 +461,29 @@ class SequencedCaptureRunner:
             time.sleep(0.05)
         return True
 
+    @property
+    def video_drain_busy(self) -> bool:
+        """True while a video step's write drain or finish outlives the run.
+
+        The app-close gate reads this: a run can end (or abort) while a
+        video drain tail is still writing final artifacts, and a silent
+        close in that window eats the tail.
+        """
+        writer = self._image_writer
+        return writer is not None and writer.video_busy
+
+    @property
+    def video_pending_writes(self) -> int:
+        """Frames across the run's video steps not yet on disk."""
+        writer = self._image_writer
+        return writer.video_pending_writes if writer is not None else 0
+
+    def discard_video_pending(self) -> None:
+        """Drop the run's unwritten video backlog loudly (app-close discard)."""
+        writer = self._image_writer
+        if writer is not None:
+            writer.discard_video_pending()
+
     def protocol_interval(self):
         return self._protocol.period()
 
