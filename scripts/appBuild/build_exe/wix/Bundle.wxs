@@ -86,7 +86,7 @@
 					SourceFile="$(var.IDSPeakExe)"
 					Permanent="yes"
 					PerMachine="yes"
-					InstallCommand='/s /f1"$(var.IDSPeakSetupIss)"'
+					InstallArguments='/s /f1"$(var.IDSPeakSetupIss)"'
 					DetectCondition="0" />
 		<?endif ?>
     </Chain>
