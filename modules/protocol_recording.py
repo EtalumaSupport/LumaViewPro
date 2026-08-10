@@ -340,6 +340,13 @@ class ProtocolVideoStep:
                 except Exception as e:
                     logger.warning(f'[PROTOCOL-VIDEO] Writer close after empty step: {e}')
             self._reset_title()
+            # A user Stop or a run abort that arrived before any frame is
+            # not a capture failure: the early exit keeps its meaning, or
+            # a zero-frame Stop would land a bogus strike toward the
+            # 3-strike run abort. A camera lost before delivering anything
+            # IS "delivered nothing" -- it keeps the failure row + strike.
+            if outcome in (CANCELLED, ABORTED):
+                return outcome
             return NO_FRAMES
 
         self._finish_thread = threading.Thread(

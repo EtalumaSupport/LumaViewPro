@@ -79,3 +79,48 @@ class TestWaitForRecordingOutcome:
         recorder._clock = _advancing
         engine = MagicMock(is_recording=True)
         assert recorder._wait_for_recording(engine, 10.0) == protocol_recording.COMPLETED
+
+
+class TestZeroFrameOutcomeMapping:
+    """run_blocking's zero-frame branch must not swallow an early exit.
+
+    A user Stop (or run abort) that lands before any frame arrived
+    previously returned NO_FRAMES, so the caller recorded a capture
+    failure and a strike toward the 3-strike run abort -- for a step
+    the USER ended. Only a recording that ran its course with nothing
+    delivered is the silent-camera failure.
+    """
+
+    def _run_with_outcome(self, tmp_path, outcome):
+        from unittest.mock import patch
+
+        clock = {'t': 1000.0}
+        recorder = _make_recorder(tmp_path, clock, camera_active=True)
+        recorder._video_as_frames = True
+        with (
+            patch.object(protocol_recording, 'VideoRecordingEngine', MagicMock()),
+            patch.object(recorder, '_prologue', return_value=True),
+            patch.object(recorder, '_wait_for_recording', return_value=outcome),
+        ):
+            return recorder.run_blocking()
+
+    def test_user_stop_with_zero_frames_stays_cancelled(self, tmp_path):
+        result = self._run_with_outcome(tmp_path, protocol_recording.CANCELLED)
+        assert result == protocol_recording.CANCELLED
+
+    def test_run_abort_with_zero_frames_stays_aborted(self, tmp_path):
+        result = self._run_with_outcome(tmp_path, protocol_recording.ABORTED)
+        assert result == protocol_recording.ABORTED
+
+    def test_full_course_with_zero_frames_is_no_frames(self, tmp_path):
+        # Preservation guard: passes before and after the mapping fix.
+        result = self._run_with_outcome(tmp_path, protocol_recording.COMPLETED)
+        assert result == protocol_recording.NO_FRAMES
+
+    def test_zero_frame_camera_loss_keeps_the_failure_row_shape(self, tmp_path):
+        # A camera lost before delivering anything IS "delivered
+        # nothing": NO_FRAMES keeps the caller's dropped-capture row and
+        # the strike (the nonzero-frame camera-loss path records its row
+        # via the finish thread instead).
+        result = self._run_with_outcome(tmp_path, protocol_recording.CAMERA_LOST)
+        assert result == protocol_recording.NO_FRAMES
