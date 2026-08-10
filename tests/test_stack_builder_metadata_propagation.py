@@ -752,6 +752,37 @@ class TestHyperstackScaleComesFromTheInput:
         )
 
 
+def test_hyperstack_output_uses_strips(tmp_path):
+    """The hyperstack write uses strips, not tiles. Tiling forced ImageJ
+    through Bio-Formats (the native reader cannot open tiled TIFFs), and its
+    lenient colormap rescaling masked a colormap-scale defect in the 8-bit
+    still path while breaking native open."""
+    plate_pos = {'x': 1.0, 'y': 2.0}
+    fname = 'frame_t0_z0_c0.tiff'
+    _write_structured_input(
+        tmp_path / fname, channel='Green', plate_pos_mm=plate_pos, z_pos_um=10.0
+    )
+    df = pd.DataFrame(
+        [
+            {
+                'Filepath': fname,
+                'Color': 'Green',
+                'Scan Count': 0,
+                'Z-Slice': 0,
+                'X': plate_pos['x'],
+                'Y': plate_pos['y'],
+                'Z': 10.0,
+            }
+        ]
+    )
+    output_file_loc = pathlib.Path('out.ome.tiff')
+    result = StackBuilder._create_stack(path=tmp_path, df=df, output_file_loc=output_file_loc)
+    assert result['status'], f'_create_stack failed: {result.get("error")}'
+
+    with tf.TiffFile(str(tmp_path / output_file_loc)) as tif:
+        assert not tif.pages[0].is_tiled, 'hyperstack output must use strips'
+
+
 def test_load_plane_raises_typed_error_naming_the_file(tmp_path):
     """A malformed hyperstack input frame fails with a typed CaptureError that
     names the offending file, not a raw tifffile/OS exception. A hyperstack plane

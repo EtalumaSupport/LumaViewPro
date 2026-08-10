@@ -1610,25 +1610,31 @@ def color_channel_to_colormap_type(color_channel: str | ColorChannel) -> LvpColo
 def get_tiff_colormap(colormap: LvpColormap, dtype):
     """Build a TIFF colormap array for PALETTE photometric (8-bit only).
 
-    Returns a (3, 256) array suitable for tifffile's ``colormap`` parameter.
-    Only used for 8-bit false-color images -- Windows Preview supports PALETTE
-    with uint8 but NOT with uint16.
+    Returns a (3, 256) uint16 array suitable for tifffile's ``colormap``
+    parameter. Only used for 8-bit false-color images -- Windows Preview
+    supports PALETTE with uint8 but NOT with uint16.
+
+    The TIFF ColorMap tag (320) is a uint16 field whose full scale is 65535,
+    so each ramp entry is the palette index scaled by 257 (65535 // 255). A
+    0-255 ramp stored in the tag renders at ~0.4% brightness in compliant
+    readers (ImageJ's native reader shows black); only Bio-Formats' lenient
+    rescaling of narrow colormaps masks it.
     """
     if dtype not in ('uint8', np.uint8):
         raise NotImplementedError(f'TIFF colormap only supported for uint8, got {dtype}')
 
-    max_value = np.iinfo(np.uint8).max + 1  # 256
+    ramp = np.arange(0, 256, 1, dtype=np.uint16) * 257
 
     if colormap == LvpColormap.GRAY:
-        return np.tile(np.arange(0, max_value, 1, dtype=np.uint8), (3, 1))
+        return np.tile(ramp, (3, 1))
 
-    cmap_array = np.zeros((3, 256), dtype=np.uint8)
+    cmap_array = np.zeros((3, 256), dtype=np.uint16)
     if colormap == LvpColormap.RED:
-        cmap_array[0] = np.arange(0, max_value, 1, dtype=np.uint8)
+        cmap_array[0] = ramp
     elif colormap == LvpColormap.GREEN:
-        cmap_array[1] = np.arange(0, max_value, 1, dtype=np.uint8)
+        cmap_array[1] = ramp
     elif colormap == LvpColormap.BLUE:
-        cmap_array[2] = np.arange(0, max_value, 1, dtype=np.uint8)
+        cmap_array[2] = ramp
     else:
         raise NotImplementedError(f'Unsupported colormap: {colormap}')
     return cmap_array
@@ -2042,8 +2048,6 @@ def generate_tiff_data(
             'resolutionunit': 'CENTIMETER',
             'maxworkers': 0,
         }
-        if data.dtype == np.uint8:
-            options['tile'] = (128, 128)
         return {
             'metadata': metadata,
             # Carry the payload depth in the private tag here too. Video-frame
@@ -2234,10 +2238,6 @@ def generate_tiff_data(
             'maxworkers': 0,
         }
         resolution = resolution_for_pixel_size(pixel_size_um) if pixel_size_um is not None else None
-
-    # Tile setting: 8-bit images use tiles for ImageJ colormap compatibility
-    if data.dtype == np.uint8:
-        options['tile'] = (128, 128)
 
     # Carry the payload depth in a durable private TIFF tag so plain / ImageJ
     # outputs (which have no OME-XML) recover it on read-back; OME files get it

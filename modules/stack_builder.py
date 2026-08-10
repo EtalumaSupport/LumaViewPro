@@ -193,7 +193,6 @@ class StackBuilder(ProtocolPostProcessor):
 
         options = {
             'photometric': 'minisblack',
-            'tile': (128, 128),
             'compression': 'lzw',
             # tifffile always emits an XResolution tag, defaulting to 1/1. Under
             # CENTIMETER that reads as one pixel per centimetre -- a concrete and
