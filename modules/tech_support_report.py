@@ -50,6 +50,7 @@ import zipfile
 
 import platformdirs
 
+from lvp_logger import collect_installed_packages
 from modules import settings_init
 from modules.path_utils import get_script_root, get_source_root
 from modules.protocol import Protocol
@@ -409,12 +410,16 @@ def _collect_system_info():
     elif is_mac:
         info['display'] = _run(['system_profiler', 'SPDisplaysDataType'], timeout=10)
 
-    # Python package versions (critical dependencies)
+    # Python package versions (critical dependencies). Resolved through the
+    # stdlib metadata API, never by shelling out to `pip freeze`: in a frozen
+    # build sys.executable IS the application, so that subprocess either
+    # re-launches LVP or burns its full timeout, and pip need not be
+    # importable there at all. The launch banner already resolves the
+    # inventory this way, so both records now come from one implementation.
     try:
-        result = subprocess.run(
-            [sys.executable, '-m', 'pip', 'freeze'], capture_output=True, text=True, timeout=15
+        all_packages = '\n'.join(
+            f'{name}=={version}' for name, version in collect_installed_packages().items()
         )
-        all_packages = result.stdout.strip()
         info['pip_freeze'] = all_packages
         # Also extract the critical ones for the summary
         critical = [
@@ -1577,9 +1582,8 @@ class TechSupportReport:
             self._step_system_info(tmp)
             self._check_cancel()
 
-            # 11b. Runtime / C-runtime census  (52%)
-            cb(52, 'Recording runtime census...')
-            self._step_runtime_census(tmp)
+            # 11b. Hardware-free diagnostics  (52%)
+            self._run_hardware_free_steps(tmp, cb, 52)
             self._check_cancel()
 
             # 12. USB devices  (52-55%)
@@ -2375,6 +2379,37 @@ class TechSupportReport:
             return f'{version} ({build_timestamp})' if build_timestamp else version
         return 'Unknown'
 
+    def _run_hardware_free_steps(self, tmp, cb, pct):
+        """Diagnostics that touch no hardware -- run for EVERY bundle shape.
+
+        The line that matters is hardware contact, not report size. A
+        logs-only capture exists so support can ask for files without
+        driving the stage, the fan or the camera; these steps drive none
+        of them, so withholding them buys nothing and costs the reader
+        the record. This member is the single home for that class: add a
+        hardware-free step HERE and both bundle shapes get it, rather
+        than to one entry point and not the other.
+
+        Two neighbours deliberately do NOT qualify. `_step_system_info`
+        duplicates the launch banner already present in every log.
+        `_step_usb_devices` issues wmic calls that are timeouts rather
+        than data on current Windows.
+
+        Each step is guarded on its own: both bundle paths wrap their
+        body in a catch-all that discards the entire archive, so an
+        unguarded diagnostic here could cost the user the very bundle it
+        was added to enrich. A failure is recorded INTO the artifact,
+        where support reads it.
+        """
+        cb(pct, 'Recording runtime census...')
+        try:
+            self._step_runtime_census(tmp)
+        except Exception as e:
+            try:
+                (tmp / 'runtime_census_ERROR.txt').write_text(f'runtime census failed: {e}\n')
+            except OSError:
+                pass
+
     def generate_logs_only(self, callback=None, output_dir=None):
         """Quick zip of logs + data + recent protocols only. No hardware tests.
 
@@ -2395,6 +2430,8 @@ class TechSupportReport:
 
                 cb(70, 'Copying recent protocols...')
                 self._step_protocols(tmp)
+
+                self._run_hardware_free_steps(tmp, cb, 80)
 
                 cb(85, 'Writing metadata...')
                 # SN lookup chain:
