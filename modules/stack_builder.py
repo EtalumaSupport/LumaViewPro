@@ -7,6 +7,7 @@ import pandas as pd
 
 import modules.image_utils as image_utils
 import modules.common_utils as common_utils
+import modules.recording_frames as recording_frames
 from modules.common_utils import PostFunction
 from modules.exceptions import CaptureError
 from modules.protocol_post_processor import ProtocolPostProcessor
@@ -29,6 +30,12 @@ class StackBuilder(ProtocolPostProcessor):
 
     @staticmethod
     def _get_groups(df: pd.DataFrame) -> pd.DataFrame:
+        # A video recording's frames form their own stack per (well, scan)
+        # -- one OME-TIFF per recording -- while stills keep grouping
+        # across scans (their T axis IS the scan axis). The shared derived
+        # key separates the two, so a well holding both stills and video
+        # steps yields both artifact families.
+        df = StackBuilder._with_recording_scan(df)
         return df.groupby(
             by=[
                 'Well',
@@ -39,6 +46,7 @@ class StackBuilder(ProtocolPostProcessor):
                 'Tile Group ID',
                 'Custom Step',
                 'Raw',
+                'Recording Scan',
                 *PostFunction.list_values(),
             ],
             dropna=False,
@@ -56,12 +64,21 @@ class StackBuilder(ProtocolPostProcessor):
         # single slice index would mislabel the whole stack. The per-tile token
         # is kept: a stack is still one tile. Collapsed dimensions are dropped
         # by construction, never by stripping tokens back out of a name.
+        # One stack per recording means one stack PER SCAN for recorded video
+        # frames; the scan token keeps those names distinct (and mirrors the
+        # on-disk recording folder's name). A stills stack spans scans, so its
+        # name carries no scan token.
+        scan_count = None
+        if recording_frames.is_video_frame(row0['Filepath']):
+            scan_count = int(row0['Scan Count'])
+
         name = common_utils.build_step_name(
             common_utils.step_components(
                 row0,
                 channel=None,
                 z_index=None,
                 objective=objective_short_name,
+                scan_count=scan_count,
                 post=('hyperstack',),
             )
         )
@@ -82,6 +99,16 @@ class StackBuilder(ProtocolPostProcessor):
         df: pd.DataFrame,
         **kwargs,
     ):
+        # A video group's T axis is the frame ordinal within its recording
+        # ('Scan Count' carries the temporal ordinal per the execution-record
+        # contract; within one recording that is the frame number). The
+        # loader keys every frame row to the recording's execution-record
+        # row, so all rows arrive sharing the recording's scan -- remap
+        # before the grid build. The Recording Scan group key puts stills
+        # (sentinel) and video rows in different groups, so row 0 decides
+        # for the whole group.
+        if len(df) and recording_frames.is_video_frame(df['Filepath'].iloc[0]):
+            df = df.assign(**{'Scan Count': df['Filepath'].map(recording_frames.frame_number)})
         return PostProcResult.from_group_result(
             StackBuilder._create_stack(
                 path=path,

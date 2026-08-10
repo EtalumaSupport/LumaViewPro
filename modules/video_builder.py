@@ -35,19 +35,9 @@ class VideoBuilder(ProtocolPostProcessor):
 
     @staticmethod
     def _get_groups(df: pd.DataFrame) -> pd.DataFrame:
-        # A group is one output video, and the two source kinds carry
-        # different temporal identities: a still's time axis runs ACROSS
-        # scans (a timelapse -- every scan shares its group), while a
-        # recorded video frame's time axis runs WITHIN one recording
-        # (T = frame), so the recording's scan is part of its identity.
-        # Without the derived key, a multi-scan run's video steps land
-        # in ONE group whose per-scan frame numbers collide, and the
-        # output interleaves all scans scrambled. Stills share the one
-        # sentinel so their timelapse grouping is untouched.
-        recording_scan = df['Scan Count'].where(
-            df['Filepath'].map(recording_frames.is_video_frame), -1
-        )
-        df = df.assign(**{'Recording Scan': recording_scan})
+        # One group = one output video; per-recording identity comes from
+        # the shared derived key (see _with_recording_scan).
+        df = VideoBuilder._with_recording_scan(df)
         return df.groupby(
             by=[
                 'Well',

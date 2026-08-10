@@ -8,6 +8,7 @@ import time
 import pandas as pd
 
 import modules.image_utils as image_utils
+import modules.recording_frames as recording_frames
 from modules.common_utils import PostFunction
 from modules.notification_center import notifications
 from modules.objectives_loader import ObjectiveLoader
@@ -46,6 +47,24 @@ class ProtocolPostProcessor(abc.ABC):
     @abc.abstractmethod
     def _get_groups(df: pd.DataFrame) -> pd.DataFrame:
         raise NotImplementedError('Implement in child class')
+
+    @staticmethod
+    def _with_recording_scan(df: pd.DataFrame) -> pd.DataFrame:
+        """Derive the 'Recording Scan' group key.
+
+        The two source kinds carry different temporal identities: a
+        still's time axis runs ACROSS scans (timelapse video, stills
+        hyperstack -- every scan shares its group), while a recorded video
+        frame's time axis runs WITHIN one recording, so the recording's
+        scan is part of its group identity. Without the derived key, a
+        multi-scan run's video frames land in ONE group whose per-scan
+        frame numbers collide. Stills share the one sentinel so their
+        cross-scan grouping is untouched.
+        """
+        recording_scan = df['Scan Count'].where(
+            df['Filepath'].map(recording_frames.is_video_frame), -1
+        )
+        return df.assign(**{'Recording Scan': recording_scan})
 
     @abc.abstractmethod
     def _generate_filename(self, df: pd.DataFrame, **kwargs) -> str:
