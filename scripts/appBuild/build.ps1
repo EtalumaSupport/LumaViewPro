@@ -551,15 +551,43 @@ if (-not (Test-Path ".\dist\lumaviewpro\vcruntime140.dll")) {
 # extensions resolve msvcp from System32 -- resolving to an OLDER copy
 # than they were built against is a missing-entry-point crash waiting on
 # exactly the machines the redist chain is meant to protect.
-$vc_dlls = Get-ChildItem ".\dist\lumaviewpro" -Recurse -Include 'msvcp140*.dll', 'vcruntime140*.dll', 'concrt140*.dll', 'ucrtbase.dll'
+$vc_dlls = Get-ChildItem ".\dist\lumaviewpro" -Recurse -Include 'msvcp140*.dll', 'vcruntime140*.dll', 'concrt140*.dll', 'vcomp140*.dll', 'ucrtbase.dll'
 Write-Host "  CRT census (path : FileVersion) - the build record of every C-runtime file that ships:"
 foreach ($dll in $vc_dlls) {
     $rel = $dll.FullName.Substring((Resolve-Path ".\dist\lumaviewpro").Path.Length + 1)
     Write-Host "    $rel : $($dll.VersionInfo.FileVersion)"
 }
 if ($vc_redist_exe) {
-    $max_vc = ($vc_dlls | Where-Object { $_.Name -notlike 'ucrtbase*' } | ForEach-Object { $_.VersionInfo.FileVersion -as [version] } | Where-Object { $_ } | Measure-Object -Maximum).Maximum
-    $redist_ver = (Get-Item $vc_redist_exe).VersionInfo.FileVersion -as [version]
+    # Order on VS_FIXEDFILEINFO's numeric fields, never on the FileVersion
+    # display string. Vendors stamp free text into that string -- a shipped
+    # runtime here reads "14.16.27052.0 built by: cloudtest" -- and casting
+    # such a string to [version] yields $null, so filtering the nulls away
+    # dropped that file out of the maximum without a word in the log.
+    # Dropping can only LOWER the maximum, so what it hid was a false PASS;
+    # and had no candidate parsed at all the maximum would go $null, which
+    # -lt compares as False, letting the gate approve a build whose floor it
+    # never computed. The numeric fields cannot carry free text and cannot
+    # fail to parse, so both holes close at the source.
+    # ucrtbase is excluded because it versions on Windows build numbers
+    # (10.x) against this family's 14.x and would always dominate. vcomp140
+    # is censused but not yet floored: its version has never been recorded
+    # in a build, and gating on an unmeasured value is how a green build
+    # turns red for the wrong reason.
+    $vc_candidates = @($vc_dlls | Where-Object {
+        $_.Name -notlike 'ucrtbase*' -and $_.Name -notlike 'vcomp140*'
+    })
+    $max_vc = ($vc_candidates | ForEach-Object {
+        [version]::new($_.VersionInfo.FileMajorPart, $_.VersionInfo.FileMinorPart,
+                       $_.VersionInfo.FileBuildPart, $_.VersionInfo.FilePrivatePart)
+    } | Measure-Object -Maximum).Maximum
+    if ($null -eq $max_vc) {
+        Write-Host "ERROR: CRT floor check derived no version from any of the $($vc_candidates.Count) censused VC runtime file(s) - refusing to certify a floor that was never computed"
+        Set-Location $build_dir
+        Exit 1
+    }
+    $redist_info = (Get-Item $vc_redist_exe).VersionInfo
+    $redist_ver = [version]::new($redist_info.FileMajorPart, $redist_info.FileMinorPart,
+                                 $redist_info.FileBuildPart, $redist_info.FilePrivatePart)
     Write-Host "  CRT floor check: newest bundled VC runtime $max_vc; chained redist $redist_ver"
     if ($redist_ver -lt $max_vc) {
         Write-Host "ERROR: chained vc_redist ($redist_ver) is older than the newest bundled VC runtime ($max_vc) - update dependencies\vc_redist.x64.exe"
