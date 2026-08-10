@@ -1,4 +1,4 @@
 4.0.0-beta24
-2026-08-09 23:44
+2026-08-10 00:11
 fix/video-capture-remediation
-e84358f1
+df300f4d

@@ -11,7 +11,6 @@ import modules.app_context as _app_ctx
 import modules.config_helpers as config_helpers
 from modules import gui_logger
 from modules.config_ui_getters import (
-    create_hyperstacks_if_needed,
     get_active_layer_config,
     get_auto_gain_settings,
     get_binning_from_ui,
@@ -115,7 +114,6 @@ class ZStack(FloatLayout):
 
     def _zstack_run_complete(self, **kwargs):
         self._reset_run_zstack_acquire_button()
-        create_hyperstacks_if_needed()
         live_histo_reverse()
 
     def run_zstack_acquire_from_ui(self):

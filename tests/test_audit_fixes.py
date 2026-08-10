@@ -1532,52 +1532,32 @@ class TestRule14_A8_ScopeSessionHelperNotify:
 
 
 class TestRule14_A7_HyperstackBuildNotify:
-    """A7: Hyperstack build background-thread failure must notify (Rule 14)."""
+    """A7: a hyperstack build failure must notify (Rule 14)."""
 
     def test_hyperstack_build_exception_notifies(self, monkeypatch):
-        """A raising StackBuilder.load_folder in the background build
-        thread must log the traceback AND pop 'Hyperstack build failed'
-        -- without the popup the user only ever sees the optimistic
-        'Saving Hyperstacks' info."""
-        import modules.config_ui_getters as config_ui_getters
-        from modules.image_mode import ImageCaptureConfig
+        """A raising StackBuilder.load_folder must log the traceback AND
+        pop 'Hyperstack build failed' -- without the popup the user only
+        ever sees the optimistic 'Saving Hyperstacks' info. The boundary
+        handler lives in build_hyperstacks_for_run, which the runner's
+        background build thread calls; exercising it directly exercises
+        the same handler that thread runs."""
+        import pathlib
+
+        import modules.stack_builder as stack_builder_module
         from modules.notification_center import notifications
 
-        popped = threading.Event()
         captured = []
-
-        def capture_error(*args, **kwargs):
-            captured.append(args)
-            popped.set()
-
-        monkeypatch.setattr(notifications, 'error', capture_error)
+        monkeypatch.setattr(notifications, 'error', lambda *args, **kwargs: captured.append(args))
         monkeypatch.setattr(notifications, 'info', lambda *a, **k: None)
         logger_mock = MagicMock()
-        monkeypatch.setattr(config_ui_getters, 'logger', logger_mock)
-        monkeypatch.setattr(
-            config_ui_getters,
-            'get_image_capture_config_from_ui',
-            lambda: ImageCaptureConfig.from_image_mode(
-                '8bit', output_format_sequenced='OME-TIFF Hyperstack'
-            ),
-        )
-        monkeypatch.setattr(
-            config_ui_getters,
-            'get_current_objective_info',
-            lambda: (None, {'focal_length': 45.0}),
-        )
-        monkeypatch.setattr(config_ui_getters, 'get_binning_from_ui', lambda: 1)
+        monkeypatch.setattr(stack_builder_module, 'logger', logger_mock)
         builder = MagicMock()
         builder.return_value.load_folder.side_effect = RuntimeError('corrupt tile map')
-        monkeypatch.setattr(config_ui_getters, 'StackBuilder', builder)
-        fake_ctx = MagicMock()
-        fake_ctx.source_path = '.'
-        monkeypatch.setattr('modules.app_context.ctx', fake_ctx)
+        monkeypatch.setattr(stack_builder_module, 'StackBuilder', builder)
 
-        config_ui_getters.create_hyperstacks_if_needed()
-        assert popped.wait(timeout=5.0), (
-            'the background build thread must surface the failure popup'
-        )
+        stack_builder_module.build_hyperstacks_for_run(run_dir=pathlib.Path('.'), has_turret=False)
+
+        assert captured, 'the build failure must surface the failure popup'
         assert captured[0][1] == 'Hyperstack build failed', (
             f'notification title must name the failed operation; got {captured[0]}'
         )

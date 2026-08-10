@@ -143,7 +143,6 @@ def _build_env(monkeypatch, queue_active=False, run_in_progress=False):
 
     monkeypatch.setattr(_app_ctx, 'ctx', ctx)
     for name in (
-        'create_hyperstacks_if_needed',
         'live_histo_reverse',
         'reset_acquire_ui',
         'set_title_event_text',

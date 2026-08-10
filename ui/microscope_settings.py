@@ -379,7 +379,7 @@ class MicroscopeSettings(BoxLayout):
             # settings.json files keep working without manual edits.
             sequenced_fmt = settings['image_output_format']['sequenced']
             if sequenced_fmt == 'ImageJ Hyperstack':
-                sequenced_fmt = 'OME-TIFF Hyperstack'
+                sequenced_fmt = image_mode.OUTPUT_FORMAT_HYPERSTACK
                 settings['image_output_format']['sequenced'] = sequenced_fmt
             self.ids['sequenced_image_output_format_spinner'].text = sequenced_fmt
             self.select_sequenced_image_output_format()

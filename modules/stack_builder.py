@@ -10,6 +10,8 @@ import modules.common_utils as common_utils
 import modules.recording_frames as recording_frames
 from modules.common_utils import PostFunction
 from modules.exceptions import CaptureError
+from modules.notification_center import notifications
+from modules.path_utils import get_source_root
 from modules.protocol_post_processor import ProtocolPostProcessor
 from modules.protocol_post_processing_result import PostProcResult
 from modules.protocol_post_record import ProtocolPostRecord
@@ -17,6 +19,35 @@ from modules.protocol_post_record import ProtocolPostRecord
 import logging
 
 logger = logging.getLogger('lvp_logger')
+
+
+def build_hyperstacks_for_run(run_dir: pathlib.Path, has_turret: bool) -> None:
+    """Build per-well hyperstacks from a finished run's folder.
+
+    The below-UI entry point the run trigger calls: config and paths come
+    from the caller and the canonical source root, never the live UI, so
+    a headless / L2 run builds the same stacks a GUI run does.
+    load_folder emits its own start / done / failed notifications on the
+    unattended (popup-less) path; the backstop below covers only faults
+    before or around the build. Runs on the caller's (background) thread.
+    """
+    tiling_loc = get_source_root() / 'data' / 'tiling.json'
+    logger.info('Building OME-TIFF Hyperstacks from captured data')
+    try:
+        StackBuilder(has_turret=has_turret).load_folder(
+            path=run_dir,
+            tiling_configs_file_loc=tiling_loc,
+        )
+        logger.info('Hyperstack creation complete')
+    except Exception as ex:
+        # Background-thread boundary: without this the user never sees a
+        # result for the build the completion notice announced.
+        logger.exception(f'Error building hyperstacks: {ex}')
+        notifications.error(
+            'Post-processing',
+            'Hyperstack build failed',
+            'Could not create hyperstacks. See the log for details; source files are untouched.',
+        )
 
 
 class StackBuilder(ProtocolPostProcessor):

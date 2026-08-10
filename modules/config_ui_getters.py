@@ -11,14 +11,12 @@ For GUI-independent equivalents, see config_helpers.py.
 
 import datetime
 import logging
-import pathlib
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 import modules.config_helpers as config_helpers
 import modules.labware as labware
 from modules.image_mode import ImageCaptureConfig
-from modules.stack_builder import StackBuilder
 from modules.zstack_config import ZStackConfig
 
 logger = logging.getLogger('LVP.modules.config_ui_getters')
@@ -344,47 +342,3 @@ def get_protocol_time_params() -> dict:
         'period': config_helpers.floor_protocol_time(period),
         'duration': config_helpers.floor_protocol_time(duration),
     }
-
-
-# ---------------------------------------------------------------------------
-# Hyperstack creation
-# ---------------------------------------------------------------------------
-
-
-def create_hyperstacks_if_needed():
-    ctx = _app_ctx.ctx
-    image_capture_config = get_image_capture_config_from_ui()
-    if image_capture_config.output_format_sequenced == 'OME-TIFF Hyperstack':
-        import threading
-
-        from modules.notification_center import notifications
-
-        # Lifecycle notices (start / done / failed) come from load_folder
-        # itself on this unattended (popup-less) path; the backstop below
-        # covers only faults before/around the build.
-        logger.info('Building OME-TIFF Hyperstacks from captured data')
-        run_dir = ctx.sequenced_capture_runner.run_dir()
-        tiling_loc = pathlib.Path(ctx.source_path) / 'data' / 'tiling.json'
-        has_turret = ctx.scope.motion.has_turret()
-
-        def _build():
-            try:
-                stack_builder = StackBuilder(has_turret=has_turret)
-                stack_builder.load_folder(
-                    path=run_dir,
-                    tiling_configs_file_loc=tiling_loc,
-                )
-                logger.info('Hyperstack creation complete')
-            except Exception as ex:
-                logger.exception(f'Error building hyperstacks: {ex}')
-                # Background thread: the user already saw the "Saving
-                # Hyperstacks" info popup; without this they never see
-                # a result.
-                notifications.error(
-                    'Post-processing',
-                    'Hyperstack build failed',
-                    'Could not create hyperstacks. '
-                    'See the log for details; source files are untouched.',
-                )
-
-        threading.Thread(target=_build, daemon=True).start()

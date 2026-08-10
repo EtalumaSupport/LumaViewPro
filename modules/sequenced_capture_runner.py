@@ -36,7 +36,14 @@ from lvp_logger import logger
 import threading
 
 import modules.app_context as _app_ctx
+import modules.stack_builder as stack_builder
 from modules.settings_init import settings
+
+# How often the post-run hyperstack waiter re-checks the protocol file
+# queue. The build must not start until every per-step file has flushed
+# (a stack built mid-flush would silently miss planes), and queue-idle is
+# a poll-only signal.
+_HYPERSTACK_QUEUE_POLL_S = 0.5
 
 
 """
@@ -1133,6 +1140,38 @@ class SequencedCaptureRunner:
             self._activity_claim_held = False
             self._activity_claim.release('protocol')
 
+    def _start_hyperstack_build(self) -> threading.Thread | None:
+        """Kick off the post-run per-well hyperstack build, when configured.
+
+        Runs from cleanup for every capturing run mode (an autofocus scan
+        captures nothing to stack). The build waits for the protocol file
+        queue to drain first -- the per-step TIFFs are its input, and a
+        stack built mid-flush would silently miss planes -- then builds
+        from the run's own config snapshot, never the live UI, so a
+        headless / L2 run triggers exactly like a GUI run.
+
+        Returns:
+            The build thread, or None when this run does not build.
+        """
+        if self._run_mode is SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN:
+            return None
+        config = self._image_capture_config
+        if config is None or config.output_format_sequenced != image_mode.OUTPUT_FORMAT_HYPERSTACK:
+            return None
+        run_dir = self._run_dir
+        if run_dir is None:
+            return None
+        has_turret = self._scope.motion.has_turret()
+
+        def _wait_and_build():
+            while self.file_io_executor.is_protocol_queue_active():
+                time.sleep(_HYPERSTACK_QUEUE_POLL_S)
+            stack_builder.build_hyperstacks_for_run(run_dir=run_dir, has_turret=has_turret)
+
+        thread = threading.Thread(target=_wait_and_build, name='hyperstack-build', daemon=True)
+        thread.start()
+        return thread
+
     def _cleanup_inner(self, run_status: str):
         from modules.notification_center import notifications
 
@@ -1193,6 +1232,9 @@ class SequencedCaptureRunner:
                 logger_name=self.LOGGER_NAME,
                 run_status=run_status,
             )
+            # After run_cleanup: the stack loader reads the execution
+            # record, which reconciles inside it.
+            self._start_hyperstack_build()
         finally:
             # Release on every path -- early-return, normal end, or an
             # exception mid-cleanup -- so the lease can never leak and lock out

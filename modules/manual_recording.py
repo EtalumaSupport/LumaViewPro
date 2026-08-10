@@ -32,6 +32,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+import modules.image_mode as image_mode
 import modules.image_save as image_save
 import modules.image_utils as image_utils
 from lvp_logger import logger, version as lvp_version
@@ -288,7 +289,8 @@ class ManualRecordingController:
         )
 
         hyperstack = (
-            video_as_frames and capture_config.output_format_sequenced == 'OME-TIFF Hyperstack'
+            video_as_frames
+            and capture_config.output_format_sequenced == image_mode.OUTPUT_FORMAT_HYPERSTACK
         )
         plan = _RecordingPlan(
             video_as_frames=video_as_frames,

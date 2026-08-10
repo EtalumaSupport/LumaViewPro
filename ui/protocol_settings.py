@@ -21,7 +21,6 @@ import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 import modules.config_helpers as config_helpers
 from modules.config_ui_getters import (
-    create_hyperstacks_if_needed,
     get_active_layer_config,
     get_auto_gain_settings,
     get_binning_from_ui,
@@ -1824,7 +1823,6 @@ class ProtocolSettings(FloatLayout):
             # No files pending - proceed with normal reset
             protocol_running_global.clear()
             self._reset_run_scan_button()
-            create_hyperstacks_if_needed()
             live_histo_reverse()
             reset_acquire_ui()
             self.reset_autofocus_ui()
@@ -1870,7 +1868,6 @@ class ProtocolSettings(FloatLayout):
         self.ids['run_autofocus_btn'].disabled = False
 
         # Complete remaining cleanup
-        create_hyperstacks_if_needed()
         live_histo_reverse()
         reset_acquire_ui()
         self.reset_autofocus_ui()
@@ -2012,7 +2009,6 @@ class ProtocolSettings(FloatLayout):
             protocol_running_global.clear()
             self._reset_run_protocol_button()
             live_histo_reverse()
-            create_hyperstacks_if_needed()
             reset_acquire_ui()
             self.reset_autofocus_ui()
             ctx.stage.set_motion_capability(True)
@@ -2061,7 +2057,6 @@ class ProtocolSettings(FloatLayout):
 
         # Complete remaining cleanup
         live_histo_reverse()
-        create_hyperstacks_if_needed()
         reset_acquire_ui()
         self.reset_autofocus_ui()
         ctx.stage.set_motion_capability(True)
@@ -2397,11 +2392,6 @@ class ProtocolSettings(FloatLayout):
             self.reset_autofocus_ui()
             self._autofocus_complete_callback()
 
-            if not autofocus_scan and not deferred_to_cleanup:
-                try:
-                    create_hyperstacks_if_needed()
-                except Exception as e:
-                    logger.error(f'Error occurred while creating hyperstacks: {e}', exc_info=True)
         except Exception as e:
             logger.error(f'[Protocol] Cleanup error: {e}', exc_info=True)
         finally:
