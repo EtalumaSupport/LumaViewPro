@@ -427,3 +427,66 @@ class TestD15LiveSettingsBackDoor:
         assert result.frames_selected == 5, (
             'every delivered frame within the baked budget must stay selected'
         )
+
+
+class TestFeedLossDetection:
+    """tick() ends a recording whose camera died -- by event or silently.
+
+    The disconnect latch is the fast path; the stall watch catches the
+    feed that stops delivering while camera_active stays True. Either
+    way the user gets one loss notification and kept frames stay.
+    """
+
+    def _recording_controller(self, tmp_path, monkeypatch):
+        notify = NotifyRecorder()
+        monkeypatch.setattr(manual_recording_module, 'notifications', notify)
+        controller, scope, clock = make_controller(tmp_path)  # 100 ms -> 10 fps
+        controller.start()
+        feed_frames(scope, clock, 3)
+        return controller, scope, clock, notify
+
+    def test_silently_stalled_feed_stops_with_a_loss_notification(self, tmp_path, monkeypatch):
+        controller, _scope, clock, notify = self._recording_controller(tmp_path, monkeypatch)
+        # Threshold is the 5 s floor (10 fps, 0.1 s exposure). Ticks
+        # before it: recording continues; past it with no new frames:
+        # the feed is dead.
+        controller.tick()
+        clock.advance(4.0)
+        controller.tick()
+        assert controller.is_recording
+        clock.advance(1.5)
+        controller.tick()
+        assert not controller.is_recording
+        errors = [c for c in notify.calls if c[0] == 'error']
+        assert len(errors) == 1
+        assert 'Recording Stopped' in errors[0][1]
+        finish(controller)
+        manifest = json.loads(
+            next((controller.save_folder).glob('recording_manifest.json')).read_text()
+        )
+        assert manifest['end_reason'] == 'camera_stalled'
+
+    def test_disconnect_stops_immediately_without_waiting_for_the_threshold(
+        self, tmp_path, monkeypatch
+    ):
+        controller, scope, clock, notify = self._recording_controller(tmp_path, monkeypatch)
+        scope.imaging.camera_active = False
+        clock.advance(0.2)
+        controller.tick()
+        assert not controller.is_recording
+        errors = [c for c in notify.calls if c[0] == 'error']
+        assert len(errors) == 1
+        finish(controller)
+
+    def test_healthy_feed_keeps_recording_through_ticks(self, tmp_path, monkeypatch):
+        # Preservation guard: frames arriving between ticks never trip
+        # the watch, and the duration cap still owns the normal end.
+        controller, scope, clock, notify = self._recording_controller(tmp_path, monkeypatch)
+        for _ in range(4):
+            clock.advance(3.0)
+            feed_frames(scope, clock, 2)
+            controller.tick()
+        assert controller.is_recording
+        assert not [c for c in notify.calls if c[0] == 'error']
+        controller.stop()
+        finish(controller)

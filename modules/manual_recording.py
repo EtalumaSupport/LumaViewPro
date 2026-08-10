@@ -55,7 +55,7 @@ from modules.recording_frames import (
 )
 from modules.recording_manifest import gather_host_provenance
 from modules.stack_builder import StackBuilder
-from modules.video_cadence import effective_recording_fps
+from modules.video_cadence import StallWatch, effective_recording_fps, stall_threshold_s
 from modules.video_recording import RecordingConfig, VideoRecordingEngine
 from modules.video_writer import VideoWriter
 
@@ -110,6 +110,7 @@ class ManualRecordingController:
         self._plan: _RecordingPlan | None = None
         self._writer: VideoWriter | None = None
         self._start_ts: float | None = None
+        self._stall_watch: StallWatch | None = None
         self._rebaser: CameraTickRebaser | None = None
         self._hyperstack_rows: list | None = None
         self._last_disk_check_ts = 0.0
@@ -330,6 +331,7 @@ class ManualRecordingController:
         self._plan = plan
         self._writer = writer
         self._start_ts = self._clock()
+        self._stall_watch = StallWatch(stall_threshold_s(effective_fps, exposure / 1000.0))
         self._rebaser = CameraTickRebaser(identity['timestamp_tick_frequency_hz'], self._clock)
         self._hyperstack_rows = [] if hyperstack else None
         self._last_disk_check_ts = 0.0
@@ -368,19 +370,39 @@ class ManualRecordingController:
         engine.stop(reason)
 
     def tick(self) -> None:
-        """Enforce the wall-clock duration cap; the caller polls this.
+        """Watch the recording's health; the caller polls this.
 
-        The engine deliberately has no wall-clock cutoff (its frame
-        budget plus catch-up semantics are the boundary); the manual
-        max-duration is a hard cap this controller owns.
+        Owns the wall-clock duration cap (the engine's frame budget is
+        frame-driven, so a dead feed would never fill it) and both
+        camera-death checks: the disconnect latch, and the stall watch
+        for a feed that dies without an event -- delivery stops while
+        the camera still reads active. Detection lives in the poll on
+        purpose, so it is armed exactly while a host polls; a host that
+        never ticks gets neither the cap nor the detector, and the
+        recording runs until its frame budget or an explicit stop.
         """
-        if (
-            self.is_recording
-            and self._start_ts is not None
-            and self._config is not None
-            and self._clock() - self._start_ts >= self._config.duration_s
-        ):
-            self.stop(reason='duration_elapsed')
+        if self.is_recording and self._start_ts is not None and self._config is not None:
+            if self._clock() - self._start_ts >= self._config.duration_s:
+                self.stop(reason='duration_elapsed')
+                return
+            if not self._scope.imaging.camera_active:
+                self._stop_for_camera_loss(reason='camera_disconnected')
+                return
+            if self._stall_watch is not None and self._stall_watch.stalled(
+                self._engine.frames_selected, self._clock()
+            ):
+                self._stop_for_camera_loss(reason='camera_stalled')
+
+    def _stop_for_camera_loss(self, reason: str) -> None:
+        logger.error(f'[ManualRecord] Camera feed lost mid-recording ({reason}); stopping')
+        self.stop(reason=reason)
+        notifications.error(
+            'Recording',
+            'Recording Stopped',
+            'The camera stopped delivering frames, so the recording was '
+            'stopped. Frames captured so far are saved; check the camera '
+            'connection before recording again.',
+        )
 
     def discard_pending(self) -> None:
         """Drop the unwritten backlog loudly (the app-close discard path)."""
