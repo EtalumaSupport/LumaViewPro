@@ -957,6 +957,10 @@
 		scroll_type: ['bars']
 		do_scroll_x: False
 		pos_hint: {'top': 1.0}
+		# ProtocolSettings' root is a FloatLayout: the scroll area must
+		# reserve the footer's height explicitly or the two overlap.
+		size_hint_y: None
+		height: root.height - run_footer_id.height
 		# The whole editing surface locks during any exclusive activity;
 		# the run/stop toggles live OUTSIDE this subtree (footer below)
 		# so their abort clicks survive the lock.
@@ -1532,45 +1536,56 @@
 	# Run/stop footer: OUTSIDE the locked scroll subtree so each toggle
 	# stays clickable during its own run (second click = abort) and is
 	# always visible regardless of scroll. Locks only for recordings.
-	RoundedToggleButton:
-		id: run_autofocus_btn
-		text: 'Autofocus All Steps'
-		tooltip_text: 'Perform autofocus on all Steps\nand save focus for each Step\nno images are saved '
-		size_hint_y: None
-		height: '30dp'
-		font_size: '12sp'
-		disabled: app.recording_active
-		on_release: root.run_autofocus_scan_from_ui()
-
-	Label:
-		text: 'Execute Protocol'
-		font_size: '16sp'
-		size_hint_y: None
-		height: '30dp'
+	# Anchored at the FloatLayout root's bottom; the ScrollView above
+	# reserves this container's height.
+	BoxLayout:
+		id: run_footer_id
+		orientation: 'vertical'
+		size_hint: 1, None
+		height: self.minimum_height
+		pos_hint: {'x': 0, 'y': 0}
+		padding: '5dp'
 		spacing: '5dp'
-		color: [51/255, 181/255, 229/255, 1]
 
-	RoundedToggleButton:
-		id: run_scan_btn
-		text: 'Run One Scan'
-		tooltip_text: 'Acquire one Interval of data'
-		size_hint_y: None
-		height: '30dp'
-		font_size: '12sp'
-		disabled: app.recording_active
-		on_release: root.run_scan_from_ui()
+		RoundedToggleButton:
+			id: run_autofocus_btn
+			text: 'Autofocus All Steps'
+			tooltip_text: 'Perform autofocus on all Steps\nand save focus for each Step\nno images are saved '
+			size_hint_y: None
+			height: '30dp'
+			font_size: '12sp'
+			disabled: app.recording_active
+			on_release: root.run_autofocus_scan_from_ui()
 
-	RoundedToggleButton:
-		id: run_protocol_btn
-		text: 'Run Full Protocol'
-		tooltip_text: 'Initiate complete Protocol for the full Duration'
-		size_hint_y: None
-		height: '60dp'
-		halign: 'center'
-		font_size: '12sp'
-		disabled: app.recording_active
-		on_release: root.run_protocol_from_ui()
-		background_down: 'atlas://data/images/defaulttheme/button_pressed'
+		Label:
+			text: 'Execute Protocol'
+			font_size: '16sp'
+			size_hint_y: None
+			height: '30dp'
+			spacing: '5dp'
+			color: [51/255, 181/255, 229/255, 1]
+
+		RoundedToggleButton:
+			id: run_scan_btn
+			text: 'Run One Scan'
+			tooltip_text: 'Acquire one Interval of data'
+			size_hint_y: None
+			height: '30dp'
+			font_size: '12sp'
+			disabled: app.recording_active
+			on_release: root.run_scan_from_ui()
+
+		RoundedToggleButton:
+			id: run_protocol_btn
+			text: 'Run Full Protocol'
+			tooltip_text: 'Initiate complete Protocol for the full Duration'
+			size_hint_y: None
+			height: '60dp'
+			halign: 'center'
+			font_size: '12sp'
+			disabled: app.recording_active
+			on_release: root.run_protocol_from_ui()
+			background_down: 'atlas://data/images/defaulttheme/button_pressed'
 
 	Widget:
 
