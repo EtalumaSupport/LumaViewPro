@@ -1577,6 +1577,11 @@ class TechSupportReport:
             self._step_system_info(tmp)
             self._check_cancel()
 
+            # 11b. Runtime / C-runtime census  (52%)
+            cb(52, 'Recording runtime census...')
+            self._step_runtime_census(tmp)
+            self._check_cancel()
+
             # 12. USB devices  (52-55%)
             cb(53, 'Scanning USB devices...')
             self._step_usb_devices(tmp)
@@ -2042,6 +2047,53 @@ class TechSupportReport:
                     )
         with open(d / 'disk_speed.json', 'w') as f:
             json.dump(results, f, indent=2, default=str)
+
+    def _step_runtime_census(self, tmp):
+        # A DLL-load failure is invisible after the fact unless the bundle
+        # records which copy of each runtime DLL the process actually
+        # loaded (an app-local file beside the exe shadows System32) and
+        # what runtime files ship beside the exe. Previously this census
+        # ran only when the IDS preload failed, so a working-but-degraded
+        # process left no record at all.
+        #
+        # Best-effort by design: this section exists to diagnose loader
+        # problems, so it must never be the reason a support bundle fails
+        # -- generate()'s catch-all would discard the entire bundle over a
+        # diagnostics section. A failure is written INTO the artifact,
+        # where support reads it, instead of raised.
+        d = tmp / 'runtime_census'
+        d.mkdir()
+        lines = []
+        try:
+            from modules.app_environment import loaded_module_census
+
+            lines.append('Process-resident camera-stack / C-runtime modules')
+            lines.append('(path shows WHICH copy won the loader search):')
+            resident = loaded_module_census()
+            lines.extend(f'  {p}' for p in resident)
+            if not resident:
+                lines.append('  (none matched, or not a Windows host)')
+        except Exception as e:
+            lines.append(f'  loaded-module census failed: {type(e).__name__}: {e}')
+        try:
+            exe_dir = pathlib.Path(sys.executable).resolve().parent
+            lines.append('')
+            lines.append(f'C-runtime files on disk under {exe_dir}:')
+            crt_pattern = re.compile(
+                r'^(msvcp140|vcruntime140|concrt140|ucrtbase)[a-z0-9_\-]*\.dll$',
+                re.IGNORECASE,
+            )
+            found_any = False
+            for p in sorted(exe_dir.rglob('*.dll')):
+                if crt_pattern.match(p.name):
+                    lines.append(f'  {p.relative_to(exe_dir)}  ({p.stat().st_size} bytes)')
+                    found_any = True
+            if not found_any:
+                lines.append('  (none)')
+        except Exception as e:
+            lines.append(f'  on-disk CRT listing failed: {type(e).__name__}: {e}')
+        with open(d / 'runtime_census.txt', 'w') as f:
+            f.write('\n'.join(lines) + '\n')
 
     def _step_system_info(self, tmp):
         d = tmp / 'system_info'
