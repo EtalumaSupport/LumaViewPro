@@ -1187,15 +1187,16 @@ def build_hyperstack_output_metadata(
 
     num_planes = len(plane_positions['PositionX'])
 
-    # Per-channel OME Color hints so FIJI's Bioformats reader auto-
-    # opens the hyperstack in Composite view with the right color per
-    # channel. OME-XML uses a signed 32-bit RGBA integer per channel
-    # (R << 24 | G << 16 | B << 8 | A, two's-complement-folded into
-    # int32). Tifffile drops metadata['LUTs'] when ome=True is set on
-    # the writer (the OME-XML is the canonical color carrier in that
-    # mode); Channel.Color reaches the same FIJI auto-rendering path
-    # via Bioformats. Channels not mapped by LvpColormap fall back to
-    # white (-1) which FIJI renders as plain grayscale.
+    # Per-channel OME Color hints. OME-XML uses a signed 32-bit RGBA
+    # integer per channel (R << 24 | G << 16 | B << 8 | A,
+    # two's-complement-folded into int32). Channel.Color is the
+    # container's ONLY color carrier: tifffile drops metadata['LUTs']
+    # under ome=True, and embedding ImageJ LUTs instead was considered
+    # and rejected -- that container is mutually exclusive with OME and
+    # cannot represent BigTIFF. FIJI applies Channel.Color only when
+    # opened via the Bio-Formats Importer in Composite/Colorized mode;
+    # plain File>Open renders ImageJ default LUTs. Channels not mapped
+    # by LvpColormap fall back to white (-1), rendered as grayscale.
     channel_colors: list[int] = []
     for name in channel_names:
         try:
@@ -1680,8 +1681,8 @@ def _lvp_colormap_to_ome_rgba(colormap: 'LvpColormap') -> int:
 
     OME-XML encodes Channel.Color as ``(R << 24) | (G << 16) | (B << 8) | A``
     with the unsigned 32-bit result reinterpreted as Python signed int32.
-    Used by FIJI's Bioformats reader to assign a per-channel LUT when
-    opening the hyperstack -- without it, FIJI defaults to grayscale.
+    Consumed by Bio-Formats when the user opens the hyperstack with
+    Color mode Composite/Colorized; the default File>Open ignores it.
     """
     color_map = {
         LvpColormap.RED: (255, 0, 0),
@@ -1804,13 +1805,15 @@ def write_hyperstack_tiff(
 
     Separate from write_tiff because this path shares none of the
     per-image logic: maybe_apply_false_color expects 2D mono input,
-    generate_tiff_data builds per-image metadata, and _validate_type
-    rejects the ome=True + imagej=True combo that hyperstack readers
-    (FIJI, ImageJ) consume together. The caller (stack_builder) supplies
-    the full OME dict + write options + resolution and they pass through
-    verbatim. Keeping these apart lets write_tiff demand significant_bits
-    as a required argument, which this path carries inside its OME dict
-    rather than as a scalar.
+    generate_tiff_data builds per-image metadata, and the container here
+    is OME-only -- the ImageJ container cannot represent BigTIFF and
+    tifffile suppresses its imagej flag under ome=True anyway, so channel
+    color travels solely as OME Channel.Color (FIJI applies it via the
+    Bio-Formats Importer in Composite mode; plain File>Open shows default
+    LUTs). The caller (stack_builder) supplies the full OME dict + write
+    options + resolution and they pass through verbatim. Keeping these
+    apart lets write_tiff demand significant_bits as a required argument,
+    which this path carries inside its OME dict rather than as a scalar.
 
     JSON sidecar: tifffile's auto-OME serializer silently drops
     Instrument / Plate / Objective from the metadata dict. The full dict
@@ -1825,15 +1828,10 @@ def write_hyperstack_tiff(
             'without it a <=4-wide trailing dimension can be misread as samples'
         )
     write_options = dict(hyperstack_options)
-    # Strip rendering-hint keys from the JSON sidecar copy. LUTs +
-    # Channel.Color are encoded into the file's TIFF / OME-XML
-    # sections directly; the sidecar is for LVP-aware consumers
-    # recovering the dropped-by-tifffile OME subtrees (Instrument /
-    # Plate / Objective), not for re-deriving the file's render
-    # hints. Bloats the sidecar by ~3 KB per channel of LUT data
-    # for zero downstream value if left in.
-    sidecar_metadata = {k: v for k, v in hyperstack_metadata.items() if k != 'LUTs'}
-    sidecar_json = json.dumps(sidecar_metadata, default=_json_default_numpy)
+    # The sidecar recovers the OME subtrees tifffile drops (Instrument /
+    # Plate / Objective) for LVP-aware consumers; render hints live in
+    # the OME-XML itself (Channel.Color), so the dict serializes whole.
+    sidecar_json = json.dumps(hyperstack_metadata, default=_json_default_numpy)
     sidecar_extratag = (
         LVP_HYPERSTACK_METADATA_TIFF_TAG,
         's',
@@ -1846,7 +1844,6 @@ def write_hyperstack_tiff(
     with tf.TiffWriter(
         str(file_loc),
         ome=True,
-        imagej=True,
         bigtiff=use_bigtiff,
     ) as tif:
         tif.write(

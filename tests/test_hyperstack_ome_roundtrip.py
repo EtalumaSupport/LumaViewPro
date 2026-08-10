@@ -92,3 +92,31 @@ def test_two_channel_video_well_carries_both_channels(tmp_path):
     assert (pixels.size_t, pixels.size_c) == (2, 2)
     assert sorted(c.name for c in pixels.channels) == ['Green', 'Red']
     assert len(pixels.planes) == 4, 'T x C planes, one per source frame'
+
+
+def test_hyperstack_container_is_ome_only(tmp_path, monkeypatch):
+    """The stack writer must not pass tifffile's imagej flag: ome=True
+    suppresses it wholesale, so its only observable product is a
+    'nonconformant BigTIFF ImageJ' warning on >3.8 GiB writes. Color
+    reaches FIJI through OME Channel.Color (Bio-Formats Importer,
+    Composite mode), never through an ImageJ metadata block."""
+    rows = [(_frame_path('A1', 'BF', 0, n), 0, 'BF', 0) for n in range(2)]
+    df = _stack_df(rows)
+    _write_timestamped_frames(tmp_path, df)
+
+    captured = {}
+    real_writer = image_utils.tf.TiffWriter
+
+    class SpyWriter(real_writer):
+        def __init__(self, *args, **kwargs):
+            captured.update(kwargs)
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(image_utils.tf, 'TiffWriter', SpyWriter)
+    _build(tmp_path, df)
+
+    assert captured.get('ome') is True, 'spy must have seen the stack write'
+    assert 'imagej' not in captured, (
+        'the hyperstack container is OME-only; tifffile ignores imagej '
+        'under ome=True and the dead flag only buys the BigTIFF warning'
+    )
