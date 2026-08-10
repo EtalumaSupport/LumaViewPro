@@ -1047,7 +1047,19 @@ class LumaViewProApp(TooltipMixin, App):
         for plugin_name, mount_point, builder in ctx.plugins.ui.mounts():
             if mount_point == 'left_sidebar.accordion':
                 try:
-                    motionsettings_accordion.add_widget(builder())
+                    plugin_item = builder()
+                    # The accordion itself no longer carries the exclusive-
+                    # activity lock (its bind would swallow the run/stop
+                    # toggles' abort clicks); runtime-mounted items inherit
+                    # the lock explicitly so plugin tabs grey out like the
+                    # built-in regions.
+                    plugin_item.disabled = bool(self.controls_locked)
+                    self.bind(
+                        controls_locked=lambda _app, value, item=plugin_item: setattr(
+                            item, 'disabled', value
+                        )
+                    )
+                    motionsettings_accordion.add_widget(plugin_item)
                     logger.info(f'[LVP Main  ] Mounted {plugin_name} at {mount_point}')
                 except Exception as e:
                     logger.error(

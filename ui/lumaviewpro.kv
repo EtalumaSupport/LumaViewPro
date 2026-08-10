@@ -295,7 +295,10 @@
 	Accordion:
 		orientation: 'vertical'
 		id: motionsettings_accordion_id
-		disabled: app.controls_locked
+		# No lock here: a disabled ancestor swallows touches before its
+		# children see them, which strands every run/stop toggle mid-run.
+		# The lock lives on the interior containers; the stop toggles
+		# (run buttons, autofocus, z-stack acquire) deliberately escape it.
 
         # MICROSCOPE SETTINGS
         AccordionItem:
@@ -356,7 +359,6 @@
 	orientation: 'vertical'
 	padding: '5dp'
     spacing: '5dp'
-	disabled: app.protocol_running
 
     canvas:
         Color:
@@ -376,6 +378,7 @@
 		orientation: 'horizontal'
 		size_hint_y: None
 		height: '170dp'
+		disabled: app.controls_locked
 
 		BoxLayout:
 		    orientation: 'vertical'
@@ -442,7 +445,6 @@
 		        value_track: True
 		        value_track_color: 51/255, 181/255, 229/255, 1
 		        value_track_width: '5dp'
-		        disabled: app.protocol_running
 				on_release: root.set_position(self.value)
 			Label:
 				size_hint_y: None
@@ -507,14 +509,18 @@
 				font_size: '12sp'
 				on_release: root.goto_bookmark()
 
-    		RoundedToggleButton:
-    			id: autofocus_id
-				tooltip_text: 'Autofocus live image, make sure objective is set correctly and the starting focus is within a reasonable range of the true focus'
-    		    size_hint_y: None
-    		    height: '30dp'
-    			font_size: '12sp'
-    			text: 'Autofocus'
-    			on_release: root.run_autofocus_from_ui()
+	# Outside the locked focus box: this toggle is also the AF ABORT
+	# (second click) and must stay clickable during its own run. It
+	# locks only while a rival recording is live.
+	RoundedToggleButton:
+		id: autofocus_id
+		tooltip_text: 'Autofocus live image, make sure objective is set correctly and the starting focus is within a reasonable range of the true focus'
+		size_hint_y: None
+		height: '30dp'
+		font_size: '12sp'
+		text: 'Autofocus'
+		disabled: app.recording_active
+		on_release: root.run_autofocus_from_ui()
 
 	Label:
 		text:'Turret Selection'
@@ -534,7 +540,7 @@
 		size_hint_y: None
 		height: '30dp' if self.visible else 0
 		opacity: 1 if self.visible else 0
-		disabled: not self.visible
+		disabled: (not self.visible) or app.controls_locked
 		visible: True
 
 		RoundedToggleButton:
@@ -563,6 +569,7 @@
         orientation: 'horizontal'
         size_hint_y: None
         height: '30dp'
+        disabled: app.controls_locked
         Label:
             text: 'Objective'
             size_hint_x: None
@@ -587,6 +594,7 @@
 		size_hint_y: None
 		height: '30dp'
 		font_size: '12sp'
+		disabled: app.controls_locked
         on_release: root.set_turret_objective()
 
 	RoundedButton:
@@ -595,6 +603,7 @@
 		size_hint_y: None
 		height: '30dp'
 		font_size: '12sp'
+		disabled: app.controls_locked
 		on_release: root.reset_turret_objective()
             
 	ZStack:
@@ -636,6 +645,7 @@
 		    size_hint_y: None
 		    height: '30dp'
 			spacing: '5dp'
+			disabled: app.controls_locked
 
 			TextInput:
 				id: zstack_stepsize_id
@@ -685,6 +695,7 @@
 			font_size: '12sp'
 			option_cls: "SpinnerOption0"
 			text_autoupdate: True
+			disabled: app.controls_locked
 			values: ('Current Position at Top', 'Current Position at Center', 'Current Position at Bottom')
 			on_text: root.set_position()
 			# values: ('Focus at Top', 'Focus at Center', 'Focus at Bottom', 'Current Position at Top', 'Current Position at Center', 'Current Position at Bottom')
@@ -696,6 +707,7 @@
 			text: 'Acquire'
 			tooltip_text: 'Acquire Z-stack'
 			font_size: '12sp'
+			disabled: app.recording_active
 			on_release: root.run_zstack_acquire_from_ui()
 
 		Label:
@@ -704,7 +716,7 @@
 	orientation: 'vertical'
 	padding: '5dp'
 	spacing: '5dp'
-	disabled: app.protocol_running
+	disabled: app.controls_locked
 
     canvas:
         Color:
@@ -945,6 +957,10 @@
 		scroll_type: ['bars']
 		do_scroll_x: False
 		pos_hint: {'top': 1.0}
+		# The whole editing surface locks during any exclusive activity;
+		# the run/stop toggles live OUTSIDE this subtree (footer below)
+		# so their abort clicks survive the lock.
+		disabled: app.controls_locked
 
 		BoxLayout:
 			pos_hint: {'top': 1.0}
@@ -1471,45 +1487,6 @@
 					background_down: './data/icons/ToggleRW.png'
 					on_release: root.update_bf_af_for_fluorescence()
 
-			RoundedToggleButton:
-				id: run_autofocus_btn
-				text: 'Autofocus All Steps'
-				tooltip_text: 'Perform autofocus on all Steps\nand save focus for each Step\nno images are saved '
-				size_hint_y: None
-				height: '30dp'
-				font_size: '12sp'
-				on_release: root.run_autofocus_scan_from_ui()
-				disabled: False
-
-			# Run Protocol
-			Label:
-				text: 'Execute Protocol'
-				font_size: '16sp'
-				size_hint_y: None
-				height: '30dp'
-				spacing: '5dp'
-				color: [51/255, 181/255, 229/255, 1]
-
-			RoundedToggleButton:
-				id: run_scan_btn
-				text: 'Run One Scan'
-				tooltip_text: 'Acquire one Interval of data'
-				size_hint_y: None
-				height: '30dp'
-				font_size: '12sp'
-				on_release: root.run_scan_from_ui()
-
-			RoundedToggleButton:
-				id: run_protocol_btn
-				text: 'Run Full Protocol'
-				tooltip_text: 'Initiate complete Protocol for the full Duration'
-				size_hint_y: None
-				height: '60dp'
-				halign: 'center'
-				font_size: '12sp'
-				on_release: root.run_protocol_from_ui()
-				background_down: 'atlas://data/images/defaulttheme/button_pressed'
-
 			# Engineering mode option
 			BoxLayout:
 				id: protocol_disable_image_saving_box_id
@@ -1552,6 +1529,49 @@
 			# 	font_size: '12sp'
 			# 	on_release: root.debug_func()
 	
+	# Run/stop footer: OUTSIDE the locked scroll subtree so each toggle
+	# stays clickable during its own run (second click = abort) and is
+	# always visible regardless of scroll. Locks only for recordings.
+	RoundedToggleButton:
+		id: run_autofocus_btn
+		text: 'Autofocus All Steps'
+		tooltip_text: 'Perform autofocus on all Steps\nand save focus for each Step\nno images are saved '
+		size_hint_y: None
+		height: '30dp'
+		font_size: '12sp'
+		disabled: app.recording_active
+		on_release: root.run_autofocus_scan_from_ui()
+
+	Label:
+		text: 'Execute Protocol'
+		font_size: '16sp'
+		size_hint_y: None
+		height: '30dp'
+		spacing: '5dp'
+		color: [51/255, 181/255, 229/255, 1]
+
+	RoundedToggleButton:
+		id: run_scan_btn
+		text: 'Run One Scan'
+		tooltip_text: 'Acquire one Interval of data'
+		size_hint_y: None
+		height: '30dp'
+		font_size: '12sp'
+		disabled: app.recording_active
+		on_release: root.run_scan_from_ui()
+
+	RoundedToggleButton:
+		id: run_protocol_btn
+		text: 'Run Full Protocol'
+		tooltip_text: 'Initiate complete Protocol for the full Duration'
+		size_hint_y: None
+		height: '60dp'
+		halign: 'center'
+		font_size: '12sp'
+		disabled: app.recording_active
+		on_release: root.run_protocol_from_ui()
+		background_down: 'atlas://data/images/defaulttheme/button_pressed'
+
 	Widget:
 
 
@@ -1844,6 +1864,7 @@
     padding: '5dp'
     spacing: '5dp'
     orientation: 'vertical'
+    disabled: app.controls_locked
     canvas:
         Color:
             rgba: 0.1, 0.1, 0.1, 0.7
@@ -2093,6 +2114,7 @@
     padding: '5dp'
     spacing: '5dp'
     orientation: 'vertical'
+    disabled: app.controls_locked
     canvas:
         Color:
             rgba: 0.1, 0.1, 0.1, 0.7

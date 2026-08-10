@@ -38,16 +38,36 @@ class TestDerivedLockProperty:
 
 
 class TestKvBindingTopology:
-    def test_both_sidebars_lock_at_the_accordion(self):
+    def test_image_sidebar_locks_at_the_accordion(self):
         # Container-level binding: Kivy's disabled refcount dominates the
-        # whole child tree, so two bindings cover both sidebars without
-        # fighting the imperative per-widget writers.
-        motion_idx = KV_SRC.find('id: motionsettings_accordion_id')
-        assert motion_idx > 0
-        assert 'disabled: app.controls_locked' in KV_SRC[motion_idx : motion_idx + 120]
+        # whole child tree. Only the IMAGE sidebar keeps the accordion-level
+        # bind -- it holds no stop-capable toggle.
         image_idx = KV_SRC.find('id: accordion_id')
         assert image_idx > 0
         assert 'disabled: app.controls_locked' in KV_SRC[image_idx : image_idx + 120]
+
+    def test_motion_accordion_carries_no_lock(self):
+        # The motion sidebar holds the run/stop toggles; an accordion-level
+        # bind swallows their abort clicks mid-run (a disabled ancestor eats
+        # touches before children see them). The lock lives on interior
+        # containers instead; the toggles escape it.
+        motion_idx = KV_SRC.find('id: motionsettings_accordion_id')
+        assert motion_idx > 0
+        snippet = KV_SRC[motion_idx : motion_idx + 120]
+        assert 'controls_locked' not in snippet, (
+            'motion accordion must not lock: it strands every stop toggle'
+        )
+
+    def test_lock_moved_to_region_roots(self):
+        # The non-exempt motion regions re-acquire the lock at their rule
+        # or content roots so the locked surface matches the old accordion
+        # bind minus exactly the stop toggles.
+        for marker in ('<MicroscopeSettings>:', '<PostProcessingAccordion>:'):
+            idx = KV_SRC.find(marker)
+            assert idx > 0, marker
+            assert 'disabled: app.controls_locked' in KV_SRC[idx : idx + 200], (
+                f'{marker} must lock at its root during any exclusive activity'
+            )
 
     def test_camera_bar_buttons_take_the_derived_lock(self):
         for btn in ('live_folder_btn', 'live_btn', 'capture_btn', 'composite_btn'):
@@ -66,6 +86,111 @@ class TestKvBindingTopology:
         snippet = KV_SRC[idx : idx + 120]
         assert 'disabled: app.protocol_running' in snippet
         assert 'controls_locked' not in snippet
+
+
+class TestCommittedStartRestore:
+    """start() can refuse AFTER the UI commit (a rival claim held during
+    a recording's file drain, an already-running race). The boundary must
+    restore the pre-commit state or the lockout strands with no run live
+    -- the defect class confirmed live in the sim 2026-08-10."""
+
+    def _wire_ctx(self, event_preset=False, motion=True):
+        import threading
+        import types
+
+        import modules.app_context as _app_ctx
+
+        self._made_ctx = _app_ctx.ctx is None
+        if self._made_ctx:
+            _app_ctx.ctx = types.SimpleNamespace()
+        ctx = _app_ctx.ctx
+        self._saved = (getattr(ctx, 'protocol_running', None), getattr(ctx, 'stage', None))
+        ctx.protocol_running = threading.Event()
+        if event_preset:
+            ctx.protocol_running.set()
+
+        class _Stage:
+            def __init__(self, enabled):
+                self._enabled = enabled
+
+            def motion_capability(self):
+                return self._enabled
+
+            def set_motion_capability(self, enabled):
+                self._enabled = enabled
+
+        ctx.stage = _Stage(motion)
+        return ctx
+
+    def _unwire(self):
+        import modules.app_context as _app_ctx
+
+        if self._made_ctx:
+            _app_ctx.ctx = None
+            return
+        ctx = _app_ctx.ctx
+        ctx.protocol_running, ctx.stage = self._saved
+
+    def test_post_commit_refusal_restores_and_reraises(self):
+        import pytest
+
+        from modules.exceptions import ProtocolRunRefusedError
+        from ui.ui_helpers import run_committed_start
+
+        ctx = self._wire_ctx()
+        try:
+
+            def commit():
+                ctx.protocol_running.set()
+                ctx.stage.set_motion_capability(False)
+
+            def start():
+                raise ProtocolRunRefusedError('already_running', 't', 'm')
+
+            with pytest.raises(ProtocolRunRefusedError):
+                run_committed_start(commit, start)
+
+            assert not ctx.protocol_running.is_set(), 'stranded Event = stranded lockout'
+            assert ctx.stage.motion_capability() is True
+        finally:
+            self._unwire()
+
+    def test_rival_held_event_stays_held(self):
+        import pytest
+
+        from modules.exceptions import ProtocolRunRefusedError
+        from ui.ui_helpers import run_committed_start
+
+        ctx = self._wire_ctx(event_preset=True, motion=False)
+        try:
+
+            def start():
+                raise ProtocolRunRefusedError('exclusive_activity_running', 't', 'm')
+
+            with pytest.raises(ProtocolRunRefusedError):
+                run_committed_start(lambda: None, start)
+
+            assert ctx.protocol_running.is_set(), 'restore must not clear a rival-held Event'
+            assert ctx.stage.motion_capability() is False
+        finally:
+            self._unwire()
+
+    def test_successful_start_leaves_commit_in_place(self):
+        from ui.ui_helpers import run_committed_start
+
+        ctx = self._wire_ctx()
+        try:
+            run_committed_start(lambda: ctx.protocol_running.set(), lambda: None)
+            assert ctx.protocol_running.is_set()
+        finally:
+            self._unwire()
+
+    def test_both_start_sites_route_through_the_boundary(self):
+        src = (REPO / 'ui' / 'protocol_settings.py').read_text()
+        assert src.count('run_committed_start(') >= 2, (
+            'both commit sites (run_sequenced_capture + the AF-scan '
+            'closure) must commit through the restoring boundary'
+        )
 
 
 class TestGestureMotionFunnel:
