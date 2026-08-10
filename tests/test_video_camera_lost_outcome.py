@@ -99,7 +99,7 @@ class TestZeroFrameOutcomeMapping:
         recorder._video_as_frames = True
         with (
             patch.object(protocol_recording, 'VideoRecordingEngine', MagicMock()),
-            patch.object(recorder, '_prologue', return_value=True),
+            patch.object(recorder, '_prologue', return_value=None),
             patch.object(recorder, '_wait_for_recording', return_value=outcome),
         ):
             return recorder.run_blocking()
@@ -124,3 +124,46 @@ class TestZeroFrameOutcomeMapping:
         # via the finish thread instead).
         result = self._run_with_outcome(tmp_path, protocol_recording.CAMERA_LOST)
         assert result == protocol_recording.NO_FRAMES
+
+
+class TestPrologueFeedDeath:
+    """The pre-recording drain terminates on a dead feed -- and only then.
+
+    Dead means zero frame ARRIVALS for the stall threshold. Stop is
+    checked first each iteration, so a run stop always wins; and frames
+    arriving with validity pinned (a stuck motion-settle) must never be
+    blamed on the camera.
+    """
+
+    def _prologue_result(self, tmp_path, *, stop_at_s, frame_arrives):
+        clock = {'t': 1000.0}
+        recorder = _make_recorder(tmp_path, clock, camera_active=True)
+        start = clock['t']
+        recorder._is_run_in_progress = lambda: clock['t'] - start < stop_at_s
+
+        def _grab(*args, **kwargs):
+            clock['t'] += 1.0
+            return object() if frame_arrives else None
+
+        recorder._scope.imaging.frames_until_valid.return_value = 1
+        recorder._scope.imaging.get_image.side_effect = _grab
+        step = {'Exposure': 10.0, 'Auto_Gain': False}
+        return recorder._prologue(step)
+
+    def test_dead_feed_returns_no_frames_before_the_stop(self, tmp_path):
+        # Threshold 5 s (10 ms exposure -> floor); stop would land at 8 s.
+        # The death verdict must fire first.
+        result = self._prologue_result(tmp_path, stop_at_s=8.0, frame_arrives=False)
+        assert result == protocol_recording.NO_FRAMES
+
+    def test_stop_before_the_threshold_wins(self, tmp_path):
+        result = self._prologue_result(tmp_path, stop_at_s=2.0, frame_arrives=False)
+        assert result == protocol_recording.CANCELLED
+
+    def test_arriving_frames_suppress_the_death_verdict(self, tmp_path):
+        # Validity pinned while frames arrive is a settle fault, not a
+        # camera fault: the drain must never return NO_FRAMES for it.
+        # (Bounded here by the stop; the pinned-validity hang itself is a
+        # separately recorded finding.)
+        result = self._prologue_result(tmp_path, stop_at_s=60.0, frame_arrives=True)
+        assert result == protocol_recording.CANCELLED

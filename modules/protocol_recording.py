@@ -53,7 +53,11 @@ from modules.recording_frames import (
     tiff_frame_metadata,
 )
 from modules.recording_manifest import gather_host_provenance
-from modules.video_cadence import effective_recording_fps
+from modules.video_cadence import (
+    StallWatch,
+    effective_recording_fps,
+    prologue_stall_threshold_s,
+)
 from modules.video_recording import RecordingConfig, VideoRecordingEngine
 from modules.video_writer import VideoWriter
 
@@ -251,8 +255,9 @@ class ProtocolVideoStep:
             )
             return ABORTED
 
-        if not self._prologue(step):
-            return CANCELLED
+        prologue_outcome = self._prologue(step)
+        if prologue_outcome is not None:
+            return prologue_outcome
 
         scope = self._scope
         identity = scope.imaging.camera_identity
@@ -369,19 +374,35 @@ class ProtocolVideoStep:
     # Prologue (validity pre-roll + autogain first frame), stop-checkable
     # ------------------------------------------------------------------
 
-    def _prologue(self, step) -> bool:
+    def _prologue(self, step) -> str | None:
         """Drain stale frames, settle, arm the first-frame autogain.
 
-        Returns False when the run stopped during the prologue. The
-        stale-frame drain is unbounded by construction (frames_until_valid
-        counts down as frames arrive); Stop and the camera-fault strikes
-        bound it in practice.
+        Returns None when the recording may start, or the outcome to
+        return when it may not: CANCELLED on a run stop (checked first,
+        so Stop always wins), NO_FRAMES when the feed is dead. Dead
+        means zero frame ARRIVALS for the stall threshold -- arrivals,
+        deliberately not validity progress: a stuck settle check pins
+        ``frames_until_valid`` while frames keep arriving, and blaming
+        the camera for a motion fault would send the run's abort message
+        pointing at the wrong hardware.
         """
         scope = self._scope
+        exposure_s = float(step['Exposure']) / 1000.0
+        watch = StallWatch(prologue_stall_threshold_s(exposure_s))
+        arrivals = 0
         while scope.imaging.frames_until_valid() > 0:
             if self._stop_requested():
-                return False
-            scope.imaging.get_image(force_new_capture=True)
+                return CANCELLED
+            if watch.stalled(arrivals, self._clock()):
+                logger.error(
+                    '[PROTOCOL-VIDEO] No camera frames arrived during the '
+                    'pre-recording drain (stall threshold '
+                    f'{prologue_stall_threshold_s(exposure_s):.0f} s); '
+                    'treating the feed as dead'
+                )
+                return NO_FRAMES
+            if scope.imaging.get_image(force_new_capture=True) is not None:
+                arrivals += 1
         time.sleep(max(step['Exposure'] / 1000, 0.05))
 
         if step['Auto_Gain']:
@@ -393,7 +414,7 @@ class ProtocolVideoStep:
                 max_gain_db=self._autogain_settings['max_gain_db'],
                 ae_max_exposure_ms=self._autogain_settings.get('max_exposure_ms'),
             )
-        return not self._stop_requested()
+        return CANCELLED if self._stop_requested() else None
 
     def _stop_requested(self) -> bool:
         return self._aborted.is_set() or not self._is_run_in_progress()
