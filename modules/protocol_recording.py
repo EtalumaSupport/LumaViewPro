@@ -57,6 +57,7 @@ from modules.video_cadence import (
     StallWatch,
     effective_recording_fps,
     prologue_stall_threshold_s,
+    stall_threshold_s,
 )
 from modules.video_recording import RecordingConfig, VideoRecordingEngine
 from modules.video_writer import VideoWriter
@@ -67,14 +68,6 @@ CANCELLED = 'cancelled'  # run stop/abort ended the step early; kept frames are 
 NO_FRAMES = 'no_frames'  # the camera delivered nothing -- a capture failure (strike)
 CAMERA_LOST = 'camera_lost'  # camera went inactive mid-step; kept frames are final (strike)
 ABORTED = 'aborted'  # the controller aborted the run (disk); no strike, no row here
-
-# The manifest's end_reason per wait-loop outcome: the recording's own
-# artifact must say WHY selection ended, not just that it was short.
-_END_REASON_BY_OUTCOME = {
-    COMPLETED: 'duration_elapsed',
-    CANCELLED: 'run_stop',
-    CAMERA_LOST: 'camera_disconnected',
-}
 
 # The wait loop's tick: how quickly Stop/abort is honored during a video
 # step, and the ceiling on how stale the recording title can be beyond
@@ -334,13 +327,17 @@ class ProtocolVideoStep:
             f'{"frames" if self._video_as_frames else "mp4"} -> {self._output_dir}'
         )
 
-        outcome = self._wait_for_recording(engine, duration_s)
+        outcome, end_reason = self._wait_for_recording(
+            engine,
+            duration_s,
+            stall_threshold_s(fps, float(step['Exposure']) / 1000.0),
+        )
 
         try:
             scope.imaging.remove_frame_listener(self._on_camera_frame)
         except Exception as e:
             logger.warning(f'[PROTOCOL-VIDEO] remove_frame_listener failed: {e}')
-        engine.stop(_END_REASON_BY_OUTCOME.get(outcome, 'duration_elapsed'))
+        engine.stop(end_reason)
 
         if self._frames_seen == 0:
             # The camera delivered nothing for the whole step -- a capture
@@ -423,21 +420,41 @@ class ProtocolVideoStep:
     # The wait loop (protocol thread)
     # ------------------------------------------------------------------
 
-    def _wait_for_recording(self, engine: VideoRecordingEngine, duration_s: float) -> str:
+    def _wait_for_recording(
+        self, engine: VideoRecordingEngine, duration_s: float, stall_threshold: float
+    ) -> tuple[str, str]:
+        """Poll until the recording ends; say how and why.
+
+        Returns ``(outcome, end_reason)`` as one value so the manifest's
+        reason can never drift from the outcome that produced it. Check
+        order is the precedence: Stop always wins, the disconnect latch
+        is the fast camera-death path, and the stall watch catches the
+        feed that dies without an event -- delivery just stops while
+        ``camera_active`` stays True.
+        """
         start_ts = self._clock()
         last_title_ts = 0.0
-        outcome = COMPLETED
+        outcome, end_reason = COMPLETED, 'duration_elapsed'
+        watch = StallWatch(stall_threshold)
         while engine.is_recording:
             now = self._clock()
             elapsed = now - start_ts
             if self._stop_requested():
-                outcome = CANCELLED
+                outcome, end_reason = CANCELLED, 'run_stop'
                 break
             if not self._scope.imaging.camera_active:
                 logger.warning(
                     '[PROTOCOL-VIDEO] Camera went inactive mid-step; ending the recording'
                 )
-                outcome = CAMERA_LOST
+                outcome, end_reason = CAMERA_LOST, 'camera_disconnected'
+                break
+            if watch.stalled(self._frames_seen, now):
+                logger.warning(
+                    '[PROTOCOL-VIDEO] Camera feed stalled: no frames for '
+                    f'{stall_threshold:.0f} s with the camera still active; '
+                    'ending the recording'
+                )
+                outcome, end_reason = CAMERA_LOST, 'camera_stalled'
                 break
             if elapsed >= duration_s:
                 # The frame budget is the primary boundary; this wall cap
@@ -449,7 +466,7 @@ class ProtocolVideoStep:
                 last_title_ts = now
                 self._set_title('set_recording_title', elapsed_sec=elapsed, total_sec=duration_s)
             time.sleep(_WAIT_TICK_S)
-        return outcome
+        return outcome, end_reason
 
     # ------------------------------------------------------------------
     # Camera-thread ingest
@@ -568,7 +585,11 @@ class ProtocolVideoStep:
                     reason='video_write_failed', capture_time=self._start_dt
                 )
             elif result.frames_written == 0:
-                self._record_dropped_capture(reason='video_cancelled', capture_time=self._start_dt)
+                # The row's reason is the engine's recorded end reason --
+                # a camera death and a user stop must not share a label.
+                self._record_dropped_capture(
+                    reason=f'video_{result.end_reason}', capture_time=self._start_dt
+                )
             else:
                 if self._writer is not None:
                     artifact_name = self._writer.output_path.name

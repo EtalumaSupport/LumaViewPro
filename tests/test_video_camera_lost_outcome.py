@@ -56,14 +56,17 @@ class TestWaitForRecordingOutcome:
         clock = {'t': 1000.0}
         recorder = _make_recorder(tmp_path, clock, camera_active=False)
         engine = MagicMock(is_recording=True)
-        assert recorder._wait_for_recording(engine, 10.0) == protocol_recording.CAMERA_LOST
+        outcome, reason = recorder._wait_for_recording(engine, 10.0, stall_threshold=5.0)
+        assert outcome == protocol_recording.CAMERA_LOST
+        assert reason == 'camera_disconnected'
 
     def test_stop_request_beats_camera_loss(self, tmp_path):
         clock = {'t': 1000.0}
         recorder = _make_recorder(tmp_path, clock, camera_active=False)
         recorder._aborted.set()
         engine = MagicMock(is_recording=True)
-        assert recorder._wait_for_recording(engine, 10.0) == protocol_recording.CANCELLED
+        outcome, _ = recorder._wait_for_recording(engine, 10.0, stall_threshold=5.0)
+        assert outcome == protocol_recording.CANCELLED
 
     def test_duration_elapsed_still_completes(self, tmp_path):
         # Each clock read advances 5.5 s: start at 1005.5, then 1011.0
@@ -78,7 +81,8 @@ class TestWaitForRecordingOutcome:
         recorder = _make_recorder(tmp_path, clock, camera_active=True)
         recorder._clock = _advancing
         engine = MagicMock(is_recording=True)
-        assert recorder._wait_for_recording(engine, 10.0) == protocol_recording.COMPLETED
+        outcome, _ = recorder._wait_for_recording(engine, 10.0, stall_threshold=1000.0)
+        assert outcome == protocol_recording.COMPLETED
 
 
 class TestZeroFrameOutcomeMapping:
@@ -100,7 +104,7 @@ class TestZeroFrameOutcomeMapping:
         with (
             patch.object(protocol_recording, 'VideoRecordingEngine', MagicMock()),
             patch.object(recorder, '_prologue', return_value=None),
-            patch.object(recorder, '_wait_for_recording', return_value=outcome),
+            patch.object(recorder, '_wait_for_recording', return_value=(outcome, 'run_stop')),
         ):
             return recorder.run_blocking()
 
@@ -167,3 +171,59 @@ class TestPrologueFeedDeath:
         # separately recorded finding.)
         result = self._prologue_result(tmp_path, stop_at_s=60.0, frame_arrives=True)
         assert result == protocol_recording.CANCELLED
+
+
+class TestWaitLoopFeedStall:
+    """A feed that dies WITHOUT a disconnect event must still end the step.
+
+    camera_active stays True (the latch only flips on events); the stall
+    watch on the ingest counter is what notices delivery stopped.
+    """
+
+    def _advancing_recorder(self, tmp_path, step_s=0.5):
+        clock = {'t': 1000.0}
+
+        def _advancing():
+            clock['t'] += step_s
+            return clock['t']
+
+        recorder = _make_recorder(tmp_path, clock, camera_active=True)
+        recorder._clock = _advancing
+        return recorder
+
+    def test_frozen_ingest_counter_ends_as_stalled(self, tmp_path):
+        # duration 60 s >> threshold 5 s so the wall cap cannot mask the
+        # stall verdict; _frames_seen never advances.
+        recorder = self._advancing_recorder(tmp_path)
+        engine = MagicMock(is_recording=True)
+        outcome, reason = recorder._wait_for_recording(engine, 60.0, stall_threshold=5.0)
+        assert outcome == protocol_recording.CAMERA_LOST
+        assert reason == 'camera_stalled'
+
+    def test_advancing_ingest_counter_never_stalls(self, tmp_path):
+        # Preservation guard: frames arriving (counter advancing every
+        # tick) run the step to the wall cap exactly as before.
+        recorder = self._advancing_recorder(tmp_path)
+        engine = MagicMock(is_recording=True)
+
+        counter = {'n': 0}
+        original_clock = recorder._clock
+
+        def _clock_and_frame():
+            counter['n'] += 1
+            recorder._frames_seen = counter['n']
+            return original_clock()
+
+        recorder._clock = _clock_and_frame
+        outcome, reason = recorder._wait_for_recording(engine, 20.0, stall_threshold=5.0)
+        assert outcome == protocol_recording.COMPLETED
+        assert reason == 'duration_elapsed'
+
+    def test_stop_beats_the_stall_verdict(self, tmp_path):
+        # Stop is checked first: even with the watch past threshold, a
+        # stop requested in the same tick returns CANCELLED.
+        recorder = self._advancing_recorder(tmp_path)
+        recorder._aborted.set()
+        engine = MagicMock(is_recording=True)
+        outcome, _ = recorder._wait_for_recording(engine, 60.0, stall_threshold=5.0)
+        assert outcome == protocol_recording.CANCELLED
