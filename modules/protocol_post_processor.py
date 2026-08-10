@@ -66,6 +66,22 @@ class ProtocolPostProcessor(abc.ABC):
         )
         return df.assign(**{'Recording Scan': recording_scan})
 
+    @staticmethod
+    def _without_video_frames(df: pd.DataFrame) -> pd.DataFrame:
+        """Drop raw video-frame rows from a processor's input.
+
+        A recording's frames are a TIME series: to Z-Projection they look
+        like hundreds of slices at one Z, to Composite like whole
+        recordings per channel, to Stitch like repeated tiles at one
+        position -- each would emit a mislabeled artifact presented as
+        real. Video frames belong to exactly two consumers, Create Video
+        and the per-(well, scan) hyperstack, which do NOT call this.
+        """
+        # astype(bool): on an EMPTY frame map() cannot infer a dtype, and
+        # indexing with the resulting non-bool series degrades from a row
+        # mask to column selection -- silently dropping every column.
+        return df[~df['Filepath'].map(recording_frames.is_video_frame).astype(bool)]
+
     @abc.abstractmethod
     def _generate_filename(self, df: pd.DataFrame, **kwargs) -> str:
         raise NotImplementedError('Implement in child class')
