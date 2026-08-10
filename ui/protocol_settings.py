@@ -1699,11 +1699,14 @@ class ProtocolSettings(FloatLayout):
                 return
 
             def commit_ui_state():
-                # Runs between the runner's prepare and start: running-state
-                # commits only once the run can no longer be refused. The AF
-                # scan deliberately does NOT set ctx.protocol_running (its
-                # completion path never owned that flag), so it keeps its
-                # own commit set instead of _commit_running_ui_state.
+                # Runs between the runner's prepare and start (inside the
+                # restoring boundary, so a start()-stage refusal unwinds
+                # it). The AF scan engages the FULL guard set including the
+                # Event: worker-thread guards (turret home, motion, file
+                # dialogs) key on the Event, not the kv mirror, and an AF
+                # scan owns the stage exactly like any run. Its reset
+                # already clears the Event -- set and clear are symmetric.
+                ctx.protocol_running.set()
                 ctx.stage.set_motion_capability(False)
                 self._publish_protocol_running(True)
                 self.ids['run_autofocus_btn'].text = 'Running Autofocus Scan'

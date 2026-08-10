@@ -16,6 +16,7 @@ from modules import gui_logger
 from modules.debounce import debounce
 from modules.kivy_utils import schedule_ui as _schedule_ui
 from modules.sequential_io_executor import IOTask, PRIORITY_HIGH
+from ui.protocol_settings import require_file_writes_idle
 from ui.ui_helpers import (
     _handle_ui_update_for_axis,
     live_histo_off,
@@ -23,11 +24,64 @@ from ui.ui_helpers import (
     move_absolute_position,
     move_home,
     move_relative_position,
+    publish_protocol_running,
 )
 
 logger = logging.getLogger('LVP.ui.vertical_control')
 
 AF_SAFETY_TIMEOUT_S = 15  # Seconds before AF is considered stuck and force-reset
+
+
+class _AfLockoutState:
+    """Main-thread-only ownership record for the standalone-AF lockout.
+
+    A standalone AF engages the same guard set a protocol run does (the
+    protocol_running Event, its kv mirror, the stage motion lock). The
+    generation counter makes every release single-shot and stale-proof:
+    an AF run's exit paths (completion callback, abort cleanup, safety
+    timer) can each fire, in any order, possibly AFTER a newer AF has
+    acquired -- only the release carrying the CURRENT generation acts.
+    The snapshot restores prior state rather than clearing, so a rival
+    holder's Event stays held; it reads the Event, never the
+    Clock-deferred mirror property (one frame stale under a same-frame
+    click).
+    """
+
+    __slots__ = ('generation', 'snapshot')
+
+    def __init__(self):
+        self.generation = 0
+        self.snapshot = None
+
+
+_af_lockout = _AfLockoutState()
+
+
+def _acquire_af_lockout() -> int:
+    ctx = _app_ctx.ctx
+    _af_lockout.generation += 1
+    _af_lockout.snapshot = (
+        ctx.protocol_running.is_set(),
+        ctx.stage.motion_capability(),
+    )
+    ctx.protocol_running.set()
+    publish_protocol_running(True)
+    ctx.stage.set_motion_capability(False)
+    return _af_lockout.generation
+
+
+def _release_af_lockout(generation: int) -> None:
+    if generation != _af_lockout.generation or _af_lockout.snapshot is None:
+        return
+    event_was_set, motion_was_enabled = _af_lockout.snapshot
+    _af_lockout.snapshot = None
+    ctx = _app_ctx.ctx
+    if event_was_set:
+        ctx.protocol_running.set()
+    else:
+        ctx.protocol_running.clear()
+    publish_protocol_running(event_was_set)
+    ctx.stage.set_motion_capability(motion_was_enabled)
 
 
 # ============================================================================
@@ -43,6 +97,10 @@ class VerticalControl(BoxLayout):
         # boolean describing whether the scope is currently in the process of autofocus
         self.is_autofocus = False
         self.is_complete = False
+        # Generation of the standalone-AF lockout this widget last
+        # acquired; 0 = never acquired (release(0) no-ops on the empty
+        # snapshot).
+        self._af_lockout_gen = 0
         self.record_autofocus_to_file = False
         self._next_pos = None
 
@@ -307,12 +365,19 @@ class VerticalControl(BoxLayout):
 
             show_notification_popup(title='Error', message=str(e))
 
+    def _reset_run_autofocus_button_cosmetics(self, **kwargs):
+        self.ids['autofocus_id'].state = 'normal'
+        self.ids['autofocus_id'].text = 'Autofocus'
+
     def _reset_run_autofocus_button(self, **kwargs):
+        # Protocol AF steps route their completion through this funnel
+        # too, so it must never touch the shared lockout state -- the
+        # standalone release is generation-owned and lives with the
+        # standalone exits.
         ctx = _app_ctx.ctx
         if ctx.autofocus_thread is not None:
             ctx.autofocus_thread.abort()
-        self.ids['autofocus_id'].state = 'normal'
-        self.ids['autofocus_id'].text = 'Autofocus'
+        self._reset_run_autofocus_button_cosmetics()
 
     def _set_run_autofocus_button(self, **kwargs):
         self.ids['autofocus_id'].state = 'down'
@@ -320,6 +385,10 @@ class VerticalControl(BoxLayout):
 
     def _cleanup_at_end_of_autofocus(self):
         ctx = _app_ctx.ctx
+
+        # The abort exit releases the standalone lockout it owns; the
+        # completion callback's release then no-ops (single-shot).
+        _release_af_lockout(self._af_lockout_gen)
 
         # SequencedCaptureRunner.reset() unwinds any running protocol
         # (its _cleanup chain calls autofocus_thread.abort() on the AF
@@ -412,13 +481,23 @@ class VerticalControl(BoxLayout):
         live_histo_off()
 
         # Block standalone AF if a protocol is running OR if AF is
-        # already in flight. Either case: just reset the UI button.
+        # already in flight. Refusals undo cosmetics ONLY: a full reset
+        # here would abort a protocol's own AF step in the one-frame
+        # window before the kv mirror catches up, and the lockout is a
+        # rival run's to keep.
         if ctx.sequenced_capture_runner.run_in_progress():
-            self._reset_run_autofocus_button()
+            self._reset_run_autofocus_button_cosmetics()
             logger.warning(
                 'Cannot start autofocus: protocol run already in progress '
                 f'(trigger={ctx.sequenced_capture_runner.run_trigger_source()})'
             )
+            return
+
+        # The post-run file drain deliberately holds the lockout while
+        # run_in_progress() is already False -- AF must not run under it
+        # and, worse, must not RELEASE it mid-drain.
+        if not require_file_writes_idle('start autofocus'):
+            self._reset_run_autofocus_button_cosmetics()
             return
 
         if ctx.autofocus_thread is not None and ctx.autofocus_thread.is_running:
@@ -457,13 +536,30 @@ class VerticalControl(BoxLayout):
             parent_dir=parent_dir,
         )
 
-        future = ctx.autofocus_thread.run_autofocus(**args)
-        # Cleanup UI state on completion (success, abort, or failure).
-        # _autofocus_run_complete handles per-layer focus persistence
-        # and the AF safety timer reset; it tolerates either outcome.
-        future.add_done_callback(
-            lambda _f: _schedule_ui(lambda _dt: self._autofocus_run_complete(), 0)
-        )
+        # The standalone scan engages the full protocol guard set (Event,
+        # kv mirror, stage motion) for its duration -- turret, jog, record
+        # and dialogs all lock exactly as during a run. Acquired only after
+        # every refusal gate above; released single-shot by whichever exit
+        # fires first (completion callback, abort cleanup, safety timer),
+        # generation-checked so a stale exit cannot unlock a newer AF.
+        lockout_gen = self._af_lockout_gen = _acquire_af_lockout()
+        try:
+            future = ctx.autofocus_thread.run_autofocus(**args)
+            # Cleanup UI state on completion (success, abort, or failure).
+            # _autofocus_run_complete handles per-layer focus persistence
+            # and the AF safety timer reset; it tolerates either outcome.
+            future.add_done_callback(
+                lambda _f: _schedule_ui(
+                    lambda _dt: (
+                        self._autofocus_run_complete(),
+                        _release_af_lockout(lockout_gen),
+                    ),
+                    0,
+                )
+            )
+        except Exception:
+            _release_af_lockout(lockout_gen)
+            raise
 
     @debounce(1.0)
     def turret_home(self):

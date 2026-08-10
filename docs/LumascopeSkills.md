@@ -303,6 +303,8 @@ Recording starts are guarded like protocol starts: `RecordingRefusedError` (`mod
 
 **Opening hyperstacks in Fiji:** the container is OME-TIFF; channel color travels as OME `Channel.Color`. Open via `Plugins > Bio-Formats > Importer` with **Color mode = Composite** (the choice persists per user through that dialog). A plain `File > Open` renders ImageJ's default LUTs, not the file's channel colors.
 
+**Run-state semantics:** `session.is_protocol_running()` reports True while any exclusive GUI-side activity holds the run lockout -- protocol runs, autofocus scans, and the standalone Autofocus button's scan included. An L2 poller should treat it as "the instrument is busy with an exclusive activity", not strictly "a protocol is executing".
+
 ### Configuration queries
 
 ```python

@@ -12,7 +12,47 @@ the gesture funnel is pinned behaviorally.
 
 import pathlib
 import sys
+from types import ModuleType
 from unittest import mock
+from unittest.mock import MagicMock
+
+# ui.vertical_control / ui.protocol_settings are Kivy widget modules;
+# conftest mocks `kivy` but not the uix submodules, and the widget
+# classes subclass BoxLayout/FloatLayout (a bare MagicMock can't be
+# subclassed). Real minimal bases for those; permissive MagicMocks for
+# the rest -- the same seam test_led_button_run_end_reconcile uses.
+
+
+class _StubWidget:
+    def __init__(self, **kwargs):
+        pass
+
+
+def _real_base_module(name, **attrs):
+    if name in sys.modules and not isinstance(sys.modules[name], MagicMock):
+        return
+    module = ModuleType(name)
+    for key, value in attrs.items():
+        setattr(module, key, value)
+    sys.modules[name] = module
+
+
+for _name in (
+    'kivy.app',
+    'kivy.properties',
+    'kivy.uix',
+    'kivy.uix.label',
+    'kivy.uix.popup',
+    'kivy.lang',
+    'kivy.metrics',
+    'kivy.graphics',
+):
+    sys.modules.setdefault(_name, MagicMock())
+
+_real_base_module('kivy.uix.floatlayout', FloatLayout=_StubWidget)
+_real_base_module('kivy.uix.boxlayout', BoxLayout=_StubWidget)
+_real_base_module('kivy.uix.scrollview', ScrollView=_StubWidget)
+_real_base_module('kivy.uix.widget', Widget=_StubWidget)
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 
@@ -190,6 +230,125 @@ class TestCommittedStartRestore:
         assert src.count('run_committed_start(') >= 2, (
             'both commit sites (run_sequenced_capture + the AF-scan '
             'closure) must commit through the restoring boundary'
+        )
+
+
+class TestStandaloneAfLockout:
+    """The standalone Autofocus button engages the full protocol guard
+    set for its duration (D16 ruling). Ownership is a generation token:
+    the exits (completion callback, abort cleanup, safety timer) may all
+    fire, in any order, possibly after a NEWER AF acquired -- only the
+    release carrying the current generation acts, exactly once, and it
+    restores the pre-acquire snapshot rather than clearing."""
+
+    def _ctx(self, event_preset=False, motion=True):
+        import threading
+        import types
+
+        import modules.app_context as _app_ctx
+
+        self._made_ctx = _app_ctx.ctx is None
+        if self._made_ctx:
+            _app_ctx.ctx = types.SimpleNamespace()
+        ctx = _app_ctx.ctx
+        self._saved = (getattr(ctx, 'protocol_running', None), getattr(ctx, 'stage', None))
+        ctx.protocol_running = threading.Event()
+        if event_preset:
+            ctx.protocol_running.set()
+
+        class _Stage:
+            def __init__(self, enabled):
+                self._enabled = enabled
+
+            def motion_capability(self):
+                return self._enabled
+
+            def set_motion_capability(self, enabled):
+                self._enabled = enabled
+
+        ctx.stage = _Stage(motion)
+        return ctx
+
+    def _unctx(self):
+        import modules.app_context as _app_ctx
+
+        if self._made_ctx:
+            _app_ctx.ctx = None
+            return
+        ctx = _app_ctx.ctx
+        ctx.protocol_running, ctx.stage = self._saved
+
+    def test_acquire_engages_release_restores(self):
+        from ui import vertical_control as vc
+
+        ctx = self._ctx()
+        try:
+            gen = vc._acquire_af_lockout()
+            assert ctx.protocol_running.is_set()
+            assert ctx.stage.motion_capability() is False
+            vc._release_af_lockout(gen)
+            assert not ctx.protocol_running.is_set()
+            assert ctx.stage.motion_capability() is True
+        finally:
+            self._unctx()
+
+    def test_stale_release_cannot_unlock_a_newer_af(self):
+        from ui import vertical_control as vc
+
+        ctx = self._ctx()
+        try:
+            gen1 = vc._acquire_af_lockout()
+            vc._release_af_lockout(gen1)
+            gen2 = vc._acquire_af_lockout()
+            vc._release_af_lockout(gen1)  # stale exit from AF #1
+            assert ctx.protocol_running.is_set(), 'stale release must not unlock AF #2'
+            vc._release_af_lockout(gen2)
+            assert not ctx.protocol_running.is_set()
+        finally:
+            self._unctx()
+
+    def test_double_release_is_single_shot(self):
+        from ui import vertical_control as vc
+
+        ctx = self._ctx()
+        try:
+            gen = vc._acquire_af_lockout()
+            vc._release_af_lockout(gen)
+            ctx.protocol_running.set()  # a rival acquires between the two exits
+            vc._release_af_lockout(gen)
+            assert ctx.protocol_running.is_set(), 'second release must no-op'
+        finally:
+            self._unctx()
+
+    def test_release_restores_a_rival_held_event(self):
+        from ui import vertical_control as vc
+
+        ctx = self._ctx(event_preset=True, motion=False)
+        try:
+            gen = vc._acquire_af_lockout()
+            vc._release_af_lockout(gen)
+            assert ctx.protocol_running.is_set(), 'restore must keep a rival-held Event held'
+            assert ctx.stage.motion_capability() is False
+        finally:
+            self._unctx()
+
+    def test_acquire_ordered_after_every_refusal_gate(self):
+        src = (REPO / 'ui' / 'vertical_control.py').read_text()
+        body = src[src.find('def run_autofocus_from_ui') :]
+        gates = body.find('run_in_progress()')
+        drain = body.find('require_file_writes_idle(')
+        acquire = body.find('_acquire_af_lockout()')
+        assert 0 < gates < drain < acquire, (
+            'the lockout must be acquired only after the protocol-running '
+            'and files-idle gates; an acquire before a refusal strands it'
+        )
+
+    def test_af_scan_commit_sets_the_event(self):
+        src = (REPO / 'ui' / 'protocol_settings.py').read_text()
+        body = src[src.find('def run_autofocus_scan_from_ui') :]
+        commit = body[body.find('def commit_ui_state') : body.find('settings = ')]
+        assert 'ctx.protocol_running.set()' in commit, (
+            'the AF scan commit must engage the worker-thread guard set, not only the kv mirror'
         )
 
 
