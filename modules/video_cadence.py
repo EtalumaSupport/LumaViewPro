@@ -1,11 +1,14 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """
-Frame-cadence selection and frame-budget arithmetic for video recording.
+Frame-cadence selection, frame-budget, and delivery-liveness arithmetic
+for video recording.
 
 A recording keeps at most one camera frame per cadence slot (slots are
 1/fps seconds wide) and never more than its frame budget. The camera
 free-runs; unselected frames are skipped, so cadence enforcement is
-sampling, not loss.
+sampling, not loss. The liveness half answers the inverse question:
+when has the free-running source stopped delivering entirely, so the
+loop consuming it must terminate instead of hanging or lying.
 """
 
 import math
@@ -42,6 +45,80 @@ def effective_recording_fps(requested_fps: float, global_max_fps: float) -> floa
     if global_max_fps > 0:
         fps = min(fps, global_max_fps)
     return fps
+
+
+# Feed-death detection bounds; PERFORMANCE_BUDGETS.md rows
+# recording_feed_stall_s / prologue_feed_stall_s. The floor covers OS
+# scheduling jitter and unmeasured acquisition-restart gaps (a settings
+# write can force a driver Stop+realloc+Start); the multiple tolerates
+# delivery an order of magnitude slower than the slowest LEGITIMATE
+# frame interval (worst observed configured-vs-measured ratio is 1.6x).
+STALL_FLOOR_S = 5.0
+STALL_INTERVAL_MULTIPLE = 10
+
+
+def stall_threshold_s(effective_fps: float, exposure_s: float) -> float:
+    """Seconds of zero frame progress after which a recording feed is dead.
+
+    The base is the slowest LEGITIMATE frame interval: a recording's fps
+    is user-set and decoupled from delivery, and a long exposure gaps
+    frames longer than any fps-derived interval (exposures run to 10 s
+    on some cameras) -- so the base is ``max(1/fps, exposure)``. For an
+    exposure-derived rate the two terms coincide. This detects DEATH,
+    not degradation: a trickling feed below the configured rate ends at
+    the wall cap as an honest short delivery, by design.
+
+    Raises:
+        ValueError: If ``effective_fps`` is not positive or
+            ``exposure_s`` is negative.
+    """
+    if effective_fps <= 0:
+        raise ValueError(f'effective_fps must be positive, got {effective_fps}')
+    if exposure_s < 0:
+        raise ValueError(f'exposure_s must be >= 0, got {exposure_s}')
+    return max(STALL_FLOOR_S, STALL_INTERVAL_MULTIPLE * max(1.0 / effective_fps, exposure_s))
+
+
+def prologue_stall_threshold_s(exposure_s: float) -> float:
+    """Feed-death bound for the pre-recording validity drain.
+
+    The drain consumes the camera's free-run stream, whose interval is
+    governed by exposure alone -- no recording fps applies yet.
+
+    Raises:
+        ValueError: If ``exposure_s`` is negative.
+    """
+    if exposure_s < 0:
+        raise ValueError(f'exposure_s must be >= 0, got {exposure_s}')
+    return max(STALL_FLOOR_S, STALL_INTERVAL_MULTIPLE * exposure_s)
+
+
+class StallWatch:
+    """Fires when an observed progress value stops changing for too long.
+
+    The one silent-feed-death detector for loops that consume camera
+    frames: the caller polls with its progress signal (a frame counter,
+    an arrival count) and its own clock; ANY change in the value resets
+    the timer, and the anchor starts at the first call so "no progress
+    ever" also fires at the threshold. Loop-local by design -- the
+    consuming loop owns the response (abort, refuse, notify), so the
+    watch carries no callbacks, no thread, and no shared state.
+    """
+
+    def __init__(self, threshold_s: float):
+        if threshold_s <= 0:
+            raise ValueError(f'threshold_s must be positive, got {threshold_s}')
+        self._threshold_s = threshold_s
+        self._last_value = None
+        self._last_change_ts: float | None = None
+
+    def stalled(self, progress_value, now: float) -> bool:
+        """True when ``progress_value`` has not changed for the threshold."""
+        if self._last_change_ts is None or progress_value != self._last_value:
+            self._last_value = progress_value
+            self._last_change_ts = now
+            return False
+        return (now - self._last_change_ts) >= self._threshold_s
 
 
 def frame_budget(fps: float, duration_s: float) -> int:
