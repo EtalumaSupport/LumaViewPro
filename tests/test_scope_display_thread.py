@@ -303,10 +303,15 @@ def test_widget_unavailable_loop_retries_without_crash():
     t = ScopeDisplayThread(ctx_provider=lambda: ctx)
     t.start(fps=30)
     time.sleep(0.2)
-    # No crash; loop kept retrying. Now wire widget up.
+    # No crash; loop kept retrying. Now wire widget up. Poll to a deadline
+    # instead of one fixed sleep: under full-suite load the 30 fps thread
+    # can miss any fixed window (twice-observed flake), and the assertion
+    # is "picks it up", not "picks it up within one tick".
     widget = _FakeWidget()
     ctx.scope_display = widget
-    time.sleep(0.1)
+    deadline = time.monotonic() + 2.0
+    while not widget.calls and time.monotonic() < deadline:
+        time.sleep(0.01)
     t.stop()
     assert widget.calls, 'thread did not pick up widget after late wiring'
 
