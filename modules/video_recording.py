@@ -144,6 +144,12 @@ class RecordingResult:
             frame order.
         manifest_path: The written manifest file, or None if aborted
             before the manifest landed.
+        end_reason: Why frame SELECTION ended -- the caller's word at
+            the stop that closed it ('user_stop', 'duration_elapsed',
+            'camera_stalled', ...), 'frame_budget_filled' when the
+            budget did, 'discarded' on a discard-first close. A support
+            bundle needs this to tell a user stop from a camera death;
+            short_delivery alone cannot.
     """
 
     frames_selected: int
@@ -158,6 +164,7 @@ class RecordingResult:
     timestamp_grade: str
     frame_timestamps_s: tuple
     manifest_path: pathlib.Path | None
+    end_reason: str
 
 
 class VideoRecordingEngine:
@@ -285,6 +292,7 @@ class VideoRecordingEngine:
             self._all_frames_carried_chunks = True
             self._aborted = False
             self._abort_reason = ''
+            self._end_reason = ''
             self._result = None
             self._writer_thread = threading.Thread(
                 target=self._drain_loop, name='VideoRecordingWriter', daemon=True
@@ -332,17 +340,23 @@ class VideoRecordingEngine:
             # separate.
             self._queue.put((image, timestamp_s, frame_number, chunks))
             if self._selector.at_capacity:
-                self._close_selection_locked()
+                self._close_selection_locked('frame_budget_filled')
 
-    def stop(self) -> None:
+    def stop(self, reason: str) -> None:
         """Close selection promptly (within one selection decision).
 
         Drain continues: frames already queued keep writing until the
         lane is empty. Stopping does not require the writer to have kept
         up -- it never does.
+
+        Args:
+            reason: Why selection is ending, recorded in the manifest as
+                ``end_reason``. Required: every stop has a cause, and a
+                defaulted value here would let a new caller silently
+                file its recordings under the wrong one.
         """
         with self._lock:
-            self._close_selection_locked()
+            self._close_selection_locked(reason)
 
     def wait_for_drain(self, timeout: float | None = None) -> bool:
         """Block until every queued frame is written; True when drained."""
@@ -355,7 +369,7 @@ class VideoRecordingEngine:
         short delivery; discard is never silent.
         """
         with self._lock:
-            self._close_selection_locked()
+            self._close_selection_locked('discarded')
             self._discarding = True
         discarded = 0
         while True:
@@ -385,11 +399,16 @@ class VideoRecordingEngine:
             raise RuntimeError('result() before the recording finished draining')
         return result
 
-    def _close_selection_locked(self) -> None:
-        """Close selection exactly once; the caller holds the lock."""
+    def _close_selection_locked(self, reason: str) -> None:
+        """Close selection exactly once; the caller holds the lock.
+
+        First close names the end reason: a later stop or discard on an
+        already-closed recording must not rewrite why it ended.
+        """
         if self._selection_closed:
             return
         self._selection_closed = True
+        self._end_reason = reason
         self._recording = False
         self._queue.put(_END_OF_RECORDING)
 
@@ -490,6 +509,7 @@ class VideoRecordingEngine:
                 timestamp_grade=grade,
                 frame_timestamps_s=timestamps,
                 manifest_path=manifest_path,
+                end_reason=self._end_reason,
             )
             # Release BEFORE signalling drained: a caller woken by
             # wait_for_drain must observe the claim already free.
@@ -515,6 +535,7 @@ class VideoRecordingEngine:
                 'frames_written': self._frames_written,
                 'write_failures': self._write_failures,
                 'short_delivery': short_delivery,
+                'end_reason': self._end_reason,
                 'timestamp_grade': grade,
                 'configured_fps': self._config.fps,
                 'measured_fps': measured_fps,

@@ -348,8 +348,16 @@ class ManualRecordingController:
             f'-> {save_folder}'
         )
 
-    def stop(self) -> None:
-        """Close selection; the drain and finish continue on their own."""
+    def stop(self, reason: str = 'user_stop') -> None:
+        """Close selection; the drain and finish continue on their own.
+
+        Args:
+            reason: The manifest's ``end_reason``. The default names the
+                public surface's own meaning -- external callers (the
+                Record button, app close, an L2 client) ARE the user
+                stop; internal enders (duration cap, disk floor) pass
+                their own reason.
+        """
         engine = self._engine
         if engine is None:
             return
@@ -357,7 +365,7 @@ class ManualRecordingController:
             self._scope.imaging.remove_frame_listener(self._on_camera_frame)
         except Exception as e:
             logger.warning(f'[ManualRecord] remove_frame_listener failed: {e}')
-        engine.stop()
+        engine.stop(reason)
 
     def tick(self) -> None:
         """Enforce the wall-clock duration cap; the caller polls this.
@@ -372,7 +380,7 @@ class ManualRecordingController:
             and self._config is not None
             and self._clock() - self._start_ts >= self._config.duration_s
         ):
-            self.stop()
+            self.stop(reason='duration_elapsed')
 
     def discard_pending(self) -> None:
         """Drop the unwritten backlog loudly (the app-close discard path)."""
@@ -480,7 +488,7 @@ class ManualRecordingController:
                 'was stopped early. Frames captured so far are saved; free up '
                 'space before recording again.',
             )
-            self.stop()
+            self.stop(reason='disk_floor')
 
     # ------------------------------------------------------------------
     # Post-drain finish (its own short-lived thread, one per recording)

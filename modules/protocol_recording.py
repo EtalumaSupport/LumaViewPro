@@ -64,6 +64,14 @@ NO_FRAMES = 'no_frames'  # the camera delivered nothing -- a capture failure (st
 CAMERA_LOST = 'camera_lost'  # camera went inactive mid-step; kept frames are final (strike)
 ABORTED = 'aborted'  # the controller aborted the run (disk); no strike, no row here
 
+# The manifest's end_reason per wait-loop outcome: the recording's own
+# artifact must say WHY selection ended, not just that it was short.
+_END_REASON_BY_OUTCOME = {
+    COMPLETED: 'duration_elapsed',
+    CANCELLED: 'run_stop',
+    CAMERA_LOST: 'camera_disconnected',
+}
+
 # The wait loop's tick: how quickly Stop/abort is honored during a video
 # step, and the ceiling on how stale the recording title can be beyond
 # its 1 s update throttle.
@@ -327,7 +335,7 @@ class ProtocolVideoStep:
             scope.imaging.remove_frame_listener(self._on_camera_frame)
         except Exception as e:
             logger.warning(f'[PROTOCOL-VIDEO] remove_frame_listener failed: {e}')
-        engine.stop()
+        engine.stop(_END_REASON_BY_OUTCOME.get(outcome, 'duration_elapsed'))
 
         if self._frames_seen == 0:
             # The camera delivered nothing for the whole step -- a capture
@@ -490,7 +498,7 @@ class ProtocolVideoStep:
                 f'[PROTOCOL-VIDEO] Free disk fell to {free_mb:.0f} MB (floor '
                 f'{MIN_REQUIRED_DISK_MB} MB); aborting the run'
             )
-            self._engine.stop()
+            self._engine.stop('disk_floor')
             self._abort_run_fatal(
                 'FileIO',
                 'Disk Space Critical',
