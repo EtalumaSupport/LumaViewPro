@@ -358,15 +358,13 @@ class StackBuilder(ProtocolPostProcessor):
         output_depth = image_utils.resolve_output_depth(input_depths)
         timestamps = [ts for _, ts in headers]
 
+        # Positions only: build_hyperstack_output_metadata derives every
+        # unit list itself, so unit entries built here would be dead.
         plane_metadata = {
             'PositionX': df['X'].tolist(),
             'PositionY': df['Y'].tolist(),
             'PositionZ': df['Z'].tolist(),
         }
-        num_planes = len(df)
-        plane_metadata['PositionXUnit'] = num_planes * ['mm']
-        plane_metadata['PositionYUnit'] = num_planes * ['mm']
-        plane_metadata['PositionZUnit'] = num_planes * ['um']
 
         # Timing is all-or-nothing: DeltaT is the measured list only when
         # EVERY plane carries a readable capture time, else None (no timing

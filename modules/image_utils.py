@@ -25,6 +25,13 @@ from lvp_logger import logger, version
 
 TIFF_SUFFIXES = frozenset({'.tif', '.tiff'})
 
+# The OME UnitsLength token for micrometres is the MICRO SIGN form; the
+# ASCII 'um' shorthand is schema-invalid and a strict OME parser refuses
+# the whole file (Bio-Formats' lenient parsing long hid this). Escaped so
+# the source file stays ASCII. The ImageJ metadata 'unit' field is a
+# different consumer's vocabulary and deliberately keeps 'um'.
+OME_UNIT_MICROMETER = '\u00b5m'
+
 
 def is_tiff(path: pathlib.Path | str) -> bool:
     """True when this path names a TIFF the project can read.
@@ -1203,7 +1210,7 @@ def build_hyperstack_output_metadata(
         'PositionZ': plane_positions['PositionZ'],
         'PositionXUnit': ['mm'] * num_planes,
         'PositionYUnit': ['mm'] * num_planes,
-        'PositionZUnit': ['um'] * num_planes,
+        'PositionZUnit': [OME_UNIT_MICROMETER] * num_planes,
     }
     # Timing is written only when the caller measured it (per-plane
     # seconds from the earliest plane; DeltaT is a required key, None when
@@ -1230,9 +1237,9 @@ def build_hyperstack_output_metadata(
         metadata['Pixels'].update(
             {
                 'PhysicalSizeX': pixel_size_um,
-                'PhysicalSizeXUnit': 'um',
+                'PhysicalSizeXUnit': OME_UNIT_MICROMETER,
                 'PhysicalSizeY': pixel_size_um,
-                'PhysicalSizeYUnit': 'um',
+                'PhysicalSizeYUnit': OME_UNIT_MICROMETER,
             }
         )
 
@@ -2109,6 +2116,12 @@ def generate_tiff_data(
             'options': options,
         }
 
+    # The micron token is container-dependent: OME-XML (UTF-8) requires
+    # the schema's micro-sign form, while tifffile encodes the ImageJ /
+    # shaped descriptions as ASCII, where the micro sign crashes the
+    # write -- and ImageJ's own convention is 'um'.
+    micron = OME_UNIT_MICROMETER if image_type == 'ome' else 'um'
+
     # Shared plane metadata for all structured image types
     plane = {
         'PositionX': metadata['plate_pos_mm']['x'],
@@ -2116,7 +2129,7 @@ def generate_tiff_data(
         'PositionZ': metadata['z_pos_um'],
         'PositionXUnit': 'mm',
         'PositionYUnit': 'mm',
-        'PositionZUnit': 'um',
+        'PositionZUnit': micron,
         'Objective': metadata['objective'],
         'Illumination': metadata['illumination_ma'],
         'IlluminationUnit': 'mA',
@@ -2168,12 +2181,14 @@ def generate_tiff_data(
     # A scale is written only when one is known. Emitting the keys with a null
     # value would still read downstream as a PhysicalSize claim, and a reader
     # cannot tell an invented scale from a measured one -- the absence is the
-    # honest signal that this file cannot be measured.
+    # honest signal that this file cannot be measured. The unit comes from
+    # the container-dependent micron token resolved with the Plane units
+    # above (OME micro-sign form vs ASCII 'um' for the ImageJ container).
     if pixel_size_um is not None:
         tiff_metadata['PhysicalSizeX'] = pixel_size_um
-        tiff_metadata['PhysicalSizeXUnit'] = 'um'
+        tiff_metadata['PhysicalSizeXUnit'] = micron
         tiff_metadata['PhysicalSizeY'] = pixel_size_um
-        tiff_metadata['PhysicalSizeYUnit'] = 'um'
+        tiff_metadata['PhysicalSizeYUnit'] = micron
 
     # Producing algorithm, when the caller supplied one (post-processing
     # outputs). Rides along in the structured metadata so a consumer can tell a

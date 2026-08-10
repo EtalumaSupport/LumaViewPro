@@ -240,7 +240,11 @@ class TestStackBuilderPropagatesPixelSizeAndChannels:
             'Hyperstack OME-XML must declare PhysicalSizeX so consumers '
             'can compute on-screen scale bars.'
         )
-        assert 'PhysicalSizeXUnit="um"' in ome_xml, 'PhysicalSizeX must declare its unit (microns).'
+        # The unit is the OME schema's micro-sign token; the ASCII 'um'
+        # shorthand is schema-invalid and strict readers refuse the file.
+        assert f'PhysicalSizeXUnit="{image_utils.OME_UNIT_MICROMETER}"' in ome_xml, (
+            'PhysicalSizeX must declare its unit (microns, OME token).'
+        )
 
     def test_channel_names_in_ome_xml(self, tmp_path):
         rows = []
