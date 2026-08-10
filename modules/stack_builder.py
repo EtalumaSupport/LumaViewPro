@@ -4,7 +4,6 @@ import pathlib
 
 import numpy as np
 import pandas as pd
-import psutil
 
 import modules.image_utils as image_utils
 import modules.common_utils as common_utils
@@ -17,19 +16,6 @@ from modules.protocol_post_record import ProtocolPostRecord
 import logging
 
 logger = logging.getLogger('lvp_logger')
-
-
-def _check_hyperstack_memory(num_t, num_z, num_c, h, w, dtype):
-    """Raise MemoryError if hyperstack would exceed 80% of available RAM."""
-    bytes_per_element = np.dtype(dtype).itemsize
-    required_bytes = num_t * num_z * num_c * h * w * bytes_per_element
-    available_bytes = psutil.virtual_memory().available
-    if required_bytes > available_bytes * 0.8:
-        raise MemoryError(
-            f'Hyperstack requires {required_bytes / 1e9:.1f} GB but only '
-            f'{available_bytes / 1e9:.1f} GB available. Reduce Z-slices, '
-            f'timepoints, or channels.'
-        )
 
 
 class StackBuilder(ProtocolPostProcessor):
@@ -217,6 +203,23 @@ class StackBuilder(ProtocolPostProcessor):
         }
 
     @staticmethod
+    def _read_plane_depth(path: pathlib.Path) -> int:
+        """Header-only read of one input frame's significant-bit depth.
+
+        The output's depth claim must resolve from EVERY input before the
+        streaming write begins (the OME metadata lands ahead of the pixel
+        planes), and reading the IFD alone keeps this pre-scan from decoding
+        every frame's pixels twice. Fails with the same typed, file-naming
+        error as _load_plane.
+        """
+        try:
+            return image_utils.read_tiff_significant_bits(path)
+        except Exception as ex:
+            raise CaptureError(
+                f'failed to read hyperstack input frame {path}: {type(ex).__name__}: {ex}'
+            ) from ex
+
+    @staticmethod
     def _load_plane(path: pathlib.Path) -> tuple[np.ndarray, int]:
         """Read one input frame's pixels and depth, failing loud and naming the file.
 
@@ -276,50 +279,26 @@ class StackBuilder(ProtocolPostProcessor):
         _, color_idx_map = np.unique(df['Color'], return_inverse=True)
         df['Color Index'] = color_idx_map
 
+        df = df.sort_values(by=sort_order, ascending=True)
+
         row0 = df.iloc[0]
         sample_image_file_loc = path / row0['Filepath']
         sample_image, _ = StackBuilder._load_plane(sample_image_file_loc)
-        sample_image_shape = sample_image.shape
-        h, w = sample_image_shape[0], sample_image_shape[1]
+        h, w = sample_image.shape[0], sample_image.shape[1]
+        stack_dtype = sample_image.dtype
 
-        _check_hyperstack_memory(num_t, num_z, num_c, h, w, sample_image.dtype)
-        stacked_image = np.zeros(
-            shape=(num_t, num_z, num_c, h, w),  # Hyperstack order TZCYX
-            dtype=sample_image.dtype,
-        )
-
-        df = df.sort_values(by=sort_order, ascending=True)
+        # The output's depth claim resolves from every input's header before
+        # the write starts -- depths cannot be collected during the plane
+        # stream because the OME metadata is written first.
+        input_depths = [StackBuilder._read_plane_depth(path / fp) for fp in df['Filepath']]
+        output_depth = image_utils.resolve_output_depth(input_depths)
 
         plane_metadata = {
-            'PositionX': [],
-            'PositionY': [],
-            'PositionZ': [],
+            'PositionX': df['X'].tolist(),
+            'PositionY': df['Y'].tolist(),
+            'PositionZ': df['Z'].tolist(),
         }
-
-        input_depths = []
-        for _, row in df.iterrows():
-            t = row['Scan Count']
-            z = row['Z-Slice']
-            c = row['Color Index']
-            image, significant_bits = StackBuilder._load_plane(path / row['Filepath'])
-            input_depths.append(significant_bits)
-
-            if image_utils.is_color_image(image):
-                image = image_utils.rgb_image_to_gray(image=image)
-
-            # Each plane must share the hyperstack's canvas; a per-plane stitch
-            # divergence otherwise surfaces as a cryptic broadcast error on the
-            # slice assignment below.
-            image_utils.require_uniform_geometry(
-                [('first plane', sample_image), (f'plane t{t} z{z} c{c}', image)],
-                operation='assemble this hyperstack',
-            )
-            stacked_image[t, z, c, :, :] = image
-            plane_metadata['PositionX'].append(row['X'])
-            plane_metadata['PositionY'].append(row['Y'])
-            plane_metadata['PositionZ'].append(row['Z'])
-
-        num_planes = len(plane_metadata['PositionX'])
+        num_planes = len(df)
         plane_metadata['PositionXUnit'] = num_planes * ['mm']
         plane_metadata['PositionYUnit'] = num_planes * ['mm']
         plane_metadata['PositionZUnit'] = num_planes * ['um']
@@ -329,8 +308,42 @@ class StackBuilder(ProtocolPostProcessor):
             path=path,
             output_file_loc=output_file_loc,
             plane_metadata=plane_metadata,
-            significant_bits=image_utils.resolve_output_depth(input_depths),
+            significant_bits=output_depth,
         )
+
+        def _planes():
+            # Planes stream in sorted (T, Z, C) order -- exactly the C-order
+            # page sequence of the TZCYX shape declared to the writer. Ordering
+            # by sorted RANK rather than indexing a cube with raw Scan Count
+            # values also builds rectangular wells whose scan counts are not a
+            # dense 0..N-1 range.
+            for _, row in df.iterrows():
+                t, z, c = row['Scan Count'], row['Z-Slice'], row['Color Index']
+                image, _ = StackBuilder._load_plane(path / row['Filepath'])
+
+                if image_utils.is_color_image(image):
+                    image = image_utils.rgb_image_to_gray(image=image)
+
+                # Each plane must share the hyperstack's canvas; a per-plane
+                # stitch divergence otherwise surfaces as a cryptic tifffile
+                # error mid-write.
+                image_utils.require_uniform_geometry(
+                    [('first plane', sample_image), (f'plane t{t} z{z} c{c}', image)],
+                    operation='assemble this hyperstack',
+                )
+
+                # Mixed pixel types cannot share one stack. The cube build
+                # silently CAST mismatched planes into the stack dtype (uint16
+                # into uint8 truncates) -- wrong data under a success status.
+                if image.dtype != stack_dtype:
+                    raise CaptureError(
+                        f'hyperstack input frame {row["Filepath"]} is {image.dtype} but '
+                        f'this stack is {stack_dtype}: mixed pixel types cannot share one '
+                        f'hyperstack. Re-capture the well at one bit depth or build each '
+                        f'capture group separately.'
+                    )
+
+                yield image
 
         output_file_loc_abs = path / output_file_loc
         output_file_loc_abs.parent.mkdir(exist_ok=True, parents=True)
@@ -339,8 +352,10 @@ class StackBuilder(ProtocolPostProcessor):
         # OME dict carries the per-plane depth, so this path needs no
         # scalar significant_bits.
         image_utils.write_hyperstack_tiff(
-            data=stacked_image,
+            planes=_planes(),
             file_loc=output_file_loc_abs,
+            shape=(num_t, num_z, num_c, h, w),
+            dtype=stack_dtype,
             hyperstack_metadata=ome_info['metadata'],
             hyperstack_options=ome_info['options'],
             hyperstack_resolution=ome_info['resolution'],
@@ -349,7 +364,7 @@ class StackBuilder(ProtocolPostProcessor):
         return {
             'status': True,
             'error': None,
-            'significant_bits': image_utils.resolve_output_depth(input_depths),
+            'significant_bits': output_depth,
             'metadata': {},
         }
 

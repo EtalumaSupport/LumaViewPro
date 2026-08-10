@@ -21,27 +21,13 @@ test_capture_collision_policy.py.
 from __future__ import annotations
 
 import pathlib
-from unittest.mock import MagicMock
 
 import numpy as np
 import pandas as pd
-import pytest
 import tifffile as tf
 
 from modules import image_utils
-from modules import stack_builder as stack_builder_module
 from modules.stack_builder import StackBuilder
-
-
-@pytest.fixture(autouse=True)
-def _real_available_memory(monkeypatch):
-    """Conftest mocks psutil globally, leaving virtual_memory().available a
-    MagicMock that cannot be compared with int. The hyperstack memory
-    pre-check needs a real int; route to a generous 16 GB sentinel so the
-    check passes for the small test arrays."""
-    mem = MagicMock()
-    mem.available = 16 * 1024 * 1024 * 1024
-    monkeypatch.setattr(stack_builder_module.psutil, 'virtual_memory', lambda: mem)
 
 
 def _write_frame(

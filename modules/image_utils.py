@@ -1746,13 +1746,26 @@ def maybe_apply_false_color(
 
 
 def write_hyperstack_tiff(
-    data,
+    planes,
     file_loc: pathlib.Path,
+    shape: tuple,
+    dtype,
     hyperstack_metadata: dict,
-    hyperstack_options: dict | None = None,
+    hyperstack_options: dict,
     hyperstack_resolution: tuple | None = None,
 ):
-    """Write a 5D TZCYX hyperstack with caller-prepared OME metadata.
+    """Stream a 5D TZCYX hyperstack to disk with caller-prepared OME metadata.
+
+    ``planes`` is an iterator of 2D YX planes in C-order of ``shape``
+    (T-major, then Z, then C); ``shape`` and ``dtype`` describe the full
+    stack, which tifffile needs up front to lay the file out. The stack
+    never materializes in RAM -- the memory bound is one plane regardless
+    of stack size, which is what lets a 600-frame video well build on any
+    field machine.
+
+    ``hyperstack_options`` is required and must carry ``photometric``:
+    without it, tifffile's shape heuristics can read a <=4-wide trailing
+    dimension of a declared-shape write as samples and reject the OME axes.
 
     Separate from write_tiff because this path shares none of the
     per-image logic: maybe_apply_false_color expects 2D mono input,
@@ -1769,8 +1782,14 @@ def write_hyperstack_tiff(
     is serialized into a private TIFF tag so LVP-aware consumers can
     recover those fields; FIJI / ImageJ ignore the unknown tag.
     """
-    use_bigtiff = data.nbytes > 3.8 * 1024 * 1024 * 1024
-    write_options = hyperstack_options or {}
+    total_bytes = int(np.prod(shape)) * np.dtype(dtype).itemsize
+    use_bigtiff = total_bytes > 3.8 * 1024 * 1024 * 1024
+    if 'photometric' not in hyperstack_options:
+        raise ValueError(
+            'write_hyperstack_tiff requires photometric in hyperstack_options; '
+            'without it a <=4-wide trailing dimension can be misread as samples'
+        )
+    write_options = dict(hyperstack_options)
     # Strip rendering-hint keys from the JSON sidecar copy. LUTs +
     # Channel.Color are encoded into the file's TIFF / OME-XML
     # sections directly; the sidecar is for LVP-aware consumers
@@ -1796,7 +1815,9 @@ def write_hyperstack_tiff(
         bigtiff=use_bigtiff,
     ) as tif:
         tif.write(
-            data,
+            planes,
+            shape=shape,
+            dtype=np.dtype(dtype),
             resolution=hyperstack_resolution,
             metadata=hyperstack_metadata,
             software=f'LumaViewPro {version}',
