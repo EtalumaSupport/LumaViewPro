@@ -1994,7 +1994,11 @@ class ImagingAPI:
                     f'(drained={drain_iterations}, frames_until_valid={remaining}, '
                     f'device_removed={device_removed})'
                 )
-                return False
+                # None is the contract's failure sentinel. A bool here
+                # slips every `is None` caller check: the stills leg
+                # skipped its capture strike -- and reset the accumulated
+                # counter -- on exactly this stalled-feed failure mode.
+                return None
 
         image = self.get_image(
             force_to_8bit=force_to_8bit,

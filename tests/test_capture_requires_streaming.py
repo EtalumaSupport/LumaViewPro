@@ -40,3 +40,20 @@ def test_capture_and_wait_succeeds_while_streaming(sim_scope):
     assert sim_scope.imaging.is_streaming()
     result = sim_scope.imaging.capture_and_wait(dark_floor_check=False, timeout_s=2.0)
     assert result is not None
+
+
+def test_capture_and_wait_returns_none_when_drain_stalls(sim_scope):
+    # A live feed whose drain cannot complete (grab timeouts while frame
+    # validity still wants frames) is the stalled-feed failure mode. The
+    # contract's failure sentinel is None -- a bool here slips every
+    # `is None` caller check, so the stills leg skipped its capture
+    # strike (and reset the accumulated counter) on exactly this mode.
+    assert sim_scope.imaging.is_streaming()
+    with (
+        patch.object(sim_scope.imaging.frame_validity, 'frames_until_valid', return_value=1),
+        patch.object(sim_scope.imaging._driver, 'grab_new_capture', return_value=(False, None)),
+        patch.object(imaging_module, 'logger'),
+    ):
+        result = sim_scope.imaging.capture_and_wait(dark_floor_check=False, timeout_s=1.0)
+
+    assert result is None, 'stalled-feed drain failure must return the None sentinel'
