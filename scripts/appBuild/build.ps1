@@ -440,7 +440,12 @@ if ($fx2_libusb_dll) {
 } else {
     $env:FX2_LIBUSB_DLL = ""
 }
-& $venv_python -m PyInstaller --log-level WARN .\lumaviewpro.spec
+# DEBUG level so the transcript names PyInstaller's binary-dependency
+# search directories -- the record of WHERE each collected DLL came
+# from. At WARN those lines are suppressed and a bad collected binary
+# (e.g. a stale C runtime scavenged from the build box) is
+# undiagnosable after the fact.
+& $venv_python -m PyInstaller --log-level DEBUG .\lumaviewpro.spec
 $pyi_exit = $LASTEXITCODE
 $env:FX2_LIBUSB_DLL = $null
 if ($pyi_exit -ne 0) { Write-Host "ERROR: PyInstaller failed"; Set-Location $build_dir; Exit 1 }
@@ -456,6 +461,17 @@ if ($warn_file) {
     Copy-Item $warn_file.FullName (Join-Path $artifacts "pyinstaller_warn_$version.txt") -Force
 } else {
     Write-Host "WARNING: no PyInstaller warn file found under .\build\lumaviewpro\"
+}
+
+# Archive the PyInstaller TOC manifests beside the warn file. They record
+# the absolute SOURCE path of every collected binary -- COLLECT-00.toc is
+# the post-dedup set that actually ships (Analysis-00.toc alone can name a
+# losing duplicate; the Splash and Tree channels bypass it entirely) --
+# and the temp tree that holds them is deleted at the end of every build.
+# Without this copy, "which directory did that DLL come from" is
+# unanswerable for any shipped artifact.
+foreach ($toc in Get-ChildItem ".\build\lumaviewpro\*.toc" -ErrorAction SilentlyContinue) {
+    Copy-Item $toc.FullName (Join-Path $artifacts ("pyinstaller_" + $toc.BaseName + "_$version.toc")) -Force
 }
 
 # Dist census + hard gate: an exe missing a camera-SDK package cannot see
@@ -535,11 +551,16 @@ if (-not (Test-Path ".\dist\lumaviewpro\vcruntime140.dll")) {
 # extensions resolve msvcp from System32 -- resolving to an OLDER copy
 # than they were built against is a missing-entry-point crash waiting on
 # exactly the machines the redist chain is meant to protect.
+$vc_dlls = Get-ChildItem ".\dist\lumaviewpro" -Recurse -Include 'msvcp140*.dll', 'vcruntime140*.dll', 'concrt140*.dll', 'ucrtbase.dll'
+Write-Host "  CRT census (path : FileVersion) - the build record of every C-runtime file that ships:"
+foreach ($dll in $vc_dlls) {
+    $rel = $dll.FullName.Substring((Resolve-Path ".\dist\lumaviewpro").Path.Length + 1)
+    Write-Host "    $rel : $($dll.VersionInfo.FileVersion)"
+}
 if ($vc_redist_exe) {
-    $vc_dlls = Get-ChildItem ".\dist\lumaviewpro" -Recurse -Include 'msvcp140*.dll', 'vcruntime140*.dll', 'concrt140*.dll'
-    $max_vc = ($vc_dlls | ForEach-Object { $_.VersionInfo.FileVersion -as [version] } | Where-Object { $_ } | Measure-Object -Maximum).Maximum
+    $max_vc = ($vc_dlls | Where-Object { $_.Name -notlike 'ucrtbase*' } | ForEach-Object { $_.VersionInfo.FileVersion -as [version] } | Where-Object { $_ } | Measure-Object -Maximum).Maximum
     $redist_ver = (Get-Item $vc_redist_exe).VersionInfo.FileVersion -as [version]
-    Write-Host "  CRT census: newest bundled VC runtime $max_vc; chained redist $redist_ver"
+    Write-Host "  CRT floor check: newest bundled VC runtime $max_vc; chained redist $redist_ver"
     if ($redist_ver -lt $max_vc) {
         Write-Host "ERROR: chained vc_redist ($redist_ver) is older than the newest bundled VC runtime ($max_vc) - update dependencies\vc_redist.x64.exe"
         Set-Location $build_dir
