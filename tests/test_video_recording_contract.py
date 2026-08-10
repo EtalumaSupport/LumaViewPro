@@ -12,6 +12,7 @@ injected time source precisely so these stay deterministic.
 import json
 import pathlib
 import threading
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -296,6 +297,35 @@ class TestManifestTruth:
         manifest = json.loads(manifest_path.read_text())
         missing = REQUIRED_MANIFEST_KEYS - set(manifest)
         assert not missing, f'manifest missing keys: {sorted(missing)}'
+
+
+class TestManifestWriteFailureIsLoud:
+    def test_manifest_write_failure_notifies_non_fatally(self, tmp_path):
+        # The manifest is the SOLE carrier of the recording's channel
+        # color and measured rate; a silent write failure downgrades
+        # every later build of these frames to grayscale at an
+        # unmeasured rate. Non-fatal: the frames are the artifact and
+        # stay intact, so the recording must not abort.
+        notify = MagicMock()
+        engine, writer, clock, _ = make_engine(tmp_path, notify=notify)
+        engine.start(make_config(tmp_path, fps=5, duration_s=1))
+        feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=1)
+        # A directory squatting on the manifest path makes the write
+        # raise without touching the frames.
+        (tmp_path / 'recording_manifest.json').mkdir()
+        engine.stop('user_stop')
+        assert engine.wait_for_drain(timeout=5)
+
+        result = engine.result()
+        assert result.manifest_path is None
+        assert not result.aborted, 'a manifest write failure must not abort the recording'
+        assert writer.written, 'frames must still be on disk'
+        notify.warning.assert_called_once()
+        title = notify.warning.call_args[0][1]
+        assert 'not saved' in title.lower() or 'detail' in title.lower(), (
+            f'the warning must name the lost details file, got {title!r}'
+        )
+        notify.critical.assert_not_called()
 
 
 class TestFrameIdentityTravelsWithTheFrame:

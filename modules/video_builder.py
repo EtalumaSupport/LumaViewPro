@@ -496,6 +496,16 @@ class VideoBuilder(ProtocolPostProcessor):
             with open(legacy_path) as fh:
                 legacy = json.load(fh)
         except (OSError, ValueError):
+            # Neither manifest generation is readable. Say so: a LOST
+            # manifest is otherwise indistinguishable from deliberate
+            # grayscale, and the build quietly plays colorless at the
+            # default rate. Log-only -- a pre-manifest legacy folder
+            # takes this path legitimately, so a popup would misfire.
+            logger.warning(
+                f'[{self._name}] No readable recording manifest in {path.name}; '
+                f'the video will build grayscale at the default rate. The '
+                f'manifest carries the channel color and measured rate.'
+            )
             return {'channel_color': None, 'measured_fps': None}
         recording = legacy.get('recording', {})
         fps = recording.get('actual_fps', {}).get('mean')

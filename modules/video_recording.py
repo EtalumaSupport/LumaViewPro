@@ -28,6 +28,10 @@ event fails silent):
   delivered fewer frames than the configured rate promised), frame drops.
   These land in the manifest and the end-of-run report, never a popup
   mid-run.
+- Non-fatal, surfaced at warning severity: the MANIFEST write itself
+  failing -- it cannot land in the manifest, and it is the sole carrier
+  of channel color and measured rate, so it goes through the notify sink
+  (the protocol mute keeps it log-only mid-run; manual gets the popup).
 - A start refusal (exclusive activity already running) raises
   ``RecordingRefusedError`` directly to the refused caller, outside the
   mute's scope.
@@ -558,7 +562,20 @@ class VideoRecordingEngine:
             path.write_text(json.dumps(manifest, indent=2))
         except OSError as ex:
             # The frames on disk are the artifact; a manifest write
-            # failure degrades reporting, never the recording.
+            # failure degrades reporting, never the recording. But the
+            # manifest is the SOLE carrier of the recording's channel
+            # color and measured rate, so the loss must be loud: without
+            # it every later build of these frames silently plays
+            # grayscale at a default rate.
             logger.error(f'[VideoEngine] Manifest write failed ({ex}); frames are unaffected')
+            if self._notify is not None:
+                self._notify.warning(
+                    'Video Recording',
+                    'Recording details not saved',
+                    'The video frames are safe on disk, but the recording details '
+                    'file could not be written. Videos built from this recording '
+                    'may be grayscale and use a default frame rate; check disk '
+                    'space and the log.',
+                )
             return None
         return path

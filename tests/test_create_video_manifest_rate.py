@@ -97,3 +97,30 @@ def test_channel_color_read_from_either_manifest_generation(tmp_path):
     info = builder._read_recording_manifest(legacy_dir)
     # A zero-sample mean is not a measured rate.
     assert info == {'channel_color': 'Lumi', 'measured_fps': None}
+
+
+def test_frames_without_any_manifest_warn_loudly(tmp_path, monkeypatch):
+    # The manifest is the sole carrier of the recording's channel color
+    # and measured rate. Silently returning None fields made a LOST
+    # manifest indistinguishable from deliberate grayscale: the build
+    # quietly produced a colorless video at the default rate. The reader
+    # now says so in the log (log-only: a pre-manifest legacy folder
+    # takes the same path legitimately, so a popup would misfire).
+    # Recorded logger, not caplog: the shared lvp_logger is
+    # conftest-mocked, so caplog cannot observe it.
+    from unittest.mock import MagicMock
+
+    import modules.video_builder as video_builder_module
+
+    logger_mock = MagicMock()
+    monkeypatch.setattr(video_builder_module, 'logger', logger_mock)
+
+    builder = VideoBuilder(has_turret=False)
+    info = builder._read_recording_manifest(tmp_path)
+
+    assert info == {'channel_color': None, 'measured_fps': None}
+    assert logger_mock.warning.called, (
+        'a folder with no readable manifest must warn about the degraded build'
+    )
+    message = logger_mock.warning.call_args[0][0]
+    assert 'manifest' in message.lower() and 'grayscale' in message.lower()
