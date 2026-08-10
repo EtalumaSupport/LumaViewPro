@@ -2302,18 +2302,14 @@ class TechSupportReport:
     # -- Helpers -------------------------------------------------------------
 
     def _write_log_delimiter(self):
+        # The logging call IS the write to the main log: the root logger
+        # owns the lumaviewpro.log file handler and this module's logger
+        # propagates to it. A direct file append here was a second
+        # writer that landed in whichever log file happened to have the
+        # newest mtime -- usually the camera.log firehose, never
+        # reliably the main log the marker is meant for.
         ts = datetime.datetime.now().isoformat()
-        delim = LOG_DELIMITER.format(timestamp=ts)
-        logger.info(delim)
-        logs_dir = _get_lvp_logs_dir()
-        if logs_dir:
-            try:
-                logs = sorted(logs_dir.glob('*.log'), key=lambda p: p.stat().st_mtime)
-                if logs:
-                    with open(logs[-1], 'a') as f:
-                        f.write(delim)
-            except OSError:
-                pass
+        logger.info(LOG_DELIMITER.format(timestamp=ts))
 
     def _get_lvp_version(self):
         from modules.path_utils import read_version
