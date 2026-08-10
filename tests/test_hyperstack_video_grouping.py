@@ -13,11 +13,13 @@ yields both artifact families.
 """
 
 import pathlib
+import re
 
 import numpy as np
 import pandas as pd
 import tifffile as tf
 
+from modules import image_utils
 from modules import recording_frames
 from modules.common_utils import PostFunction
 from modules.stack_builder import StackBuilder
@@ -159,6 +161,74 @@ class TestVideoWellStackBuild:
         assert [int(data[t, 0, 0]) for t in range(3)] == [0, 1, 2], (
             'T axis must follow frame order within the recording'
         )
+
+    def test_video_stack_planes_carry_delta_t_from_frame_timestamps(self, tmp_path):
+        # PR-6 timing honesty: the recording's real per-frame capture
+        # times land as per-plane DeltaT (seconds from the earliest
+        # plane), so a variable-rate recording reads back with true
+        # timing instead of an implied constant rate. Frames written via
+        # the production frame writer carry the timestamps.
+        base_s = 1_755_000_000.0
+        rows = []
+        for n in range(3):
+            path = _frame_path('A1', 'BF', 0, n)
+            rows.append((path, 0, 'BF', 0))
+            loc = tmp_path / path
+            loc.parent.mkdir(parents=True, exist_ok=True)
+            metadata, _ = recording_frames.tiff_frame_metadata(
+                timestamp_s=base_s + n * 0.5,
+                frame_number=n,
+                chunks=None,
+                tick_freq_hz=None,
+            )
+            image_utils.write_tiff(
+                data=np.full((4, 4), n, dtype=np.uint8),
+                file_loc=loc,
+                metadata=metadata,
+                ome=False,
+                color='BF',
+                significant_bits=8,
+                save_encoding='8bit',
+                video_frame=True,
+            )
+        df = _stack_df(rows)
+
+        builder = StackBuilder(has_turret=False)
+        ((_, group),) = StackBuilder._get_groups(df)
+        result = builder._group_algorithm(
+            path=tmp_path,
+            df=group.reset_index(drop=True),
+            output_file_loc=pathlib.Path('out.ome.tiff'),
+        )
+        assert result.status, f'stack build failed: {result.error}'
+
+        with tf.TiffFile(str(tmp_path / 'out.ome.tiff')) as tif:
+            ome_xml = tif.ome_metadata or ''
+        deltas = sorted(float(m) for m in re.findall(r'DeltaT="([\d.]+)"', ome_xml))
+        assert deltas == [0.0, 0.5, 1.0], (
+            f'per-plane DeltaT must carry the real frame offsets, got {deltas}'
+        )
+
+    def test_stack_without_timestamps_omits_delta_t(self, tmp_path):
+        # All-or-nothing: a stack whose inputs carry no readable capture
+        # time makes no timing claim at all -- a partial or invented
+        # DeltaT list would read downstream as a measurement.
+        rows = [(_frame_path('A1', 'BF', 0, n), 0, 'BF', 0) for n in range(3)]
+        df = _stack_df(rows)
+        _write_frames(tmp_path, df)
+
+        builder = StackBuilder(has_turret=False)
+        ((_, group),) = StackBuilder._get_groups(df)
+        result = builder._group_algorithm(
+            path=tmp_path,
+            df=group.reset_index(drop=True),
+            output_file_loc=pathlib.Path('out.ome.tiff'),
+        )
+        assert result.status, f'stack build failed: {result.error}'
+
+        with tf.TiffFile(str(tmp_path / 'out.ome.tiff')) as tif:
+            ome_xml = tif.ome_metadata or ''
+        assert 'DeltaT' not in ome_xml
 
     def test_unequal_channel_frame_counts_refused(self, tmp_path):
         # Behavior-preservation guard (refuses before and after): two

@@ -887,6 +887,22 @@ def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
     return flat
 
 
+def read_tiff_depth_and_timestamp(path: pathlib.Path) -> tuple[int, 'datetime.datetime | None']:
+    """Header-only read of a TIFF's payload depth and capture timestamp.
+
+    One open serves both facts; the pixel data is never decoded, so a
+    pre-scan over hundreds of recorded frames costs one IFD parse each.
+    See read_tiff_significant_bits for the depth resolution order and
+    read_frame_timestamp for the timestamp metadata shapes. The timestamp
+    is None when the file carries no readable capture time (both helpers
+    resolve absent / unparseable metadata to None by contract).
+    """
+    with tf.TiffFile(str(path)) as tif:
+        sig = _significant_bits_from_open(tif)
+        timestamp = _timestamp_from_structured(_structured_metadata(tif))
+    return sig, timestamp
+
+
 def read_frame_timestamp(path: pathlib.Path) -> datetime.datetime | None:
     """Recover the per-frame capture timestamp from one recorded TIFF.
 
@@ -1149,9 +1165,11 @@ def build_hyperstack_output_metadata(
             shared fields (same site, same objective, same scope).
         channel_names: One channel name per C-axis position.
         plane_positions: Dict with PositionX / PositionY / PositionZ
-            lists, one entry per T*Z*C plane in scan order. Caller is
-            responsible for list-length consistency with the data
-            array.
+            lists, one entry per T*Z*C plane in scan order, plus a
+            required DeltaT entry: the per-plane seconds from the
+            earliest plane when capture times were measured, else None
+            (no timing claim is written). Caller is responsible for
+            list-length consistency with the data array.
         significant_bits: 8 for uint8 captures, 16 for uint16.
         pixel_size_um: Hyperstack pixel size in microns.
 
@@ -1179,19 +1197,29 @@ def build_hyperstack_output_metadata(
             colormap_type = LvpColormap.GRAY
         channel_colors.append(_lvp_colormap_to_ome_rgba(colormap_type))
 
+    plane: dict = {
+        'PositionX': plane_positions['PositionX'],
+        'PositionY': plane_positions['PositionY'],
+        'PositionZ': plane_positions['PositionZ'],
+        'PositionXUnit': ['mm'] * num_planes,
+        'PositionYUnit': ['mm'] * num_planes,
+        'PositionZUnit': ['um'] * num_planes,
+    }
+    # Timing is written only when the caller measured it (per-plane
+    # seconds from the earliest plane; DeltaT is a required key, None when
+    # unmeasured). Like the pixel-size claim below, an absent DeltaT is
+    # the honest signal that timing was not recorded; an invented list
+    # would read downstream as a measurement.
+    if plane_positions['DeltaT'] is not None:
+        plane['DeltaT'] = plane_positions['DeltaT']
+        plane['DeltaTUnit'] = ['s'] * num_planes
+
     metadata: dict = {
         'axes': 'TZCYX',
         'SignificantBits': significant_bits,
         'Pixels': {},
         'Channel': {'Name': channel_names, 'Color': channel_colors},
-        'Plane': {
-            'PositionX': plane_positions['PositionX'],
-            'PositionY': plane_positions['PositionY'],
-            'PositionZ': plane_positions['PositionZ'],
-            'PositionXUnit': ['mm'] * num_planes,
-            'PositionYUnit': ['mm'] * num_planes,
-            'PositionZUnit': ['um'] * num_planes,
-        },
+        'Plane': plane,
     }
 
     # A scale is written only when one is known. Emitting the keys with a null

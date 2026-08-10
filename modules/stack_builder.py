@@ -199,6 +199,7 @@ class StackBuilder(ProtocolPostProcessor):
                 'PositionX': plane_metadata['PositionX'],
                 'PositionY': plane_metadata['PositionY'],
                 'PositionZ': plane_metadata['PositionZ'],
+                'DeltaT': plane_metadata['DeltaT'],
             },
             significant_bits=sample_significant_bits,
             pixel_size_um=pixel_size_um,
@@ -230,17 +231,21 @@ class StackBuilder(ProtocolPostProcessor):
         }
 
     @staticmethod
-    def _read_plane_depth(path: pathlib.Path) -> int:
-        """Header-only read of one input frame's significant-bit depth.
+    def _read_plane_header(path: pathlib.Path):
+        """Header-only read of one input frame's depth and capture time.
 
-        The output's depth claim must resolve from EVERY input before the
-        streaming write begins (the OME metadata lands ahead of the pixel
-        planes), and reading the IFD alone keeps this pre-scan from decoding
-        every frame's pixels twice. Fails with the same typed, file-naming
-        error as _load_plane.
+        The output's depth claim and per-plane timing must resolve from
+        EVERY input before the streaming write begins (the OME metadata
+        lands ahead of the pixel planes), and reading the IFD alone keeps
+        this pre-scan from decoding every frame's pixels twice. Fails with
+        the same typed, file-naming error as _load_plane.
+
+        Returns:
+            (significant_bits, timestamp) -- timestamp is None when the
+            frame carries no readable capture time.
         """
         try:
-            return image_utils.read_tiff_significant_bits(path)
+            return image_utils.read_tiff_depth_and_timestamp(path)
         except Exception as ex:
             raise CaptureError(
                 f'failed to read hyperstack input frame {path}: {type(ex).__name__}: {ex}'
@@ -314,11 +319,13 @@ class StackBuilder(ProtocolPostProcessor):
         h, w = sample_image.shape[0], sample_image.shape[1]
         stack_dtype = sample_image.dtype
 
-        # The output's depth claim resolves from every input's header before
-        # the write starts -- depths cannot be collected during the plane
-        # stream because the OME metadata is written first.
-        input_depths = [StackBuilder._read_plane_depth(path / fp) for fp in df['Filepath']]
+        # The output's depth claim and per-plane timing resolve from every
+        # input's header before the write starts -- neither can be collected
+        # during the plane stream because the OME metadata is written first.
+        headers = [StackBuilder._read_plane_header(path / fp) for fp in df['Filepath']]
+        input_depths = [depth for depth, _ in headers]
         output_depth = image_utils.resolve_output_depth(input_depths)
+        timestamps = [ts for _, ts in headers]
 
         plane_metadata = {
             'PositionX': df['X'].tolist(),
@@ -329,6 +336,17 @@ class StackBuilder(ProtocolPostProcessor):
         plane_metadata['PositionXUnit'] = num_planes * ['mm']
         plane_metadata['PositionYUnit'] = num_planes * ['mm']
         plane_metadata['PositionZUnit'] = num_planes * ['um']
+
+        # Timing is all-or-nothing: DeltaT is the measured list only when
+        # EVERY plane carries a readable capture time, else None (no timing
+        # claim). A partial list would misalign planes against times, and
+        # None is the honest state for inputs that predate per-frame
+        # timestamps. The key is always present so consumers index it.
+        if all(ts is not None for ts in timestamps):
+            t0 = min(timestamps)
+            plane_metadata['DeltaT'] = [round((ts - t0).total_seconds(), 6) for ts in timestamps]
+        else:
+            plane_metadata['DeltaT'] = None
 
         ome_info = StackBuilder._generate_image_metadata(
             df=df,
