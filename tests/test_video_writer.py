@@ -62,10 +62,12 @@ def _make_fake_av(captured_frames):
 
 
 class TestVideoWriter16Bit:
-    """A uint16 frame with no significant_bits routes through the one canonical
-    converter at full 16-bit container depth, not a separate 16->8 entry point."""
+    """A uint16 frame routes through the one canonical converter at its
+    caller-supplied payload depth, not a separate 16->8 entry point.
+    (The depth is required with non-uint8 input; the missing-depth raise
+    is pinned in test_video_writer_depth_contract.py.)"""
 
-    def test_uint16_no_sigbits_uses_canonical_converter(self, tmp_path):
+    def test_uint16_with_depth_uses_canonical_converter(self, tmp_path):
         captured = []
         fake_av, _ = _make_fake_av(captured)
         frame = np.zeros((100, 100), dtype=np.uint16)
@@ -83,7 +85,7 @@ class TestVideoWriter16Bit:
             writer = VideoWriter(
                 output_path=tmp_path / 'depth.mp4', fps=30, include_timestamp_overlay=False
             )
-            writer.add_frame(image=frame, timestamp=None, significant_bits=None)
+            writer.add_frame(image=frame, timestamp=None, significant_bits=12)
 
         legacy.assert_not_called()
         canonical.assert_called_once()
@@ -91,7 +93,7 @@ class TestVideoWriter16Bit:
         passed_sig = kwargs.get('significant_bits')
         if passed_sig is None and len(args) >= 2:
             passed_sig = args[1]
-        assert passed_sig == 16
+        assert passed_sig == 12
 
 
 class TestVideoBitDepth:
@@ -105,7 +107,7 @@ class TestVideoBitDepth:
             writer = VideoWriter(
                 output_path=tmp_path / 'c16.mp4', fps=10.0, include_timestamp_overlay=False
             )
-            writer.add_frame(image=np.ones((100, 100), dtype=np.uint16) * 1000)
+            writer.add_frame(image=np.ones((100, 100), dtype=np.uint16) * 1000, significant_bits=16)
         assert len(captured) == 1
         written_image, _fmt = captured[0]
         assert written_image.dtype == np.uint8, (
@@ -132,7 +134,9 @@ class TestVideoBitDepth:
             writer = VideoWriter(
                 output_path=tmp_path / 'c16c.mp4', fps=10.0, include_timestamp_overlay=False
             )
-            writer.add_frame(image=np.ones((100, 100, 3), dtype=np.uint16) * 500)
+            writer.add_frame(
+                image=np.ones((100, 100, 3), dtype=np.uint16) * 500, significant_bits=16
+            )
         assert len(captured) == 1
         written_image, fmt = captured[0]
         assert written_image.dtype == np.uint8, '16-bit color frame must be converted to uint8'
