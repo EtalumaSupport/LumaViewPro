@@ -11001,6 +11001,42 @@ class TestWindowsBuildIsWindowed_559:
             'when that is absent.'
         )
 
+    def test_build_script_distinguishes_failed_bundle_from_no_bundle(self):
+        """A bundle that was ATTEMPTED and FAILED must not report success.
+
+        Both a failed bundle and a deliberate MSI-only build leave
+        $bundle empty, so $bundle alone cannot tell them apart. Before
+        the fix the failure path printed a warning, blanked $bundle, and
+        fell through to a generic BUILD COMPLETE banner that simply
+        omitted the Bundle line -- byte-identical to an MSI-only build --
+        and exited 0.
+
+        Pins the mechanism rather than the wording: the $bundle_failed
+        flag, and the exit placed AFTER Stop-Transcript so the failing
+        run keeps its own build log.
+        """
+        from pathlib import Path
+
+        # pin-justified: no PowerShell harness exists, and the build box
+        # is the only place this code runs.
+        build_ps1 = (
+            Path(__file__).resolve().parent.parent / 'scripts' / 'appBuild' / 'build.ps1'
+        ).read_text()
+        assert '$bundle_failed' in build_ps1, (
+            'build.ps1 must track whether a bundle was ATTEMPTED and FAILED '
+            'separately from whether one was built. Both states leave $bundle '
+            'empty, so without this flag a failed bundle is indistinguishable '
+            'from a deliberate MSI-only build.'
+        )
+        stop_transcript = build_ps1.index('Stop-Transcript | Out-Null')
+        failure_exit = build_ps1.index('if ($bundle_failed) { Exit 1 }')
+        assert failure_exit > stop_transcript, (
+            'The failed-bundle Exit must come AFTER Stop-Transcript. Every '
+            'other Exit in build.ps1 bypasses both the transcript close and '
+            'the build.log copy, so exiting at the failure site would destroy '
+            'the log for the one run that most needs it.'
+        )
+
     def test_lock_loser_drops_stderr_print(self):
         """Lock-loser path at lumaviewpro.py:~129-154 must not write
         to sys.stderr. On a windowed build that stderr write is

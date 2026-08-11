@@ -670,6 +670,10 @@ Write-Host "MSI: $msi"
 # Build Bundle (if dependencies available)
 # ---------------------------------------------------------------------------
 $bundle = ""
+# Distinguishes "no bundle was attempted" (a deliberate MSI-only build) from
+# "a bundle was attempted and failed". Both leave $bundle empty, so $bundle
+# alone cannot tell the summary below which happened.
+$bundle_failed = $false
 if ($pylon_msi -and $vc_redist_exe) {
     Write-Host "`n--- WiX Bundle ---"
     $bundle = Join-Path $output_dir "$product-setup.exe"
@@ -720,8 +724,9 @@ if ($pylon_msi -and $vc_redist_exe) {
     & $wix_exe @bundle_args
 
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "Warning: Bundle build failed"
+        Write-Host "ERROR: Bundle build failed (wix exit $LASTEXITCODE)"
         $bundle = ""
+        $bundle_failed = $true
     } else {
         Write-Host "Bundle: $bundle"
     }
@@ -736,10 +741,19 @@ Set-Location $build_dir
 Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Host "`n======================================="
-Write-Host "  BUILD COMPLETE"
+if ($bundle_failed) {
+    Write-Host "  BUILD INCOMPLETE - the bundle failed"
+} else {
+    Write-Host "  BUILD COMPLETE"
+}
 Write-Host "======================================="
 Write-Host "  MSI:      $msi"
-if ($bundle -and (Test-Path $bundle)) {
+# A failed bundle must appear here. Omitting the line is how an attempted-
+# and-failed bundle became indistinguishable from a deliberate MSI-only
+# build, which prints no Bundle line either.
+if ($bundle_failed) {
+    Write-Host "  Bundle:   FAILED - see the wix errors above; the MSI above is still usable"
+} elseif ($bundle -and (Test-Path $bundle)) {
     Write-Host "  Bundle:   $bundle"
 }
 Write-Host "  Output:   $output_dir"
@@ -761,3 +775,12 @@ if (Test-Path $output_dir) {
 }
 
 Stop-Transcript | Out-Null
+
+# Non-zero ONLY when a bundle was attempted and failed. A deliberate MSI-only
+# build never attempted one and still exits 0, which several documented
+# workflows rely on.
+#
+# Placed after Stop-Transcript deliberately: every Exit above this point
+# bypasses both the transcript close and the build.log copy, so exiting at the
+# failure site would destroy the log for the one run that most needs it.
+if ($bundle_failed) { Exit 1 }
