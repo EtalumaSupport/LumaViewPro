@@ -83,14 +83,18 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
-        # Kivy optional deps LVP doesn't use. Listing them here suppresses
-        # the build-time WARNING noise from PyInstaller's Kivy hooks and
-        # keeps the bundle slightly smaller.
-        # NOTE: 'enchant' is intentionally NOT excluded. Kivy's
-        # kivy.core.spelling probes for it at import time; if absent, Kivy
-        # logs CRITICAL during PyInstaller analysis and at runtime startup.
-        # We install pyenchant via requirements.txt so the import succeeds
-        # and the log stays clean.
+        # Drops the module from the dependency graph, which keeps the
+        # bundle smaller. It does NOT quiet the build log: PyInstaller's
+        # Kivy hook logs while it runs, before graph exclusion applies.
+        #
+        # Expect CRITICAL "Spelling: Unable to find any valuable Spelling
+        # provider" lines during the build. They are Kivy's, they concern
+        # a spell-check provider LVP never imports, and nothing keys on
+        # them. Considered silencing them two ways and rejected both:
+        # installing pyenchant costs ~2-4 MB shipped to buy one clean log
+        # line, and excluding 'enchant' here was tried and had no effect
+        # (the hook logs before this list is consulted). Revisit only if a
+        # build gate ever keys on CRITICAL lines.
         'kivy.lib.gstplayer',   # Kivy GStreamer video provider — LVP uses Pylon/IDS
     ],
     noarchive=False,
