@@ -27,16 +27,7 @@ av==17.0.1
 # Kivy's kivy.core.spelling provider tries to import this on every import.
 # We don't use spell-checking, but missing pyenchant logs CRITICAL at every
 # Kivy startup (and during PyInstaller analysis), so we install it to keep
-# the build log clean. ~2-4 MB.
-#
-# WINDOWS ONLY, in effect -- see issue #773. The wheel bundles the libenchant
-# C library on Windows, so the suppression works there. On macOS and Linux the
-# package installs but `import enchant` still fails, because the C library has
-# to come from the system, so the CRITICAL line it exists to prevent appears
-# anyway. Verified on macOS: import raises "The 'enchant' C library was not
-# found". Do not read this pin as cross-platform coverage, and do not add a
-# system libenchant step to CI to "fix" it -- nothing imports enchant under
-# pytest, since conftest replaces kivy with a MagicMock.
+# the build log clean. Wheel bundles libenchant.dll on Windows; ~2-4 MB.
 pyenchant==3.3.0
 
 # FX2 (LVC LS560/LS620/LS720) USB driver bindings. Both packages are
