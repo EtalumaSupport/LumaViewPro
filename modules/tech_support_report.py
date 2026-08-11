@@ -2637,33 +2637,6 @@ def _report_done(self, zip_path):
 
 
 # ---------------------------------------------------------------------------
-# PyInstaller Build Notes
-# ---------------------------------------------------------------------------
-
-PYINSTALLER_SPEC = """\
-# --- Add to scripts/appBuild/build_win_release.ps1 ---
-#
-# After the main LumaViewPro build, add a second PyInstaller invocation
-# to produce a standalone diagnostics executable:
-#
-#   pyinstaller --onefile --name "EtalumaDiagnostics" `
-#       --icon "scripts/appBuild/config/etaluma_icon.ico" `
-#       --add-data "data;data" `
-#       --add-data "drivers;drivers" `
-#       --add-data "modules;modules" `
-#       --add-data "tests;tests" `
-#       modules/tech_support_report.py
-#
-# This produces dist/EtalumaDiagnostics.exe which can be sent to customers
-# independently of LumaViewPro. It connects to hardware directly and runs
-# all the same diagnostics.
-#
-# Both executables (LumaViewPro.exe and EtalumaDiagnostics.exe) go into
-# the final installer package.
-"""
-
-
-# ---------------------------------------------------------------------------
 # Standalone CLI
 # ---------------------------------------------------------------------------
 
