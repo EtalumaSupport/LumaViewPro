@@ -261,17 +261,24 @@ if (-not $fx2_libusb_dll) { Write-Host "No FX2 libusb-1.0.dll in dependencies\fx
 Write-Host "`nChecking tools..."
 try { $wix_version_raw = & wix --version 2>&1; Write-Host "  WiX: $wix_version_raw" } catch { Write-Host "ERROR: WiX not found. Run: dotnet tool install --global wix --version 6.0.0"; Exit 1 }
 
-# Refuse WiX v7+: Bundle.wxs is authored for the v4-v6 WixToolset.Bal.wixext
-# API. v7 restructured WixStdBA and added a required scope field in the
-# Burn-BA plan protocol; bundles built with v7 still produce a -setup.exe
-# but fail at customer install with 0x80070057 "Failed to read plan scope
-# of BAEnginePlan args". Catch the wrong WiX up front, before the build
-# wastes 5+ minutes producing a broken bundle.
-$wix_major = $null
-if ($wix_version_raw -match '^\s*(\d+)\.') { $wix_major = [int]$matches[1] }
-if ($null -ne $wix_major -and $wix_major -ge 7) {
+# Require WiX v6.x. Bundle.wxs is authored for the v4-v6
+# WixToolset.Bal.wixext API. v7 restructured WixStdBA and added a required
+# scope field in the Burn-BA plan protocol; bundles built with v7 still
+# produce a -setup.exe but fail at customer install with 0x80070057 "Failed
+# to read plan scope of BAEnginePlan args". Catch the wrong WiX up front,
+# before the build wastes 5+ minutes producing a broken bundle.
+#
+# Written as an allowlist rather than a refusal of v7, because a refusal has
+# to enumerate every way it can be fooled. `wix --version` goes through
+# Out-String first: with 2>&1 it can arrive as an ARRAY, and -match against
+# an array does not populate $Matches -- so a version test reading
+# $matches[1] silently picks up whatever the branch menu above left there,
+# and [int]$null is 0, which passes a "-ge 7" test. Array, empty, null and
+# unparseable inputs now land in the same refusal as v5 and v7.
+$wix_version_text = ($wix_version_raw | Out-String).Trim()
+if ($wix_version_text -notmatch '^6\.') {
     Write-Host ""
-    Write-Host "ERROR: WiX $wix_version_raw is not supported by this build."
+    Write-Host "ERROR: WiX version '$wix_version_text' is not supported by this build."
     Write-Host "  This build's Bundle.wxs requires WiX v6.x."
     Write-Host "  Downgrade with:"
     Write-Host "    dotnet tool uninstall --global wix"
@@ -670,9 +677,24 @@ if ($pylon_msi -and $vc_redist_exe) {
     # Find BAL extension
     $bal_dep = Join-Path $src "scripts\appBuild\build_exe\deps\WixToolset.BootstrapperApplications.wixext.dll"
     $bal_script = Join-Path $script_dir "build_exe\deps\WixToolset.BootstrapperApplications.wixext.dll"
+    # No feed fallback. The vendored DLL is version-pinned; `wix extension
+    # add -g` fetches whatever the feed currently serves, and nothing here
+    # inspects the extension's version -- the check above reads the WiX
+    # TOOLCHAIN version, which a v7-era BAL extension passes untouched. A
+    # feed-fetched extension is therefore the one way a bundle can look
+    # clean here and still fail 0x80070057 on every customer machine.
     if (Test-Path $bal_dep) { $ext = $bal_dep }
     elseif (Test-Path $bal_script) { $ext = $bal_script }
-    else { & wix extension add -g WixToolset.Bal.wixext 2>&1 | Out-Null; $ext = "WixToolset.Bal.wixext" }
+    else {
+        Write-Host "ERROR: WiX BAL extension not found. Looked in:"
+        Write-Host "  $bal_dep"
+        Write-Host "  $bal_script"
+        Write-Host "  Copy WixToolset.BootstrapperApplications.wixext.dll to the second path."
+        Write-Host "  It is tracked in the LumaViewPro repo under scripts\appBuild\build_exe\deps\,"
+        Write-Host "  and is byte-identical to the WixToolset.BootstrapperApplications.wixext nuget package."
+        Set-Location $build_dir
+        Exit 1
+    }
 
     Write-Host "Building bundle..."
     $bundle_args = @(

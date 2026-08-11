@@ -10970,6 +10970,37 @@ class TestWindowsBuildIsWindowed_559:
             '(any stray occurrence regresses #559).'
         )
 
+    def test_build_script_has_no_wix_extension_feed_fetch(self):
+        """build.ps1 must resolve the WiX BAL extension from a vendored
+        file, never from the nuget feed.
+
+        `wix extension add -g` fetches whatever version the feed serves,
+        and nothing in the build inspects the extension's version -- the
+        tool-version check reads `wix --version`, which a v7-era BAL
+        extension passes untouched. A feed-fetched extension is the one
+        way a bundle can look clean on the build box and still fail
+        0x80070057 on every customer machine.
+
+        Closed-world pin over a literal command, the only shape that
+        survives here: a rewrite cannot reintroduce the feed fetch
+        without reintroducing this string.
+        """
+        from pathlib import Path
+
+        # pin-justified: no PowerShell harness exists, and the build box
+        # is the only place this code runs.
+        build_ps1 = (
+            Path(__file__).resolve().parent.parent / 'scripts' / 'appBuild' / 'build.ps1'
+        ).read_text()
+        assert 'wix extension add' not in build_ps1, (
+            'build.ps1 must not fetch the WiX BAL extension from the nuget '
+            'feed. The feed serves an unpinned version and no version check '
+            'covers the extension, so a v7-era BAL would build a bundle that '
+            'passes every gate here and fails at customer install with '
+            '0x80070057. Resolve it from the vendored DLL and fail loudly '
+            'when that is absent.'
+        )
+
     def test_lock_loser_drops_stderr_print(self):
         """Lock-loser path at lumaviewpro.py:~129-154 must not write
         to sys.stderr. On a windowed build that stderr write is
