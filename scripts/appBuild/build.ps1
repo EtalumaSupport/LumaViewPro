@@ -721,24 +721,29 @@ if ($pylon_msi -and $vc_redist_exe) {
     Write-Host "`n--- WiX Bundle ---"
     $bundle = Join-Path $output_dir "$product-setup.exe"
 
-    # Find BAL extension
-    $bal_dep = Join-Path $src "scripts\appBuild\build_exe\deps\WixToolset.BootstrapperApplications.wixext.dll"
-    $bal_script = Join-Path $script_dir "build_exe\deps\WixToolset.BootstrapperApplications.wixext.dll"
-    # No feed fallback. The vendored DLL is version-pinned; `wix extension
-    # add -g` fetches whatever the feed currently serves, and nothing here
-    # inspects the extension's version -- the check above reads the WiX
-    # TOOLCHAIN version, which a v7-era BAL extension passes untouched. A
-    # feed-fetched extension is therefore the one way a bundle can look
-    # clean here and still fail 0x80070057 on every customer machine.
-    if (Test-Path $bal_dep) { $ext = $bal_dep }
-    elseif (Test-Path $bal_script) { $ext = $bal_script }
+    # Find BAL extension. Hand-placed in dependencies\ like every other
+    # build prerequisite. It used to be the sole exception -- tracked in
+    # this repo -- which is how a 1.6 MB binary rode every source-ZIP
+    # download of a public repo. It is no longer in the repo, so this is
+    # the only place it can come from.
+    #
+    # No feed fallback. The extension is version-pinned by virtue of being
+    # a file we placed; `wix extension add -g` fetches whatever the feed
+    # currently serves, and nothing here inspects the extension's version
+    # -- the check above reads the WiX TOOLCHAIN version, which a v7-era
+    # BAL extension passes untouched. A feed-fetched extension is
+    # therefore the one way a bundle can look clean here and still fail
+    # 0x80070057 on every customer machine.
+    $bal_dll = Join-Path $deps "WixToolset.BootstrapperApplications.wixext.dll"
+    if (Test-Path $bal_dll) { $ext = $bal_dll }
     else {
         Write-Host "ERROR: WiX BAL extension not found. Looked in:"
-        Write-Host "  $bal_dep"
-        Write-Host "  $bal_script"
-        Write-Host "  Copy WixToolset.BootstrapperApplications.wixext.dll to the second path."
-        Write-Host "  It is tracked in the LumaViewPro repo under scripts\appBuild\build_exe\deps\,"
-        Write-Host "  and is byte-identical to the WixToolset.BootstrapperApplications.wixext nuget package."
+        Write-Host "  $bal_dll"
+        Write-Host "  Place WixToolset.BootstrapperApplications.wixext.dll there."
+        Write-Host "  The archived copy lives in the Firmware repo under"
+        Write-Host "  tools\appbuild\deps\. It is byte-identical to the"
+        Write-Host "  WixToolset.BootstrapperApplications.wixext nuget package and is"
+        Write-Host "  pinned to a v4-v6-compatible version on purpose."
         Set-Location $build_dir
         Exit 1
     }
