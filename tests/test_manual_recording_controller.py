@@ -17,6 +17,7 @@ import pytest
 import modules.manual_recording as manual_recording_module
 from modules.exceptions import RecordingRefusedError
 from modules.manual_recording import ManualRecordingController
+from modules.recording_frames import MANUAL_HYPERSTACK_FILENAME
 from modules.video_cadence import INTERIM_DELIVERY_BOUND_FPS
 from tests.video_engine_harness import ClaimStub, FakeClock, NotifyRecorder
 
@@ -67,10 +68,31 @@ class _FakeMotion:
         return False
 
 
+class _FakeIllumination:
+    """Commanded LED state, the shape get_led_states() returns.
+
+    Empty dict models a scope with no LED board, which is what the real
+    accessor returns in that case.
+    """
+
+    def __init__(self, lit=None, board=True):
+        self._board = board
+        self._lit = lit
+
+    def get_led_states(self):
+        if not self._board:
+            return {}
+        return {
+            color: {'enabled': color == self._lit, 'illumination_ma': None, 'owner': ''}
+            for color in ('Blue', 'Green', 'Red', 'BF', 'PC', 'DF')
+        }
+
+
 class _FakeScope:
-    def __init__(self, **imaging_kwargs):
+    def __init__(self, lit=None, board=True, **imaging_kwargs):
         self.imaging = _FakeImaging(**imaging_kwargs)
         self.motion = _FakeMotion()
+        self.illumination = _FakeIllumination(lit=lit, board=board)
 
 
 def make_settings(tmp_path, *, video_as_frames=True, max_fps=0, duration_s=60, hyperstack=False):
@@ -88,8 +110,8 @@ def make_settings(tmp_path, *, video_as_frames=True, max_fps=0, duration_s=60, h
     return settings
 
 
-def make_controller(tmp_path, *, scope=None, clock=None, **settings_kwargs):
-    scope = scope or _FakeScope()
+def make_controller(tmp_path, *, scope=None, clock=None, lit=None, **settings_kwargs):
+    scope = scope or _FakeScope(lit=lit)
     clock = clock or FakeClock()
     controller = ManualRecordingController(
         scope=scope,
@@ -210,8 +232,8 @@ class TestRateClamp:
 
 class TestFramesLeg:
     def test_end_to_end_frames_and_manifest(self, tmp_path):
-        controller, scope, clock = make_controller(tmp_path)
-        controller.start(false_color='Blue')
+        controller, scope, clock = make_controller(tmp_path, lit='Blue')
+        controller.start(layer='Blue', false_color_on=True)
         feed_frames(scope, clock, 5, fps=10.0)
         controller.stop()
         finish(controller)
@@ -322,6 +344,133 @@ class TestLossIsNotified:
         controller.stop()
         finish(controller)
         assert 'error' in recorder.severities()
+
+
+def _capture_hyperstack_df(monkeypatch):
+    """Capture the DataFrame the hyperstack build receives.
+
+    The rows carry channel IDENTITY; asserting on them is what separates
+    identity from the false-color toggle, which is the whole defect.
+    """
+    captured = {}
+
+    class _CapturingBuilder:
+        def __init__(self, **kwargs):
+            pass
+
+        def create_single_recording_stack(self, df, path, output_file_loc):
+            captured['df'] = df
+            return {'status': True, 'error': None, 'metadata': {}}
+
+    monkeypatch.setattr(manual_recording_module, 'StackBuilder', _CapturingBuilder)
+    return captured
+
+
+class TestChannelIdentity:
+    """Identity is what was imaged; the false-color toggle is how it is
+    displayed. They are independent, and the hyperstack needs identity
+    whether or not the toggle is on.
+    """
+
+    def test_brightfield_toggle_off_writes_bf_identity(self, tmp_path, monkeypatch):
+        # The common case and the default: BF lit, false color off. Every
+        # row must carry 'BF', not None -- a null Color makes nunique() 0
+        # and the hyperstack never builds.
+        captured = _capture_hyperstack_df(monkeypatch)
+        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='BF')
+        controller.start(layer='BF', false_color_on=False)
+        feed_frames(scope, clock, 3, fps=10.0)
+        controller.stop()
+        finish(controller)
+
+        assert list(captured['df']['Color']) == ['BF', 'BF', 'BF']
+
+    def test_lit_channel_wins_over_the_open_accordion(self, tmp_path, monkeypatch):
+        # A channel can be lit with a different accordion open -- the LED
+        # is the evidence of what was imaged, so it wins.
+        captured = _capture_hyperstack_df(monkeypatch)
+        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='Blue')
+        controller.start(layer='BF', false_color_on=False)
+        feed_frames(scope, clock, 2, fps=10.0)
+        controller.stop()
+        finish(controller)
+
+        assert list(captured['df']['Color']) == ['Blue', 'Blue']
+
+    def test_luminescence_records_with_zero_lit_channels(self, tmp_path, monkeypatch):
+        # Lumi is legitimately unlit; the open layer names it.
+        captured = _capture_hyperstack_df(monkeypatch)
+        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit=None)
+        controller.start(layer='Lumi', false_color_on=False)
+        feed_frames(scope, clock, 2, fps=10.0)
+        controller.stop()
+        finish(controller)
+
+        assert list(captured['df']['Color']) == ['Lumi', 'Lumi']
+
+    def test_startup_state_defaults_to_brightfield(self, tmp_path, monkeypatch):
+        # Nothing lit and no layer selected is LumaViewPro's startup state.
+        # It records as BF -- it is not refused and never writes a null.
+        captured = _capture_hyperstack_df(monkeypatch)
+        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit=None)
+        controller.start()
+        feed_frames(scope, clock, 2, fps=10.0)
+        controller.stop()
+        finish(controller)
+
+        assert list(captured['df']['Color']) == ['BF', 'BF']
+
+    def test_no_led_board_falls_back_to_the_open_layer(self, tmp_path, monkeypatch):
+        # get_led_states() is empty with no board, so the open layer stands.
+        captured = _capture_hyperstack_df(monkeypatch)
+        scope = _FakeScope(board=False)
+        controller, scope, clock = make_controller(tmp_path, scope=scope, hyperstack=True)
+        controller.start(layer='Green', false_color_on=True)
+        feed_frames(scope, clock, 2, fps=10.0)
+        controller.stop()
+        finish(controller)
+
+        assert list(captured['df']['Color']) == ['Green', 'Green']
+
+    def test_brightfield_hyperstack_is_actually_written(self, tmp_path):
+        # End to end with the REAL builder: the defect this fix exists for
+        # is a brightfield recording producing no hyperstack file at all,
+        # and every other test here substitutes the builder. Nothing else
+        # exercises _create_stack on manual-shaped rows.
+        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='BF')
+        controller.start(layer='BF', false_color_on=False)
+        feed_frames(scope, clock, 3, fps=10.0)
+        controller.stop()
+        finish(controller)
+
+        folder = next((tmp_path / 'Manual').glob('Video_*'))
+        assert (folder / MANUAL_HYPERSTACK_FILENAME).exists()
+
+    def test_toggle_off_keeps_manifest_channel_color_null(self, tmp_path):
+        # REGRESSION PIN. channel_color is a RENDERING field: video_builder
+        # reads it back to decide whether to colorize a rebuild. Writing
+        # identity here would false-color a recording saved mono.
+        controller, scope, clock = make_controller(tmp_path, lit='Blue')
+        controller.start(layer='Blue', false_color_on=False)
+        feed_frames(scope, clock, 2, fps=10.0)
+        controller.stop()
+        finish(controller)
+
+        folder = next((tmp_path / 'Manual').glob('Video_*'))
+        manifest = json.loads((folder / 'recording_manifest.json').read_text())
+        assert manifest['channel_color'] is None
+
+    def test_toggle_on_still_carries_channel_color(self, tmp_path):
+        # The other half of the pin: rendering on still records the color.
+        controller, scope, clock = make_controller(tmp_path, lit='Blue')
+        controller.start(layer='Blue', false_color_on=True)
+        feed_frames(scope, clock, 2, fps=10.0)
+        controller.stop()
+        finish(controller)
+
+        folder = next((tmp_path / 'Manual').glob('Video_*'))
+        manifest = json.loads((folder / 'recording_manifest.json').read_text())
+        assert manifest['channel_color'] == 'Blue'
 
 
 class TestCloseWithProgress:

@@ -84,26 +84,37 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
 
         # H-3 fix: snapshot widget values on main thread before submitting
         # to camera executor, since .ids access is not thread-safe.
-        false_color = None
-        for layer in common_utils.get_layers():
-            layer_accordion_obj = ctx.image_settings.accordion_item_lookup(layer=layer)
-            layer_obj = ctx.image_settings.layer_lookup(layer=layer)
+        # The open layer names the channel; its toggle governs display
+        # only. Reading one without the other is what left a brightfield
+        # recording with no channel name at all.
+        layer = None
+        false_color_on = False
+        for candidate in common_utils.get_layers():
+            layer_accordion_obj = ctx.image_settings.accordion_item_lookup(layer=candidate)
+            layer_obj = ctx.image_settings.layer_lookup(layer=candidate)
             if not layer_accordion_obj.collapse:
-                if layer_obj.ids['false_color'].active:
-                    false_color = layer
+                layer = candidate
+                false_color_on = layer_obj.ids['false_color'].active
                 break
 
         # Start on the camera executor: the controller's start opens the
         # encoder and probes disk, which must not stall the GUI thread.
         ctx.camera_executor.put(
-            IOTask(self._start_recording_task, kwargs={'false_color': false_color})
+            IOTask(
+                self._start_recording_task,
+                kwargs={'layer': layer, 'false_color_on': false_color_on},
+            )
         )
 
-    def _start_recording_task(self, false_color=None, dt=None):
+    def _start_recording_task(self, layer=None, false_color_on=False, dt=None):
         """Camera-executor task: start the controller, surface refusals."""
         controller = _app_ctx.ctx.session.manual_recording
         try:
-            controller.start(false_color=false_color, on_complete=self._on_recording_complete)
+            controller.start(
+                layer=layer,
+                false_color_on=false_color_on,
+                on_complete=self._on_recording_complete,
+            )
         except RecordingRefusedError as e:
             logger.warning(f'[LVP Main  ] Recording refused ({e.reason}): {e.message}')
             from modules.notification_center import notifications

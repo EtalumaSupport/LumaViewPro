@@ -513,7 +513,7 @@ def test_mp4_writers_pass_layer_color():
     # Both colorize from the recorded layer's false-color signal, and both
     # encode true grayscale (None) when false color is off -- one contract,
     # no 'BF' gray-colormap divergence between the paths.
-    assert 'color=false_color' in manual_src
+    assert 'color=resolved_layer if false_color_on else None' in manual_src
     assert "color=step['Color'] if false_color_on else None" in cap_src
     # The inline protocol-capture bake stays gone (one colorization authority).
     assert 'add_false_color' not in cap_src

@@ -309,6 +309,18 @@ class StackBuilder(ProtocolPostProcessor):
         if sort_order is None:
             sort_order = ['Scan Count', 'Z-Slice', 'Color Index']
 
+        # An empty frame set has no columns to read when it arrives as an
+        # empty row list, and satisfies the rectangularity test below by
+        # comparing zero to zero when it arrives typed -- so it reaches the
+        # sample-row read and dies there. Refuse it here, where len() is
+        # the only thing that must be safe.
+        if len(df) == 0:
+            return {
+                'status': False,
+                'error': 'Cannot build a hyperstack: no images were captured.',
+                'metadata': {},
+            }
+
         # 'Scan Count' is the T axis per the execution-record contract:
         # scan ordinal for protocol wells, frame ordinal for a
         # per-recording (manual frames) build.

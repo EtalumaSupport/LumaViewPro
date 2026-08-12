@@ -60,6 +60,11 @@ from modules.video_cadence import StallWatch, effective_recording_fps, stall_thr
 from modules.video_recording import RecordingConfig, VideoRecordingEngine
 from modules.video_writer import VideoWriter
 
+# The channel LumaViewPro comes up on. A recording that can name no other
+# channel was taken on this one, so identity always has a real value and
+# nothing downstream has to represent a channel-less recording.
+DEFAULT_LAYER = 'BF'
+
 
 def sweep_recording_scratch(live_folder) -> None:
     """Delete a leftover pre-engine recording scratch file at startup.
@@ -163,17 +168,44 @@ class ManualRecordingController:
     # Lifecycle
     # ------------------------------------------------------------------
 
+    def _resolve_channel_identity(self, layer: str | None) -> str:
+        """The channel this recording imaged: lit LED, else open layer, else BF.
+
+        A lit LED is direct evidence of what is illuminating the sample,
+        so it outranks the open accordion -- a channel can be lit while a
+        different layer's drawer is open, and the light is the truth.
+
+        The open layer is the tiebreak for luminescence, which images with
+        no LED lit at all and would otherwise be unnameable.
+
+        get_led_states() returns {} when no LED board is present, so a
+        board-less scope falls through to the layer with no special case.
+        """
+        for color, state in self._scope.illumination.get_led_states().items():
+            if state.get('enabled'):
+                return color
+        return layer or DEFAULT_LAYER
+
     def start(
         self,
         *,
-        false_color: str | None = None,
+        layer: str | None = None,
+        false_color_on: bool = False,
         on_complete: Callable[[], None] | None = None,
     ) -> None:
         """Snapshot configuration and open a recording.
 
+        Channel IDENTITY (what was imaged) and false-color RENDERING (how
+        it is displayed) are independent. Identity is recorded on every
+        frame; only rendering is conditional. Collapsing the two is what
+        made a brightfield hyperstack impossible to build, since the
+        toggle being off left the channel unnamed.
+
         Args:
-            false_color: Active layer name when its false-color toggle is
-                on; None records/encodes grayscale.
+            layer: The layer whose accordion is open, or None. Used only
+                when no LED is lit -- see _resolve_channel_identity.
+            false_color_on: Whether that layer's false-color toggle is on.
+                Controls rendering alone; grayscale when False.
             on_complete: Invoked (on the finish thread) after the drain
                 and all post-drain work; the caller dispatches its own
                 UI cleanup from it.
@@ -255,9 +287,15 @@ class ManualRecordingController:
                 'start a recording. Free up space and try again.',
             )
 
+        resolved_layer = self._resolve_channel_identity(layer)
+
         frame_size = scope.imaging.camera_frame_size
         manifest_extra = {
-            'channel_color': false_color,
+            # RENDERING, not identity: the video builder reads this back to
+            # decide whether to false-color a rebuild, so a mono recording
+            # must leave it null or the rebuild colorizes frames the user
+            # deliberately saved gray.
+            'channel_color': resolved_layer if false_color_on else None,
             'camera': {
                 'model': identity['model'],
                 'serial': identity['serial'],
@@ -295,7 +333,8 @@ class ManualRecordingController:
         plan = _RecordingPlan(
             video_as_frames=video_as_frames,
             save_folder=save_folder,
-            false_color=false_color,
+            layer=resolved_layer,
+            false_color_on=false_color_on,
             save_encoding=capture_config.save_encoding,
             capture_depth=capture_config.capture_depth,
             tick_freq_hz=identity['timestamp_tick_frequency_hz'],
@@ -314,7 +353,9 @@ class ManualRecordingController:
                 fps=effective_fps,
                 width=frame_size['width'],
                 height=frame_size['height'],
-                color=false_color,
+                # Rendering: a null here keeps the encoder gray, which is
+                # what a recording with the toggle off must produce.
+                color=resolved_layer if false_color_on else None,
                 include_timestamp_overlay=config.timestamp_overlay,
                 vfr=True,
             )
@@ -453,8 +494,8 @@ class ManualRecordingController:
             frame=image,
             file_loc=file_loc,
             metadata=metadata,
-            layer_color=plan.false_color,
-            false_color_on=plan.false_color is not None,
+            layer_color=plan.layer,
+            false_color_on=plan.false_color_on,
             save_encoding=plan.save_encoding,
             capture_depth=plan.capture_depth,
         )
@@ -469,7 +510,10 @@ class ManualRecordingController:
                 {
                     'Filepath': file_loc.name,
                     'Scan Count': frame_number,
-                    'Color': plan.false_color,
+                    # Channel identity: what was imaged. Independent of the
+                    # false-color toggle, which governs display only, so it
+                    # is recorded on every frame regardless of rendering.
+                    'Color': plan.layer,
                     'Z-Slice': 0,
                     'X': position.get('X'),
                     'Y': position.get('Y'),
@@ -544,7 +588,7 @@ class ManualRecordingController:
                 dropped += self._writer.dropped_frames
                 logger.info(f'[ManualRecord] Video written to {self._writer.output_path}')
 
-            if self._hyperstack_rows:
+            if self._hyperstack_rows is not None:
                 self._build_hyperstack()
         except Exception:
             logger.exception('[ManualRecord] Post-drain finish failed')
@@ -578,11 +622,19 @@ class ManualRecordingController:
         plan = self._plan
         df = pd.DataFrame(self._hyperstack_rows)
         output = plan.save_folder / MANUAL_HYPERSTACK_FILENAME
-        StackBuilder(has_turret=self._scope.motion.has_turret()).create_single_recording_stack(
+        result = StackBuilder(
+            has_turret=self._scope.motion.has_turret()
+        ).create_single_recording_stack(
             df=df,
             path=plan.save_folder,
             output_file_loc=output,
         )
+        # The builder reports refusal in its return value rather than by
+        # raising. Re-raise it so the finish handler's existing failure
+        # notification carries it to the user; announcing a hyperstack the
+        # builder declined to write would name a file that does not exist.
+        if not result['status']:
+            raise RuntimeError(f'hyperstack refused: {result["error"]}')
         logger.info(f'[ManualRecord] Hyperstack created at {output}')
 
 
@@ -594,7 +646,10 @@ class _RecordingPlan:
 
     video_as_frames: bool
     save_folder: Path
-    false_color: str | None
+    # Resolved at start() and never None, so no write edge has to decide
+    # what an unnamed channel means.
+    layer: str
+    false_color_on: bool
     save_encoding: str
     capture_depth: int
     tick_freq_hz: float | None
