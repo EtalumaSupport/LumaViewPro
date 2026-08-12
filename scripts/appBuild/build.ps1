@@ -367,6 +367,16 @@ if ($ver_raw -match '^\S+') { $version = $matches[0] } else { Write-Host "ERROR:
 
 $product = "LumaViewPro-$version"
 
+# The per-build output folder, established here rather than at the MSI step
+# because the diagnostics written during PyInstaller belong in it too. It
+# holds one build's complete record -- installer, bundle, log, PyInstaller
+# warn file and TOC manifests -- and everything in it is overwritten as a
+# unit by the next build of the same version, so the folder is always
+# internally consistent: the log and manifests describe the installer
+# sitting beside them.
+$output_dir = Join-Path $artifacts $product
+New-Item $output_dir -ItemType Directory -Force | Out-Null
+
 # Build a 4-part Major.Minor.Patch.Revision installer version. WiX Bundle
 # ProductVersion + MSI ProductVersion are what Windows Installer compares to
 # decide upgrade-vs-no-op. Without a unique 4th component every beta gets
@@ -501,7 +511,7 @@ Write-Host "--- PyInstaller warn file ---"
 $warn_file = Get-ChildItem ".\build\lumaviewpro\warn-*.txt" -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($warn_file) {
     Get-Content $warn_file.FullName | Write-Host
-    Copy-Item $warn_file.FullName (Join-Path $artifacts "pyinstaller_warn_${version}_$build_log_ts.txt") -Force
+    Copy-Item $warn_file.FullName (Join-Path $output_dir "pyinstaller_warn_${version}_$build_log_ts.txt") -Force
 } else {
     Write-Host "WARNING: no PyInstaller warn file found under .\build\lumaviewpro\"
 }
@@ -521,7 +531,7 @@ if ($warn_file) {
 # $version_ parses the underscore as part of the variable name and
 # expands to nothing, silently dropping the version from the filename.
 foreach ($toc in Get-ChildItem ".\build\lumaviewpro\*.toc" -ErrorAction SilentlyContinue) {
-    Copy-Item $toc.FullName (Join-Path $artifacts ("pyinstaller_" + $toc.BaseName + "_${version}_$build_log_ts.toc")) -Force
+    Copy-Item $toc.FullName (Join-Path $output_dir ("pyinstaller_" + $toc.BaseName + "_${version}_$build_log_ts.toc")) -Force
 }
 
 # Dist census + hard gate: an exe missing a camera-SDK package cannot see
@@ -680,8 +690,6 @@ Write-Phase "WiX MSI"
 $wix_dir = Join-Path $src "scripts\appBuild\build_exe\wix"
 Set-Location $wix_dir
 
-$output_dir = Join-Path $artifacts $product
-New-Item $output_dir -ItemType Directory -Force | Out-Null
 $msi = Join-Path $output_dir "$product.msi"
 
 Write-Host "Building MSI..."
@@ -811,9 +819,15 @@ Write-Host "  Log:      $build_log"
 Write-Host "  Ended:    $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
 Write-Host "======================================="
 
-# Copy the build log into the version-specific output dir so it ships
-# alongside the MSI / bundle. The primary copy in $artifacts root
-# remains for cross-build sorting by timestamp.
+# Copy the build log into the output dir, completing that folder's record
+# of this build: installer, bundle, log, warn file and TOC manifests.
+#
+# The transcript cannot be written there directly -- it opens at the top of
+# the run, and $output_dir's name depends on $version, which is not known
+# until the clone succeeds. So the log starts at the $artifacts root and is
+# copied here at the end. That root copy is deliberately kept: it is
+# timestamped rather than overwritten, and is the only record that survives
+# a rebuild of the same version.
 if (Test-Path $output_dir) {
     try {
         Copy-Item $build_log -Destination (Join-Path $output_dir "build.log") -Force
