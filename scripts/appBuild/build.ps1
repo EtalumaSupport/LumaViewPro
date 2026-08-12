@@ -148,13 +148,45 @@ Write-Host "================================================================"
 # Select branch
 # ---------------------------------------------------------------------------
 if (-not $Branch) {
-    $branches = @(
-        "4.0.0-beta"
-        "4.0.0-wave7-decomp"
-        "4.1.0-dev"
-        "main"
-    )
-    Write-Host "`nAvailable branches:"
+    # Built from the live remote, never hardcoded. The previous hardcoded
+    # four offered 4.0.0-wave7-decomp and 4.1.0-dev, neither of which
+    # exists on origin -- two of four entries failed at the clone.
+    #
+    # Ordering by recency needs commit DATES, and ls-remote cannot supply
+    # them here: `git ls-remote --heads --sort=-committerdate` fatals with
+    # "requires access to object data" outside a repo, and with "missing
+    # object" inside an empty one. A blobless bare clone carries the
+    # commits without any file contents -- measured 1.7 s / 3.5 MB against
+    # this repo -- and is deleted again as soon as the list is read.
+    $refcache = Join-Path $build_dir "_branchrefs.git"
+    if (Test-Path $refcache) { Remove-Item $refcache -Recurse -Force }
+    $ErrorActionPreference = "Continue"
+    git clone --bare --filter=blob:none --no-tags -q $repo_url $refcache 2>&1 | Out-Null
+    $refcache_exit = $LASTEXITCODE
+    $ErrorActionPreference = "Stop"
+    if ($refcache_exit -ne 0) {
+        Write-Host "ERROR: could not read the branch list from $repo_url (git exit $refcache_exit)."
+        Write-Host "  The build clones this same remote a few steps later, so this is"
+        Write-Host "  almost certainly a network or credential problem that would stop"
+        Write-Host "  the build anyway."
+        Write-Host "  To skip the menu entirely:  .\build.ps1 -Branch <name>"
+        Set-Location $build_dir
+        Exit 1
+    }
+
+    # Release lines first so a release build is never buried under active
+    # development, then the ten most recently updated branches. The release
+    # pattern is derived rather than listed, so 4.0.1 / 4.1.0 age in with
+    # no edit here; anything older or oddly named is still reachable by
+    # typing it, or via -Branch.
+    $release_pattern = '^[0-9]+\.[0-9]+\.[0-9]+(-beta[0-9]*)?$'
+    $all_refs = @(& git --git-dir=$refcache for-each-ref --sort=-committerdate --format='%(refname:short)' refs/heads/)
+    $releases = @($all_refs | Where-Object { $_ -match $release_pattern })
+    $recent = @($all_refs | Where-Object { $releases -notcontains $_ } | Select-Object -First 10)
+    $branches = @($releases) + @($recent)
+    Remove-Item $refcache -Recurse -Force
+
+    Write-Host "`nAvailable branches (releases first, then 10 most recent):"
     for ($i = 0; $i -lt $branches.Count; $i++) {
         Write-Host "  [$($i+1)] $($branches[$i])"
     }
