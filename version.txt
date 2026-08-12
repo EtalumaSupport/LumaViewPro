@@ -1,4 +1,4 @@
 4.0.0-beta24
-2026-08-11 15:23
+2026-08-11 17:25
 fix/wix-version-guard-failopen
-5c6c3948
+f396778a

@@ -465,7 +465,7 @@ Write-Host "--- PyInstaller warn file ---"
 $warn_file = Get-ChildItem ".\build\lumaviewpro\warn-*.txt" -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($warn_file) {
     Get-Content $warn_file.FullName | Write-Host
-    Copy-Item $warn_file.FullName (Join-Path $artifacts "pyinstaller_warn_$version.txt") -Force
+    Copy-Item $warn_file.FullName (Join-Path $artifacts "pyinstaller_warn_${version}_$build_log_ts.txt") -Force
 } else {
     Write-Host "WARNING: no PyInstaller warn file found under .\build\lumaviewpro\"
 }
@@ -477,8 +477,15 @@ if ($warn_file) {
 # and the temp tree that holds them is deleted at the end of every build.
 # Without this copy, "which directory did that DLL come from" is
 # unanswerable for any shipped artifact.
+#
+# Named by build timestamp as well as version, because the version alone
+# is not a build identity: consecutive builds of one version overwrote
+# each other's manifests, leaving the survivor unattributable and
+# defeating the purpose above. ${version} is braced deliberately -- a bare
+# $version_ parses the underscore as part of the variable name and
+# expands to nothing, silently dropping the version from the filename.
 foreach ($toc in Get-ChildItem ".\build\lumaviewpro\*.toc" -ErrorAction SilentlyContinue) {
-    Copy-Item $toc.FullName (Join-Path $artifacts ("pyinstaller_" + $toc.BaseName + "_$version.toc")) -Force
+    Copy-Item $toc.FullName (Join-Path $artifacts ("pyinstaller_" + $toc.BaseName + "_${version}_$build_log_ts.toc")) -Force
 }
 
 # Dist census + hard gate: an exe missing a camera-SDK package cannot see
