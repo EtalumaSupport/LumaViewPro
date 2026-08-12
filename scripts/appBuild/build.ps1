@@ -1,7 +1,11 @@
 # LumaViewPro Build Script
 #
 # SETUP (one time):
-#   1. Install tools: Python 3.12+, Git, WiX (dotnet tool install --global wix)
+#   1. Install tools: Python 3.12+, Git, WiX 6.x
+#      (dotnet tool install --global wix --version 6.0.0)
+#      The version is required, not advisory: this script refuses anything
+#      but 6.x, because a v7-built bundle installs fine on the build box
+#      and then fails at every customer install with 0x80070057.
 #   2. Put dependencies in dependencies\ next to this script (see dependencies\README.md)
 #
 # USAGE:
