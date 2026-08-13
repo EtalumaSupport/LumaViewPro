@@ -504,7 +504,11 @@ class TestVideoFrameCarriesDepth:
         # The production builder both recording legs share, so this helper
         # cannot drift from the metadata shape the writer actually receives.
         metadata, _ = tiff_frame_metadata(
-            timestamp_s=1781956800.0, frame_number=0, chunks=None, tick_freq_hz=None
+            timestamp_s=1781956800.0,
+            frame_number=0,
+            chunks=None,
+            tick_freq_hz=None,
+            pixel_size_um=None,
         )
         image_utils.write_tiff(
             data=arr,

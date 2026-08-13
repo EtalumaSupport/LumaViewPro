@@ -50,6 +50,7 @@ from modules.recording_frames import (
     CameraTickRebaser,
     orient_and_fit,
     protocol_frame_filename_template,
+    resolve_recording_pixel_size,
     tiff_frame_metadata,
 )
 from modules.recording_manifest import gather_host_provenance
@@ -260,6 +261,9 @@ class ProtocolVideoStep:
         identity = scope.imaging.camera_identity
         frame_size = scope.imaging.camera_frame_size
         self._tick_freq_hz = identity['timestamp_tick_frequency_hz']
+        # One scale snapshot per step, alongside the other start-of-recording
+        # camera facts: the objective cannot change while a step records.
+        self._pixel_size_um = resolve_recording_pixel_size(scope)
         self._rebaser = CameraTickRebaser(self._tick_freq_hz, self._clock)
         self._start_dt = datetime.datetime.now()
 
@@ -508,7 +512,7 @@ class ProtocolVideoStep:
             if config.bit_depth == 8 and image.dtype != np.uint8:
                 image = image_utils.convert_to_8bit(image, config.bit_depth)
             metadata, _ts_filename = tiff_frame_metadata(
-                timestamp_s, frame_number, chunks, self._tick_freq_hz
+                timestamp_s, frame_number, chunks, self._tick_freq_hz, self._pixel_size_um
             )
             file_loc = config.output_dir / config.filename_template.format(n=frame_number)
             image_save.write_video_frame(

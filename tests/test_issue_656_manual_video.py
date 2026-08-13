@@ -69,6 +69,7 @@ def _write_manual_frame(folder, frame_num, *, include_iso=True, value=20000):
         frame_number=frame_num,
         chunks=None,
         tick_freq_hz=None,
+        pixel_size_um=None,
     )
     if not include_iso:
         # Older recordings predate the ISO timestamp; drop it to exercise the

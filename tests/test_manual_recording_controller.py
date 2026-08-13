@@ -40,6 +40,8 @@ class _FakeImaging:
         self.camera_exposure_ms = exposure_ms
         self._frame_size = {'width': width, 'height': height}
         self.listener = None
+        # Read at recording start to resolve the frames' image scale.
+        self._binning_size = 1
 
     @property
     def camera_frame_size(self):
@@ -94,11 +96,27 @@ class _FakeIllumination:
         }
 
 
+class _FakeRuntimeState:
+    """The objective store the scale resolver reads at recording start.
+
+    Without an app context these tests resolve to no scale, which is the
+    honest-degradation path; the attribute still has to exist because the
+    recording start reads it the same way the still-save path does.
+    """
+
+    def __init__(self, focal_length=9.0):
+        self._objective = {'focal_length': focal_length}
+
+    def get_current_objective(self):
+        return self._objective
+
+
 class _FakeScope:
     def __init__(self, lit=None, board=True, **imaging_kwargs):
         self.imaging = _FakeImaging(**imaging_kwargs)
         self.motion = _FakeMotion()
         self.illumination = _FakeIllumination(lit=lit, board=board)
+        self.runtime_state = _FakeRuntimeState()
 
 
 def make_settings(tmp_path, *, video_as_frames=True, max_fps=0, duration_s=60, hyperstack=False):

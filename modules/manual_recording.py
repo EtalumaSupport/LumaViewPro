@@ -52,6 +52,7 @@ from modules.recording_frames import (
     CameraTickRebaser,
     manual_frame_filename_template,
     orient_and_fit,
+    resolve_recording_pixel_size,
     tiff_frame_metadata,
 )
 from modules.recording_manifest import gather_host_provenance
@@ -368,6 +369,7 @@ class ManualRecordingController:
             # does not move during a manual record, and the writer lane
             # must never query hardware per frame.
             stage_position=(scope.motion.get_current_position() if hyperstack else None),
+            pixel_size_um=resolve_recording_pixel_size(scope),
         )
 
         writer = None
@@ -555,7 +557,7 @@ class ManualRecordingController:
             image = image_utils.convert_to_8bit(image, config.bit_depth)
 
         metadata, ts_filename = tiff_frame_metadata(
-            timestamp_s, frame_number, chunks, plan.tick_freq_hz
+            timestamp_s, frame_number, chunks, plan.tick_freq_hz, plan.pixel_size_um
         )
         file_loc = config.output_dir / config.filename_template.format(
             n=frame_number, ts=ts_filename
@@ -737,3 +739,7 @@ class _RecordingPlan:
     tick_freq_hz: float | None
     hyperstack: bool
     stage_position: dict | None
+    # Resolved once at start(), not per frame: the objective cannot change
+    # mid-recording, and a per-frame resolve would let one stack hold frames
+    # that disagree about their own scale.
+    pixel_size_um: float | None

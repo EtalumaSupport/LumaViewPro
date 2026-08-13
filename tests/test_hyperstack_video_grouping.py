@@ -180,6 +180,7 @@ class TestVideoWellStackBuild:
                 frame_number=n,
                 chunks=None,
                 tick_freq_hz=None,
+                pixel_size_um=None,
             )
             image_utils.write_tiff(
                 data=np.full((4, 4), n, dtype=np.uint8),

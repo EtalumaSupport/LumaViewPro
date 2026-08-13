@@ -200,10 +200,7 @@ class StackBuilder(ProtocolPostProcessor):
         # which on a scope with no objective selector is a default, not a
         # measurement. Nothing here rebins; planes are stacked as read, so the
         # input's own scale is the output's scale.
-        input_meta = image_utils.read_postproc_input_metadata(sample_image_file_loc)
-        pixel_size_um = input_meta['pixel_size_um'] if input_meta else None
-        if pixel_size_um is not None and pixel_size_um <= 0:
-            pixel_size_um = None
+        pixel_size_um = image_utils.read_pixel_size_um(sample_image_file_loc)
 
         if pixel_size_um is None:
             # Older / third-party / pre-metadata captures carry no scale, and

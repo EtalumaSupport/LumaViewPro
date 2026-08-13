@@ -163,17 +163,57 @@ def orient_and_fit(image: np.ndarray, width: int, height: int) -> np.ndarray:
     return image
 
 
+def resolve_recording_pixel_size(scope) -> float | None:
+    """Effective um/pixel for a recording about to start, or None if unknown.
+
+    Both recording legs call this once at start so their frames agree on scale
+    and cannot drift from each other. Returns None when the scope cannot report
+    its optics; the writer then omits the scale claim rather than inventing one,
+    because a guessed scale is measured off the file forever and cannot be told
+    from a real one.
+
+    Args:
+        scope: The Lumascope instance the recording is running against.
+    """
+    # Through the accessor, which reports "no objective selected yet" as None.
+    # Subscripting the store directly raises instead, and a recording must not
+    # die because the scope cannot yet say how big a pixel is.
+    objective = scope.runtime_state.get_current_objective()
+    if objective is None:
+        return None
+    pixel_size_um = common_utils.get_pixel_size(
+        focal_length=objective['focal_length'],
+        binning_size=scope.imaging._binning_size,
+    )
+    if pixel_size_um is None:
+        return None
+    return round(pixel_size_um, common_utils.max_decimal_precision('pixel_size'))
+
+
 def tiff_frame_metadata(
     timestamp_s: float,
     frame_number: int,
     chunks,
     tick_freq_hz: float | None,
+    pixel_size_um: float | None,
 ) -> tuple[dict, str]:
     """Per-frame TIFF metadata plus a path-safe timestamp string.
 
     The timestamp travels in metadata, not pixels -- Create Video draws
     it at build time when the overlay is enabled. Camera chunk identity
     (hardware ticks, FrameID) is recorded when the frame carried it.
+
+    Args:
+        timestamp_s: Frame time, epoch seconds.
+        frame_number: Ordinal within the recording.
+        chunks: Camera chunk data, or None when the frame carried none.
+        tick_freq_hz: Camera tick frequency, or None when unknown.
+        pixel_size_um: Image scale measured once at recording start, or
+            None when the scope cannot report its optics. Required rather
+            than defaulted: this builder is the only scale source the
+            recording legs have, so a caller that omits it would write
+            unmeasurable files, and a default would hide that at the one
+            place it must be visible.
 
     Returns:
         ``(metadata, ts_filename)`` -- the metadata dict for the TIFF
@@ -187,12 +227,11 @@ def tiff_frame_metadata(
         'timestamp': ts.strftime('%Y:%m:%d %H:%M:%S.%f'),
         'timestamp_iso': ts.isoformat(timespec='microseconds'),
         'frame_num': frame_number,
-        # The writer reads this as a required key, so it is stated rather than
-        # omitted: a recording frame has no scale source today, and an explicit
-        # None makes the file declare no absolute unit instead of inheriting
-        # tifffile's 1/1 default under a centimetre unit. Supplying a real
-        # measured value here is all it takes to make these frames carry scale.
-        'pixel_size_um': None,
+        # The writer reads this as a required key. A real value makes the file
+        # declare its scale; None makes it declare no absolute unit rather than
+        # inherit tifffile's 1/1 default under a centimetre unit, which reads as
+        # 1 px/cm -- a concrete and wildly wrong measurement.
+        'pixel_size_um': pixel_size_um,
     }
     if chunks is not None:
         ts_ticks = chunks.get('Timestamp')

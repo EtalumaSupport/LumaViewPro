@@ -781,6 +781,46 @@ def _structured_metadata(tif: 'tf.TiffFile') -> dict | None:
     return None
 
 
+def read_pixel_size_um(path: pathlib.Path) -> float | None:
+    """Image scale from one TIFF, in um/pixel, or None if it declares none.
+
+    Separate from read_postproc_input_metadata because scale is its own
+    question: that reader rebuilds the full acquisition context and returns
+    None for any file without an OME Plane block, which is every video frame.
+    A consumer that needs only the scale should not be denied it because the
+    file carries no stage position.
+
+    Reads the value the writer stored rather than inverting the TIFF
+    resolution tag: the stored number is what LVP measured, and the tag is a
+    derived encoding of it for external readers.
+
+    Args:
+        path: TIFF to read.
+    """
+    try:
+        with tf.TiffFile(str(path)) as tif:
+            structured = _structured_metadata(tif)
+            ome_xml = tif.ome_metadata
+    except Exception:
+        return None
+
+    pixel_size_um = None
+    if structured is not None:
+        # Stills serialize the OME spelling; video frames pass the flat dict
+        # through untouched, so the same fact arrives under either name.
+        pixel_size_um = structured.get('PhysicalSizeX', structured.get('pixel_size_um'))
+    elif ome_xml:
+        flat = _read_ome_input_metadata(ome_xml, None)
+        pixel_size_um = flat.get('pixel_size_um') if flat else None
+
+    if pixel_size_um is None:
+        return None
+    pixel_size_um = float(pixel_size_um)
+    # A non-positive scale is not a measurement; treat it as absent rather than
+    # dividing by it downstream.
+    return pixel_size_um if pixel_size_um > 0 else None
+
+
 def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
     """Reverse the write_tiff metadata serialization for one input TIFF.
 

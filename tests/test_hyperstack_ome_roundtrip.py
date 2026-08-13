@@ -35,6 +35,7 @@ def _write_timestamped_frames(tmp_path, df, base_s=1_755_000_000.0, spacing_s=0.
             frame_number=n,
             chunks=None,
             tick_freq_hz=None,
+            pixel_size_um=None,
         )
         image_utils.write_tiff(
             data=np.full((4, 4), n, dtype=np.uint8),
