@@ -726,15 +726,6 @@ def focus_log(positions, values, focus_round: int, source_path: str) -> int:
     return focus_round + 1
 
 
-def block_wait_for_threads(futures: list, log_loc: str = 'LVP') -> None:
-    """Block until all futures complete, logging any errors."""
-    for future in futures:
-        try:
-            future.result()
-        except Exception as e:
-            logger.error(f'{log_loc} ] Future raised {type(e).__name__}: {e}', exc_info=True)
-
-
 # ---------------------------------------------------------------------------
 # Headless config getters -- GUI-free equivalents of config_ui_getters.py
 #
