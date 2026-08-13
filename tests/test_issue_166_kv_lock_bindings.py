@@ -105,9 +105,48 @@ def _block_for_id(control_id: str) -> list[str]:
 
 
 def _block_has_bind(block: list[str]) -> bool:
+    # controls_locked derives from protocol_running OR recording_active,
+    # so either token satisfies "disabled during a protocol".
     for line in block:
-        if line.strip().startswith('disabled:') and 'app.protocol_running' in line:
+        if line.strip().startswith('disabled:') and (
+            'app.protocol_running' in line or 'app.controls_locked' in line
+        ):
             return True
+    return False
+
+
+def _ancestor_has_bind(control_id: str) -> bool:
+    """True when any enclosing widget block (within the kv rule) binds
+    disabled to the protocol lock. Container binds moved off the rule
+    roots and onto interior containers when the stop toggles were
+    exempted; the cascade locks children the same way from there."""
+    lines = _kv_lines()
+    id_pat = re.compile(r'^[ \t]*id:\s*' + re.escape(control_id) + r'\s*(#.*)?$')
+    id_idx = next(i for i, line in enumerate(lines) if id_pat.match(line))
+    depth = _indent(lines[id_idx])
+    j = id_idx - 1
+    while j >= 0 and not lines[j].startswith('<'):
+        line = lines[j]
+        if line.strip() and not line.lstrip().startswith('#') and _indent(line) < depth:
+            # An ancestor header: scan its OWN property lines only. In kv,
+            # properties and child widgets share the same indent level, so
+            # the scan stops at the first child widget header (a
+            # capitalised `ClassName:` line) -- a bind inside a child
+            # subtree is not the ancestor's.
+            header_indent = _indent(line)
+            child_header = re.compile(r'^[ \t]+[A-Z][A-Za-z_]*:\s*(#.*)?$')
+            for k in range(j + 1, id_idx + 1):
+                prop = lines[k]
+                if not prop.strip() or prop.lstrip().startswith('#'):
+                    continue
+                if _indent(prop) <= header_indent or child_header.match(prop):
+                    break
+                if prop.strip().startswith('disabled:') and (
+                    'app.protocol_running' in prop or 'app.controls_locked' in prop
+                ):
+                    return True
+            depth = header_indent
+        j -= 1
     return False
 
 
@@ -136,7 +175,9 @@ def _class_rule_root_has_bind(class_name: str) -> bool:
         if _indent(line) <= header_indent:
             break  # end of rule
         # First non-comment property line establishes the rule-root depth.
-        if line.strip().startswith('disabled:') and 'app.protocol_running' in line:
+        if line.strip().startswith('disabled:') and (
+            'app.protocol_running' in line or 'app.controls_locked' in line
+        ):
             return True
     return False
 
@@ -149,11 +190,14 @@ def _class_rule_root_has_bind(class_name: str) -> bool:
 # control_id -> container <Class>: rule that container-binds it (or None when
 # the control carries its own per-widget bind).
 LOCK_REPRESENTATIVES = {
-    # Focus / Z jog + turret/objective + z-stack are under <VerticalControl>.
-    'fast_up': 'VerticalControl',
-    'obj_position': None,  # OR-combined on its own block
-    'objective_spinner2': 'VerticalControl',
-    'zstack_aqr_btn': 'VerticalControl',
+    # Focus / Z jog + turret/objective moved off the <VerticalControl>
+    # rule root onto interior containers when the stop toggles were
+    # exempted -- 'ANCESTOR' walks the enclosing blocks instead.
+    # zstack_aqr_btn left this table for TestStopToggleExemption: it is
+    # a stop-capable toggle, deliberately NOT protocol-locked.
+    'fast_up': 'ANCESTOR',
+    'obj_position': 'ANCESTOR',
+    'objective_spinner2': 'ANCESTOR',
     # Protocol edit / step-nav (mixed region -> per-widget).
     'capture_period': None,
     'labware_spinner': None,
@@ -177,18 +221,59 @@ def test_representative_lock_controls_disabled_during_protocol():
     for control_id, container in LOCK_REPRESENTATIVES.items():
         block = _block_for_id(control_id)
         own = _block_has_bind(block)
-        ancestor = bool(container) and _class_rule_root_has_bind(container)
+        if container == 'ANCESTOR':
+            ancestor = _ancestor_has_bind(control_id)
+        else:
+            ancestor = bool(container) and _class_rule_root_has_bind(container)
         assert own or ancestor, (
             f'LOCK control {control_id!r} must be disabled during a protocol: '
-            f'expected {BIND!r} in its own widget block or on its container '
-            f'rule {container!r}. (#166)'
+            f'expected a protocol-lock bind in its own widget block, an '
+            f'enclosing container block, or its container rule {container!r}. '
+            f'(#166)'
         )
+
+
+STOP_TOGGLES = (
+    'run_autofocus_btn',
+    'run_scan_btn',
+    'run_protocol_btn',
+    'autofocus_id',
+    'zstack_aqr_btn',
+)
+
+
+class TestStopToggleExemption:
+    """A run's own toggle IS its stop control: it must stay clickable
+    during the run (second click = abort) and lock only while a rival
+    RECORDING is live. A protocol-lock bind on the toggle or any
+    ancestor strands the abort -- the exact regression the #166 KEEP
+    roster warned about, reintroduced from above by a container bind."""
+
+    def test_stop_toggles_lock_only_for_recordings(self):
+        for control_id in STOP_TOGGLES:
+            block = _block_for_id(control_id)
+            assert any(
+                line.strip().startswith('disabled:') and 'app.recording_active' in line
+                for line in block
+            ), f'{control_id!r} must carry disabled: app.recording_active'
+
+    def test_stop_toggles_have_no_protocol_locked_ancestor(self):
+        for control_id in STOP_TOGGLES:
+            assert not _ancestor_has_bind(control_id), (
+                f'{control_id!r} sits under a protocol-locked container; '
+                f'its abort click would be swallowed mid-run'
+            )
+            assert not _block_has_bind(_block_for_id(control_id)), (
+                f'{control_id!r} must not carry a protocol-lock bind itself'
+            )
 
 
 def test_container_bound_regions_carry_root_bind():
     """The all-LOCK regions are locked once at their rule root."""
     for class_name in (
-        'VerticalControl',  # focus / turret / objective / z-stack
+        # VerticalControl left this list when the stop toggles were
+        # exempted: its lock moved to interior containers (see
+        # TestStopToggleExemption + the ANCESTOR representatives).
         'XYStageControl',  # XY stage jog
         'VideoCreationControls',  # post-processing: video
         'ZProjectionControls',  # post-processing: z-projection
@@ -214,9 +299,10 @@ def test_xy_stage_control_locked_via_container():
 
 
 def test_or_combined_controls_keep_protocol_running():
-    # obj_position and stitch buttons shipped `disabled: False`; the
-    # placeholder is replaced with the property (False OR x == x).
-    for control_id in ('obj_position', 'quality_stitch_btn', 'fast_preview_stitch_btn'):
+    # The stitch buttons shipped `disabled: False`; the placeholder is
+    # replaced with the property (False OR x == x). obj_position's own
+    # bind retired when its container took the lock (exemption work).
+    for control_id in ('quality_stitch_btn', 'fast_preview_stitch_btn'):
         block = _block_for_id(control_id)
         assert _block_has_bind(block), (
             f'{control_id!r} shipped a disabled: placeholder; it must now '

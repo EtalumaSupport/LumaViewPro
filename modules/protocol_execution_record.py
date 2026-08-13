@@ -13,6 +13,17 @@ class ProtocolExecutionRecord:
     FILE_HEADER = 'LumaViewPro Protocol Execution Record'
     CURRENT_VERSION = 3
     DEFAULT_FILENAME = 'protocol_record.tsv'
+    # 'Scan Count' is the CONTRACT for the temporal ordinal everywhere a
+    # post-processing dataframe carries the column: which pass through
+    # the protocol produced this capture. Post-processing consumers
+    # (stack builder, z-projector, stitcher, video builder) group and
+    # sort on it as the T axis. The one deliberate extension: a
+    # RECORDING'S OWN frames have no scan axis, so a per-recording
+    # dataframe (the manual hyperstack build) carries the frame ordinal
+    # in this column -- T = frame there, by the same "temporal ordinal"
+    # meaning, never a mixture of the two in one dataframe. The column
+    # name is an out-of-band identifier (this TSV is read by external
+    # tooling); it does not change.
     COLUMNS = (
         'Filename',
         'Step Name',

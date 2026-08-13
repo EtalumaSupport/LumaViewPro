@@ -9,7 +9,6 @@ import typing
 
 import pandas as pd
 
-from kivy.app import App
 from kivy.clock import Clock
 from kivy.properties import BooleanProperty
 from kivy.uix.label import Label
@@ -21,7 +20,6 @@ import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 import modules.config_helpers as config_helpers
 from modules.config_ui_getters import (
-    create_hyperstacks_if_needed,
     get_active_layer_config,
     get_auto_gain_settings,
     get_binning_from_ui,
@@ -49,9 +47,11 @@ from ui.ui_helpers import (
     _update_step_number_callback,
     live_histo_off,
     live_histo_reverse,
+    publish_protocol_running,
     reset_acquire_ui,
     reset_stim_ui,
     reset_title,
+    run_committed_start,
     run_with_refusal_boundary,
     set_last_save_folder,
     set_recording_title,
@@ -1412,17 +1412,10 @@ class ProtocolSettings(FloatLayout):
 
     @staticmethod
     def _publish_protocol_running(running: bool) -> None:
-        """Mirror the protocol-running state onto the App ``protocol_running``
-        property so kv ``disabled:`` bindings grey out controls during a scan.
-
-        Written on the Kivy main thread (safe to call from any thread). The
-        ctx.protocol_running Event stays the authoritative store; this only
-        publishes a UI reflection of it.
-        """
-        app = App.get_running_app()
-        if app is None:
-            return
-        Clock.schedule_once(lambda dt: setattr(app, 'protocol_running', running), 0)
+        """Delegate to the one canonical publisher in ui_helpers (other
+        widgets need it too); kept as a method so the many local call
+        sites and their pins stay stable."""
+        publish_protocol_running(running)
 
     def _reset_run_autofocus_scan_button(self, **kwargs):
         ctx = _app_ctx.ctx
@@ -1706,11 +1699,14 @@ class ProtocolSettings(FloatLayout):
                 return
 
             def commit_ui_state():
-                # Runs between the runner's prepare and start: running-state
-                # commits only once the run can no longer be refused. The AF
-                # scan deliberately does NOT set ctx.protocol_running (its
-                # completion path never owned that flag), so it keeps its
-                # own commit set instead of _commit_running_ui_state.
+                # Runs between the runner's prepare and start (inside the
+                # restoring boundary, so a start()-stage refusal unwinds
+                # it). The AF scan engages the FULL guard set including the
+                # Event: worker-thread guards (turret home, motion, file
+                # dialogs) key on the Event, not the kv mirror, and an AF
+                # scan owns the stage exactly like any run. Its reset
+                # already clears the Event -- set and clear are symmetric.
+                ctx.protocol_running.set()
                 ctx.stage.set_motion_capability(False)
                 self._publish_protocol_running(True)
                 self.ids['run_autofocus_btn'].text = 'Running Autofocus Scan'
@@ -1773,8 +1769,7 @@ class ProtocolSettings(FloatLayout):
                     leds_state_at_end='off',
                     video_as_frames=settings['video_as_frames'],
                 )
-                commit_ui_state()
-                sequenced_capture_runner.start(plan)
+                run_committed_start(commit_ui_state, lambda: sequenced_capture_runner.start(plan))
 
             run_with_refusal_boundary(prepare_and_start, on_refused=run_refused_func)
         except Exception as e:
@@ -1824,7 +1819,6 @@ class ProtocolSettings(FloatLayout):
             # No files pending - proceed with normal reset
             protocol_running_global.clear()
             self._reset_run_scan_button()
-            create_hyperstacks_if_needed()
             live_histo_reverse()
             reset_acquire_ui()
             self.reset_autofocus_ui()
@@ -1870,7 +1864,6 @@ class ProtocolSettings(FloatLayout):
         self.ids['run_autofocus_btn'].disabled = False
 
         # Complete remaining cleanup
-        create_hyperstacks_if_needed()
         live_histo_reverse()
         reset_acquire_ui()
         self.reset_autofocus_ui()
@@ -1925,10 +1918,9 @@ class ProtocolSettings(FloatLayout):
             logger.warning(f'Cannot start scan. Run already in progress from {run_trigger_source}')
             return
 
-        if not self._is_protocol_valid():
-            run_refused_func()
-            return
-
+        # Abort BEFORE validity: the abort click must never be refused by
+        # a validation failure (a mid-run unwritable save folder would
+        # otherwise block the user's own Stop).
         if self.ids['run_scan_btn'].state == 'normal':
             gui_logger.protocol_action('ABORT_SCAN')
             logger.info('[LVP Main  ] ProtocolSettings.run_scan_from_ui() - User ending scan early')
@@ -1936,6 +1928,10 @@ class ProtocolSettings(FloatLayout):
             # run-complete callback resets this label when it ends.
             self.ids['run_scan_btn'].text = 'Stopping...'
             self._cleanup_at_end_of_protocol(autofocus_scan=False)
+            return
+
+        if not self._is_protocol_valid():
+            run_refused_func()
             return
 
         callbacks = {
@@ -2012,7 +2008,6 @@ class ProtocolSettings(FloatLayout):
             protocol_running_global.clear()
             self._reset_run_protocol_button()
             live_histo_reverse()
-            create_hyperstacks_if_needed()
             reset_acquire_ui()
             self.reset_autofocus_ui()
             ctx.stage.set_motion_capability(True)
@@ -2061,7 +2056,6 @@ class ProtocolSettings(FloatLayout):
 
         # Complete remaining cleanup
         live_histo_reverse()
-        create_hyperstacks_if_needed()
         reset_acquire_ui()
         self.reset_autofocus_ui()
         ctx.stage.set_motion_capability(True)
@@ -2156,16 +2150,19 @@ class ProtocolSettings(FloatLayout):
                 )
                 return
 
-            if not self._is_protocol_valid():
-                run_refused_func()
-                return
-
+            # Abort BEFORE validity: the abort click must never be refused
+            # by a validation failure (a mid-run unwritable save folder
+            # would otherwise block the user's own Stop).
             if self.ids['run_protocol_btn'].state == 'normal':
                 gui_logger.protocol_action('ABORT_PROTOCOL')
                 # Hardware teardown finishes on the protocol thread; the
                 # protocol run-complete callback resets this label.
                 self.ids['run_protocol_btn'].text = 'Stopping...'
                 self._cleanup_at_end_of_protocol(autofocus_scan=False)
+                return
+
+            if not self._is_protocol_valid():
+                run_refused_func()
                 return
 
             callbacks = {
@@ -2362,8 +2359,9 @@ class ProtocolSettings(FloatLayout):
             **config_helpers.get_sequenced_run_settings(settings),
         )
         if commit_ui_state is not None:
-            commit_ui_state()
-        sequenced_capture_runner.start(plan)
+            run_committed_start(commit_ui_state, lambda: sequenced_capture_runner.start(plan))
+        else:
+            sequenced_capture_runner.start(plan)
 
         # A start() that failed during setup unwound as a failed run: it
         # nulled run_dir (set_last_save_folder no-ops on None) and cleared
@@ -2397,11 +2395,6 @@ class ProtocolSettings(FloatLayout):
             self.reset_autofocus_ui()
             self._autofocus_complete_callback()
 
-            if not autofocus_scan and not deferred_to_cleanup:
-                try:
-                    create_hyperstacks_if_needed()
-                except Exception as e:
-                    logger.error(f'Error occurred while creating hyperstacks: {e}', exc_info=True)
         except Exception as e:
             logger.error(f'[Protocol] Cleanup error: {e}', exc_info=True)
         finally:

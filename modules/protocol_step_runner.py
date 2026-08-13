@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 from lvp_logger import logger
 
 import modules.config_helpers as config_helpers
+import modules.image_mode as image_mode
 from modules.exceptions import AutofocusAborted
 from modules.lumascope_api.illumination import (
     FIRE_AND_FORGET_TRANSITIONS,
@@ -336,7 +337,7 @@ class ProtocolStepRunner:
                     save_folder = p._run_dir
 
                 output_format = p._image_capture_config.output_format_sequenced
-                if output_format == 'OME-TIFF Hyperstack':
+                if output_format == image_mode.OUTPUT_FORMAT_HYPERSTACK:
                     output_format = 'TIFF'
 
                 # Video encoding runs on FILE_WORKER after capture -- no gate needed

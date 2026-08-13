@@ -137,6 +137,9 @@ class Stage(Widget):
     def set_motion_capability(self, enabled: bool):
         self._motion_enabled = enabled
 
+    def motion_capability(self) -> bool:
+        return self._motion_enabled
+
     def set_xy_stage_capability(self, enabled: bool):
         self._has_xy_stage = enabled
 

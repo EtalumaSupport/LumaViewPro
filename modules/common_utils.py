@@ -18,6 +18,7 @@ import numpy as np
 import psutil
 
 from lvp_logger import logger
+from modules.video_cadence import effective_recording_fps
 
 
 # ---------------------------------------------------------------------------
@@ -103,9 +104,15 @@ class StepNameComponents:
     post: tuple[str, ...] = ()
 
 
+# The 'video' post token is the one suffix other modules build on: the
+# recording engine derives video-recording folder names and frame-file
+# tokens from it (modules/recording_frames.py), so it gets a named
+# constant instead of living only inside the frozenset literal.
+POST_TOKEN_VIDEO = 'video'
+
 # Single-token post-output suffixes occupying StepNameComponents.post. A
 # z-projection is two segments ('zproj_<method>'); the rest are single tokens.
-_POST_SUFFIX_TOKENS = frozenset({'stitched', 'video', 'stack', 'hyperstack'})
+_POST_SUFFIX_TOKENS = frozenset({'stitched', POST_TOKEN_VIDEO, 'stack', 'hyperstack'})
 
 
 def build_step_name(c: StepNameComponents) -> str:
@@ -1486,17 +1493,19 @@ def _coerce_positive_float(value) -> float:
     return result if result == result and result > 0 else 0.0
 
 
-def estimate_step_write_mb(step, *, video_as_frames: bool = False) -> float:
+def estimate_step_write_mb(step, *, video_as_frames: bool = False, global_max_fps: float) -> float:
     """Estimate the disk a single protocol step will write, in MB.
 
     One owner for write-size estimation, shared by the pre-scan free-space check
     and the per-write threshold so the two cannot drift. An image step writes
     one file. A video step scales with the recording: the frame count is
-    duration_s * fps, and each frame costs about one image when saved as
-    individual TIFFs (video_as_frames) or a compressed fraction of that in an
-    MP4. Deriving from duration/fps -- not a flat per-video figure -- is what
-    lets a long recording be sized before it fills the disk; the MP4 path is
-    floored at the historical estimate so a short clip is never under-counted.
+    duration_s * the EFFECTIVE recording rate -- the step's configured fps run
+    through the same rate-authority clamp the recording itself uses -- and each
+    frame costs about one image when saved as individual TIFFs
+    (video_as_frames) or a compressed fraction of that in an MP4. Sizing from
+    the effective rate keeps the guard honest both ways: a configured rate the
+    camera cannot deliver no longer over-reserves, and a global cap below the
+    configured rate no longer aborts a run that would have fit.
 
     Total by construction: a None / malformed step or Video Config sizes to the
     single-image estimate rather than raising, so the broad except around the
@@ -1507,6 +1516,9 @@ def estimate_step_write_mb(step, *, video_as_frames: bool = False) -> float:
             Video Config.
         video_as_frames: Run-level flag -- video saved as individual frames
             rather than a compressed MP4.
+        global_max_fps: The run's snapshot of the global "Video max FPS" cap
+            (0 = uncapped). Required so a video step can never be sized at a
+            rate the recording will not run at.
 
     Returns:
         Estimated megabytes the step will write to disk.
@@ -1516,13 +1528,32 @@ def estimate_step_write_mb(step, *, video_as_frames: bool = False) -> float:
         return ESTIMATED_IMAGE_STEP_MB
     video_config = read_video_config(step)
     duration_s = _coerce_positive_float(video_config.get('duration'))
-    fps = _coerce_positive_float(video_config.get('fps'))
+    fps = effective_recording_fps(_coerce_positive_float(video_config.get('fps')), global_max_fps)
     frames = max(1, int(duration_s * fps))
     if video_as_frames:
         return frames * ESTIMATED_IMAGE_STEP_MB
     return max(
         ESTIMATED_VIDEO_STEP_MB, frames * ESTIMATED_IMAGE_STEP_MB * _MP4_COMPRESSION_FRACTION
     )
+
+
+# Free-space floor (2 GB) below which capture work refuses to start and
+# a running manual recording stops gracefully. One canonical value: the
+# protocol scan loop and the recording controllers share it so the
+# capture paths cannot drift on what "disk almost full" means.
+MIN_REQUIRED_DISK_MB = 2048
+
+# Minimum free disk for a SINGLE protocol write, in MB. Distinct from the
+# whole-run MIN_REQUIRED_DISK_MB above: each individual capture must have
+# at least this much headroom beyond its own estimated size before it is
+# allowed to write, so one write cannot fill the last sliver of a disk.
+MIN_PER_WRITE_DISK_MB = 500
+
+# How often a recording's write lane re-probes free disk while draining.
+# Frequent enough that a filling disk stops the recording within a few
+# frames' worth of writes; rare enough that the probe never shapes drain
+# speed. Shared by both recording controllers.
+DISK_FLOOR_CHECK_INTERVAL_S = 2.0
 
 
 def check_disk_space_ok(path, required_mb: float) -> tuple[bool, float]:

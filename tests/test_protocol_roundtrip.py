@@ -18,7 +18,9 @@ These tests verify that:
 
 import datetime
 import pathlib
+import json
 import threading
+import time
 
 import pandas as pd
 import pytest
@@ -2723,3 +2725,40 @@ class TestV6LayerSettings:
         # Bad block discarded; inference from the BF step row
         assert 'BF' in ls
         assert ls['BF']['Acquire'] == 'image'
+
+
+class TestFeedLossEndsVideoStep:
+    """E2E: a silently dead feed ends a video step within the stall bound.
+
+    Production-path injection: stop_streaming halts the sim camera's
+    callback pump WITHOUT flipping camera_active -- exactly the shape of
+    a feed that dies with no disconnect event. The run must survive (the
+    step strikes, the run completes) and the recording's manifest must
+    say camera_stalled.
+    """
+
+    def test_mid_step_feed_death_ends_step_and_run_completes(self, executor, scope, tmp_path):
+        # Duration far past the 5 s stall floor so the wall cap cannot
+        # be the thing that ends the step.
+        vc = {'duration': 60, 'fps': 5}
+        steps = [_make_step(acquire='video', video_config=vc)]
+        proto = _build_protocol(steps)
+
+        def _kill_feed_soon():
+            time.sleep(1.5)
+            scope.imaging.stop_streaming()
+
+        killer = threading.Thread(target=_kill_feed_soon, daemon=True)
+        killer.start()
+        t0 = time.monotonic()
+        completed, _ = _run_and_wait(executor, proto, tmp_path)
+        elapsed = time.monotonic() - t0
+        killer.join(timeout=5)
+
+        assert completed, 'run must survive a video-step feed death'
+        assert elapsed < 40, 'the stall bound, not the 60 s wall cap, must end the step'
+        manifests = list((tmp_path / 'output').rglob('*manifest.json'))
+        assert manifests, 'the recording manifest must exist'
+        manifest = json.loads(manifests[0].read_text())
+        assert manifest['end_reason'] == 'camera_stalled'
+        assert manifest['short_delivery'] is True

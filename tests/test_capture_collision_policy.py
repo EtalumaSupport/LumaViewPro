@@ -17,8 +17,8 @@ Layers covered:
 - Post-processor load_folder pre-scans planned output names and refuses
   exactly the colliding groups (per-group), still generating the clean ones;
   resume skips are unaffected.
-- VideoWriter resolves collisions at encoder init (so the cv2 .avi rewrite
-  cannot dodge the check) and `output_path` is the record authority.
+- VideoWriter resolves collisions at encoder init and `output_path` is the
+  record authority.
 - Tiling inference reads the Tile column, never step names, so tile-shaped
   user text cannot fake a tiling; malformed Tile cells are skipped loudly.
 """
@@ -29,6 +29,7 @@ import pathlib
 from unittest.mock import MagicMock
 
 import pandas as pd
+import pytest
 
 from modules.common_utils import PostFunction
 from modules.protocol import Protocol
@@ -417,28 +418,6 @@ def test_video_writer_uniquifies_existing_output_path(tmp_path, monkeypatch):
     )
 
 
-def test_video_writer_cv2_fallback_suffix_cannot_dodge_collision_check(tmp_path, monkeypatch):
-    # The cv2 fallback rewrites .mp4 -> .avi at encoder init. A collision
-    # check against the REQUESTED .mp4 path would miss an existing .avi;
-    # the check must run against the path the backend actually opens.
-    from modules import video_writer as vw_mod
-    from modules.video_writer import VideoWriter
-
-    _patch_video_writer_logger(monkeypatch)
-    monkeypatch.setattr(vw_mod, '_HAS_PYAV', False)  # force the cv2/.avi fallback
-
-    (tmp_path / 'X.avi').write_bytes(b'previous avi recording')
-    writer = VideoWriter(output_path=tmp_path / 'X.mp4', fps=5.0)
-    _write_one_frame_and_close(writer)
-
-    actual = writer.output_path
-    assert actual.name == 'X_000001.avi', (
-        f'requesting X.mp4 with X.avi taken must land X_000001.avi; got {actual.name}'
-    )
-    assert actual.exists() and actual.stat().st_size > 0
-    assert (tmp_path / 'X.avi').read_bytes() == b'previous avi recording'
-
-
 def test_video_writer_keeps_fresh_output_path(tmp_path, monkeypatch):
     from modules.video_writer import VideoWriter
 
@@ -456,51 +435,99 @@ def test_video_writer_keeps_fresh_output_path(tmp_path, monkeypatch):
     assert not any('collision' in msg for _, msg in captured)
 
 
-def test_write_video_records_writers_actual_path(tmp_path, monkeypatch):
-    # The protocol video write path must return the file that exists on
-    # disk -- the writer's path -- not the requested name, when the
-    # requested output is already taken.
-    import datetime
-    import queue as _queue
+def test_video_step_row_records_writers_actual_path(tmp_path, monkeypatch):
+    # The protocol video leg must record the file the writer landed on --
+    # its collision-suffixed path -- in the execution row, not the
+    # requested name.
+    import threading
+    import time as _time
 
     import numpy as np
 
-    from modules.video_capture import VideoCaptureResult, write_video
+    import modules.protocol_recording as protocol_recording
+    from modules.protocol_recording import ProtocolVideoStep
 
-    frames = _queue.Queue()
-    for i in range(2):
-        frames.put((np.zeros((32, 32), dtype=np.uint8), datetime.datetime(2026, 7, 1, 12, 0, i)))
+    monkeypatch.setattr(protocol_recording, 'check_disk_space_ok', lambda *a, **k: (True, 999999))
 
-    # Pre-create both container suffixes so whichever backend is active
-    # collides with the requested name.
-    for suffix in ('.mp4', '.avi'):
-        (tmp_path / 'clip').with_suffix(suffix).write_bytes(b'taken')
+    class _RelocatingWriter:
+        """Stands in for VideoWriter's collision suffixing: the landed
+        path differs from the request."""
 
-    result = VideoCaptureResult(
-        captured_frames=2,
-        calculated_fps=5,
-        video_images=frames,
-        duration_sec=0.4,
-        dropped_frames=0,
-    )
-    capture_result = write_video(
-        result=result,
+        dropped_frames = 0
+
+        def __init__(self, **kwargs):
+            self.output_path = kwargs['output_path'].with_name('clip_000001.mp4')
+
+        def add_frame(self, **kwargs):
+            pass
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(protocol_recording, 'VideoWriter', _RelocatingWriter)
+
+    listeners = {}
+    scope = MagicMock()
+    scope.imaging.frames_until_valid.return_value = 0
+    scope.imaging.camera_active = True
+    scope.imaging.camera_identity = {
+        'model': 'sim',
+        'serial': '0',
+        'timestamp_tick_frequency_hz': None,
+    }
+    scope.imaging.camera_frame_size = {'width': 8, 'height': 8}
+    scope.imaging.add_frame_listener = lambda cb, name=None: listeners.update(cb=cb)
+
+    clock = {'t': 1000.0}
+    rows = []
+    recorder = ProtocolVideoStep(
+        scope=scope,
+        step={
+            'Video Config': {'fps': 5, 'duration': 1},
+            'Color': 'BF',
+            'False_Color': False,
+            'Auto_Gain': False,
+            'Exposure': 10.0,
+        },
         save_folder=tmp_path,
         name='clip',
         video_as_frames=False,
-        step={'Color': 'BF', 'False_Color': False},
+        capture_config=MagicMock(capture_depth=8, save_encoding='8bit'),
+        timestamp_overlay=True,
+        global_max_fps=0,
+        autogain_settings={},
         callbacks={},
-        save_encoding='8bit',
-        capture_depth=8,
+        aborted_event=threading.Event(),
+        is_run_in_progress=lambda: True,
+        abort_run_fatal=MagicMock(),
+        abort_run_on_writer_death=MagicMock(),
+        record_step_row=lambda **kw: rows.append(kw),
+        record_dropped_capture=MagicMock(),
+        clock=lambda: clock['t'],
     )
 
-    assert capture_result is not None
-    assert capture_result.stem == 'clip_000001', (
-        f'write_video must report the suffixed file the writer landed on; got {capture_result}'
+    outcomes = []
+    worker = threading.Thread(target=lambda: outcomes.append(recorder.run_blocking()))
+    worker.start()
+    deadline = _time.monotonic() + 5.0
+    while 'cb' not in listeners and _time.monotonic() < deadline:
+        _time.sleep(0.01)
+    assert 'cb' in listeners, 'the step must register a frame listener'
+    # One frame past the first cadence slot (start 1000.0, 5 fps -> 1000.2),
+    # then advance the clock past the duration so the wait loop closes.
+    listeners['cb'](np.zeros((8, 8), dtype=np.uint8), 1000.3, None)
+    clock['t'] = 1002.0
+    worker.join(timeout=10.0)
+    assert not worker.is_alive(), 'run_blocking must return after the duration'
+    assert outcomes == [protocol_recording.COMPLETED]
+    assert recorder.wait_until_finished(timeout=10.0), 'the finish thread must complete'
+
+    assert rows, 'a completed video step must leave an execution row'
+    assert rows[0]['capture_result_file_name'] == 'clip_000001.mp4', (
+        'the row must carry the suffixed file the writer landed on; '
+        f'got {rows[0]["capture_result_file_name"]}'
     )
-    assert capture_result.exists() and capture_result.stat().st_size > 0
-    for suffix in ('.mp4', '.avi'):
-        assert (tmp_path / 'clip').with_suffix(suffix).read_bytes() == b'taken'
+    assert rows[0]['frame_count'] == 1
 
 
 def test_video_builder_create_video_reports_actual_output_file(tmp_path):
@@ -775,3 +802,77 @@ def test_zprojection_callback_routes_collision_to_failure_message():
         "a reason='collision' result must take the failed-with-message branch "
         '(its message carries the real remedy), not the pick-a-different-folder path'
     )
+
+
+# ---------------------------------------------------------------------------
+# The shared directory allocator: one reservation, three callers.
+#
+# Two recordings started inside the same wall-clock second derived the same
+# folder name and the second joined the first via mkdir(exist_ok=True) --
+# measured on the bench as 19 recordings landing in 6 folders, with frame
+# numbers restarting per recording so a rebuild interleaved them. The walk-and
+# -reserve loop already existed twice (protocol run dirs, autofocus results);
+# the recording path is the site that never got it.
+# ---------------------------------------------------------------------------
+
+
+def test_allocator_keeps_the_plain_name_when_it_is_free(tmp_path):
+    from modules.path_utils import allocate_directory
+
+    allocated = allocate_directory(tmp_path / 'Video_2026-08-13_13.49.03')
+
+    assert allocated.name == 'Video_2026-08-13_13.49.03'
+    assert allocated.is_dir()
+
+
+def test_allocator_increments_instead_of_joining(tmp_path):
+    from modules.path_utils import allocate_directory
+
+    base = tmp_path / 'Video_2026-08-13_13.49.03'
+    first = allocate_directory(base)
+    (first / 'frame_0000.tiff').write_text('recording one')
+
+    second = allocate_directory(base)
+
+    assert second != first, 'a second reservation must not return the first folder'
+    assert second.name == 'Video_2026-08-13_13.49.03_001'
+    # The point of the whole fix: recording one is untouched and still alone.
+    assert (first / 'frame_0000.tiff').read_text() == 'recording one'
+    assert list(second.iterdir()) == []
+
+
+def test_allocator_reservation_is_exclusive(tmp_path):
+    # The reservation must be the directory creation itself, not a check
+    # followed by a create -- two racing starts cannot both win a name.
+    from modules.path_utils import allocate_directory
+
+    allocated = allocate_directory(tmp_path / 'Video_x')
+
+    with pytest.raises(FileExistsError):
+        allocated.mkdir(exist_ok=False)
+
+
+def test_allocator_refuses_when_the_parent_is_missing(tmp_path):
+    # A missing parent means the configured save location is wrong -- an
+    # unplugged drive, a stale path. Creating it silently would write data to
+    # a fresh empty directory on the wrong volume.
+    from modules.path_utils import CaptureLocationError, allocate_directory
+
+    with pytest.raises(CaptureLocationError) as excinfo:
+        allocate_directory(tmp_path / 'does_not_exist' / 'Video_x')
+
+    assert 'capture location' in str(excinfo.value)
+
+
+def test_allocator_refuses_visibly_when_exhausted(tmp_path, monkeypatch):
+    from modules import path_utils
+
+    monkeypatch.setattr(path_utils, 'MAX_COLLISION_SUFFIX', 3)
+    base = tmp_path / 'Video_x'
+    for _ in range(4):
+        path_utils.allocate_directory(base)
+
+    with pytest.raises(path_utils.CaptureLocationError) as excinfo:
+        path_utils.allocate_directory(base)
+
+    assert 'Video_x' in str(excinfo.value)

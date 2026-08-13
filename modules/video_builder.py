@@ -2,12 +2,12 @@
 
 import json
 import pathlib
-import re
 
 import pandas as pd
 
 import modules.image_utils as image_utils
 import modules.common_utils as common_utils
+import modules.recording_frames as recording_frames
 from modules.common_utils import PostFunction
 from modules.protocol_post_processor import ProtocolPostProcessor
 from modules.protocol_post_processing_result import PostProcResult
@@ -17,11 +17,11 @@ from modules.video_writer import VideoWriter
 from lvp_logger import logger
 
 
-# Manual "Frames" recordings name each frame ManualVideo_Frame_<NNNN>_<ts>.tiff.
-# The digit after the prefix keeps the optional ManualVideo_Frame_HyperStack
-# container out of the frame sequence. Which suffixes count as a TIFF is not
-# decided here -- callers pair this name test with the shared TIFF finder.
-_MANUAL_FRAME_RE = re.compile(r'ManualVideo_Frame_\d')
+# Build rate for folders with no measured capture rate ('auto' on a
+# protocol scan, or a recording that predates rate manifests): the
+# long-standing Create Video default, kept so those builds keep working
+# instead of refusing.
+DEFAULT_BUILD_FPS = 5
 
 
 class VideoBuilder(ProtocolPostProcessor):
@@ -35,6 +35,9 @@ class VideoBuilder(ProtocolPostProcessor):
 
     @staticmethod
     def _get_groups(df: pd.DataFrame) -> pd.DataFrame:
+        # One group = one output video; per-recording identity comes from
+        # the shared derived key (see _with_recording_scan).
+        df = VideoBuilder._with_recording_scan(df)
         return df.groupby(
             by=[
                 'Well',
@@ -46,6 +49,7 @@ class VideoBuilder(ProtocolPostProcessor):
                 'Tile',
                 'Custom Step',
                 'Raw',
+                'Recording Scan',
                 *PostFunction.list_values(),
             ],
             dropna=False,
@@ -62,11 +66,21 @@ class VideoBuilder(ProtocolPostProcessor):
         # authoritative columns (a video keeps the source slice's z token,
         # matching the per-image save).
         post = ('stitched',) if row0['Stitched'] else ()
-        post = (*post, 'video')
+        post = (*post, common_utils.POST_TOKEN_VIDEO)
+
+        # One output per recording means one output PER SCAN for recorded
+        # video frames; the scan token keeps those names distinct (and
+        # mirrors the on-disk recording folder's own name). A stills
+        # timelapse spans scans, so its name carries no scan token.
+        scan_count = None
+        if recording_frames.is_video_frame(row0['Filepath']):
+            scan_count = int(row0['Scan Count'])
+
         name = common_utils.build_step_name(
             common_utils.step_components(
                 row0,
                 objective=objective_short_name,
+                scan_count=scan_count,
                 post=post,
             )
         )
@@ -198,24 +212,8 @@ class VideoBuilder(ProtocolPostProcessor):
         current_group=1,
     ) -> dict:
 
-        def strip_filetype(filename: str):
-            filename_flipped = filename[::-1]
-            if '.' in filename_flipped:
-                while filename_flipped[0] != '.':
-                    filename_flipped = filename_flipped[1:]
-                filename_flipped = filename_flipped[1:]
-                return filename_flipped[::-1]
-            else:
-                logger.error(f'Invalid filename {filename}')
-                return
-
-        def get_frame_num(filename):
-            filename = str(filename)
-            stripped_filename = strip_filetype(filename)
-            return stripped_filename[-4:]
-
-        if 'video_Frame' in str(df['Filepath'].values[0]):
-            df['Frame Num'] = df['Filepath'].apply(get_frame_num)
+        if recording_frames.is_video_frame(df['Filepath'].values[0]):
+            df['Frame Num'] = df['Filepath'].apply(recording_frames.frame_number)
             df = df.sort_values(by=['Frame Num'], ascending=True)
 
         else:
@@ -303,9 +301,8 @@ class VideoBuilder(ProtocolPostProcessor):
             'status': True,
             'error': None,
             # The writer is the authority on where the file landed (a
-            # collision suffix or the cv2 .avi fallback may have moved it
-            # from the requested path); the record must point at the real
-            # file, not the request.
+            # collision suffix may have moved it from the requested path);
+            # the record must point at the real file, not the request.
             'actual_output_file_loc': video.output_path,
             # Video encodes an 8-bit stream (every frame is downconverted to
             # 8 bits inside the writer), so the output artifact's depth is 8
@@ -334,8 +331,7 @@ class VideoBuilder(ProtocolPostProcessor):
 
         Args:
             source_dir: Directory of TIFF inputs, one per frame.
-            output_file: Destination video file. .mp4 routes to PyAV H.264;
-                cv2 fallback rewrites the suffix to .avi.
+            output_file: Destination video file (H.264 via PyAV).
             false_color: When True, the layer false-color is applied inside
                 VideoWriter. Requires ``color``; raises ValueError otherwise.
                 When False, encode grayscale.
@@ -406,8 +402,8 @@ class VideoBuilder(ProtocolPostProcessor):
             'error': error,
             'frame_count': frame_count,
             'dropped_frames': dropped,
-            # Where the file actually landed (collision suffix / cv2 .avi
-            # fallback may have moved it from output_file).
+            # Where the file actually landed (a collision suffix may have
+            # moved it from output_file).
             'output_file': writer.output_path,
         }
 
@@ -427,7 +423,24 @@ class VideoBuilder(ProtocolPostProcessor):
         caller can swap one entry point for the other without rewiring.
         """
         path = pathlib.Path(path)
-        if self._is_manual_recording_folder(path):
+        is_manual = self._is_manual_recording_folder(path)
+        if kwargs.get('frames_per_sec') is None:
+            # The UI's 'auto' rate, resolved HERE where the folder type
+            # is known: a manual recording plays at its own measured
+            # capture rate (from its manifest); folders without a
+            # measured rate (protocol scans until their cutover writes
+            # manifests, pre-manifest manual recordings) build at the
+            # standard default.
+            measured = self._read_recording_manifest(path)['measured_fps'] if is_manual else None
+            if measured is not None and measured > 0:
+                kwargs['frames_per_sec'] = measured
+                logger.info(
+                    f'[{self._name}] auto rate: building at the recorded '
+                    f'{measured:.3g} fps from the manifest'
+                )
+            else:
+                kwargs['frames_per_sec'] = DEFAULT_BUILD_FPS
+        if is_manual:
             return self._build_manual_recording_video(path, popup=popup, **kwargs)
         return self.load_folder(
             path=path,
@@ -443,39 +456,81 @@ class VideoBuilder(ProtocolPostProcessor):
         # user gets the informative protocol error instead of a silent raw build.
         try:
             return path.is_dir() and any(
-                _MANUAL_FRAME_RE.match(p.name) for p in image_utils.find_tiff_files(path)
+                recording_frames.is_manual_video_frame(p.name)
+                for p in image_utils.find_tiff_files(path)
             )
         except OSError:
             return False
 
-    def _read_manifest_channel_color(self, path: pathlib.Path) -> str | None:
-        """Return the recording's channel color from session_manifest.json.
+    def _read_recording_manifest(self, path: pathlib.Path) -> dict:
+        """Read a manual recording's manifest facts for the video build.
 
-        Manual frames are saved mono, so the false-color channel is recorded
-        in the manifest at capture time. Returns None when the manifest is
-        absent (older recordings), unreadable, or carries no channel_color --
-        in which case the video encodes grayscale.
+        Manual frames are saved mono at a measured cadence, so both the
+        false-color channel and the true capture rate live in the
+        manifest, not in the frames. Reads the engine's
+        recording_manifest.json first, then the legacy
+        session_manifest.json written by pre-engine releases (their
+        schemas nest differently). Fields are None when the folder
+        predates both manifests, the file is unreadable, or the field is
+        absent -- channel None encodes grayscale; rate None means no
+        measured rate is known.
+
+        Returns:
+            ``{'channel_color': str | None, 'measured_fps': float | None}``
         """
-        manifest_path = path / 'session_manifest.json'
+        manifest_path = path / 'recording_manifest.json'
         try:
             with open(manifest_path) as fh:
                 manifest = json.load(fh)
         except (OSError, ValueError):
-            return None
-        return manifest.get('recording', {}).get('channel_color')
+            manifest = None
+        if manifest is not None:
+            fps = manifest.get('measured_fps')
+            return {
+                'channel_color': manifest.get('channel_color'),
+                'measured_fps': float(fps) if fps else None,
+            }
+
+        legacy_path = path / 'session_manifest.json'
+        try:
+            with open(legacy_path) as fh:
+                legacy = json.load(fh)
+        except (OSError, ValueError):
+            # Neither manifest generation is readable. Say so: a LOST
+            # manifest is otherwise indistinguishable from deliberate
+            # grayscale, and the build quietly plays colorless at the
+            # default rate. Log-only -- a pre-manifest legacy folder
+            # takes this path legitimately, so a popup would misfire.
+            logger.warning(
+                f'[{self._name}] No readable recording manifest in {path.name}; '
+                f'the video will build grayscale at the default rate. The '
+                f'manifest carries the channel color and measured rate.'
+            )
+            return {'channel_color': None, 'measured_fps': None}
+        recording = legacy.get('recording', {})
+        fps = recording.get('actual_fps', {}).get('mean')
+        return {
+            'channel_color': recording.get('channel_color'),
+            'measured_fps': float(fps) if fps else None,
+        }
 
     def _build_manual_recording_video(
         self,
         path: pathlib.Path,
         popup=None,
         *,
-        frames_per_sec: int = 5,
+        frames_per_sec: float,
         enable_timestamp_overlay: bool = False,
         **_ignored: dict,
     ) -> dict:
         frame_paths = [
-            p for p in image_utils.find_tiff_files(path) if _MANUAL_FRAME_RE.match(p.name)
+            p
+            for p in image_utils.find_tiff_files(path)
+            if recording_frames.is_manual_video_frame(p.name)
         ]
+        # The TIFF finder returns lexical order, which wraps at frame
+        # 10,000 (five digits sort beside four); order numerically.
+        frame_paths.sort(key=lambda p: recording_frames.frame_number(p.name))
         if not frame_paths:
             return {
                 'status': False,
@@ -487,14 +542,16 @@ class VideoBuilder(ProtocolPostProcessor):
 
         # Manual frames are saved as mono with no protocol record. Build the
         # minimal dataframe _create_video needs and drive the one canonical
-        # encode path. The channel color comes from the session manifest (the
-        # frames themselves are mono, so the color isn't recoverable from
-        # them); without it a false-colored recording would encode grayscale.
-        # None (no manifest / old recording / brightfield) encodes grayscale.
-        # The per-frame timestamp is read from each frame's own metadata inside
-        # _create_video, so the overlay toggle authoritatively controls whether
-        # the video shows a timestamp.
-        channel_color = self._read_manifest_channel_color(path)
+        # encode path. 'Scan Count' carries the temporal ordinal per the
+        # execution-record contract -- within one recording that is the
+        # frame ordinal. The channel color comes from the recording manifest
+        # (the frames themselves are mono, so the color isn't recoverable
+        # from them); without it a false-colored recording would encode
+        # grayscale. None (no manifest / old recording / brightfield)
+        # encodes grayscale. The per-frame timestamp is read from each
+        # frame's own metadata inside _create_video, so the overlay toggle
+        # authoritatively controls whether the video shows a timestamp.
+        channel_color = self._read_recording_manifest(path)['channel_color']
         df = pd.DataFrame(
             {
                 'Filepath': [p.name for p in frame_paths],

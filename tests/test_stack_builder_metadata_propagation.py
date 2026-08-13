@@ -25,7 +25,6 @@ forward.
 from __future__ import annotations
 
 import pathlib
-from unittest.mock import MagicMock
 
 import numpy as np
 import pandas as pd
@@ -33,19 +32,7 @@ import pytest
 import tifffile as tf
 
 from modules import image_utils
-from modules import stack_builder as stack_builder_module
 from modules.stack_builder import StackBuilder
-
-
-@pytest.fixture(autouse=True)
-def _real_available_memory(monkeypatch):
-    """Conftest mocks psutil globally, leaving virtual_memory().available
-    a MagicMock that can't be compared with int. The hyperstack memory
-    pre-check needs a real int; route to a generous 16 GB sentinel so
-    the check passes for small test arrays."""
-    mem = MagicMock()
-    mem.available = 16 * 1024 * 1024 * 1024
-    monkeypatch.setattr(stack_builder_module.psutil, 'virtual_memory', lambda: mem)
 
 
 def _write_structured_input(
@@ -253,7 +240,11 @@ class TestStackBuilderPropagatesPixelSizeAndChannels:
             'Hyperstack OME-XML must declare PhysicalSizeX so consumers '
             'can compute on-screen scale bars.'
         )
-        assert 'PhysicalSizeXUnit="um"' in ome_xml, 'PhysicalSizeX must declare its unit (microns).'
+        # The unit is the OME schema's micro-sign token; the ASCII 'um'
+        # shorthand is schema-invalid and strict readers refuse the file.
+        assert f'PhysicalSizeXUnit="{image_utils.OME_UNIT_MICROMETER}"' in ome_xml, (
+            'PhysicalSizeX must declare its unit (microns, OME token).'
+        )
 
     def test_channel_names_in_ome_xml(self, tmp_path):
         rows = []
@@ -542,6 +533,7 @@ class TestHyperstackChannelColor:
                 'PositionX': [0.0, 0.0, 0.0, 0.0],
                 'PositionY': [0.0, 0.0, 0.0, 0.0],
                 'PositionZ': [0.0, 0.0, 0.0, 0.0],
+                'DeltaT': None,
             },
             significant_bits=8,
             pixel_size_um=2.2,
@@ -750,6 +742,154 @@ class TestHyperstackScaleComesFromTheInput:
             'only). CENTIMETER against the default 1/1 resolution claims a '
             f'1 cm pixel. Got unit {int(resolution_unit)}.'
         )
+
+
+def test_write_hyperstack_streams_a_plane_iterator(tmp_path):
+    """write_hyperstack_tiff takes an iterator of 2D planes plus the stack
+    shape and dtype -- the stack never materializes in RAM, so the memory
+    bound is one plane regardless of stack size (the cube-in-RAM build and
+    its psutil guard are gone)."""
+    plane_a = np.full((4, 4), 10, dtype=np.uint8)
+    plane_b = np.full((4, 4), 20, dtype=np.uint8)
+
+    reference = tmp_path / 'ref.tiff'
+    tf.imwrite(reference, plane_a)
+    metadata = image_utils.build_hyperstack_output_metadata(
+        reference_input_path=reference,
+        channel_names=['Green'],
+        plane_positions={
+            'PositionX': [1.0, 1.0],
+            'PositionY': [2.0, 2.0],
+            'PositionZ': [10.0, 10.0],
+            'DeltaT': None,
+        },
+        significant_bits=8,
+        pixel_size_um=None,
+    )
+
+    out = tmp_path / 'streamed.ome.tiff'
+    image_utils.write_hyperstack_tiff(
+        planes=iter([plane_a, plane_b]),
+        file_loc=out,
+        shape=(2, 1, 1, 4, 4),
+        dtype=np.uint8,
+        hyperstack_metadata=metadata,
+        # photometric pins the trailing dims as YX; without it tifffile's
+        # shape heuristics can read a <=4-wide last dimension as samples.
+        hyperstack_options={'photometric': 'minisblack'},
+    )
+
+    with tf.TiffFile(str(out)) as tif:
+        data = tif.asarray()
+    assert data.reshape(2, 4, 4).tolist() == np.stack([plane_a, plane_b]).tolist(), (
+        'Streamed planes must land in the file in iterator order.'
+    )
+
+
+def test_nondense_scan_counts_build_by_rank(tmp_path):
+    """A rectangular well whose Scan Count values are not a dense 0..N-1
+    range (e.g. only scans 0 and 2 recorded video) must still build, with T
+    following sorted rank. The cube build indexed the T axis with the RAW
+    Scan Count value and crashed on any non-dense range."""
+    plate_pos = {'x': 1.0, 'y': 2.0}
+    rows = []
+    for scan, value in [(0, 30), (2, 60)]:
+        fname = f'frame_s{scan}.tiff'
+        _write_structured_input(
+            tmp_path / fname,
+            channel='Green',
+            plate_pos_mm=plate_pos,
+            z_pos_um=10.0,
+            value=value,
+        )
+        rows.append(
+            {
+                'Filepath': fname,
+                'Color': 'Green',
+                'Scan Count': scan,
+                'Z-Slice': 0,
+                'X': plate_pos['x'],
+                'Y': plate_pos['y'],
+                'Z': 10.0,
+            }
+        )
+    df = pd.DataFrame(rows)
+
+    output_file_loc = pathlib.Path('out.ome.tiff')
+    result = StackBuilder._create_stack(path=tmp_path, df=df, output_file_loc=output_file_loc)
+    assert result['status'], f'_create_stack failed: {result.get("error")}'
+
+    with tf.TiffFile(str(tmp_path / output_file_loc)) as tif:
+        data = tif.asarray().reshape(2, 4, 4)
+    assert int(data[0, 0, 0]) == 30 and int(data[1, 0, 0]) == 60, (
+        'T order must follow sorted Scan Count rank.'
+    )
+
+
+def test_mixed_dtype_inputs_refused_naming_the_file(tmp_path):
+    """A well mixing pixel dtypes cannot share one hyperstack; the build
+    fails with a typed error naming the offending frame. The cube build
+    silently CAST the mismatched plane into the stack dtype (uint16 into a
+    uint8 cube truncates), producing wrong data with a success status."""
+    from modules.exceptions import CaptureError
+
+    plate_pos = {'x': 1.0, 'y': 2.0}
+    _write_structured_input(
+        tmp_path / 'frame_s0.tiff', channel='Green', plate_pos_mm=plate_pos, z_pos_um=10.0
+    )
+    # A bare uint16 TIFF simulates a foreign / re-captured frame landing in
+    # the same well folder.
+    tf.imwrite(tmp_path / 'frame_s1.tiff', np.full((4, 4), 4000, dtype=np.uint16))
+
+    rows = [
+        {
+            'Filepath': f'frame_s{scan}.tiff',
+            'Color': 'Green',
+            'Scan Count': scan,
+            'Z-Slice': 0,
+            'X': plate_pos['x'],
+            'Y': plate_pos['y'],
+            'Z': 10.0,
+        }
+        for scan in (0, 1)
+    ]
+    df = pd.DataFrame(rows)
+
+    with pytest.raises(CaptureError, match=r'frame_s1\.tiff'):
+        StackBuilder._create_stack(
+            path=tmp_path, df=df, output_file_loc=pathlib.Path('out.ome.tiff')
+        )
+
+
+def test_hyperstack_output_uses_strips(tmp_path):
+    """The hyperstack write uses strips, not tiles. Tiling forced ImageJ
+    through Bio-Formats (the native reader cannot open tiled TIFFs), and its
+    lenient colormap rescaling masked a colormap-scale defect in the 8-bit
+    still path while breaking native open."""
+    plate_pos = {'x': 1.0, 'y': 2.0}
+    fname = 'frame_t0_z0_c0.tiff'
+    _write_structured_input(
+        tmp_path / fname, channel='Green', plate_pos_mm=plate_pos, z_pos_um=10.0
+    )
+    df = pd.DataFrame(
+        [
+            {
+                'Filepath': fname,
+                'Color': 'Green',
+                'Scan Count': 0,
+                'Z-Slice': 0,
+                'X': plate_pos['x'],
+                'Y': plate_pos['y'],
+                'Z': 10.0,
+            }
+        ]
+    )
+    output_file_loc = pathlib.Path('out.ome.tiff')
+    result = StackBuilder._create_stack(path=tmp_path, df=df, output_file_loc=output_file_loc)
+    assert result['status'], f'_create_stack failed: {result.get("error")}'
+
+    with tf.TiffFile(str(tmp_path / output_file_loc)) as tif:
+        assert not tif.pages[0].is_tiled, 'hyperstack output must use strips'
 
 
 def test_load_plane_raises_typed_error_naming_the_file(tmp_path):

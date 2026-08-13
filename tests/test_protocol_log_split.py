@@ -49,3 +49,26 @@ def test_protocol_image_writer_uses_protocol_logger():
         'protocol_image_writer must bind its module logger to '
         'protocol_logger so its per-step detail lands in protocol.log'
     )
+
+
+def test_protocol_log_file_created_lazily():
+    """The protocol.log handler must use delay=True so the file appears
+    only when a stills protocol actually logs through the lane.
+
+    An eagerly-created handler left a 0-byte protocol.log on every
+    launch, making 'no stills protocol ran this session' (including
+    video-only protocol runs) indistinguishable from 'the lane broke'.
+    With lazy creation, absence is data -- the same contract autofocus.log
+    and serial.log already carry.
+    """
+    # pin-justified: handler construction; conftest mocks lvp_logger
+    # wholesale, so the real handler never instantiates in pytest.
+    src = _src('lvp_logger.py')
+    idx = src.find('protocol_file_handler = RotatingFileHandler')
+    assert idx != -1, 'lvp_logger must construct protocol_file_handler'
+    window = src[idx : idx + 300]
+    assert 'delay=True' in window, (
+        'protocol_file_handler must set delay=True: a 0-byte protocol.log '
+        'created at import makes a session with no stills protocol '
+        'indistinguishable from a broken lane; absence is the signal'
+    )

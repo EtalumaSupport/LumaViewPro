@@ -127,7 +127,7 @@ def test_propagates_oserror(monkeypatch):
 SITES = {
     'modules/protocol_image_writer.py': 'common_utils.check_disk_space_ok',
     'modules/protocol_run_loop.py': 'check_disk_space_ok',
-    'ui/main_display.py': 'common_utils.check_disk_space_ok',
+    'modules/manual_recording.py': 'check_disk_space_ok',
 }
 
 

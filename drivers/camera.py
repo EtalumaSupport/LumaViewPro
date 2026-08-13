@@ -914,8 +914,11 @@ class Camera(ABC):
             if not result or image is None:
                 return False, None, None, None
 
-            # Store for other consumers (e.g. recording), but the returned
-            # image IS the copy -- callers don't need get_array().
+            # self.array feeds get_array(); nothing else reads it. Stored
+            # and returned arrays are the SAME object (copied once at the
+            # SDK callback; reference replaced per frame) -- safe against
+            # overwrite by the next frame, but not a private copy: caller
+            # in-place mutation would leak into get_array() of this frame.
             with self._array_lock:
                 self.array = image
             return True, image, image_ts, image_significant_bits

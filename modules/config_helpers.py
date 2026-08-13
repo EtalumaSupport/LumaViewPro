@@ -136,12 +136,14 @@ def get_sequenced_run_settings(settings: dict) -> dict:
 
 
 def get_manual_video_max_duration(settings: dict) -> float:
-    """Return the manual-video max recording duration in seconds.
+    """Return the max recording duration in seconds (video.max_duration_seconds).
 
-    Owns the canonical 30-second default so it lives in one place instead of
-    being repeated at each read site, where one copy could drift from the rest.
+    Owns the canonical 300-second default so it lives in one place instead
+    of being repeated at each read site, where one copy could drift from
+    the rest. Manual recording is stop-when-I-say bounded by this cap;
+    the default is what every un-configured user gets.
     """
-    return settings.get('manual_video', {}).get('max_duration_seconds', 30)
+    return settings.get('video', {}).get('max_duration_seconds', 300)
 
 
 def get_ag_ae_max_exposure_ms(layer: str, settings: dict | None = None) -> float:
@@ -722,15 +724,6 @@ def focus_log(positions, values, focus_round: int, source_path: str) -> int:
             file.write(mssg)
         file.close()
     return focus_round + 1
-
-
-def block_wait_for_threads(futures: list, log_loc: str = 'LVP') -> None:
-    """Block until all futures complete, logging any errors."""
-    for future in futures:
-        try:
-            future.result()
-        except Exception as e:
-            logger.error(f'{log_loc} ] Thread Error: {e}')
 
 
 # ---------------------------------------------------------------------------

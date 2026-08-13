@@ -25,6 +25,13 @@ from lvp_logger import logger, version
 
 TIFF_SUFFIXES = frozenset({'.tif', '.tiff'})
 
+# The OME UnitsLength token for micrometres is the MICRO SIGN form; the
+# ASCII 'um' shorthand is schema-invalid and a strict OME parser refuses
+# the whole file (Bio-Formats' lenient parsing long hid this). Escaped so
+# the source file stays ASCII. The ImageJ metadata 'unit' field is a
+# different consumer's vocabulary and deliberately keeps 'um'.
+OME_UNIT_MICROMETER = '\u00b5m'
+
 
 def is_tiff(path: pathlib.Path | str) -> bool:
     """True when this path names a TIFF the project can read.
@@ -266,6 +273,20 @@ def center_crop(image: np.ndarray, x0: int, y0: int, width: int, height: int) ->
     return image[y0 : y0 + height, x0 : x0 + width]
 
 
+# The one false-color table: which layer labels place the mono signal
+# into an RGB channel. A label absent from this table -- the transmitted
+# layers (BF, PC, DF) and any unknown name -- renders grayscale: there
+# is no chromatic map to apply. Consumers deciding whether a layer's
+# output is gray ask layer_renders_grayscale; re-deriving the set at a
+# consumer is how the gray-as-RGB encode divergence happened.
+FALSE_COLOR_RGB_CHANNEL = {'Red': 0, 'Green': 1, 'Blue': 2, 'Lumi': 2}
+
+
+def layer_renders_grayscale(layer: str | None) -> bool:
+    """True when a layer label has no false-color map, so output is gray."""
+    return layer not in FALSE_COLOR_RGB_CHANNEL
+
+
 def mono_to_rgb_falsecolor(mono: np.ndarray, layer: str) -> np.ndarray:
     """Map a 2D mono array to a 3-channel RGB array via the layer's false color.
 
@@ -296,16 +317,13 @@ def mono_to_rgb_falsecolor(mono: np.ndarray, layer: str) -> np.ndarray:
     h, w = mono.shape
     rgb = np.zeros((h, w, 3), dtype=mono.dtype)
 
-    if layer in ('Blue', 'Lumi'):
-        rgb[:, :, 2] = mono
-    elif layer == 'Green':
-        rgb[:, :, 1] = mono
-    elif layer == 'Red':
+    channel = FALSE_COLOR_RGB_CHANNEL.get(layer)
+    if channel is None:
         rgb[:, :, 0] = mono
+        rgb[:, :, 1] = mono
+        rgb[:, :, 2] = mono
     else:
-        rgb[:, :, 0] = mono
-        rgb[:, :, 1] = mono
-        rgb[:, :, 2] = mono
+        rgb[:, :, channel] = mono
     return rgb
 
 
@@ -763,6 +781,46 @@ def _structured_metadata(tif: 'tf.TiffFile') -> dict | None:
     return None
 
 
+def read_pixel_size_um(path: pathlib.Path) -> float | None:
+    """Image scale from one TIFF, in um/pixel, or None if it declares none.
+
+    Separate from read_postproc_input_metadata because scale is its own
+    question: that reader rebuilds the full acquisition context and returns
+    None for any file without an OME Plane block, which is every video frame.
+    A consumer that needs only the scale should not be denied it because the
+    file carries no stage position.
+
+    Reads the value the writer stored rather than inverting the TIFF
+    resolution tag: the stored number is what LVP measured, and the tag is a
+    derived encoding of it for external readers.
+
+    Args:
+        path: TIFF to read.
+    """
+    try:
+        with tf.TiffFile(str(path)) as tif:
+            structured = _structured_metadata(tif)
+            ome_xml = tif.ome_metadata
+    except Exception:
+        return None
+
+    pixel_size_um = None
+    if structured is not None:
+        # Stills serialize the OME spelling; video frames pass the flat dict
+        # through untouched, so the same fact arrives under either name.
+        pixel_size_um = structured.get('PhysicalSizeX', structured.get('pixel_size_um'))
+    elif ome_xml:
+        flat = _read_ome_input_metadata(ome_xml, None)
+        pixel_size_um = flat.get('pixel_size_um') if flat else None
+
+    if pixel_size_um is None:
+        return None
+    pixel_size_um = float(pixel_size_um)
+    # A non-positive scale is not a measurement; treat it as absent rather than
+    # dividing by it downstream.
+    return pixel_size_um if pixel_size_um > 0 else None
+
+
 def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
     """Reverse the write_tiff metadata serialization for one input TIFF.
 
@@ -874,6 +932,22 @@ def read_postproc_input_metadata(path: pathlib.Path) -> dict | None:
             flat['well_label'] = p['WellLabel']
 
     return flat
+
+
+def read_tiff_depth_and_timestamp(path: pathlib.Path) -> tuple[int, 'datetime.datetime | None']:
+    """Header-only read of a TIFF's payload depth and capture timestamp.
+
+    One open serves both facts; the pixel data is never decoded, so a
+    pre-scan over hundreds of recorded frames costs one IFD parse each.
+    See read_tiff_significant_bits for the depth resolution order and
+    read_frame_timestamp for the timestamp metadata shapes. The timestamp
+    is None when the file carries no readable capture time (both helpers
+    resolve absent / unparseable metadata to None by contract).
+    """
+    with tf.TiffFile(str(path)) as tif:
+        sig = _significant_bits_from_open(tif)
+        timestamp = _timestamp_from_structured(_structured_metadata(tif))
+    return sig, timestamp
 
 
 def read_frame_timestamp(path: pathlib.Path) -> datetime.datetime | None:
@@ -1138,9 +1212,11 @@ def build_hyperstack_output_metadata(
             shared fields (same site, same objective, same scope).
         channel_names: One channel name per C-axis position.
         plane_positions: Dict with PositionX / PositionY / PositionZ
-            lists, one entry per T*Z*C plane in scan order. Caller is
-            responsible for list-length consistency with the data
-            array.
+            lists, one entry per T*Z*C plane in scan order, plus a
+            required DeltaT entry: the per-plane seconds from the
+            earliest plane when capture times were measured, else None
+            (no timing claim is written). Caller is responsible for
+            list-length consistency with the data array.
         significant_bits: 8 for uint8 captures, 16 for uint16.
         pixel_size_um: Hyperstack pixel size in microns.
 
@@ -1151,15 +1227,16 @@ def build_hyperstack_output_metadata(
 
     num_planes = len(plane_positions['PositionX'])
 
-    # Per-channel OME Color hints so FIJI's Bioformats reader auto-
-    # opens the hyperstack in Composite view with the right color per
-    # channel. OME-XML uses a signed 32-bit RGBA integer per channel
-    # (R << 24 | G << 16 | B << 8 | A, two's-complement-folded into
-    # int32). Tifffile drops metadata['LUTs'] when ome=True is set on
-    # the writer (the OME-XML is the canonical color carrier in that
-    # mode); Channel.Color reaches the same FIJI auto-rendering path
-    # via Bioformats. Channels not mapped by LvpColormap fall back to
-    # white (-1) which FIJI renders as plain grayscale.
+    # Per-channel OME Color hints. OME-XML uses a signed 32-bit RGBA
+    # integer per channel (R << 24 | G << 16 | B << 8 | A,
+    # two's-complement-folded into int32). Channel.Color is the
+    # container's ONLY color carrier: tifffile drops metadata['LUTs']
+    # under ome=True, and embedding ImageJ LUTs instead was considered
+    # and rejected -- that container is mutually exclusive with OME and
+    # cannot represent BigTIFF. FIJI applies Channel.Color only when
+    # opened via the Bio-Formats Importer in Composite/Colorized mode;
+    # plain File>Open renders ImageJ default LUTs. Channels not mapped
+    # by LvpColormap fall back to white (-1), rendered as grayscale.
     channel_colors: list[int] = []
     for name in channel_names:
         try:
@@ -1168,19 +1245,29 @@ def build_hyperstack_output_metadata(
             colormap_type = LvpColormap.GRAY
         channel_colors.append(_lvp_colormap_to_ome_rgba(colormap_type))
 
+    plane: dict = {
+        'PositionX': plane_positions['PositionX'],
+        'PositionY': plane_positions['PositionY'],
+        'PositionZ': plane_positions['PositionZ'],
+        'PositionXUnit': ['mm'] * num_planes,
+        'PositionYUnit': ['mm'] * num_planes,
+        'PositionZUnit': [OME_UNIT_MICROMETER] * num_planes,
+    }
+    # Timing is written only when the caller measured it (per-plane
+    # seconds from the earliest plane; DeltaT is a required key, None when
+    # unmeasured). Like the pixel-size claim below, an absent DeltaT is
+    # the honest signal that timing was not recorded; an invented list
+    # would read downstream as a measurement.
+    if plane_positions['DeltaT'] is not None:
+        plane['DeltaT'] = plane_positions['DeltaT']
+        plane['DeltaTUnit'] = ['s'] * num_planes
+
     metadata: dict = {
         'axes': 'TZCYX',
         'SignificantBits': significant_bits,
         'Pixels': {},
         'Channel': {'Name': channel_names, 'Color': channel_colors},
-        'Plane': {
-            'PositionX': plane_positions['PositionX'],
-            'PositionY': plane_positions['PositionY'],
-            'PositionZ': plane_positions['PositionZ'],
-            'PositionXUnit': ['mm'] * num_planes,
-            'PositionYUnit': ['mm'] * num_planes,
-            'PositionZUnit': ['um'] * num_planes,
-        },
+        'Plane': plane,
     }
 
     # A scale is written only when one is known. Emitting the keys with a null
@@ -1191,9 +1278,9 @@ def build_hyperstack_output_metadata(
         metadata['Pixels'].update(
             {
                 'PhysicalSizeX': pixel_size_um,
-                'PhysicalSizeXUnit': 'um',
+                'PhysicalSizeXUnit': OME_UNIT_MICROMETER,
                 'PhysicalSizeY': pixel_size_um,
-                'PhysicalSizeYUnit': 'um',
+                'PhysicalSizeYUnit': OME_UNIT_MICROMETER,
             }
         )
 
@@ -1599,25 +1686,31 @@ def color_channel_to_colormap_type(color_channel: str | ColorChannel) -> LvpColo
 def get_tiff_colormap(colormap: LvpColormap, dtype):
     """Build a TIFF colormap array for PALETTE photometric (8-bit only).
 
-    Returns a (3, 256) array suitable for tifffile's ``colormap`` parameter.
-    Only used for 8-bit false-color images -- Windows Preview supports PALETTE
-    with uint8 but NOT with uint16.
+    Returns a (3, 256) uint16 array suitable for tifffile's ``colormap``
+    parameter. Only used for 8-bit false-color images -- Windows Preview
+    supports PALETTE with uint8 but NOT with uint16.
+
+    The TIFF ColorMap tag (320) is a uint16 field whose full scale is 65535,
+    so each ramp entry is the palette index scaled by 257 (65535 // 255). A
+    0-255 ramp stored in the tag renders at ~0.4% brightness in compliant
+    readers (ImageJ's native reader shows black); only Bio-Formats' lenient
+    rescaling of narrow colormaps masks it.
     """
     if dtype not in ('uint8', np.uint8):
         raise NotImplementedError(f'TIFF colormap only supported for uint8, got {dtype}')
 
-    max_value = np.iinfo(np.uint8).max + 1  # 256
+    ramp = np.arange(0, 256, 1, dtype=np.uint16) * 257
 
     if colormap == LvpColormap.GRAY:
-        return np.tile(np.arange(0, max_value, 1, dtype=np.uint8), (3, 1))
+        return np.tile(ramp, (3, 1))
 
-    cmap_array = np.zeros((3, 256), dtype=np.uint8)
+    cmap_array = np.zeros((3, 256), dtype=np.uint16)
     if colormap == LvpColormap.RED:
-        cmap_array[0] = np.arange(0, max_value, 1, dtype=np.uint8)
+        cmap_array[0] = ramp
     elif colormap == LvpColormap.GREEN:
-        cmap_array[1] = np.arange(0, max_value, 1, dtype=np.uint8)
+        cmap_array[1] = ramp
     elif colormap == LvpColormap.BLUE:
-        cmap_array[2] = np.arange(0, max_value, 1, dtype=np.uint8)
+        cmap_array[2] = ramp
     else:
         raise NotImplementedError(f'Unsupported colormap: {colormap}')
     return cmap_array
@@ -1628,8 +1721,8 @@ def _lvp_colormap_to_ome_rgba(colormap: 'LvpColormap') -> int:
 
     OME-XML encodes Channel.Color as ``(R << 24) | (G << 16) | (B << 8) | A``
     with the unsigned 32-bit result reinterpreted as Python signed int32.
-    Used by FIJI's Bioformats reader to assign a per-channel LUT when
-    opening the hyperstack -- without it, FIJI defaults to grayscale.
+    Consumed by Bio-Formats when the user opens the hyperstack with
+    Color mode Composite/Colorized; the default File>Open ignores it.
     """
     color_map = {
         LvpColormap.RED: (255, 0, 0),
@@ -1729,40 +1822,56 @@ def maybe_apply_false_color(
 
 
 def write_hyperstack_tiff(
-    data,
+    planes,
     file_loc: pathlib.Path,
+    shape: tuple,
+    dtype,
     hyperstack_metadata: dict,
-    hyperstack_options: dict | None = None,
+    hyperstack_options: dict,
     hyperstack_resolution: tuple | None = None,
 ):
-    """Write a 5D TZCYX hyperstack with caller-prepared OME metadata.
+    """Stream a 5D TZCYX hyperstack to disk with caller-prepared OME metadata.
+
+    ``planes`` is an iterator of 2D YX planes in C-order of ``shape``
+    (T-major, then Z, then C); ``shape`` and ``dtype`` describe the full
+    stack, which tifffile needs up front to lay the file out. The stack
+    never materializes in RAM -- the memory bound is one plane regardless
+    of stack size, which is what lets a 600-frame video well build on any
+    field machine.
+
+    ``hyperstack_options`` is required and must carry ``photometric``:
+    without it, tifffile's shape heuristics can read a <=4-wide trailing
+    dimension of a declared-shape write as samples and reject the OME axes.
 
     Separate from write_tiff because this path shares none of the
     per-image logic: maybe_apply_false_color expects 2D mono input,
-    generate_tiff_data builds per-image metadata, and _validate_type
-    rejects the ome=True + imagej=True combo that hyperstack readers
-    (FIJI, ImageJ) consume together. The caller (stack_builder) supplies
-    the full OME dict + write options + resolution and they pass through
-    verbatim. Keeping these apart lets write_tiff demand significant_bits
-    as a required argument, which this path carries inside its OME dict
-    rather than as a scalar.
+    generate_tiff_data builds per-image metadata, and the container here
+    is OME-only -- the ImageJ container cannot represent BigTIFF and
+    tifffile suppresses its imagej flag under ome=True anyway, so channel
+    color travels solely as OME Channel.Color (FIJI applies it via the
+    Bio-Formats Importer in Composite mode; plain File>Open shows default
+    LUTs). The caller (stack_builder) supplies the full OME dict + write
+    options + resolution and they pass through verbatim. Keeping these
+    apart lets write_tiff demand significant_bits as a required argument,
+    which this path carries inside its OME dict rather than as a scalar.
 
     JSON sidecar: tifffile's auto-OME serializer silently drops
     Instrument / Plate / Objective from the metadata dict. The full dict
     is serialized into a private TIFF tag so LVP-aware consumers can
     recover those fields; FIJI / ImageJ ignore the unknown tag.
     """
-    use_bigtiff = data.nbytes > 3.8 * 1024 * 1024 * 1024
-    write_options = hyperstack_options or {}
-    # Strip rendering-hint keys from the JSON sidecar copy. LUTs +
-    # Channel.Color are encoded into the file's TIFF / OME-XML
-    # sections directly; the sidecar is for LVP-aware consumers
-    # recovering the dropped-by-tifffile OME subtrees (Instrument /
-    # Plate / Objective), not for re-deriving the file's render
-    # hints. Bloats the sidecar by ~3 KB per channel of LUT data
-    # for zero downstream value if left in.
-    sidecar_metadata = {k: v for k, v in hyperstack_metadata.items() if k != 'LUTs'}
-    sidecar_json = json.dumps(sidecar_metadata, default=_json_default_numpy)
+    total_bytes = int(np.prod(shape)) * np.dtype(dtype).itemsize
+    use_bigtiff = total_bytes > 3.8 * 1024 * 1024 * 1024
+    if 'photometric' not in hyperstack_options:
+        raise ValueError(
+            'write_hyperstack_tiff requires photometric in hyperstack_options; '
+            'without it a <=4-wide trailing dimension can be misread as samples'
+        )
+    write_options = dict(hyperstack_options)
+    # The sidecar recovers the OME subtrees tifffile drops (Instrument /
+    # Plate / Objective) for LVP-aware consumers; render hints live in
+    # the OME-XML itself (Channel.Color), so the dict serializes whole.
+    sidecar_json = json.dumps(hyperstack_metadata, default=_json_default_numpy)
     sidecar_extratag = (
         LVP_HYPERSTACK_METADATA_TIFF_TAG,
         's',
@@ -1775,11 +1884,12 @@ def write_hyperstack_tiff(
     with tf.TiffWriter(
         str(file_loc),
         ome=True,
-        imagej=True,
         bigtiff=use_bigtiff,
     ) as tif:
         tif.write(
-            data,
+            planes,
+            shape=shape,
+            dtype=np.dtype(dtype),
             resolution=hyperstack_resolution,
             metadata=hyperstack_metadata,
             software=f'LumaViewPro {version}',
@@ -1933,6 +2043,7 @@ def write_tiff(
         if image_type == 'video_frame':
             tif.write(
                 data,
+                resolution=support_data['resolution'],
                 metadata=support_data['metadata'],
                 datetime=metadata['datetime'],
                 software=f'LumaViewPro {version}',
@@ -2018,6 +2129,12 @@ def generate_tiff_data(
     else:
         raise ValueError(f'Unexpected color value ({color}) for tiff data generation')
 
+    # Read once, above every arm: the scale claim is one rule, and the arm that
+    # returned before this read is exactly the arm that emitted a wrong claim.
+    # A hard key, not a .get default -- a metadata dict with no scale must fail
+    # loudly here rather than silently resolve to a fabricated size.
+    pixel_size_um = metadata['pixel_size_um']
+
     # Video frames pass through metadata as-is with no structured fields
     if image_type == 'video_frame':
         # maxworkers=0 mirrors the imagej + default/ome paths below for
@@ -2028,11 +2145,13 @@ def generate_tiff_data(
         options = {
             'photometric': photometric,
             'compression': 'lzw',
-            'resolutionunit': 'CENTIMETER',
+            # Same conditional as the other two arms: tifffile always emits an
+            # XResolution, defaulting to 1/1, so CENTIMETER on a scale-less
+            # frame asserts 1 px/cm -- a concrete and wildly wrong claim. NONE
+            # is the TIFF convention for "ratio only, no absolute unit".
+            'resolutionunit': 'CENTIMETER' if pixel_size_um is not None else 'NONE',
             'maxworkers': 0,
         }
-        if data.dtype == np.uint8:
-            options['tile'] = (128, 128)
         return {
             'metadata': metadata,
             # Carry the payload depth in the private tag here too. Video-frame
@@ -2043,7 +2162,16 @@ def generate_tiff_data(
                 (_TIFF_TAG_SIGNIFICANT_BITS, 3, 1, int(metadata['significant_bits']), True)
             ],
             'options': options,
+            'resolution': (
+                resolution_for_pixel_size(pixel_size_um) if pixel_size_um is not None else None
+            ),
         }
+
+    # The micron token is container-dependent: OME-XML (UTF-8) requires
+    # the schema's micro-sign form, while tifffile encodes the ImageJ /
+    # shaped descriptions as ASCII, where the micro sign crashes the
+    # write -- and ImageJ's own convention is 'um'.
+    micron = OME_UNIT_MICROMETER if image_type == 'ome' else 'um'
 
     # Shared plane metadata for all structured image types
     plane = {
@@ -2052,7 +2180,7 @@ def generate_tiff_data(
         'PositionZ': metadata['z_pos_um'],
         'PositionXUnit': 'mm',
         'PositionYUnit': 'mm',
-        'PositionZUnit': 'um',
+        'PositionZUnit': micron,
         'Objective': metadata['objective'],
         'Illumination': metadata['illumination_ma'],
         'IlluminationUnit': 'mA',
@@ -2088,8 +2216,6 @@ def generate_tiff_data(
     if 'frame_id' in metadata:
         plane['FrameID'] = metadata['frame_id']
 
-    pixel_size_um = metadata['pixel_size_um']
-
     # Base metadata shared by all structured types
     tiff_metadata = {
         'axes': axes,
@@ -2104,12 +2230,14 @@ def generate_tiff_data(
     # A scale is written only when one is known. Emitting the keys with a null
     # value would still read downstream as a PhysicalSize claim, and a reader
     # cannot tell an invented scale from a measured one -- the absence is the
-    # honest signal that this file cannot be measured.
+    # honest signal that this file cannot be measured. The unit comes from
+    # the container-dependent micron token resolved with the Plane units
+    # above (OME micro-sign form vs ASCII 'um' for the ImageJ container).
     if pixel_size_um is not None:
         tiff_metadata['PhysicalSizeX'] = pixel_size_um
-        tiff_metadata['PhysicalSizeXUnit'] = 'um'
+        tiff_metadata['PhysicalSizeXUnit'] = micron
         tiff_metadata['PhysicalSizeY'] = pixel_size_um
-        tiff_metadata['PhysicalSizeYUnit'] = 'um'
+        tiff_metadata['PhysicalSizeYUnit'] = micron
 
     # Producing algorithm, when the caller supplied one (post-processing
     # outputs). Rides along in the structured metadata so a consumer can tell a
@@ -2223,10 +2351,6 @@ def generate_tiff_data(
             'maxworkers': 0,
         }
         resolution = resolution_for_pixel_size(pixel_size_um) if pixel_size_um is not None else None
-
-    # Tile setting: 8-bit images use tiles for ImageJ colormap compatibility
-    if data.dtype == np.uint8:
-        options['tile'] = (128, 128)
 
     # Carry the payload depth in a durable private TIFF tag so plain / ImageJ
     # outputs (which have no OME-XML) recover it on read-back; OME files get it

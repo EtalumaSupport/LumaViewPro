@@ -261,7 +261,13 @@ if __name__ == '__main__':
     from kivy.graphics.texture import Texture
     from kivy.input.motionevent import MotionEvent
     from kivy.metrics import dp
-    from kivy.properties import BooleanProperty, ListProperty, ObjectProperty, StringProperty
+    from kivy.properties import (
+        AliasProperty,
+        BooleanProperty,
+        ListProperty,
+        ObjectProperty,
+        StringProperty,
+    )
 
     # User Interface
     from kivy.uix.accordion import AccordionItem
@@ -433,6 +439,23 @@ class LumaViewProApp(TooltipMixin, App):
     # this property is written only on the Kivy main thread when a run
     # starts and stops, so widgets grey out for the duration of a scan.
     protocol_running = BooleanProperty(False)
+
+    # UI mirror of the manual-recording controller's selection-open
+    # state, written only on the Kivy main thread (the session claim
+    # stays authoritative for worker-thread arbitration).
+    recording_active = BooleanProperty(False)
+
+    def _get_controls_locked(self):
+        return self.protocol_running or self.recording_active
+
+    # THE one derived lock every full-lockout kv binding reads: an
+    # exclusive activity (protocol run OR live recording) locks the
+    # control surface; only the record/stop toggle stays actionable
+    # during a recording. Never add a second per-site flag -- bind to
+    # this.
+    controls_locked = AliasProperty(
+        _get_controls_locked, None, bind=['protocol_running', 'recording_active']
+    )
 
     def on_start(self) -> None:
         """Kivy lifecycle hook: fires after build() and before the main loop runs."""
@@ -836,6 +859,12 @@ class LumaViewProApp(TooltipMixin, App):
         scope_display_thread = executor_bundle.scope_display_thread
         worker_pool = executor_bundle.worker_pool
 
+        # A crash in a pre-engine release can strand a multi-GB recording
+        # scratch in the live folder; sweep it before anything records.
+        from modules.manual_recording import sweep_recording_scratch
+
+        sweep_recording_scratch(settings['live_folder'])
+
         # GUI-independent scope session; persisted to ctx.session and
         # ctx.protocol_running so other methods read off ctx.
         protocol_running_global = threading.Event()
@@ -890,6 +919,10 @@ class LumaViewProApp(TooltipMixin, App):
             camera_executor=camera_executor,
             autofocus_thread=autofocus_thread,
             z_ui_update_func=_handle_autofocus_ui,
+            # The session's compare-and-claim is the one arbitration point
+            # for protocol-XOR-recording exclusivity; a runner left on its
+            # private fallback claim would refuse nothing app-wide.
+            activity_claim=scope_session.activity_claim,
         )
 
         # Create AppContext -- central service registry
@@ -1014,7 +1047,19 @@ class LumaViewProApp(TooltipMixin, App):
         for plugin_name, mount_point, builder in ctx.plugins.ui.mounts():
             if mount_point == 'left_sidebar.accordion':
                 try:
-                    motionsettings_accordion.add_widget(builder())
+                    plugin_item = builder()
+                    # The accordion itself no longer carries the exclusive-
+                    # activity lock (its bind would swallow the run/stop
+                    # toggles' abort clicks); runtime-mounted items inherit
+                    # the lock explicitly so plugin tabs grey out like the
+                    # built-in regions.
+                    plugin_item.disabled = bool(self.controls_locked)
+                    self.bind(
+                        controls_locked=lambda _app, value, item=plugin_item: setattr(
+                            item, 'disabled', value
+                        )
+                    )
+                    motionsettings_accordion.add_widget(plugin_item)
                     logger.info(f'[LVP Main  ] Mounted {plugin_name} at {mount_point}')
                 except Exception as e:
                     logger.error(
@@ -1121,8 +1166,61 @@ class LumaViewProApp(TooltipMixin, App):
 
             return True  # Prevent window from closing
 
-        # No protocol running - allow normal close
+        recording = ctx.session.manual_recording
+        runner = ctx.sequenced_capture_runner
+        protocol_tail_busy = runner is not None and runner.video_drain_busy
+        if recording.is_busy or protocol_tail_busy:
+            # Queued video frames -- a manual recording's, or a finished
+            # run's video-step tail -- are still being written to their
+            # final artifacts. A silent block reads as a hang and a
+            # silent close eats the tail of the recording, so the close
+            # shows drain progress with one explicit discard escape.
+            logger.info('[LVP Main  ] Close requested during video drain; showing progress')
+            Clock.schedule_once(lambda dt: self._close_with_drain_progress())
+            return True  # Prevent window from closing
+
+        # No exclusive activity - allow normal close
         return False
+
+    def _close_with_drain_progress(self) -> None:
+        """PR flow for closing mid-drain: stop, show drain progress, exit
+        when the finish lands (or on explicit discard). Covers both drain
+        sources -- the manual recording and a run's video-step tail."""
+        from ui.notification_popup import show_blocking_progress_popup
+
+        recording = ctx.session.manual_recording
+        runner = ctx.sequenced_capture_runner
+        recording.stop()
+
+        def _busy() -> bool:
+            return recording.is_busy or (runner is not None and runner.video_drain_busy)
+
+        def _pending() -> int:
+            tail = runner.video_pending_writes if runner is not None else 0
+            return recording.pending_writes + tail
+
+        def _discard(*_a):
+            recording.discard_pending()
+            if runner is not None:
+                runner.discard_video_pending()
+
+        popup, set_message = show_blocking_progress_popup(
+            title='Finishing Video Writes',
+            message='Finishing video writes...',
+            action_text='Discard Remaining Frames',
+            on_action=_discard,
+        )
+
+        def _watch(dt):
+            if _busy():
+                set_message(f'Finishing video writes -- {_pending()} frames remaining.')
+                return
+            Clock.unschedule(self._drain_close_watch)
+            self._drain_close_watch = None
+            popup.dismiss()
+            self.stop()
+
+        self._drain_close_watch = Clock.schedule_interval(_watch, 0.2)
 
     def _flush_current_json(self, dt: float) -> None:
         """Periodic current.json snapshot (Clock interval callback).

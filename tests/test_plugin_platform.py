@@ -684,9 +684,9 @@ def test_diff_settings_keys_leaf_change():
 def test_diff_settings_keys_nested_change_returns_dotted_path():
     from modules.plugins import _diff_settings_keys
 
-    old = {'manual_video': {'max_fps': 10, 'max_duration': 60}}
-    new = {'manual_video': {'max_fps': 30, 'max_duration': 60}}
-    assert _diff_settings_keys(old, new) == {'manual_video.max_fps'}
+    old = {'video': {'max_fps': 10, 'max_duration': 60}}
+    new = {'video': {'max_fps': 30, 'max_duration': 60}}
+    assert _diff_settings_keys(old, new) == {'video.max_fps'}
 
 
 def test_diff_settings_keys_added_and_removed_keys():
@@ -707,40 +707,40 @@ def test_diff_settings_keys_none_baseline_flattens_all_leaves():
 def test_any_prefix_match_exact_key():
     from modules.plugins import _any_prefix_match
 
-    assert _any_prefix_match(('manual_video.max_fps',), {'manual_video.max_fps'})
-    assert not _any_prefix_match(('manual_video.max_fps',), {'manual_video.max_duration'})
+    assert _any_prefix_match(('video.max_fps',), {'video.max_fps'})
+    assert not _any_prefix_match(('video.max_fps',), {'video.max_duration'})
 
 
 def test_any_prefix_match_subtree():
     from modules.plugins import _any_prefix_match
 
-    # subscribes to 'manual_video' subtree -> any descendant matches.
-    assert _any_prefix_match(('manual_video',), {'manual_video.max_fps'})
-    assert _any_prefix_match(('manual_video',), {'manual_video.codec.bitrate'})
-    assert _any_prefix_match(('manual_video',), {'manual_video'})
+    # subscribes to 'video' subtree -> any descendant matches.
+    assert _any_prefix_match(('video',), {'video.max_fps'})
+    assert _any_prefix_match(('video',), {'video.codec.bitrate'})
+    assert _any_prefix_match(('video',), {'video'})
 
 
 def test_any_prefix_match_does_not_match_unrelated_prefix():
     from modules.plugins import _any_prefix_match
 
-    # 'manual' must not match 'manual_video.X' -- prefix is full dot-path
+    # 'video' must not match 'video_recording.X' -- prefix is full dot-path
     # component, not arbitrary string prefix.
-    assert not _any_prefix_match(('manual',), {'manual_video.max_fps'})
+    assert not _any_prefix_match(('video',), {'video_recording.max_fps'})
 
 
 def test_notify_settings_changed_fires_subscribed_plugin(harness_ctx):
     mod = _make_plugin_with_settings_hook(
         'video_listener',
-        subscribes_to=('manual_video.max_fps',),
+        subscribes_to=('video.max_fps',),
     )
     ep = _FakeEntryPoint('video_listener', mod)
     with patch('importlib.metadata.entry_points', return_value=[ep]):
         load_plugins(harness_ctx)
-    settings = {'manual_video': {'max_fps': 30}}
+    settings = {'video': {'max_fps': 30}}
     harness_ctx.plugins.notify_settings_changed(
         harness_ctx,
         settings,
-        {'manual_video.max_fps'},
+        {'video.max_fps'},
     )
     assert len(mod._on_change_calls) == 1
     ctx_arg, settings_arg = mod._on_change_calls[0]
@@ -759,8 +759,8 @@ def test_notify_settings_changed_skips_non_subscribed(harness_ctx):
     # Change a key the plugin did NOT subscribe to.
     harness_ctx.plugins.notify_settings_changed(
         harness_ctx,
-        {'manual_video': {'max_fps': 30}},
-        {'manual_video.max_fps'},
+        {'video': {'max_fps': 30}},
+        {'video.max_fps'},
     )
     assert mod._on_change_calls == []
 
@@ -824,16 +824,16 @@ def test_notify_settings_changed_swallows_handler_exception(harness_ctx):
 def test_notify_settings_changed_prefix_subtree_subscription(harness_ctx):
     mod = _make_plugin_with_settings_hook(
         'subtree_listener',
-        subscribes_to=('manual_video',),
+        subscribes_to=('video',),
     )
     ep = _FakeEntryPoint('subtree_listener', mod)
     with patch('importlib.metadata.entry_points', return_value=[ep]):
         load_plugins(harness_ctx)
-    # Any key under the manual_video subtree must fire the handler.
+    # Any key under the video subtree must fire the handler.
     harness_ctx.plugins.notify_settings_changed(
         harness_ctx,
-        {'manual_video': {'codec': {'bitrate': 5000}}},
-        {'manual_video.codec.bitrate'},
+        {'video': {'codec': {'bitrate': 5000}}},
+        {'video.codec.bitrate'},
     )
     assert len(mod._on_change_calls) == 1
 

@@ -142,6 +142,37 @@ def _migrate_image_mode_setting(logger) -> None:
         logger.info('[Settings ] Consolidated capture/save toggles into image_mode')
 
 
+def migrate_video_settings_dict(settings_dict: dict) -> bool:
+    """Carry a configured manual_video section to its new name, video.
+
+    The rate/duration authority applies to every recording path, not just
+    manual record, so the section renamed. Must run on a loaded dict
+    before the settings.json default-merge: the merge only ADDS missing
+    keys, so without this fold an install carrying manual_video.max_fps
+    = 10 would get the shipped video.max_fps = 0 merged in and silently
+    lose its configured cap.
+
+    Returns:
+        True when a manual_video section was found and folded.
+    """
+    old = settings_dict.pop('manual_video', None)
+    if old is None:
+        return False
+    video = settings_dict.setdefault('video', {})
+    for key, value in old.items():
+        video.setdefault(key, value)
+    return True
+
+
+def _migrate_video_settings(logger) -> None:
+    """Apply migrate_video_settings_dict to the loaded global settings."""
+    global settings
+    if settings is None:
+        return
+    if migrate_video_settings_dict(settings):
+        logger.info('[Settings ] Renamed manual_video settings section to video')
+
+
 def load_lvp_settings(logger, lvp_appdata):
     global settings
 
@@ -164,6 +195,7 @@ def load_lvp_settings(logger, lvp_appdata):
                 ) from e
 
         _migrate_image_mode_setting(logger)
+        _migrate_video_settings(logger)
 
         # Merge missing keys from settings.json defaults into current.json.
         # current.json drifts from settings.json as new features add keys.
@@ -183,6 +215,7 @@ def load_lvp_settings(logger, lvp_appdata):
     elif os.path.exists(settings_path):
         load_settings(logger, settings_path, lvp_appdata)
         _migrate_image_mode_setting(logger)
+        _migrate_video_settings(logger)
     else:
         if not os.path.isdir(data_dir):
             raise FileNotFoundError(f"Couldn't find 'data' directory at {data_dir}")

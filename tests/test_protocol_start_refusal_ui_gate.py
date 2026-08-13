@@ -99,7 +99,11 @@ def test_run_sequenced_capture_orders_prepare_commit_start():
 
     src = ast.unparse(method)
     prepare_pos = src.index('.prepare(')
-    commit_pos = src.index('commit_ui_state()')
+    # The commit rides the restoring boundary: run_committed_start
+    # snapshots, commits, starts, and restores the snapshot if start()
+    # still refuses -- so a post-commit refusal cannot strand the
+    # committed lockout either.
+    commit_pos = src.index('run_committed_start(commit_ui_state')
     start_pos = src.index('.start(')
     assert prepare_pos < commit_pos < start_pos, (
         'the commit_ui_state() invocation must sit BETWEEN prepare() and '

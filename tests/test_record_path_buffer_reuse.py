@@ -1,24 +1,10 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Record-path conversions reuse caller-owned scratch buffers.
+"""Save-edge false-color conversions reuse caller-owned output buffers.
 
-record_helper (the camera_executor task that writes one recorded video
-frame) downconverts an 8-bit capture into a reusable scratch buffer;
-without it each frame allocated a fresh ~W*H array of allocator churn.
-record_helper threads that one scratch buffer into the converter's out=
-parameter; the buffer is owned by MainDisplay, sized lazily, and freed at
-finalize. False color is no longer applied in the record path -- the
-memmap stays mono and colorization happens at the save edges -- so there
-is no longer a second (RGB) scratch buffer here.
-
-Reuse is safe: record_helper runs on the single-threaded camera_executor
-and copies its result into the memmap slot before the next call can
-overwrite the scratch.
-
-The depth-convert out= reuse is already covered (test_image_utils.py for
-8-bit). The add_false_color tests below cover the output= reuse semantics
-directly (still used by the save-edge false-color path) and lock the
-record_helper wiring structurally (MainDisplay needs a full scope to
-instantiate).
+The add_false_color tests cover the output= reuse semantics used by the
+save-edge false-color path; without buffer reuse each frame allocates a
+fresh ~W*H*3 array of allocator churn. The record-path structural pin
+guards the depth contract at the recording write edge.
 """
 
 from __future__ import annotations
@@ -60,20 +46,11 @@ def test_add_false_color_falls_back_on_dtype_mismatch():
     assert result.dtype == np.uint8
 
 
-def test_record_helper_threads_scratch_buffers():
-    # Structural lock: record_helper downconverts an 8-bit capture through the
-    # canonical converter into a MainDisplay-owned scratch buffer, threaded with
-    # the snapshotted capture depth. MainDisplay needs a full scope to
-    # instantiate, so assert on source.
-    src = (REPO / 'ui' / 'main_display.py').read_text()
-    assert 'convert_to_8bit(' in src
-    # A uint16 capture is stored in the memmap VERBATIM (right-aligned). The
-    # record path must NOT left-justify it -- a prior convert_to_16bit here
-    # double-encoded against the save edge (image_save.write_video_frame), the
-    # single depth encoder. So only the 8-bit downconvert reuses a scratch.
+def test_record_write_edge_does_not_left_justify():
+    # A uint16 capture travels to the write edge VERBATIM (right-aligned).
+    # The record path must NOT left-justify it -- a prior convert_to_16bit
+    # double-encoded against the save edge (image_save.write_video_frame),
+    # the single depth encoder. Structural source pin on the controller,
+    # which owns the record write edge post-cutover.
+    src = (REPO / 'modules' / 'manual_recording.py').read_text()
     assert 'convert_to_16bit(' not in src
-    assert src.count('out=self._record_convert_buf') == 1
-    assert 'self._record_capture_depth' in src
-    # Record-path false color is gone: the memmap stays mono and colorization
-    # moved to the save edges, so the RGB color scratch buffer no longer exists.
-    assert '_record_color_buf' not in src

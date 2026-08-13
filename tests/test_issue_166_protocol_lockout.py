@@ -58,10 +58,14 @@ def test_app_defines_protocol_running_boolean_property():
 
 
 def test_publish_helper_schedules_flip_on_main_thread():
-    body = _def_source(_read('ui/protocol_settings.py'), '_publish_protocol_running')
-    assert body is not None, '_publish_protocol_running helper missing'
+    # The canonical publisher lives in ui_helpers (several widgets need
+    # it); ProtocolSettings keeps a thin delegate for its call sites.
+    body = _def_source(_read('ui/ui_helpers.py'), 'publish_protocol_running')
+    assert body is not None, 'publish_protocol_running helper missing'
     assert 'Clock.schedule_once' in body, 'the property flip must run on the Kivy main thread'
     assert 'protocol_running' in body
+    delegate = _def_source(_read('ui/protocol_settings.py'), '_publish_protocol_running')
+    assert delegate is not None and 'publish_protocol_running(' in delegate
 
 
 def test_every_run_start_publishes_true():

@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 
 from lvp_logger import logger
 
-from modules.common_utils import check_disk_space_ok, estimate_step_write_mb
+from modules.common_utils import MIN_REQUIRED_DISK_MB, check_disk_space_ok, estimate_step_write_mb
 from modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
 from modules.protocol_state_machine import ProtocolState
 
@@ -22,9 +22,6 @@ if TYPE_CHECKING:
     from modules.sequenced_capture_runner import SequencedCaptureRunner
 
 from modules.kivy_utils import schedule_ui as _schedule_ui
-
-# --- Disk-space estimation constants ---
-MIN_REQUIRED_DISK_MB = 2048  # Minimum free disk space to start a scan (2 GB)
 
 # --- Hardware health check ---
 HW_CHECK_INTERVAL_S = 30  # Seconds between hardware connection checks
@@ -52,7 +49,10 @@ class ProtocolRunLoop:
         try:
             self._run_loop_inner()
         except Exception as ex:
-            logger.error(f'[PROTOCOL] Unhandled exception in run loop: {ex}', exc_info=True)
+            logger.error(
+                f'[PROTOCOL] Run loop aborted by exception; cleanup will run: {ex}',
+                exc_info=True,
+            )
         finally:
             # Safety net: ensure cleanup always runs so LEDs are turned off,
             # protocol state is reset, and resources are released even if an
@@ -239,6 +239,7 @@ class ProtocolRunLoop:
                                     estimate_step_write_mb(
                                         p._protocol.step(idx=i),
                                         video_as_frames=p._video_as_frames,
+                                        global_max_fps=p._video_max_fps,
                                     )
                                     for i in range(num_steps)
                                 ),

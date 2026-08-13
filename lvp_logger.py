@@ -406,12 +406,15 @@ metrics_logger.addHandler(metrics_file_handler)
 # Metrics errors/warnings still hit the errors log
 metrics_logger.addHandler(error_file_handler)
 
-# Protocol log -- dedicated file for the per-step protocol-execution
-# narrative (step records, per-channel LED/illumination, image-captured
-# events). A long protocol soak emits tens of thousands of these per run;
-# routing them here keeps the main log readable while preserving the full
-# run history. propagate=False keeps protocol detail out of the main log;
-# warnings/errors still mirror to the errors log.
+# Protocol log -- volume-offload lane for the stills writer's per-capture
+# narrative (the one producer: protocol_image_writer's image-captured /
+# execution-record lines). A long protocol soak emits tens of thousands
+# of these per run; routing them here keeps the main log readable. The
+# admission criterion is VOLUME, not topic -- low-volume protocol
+# narrative (runner lifecycle, video-step summaries at a few rows per
+# step) deliberately stays in the main log, where one file tells the
+# run's causal story. propagate=False keeps the firehose out of the main
+# log; warnings/errors still mirror to the errors log.
 protocol_logger = logging.getLogger('LVP.protocol')
 protocol_logger.setLevel(logging.INFO)
 protocol_logger.propagate = False  # Keep protocol detail out of the main log
@@ -422,7 +425,7 @@ protocol_file_handler = RotatingFileHandler(
     maxBytes=5 * 1024 * 1024,
     backupCount=2,
     encoding=None,
-    delay=False,
+    delay=True,  # Don't create file until first write -- absence means no stills protocol ran
 )
 protocol_file_handler.namer = lambda name: name.replace('.log', '') + '.log'
 protocol_file_handler.setFormatter(CustomFormatter())

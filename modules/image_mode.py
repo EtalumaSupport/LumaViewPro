@@ -31,6 +31,12 @@ IMAGE_MODE_12BIT_SCIENTIFIC = '12bit_scientific'
 IMAGE_MODE_12BIT_SCALED = '12bit_scaled'
 IMAGE_MODE_12BIT_FALSE_COLOR_RGB = '12bit_false_color_rgb'
 
+# The sequenced-output format that swaps per-step TIFF writes for a
+# post-run per-well stack build. The value matches the UI spinner label
+# and settings files verbatim, so it cannot be renamed without a
+# settings migration.
+OUTPUT_FORMAT_HYPERSTACK = 'OME-TIFF Hyperstack'
+
 # Save-encoding tokens -- the derived on-disk shape, independent of the mode label.
 SAVE_ENCODING_8BIT = '8bit'
 SAVE_ENCODING_RIGHT_ALIGNED = 'right_aligned'

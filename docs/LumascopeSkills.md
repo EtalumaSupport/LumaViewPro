@@ -286,6 +286,25 @@ Recovery is deliberate data loss: pending writes from the wedged run are discard
 
 **Canonical entry points.** Build the runner with `session.create_protocol_runner()`. Build the `Protocol` it runs with one of the two scope-level constructors -- `scope.load_protocol(file_path)` (from a `.tsv` on disk) or `scope.create_protocol(config=... | input_config=... | empty_config=...)` (in-memory). Both resolve `data/tiling.json` from the session's registered `source_path`, so prefer them over calling `Protocol.from_file(...)` directly (which makes you pass `tiling_configs_file_loc` by hand).
 
+### Video steps and recordings
+
+A protocol step with `Acquire` = `video` records through the session's recording engine for the step's configured duration. This is the supported video path for L2 / headless callers; the GUI's manual Record button is a GUI-hosted convenience on the same engine.
+
+Per recording (one per well per scan), the run produces:
+
+- a frames folder (`<step>_video/`) of per-frame TIFFs, numbered in capture order;
+- `recording_manifest.json` in that folder -- the measured truth: delivered frame count, measured frame rate, per-frame timestamps, and the recording's end reason. Downstream consumers (including Create Video's `auto` rate) read the manifest, not the configured rate;
+- one variable-frame-rate MP4 per recording;
+- after the run completes, one OME-TIFF hyperstack per (well, scan): `T` = frame capture order, `C` = channel, per-plane `DeltaT` from the frames' own timestamps. Hyperstacks build at run completion on every host -- headless and REST runs included, no GUI involved.
+
+Rate and duration come from the run's settings snapshot at start: `video.max_fps` (0 = uncapped; the effective rate is measured, not assumed) and `video.max_duration_seconds`. Mid-run settings edits do not affect a run in flight.
+
+Recording starts are guarded like protocol starts: `RecordingRefusedError` (`modules.exceptions`) mirrors the `ProtocolRunRefusedError` shape, with machine-readable `reason` codes `recording_active` (another recording is live) and `exclusive_activity_running` (a protocol run or other exclusive activity holds the session's activity claim).
+
+**Opening hyperstacks in Fiji:** the container is OME-TIFF; channel color travels as OME `Channel.Color`. Open via `Plugins > Bio-Formats > Importer` with **Color mode = Composite** (the choice persists per user through that dialog). A plain `File > Open` renders ImageJ's default LUTs, not the file's channel colors.
+
+**Run-state semantics:** `session.is_protocol_running()` reports True while any exclusive GUI-side activity holds the run lockout -- protocol runs, autofocus scans, and the standalone Autofocus button's scan included. An L2 poller should treat it as "the instrument is busy with an exclusive activity", not strictly "a protocol is executing".
+
 ### Configuration queries
 
 ```python

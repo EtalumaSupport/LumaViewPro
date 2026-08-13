@@ -25,6 +25,7 @@ import modules.coord_transformations as coord_transformations
 import modules.image_mode as image_mode
 
 import modules.labware_loader as labware_loader
+from modules.activity_claim import ActivityClaim
 from modules.autofocus_runner import AutofocusRunner
 from modules.exceptions import ProtocolRunRefusedError
 from modules.protocol import Protocol
@@ -35,7 +36,14 @@ from lvp_logger import logger
 import threading
 
 import modules.app_context as _app_ctx
+import modules.stack_builder as stack_builder
 from modules.settings_init import settings
+
+# How often the post-run hyperstack waiter re-checks the protocol file
+# queue. The build must not start until every per-step file has flushed
+# (a stack built mid-flush would silently miss planes), and queue-idle is
+# a poll-only signal.
+_HYPERSTACK_QUEUE_POLL_S = 0.5
 
 
 """
@@ -122,6 +130,7 @@ class SequencedCaptureRunner:
         autofocus_thread,
         autofocus_runner: AutofocusRunner | None = None,
         z_ui_update_func: typing.Callable | None = None,
+        activity_claim: ActivityClaim | None = None,
     ):
         self._coordinate_transformer = coord_transformations.CoordinateTransformer()
         self._wellplate_loader = labware_loader.WellPlateLoader()
@@ -158,6 +167,13 @@ class SequencedCaptureRunner:
         self._protocol = None
         self._cleanup_lock = threading.Lock()
         self._run_lock = threading.Lock()
+        # Session-tier exclusivity: a protocol run and a video recording
+        # can never run concurrently, arbitrated by one compare-and-claim
+        # both acquire. Production callers (the GUI composition root and
+        # ScopeSession) inject the session's claim; the private fallback
+        # exists so a bare runner keeps the refusal semantics locally.
+        self._activity_claim = activity_claim if activity_claim is not None else ActivityClaim()
+        self._activity_claim_held = False
         self._grease_redistribution_event = threading.Event()
         self._grease_redistribution_event.set()
 
@@ -239,6 +255,7 @@ class SequencedCaptureRunner:
     def _reset_vars(self):
         self._run_dir = None
         self._run_trigger_source = None
+        self._image_writer = None
         self._run_in_progress_event.clear()
         # Fresh object per run, never a shared Event cleared in place: queued
         # write tasks keep draining after a run ends, and a drain task hitting
@@ -450,6 +467,29 @@ class SequencedCaptureRunner:
                 return False
             time.sleep(0.05)
         return True
+
+    @property
+    def video_drain_busy(self) -> bool:
+        """True while a video step's write drain or finish outlives the run.
+
+        The app-close gate reads this: a run can end (or abort) while a
+        video drain tail is still writing final artifacts, and a silent
+        close in that window eats the tail.
+        """
+        writer = self._image_writer
+        return writer is not None and writer.video_busy
+
+    @property
+    def video_pending_writes(self) -> int:
+        """Frames across the run's video steps not yet on disk."""
+        writer = self._image_writer
+        return writer.video_pending_writes if writer is not None else 0
+
+    def discard_video_pending(self) -> None:
+        """Drop the run's unwritten video backlog loudly (app-close discard)."""
+        writer = self._image_writer
+        if writer is not None:
+            writer.discard_video_pending()
 
     def protocol_interval(self):
         return self._protocol.period()
@@ -768,16 +808,20 @@ class SequencedCaptureRunner:
         same cleanup as a mid-run failure (with status 'failed_at_start').
         There is no path on which a caller waits forever.
 
-        The single exception is the prepare-to-start race: when another
-        run started between this plan's prepare() and its start(), the
-        typed refusal raises here BEFORE any commitment. Treating that
-        race as a failed run instead would fire this plan's completion
-        callbacks while the other, live run is mid-flight -- clearing
-        running-state the live run still owns.
+        The exceptions are the pre-commitment refusals: when another
+        run started between this plan's prepare() and its start(), or
+        an exclusive activity (a video recording) holds the session's
+        activity claim, the typed refusal raises here BEFORE any
+        commitment. Treating those as a failed run instead would fire
+        this plan's completion callbacks while the other, live activity
+        is mid-flight -- clearing running-state the live activity still
+        owns.
 
         Raises:
-            ProtocolRunRefusedError: reason 'already_running', only for
-                the prepare-to-start race described above.
+            ProtocolRunRefusedError: reason 'already_running' for the
+                prepare-to-start race, or 'exclusive_activity_running'
+                when the session's activity claim is held (e.g. a video
+                recording in progress).
         """
         # Gate and commit under ONE lock hold: releasing between the
         # already-running check and the event set would let two
@@ -790,6 +834,27 @@ class SequencedCaptureRunner:
                     title='Already Running',
                     message='A protocol run is already in progress.',
                 )
+
+            if not self._activity_claim.try_claim('protocol'):
+                holder = self._activity_claim.owner
+                if holder == 'recording':
+                    title = 'Recording Active'
+                    message = (
+                        'A video recording is in progress. Stop it or let it '
+                        'finish, then start the run.'
+                    )
+                else:
+                    title = 'Another Activity Running'
+                    message = (
+                        'Another exclusive activity is using the microscope. '
+                        'Let it finish, then start the run.'
+                    )
+                self._refuse(
+                    reason='exclusive_activity_running',
+                    title=title,
+                    message=message,
+                )
+            self._activity_claim_held = True
 
             self._reset_vars()
             self._run_generation += 1
@@ -865,11 +930,6 @@ class SequencedCaptureRunner:
                 self._original_autofocus_states = self.get_initial_autofocus_states()
 
             ctx = _app_ctx.ctx
-            stim_profiling = (
-                ctx.settings.get('profiling', {}).get('stim_profiling', False)
-                if ctx is not None
-                else False
-            )
             # bf_af_for_fluorescence is snapshotted once per run under
             # settings_lock so mid-run toggles do not produce inconsistent AF
             # behavior across steps within one scan; protocol_step_runner
@@ -879,8 +939,20 @@ class SequencedCaptureRunner:
                     self._bf_af_for_fluorescence = ctx.settings.get('protocol', {}).get(
                         'bf_af_for_fluorescence', False
                     )
+                    # Snapshot once per run so a mid-run toggle cannot make
+                    # some video steps stamped and others clean; overlay-on
+                    # is the shipped default.
+                    self._timestamp_overlay = ctx.settings.get('video', {}).get(
+                        'timestamp_overlay', True
+                    )
+                    # Same snapshot discipline for the global rate cap: the
+                    # recording rate and the disk sizing must read one
+                    # per-run value, never live settings mid-run.
+                    self._video_max_fps = ctx.settings.get('video', {}).get('max_fps', 0)
             else:
                 self._bf_af_for_fluorescence = False
+                self._timestamp_overlay = True
+                self._video_max_fps = 0
 
             # Borrow protocol_thread's abort Event as SCE's _aborted reference.
             # Cross-thread readers (protocol_step_runner, protocol_run_loop)
@@ -898,9 +970,9 @@ class SequencedCaptureRunner:
                 execution_record=self._protocol_execution_record,
                 leds_off_fn=self._step_executor.leds_off,
                 is_run_in_progress_fn=lambda: self._run_in_progress_event.is_set(),
-                stim_profiling=stim_profiling,
-                run_dir=self._run_dir,
                 image_capture_config=self._image_capture_config,
+                timestamp_overlay=self._timestamp_overlay,
+                video_max_fps=self._video_max_fps,
             )
 
             self.camera_executor.disable()
@@ -1056,6 +1128,50 @@ class SequencedCaptureRunner:
             led_lease.release(leave_on=True)
             self._led_lease = None
 
+    def _release_activity_claim(self):
+        """Release the run's exclusivity claim (idempotent).
+
+        The held flag flips first so a re-entrant cleanup cannot release
+        twice; the claim itself raises on a mismatched release, keeping
+        any double-release loud instead of silently freeing a claim a
+        newer activity now holds.
+        """
+        if self._activity_claim_held:
+            self._activity_claim_held = False
+            self._activity_claim.release('protocol')
+
+    def _start_hyperstack_build(self) -> threading.Thread | None:
+        """Kick off the post-run per-well hyperstack build, when configured.
+
+        Runs from cleanup for every capturing run mode (an autofocus scan
+        captures nothing to stack). The build waits for the protocol file
+        queue to drain first -- the per-step TIFFs are its input, and a
+        stack built mid-flush would silently miss planes -- then builds
+        from the run's own config snapshot, never the live UI, so a
+        headless / L2 run triggers exactly like a GUI run.
+
+        Returns:
+            The build thread, or None when this run does not build.
+        """
+        if self._run_mode is SequencedCaptureRunMode.SINGLE_AUTOFOCUS_SCAN:
+            return None
+        config = self._image_capture_config
+        if config is None or config.output_format_sequenced != image_mode.OUTPUT_FORMAT_HYPERSTACK:
+            return None
+        run_dir = self._run_dir
+        if run_dir is None:
+            return None
+        has_turret = self._scope.motion.has_turret()
+
+        def _wait_and_build():
+            while self.file_io_executor.is_protocol_queue_active():
+                time.sleep(_HYPERSTACK_QUEUE_POLL_S)
+            stack_builder.build_hyperstacks_for_run(run_dir=run_dir, has_turret=has_turret)
+
+        thread = threading.Thread(target=_wait_and_build, name='hyperstack-build', daemon=True)
+        thread.start()
+        return thread
+
     def _cleanup_inner(self, run_status: str):
         from modules.notification_center import notifications
 
@@ -1075,6 +1191,14 @@ class SequencedCaptureRunner:
                 self._io_executor.end_protocol_mode()
                 self.file_io_executor.end_protocol_mode()
                 return
+
+            # A video step's drain tail writes on its own thread; its
+            # execution-record row must land before the record reconciles
+            # inside run_cleanup, so wait it out here (bounded).
+            writer = self._image_writer
+            if writer is not None and writer.video_busy:
+                logger.info('[Protocol] Waiting for video write drain before run cleanup')
+                writer.wait_for_video_drains()
 
             # Read once, pass a bool: cleanup's fatal decision must not flip
             # mid-cleanup if a new run's _reset_vars replaces the Event object
@@ -1108,6 +1232,9 @@ class SequencedCaptureRunner:
                 logger_name=self.LOGGER_NAME,
                 run_status=run_status,
             )
+            # After run_cleanup: the stack loader reads the execution
+            # record, which reconciles inside it.
+            self._start_hyperstack_build()
         finally:
             # Release on every path -- early-return, normal end, or an
             # exception mid-cleanup -- so the lease can never leak and lock out
@@ -1115,3 +1242,6 @@ class SequencedCaptureRunner:
             # inside it and the authority refuses a released lease, so the lease
             # stays held through it; this release still runs once it returns.
             self._release_scan_led_lease()
+            # The activity claim releases on the same every-path guarantee:
+            # a leaked claim would refuse every future run AND recording.
+            self._release_activity_claim()
