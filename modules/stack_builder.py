@@ -246,11 +246,13 @@ class StackBuilder(ProtocolPostProcessor):
             'resolutionunit': 'CENTIMETER' if pixel_size_um is not None else 'NONE',
             # 0 for the same Windows kernel-handle-leak reason as the still save
             # paths -- tifffile's per-write ThreadPoolExecutor holds an Event
-            # handle that outlives cleanup. It is also faster here, not a
-            # throughput sacrifice: the hyperstack is one write() call streaming
-            # every plane through a single executor, and its per-page overhead
-            # exceeds what the parallelism recovers (measured ~4x on 60 planes
-            # of 5MP, and the gap widens as the frames compress better).
+            # handle that outlives cleanup. That leak is the governing reason
+            # and holds regardless of throughput. A hyperstack is ONE write()
+            # call streaming every plane, so the executor's per-page overhead is
+            # paid per plane; on a fast many-core dev machine dropping it
+            # measured several times faster, but that margin has not been
+            # measured on slower field hardware, where compression is a larger
+            # share of each page and could outweigh the overhead.
             'maxworkers': 0,
         }
 
