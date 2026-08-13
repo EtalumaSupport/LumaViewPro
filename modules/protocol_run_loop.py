@@ -49,7 +49,10 @@ class ProtocolRunLoop:
         try:
             self._run_loop_inner()
         except Exception as ex:
-            logger.error(f'[PROTOCOL] Unhandled exception in run loop: {ex}', exc_info=True)
+            logger.error(
+                f'[PROTOCOL] Run loop aborted by exception; cleanup will run: {ex}',
+                exc_info=True,
+            )
         finally:
             # Safety net: ensure cleanup always runs so LEDs are turned off,
             # protocol state is reset, and resources are released even if an

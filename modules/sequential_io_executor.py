@@ -278,8 +278,20 @@ class IOTask:
                     f'[IOTask    ] Slow task ({elapsed:.1f}s, threshold {threshold:.1f}s): {action_name} on {self.name}'
                 )
             return res, None
+        except CancelledError as e:
+            # concurrent.futures.CancelledError subclasses Exception, so the
+            # handler below would report a by-contract cancel as a failure.
+            # The executor's task epilogue is what logs cancels, at debug.
+            return None, e
         except Exception as e:
-            logger.error(f'Uncaught Thread Exception in {self.name} Worker: {e}', exc_info=True)
+            # Reports the raise, not an escape: this returns the exception to
+            # the worker, which reports it to the user. The separate task
+            # epilogue owns the "task failed" wording, so this line must not
+            # duplicate it.
+            action_name = getattr(self.action, '__name__', str(self.action))
+            logger.error(
+                f'[IOTask    ] {action_name} raised {type(e).__name__}: {e}', exc_info=True
+            )
             return None, e
 
     def set_callback(self, callback, cb_args, cb_kwargs):
@@ -1018,8 +1030,11 @@ class SequentialIOExecutor:
                 else:
                     self._on_task_done(task, run_result, None)
             except Exception as e:
+                # Distinct from a task raising: this is the dequeue or the
+                # epilogue failing around the task, and the loop continues.
                 logger.error(
-                    f'Uncaught Thread Exception in {self.name} Worker: {e}',
+                    f'[{self.executor_name}] Worker loop error outside the task '
+                    f'(dispatch or epilogue); the worker continues: {e}',
                     exc_info=True,
                 )
 

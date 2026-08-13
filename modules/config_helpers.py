@@ -732,7 +732,7 @@ def block_wait_for_threads(futures: list, log_loc: str = 'LVP') -> None:
         try:
             future.result()
         except Exception as e:
-            logger.error(f'{log_loc} ] Thread Error: {e}')
+            logger.error(f'{log_loc} ] Future raised {type(e).__name__}: {e}', exc_info=True)
 
 
 # ---------------------------------------------------------------------------
