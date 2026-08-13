@@ -1,9 +1,34 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Regression tests for MetricsLogger FRAME FLOW heartbeat sticky-failure.
+"""Escalation-state-machine tests for the FRAME FLOW stall heartbeat.
 
-The previous implementation fired the user-facing notification once
-per stall episode and then went silent forever. Rule 14 requires
-persistent faults to resurface; this suite locks in the new behavior:
+READ THIS BEFORE TRUSTING THESE TESTS AS FIELD COVERAGE. The detector
+under test is DISARMED in production and has never fired for a user.
+`MetricsLogger._check_frame_flow_heartbeat` probes
+`getattr(self._scope, 'camera', None)`, and `Lumascope` has no `camera`
+attribute, so the real detector returns on its first line every tick.
+`_ScopeWithCameraAttr` below supplies that attribute precisely because
+production does not, which is the only way to reach the state machine
+at all.
+
+So these tests prove the escalation LOGIC is correct -- a persistent
+fault resurfaces instead of going silent once, and a recovered stall can
+escalate again. They do NOT prove a stalled camera reaches the user,
+because it does not. The distinction matters: this file previously read
+as evidence of a working safety net, which is how the disarmed detector
+survived unnoticed.
+
+Kept rather than deleted because the state machine is real code with
+real behavior worth locking down, and it is what a future arming will
+depend on. What was retired is the claim, not the coverage.
+
+Arming is deliberately deferred -- see the decision record on
+`_check_frame_flow_heartbeat` for the two things that must land first
+(one owner for scope identity, and frame accounting moved out of the UI
+widget). `tests/test_capability_probe_reality.py` holds the expiry: it
+fails the moment `camera` becomes a real attribute, at which point this
+docstring is wrong and must be rewritten.
+
+Covered here:
 
   * threshold-tick: first WARNING + first popup
   * +RENOTIFY ticks: WARNING + popup again
@@ -28,7 +53,16 @@ class _FakeCamera:
         return self._grabbing
 
 
-class _FakeScope:
+class _ScopeWithCameraAttr:
+    """A scope that has what the real one does not: a `camera` attribute.
+
+    Named for what it IS rather than "FakeScope", so nobody reads it as
+    a stand-in for a real scope. The real `Lumascope` exposes its camera
+    through `imaging`; nothing assigns `camera`. Supplying it here is
+    what lets these tests reach the escalation state machine, and is
+    also exactly why the production detector never runs.
+    """
+
     def __init__(self, camera):
         self.camera = camera
 
@@ -41,9 +75,14 @@ class _FakeScopeDisplay:
 @pytest.fixture
 def stalled_logger(monkeypatch):
     """Logger pre-wired with a stalled camera (active+grabbing, fps=0)
-    and a captured-notifications shim so tests can assert on calls."""
+    and a captured-notifications shim so tests can assert on calls.
+
+    The scope here is deliberately NOT production-shaped -- see the
+    module docstring. It carries a `camera` attribute so the detector
+    gets past its first line.
+    """
     cam = _FakeCamera()
-    scope = _FakeScope(cam)
+    scope = _ScopeWithCameraAttr(cam)
     bundle = MagicMock()
     settings = {}
     log = ml.MetricsLogger(scope=scope, executor_bundle=bundle, settings=settings)

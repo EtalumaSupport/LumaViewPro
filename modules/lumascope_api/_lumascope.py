@@ -493,8 +493,12 @@ class Lumascope:
 
         # Track whether any real hardware was found.
         # Camera check reads the (private) driver handle directly because
-        # the public `self.camera` attribute is the ImagingAPI surface,
-        # not the driver.
+        # there is no public camera attribute to read: the camera surface
+        # is `self.imaging`, and `self.camera` does not exist. Do not add
+        # one without checking for probes that assume it -- code has been
+        # written against that name before, and `getattr(scope, 'camera',
+        # None)` silently yields None rather than failing, so the branch
+        # behind it simply never runs.
         self._no_hardware = (
             not simulate
             and isinstance(self._led_driver, NullLEDBoard)
