@@ -187,6 +187,12 @@ def tiff_frame_metadata(
         'timestamp': ts.strftime('%Y:%m:%d %H:%M:%S.%f'),
         'timestamp_iso': ts.isoformat(timespec='microseconds'),
         'frame_num': frame_number,
+        # The writer reads this as a required key, so it is stated rather than
+        # omitted: a recording frame has no scale source today, and an explicit
+        # None makes the file declare no absolute unit instead of inheriting
+        # tifffile's 1/1 default under a centimetre unit. Supplying a real
+        # measured value here is all it takes to make these frames carry scale.
+        'pixel_size_um': None,
     }
     if chunks is not None:
         ts_ticks = chunks.get('Timestamp')

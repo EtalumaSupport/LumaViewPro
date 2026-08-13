@@ -2003,6 +2003,7 @@ def write_tiff(
         if image_type == 'video_frame':
             tif.write(
                 data,
+                resolution=support_data['resolution'],
                 metadata=support_data['metadata'],
                 datetime=metadata['datetime'],
                 software=f'LumaViewPro {version}',
@@ -2088,6 +2089,12 @@ def generate_tiff_data(
     else:
         raise ValueError(f'Unexpected color value ({color}) for tiff data generation')
 
+    # Read once, above every arm: the scale claim is one rule, and the arm that
+    # returned before this read is exactly the arm that emitted a wrong claim.
+    # A hard key, not a .get default -- a metadata dict with no scale must fail
+    # loudly here rather than silently resolve to a fabricated size.
+    pixel_size_um = metadata['pixel_size_um']
+
     # Video frames pass through metadata as-is with no structured fields
     if image_type == 'video_frame':
         # maxworkers=0 mirrors the imagej + default/ome paths below for
@@ -2098,7 +2105,11 @@ def generate_tiff_data(
         options = {
             'photometric': photometric,
             'compression': 'lzw',
-            'resolutionunit': 'CENTIMETER',
+            # Same conditional as the other two arms: tifffile always emits an
+            # XResolution, defaulting to 1/1, so CENTIMETER on a scale-less
+            # frame asserts 1 px/cm -- a concrete and wildly wrong claim. NONE
+            # is the TIFF convention for "ratio only, no absolute unit".
+            'resolutionunit': 'CENTIMETER' if pixel_size_um is not None else 'NONE',
             'maxworkers': 0,
         }
         return {
@@ -2111,6 +2122,9 @@ def generate_tiff_data(
                 (_TIFF_TAG_SIGNIFICANT_BITS, 3, 1, int(metadata['significant_bits']), True)
             ],
             'options': options,
+            'resolution': (
+                resolution_for_pixel_size(pixel_size_um) if pixel_size_um is not None else None
+            ),
         }
 
     # The micron token is container-dependent: OME-XML (UTF-8) requires
@@ -2161,8 +2175,6 @@ def generate_tiff_data(
         plane['TimestampCameraTickHz'] = metadata['timestamp_camera_tick_hz']
     if 'frame_id' in metadata:
         plane['FrameID'] = metadata['frame_id']
-
-    pixel_size_um = metadata['pixel_size_um']
 
     # Base metadata shared by all structured types
     tiff_metadata = {

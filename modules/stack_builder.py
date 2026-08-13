@@ -244,7 +244,14 @@ class StackBuilder(ProtocolPostProcessor):
             # wildly wrong scale claim. NONE is the TIFF convention for "ratio
             # only, no absolute unit", which is what an unknown scale means.
             'resolutionunit': 'CENTIMETER' if pixel_size_um is not None else 'NONE',
-            'maxworkers': 2,
+            # 0 for the same Windows kernel-handle-leak reason as the still save
+            # paths -- tifffile's per-write ThreadPoolExecutor holds an Event
+            # handle that outlives cleanup. It is also faster here, not a
+            # throughput sacrifice: the hyperstack is one write() call streaming
+            # every plane through a single executor, and its per-page overhead
+            # exceeds what the parallelism recovers (measured ~4x on 60 planes
+            # of 5MP, and the gap widens as the frames compress better).
+            'maxworkers': 0,
         }
 
         # The TIFF resolution tag is a scale claim too, and it is built by

@@ -108,6 +108,60 @@ class TestEffectivePixelSize:
         )
 
 
+class TestVideoFrameScaleClaim:
+    """A video frame carries no scale, so it must not claim one.
+
+    The video-frame arm of generate_tiff_data returned before pixel_size_um was
+    ever read and hardcoded ResolutionUnit CENTIMETER with no resolution value,
+    so tifffile's default 1/1 made every frame of every recording assert
+    1 px/cm = 10,000 um/px against a true ~2 um/px.
+    """
+
+    def test_video_frame_makes_no_absolute_unit_scale_claim(self, tmp_path):
+        # Through the real path: the production metadata builder both recording
+        # legs share, then the single canonical frame-save edge.
+        import tifffile as tf
+
+        from modules.image_save import write_video_frame
+        from modules.recording_frames import tiff_frame_metadata
+
+        metadata, _ts_filename = tiff_frame_metadata(
+            timestamp_s=1755000000.0, frame_number=0, chunks=None, tick_freq_hz=None
+        )
+        path = tmp_path / 'ManualVideo_Frame_0000.tiff'
+
+        write_video_frame(
+            frame=np.zeros((32, 32), dtype=np.uint16),
+            file_loc=path,
+            metadata=metadata,
+            layer_color='BF',
+            false_color_on=False,
+            save_encoding='right_aligned',
+            capture_depth=12,
+        )
+
+        with tf.TiffFile(path) as t:
+            resunit = t.pages[0].tags['ResolutionUnit'].value
+        # NONE is the TIFF convention for "ratio only, no absolute unit", which
+        # is what an unknown scale means. Do NOT assert XResolution is absent:
+        # tifffile emits it as 1/1 regardless, and under NONE that reads as
+        # square aspect with no absolute dimensions, not as a measurement.
+        assert int(resunit) == int(tf.RESUNIT.NONE)
+
+    def test_tiff_frame_metadata_carries_the_pixel_size_key(self):
+        # The key is always present so a scale-less frame is expressible only as
+        # an explicit None. The writer reads it as a hard key, so a builder that
+        # forgot it fails loudly at the write instead of silently claiming 1/1.
+        from modules.recording_frames import tiff_frame_metadata
+
+        metadata, _ = tiff_frame_metadata(
+            timestamp_s=1755000000.0, frame_number=0, chunks=None, tick_freq_hz=None
+        )
+
+        assert 'pixel_size_um' in metadata
+        assert metadata['pixel_size_um'] is None
+
+
 class TestSaveWithoutScale:
     def test_save_with_none_pixel_size_omits_scale_and_does_not_raise(self, tmp_path):
         # Previously a save with no scale hit resolution_for_pixel_size(0.0) and
