@@ -75,13 +75,6 @@ _SCOPE_TAIL_NAMES = frozenset({'scope', '_scope'})
 # line shifts of any merge. Each entry names the owner that retires it --
 # an allowlist without an expiry is a permanent exemption.
 _ALLOWED_MISSING = {
-    'led_on_fast': (
-        'Family 1. Owned by LED_STATE_AUTHORITY_PLAN.md remaining-item 3 '
-        '(KEEP+FIX: route fast pulses through the lease authority). That '
-        'fix flips dispatch again, so R1 deliberately does not rewrite '
-        'tests/test_video_capture_stim.py. Expires when item 3 lands.'
-    ),
-    'led_off_fast': ('Family 1, same owner and same expiry as led_on_fast.'),
     'camera': (
         'Family 2. R1 decision D1=C (Eric, 2026-08-07): the frame-flow '
         'stall detector stays DISARMED and R3 owns arming it with a '
@@ -205,9 +198,10 @@ def test_oracle_catches_the_known_wrong_world_families(scope_surface):
     """The oracle bites: it rejects every name the census confirmed dead.
 
     This is the guard's own fail-before proof, kept permanently rather
-    than run once. With the allowlist ignored, the four confirmed sites
-    must be reported -- three `led_*_fast` probes in video_capture plus
-    the `camera` probe in metrics_logger.
+    than run once. With the allowlist ignored, the confirmed site must be
+    reported -- the `camera` probe in metrics_logger. The `led_*_fast`
+    probes that used to sit alongside it lived in video_capture, which no
+    longer exists; their expectations retired with the file.
 
     The second half is the part that matters most. `led_on_fast` DOES
     exist on the `illumination` sub-API, so an oracle built from the
@@ -222,8 +216,6 @@ def test_oracle_catches_the_known_wrong_world_families(scope_surface):
         (site.rel_path, site.name) for site in scope_probe_sites() if site.name not in scope_surface
     }
     expected = {
-        ('modules/video_capture.py', 'led_on_fast'),
-        ('modules/video_capture.py', 'led_off_fast'),
         ('modules/metrics_logger.py', 'camera'),
     }
     missed = expected - caught

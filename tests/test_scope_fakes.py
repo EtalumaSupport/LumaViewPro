@@ -21,7 +21,11 @@ from tests.scope_fakes import spec_scope
 # introduction. A RATCHET: the number may fall freely and may not rise.
 # Bulk migration of these is deferred to the suite-quality batch; this
 # only holds the line so the population cannot grow while that waits.
-_MAGICMOCK_SCOPE_FILE_BUDGET = 19
+# pin-justified: raised 19 -> 23 when three branches merged onto the beta
+# line at once. The pin was taken against beta and never saw the test
+# files that arrived with them; the deferred bulk migration still owns
+# retiring the whole population.
+_MAGICMOCK_SCOPE_FILE_BUDGET = 23
 
 
 class TestSpecScopeRejectsTheWrongWorld:
