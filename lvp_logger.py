@@ -606,6 +606,17 @@ def _collect_installed_packages() -> dict:
     return dict(sorted(packages.items(), key=lambda kv: kv[0].lower()))
 
 
+def collect_installed_packages() -> dict:
+    """Public entry point for the installed-package inventory.
+
+    Callers outside this module need the same map the launch banner
+    records. Exposing it by name keeps them off the underscore-prefixed
+    implementation and keeps the inventory a single implementation
+    rather than one per consumer.
+    """
+    return _collect_installed_packages()
+
+
 def log_environment_banner(install_path: str, version_str: str, camera_sdk_lines: list[str]):
     """Emit the standard launch-time environment fingerprint.
 

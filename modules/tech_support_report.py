@@ -50,6 +50,7 @@ import zipfile
 
 import platformdirs
 
+from lvp_logger import collect_installed_packages
 from modules import recording_frames, settings_init
 from modules.path_utils import get_script_root, get_source_root
 from modules.protocol import Protocol
@@ -506,12 +507,16 @@ def _collect_system_info():
     elif is_mac:
         info['display'] = _run(['system_profiler', 'SPDisplaysDataType'], timeout=10)
 
-    # Python package versions (critical dependencies)
+    # Python package versions (critical dependencies). Resolved through the
+    # stdlib metadata API, never by shelling out to `pip freeze`: in a frozen
+    # build sys.executable IS the application, so that subprocess either
+    # re-launches LVP or burns its full timeout, and pip need not be
+    # importable there at all. The launch banner already resolves the
+    # inventory this way, so both records now come from one implementation.
     try:
-        result = subprocess.run(
-            [sys.executable, '-m', 'pip', 'freeze'], capture_output=True, text=True, timeout=15
+        all_packages = '\n'.join(
+            f'{name}=={version}' for name, version in collect_installed_packages().items()
         )
-        all_packages = result.stdout.strip()
         info['pip_freeze'] = all_packages
         # Also extract the critical ones for the summary
         critical = [
@@ -1674,6 +1679,10 @@ class TechSupportReport:
             self._step_system_info(tmp)
             self._check_cancel()
 
+            # 11b. Hardware-free diagnostics  (52%)
+            self._run_hardware_free_steps(tmp, cb, 52)
+            self._check_cancel()
+
             # 12. USB devices  (52-55%)
             cb(53, 'Scanning USB devices...')
             self._step_usb_devices(tmp)
@@ -2145,6 +2154,53 @@ class TechSupportReport:
         with open(d / 'disk_speed.json', 'w') as f:
             json.dump(results, f, indent=2, default=str)
 
+    def _step_runtime_census(self, tmp):
+        # A DLL-load failure is invisible after the fact unless the bundle
+        # records which copy of each runtime DLL the process actually
+        # loaded (an app-local file beside the exe shadows System32) and
+        # what runtime files ship beside the exe. Previously this census
+        # ran only when the IDS preload failed, so a working-but-degraded
+        # process left no record at all.
+        #
+        # Best-effort by design: this section exists to diagnose loader
+        # problems, so it must never be the reason a support bundle fails
+        # -- generate()'s catch-all would discard the entire bundle over a
+        # diagnostics section. A failure is written INTO the artifact,
+        # where support reads it, instead of raised.
+        d = tmp / 'runtime_census'
+        d.mkdir()
+        lines = []
+        try:
+            from modules.app_environment import loaded_module_census
+
+            lines.append('Process-resident camera-stack / C-runtime modules')
+            lines.append('(path shows WHICH copy won the loader search):')
+            resident = loaded_module_census()
+            lines.extend(f'  {p}' for p in resident)
+            if not resident:
+                lines.append('  (none matched, or not a Windows host)')
+        except Exception as e:
+            lines.append(f'  loaded-module census failed: {type(e).__name__}: {e}')
+        try:
+            exe_dir = pathlib.Path(sys.executable).resolve().parent
+            lines.append('')
+            lines.append(f'C-runtime files on disk under {exe_dir}:')
+            crt_pattern = re.compile(
+                r'^(msvcp140|vcruntime140|concrt140|ucrtbase)[a-z0-9_\-]*\.dll$',
+                re.IGNORECASE,
+            )
+            found_any = False
+            for p in sorted(exe_dir.rglob('*.dll')):
+                if crt_pattern.match(p.name):
+                    lines.append(f'  {p.relative_to(exe_dir)}  ({p.stat().st_size} bytes)')
+                    found_any = True
+            if not found_any:
+                lines.append('  (none)')
+        except Exception as e:
+            lines.append(f'  on-disk CRT listing failed: {type(e).__name__}: {e}')
+        with open(d / 'runtime_census.txt', 'w') as f:
+            f.write('\n'.join(lines) + '\n')
+
     def _step_system_info(self, tmp):
         d = tmp / 'system_info'
         d.mkdir()
@@ -2472,6 +2528,37 @@ class TechSupportReport:
             return f'{version} ({build_timestamp})' if build_timestamp else version
         return 'Unknown'
 
+    def _run_hardware_free_steps(self, tmp, cb, pct):
+        """Diagnostics that touch no hardware -- run for EVERY bundle shape.
+
+        The line that matters is hardware contact, not report size. A
+        logs-only capture exists so support can ask for files without
+        driving the stage, the fan or the camera; these steps drive none
+        of them, so withholding them buys nothing and costs the reader
+        the record. This member is the single home for that class: add a
+        hardware-free step HERE and both bundle shapes get it, rather
+        than to one entry point and not the other.
+
+        Two neighbours deliberately do NOT qualify. `_step_system_info`
+        duplicates the launch banner already present in every log.
+        `_step_usb_devices` issues wmic calls that are timeouts rather
+        than data on current Windows.
+
+        Each step is guarded on its own: both bundle paths wrap their
+        body in a catch-all that discards the entire archive, so an
+        unguarded diagnostic here could cost the user the very bundle it
+        was added to enrich. A failure is recorded INTO the artifact,
+        where support reads it.
+        """
+        cb(pct, 'Recording runtime census...')
+        try:
+            self._step_runtime_census(tmp)
+        except Exception as e:
+            try:
+                (tmp / 'runtime_census_ERROR.txt').write_text(f'runtime census failed: {e}\n')
+            except OSError:
+                pass
+
     def generate_logs_only(self, callback=None, output_dir=None):
         """Quick zip of logs + data + recent protocols + video receipts.
         No hardware tests.
@@ -2499,6 +2586,7 @@ class TechSupportReport:
 
                 cb(78, 'Collecting video recording receipts...')
                 self._step_video_receipts(tmp)
+                self._run_hardware_free_steps(tmp, cb, 80)
 
                 cb(85, 'Writing metadata...')
                 # SN lookup chain:
@@ -2701,33 +2789,6 @@ def _report_done(self, zip_path):
         )
     popup.open()
 '''
-
-
-# ---------------------------------------------------------------------------
-# PyInstaller Build Notes
-# ---------------------------------------------------------------------------
-
-PYINSTALLER_SPEC = """\
-# --- Add to scripts/appBuild/build_win_release.ps1 ---
-#
-# After the main LumaViewPro build, add a second PyInstaller invocation
-# to produce a standalone diagnostics executable:
-#
-#   pyinstaller --onefile --name "EtalumaDiagnostics" `
-#       --icon "scripts/appBuild/config/etaluma_icon.ico" `
-#       --add-data "data;data" `
-#       --add-data "drivers;drivers" `
-#       --add-data "modules;modules" `
-#       --add-data "tests;tests" `
-#       modules/tech_support_report.py
-#
-# This produces dist/EtalumaDiagnostics.exe which can be sent to customers
-# independently of LumaViewPro. It connects to hardware directly and runs
-# all the same diagnostics.
-#
-# Both executables (LumaViewPro.exe and EtalumaDiagnostics.exe) go into
-# the final installer package.
-"""
 
 
 # ---------------------------------------------------------------------------

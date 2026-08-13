@@ -83,14 +83,18 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
-        # Kivy optional deps LVP doesn't use. Listing them here suppresses
-        # the build-time WARNING noise from PyInstaller's Kivy hooks and
-        # keeps the bundle slightly smaller.
-        # NOTE: 'enchant' is intentionally NOT excluded. Kivy's
-        # kivy.core.spelling probes for it at import time; if absent, Kivy
-        # logs CRITICAL during PyInstaller analysis and at runtime startup.
-        # We install pyenchant via requirements.txt so the import succeeds
-        # and the log stays clean.
+        # Drops the module from the dependency graph, which keeps the
+        # bundle smaller. It does NOT quiet the build log: PyInstaller's
+        # Kivy hook logs while it runs, before graph exclusion applies.
+        #
+        # Expect CRITICAL "Spelling: Unable to find any valuable Spelling
+        # provider" lines during the build. They are Kivy's, they concern
+        # a spell-check provider LVP never imports, and nothing keys on
+        # them. Considered silencing them two ways and rejected both:
+        # installing pyenchant costs ~2-4 MB shipped to buy one clean log
+        # line, and excluding 'enchant' here was tried and had no effect
+        # (the hook logs before this list is consulted). Revisit only if a
+        # build gate ever keys on CRITICAL lines.
         'kivy.lib.gstplayer',   # Kivy GStreamer video provider — LVP uses Pylon/IDS
     ],
     noarchive=False,
@@ -177,3 +181,57 @@ coll = COLLECT(
     upx_exclude=[],
     name=app_name,
 )
+
+# CRT policy gate. PyInstaller collects a VC++ runtime from the build
+# environment by design, with no version control: one build shipped an
+# app-root msvcp140.dll a decade older than its own companions, and
+# because an app-local DLL shadows System32 for the whole process, the
+# IDS SDK's native module failed DLL init on client machines -- while
+# the same machine's System32 copy worked (hardware-isolated: removing
+# only that file restored full camera acquisition). Policy: the app
+# ships NO msvcp140/concrt140 of its own; the installer chains the
+# official VC++ Redistributable so the process resolves them from
+# System32 exactly like a source checkout does. vcruntime140*.dll stays
+# app-local -- python3xx.dll imports it, the exe cannot start without
+# it. This runs post-COLLECT so every collection channel (Analysis,
+# Splash, Tree) is covered, and it fails the build outright if a
+# forbidden copy survives -- a bad runtime must die here, not on a
+# client machine.
+_dist_root = _os.path.join(DISTPATH, app_name)
+_forbidden_crt = ('msvcp140.dll', 'concrt140.dll')
+
+for _crt_name in _forbidden_crt:
+    _crt_path = _os.path.join(_dist_root, _crt_name)
+    if _os.path.exists(_crt_path):
+        _os.remove(_crt_path)
+        print(f'CRT policy: removed app-root {_crt_name}')
+
+_crt_leftover = [
+    _n for _n in _os.listdir(_dist_root) if _n.lower() in _forbidden_crt
+]
+if _crt_leftover:
+    raise SystemExit(
+        f'FATAL: CRT policy: forbidden runtime DLLs still at the app root '
+        f'after removal: {_crt_leftover}'
+    )
+
+if not _os.path.exists(_os.path.join(_dist_root, 'vcruntime140.dll')):
+    raise SystemExit(
+        'FATAL: CRT policy: vcruntime140.dll missing at the app root -- '
+        'python3xx.dll imports it; the frozen exe cannot start. Check the '
+        'build environment before shipping.'
+    )
+
+# Inventory every VC-family DLL that ships, so the build transcript
+# records the exact runtime set and build.ps1 can enforce that the
+# chained redistributable is at least as new as anything bundled.
+import re as _re
+_vc_family = _re.compile(
+    r'^(msvcp140|vcruntime140|concrt140)[a-z0-9_\-]*\.dll$', _re.IGNORECASE
+)
+print('CRT inventory (dist tree):')
+for _dirpath, _dirnames, _filenames in _os.walk(_dist_root):
+    for _fname in _filenames:
+        if _vc_family.match(_fname):
+            print('  ' + _os.path.relpath(
+                _os.path.join(_dirpath, _fname), _dist_root))

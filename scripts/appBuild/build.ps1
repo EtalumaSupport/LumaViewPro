@@ -236,7 +236,21 @@ if (Test-Path $fx2_dir) {
     }
 }
 
+# VC++ Redistributable (x64). REQUIRED for the bundle: the app no longer
+# ships msvcp140/concrt140 app-local (a stale bundled copy shadowed the
+# system runtime and broke the IDS SDK's DLL init on client machines), so
+# the installer must guarantee the system runtime exists on machines
+# where LVP is the first thing installed. Download vc_redist.x64.exe
+# from Microsoft and drop it in dependencies\. See BUILD_INSTRUCTIONS.md.
+$vc_redist_exe = ""
+$vc_redist_files = Get-ChildItem -Path $deps -Filter "vc_redist.x64.exe" -ErrorAction SilentlyContinue
+if ($vc_redist_files) {
+    $vc_redist_exe = $vc_redist_files[0].FullName
+    Write-Host "Found VC++ Redistributable: $vc_redist_exe ($((Get-Item $vc_redist_exe).VersionInfo.FileVersion))"
+}
+
 if (-not $pylon_msi) { Write-Host "No Pylon MSI in dependencies\ - bundle will be skipped" }
+if (-not $vc_redist_exe) { Write-Host "No vc_redist.x64.exe in dependencies\ - bundle will NOT be built (the app does not ship msvcp140; the installer must chain the redistributable)" }
 if (-not $ids_peak_exe) { Write-Host "No IDS Peak runtime in dependencies\ - IDS cameras will need manual driver install on customer machines" }
 if (-not $fx2_inf) { Write-Host "No FX2 WinUSB INF in dependencies\fx2\ - LVC FX2 driver will need manual install (Zadig)" }
 if (-not $fx2_libusb_dll) { Write-Host "No FX2 libusb-1.0.dll in dependencies\fx2\ - bundled LVP will not be able to talk to FX2 cameras even if WinUSB driver is installed" }
@@ -426,7 +440,12 @@ if ($fx2_libusb_dll) {
 } else {
     $env:FX2_LIBUSB_DLL = ""
 }
-& $venv_python -m PyInstaller --log-level WARN .\lumaviewpro.spec
+# DEBUG level so the transcript names PyInstaller's binary-dependency
+# search directories -- the record of WHERE each collected DLL came
+# from. At WARN those lines are suppressed and a bad collected binary
+# (e.g. a stale C runtime scavenged from the build box) is
+# undiagnosable after the fact.
+& $venv_python -m PyInstaller --log-level DEBUG .\lumaviewpro.spec
 $pyi_exit = $LASTEXITCODE
 $env:FX2_LIBUSB_DLL = $null
 if ($pyi_exit -ne 0) { Write-Host "ERROR: PyInstaller failed"; Set-Location $build_dir; Exit 1 }
@@ -442,6 +461,17 @@ if ($warn_file) {
     Copy-Item $warn_file.FullName (Join-Path $artifacts "pyinstaller_warn_$version.txt") -Force
 } else {
     Write-Host "WARNING: no PyInstaller warn file found under .\build\lumaviewpro\"
+}
+
+# Archive the PyInstaller TOC manifests beside the warn file. They record
+# the absolute SOURCE path of every collected binary -- COLLECT-00.toc is
+# the post-dedup set that actually ships (Analysis-00.toc alone can name a
+# losing duplicate; the Splash and Tree channels bypass it entirely) --
+# and the temp tree that holds them is deleted at the end of every build.
+# Without this copy, "which directory did that DLL come from" is
+# unanswerable for any shipped artifact.
+foreach ($toc in Get-ChildItem ".\build\lumaviewpro\*.toc" -ErrorAction SilentlyContinue) {
+    Copy-Item $toc.FullName (Join-Path $artifacts ("pyinstaller_" + $toc.BaseName + "_$version.toc")) -Force
 }
 
 # Dist census + hard gate: an exe missing a camera-SDK package cannot see
@@ -497,9 +527,72 @@ if ($content_bad.Count -gt 0) {
     Exit 1
 }
 Write-Host "  content census: ids_peak* pyd/dll name+size verified against the build venv"
-foreach ($crt in @('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')) {
-    if (-not (Test-Path ".\dist\lumaviewpro\$crt")) {
-        Write-Host "WARNING: $crt not found at dist top level (VC runtime family; IDS/GenICam DLLs need it)"
+# CRT policy: the spec's post-COLLECT gate removes app-root
+# msvcp140/concrt140 (an app-local copy shadows System32 for the whole
+# process, and a stale one broke the IDS SDK's DLL init on client
+# machines); the chained VC++ Redistributable supplies them system-wide
+# instead. Re-assert here on the exact tree WiX packages: a build whose
+# spec gate did not run must die here, not on a client machine.
+foreach ($crt in @('msvcp140.dll', 'concrt140.dll')) {
+    if (Test-Path ".\dist\lumaviewpro\$crt") {
+        Write-Host "ERROR: $crt present at dist top level - the CRT policy gate in the spec did not run; refusing to package a bundle that shadows the system runtime"
+        Set-Location $build_dir
+        Exit 1
+    }
+}
+if (-not (Test-Path ".\dist\lumaviewpro\vcruntime140.dll")) {
+    Write-Host "ERROR: vcruntime140.dll missing at dist top level - python3xx.dll imports it; the exe cannot start"
+    Set-Location $build_dir
+    Exit 1
+}
+# Redist-version floor: the chained vc_redist must be at least as new as
+# the newest VC runtime any bundled wheel carries (pypylon ships its own
+# msvcp140 inside its package dir). With no app-root msvcp, those
+# extensions resolve msvcp from System32 -- resolving to an OLDER copy
+# than they were built against is a missing-entry-point crash waiting on
+# exactly the machines the redist chain is meant to protect.
+$vc_dlls = Get-ChildItem ".\dist\lumaviewpro" -Recurse -Include 'msvcp140*.dll', 'vcruntime140*.dll', 'concrt140*.dll', 'vcomp140*.dll', 'ucrtbase.dll'
+Write-Host "  CRT census (path : FileVersion) - the build record of every C-runtime file that ships:"
+foreach ($dll in $vc_dlls) {
+    $rel = $dll.FullName.Substring((Resolve-Path ".\dist\lumaviewpro").Path.Length + 1)
+    Write-Host "    $rel : $($dll.VersionInfo.FileVersion)"
+}
+if ($vc_redist_exe) {
+    # Order on VS_FIXEDFILEINFO's numeric fields, never on the FileVersion
+    # display string. Vendors stamp free text into that string -- a shipped
+    # runtime here reads "14.16.27052.0 built by: cloudtest" -- and casting
+    # such a string to [version] yields $null, so filtering the nulls away
+    # dropped that file out of the maximum without a word in the log.
+    # Dropping can only LOWER the maximum, so what it hid was a false PASS;
+    # and had no candidate parsed at all the maximum would go $null, which
+    # -lt compares as False, letting the gate approve a build whose floor it
+    # never computed. The numeric fields cannot carry free text and cannot
+    # fail to parse, so both holes close at the source.
+    # ucrtbase is excluded because it versions on Windows build numbers
+    # (10.x) against this family's 14.x and would always dominate. vcomp140
+    # is censused but not yet floored: its version has never been recorded
+    # in a build, and gating on an unmeasured value is how a green build
+    # turns red for the wrong reason.
+    $vc_candidates = @($vc_dlls | Where-Object {
+        $_.Name -notlike 'ucrtbase*' -and $_.Name -notlike 'vcomp140*'
+    })
+    $max_vc = ($vc_candidates | ForEach-Object {
+        [version]::new($_.VersionInfo.FileMajorPart, $_.VersionInfo.FileMinorPart,
+                       $_.VersionInfo.FileBuildPart, $_.VersionInfo.FilePrivatePart)
+    } | Measure-Object -Maximum).Maximum
+    if ($null -eq $max_vc) {
+        Write-Host "ERROR: CRT floor check derived no version from any of the $($vc_candidates.Count) censused VC runtime file(s) - refusing to certify a floor that was never computed"
+        Set-Location $build_dir
+        Exit 1
+    }
+    $redist_info = (Get-Item $vc_redist_exe).VersionInfo
+    $redist_ver = [version]::new($redist_info.FileMajorPart, $redist_info.FileMinorPart,
+                                 $redist_info.FileBuildPart, $redist_info.FilePrivatePart)
+    Write-Host "  CRT floor check: newest bundled VC runtime $max_vc; chained redist $redist_ver"
+    if ($redist_ver -lt $max_vc) {
+        Write-Host "ERROR: chained vc_redist ($redist_ver) is older than the newest bundled VC runtime ($max_vc) - update dependencies\vc_redist.x64.exe"
+        Set-Location $build_dir
+        Exit 1
     }
 }
 
@@ -570,7 +663,7 @@ Write-Host "MSI: $msi"
 # Build Bundle (if dependencies available)
 # ---------------------------------------------------------------------------
 $bundle = ""
-if ($pylon_msi) {
+if ($pylon_msi -and $vc_redist_exe) {
     Write-Host "`n--- WiX Bundle ---"
     $bundle = Join-Path $output_dir "$product-setup.exe"
 
@@ -589,6 +682,7 @@ if ($pylon_msi) {
         '-d', "InstallerAssetsDir=$installer_assets_dir",
         '-d', "LVPMsiDir=$msi",
         '-d', "PylonDriverDir=$pylon_msi",
+        '-d', "VCRedistExe=$vc_redist_exe",
         '-d', "ProductName=$product",
         '-d', "ProductVersion=$wix_ver"
     )

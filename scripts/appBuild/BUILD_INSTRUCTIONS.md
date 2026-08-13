@@ -15,9 +15,12 @@ to `build.ps1`.
 | `LumaViewPro-<version>.msi` | Standalone LumaViewPro installer. It has minimal install UI and installs the LVP application folder, Start Menu shortcut, Desktop shortcut, environment variables, and app files. | Usually no. Use for internal testing, debugging, or cases where prerequisites are already handled separately. |
 | `LumaViewPro-<version>-setup.exe` | Main customer installer. This is the WiX Bundle with the full installer UI. It runs the LVP MSI and also chains the Basler Pylon USB driver installer and (when present) the IDS Peak runtime installer in one install flow. | Yes. This is the primary file to ship when building a release package. |
 
-The `-setup.exe` bundle is only created when the **required** dependency MSI is
-present: the Basler Pylon USB Camera Driver MSI. Optional dependencies (IDS
-Peak, FX2 driver) are silently skipped when their files are absent.
+The `-setup.exe` bundle is only created when both **required** dependencies
+are present: the Basler Pylon USB Camera Driver MSI and the Microsoft VC++
+Redistributable (`vc_redist.x64.exe` -- the app deliberately ships no
+`msvcp140.dll` of its own, so the bundle must chain the redistributable).
+Optional dependencies (IDS Peak, FX2 driver) are silently skipped when their
+files are absent.
 
 ## One-Time Setup
 
@@ -87,6 +90,7 @@ Layout when fully populated:
 dependencies\
 |-- README.md                            # ships with the build script
 |-- pylon_USB_Camera_Driver.msi          # required for the bundle
+|-- vc_redist.x64.exe                    # required for the bundle
 |-- ids_peak_<version>.exe               # optional — IDS cameras
 |-- setup.iss                            # optional — paired with ids_peak EXE
 `-- fx2\
@@ -99,6 +103,7 @@ dependencies\
 | File | Source | Notes |
 |------|--------|-------|
 | `pylon_USB_Camera_Driver.msi` | [baslerweb.com/en/downloads/software-downloads](https://www.baslerweb.com/en/downloads/software-downloads/) | Free MyBasler account required. Pick the standalone USB driver MSI (not the full Pylon SDK installer). |
+| `vc_redist.x64.exe` | [aka.ms/vs/17/release/vc_redist.x64.exe](https://aka.ms/vs/17/release/vc_redist.x64.exe) | Microsoft's latest VC++ x64 redistributable, no account needed. The build fails if its version is older than the newest VC runtime any bundled wheel carries (build.ps1 prints both in the CRT census). |
 | `ids_peak_<version>.exe` | [en.ids-imaging.com/download-peak.html](https://en.ids-imaging.com/download-peak.html) → Runtime variant (~26 MB) | Free MyIDS account required. Pick a runtime version that matches the `ids-peak` PyPI binding pinned in `requirements.txt` (`1.13.0.0.6` → runtime ≥ 2.18). |
 | `setup.iss` | Generated locally, once per IDS Peak runtime version | Run `ids_peak_<version>.exe /r` on a Windows host with a clean install of that exact runtime; it records your interactive choices into `%WINDIR%\setup.iss`. Copy that file into `dependencies\` next to the EXE. |
 | `fx2\LumaScope_WinUSB.inf` | Firmware repo, `fx2_firmware/build_deps/LumaScope_WinUSB.inf` | ~2 KB text file. Copy as-is. |
@@ -116,9 +121,10 @@ The standalone MSI builds from the LumaViewPro source alone -- no files in
 #### Required for the `-setup.exe` bundle
 
 - `pylon_USB_Camera_Driver.msi`
+- `vc_redist.x64.exe`
 
-If this is missing, the build still creates the standalone MSI but skips the
-customer `-setup.exe` bundle.
+If either is missing, the build still creates the standalone MSI but skips
+the customer `-setup.exe` bundle.
 
 ### Optional Dependencies
 
