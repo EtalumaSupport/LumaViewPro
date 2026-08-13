@@ -211,29 +211,54 @@ def test_protocol_caller_injects_per_class_cap(monkeypatch):
 
 
 def _video_session_autogain_call(autogain_settings):
-    """Drive a zero-duration video capture and return the auto_gain_once
+    """Drive a frame-less protocol video step and return the auto_gain_once
     kwargs the imaging API received at the first-frame re-arm."""
-    from modules.video_capture import VideoCaptureSession
+    import threading
+
+    import modules.protocol_recording as protocol_recording
+    from modules.protocol_recording import ProtocolVideoStep
 
     scope = MagicMock()
     scope.imaging.frames_until_valid.return_value = 0
+    scope.imaging.camera_active = False  # wait loop exits on its first tick
+    scope.imaging.camera_identity = {
+        'model': 'sim',
+        'serial': '0',
+        'timestamp_tick_frequency_hz': None,
+    }
+    scope.imaging.camera_frame_size = {'width': 8, 'height': 8}
     step = {
         'Auto_Gain': True,
         'Exposure': 10.0,
-        'Video Config': {'duration': 0},
+        'Video Config': {'fps': 5, 'duration': 1},
         'Color': 'BF',
         'False_Color': False,
-        'Stim_Config': {},
     }
-    session = VideoCaptureSession(
-        scope,
-        step,
-        autogain_settings,
-        lambda: True,
-        {},
-        MagicMock(),
+    import tempfile
+
+    recorder = ProtocolVideoStep(
+        scope=scope,
+        step=step,
+        save_folder=pathlib.Path(tempfile.mkdtemp()),
+        name='clip',
+        video_as_frames=True,
+        capture_config=MagicMock(capture_depth=8, save_encoding='8bit'),
+        timestamp_overlay=True,
+        global_max_fps=0,
+        autogain_settings=autogain_settings,
+        callbacks={},
+        aborted_event=threading.Event(),
+        is_run_in_progress=lambda: True,
+        abort_run_fatal=MagicMock(),
+        abort_run_on_writer_death=MagicMock(),
+        record_step_row=MagicMock(),
+        record_dropped_capture=MagicMock(),
     )
-    session.capture()
+    from unittest.mock import patch
+
+    with patch.object(protocol_recording, 'check_disk_space_ok', lambda *a, **k: (True, 999999)):
+        outcome = recorder.run_blocking()
+    assert outcome == protocol_recording.NO_FRAMES
     assert scope.imaging.auto_gain_once.called, 'the first-frame AG re-arm must fire'
     return scope.imaging.auto_gain_once.call_args.kwargs
 

@@ -278,8 +278,20 @@ class IOTask:
                     f'[IOTask    ] Slow task ({elapsed:.1f}s, threshold {threshold:.1f}s): {action_name} on {self.name}'
                 )
             return res, None
+        except CancelledError as e:
+            # concurrent.futures.CancelledError subclasses Exception, so the
+            # handler below would report a by-contract cancel as a failure.
+            # The executor's task epilogue is what logs cancels, at debug.
+            return None, e
         except Exception as e:
-            logger.error(f'Uncaught Thread Exception in {self.name} Worker: {e}', exc_info=True)
+            # Reports the raise, not an escape: this returns the exception to
+            # the worker, which reports it to the user. The separate task
+            # epilogue owns the "task failed" wording, so this line must not
+            # duplicate it.
+            action_name = getattr(self.action, '__name__', str(self.action))
+            logger.error(
+                f'[IOTask    ] {action_name} raised {type(e).__name__}: {e}', exc_info=True
+            )
             return None, e
 
     def set_callback(self, callback, cb_args, cb_kwargs):
@@ -515,6 +527,10 @@ class SequentialIOExecutor:
         self.blocker.set()
 
     def put(self, task: IOTask, return_future: bool = False):
+        # Naming precedes every queue insertion below: once a task is on a
+        # queue the worker may already be running it, and an unnamed task
+        # renames its worker thread to the empty string.
+        task.set_name(self.executor_name)
         if self._disable:
             return None
 
@@ -560,7 +576,6 @@ class SequentialIOExecutor:
             task._queue_depth_at_enqueue = self.queue.qsize() + (1 if self._running_task else 0)
             task._queue_kind = 'default'
         self.queue.put(task)
-        task.set_name(self.executor_name)
         return fut
 
     def admit_live_frame(self) -> bool:
@@ -610,8 +625,6 @@ class SequentialIOExecutor:
 
     def _finish_protocol_enqueue(self, task: IOTask, fut, return_future: bool):
         """Success tail shared by the drop-on-full and blocking enqueues."""
-        task.set_name(self.executor_name)
-
         # Early warning that file writes are falling behind, before the
         # bound is reached.
         depth = self.protocol_queue.qsize()
@@ -644,6 +657,7 @@ class SequentialIOExecutor:
         did not enter the queue and will never run. Callers whose task must
         not be droppable use protocol_put_wait instead.
         """
+        task.set_name(self.executor_name)
         if self._disable:
             return None
 
@@ -742,6 +756,7 @@ class SequentialIOExecutor:
             stall_timeout_s: minimum full-queue wait before a wedge may be
                 declared; also the floor for the no-retirement window.
         """
+        task.set_name(self.executor_name)
         if self._disable:
             return None
 
@@ -1018,8 +1033,11 @@ class SequentialIOExecutor:
                 else:
                     self._on_task_done(task, run_result, None)
             except Exception as e:
+                # Distinct from a task raising: this is the dequeue or the
+                # epilogue failing around the task, and the loop continues.
                 logger.error(
-                    f'Uncaught Thread Exception in {self.name} Worker: {e}',
+                    f'[{self.executor_name}] Worker loop error outside the task '
+                    f'(dispatch or epilogue); the worker continues: {e}',
                     exc_info=True,
                 )
 

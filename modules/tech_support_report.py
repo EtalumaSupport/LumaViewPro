@@ -50,9 +50,11 @@ import zipfile
 
 import platformdirs
 
-from modules import settings_init
+from lvp_logger import collect_installed_packages
+from modules import recording_frames, settings_init
 from modules.path_utils import get_script_root, get_source_root
 from modules.protocol import Protocol
+from modules.protocol_execution_record import ProtocolExecutionRecord
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +69,8 @@ FIRMWARE_EXCLUDE_FILES = {'main.py', 'boot.py'}
 FIRMWARE_CONFIG_EXTENSIONS = {'.json', '.ini'}
 
 RECENT_PROTOCOL_COUNT = 10
+
+RECENT_VIDEO_RECEIPT_COUNT = 20
 
 BACKLASH_FOLDER_PATTERNS = ['backlash', 'Backlash', 'BACKLASH']
 
@@ -256,6 +260,100 @@ def get_recent_protocols(n=RECENT_PROTOCOL_COUNT):
 # ---------------------------------------------------------------------------
 
 
+def _is_manifest_file(name: str) -> bool:
+    """Matches every manifest generation and leg by ONE rule: the
+    canonical recording_manifest.json, the legacy session_manifest.json,
+    and the per-recording <name>_manifest.json the MP4 leg writes into
+    the flat Manual folder."""
+    return 'manifest' in name and name.endswith('.json')
+
+
+def find_video_recording_dirs(capture_dir: pathlib.Path, limit: int) -> list:
+    """Newest-first video recording folders under the capture tree.
+
+    A folder qualifies by NAME (a protocol video step's own folder) or by
+    CONTENT (an engine manifest or frame files). Content-matching keeps
+    manual Video_* folders in the census and, deliberately, folders whose
+    manifest was lost -- a recording that cannot prove its own delivery
+    is exactly the one a support bundle must surface.
+    """
+    hits = []
+    for path in capture_dir.rglob('*'):
+        if not path.is_dir():
+            continue
+        try:
+            files = [p.name for p in path.iterdir() if p.is_file()]
+        except OSError:
+            continue
+        if (
+            recording_frames.is_video_recording_dir_name(path.name)
+            or any(_is_manifest_file(name) for name in files)
+            or any(recording_frames.is_video_frame(name) for name in files)
+        ):
+            hits.append(path)
+    hits.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return hits[:limit]
+
+
+def video_recording_inventory(path: pathlib.Path) -> dict:
+    """Provable summary of one recording folder, no pixels shipped.
+
+    Frame count plus min/max frame numbers let support see truncation and
+    gaps directly (count < max-min+1 means dropped frames); manifests and
+    MP4 sizes travel as names/bytes only.
+    """
+    frame_names = []
+    frame_total_bytes = 0
+    manifests = []
+    mp4s = []
+    other_file_count = 0
+    for p in sorted(path.iterdir()):
+        if not p.is_file():
+            continue
+        if recording_frames.is_video_frame(p.name):
+            frame_names.append(p.name)
+            frame_total_bytes += p.stat().st_size
+        elif _is_manifest_file(p.name):
+            manifests.append(p.name)
+        elif p.name.lower().endswith('.mp4'):
+            mp4s.append({'name': p.name, 'bytes': p.stat().st_size})
+        else:
+            other_file_count += 1
+    frame_numbers = []
+    for name in frame_names:
+        try:
+            frame_numbers.append(recording_frames.frame_number(name))
+        except ValueError:
+            pass
+    return {
+        'folder': str(path),
+        'frame_count': len(frame_names),
+        'frame_number_min': min(frame_numbers) if frame_numbers else None,
+        'frame_number_max': max(frame_numbers) if frame_numbers else None,
+        'frame_total_bytes': frame_total_bytes,
+        'manifests': manifests,
+        'mp4s': mp4s,
+        'other_file_count': other_file_count,
+    }
+
+
+def find_execution_record(recording_dir: pathlib.Path, max_up: int = 3):
+    """The owning protocol run's execution record, or None.
+
+    The record lives at the run root; a protocol recording folder sits
+    below it (typically run/<Color>/<step>_video), so walk up a bounded
+    number of levels. Manual recordings have no owning run and return
+    None.
+    """
+    node = recording_dir
+    for _ in range(max_up):
+        node = node.parent
+        candidate = node / ProtocolExecutionRecord.DEFAULT_FILENAME
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def _collect_system_info():
     """Collect OS, CPU, RAM, disks, power/sleep config."""
     info = {
@@ -409,12 +507,16 @@ def _collect_system_info():
     elif is_mac:
         info['display'] = _run(['system_profiler', 'SPDisplaysDataType'], timeout=10)
 
-    # Python package versions (critical dependencies)
+    # Python package versions (critical dependencies). Resolved through the
+    # stdlib metadata API, never by shelling out to `pip freeze`: in a frozen
+    # build sys.executable IS the application, so that subprocess either
+    # re-launches LVP or burns its full timeout, and pip need not be
+    # importable there at all. The launch banner already resolves the
+    # inventory this way, so both records now come from one implementation.
     try:
-        result = subprocess.run(
-            [sys.executable, '-m', 'pip', 'freeze'], capture_output=True, text=True, timeout=15
+        all_packages = '\n'.join(
+            f'{name}=={version}' for name, version in collect_installed_packages().items()
         )
-        all_packages = result.stdout.strip()
         info['pip_freeze'] = all_packages
         # Also extract the critical ones for the summary
         critical = [
@@ -1577,6 +1679,10 @@ class TechSupportReport:
             self._step_system_info(tmp)
             self._check_cancel()
 
+            # 11b. Hardware-free diagnostics  (52%)
+            self._run_hardware_free_steps(tmp, cb, 52)
+            self._check_cancel()
+
             # 12. USB devices  (52-55%)
             cb(53, 'Scanning USB devices...')
             self._step_usb_devices(tmp)
@@ -1602,9 +1708,14 @@ class TechSupportReport:
             self._step_backlash(tmp)
             self._check_cancel()
 
-            # 17. Recent protocols  (69-72%)
+            # 17. Recent protocols  (69-71%)
             cb(70, 'Collecting recent protocols...')
             self._step_protocols(tmp)
+            self._check_cancel()
+
+            # 17b. Video recording receipts  (71-72%)
+            cb(71, 'Collecting video recording receipts...')
+            self._step_video_receipts(tmp)
             self._check_cancel()
 
             # 18. Hardware serial tests (pytest)  (72-80%)
@@ -2043,6 +2154,53 @@ class TechSupportReport:
         with open(d / 'disk_speed.json', 'w') as f:
             json.dump(results, f, indent=2, default=str)
 
+    def _step_runtime_census(self, tmp):
+        # A DLL-load failure is invisible after the fact unless the bundle
+        # records which copy of each runtime DLL the process actually
+        # loaded (an app-local file beside the exe shadows System32) and
+        # what runtime files ship beside the exe. Previously this census
+        # ran only when the IDS preload failed, so a working-but-degraded
+        # process left no record at all.
+        #
+        # Best-effort by design: this section exists to diagnose loader
+        # problems, so it must never be the reason a support bundle fails
+        # -- generate()'s catch-all would discard the entire bundle over a
+        # diagnostics section. A failure is written INTO the artifact,
+        # where support reads it, instead of raised.
+        d = tmp / 'runtime_census'
+        d.mkdir()
+        lines = []
+        try:
+            from modules.app_environment import loaded_module_census
+
+            lines.append('Process-resident camera-stack / C-runtime modules')
+            lines.append('(path shows WHICH copy won the loader search):')
+            resident = loaded_module_census()
+            lines.extend(f'  {p}' for p in resident)
+            if not resident:
+                lines.append('  (none matched, or not a Windows host)')
+        except Exception as e:
+            lines.append(f'  loaded-module census failed: {type(e).__name__}: {e}')
+        try:
+            exe_dir = pathlib.Path(sys.executable).resolve().parent
+            lines.append('')
+            lines.append(f'C-runtime files on disk under {exe_dir}:')
+            crt_pattern = re.compile(
+                r'^(msvcp140|vcruntime140|concrt140|ucrtbase)[a-z0-9_\-]*\.dll$',
+                re.IGNORECASE,
+            )
+            found_any = False
+            for p in sorted(exe_dir.rglob('*.dll')):
+                if crt_pattern.match(p.name):
+                    lines.append(f'  {p.relative_to(exe_dir)}  ({p.stat().st_size} bytes)')
+                    found_any = True
+            if not found_any:
+                lines.append('  (none)')
+        except Exception as e:
+            lines.append(f'  on-disk CRT listing failed: {type(e).__name__}: {e}')
+        with open(d / 'runtime_census.txt', 'w') as f:
+            f.write('\n'.join(lines) + '\n')
+
     def _step_system_info(self, tmp):
         d = tmp / 'system_info'
         d.mkdir()
@@ -2198,6 +2356,57 @@ class TechSupportReport:
             for p in protocols
         ]
 
+    def _step_video_receipts(self, tmp):
+        """Video receipts: per recent recording, the manifests, a frames
+        inventory, and the owning run's execution record -- enough for a
+        bundle to prove delivered-vs-configured without shipping frames."""
+        capture_dir = _get_capture_dir()
+        if not capture_dir or not capture_dir.is_dir():
+            return
+        d = tmp / 'video_receipts'
+        d.mkdir()
+        recordings = find_video_recording_dirs(capture_dir, RECENT_VIDEO_RECEIPT_COUNT)
+        if not recordings:
+            (d / 'none_found.txt').write_text(
+                'No video recording folders found in capture directory.\n'
+            )
+            return
+        meta_rows = []
+        index_lines = [f'Most Recent {len(recordings)} Video Recordings\n{"=" * 40}\n']
+        for i, rec in enumerate(recordings, 1):
+            bundle = d / f'{i:02d}_{rec.name}'
+            try:
+                bundle.mkdir()
+                inventory = video_recording_inventory(rec)
+                (bundle / 'inventory.json').write_text(json.dumps(inventory, indent=2))
+                for name in inventory['manifests']:
+                    shutil.copy2(rec / name, bundle / name)
+                record = find_execution_record(rec)
+                if record is not None:
+                    shutil.copy2(record, bundle / record.name)
+                index_lines.append(
+                    f'{i:2d}. {rec.name}\n'
+                    f'    Path:      {rec}\n'
+                    f'    Frames:    {inventory["frame_count"]}'
+                    f' (numbers {inventory["frame_number_min"]}..{inventory["frame_number_max"]},'
+                    f' {inventory["frame_total_bytes"]} bytes)\n'
+                    f'    Manifests: {", ".join(inventory["manifests"]) or "NONE"}\n'
+                    f'    MP4s:      {len(inventory["mp4s"])}\n'
+                    f'    Execution record: {record.name if record else "none"}\n'
+                )
+                meta_rows.append(
+                    {
+                        'folder': rec.name,
+                        'frame_count': inventory['frame_count'],
+                        'manifest_count': len(inventory['manifests']),
+                        'has_execution_record': record is not None,
+                    }
+                )
+            except Exception as e:
+                (d / f'{i:02d}_{rec.name}_ERROR.txt').write_text(f'Receipt failed: {e}\n')
+        (d / '_index.txt').write_text('\n'.join(index_lines))
+        self._meta['video_receipts'] = meta_rows
+
     def _step_hardware_tests(self, tmp):
         """Run test_hardware_serial.py with --run-hardware.
 
@@ -2302,18 +2511,14 @@ class TechSupportReport:
     # -- Helpers -------------------------------------------------------------
 
     def _write_log_delimiter(self):
+        # The logging call IS the write to the main log: the root logger
+        # owns the lumaviewpro.log file handler and this module's logger
+        # propagates to it. A direct file append here was a second
+        # writer that landed in whichever log file happened to have the
+        # newest mtime -- usually the camera.log firehose, never
+        # reliably the main log the marker is meant for.
         ts = datetime.datetime.now().isoformat()
-        delim = LOG_DELIMITER.format(timestamp=ts)
-        logger.info(delim)
-        logs_dir = _get_lvp_logs_dir()
-        if logs_dir:
-            try:
-                logs = sorted(logs_dir.glob('*.log'), key=lambda p: p.stat().st_mtime)
-                if logs:
-                    with open(logs[-1], 'a') as f:
-                        f.write(delim)
-            except OSError:
-                pass
+        logger.info(LOG_DELIMITER.format(timestamp=ts))
 
     def _get_lvp_version(self):
         from modules.path_utils import read_version
@@ -2323,12 +2528,47 @@ class TechSupportReport:
             return f'{version} ({build_timestamp})' if build_timestamp else version
         return 'Unknown'
 
+    def _run_hardware_free_steps(self, tmp, cb, pct):
+        """Diagnostics that touch no hardware -- run for EVERY bundle shape.
+
+        The line that matters is hardware contact, not report size. A
+        logs-only capture exists so support can ask for files without
+        driving the stage, the fan or the camera; these steps drive none
+        of them, so withholding them buys nothing and costs the reader
+        the record. This member is the single home for that class: add a
+        hardware-free step HERE and both bundle shapes get it, rather
+        than to one entry point and not the other.
+
+        Two neighbours deliberately do NOT qualify. `_step_system_info`
+        duplicates the launch banner already present in every log.
+        `_step_usb_devices` issues wmic calls that are timeouts rather
+        than data on current Windows.
+
+        Each step is guarded on its own: both bundle paths wrap their
+        body in a catch-all that discards the entire archive, so an
+        unguarded diagnostic here could cost the user the very bundle it
+        was added to enrich. A failure is recorded INTO the artifact,
+        where support reads it.
+        """
+        cb(pct, 'Recording runtime census...')
+        try:
+            self._step_runtime_census(tmp)
+        except Exception as e:
+            try:
+                (tmp / 'runtime_census_ERROR.txt').write_text(f'runtime census failed: {e}\n')
+            except OSError:
+                pass
+
     def generate_logs_only(self, callback=None, output_dir=None):
-        """Quick zip of logs + data + recent protocols only. No hardware tests.
+        """Quick zip of logs + data + recent protocols + video receipts.
+        No hardware tests.
 
         For sending diagnostic files to support when the issue is log-only
         (e.g. post-incident log review) and running the full report would
-        exercise hardware needlessly. Returns the ZIP path, or None on failure.
+        exercise hardware needlessly. Video receipts ride along because
+        they are small (manifests + inventories, no pixel data) and a
+        video complaint usually arrives through this quick bundle, not
+        the full report. Returns the ZIP path, or None on failure.
         """
         cb = callback or (lambda pct, msg: None)
         try:
@@ -2343,6 +2583,10 @@ class TechSupportReport:
 
                 cb(70, 'Copying recent protocols...')
                 self._step_protocols(tmp)
+
+                cb(78, 'Collecting video recording receipts...')
+                self._step_video_receipts(tmp)
+                self._run_hardware_free_steps(tmp, cb, 80)
 
                 cb(85, 'Writing metadata...')
                 # SN lookup chain:
@@ -2548,33 +2792,6 @@ def _report_done(self, zip_path):
 
 
 # ---------------------------------------------------------------------------
-# PyInstaller Build Notes
-# ---------------------------------------------------------------------------
-
-PYINSTALLER_SPEC = """\
-# --- Add to scripts/appBuild/build_win_release.ps1 ---
-#
-# After the main LumaViewPro build, add a second PyInstaller invocation
-# to produce a standalone diagnostics executable:
-#
-#   pyinstaller --onefile --name "EtalumaDiagnostics" `
-#       --icon "scripts/appBuild/config/etaluma_icon.ico" `
-#       --add-data "data;data" `
-#       --add-data "drivers;drivers" `
-#       --add-data "modules;modules" `
-#       --add-data "tests;tests" `
-#       modules/tech_support_report.py
-#
-# This produces dist/EtalumaDiagnostics.exe which can be sent to customers
-# independently of LumaViewPro. It connects to hardware directly and runs
-# all the same diagnostics.
-#
-# Both executables (LumaViewPro.exe and EtalumaDiagnostics.exe) go into
-# the final installer package.
-"""
-
-
-# ---------------------------------------------------------------------------
 # Standalone CLI
 # ---------------------------------------------------------------------------
 
@@ -2664,7 +2881,7 @@ def main():
 
     def cli_progress(pct, msg):
         filled = int(30 * pct / 100)
-        bar = '█' * filled + '░' * (30 - filled)
+        bar = '#' * filled + '-' * (30 - filled)
         # Progress bar uses carriage return -- keep as print for CLI display
         print(f'\r  [{bar}] {pct:3d}%  {msg:<50s}', end='', flush=True)
 

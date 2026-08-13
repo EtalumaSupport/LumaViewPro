@@ -78,6 +78,8 @@ def test_protocol_image_writer_uses_if_collision(monkeypatch, tmp_path):
         leds_off_fn=lambda: None,
         is_run_in_progress_fn=lambda: True,
         image_capture_config=ImageCaptureConfig.from_image_mode('8bit'),
+        timestamp_overlay=True,
+        video_max_fps=0,
     )
     recorded = []
     monkeypatch.setattr(
@@ -86,7 +88,6 @@ def test_protocol_image_writer_uses_if_collision(monkeypatch, tmp_path):
     )
     writer.write_capture(
         enable_image_saving=True,
-        is_video=False,
         captured_image=CapturedFrame(image=np.zeros((4, 4), dtype=np.uint8), significant_bits=8),
         step={'Name': 's', 'Color': 'BF', 'X': 0.0, 'Y': 0.0, 'Z': 0.0},
         name='s_BF',

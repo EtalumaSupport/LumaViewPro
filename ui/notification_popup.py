@@ -127,6 +127,58 @@ def show_confirmation_w_ack_popup(
     popup.open()
 
 
+def show_blocking_progress_popup(
+    title: str,
+    message: str,
+    action_text: str,
+    on_action: typing.Callable,
+):
+    """Modal progress popup: a live-updatable message + one action button.
+
+    For operations that must visibly finish before the app can proceed
+    (e.g. draining queued video writes at app close): silent blocking
+    reads as a hang and silent abandonment eats data, so the popup shows
+    progress and offers exactly one explicit escape action.
+
+    Args:
+        title: Short noun phrase.
+        message: Initial progress text; update via the returned setter.
+        action_text: The escape action's button label.
+        on_action: Called with no args when the user clicks the action.
+
+    Returns:
+        (popup, set_message) -- dismiss the popup from the caller's own
+        completion path; set_message(text) updates the progress line.
+    """
+    _log_show('progress', 'INFO', title, message)
+    content = BoxLayout(orientation='vertical', padding=10, spacing=10)
+    label = _make_message_label(message)
+    content.add_widget(label)
+
+    button_layout = BoxLayout(size_hint_y=None, height='40dp', spacing=10)
+    action_button = Button(text=action_text)
+    button_layout.add_widget(action_button)
+    content.add_widget(button_layout)
+
+    popup = Popup(
+        title=title,
+        content=content,
+        size_hint=(0.6, 0.3),
+        auto_dismiss=False,
+    )
+
+    def _on_action(*_a):
+        _log_response(title, f'ACTION:{action_text}')
+        on_action()
+
+    def _set_message(text: str):
+        label.text = text
+
+    action_button.bind(on_press=_on_action)
+    popup.open()
+    return popup, _set_message
+
+
 def show_confirmation_popup(
     title: str,
     message: str,

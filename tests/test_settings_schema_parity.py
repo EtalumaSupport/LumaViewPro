@@ -33,6 +33,16 @@ CURRENT_PATH = REPO_ROOT / 'data' / 'current.json'
 #   derived runtime state with no meaningful user default.
 RUNTIME_ONLY_TOP_LEVEL = {'turret_position'}
 
+# Legacy sections a load-time migration folds away. An on-disk
+# current.json of any age may still carry them (the loader retires them
+# at the next load, and the file catches up at the next clean shutdown),
+# so they are exempt from the current-only check -- but they must never
+# reappear in settings.json, where they would resurrect the retired
+# schema:
+# - manual_video: renamed to video (the rate/duration authority applies
+#   to every recording path); folded by migrate_video_settings_dict.
+MIGRATED_TOP_LEVEL = {'manual_video'}
+
 # Per-layer (nested dict) keys that exist ONLY in current.json, on purpose,
 # keyed by the top-level entry they live under:
 # - frame.native_width / frame.native_height: the connected camera's native
@@ -72,6 +82,12 @@ def test_settings_defaults_carry_no_runtime_only_keys():
         'remove them from the defaults file or retire their '
         'RUNTIME_ONLY_TOP_LEVEL exemption'
     )
+    resurrected = MIGRATED_TOP_LEVEL & set(settings)
+    assert not resurrected, (
+        f'migrated-away sections reappeared in settings.json: {sorted(resurrected)} -- '
+        'the load-time migration retired these; shipping a default would '
+        'resurrect the retired schema'
+    )
     leaked_layer = [
         f'{key}.{sub}'
         for key, subkeys in RUNTIME_ONLY_PER_LAYER.items()
@@ -89,7 +105,7 @@ def test_settings_defaults_carry_no_runtime_only_keys():
 @requires_current_json
 def test_top_level_key_parity():
     settings, current = _load_settings(), _load_current()
-    current_only = set(current) - set(settings) - RUNTIME_ONLY_TOP_LEVEL
+    current_only = set(current) - set(settings) - RUNTIME_ONLY_TOP_LEVEL - MIGRATED_TOP_LEVEL
     assert not current_only, (
         f'current.json has top-level keys with no settings.json default and '
         f'no runtime-only exemption: {sorted(current_only)} -- add a default '

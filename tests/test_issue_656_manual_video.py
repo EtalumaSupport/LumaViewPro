@@ -20,6 +20,7 @@ import pandas as pd
 import tifffile as tf
 
 import modules.image_utils as image_utils
+import modules.recording_frames as recording_frames
 from modules.video_builder import VideoBuilder
 
 
@@ -61,14 +62,19 @@ def _write_manual_frame(folder, frame_num, *, include_iso=True, value=20000):
     """Write one frame the way the manual recording path does."""
     ts = _ts(frame_num)
     img = np.full((64, 64), value, dtype=np.uint16)
-    metadata = {
-        'datetime': ts.strftime('%Y:%m:%d %H:%M:%S'),
-        'timestamp': ts.strftime('%Y:%m:%d %H:%M:%S.%f'),
-        'frame_num': frame_num,
-    }
-    if include_iso:
-        metadata['timestamp_iso'] = ts.isoformat(timespec='microseconds')
-    ts_filename = ts.strftime('%Y-%m-%d_%H-%M-%S-%f')[:-3]
+    # Source the dict from the production builder both recording legs use, so
+    # this helper cannot drift from the shape it claims to reproduce.
+    metadata, ts_filename = recording_frames.tiff_frame_metadata(
+        timestamp_s=ts.timestamp(),
+        frame_number=frame_num,
+        chunks=None,
+        tick_freq_hz=None,
+        pixel_size_um=None,
+    )
+    if not include_iso:
+        # Older recordings predate the ISO timestamp; drop it to exercise the
+        # fallback that reads the frame time from the filename instead.
+        del metadata['timestamp_iso']
     file_loc = folder / f'ManualVideo_Frame_{frame_num:04}_{ts_filename}.tiff'
     image_utils.write_tiff(
         data=img,
@@ -238,15 +244,15 @@ def test_read_manifest_channel_color(tmp_path):
     folder = tmp_path / 'rec'
     folder.mkdir()
     # No manifest -> None.
-    assert builder._read_manifest_channel_color(folder) is None
+    assert builder._read_recording_manifest(folder)['channel_color'] is None
     # Manifest without the key -> None.
     (folder / 'session_manifest.json').write_text(json.dumps({'manifest_version': 1}))
-    assert builder._read_manifest_channel_color(folder) is None
+    assert builder._read_recording_manifest(folder)['channel_color'] is None
     # Manifest with the key -> the color.
     (folder / 'session_manifest.json').write_text(
         json.dumps({'recording': {'channel_color': 'Green'}})
     )
-    assert builder._read_manifest_channel_color(folder) == 'Green'
+    assert builder._read_recording_manifest(folder)['channel_color'] == 'Green'
 
 
 def test_build_session_manifest_includes_channel_color():

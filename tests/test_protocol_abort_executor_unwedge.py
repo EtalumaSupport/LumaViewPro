@@ -114,6 +114,7 @@ def test_cleanup_skip_path_ends_executor_protocol_mode():
         _io_executor=io,
         file_io_executor=file_io,
         _release_scan_led_lease=lambda: None,
+        _release_activity_claim=lambda: None,
     )
     # run_status feeds the end-reason plumbing on the full cleanup path;
     # the skip path under test never reads it.

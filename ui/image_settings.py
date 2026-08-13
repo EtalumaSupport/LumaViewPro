@@ -249,7 +249,16 @@ class ImageSettings(BoxLayout):
         hide. Lazy resolution keeps both code paths correct.
         """
         if self._accordion_item_pc_control is None:
-            self._accordion_item_pc_control = self.ids.get('PC_accordion')
+            # Cache the REAL widget (`.__self__`), never the WeakProxy
+            # self.ids hands out: on scopes that hide this item,
+            # remove_widget drops the tree's only strong reference, and a
+            # proxy-cached item is garbage-collected with all its layer
+            # widgets -- every later deref of those ids then raises
+            # ReferenceError. The Python-constructed accordion items
+            # survive hiding precisely because their instance attributes
+            # are strong references; this cache must match.
+            proxy = self.ids.get('PC_accordion')
+            self._accordion_item_pc_control = proxy.__self__ if proxy is not None else None
         return self._accordion_item_pc_control
 
     def _show_pc_layer_control(self):

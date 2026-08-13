@@ -817,6 +817,89 @@ class TestGetTiffColormap:
         with pytest.raises(NotImplementedError):
             image_utils.get_tiff_colormap(image_utils.LvpColormap.GREEN, np.uint16)
 
+    @pytest.mark.parametrize(
+        'colormap',
+        [
+            image_utils.LvpColormap.RED,
+            image_utils.LvpColormap.GREEN,
+            image_utils.LvpColormap.BLUE,
+            image_utils.LvpColormap.GRAY,
+        ],
+    )
+    def test_colormap_spans_tiff_full_scale(self, colormap):
+        # TIFF ColorMap (tag 320) is a uint16 field whose full scale is
+        # 65535. A 0-255 ramp stored there renders ~0.4% brightness in
+        # compliant readers (ImageJ's native reader shows black); only
+        # Bio-Formats' lenient rescaling masked it. 257 = 65535 // 255
+        # maps payload 255 to exactly 65535.
+        cmap = image_utils.get_tiff_colormap(colormap, np.uint8)
+        assert cmap.dtype == np.uint16, f'{colormap}: ColorMap values must be uint16'
+        assert cmap.max() == 65535, f'{colormap}: ramp must reach TIFF full scale'
+
+    def test_green_ramp_steps_by_257(self):
+        cmap = image_utils.get_tiff_colormap(image_utils.LvpColormap.GREEN, np.uint8)
+        np.testing.assert_array_equal(cmap[1], np.arange(256, dtype=np.uint16) * 257)
+
+
+class TestTiffStripsAndPaletteScale:
+    """Written-file invariants: 8-bit output uses strips, and the PALETTE
+    colormap tag spans TIFF full scale.
+
+    Tiling forced ImageJ through Bio-Formats (the native reader cannot open
+    tiled TIFFs), whose lenient colormap rescaling masked the 0-255-scale
+    ColorMap defect while breaking native open. Strips + full-scale ramps
+    render correctly in the native reader, and strip writes drain
+    measurably faster on 8-bit output.
+    """
+
+    def test_8bit_fluorescence_still_uses_strips(self, img_8bit, metadata, tmp_tiff):
+        path = tmp_tiff()
+        image_utils.write_tiff(
+            data=img_8bit,
+            file_loc=path,
+            metadata=metadata,
+            ome=False,
+            color='Green',
+            significant_bits=8,
+            save_encoding='8bit',
+        )
+        with tf.TiffFile(str(path)) as f:
+            assert not f.pages[0].is_tiled, '8-bit still output must use strips'
+
+    def test_8bit_fluorescence_colormap_tag_full_scale(self, img_8bit, metadata, tmp_tiff):
+        path = tmp_tiff()
+        image_utils.write_tiff(
+            data=img_8bit,
+            file_loc=path,
+            metadata=metadata,
+            ome=False,
+            color='Green',
+            significant_bits=8,
+            save_encoding='8bit',
+        )
+        with tf.TiffFile(str(path)) as f:
+            cmap = f.pages[0].colormap
+            assert cmap is not None
+            assert int(cmap.max()) == 65535, (
+                'The written ColorMap tag must span TIFF full scale; a 0-255 '
+                'ramp reads ~0.4% brightness in compliant readers.'
+            )
+
+    def test_8bit_video_frame_uses_strips(self, img_8bit, metadata, tmp_tiff):
+        path = tmp_tiff()
+        image_utils.write_tiff(
+            data=img_8bit,
+            file_loc=path,
+            metadata=metadata,
+            ome=False,
+            color='BF',
+            significant_bits=8,
+            save_encoding='8bit',
+            video_frame=True,
+        )
+        with tf.TiffFile(str(path)) as f:
+            assert not f.pages[0].is_tiled, 'video-frame output must use strips'
+
 
 class TestGetImagejLut:
     def test_green_lut_shape(self):

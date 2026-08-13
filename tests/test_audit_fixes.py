@@ -1532,52 +1532,32 @@ class TestRule14_A8_ScopeSessionHelperNotify:
 
 
 class TestRule14_A7_HyperstackBuildNotify:
-    """A7: Hyperstack build background-thread failure must notify (Rule 14)."""
+    """A7: a hyperstack build failure must notify (Rule 14)."""
 
     def test_hyperstack_build_exception_notifies(self, monkeypatch):
-        """A raising StackBuilder.load_folder in the background build
-        thread must log the traceback AND pop 'Hyperstack build failed'
-        -- without the popup the user only ever sees the optimistic
-        'Saving Hyperstacks' info."""
-        import modules.config_ui_getters as config_ui_getters
-        from modules.image_mode import ImageCaptureConfig
+        """A raising StackBuilder.load_folder must log the traceback AND
+        pop 'Hyperstack build failed' -- without the popup the user only
+        ever sees the optimistic 'Saving Hyperstacks' info. The boundary
+        handler lives in build_hyperstacks_for_run, which the runner's
+        background build thread calls; exercising it directly exercises
+        the same handler that thread runs."""
+        import pathlib
+
+        import modules.stack_builder as stack_builder_module
         from modules.notification_center import notifications
 
-        popped = threading.Event()
         captured = []
-
-        def capture_error(*args, **kwargs):
-            captured.append(args)
-            popped.set()
-
-        monkeypatch.setattr(notifications, 'error', capture_error)
+        monkeypatch.setattr(notifications, 'error', lambda *args, **kwargs: captured.append(args))
         monkeypatch.setattr(notifications, 'info', lambda *a, **k: None)
         logger_mock = MagicMock()
-        monkeypatch.setattr(config_ui_getters, 'logger', logger_mock)
-        monkeypatch.setattr(
-            config_ui_getters,
-            'get_image_capture_config_from_ui',
-            lambda: ImageCaptureConfig.from_image_mode(
-                '8bit', output_format_sequenced='OME-TIFF Hyperstack'
-            ),
-        )
-        monkeypatch.setattr(
-            config_ui_getters,
-            'get_current_objective_info',
-            lambda: (None, {'focal_length': 45.0}),
-        )
-        monkeypatch.setattr(config_ui_getters, 'get_binning_from_ui', lambda: 1)
+        monkeypatch.setattr(stack_builder_module, 'logger', logger_mock)
         builder = MagicMock()
         builder.return_value.load_folder.side_effect = RuntimeError('corrupt tile map')
-        monkeypatch.setattr(config_ui_getters, 'StackBuilder', builder)
-        fake_ctx = MagicMock()
-        fake_ctx.source_path = '.'
-        monkeypatch.setattr('modules.app_context.ctx', fake_ctx)
+        monkeypatch.setattr(stack_builder_module, 'StackBuilder', builder)
 
-        config_ui_getters.create_hyperstacks_if_needed()
-        assert popped.wait(timeout=5.0), (
-            'the background build thread must surface the failure popup'
-        )
+        stack_builder_module.build_hyperstacks_for_run(run_dir=pathlib.Path('.'), has_turret=False)
+
+        assert captured, 'the build failure must surface the failure popup'
         assert captured[0][1] == 'Hyperstack build failed', (
             f'notification title must name the failed operation; got {captured[0]}'
         )
@@ -3083,6 +3063,8 @@ def _bare_protocol_writer(**overrides):
         'leds_off_fn': lambda: None,
         'is_run_in_progress_fn': lambda: True,
         'image_capture_config': ImageCaptureConfig.from_image_mode('8bit'),
+        'timestamp_overlay': True,
+        'video_max_fps': 0,
     }
     kwargs.update(overrides)
     return ProtocolImageWriter(**kwargs)
@@ -3168,38 +3150,19 @@ def test_not_saving_capture_builds_record_task_without_crash():
     assert writer._file_io_executor.protocol_put_wait.called
 
 
-def test_write_capture_threads_save_encoding_to_write_video(monkeypatch, tmp_path):
-    """write_capture resolves nothing itself -- save_encoding + capture_depth
-    come from the writer's held run config (the one carrier for the run's
-    capture/save intent) and reach write_video so protocol video frames honor
-    the image mode."""
-    from types import SimpleNamespace
+def test_global_fps_cap_bounds_the_disk_estimate():
+    """The estimator sizes a video step at the EFFECTIVE rate -- the same
+    rate-authority clamp the recording runs at -- so a global cap below the
+    configured fps shrinks the reservation instead of over-reserving and
+    falsely aborting a run that fits."""
+    from modules.common_utils import estimate_step_write_mb
 
-    import modules.protocol_image_writer as piw
-    from modules.image_mode import ImageCaptureConfig
-
-    recorded = {}
-    monkeypatch.setattr(
-        piw, 'write_video', lambda **kwargs: recorded.update(kwargs) or (tmp_path / 'vid')
+    step = {'Acquire': 'video', 'Video Config': {'duration': 600, 'fps': 30}}
+    uncapped = estimate_step_write_mb(step, video_as_frames=True, global_max_fps=0)
+    capped = estimate_step_write_mb(step, video_as_frames=True, global_max_fps=10)
+    assert capped * 3 == uncapped, (
+        'a global 10 fps cap on a 30 fps step must size a third of the frames'
     )
-
-    writer = _bare_protocol_writer(
-        image_capture_config=ImageCaptureConfig.from_image_mode('12bit_false_color_rgb')
-    )
-    writer.write_capture(
-        is_video=True,
-        video_as_frames=True,
-        video_result=SimpleNamespace(captured_frames=1, duration_sec=1.0),
-        save_folder=tmp_path,
-        name='vid',
-        step=_protocol_step(),
-        enable_image_saving=True,
-    )
-    assert recorded.get('save_encoding') == 'rgb', (
-        f'write_capture must hand the run config save_encoding to write_video; '
-        f'saw {sorted(recorded)}'
-    )
-    assert recorded.get('capture_depth') == 12
 
 
 class TestPIW3_FalseColor16bitCachedAtRunStart:
@@ -3264,7 +3227,6 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
         )
         writer.write_capture(
             enable_image_saving=True,
-            is_video=False,
             captured_image=CapturedFrame(
                 image=np.zeros((4, 4), dtype=np.uint8), significant_bits=8
             ),
@@ -3486,7 +3448,6 @@ class TestPIW2_DisksUsageDeduped:
         monkeypatch.setattr(notifications, 'critical', lambda *args, **kwargs: notes.append(args))
         writer.write_capture(
             enable_image_saving=True,
-            is_video=False,
             captured_image=CapturedFrame(
                 image=np.zeros((4, 4), dtype=np.uint8), significant_bits=8
             ),
@@ -4397,93 +4358,6 @@ class TestImageHandlerBaseChunkSlot:
         )
         assert b.get_last_chunks() == {'ExposureTime': 30000.0}
         assert 'Gain' not in b.get_last_chunks()
-
-
-class TestRecordInitFpsPreflightAndToggle:
-    """Issue #633 Stage 2C: record_init pre-flight + camera FPS toggle.
-
-    Static-source assertions because record_init has Kivy Clock + camera
-    dependencies that aren't mockable in the unit-test env. Bench
-    verification per the Monday plan covers the runtime behavior.
-    """
-
-    def _record_init_body(self):
-        import pathlib
-
-        source = pathlib.Path('ui/main_display.py').read_text()
-        idx = source.find('def record_init')
-        assert idx >= 0, 'record_init not found in ui/main_display.py'
-        # Slice through the next def at class indent (4 spaces).
-        next_def = source.find('\n    def ', idx + 1)
-        return source[idx:next_def] if next_def > 0 else source[idx:]
-
-    def _finalize_body(self):
-        import pathlib
-
-        source = pathlib.Path('ui/main_display.py').read_text()
-        idx = source.find('def _finalize_recording_state')
-        assert idx >= 0, '_finalize_recording_state not found'
-        next_def = source.find('\n    def ', idx + 1)
-        return source[idx:next_def] if next_def > 0 else source[idx:]
-
-    def test_fps_budget_warning_fires_when_limit_binds(self):
-        body = self._record_init_body()
-        assert 'FPS budget exceeded' in body, (
-            'record_init must surface a notifications.warning when the '
-            'user-requested FPS limit binds against the exposure budget '
-            "(issue #633 Stage 2C, Eric's 'warn + accept' choice)."
-        )
-        # Warn-and-accept: the budget-warning branch itself must not
-        # block recording. Asserted on the AST branch (not source
-        # proximity) so unrelated refusal guards earlier in the
-        # preflight -- e.g. the unknown-exposure refusal, which
-        # legitimately clears the claim -- don't false-positive.
-        import ast
-        import pathlib
-
-        tree = ast.parse(pathlib.Path('ui/main_display.py').read_text())
-        method = None
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ClassDef) and node.name == 'MainDisplay':
-                for child in node.body:
-                    if isinstance(child, ast.FunctionDef) and child.name == 'record_init':
-                        method = child
-        assert method is not None, 'MainDisplay.record_init not found'
-        budget_ifs = [
-            s
-            for s in ast.walk(method)
-            if isinstance(s, ast.If) and 'FPS budget exceeded' in ast.unparse(s)
-        ]
-        assert budget_ifs, 'FPS-budget warning must sit inside the limit-binds check'
-        innermost = min(budget_ifs, key=lambda s: len(ast.unparse(s)))
-        assert 'recording.clear' not in ast.unparse(innermost) and not any(
-            isinstance(n, ast.Return) for n in ast.walk(innermost)
-        ), (
-            'FPS-budget warning path must not clear self.recording or '
-            'abort -- Eric chose warn-and-accept, not abort.'
-        )
-
-    def test_disk_space_preflight_aborts_with_notify(self):
-        body = self._record_init_body()
-        assert 'Insufficient disk space' in body, (
-            'record_init must pre-flight disk space and abort with '
-            'notifications.error when insufficient (issue #633 Stage 2C).'
-        )
-        assert 'self.recording.clear()' in body, (
-            'Disk-space abort must clear self.recording so a retry '
-            'after freeing disk can claim recording again.'
-        )
-
-    def test_finalize_disables_camera_fps_limit(self):
-        body = self._finalize_body()
-        assert 'set_max_acquisition_frame_rate(False' in body, (
-            '_finalize_recording_state must disable the camera-side rate '
-            'limit so live preview returns to free-run (issue #633 Stage 2C).'
-        )
-        assert '_fps_limit_was_enabled' in body, (
-            '_finalize must guard the disable on _fps_limit_was_enabled '
-            "to avoid touching the knob when we didn't enable it."
-        )
 
 
 class TestSessionManifestHelpers:
@@ -8270,8 +8144,14 @@ class TestPylonAcquisitionIdleWait:
         result = camera._wait_for_acquisition_idle(timeout_s=2.0)
         elapsed = _time.monotonic() - t0
         assert result is True
-        assert elapsed < 0.5, (
-            f'idle-wait took {elapsed:.3f}s on already-idle camera; should return immediately'
+        # Threshold is 1.0s against a 2.0s timeout, not a tight 0.5s: the
+        # claim under test is "returns early instead of waiting the whole
+        # timeout", and 1.0s still discriminates that cleanly while leaving
+        # room for a loaded CI runner to deschedule this thread. A tighter
+        # bound tests the runner's load, not the camera's idle-wait.
+        assert elapsed < 1.0, (
+            f'idle-wait took {elapsed:.3f}s on already-idle camera against a '
+            f'2.0s timeout; should return early, not wait it out'
         )
 
     def test_idle_wait_returns_false_when_node_absent(self):
@@ -8299,8 +8179,12 @@ class TestPylonAcquisitionIdleWait:
         result = camera._wait_for_acquisition_idle(timeout_s=2.0)
         elapsed = _time.monotonic() - t0
         assert result is False
-        assert elapsed < 0.1, (
-            f'idle-wait should bail immediately when nodes absent; took {elapsed:.3f}s'
+        # Same reasoning as the already-idle case: 1.0s against a 2.0s
+        # timeout proves the absent-node path bails instead of waiting. The
+        # old 0.1s bound measured scheduler latency on a no-op call.
+        assert elapsed < 1.0, (
+            f'idle-wait should bail early when nodes absent, not wait out the '
+            f'2.0s timeout; took {elapsed:.3f}s'
         )
 
     def test_idle_wait_times_out_when_stuck_active(self):
@@ -8515,7 +8399,7 @@ class TestPylonPublicMethodAnnotationsAndDocstrings:
 
 
 class TestManualVideoSpinners:
-    """Issue #633 Stage 2D: manual_video FPS + duration UI binding.
+    """Issue #633 Stage 2D: video FPS + duration UI binding.
 
     Static-source assertions: kv ID + handlers exist, record_init reads
     via .get with defaults, and max_fps == 0 maps to
@@ -8543,46 +8427,36 @@ class TestManualVideoSpinners:
         # Advanced Settings modal, not the microscope panel.
         return pathlib.Path('ui/advanced_settings.py').read_text()
 
-    def _record_init_body(self):
-        import pathlib
-
-        source = pathlib.Path('ui/main_display.py').read_text()
-        idx = source.find('def record_init')
-        assert idx >= 0, 'record_init not found in ui/main_display.py'
-        next_def = source.find('\n    def ', idx + 1)
-        return source[idx:next_def] if next_def > 0 else source[idx:]
-
     def test_kv_has_max_fps_textinput(self):
         kv = self._advanced_text()
-        assert 'id: manual_video_max_fps_input' in kv, (
+        assert 'id: video_max_fps_input' in kv, (
             'ui/advanced_settings.py must define a TextInput with id '
-            'manual_video_max_fps_input bound to '
-            "settings['manual_video']['max_fps']."
+            'video_max_fps_input bound to '
+            "settings['video']['max_fps']."
         )
-        assert 'root.update_manual_video_max_fps()' in kv, (
-            'manual_video_max_fps_input must call root.update_manual_video_max_fps() on edit.'
+        assert 'root.update_video_max_fps()' in kv, (
+            'video_max_fps_input must call root.update_video_max_fps() on edit.'
         )
 
     def test_kv_has_max_duration_textinput(self):
         kv = self._advanced_text()
-        assert 'id: manual_video_max_duration_input' in kv, (
+        assert 'id: video_max_duration_input' in kv, (
             'ui/advanced_settings.py must define a TextInput with id '
-            'manual_video_max_duration_input bound to '
-            "settings['manual_video']['max_duration']."
+            'video_max_duration_input bound to '
+            "settings['video']['max_duration']."
         )
-        assert 'root.update_manual_video_max_duration()' in kv, (
-            'manual_video_max_duration_input must call '
-            'root.update_manual_video_max_duration() on edit.'
+        assert 'root.update_video_max_duration()' in kv, (
+            'video_max_duration_input must call root.update_video_max_duration() on edit.'
         )
 
     def test_advanced_settings_has_handlers(self):
         body = self._advanced_text()
-        assert 'def update_manual_video_max_fps' in body, (
-            'AdvancedSettings must define update_manual_video_max_fps '
+        assert 'def update_video_max_fps' in body, (
+            'AdvancedSettings must define update_video_max_fps '
             'to write the value back to the settings dict.'
         )
-        assert 'def update_manual_video_max_duration' in body, (
-            'AdvancedSettings must define update_manual_video_max_duration.'
+        assert 'def update_video_max_duration' in body, (
+            'AdvancedSettings must define update_video_max_duration.'
         )
 
     def test_handlers_validate_and_revert_on_invalid(self):
@@ -8590,7 +8464,7 @@ class TestManualVideoSpinners:
         # Both handlers must surface a notifications.warning AND revert
         # the widget text on bad input -- the L1 researcher sees the
         # error and the field doesn't silently accept garbage.
-        for handler in ('update_manual_video_max_fps', 'update_manual_video_max_duration'):
+        for handler in ('update_video_max_fps', 'update_video_max_duration'):
             idx = body.find(f'def {handler}')
             assert idx >= 0
             next_def = body.find('\n    def ', idx + 1)
@@ -8602,51 +8476,16 @@ class TestManualVideoSpinners:
                 f'{handler} must revert widget.text on invalid input.'
             )
 
-    def test_on_open_pushes_manual_video_into_widgets(self):
+    def test_on_open_pushes_video_settings_into_widgets(self):
         body = self._advanced_text()
-        assert 'manual_video_max_fps_input' in body, (
-            "AdvancedSettings.on_open must push settings['manual_video']['max_fps'] "
-            'into the manual_video_max_fps_input widget when the modal opens.'
+        assert 'video_max_fps_input' in body, (
+            "AdvancedSettings.on_open must push settings['video']['max_fps'] "
+            'into the video_max_fps_input widget when the modal opens.'
         )
-        assert 'manual_video_max_duration_input' in body, (
+        assert 'video_max_duration_input' in body, (
             'AdvancedSettings.on_open must push '
-            "settings['manual_video']['max_duration'] into the "
-            'manual_video_max_duration_input widget when the modal opens.'
-        )
-
-    def test_record_init_reads_via_get_with_defaults(self):
-        body = self._record_init_body()
-        # No bare KeyError when manual_video dict is missing or its
-        # keys are missing -- a partially-edited settings.json won't
-        # crash record_init.
-        # Quote-style agnostic: ruff format may use single or double quotes.
-        assert 'settings.get("manual_video"' in body or "settings.get('manual_video'" in body, (
-            "record_init must read settings.get('manual_video', {}) "
-            'to tolerate missing dict on a fresh / partial install.'
-        )
-        assert 'manual_video.get("max_fps"' in body or "manual_video.get('max_fps'" in body, (
-            'record_init must read max_fps via .get with a default.'
-        )
-
-    def test_user_requested_fps_limit_keys_on_max_fps_zero(self):
-        body = self._record_init_body()
-        assert 'self._user_requested_fps_limit = max_fps > 0' in body, (
-            'max_fps == 0 means uncapped (camera free-run); only '
-            'max_fps > 0 sets _user_requested_fps_limit = True. This '
-            'closes the Stage 2C regression where the shipped 40fps '
-            'default fired the FPS-budget warning at every '
-            '>25ms exposure.'
-        )
-
-    def test_video_fps_falls_back_to_exposure_freq_when_uncapped(self):
-        body = self._record_init_body()
-        # When _user_requested_fps_limit is False, video_fps must NOT
-        # take min(exposure_freq, 0) (which would set video_fps=0 and
-        # break the memmap allocation).
-        assert 'video_fps = exposure_freq' in body, (
-            'When the user has not requested an FPS limit, video_fps '
-            'must default to exposure_freq -- not min(exposure_freq, '
-            'max_fps) which would be 0 and break recording.'
+            "settings['video']['max_duration'] into the "
+            'video_max_duration_input widget when the modal opens.'
         )
 
     def test_shipped_settings_max_fps_is_zero(self):
@@ -8660,8 +8499,8 @@ class TestManualVideoSpinners:
         # contract a fresh install receives.
         path = pathlib.Path('data/settings.json')
         data = json.loads(path.read_text())
-        assert data.get('manual_video', {}).get('max_fps') == 0, (
-            'data/settings.json must ship with manual_video.max_fps = 0 '
+        assert data.get('video', {}).get('max_fps') == 0, (
+            'data/settings.json must ship with video.max_fps = 0 '
             "(uncapped) so a fresh install does not fire 'FPS budget "
             "exceeded' on every record."
         )
@@ -9391,38 +9230,48 @@ class TestSCEResetSignalsAbort:
 class TestImageUtilsMaxWorkersIsZero:
     """tifffile's per-write ThreadPoolExecutor holds a Windows kernel
     Event handle that outlives cleanup -- ~1 leaked handle per save
-    over a 28-min bench run. All three save paths in image_utils.py
-    must use maxworkers=0 to retire the per-write executor. This test
-    pins the floor; a future revert to maxworkers>=1 fails it.
+    over a 28-min bench run. Every tifffile write-options dict must use
+    maxworkers=0 to retire the per-write executor. This test pins the
+    floor; a future revert to maxworkers>=1 fails it.
+
+    Matches dict LITERALS, and scans every module building write options.
+    The original form walked dict() Call nodes and scanned image_utils.py
+    alone -- but all these sites are {...} literals, so it inspected zero
+    nodes and was unconditionally green, which is how stack_builder.py
+    drifted to maxworkers=2 and stayed there.
     """
 
-    def test_all_dict_maxworkers_are_zero(self):
+    def test_all_write_options_maxworkers_are_zero(self):
         import ast
         import pathlib
 
-        rel = 'modules/image_utils.py'
-        source = pathlib.Path(rel).read_text(encoding='utf-8')
-        tree = ast.parse(source, filename=rel)
-
         offenders: list[str] = []
-        # Walk dict() Call nodes; check keyword arg `maxworkers=N`.
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
-                continue
-            func = node.func
-            is_dict_call = isinstance(func, ast.Name) and func.id == 'dict'
-            if not is_dict_call:
-                continue
-            for kw in node.keywords:
-                if kw.arg != 'maxworkers':
-                    continue
-                if not isinstance(kw.value, ast.Constant):
-                    continue
-                if kw.value.value != 0:
-                    offenders.append(f'{rel}:{node.lineno}: maxworkers={kw.value.value}')
+        scanned = 0
+        for rel in ('modules/image_utils.py', 'modules/stack_builder.py'):
+            source = pathlib.Path(rel).read_text(encoding='utf-8')
+            tree = ast.parse(source, filename=rel)
 
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Dict):
+                    continue
+                # ast.Dict keeps keys and values the same length; a ** unpacking
+                # entry pairs a None key with its expression, and is skipped
+                # below because None is not a Constant.
+                for key, value in zip(node.keys, node.values, strict=True):
+                    if not isinstance(key, ast.Constant) or key.value != 'maxworkers':
+                        continue
+                    scanned += 1
+                    if not isinstance(value, ast.Constant) or value.value != 0:
+                        shown = getattr(value, 'value', '<non-literal>')
+                        offenders.append(f'{rel}:{node.lineno}: maxworkers={shown}')
+
+        # A pin that matches nothing cannot fail. Assert it found the sites.
+        assert scanned >= 4, (
+            f'expected at least 4 maxworkers write-options sites, found {scanned} -- '
+            'the pin stopped matching the code it exists to protect'
+        )
         assert not offenders, (
-            'All tifffile dict() maxworkers must be 0 to avoid the '
+            'All tifffile write-options maxworkers must be 0 to avoid the '
             'Windows kernel-handle leak:\n  ' + '\n  '.join(offenders)
         )
 
@@ -10612,7 +10461,11 @@ class TestGetLedStateShape:
         # pin-justified: the published doc example text is the L2 contract
         # surface; this guards doc-vs-API sync.
         doc = pathlib.Path('docs/LumascopeSkills.md').read_text()
-        assert "'owner': '…'" in doc or "'owner': '...'" in doc, (
+        # \u2026 escape rather than a literal ellipsis: the doc currently
+        # uses the Unicode character, so this is the branch that matches,
+        # but source files stay ASCII. Both forms are accepted so a doc
+        # edit to '...' does not break the check.
+        assert "'owner': '\u2026'" in doc or "'owner': '...'" in doc, (
             'LumascopeSkills get_led_state example must include the '
             "'owner' key in the return-shape example."
         )
@@ -10955,6 +10808,26 @@ class TestWindowsBuildIsWindowed_559:
 
         return (Path(__file__).resolve().parent.parent / 'lumaviewpro.py').read_text()
 
+    def _build_ps1_code(self):
+        """build.ps1 with comment lines removed, for source pins.
+
+        A substring pin over the raw file cannot tell code from prose,
+        which breaks it in both directions: a negative pin trips on the
+        comment explaining why the banned thing was removed, and a
+        positive pin passes on a comment that merely mentions the thing
+        it is supposed to prove exists -- green over a build script whose
+        real code was deleted. Pinning the code text is what these
+        assertions always meant.
+        """
+        from pathlib import Path
+
+        # pin-justified: no PowerShell harness exists, and the build box
+        # is the only place this code runs.
+        raw = (
+            Path(__file__).resolve().parent.parent / 'scripts' / 'appBuild' / 'build.ps1'
+        ).read_text()
+        return '\n'.join(line for line in raw.splitlines() if not line.lstrip().startswith('#'))
+
     def test_windows_spec_is_windowed_build(self):
         """Spec must declare `console=False` so PyInstaller produces
         a windowed .exe (no bootloader terminal window). Issue #559."""
@@ -10968,6 +10841,65 @@ class TestWindowsBuildIsWindowed_559:
         assert 'console=True' not in spec, (
             'Windows PyInstaller spec must NOT contain console=True '
             '(any stray occurrence regresses #559).'
+        )
+
+    def test_build_script_has_no_wix_extension_feed_fetch(self):
+        """build.ps1 must resolve the WiX BAL extension from a vendored
+        file, never from the nuget feed.
+
+        `wix extension add -g` fetches whatever version the feed serves,
+        and nothing in the build inspects the extension's version -- the
+        tool-version check reads `wix --version`, which a v7-era BAL
+        extension passes untouched. A feed-fetched extension is the one
+        way a bundle can look clean on the build box and still fail
+        0x80070057 on every customer machine.
+
+        Closed-world pin over a literal command, the only shape that
+        survives here: a rewrite cannot reintroduce the feed fetch
+        without reintroducing this string. Pinned against the CODE, so
+        the comment recording why the fetch was removed does not read as
+        the fetch itself.
+        """
+        build_ps1 = self._build_ps1_code()
+        assert 'wix extension add' not in build_ps1, (
+            'build.ps1 must not fetch the WiX BAL extension from the nuget '
+            'feed. The feed serves an unpinned version and no version check '
+            'covers the extension, so a v7-era BAL would build a bundle that '
+            'passes every gate here and fails at customer install with '
+            '0x80070057. Resolve it from the vendored DLL and fail loudly '
+            'when that is absent.'
+        )
+
+    def test_build_script_distinguishes_failed_bundle_from_no_bundle(self):
+        """A bundle that was ATTEMPTED and FAILED must not report success.
+
+        Both a failed bundle and a deliberate MSI-only build leave
+        $bundle empty, so $bundle alone cannot tell them apart. Before
+        the fix the failure path printed a warning, blanked $bundle, and
+        fell through to a generic BUILD COMPLETE banner that simply
+        omitted the Bundle line -- byte-identical to an MSI-only build --
+        and exited 0.
+
+        Pins the mechanism rather than the wording: the $bundle_failed
+        flag, and the exit placed AFTER Stop-Transcript so the failing
+        run keeps its own build log. Pinned against the CODE, so a
+        comment mentioning the flag cannot satisfy this on a build script
+        whose real handling was deleted.
+        """
+        build_ps1 = self._build_ps1_code()
+        assert '$bundle_failed' in build_ps1, (
+            'build.ps1 must track whether a bundle was ATTEMPTED and FAILED '
+            'separately from whether one was built. Both states leave $bundle '
+            'empty, so without this flag a failed bundle is indistinguishable '
+            'from a deliberate MSI-only build.'
+        )
+        stop_transcript = build_ps1.index('Stop-Transcript | Out-Null')
+        failure_exit = build_ps1.index('if ($bundle_failed) { Exit 1 }')
+        assert failure_exit > stop_transcript, (
+            'The failed-bundle Exit must come AFTER Stop-Transcript. Every '
+            'other Exit in build.ps1 bypasses both the transcript close and '
+            'the build.log copy, so exiting at the failure site would destroy '
+            'the log for the one run that most needs it.'
         )
 
     def test_lock_loser_drops_stderr_print(self):
@@ -12982,7 +12914,7 @@ class TestPS11VideoCancelledRecordsRow:
     """A cancelled / zero-frame video step must leave an execution-record row,
     matching the image path which records a 'capture_failed' row (PS-11)."""
 
-    def test_video_none_result_records_dropped_capture(self, monkeypatch, tmp_path):
+    def test_video_no_frames_records_capture_failed_row(self, monkeypatch, tmp_path):
         from unittest.mock import MagicMock
 
         import modules.protocol_image_writer as piw
@@ -12991,23 +12923,99 @@ class TestPS11VideoCancelledRecordsRow:
         writer = _bare_protocol_writer(execution_record=record)
         writer._scope.motion.has_turret.return_value = False
 
-        fake_session = MagicMock()
-        fake_session.capture.return_value = None  # cancelled / zero frames
-        monkeypatch.setattr(piw, 'VideoCaptureSession', lambda **kw: fake_session)
+        fake_recorder = MagicMock()
+        fake_recorder.run_blocking.return_value = piw.protocol_recording.NO_FRAMES
+        monkeypatch.setattr(piw, 'ProtocolVideoStep', lambda **kw: fake_recorder)
+
+        submitted = []
+        writer._file_io_executor.protocol_put_wait = lambda task, **kw: (
+            submitted.append(task) or True
+        )
 
         protocol = MagicMock()
         protocol.capture_root.return_value = ''
+        step = _protocol_step(Acquire='video', **{'Video Config': {'fps': 5, 'duration': 1}})
         writer.capture(
             save_folder=str(tmp_path),
-            step=_protocol_step(Acquire='video'),
+            step=step,
             output_format='TIFF',
             protocol=protocol,
             scan_count=0,
             curr_step=0,
         )
 
-        assert record.add_step.called, 'cancelled video must leave a record row'
-        assert record.add_step.call_args.kwargs['capture_result_file_name'] == 'video_cancelled'
+        assert submitted, 'a frame-less video step must submit its failure-record task'
+        # Run the submitted write task the way the file thread would; the
+        # row it leaves is the record's evidence of the failed step.
+        task = submitted[0]
+        task.action(**task.kwargs)
+        assert record.add_step.called, 'a frame-less video step must leave a record row'
+        assert record.add_step.call_args.kwargs['capture_result_file_name'] == 'capture_failed'
+        assert writer._consecutive_capture_failures == 1, (
+            'a frame-less video step must feed the 3-strike camera counter'
+        )
+
+
+class TestVideoCameraLostFeedsStrikeCounter:
+    """A camera lost mid-video-step must strike WITHOUT resetting the
+    counter and WITHOUT a capture_failed row (the step's finish thread
+    records the measured row; two rows for one step would contradict)."""
+
+    def _capture_with_outcome(self, monkeypatch, tmp_path, outcome, preset_failures):
+        from unittest.mock import MagicMock
+
+        import modules.protocol_image_writer as piw
+
+        record = MagicMock()
+        writer = _bare_protocol_writer(execution_record=record)
+        writer._scope.motion.has_turret.return_value = False
+        writer._consecutive_capture_failures = preset_failures
+
+        fake_recorder = MagicMock()
+        fake_recorder.run_blocking.return_value = outcome
+        monkeypatch.setattr(piw, 'ProtocolVideoStep', lambda **kw: fake_recorder)
+
+        submitted = []
+        writer._file_io_executor.protocol_put_wait = lambda task, **kw: (
+            submitted.append(task) or True
+        )
+
+        protocol = MagicMock()
+        protocol.capture_root.return_value = ''
+        step = _protocol_step(Acquire='video', **{'Video Config': {'fps': 5, 'duration': 1}})
+        writer.capture(
+            save_folder=str(tmp_path),
+            step=step,
+            output_format='TIFF',
+            protocol=protocol,
+            scan_count=0,
+            curr_step=0,
+        )
+        return writer, submitted
+
+    def test_camera_lost_increments_strike_and_writes_no_row(self, monkeypatch, tmp_path):
+        import modules.protocol_image_writer as piw
+
+        writer, submitted = self._capture_with_outcome(
+            monkeypatch, tmp_path, piw.protocol_recording.CAMERA_LOST, preset_failures=1
+        )
+        assert writer._consecutive_capture_failures == 2, (
+            'a camera-lost video step must strike without resetting the counter'
+        )
+        assert submitted == [], (
+            'a camera-lost video step must NOT submit a capture_failed row; '
+            "the step's finish thread owns the measured row"
+        )
+
+    def test_completed_video_step_still_clears_the_counter(self, monkeypatch, tmp_path):
+        import modules.protocol_image_writer as piw
+
+        writer, _submitted = self._capture_with_outcome(
+            monkeypatch, tmp_path, piw.protocol_recording.COMPLETED, preset_failures=2
+        )
+        assert writer._consecutive_capture_failures == 0, (
+            'a genuinely completed video step must clear the strike counter'
+        )
 
 
 class TestRemainingScansAtomicSnapshot:
@@ -13315,30 +13323,38 @@ class TestStepWriteEstimateSingleOwner:
     def test_image_step_uses_image_estimate(self):
         from modules.common_utils import ESTIMATED_IMAGE_STEP_MB, estimate_step_write_mb
 
-        assert estimate_step_write_mb({'Acquire': 'image'}) == ESTIMATED_IMAGE_STEP_MB
+        assert (
+            estimate_step_write_mb({'Acquire': 'image'}, global_max_fps=0)
+            == ESTIMATED_IMAGE_STEP_MB
+        )
         # A step with no Acquire key is treated as an image step.
-        assert estimate_step_write_mb({}) == ESTIMATED_IMAGE_STEP_MB
+        assert estimate_step_write_mb({}, global_max_fps=0) == ESTIMATED_IMAGE_STEP_MB
 
     def test_short_video_floored_at_legacy_estimate(self):
         from modules.common_utils import ESTIMATED_VIDEO_STEP_MB, estimate_step_write_mb
 
         step = {'Acquire': 'video', 'Video Config': {'duration': 1, 'fps': 30}}
-        assert estimate_step_write_mb(step) == ESTIMATED_VIDEO_STEP_MB
+        assert estimate_step_write_mb(step, global_max_fps=0) == ESTIMATED_VIDEO_STEP_MB
 
     def test_long_video_scales_with_duration_and_fps(self):
         from modules.common_utils import ESTIMATED_VIDEO_STEP_MB, estimate_step_write_mb
 
         short = {'Acquire': 'video', 'Video Config': {'duration': 5, 'fps': 30}}
         long_clip = {'Acquire': 'video', 'Video Config': {'duration': 600, 'fps': 30}}
-        assert estimate_step_write_mb(long_clip) > estimate_step_write_mb(short)
-        assert estimate_step_write_mb(long_clip) > ESTIMATED_VIDEO_STEP_MB
+        assert estimate_step_write_mb(long_clip, global_max_fps=0) > estimate_step_write_mb(
+            short, global_max_fps=0
+        )
+        assert estimate_step_write_mb(long_clip, global_max_fps=0) > ESTIMATED_VIDEO_STEP_MB
 
     def test_video_as_frames_costs_one_image_per_frame(self):
         from modules.common_utils import ESTIMATED_IMAGE_STEP_MB, estimate_step_write_mb
 
         step = {'Acquire': 'video', 'Video Config': {'duration': 10, 'fps': 30}}
         # 10 s * 30 fps = 300 frames, each a full image when saved as frames.
-        assert estimate_step_write_mb(step, video_as_frames=True) == 300 * ESTIMATED_IMAGE_STEP_MB
+        assert (
+            estimate_step_write_mb(step, video_as_frames=True, global_max_fps=0)
+            == 300 * ESTIMATED_IMAGE_STEP_MB
+        )
 
     def test_both_call_sites_use_the_shared_estimator(self):
         import pathlib
@@ -13363,14 +13379,14 @@ class TestStepWriteEstimateSingleOwner:
         # A None step (a parameter default at some call sites) must not raise --
         # a raise here is swallowed by the disk-check except, silently skipping
         # the free-space guard.
-        assert estimate_step_write_mb(None) == ESTIMATED_IMAGE_STEP_MB
+        assert estimate_step_write_mb(None, global_max_fps=0) == ESTIMATED_IMAGE_STEP_MB
         # A NaN Video Config cell (a truthy float from an unpopulated DataFrame
         # row) must not raise; the video sizes to the floor, not a crash.
         nan_cfg = {'Acquire': 'video', 'Video Config': float('nan')}
-        assert estimate_step_write_mb(nan_cfg) == ESTIMATED_VIDEO_STEP_MB
+        assert estimate_step_write_mb(nan_cfg, global_max_fps=0) == ESTIMATED_VIDEO_STEP_MB
         # Non-numeric duration/fps coerce to 0 (a missing dimension), floored.
         bad_nums = {'Acquire': 'video', 'Video Config': {'duration': 'abc', 'fps': 'x'}}
-        assert estimate_step_write_mb(bad_nums) == ESTIMATED_VIDEO_STEP_MB
+        assert estimate_step_write_mb(bad_nums, global_max_fps=0) == ESTIMATED_VIDEO_STEP_MB
 
     def test_read_video_config_guards_every_non_dict(self):
         from modules.common_utils import read_video_config

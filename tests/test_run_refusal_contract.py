@@ -31,6 +31,7 @@ running-state only between prepare and start, inside the shared
 refusal boundary) is locked by tests/test_protocol_start_refusal_ui_gate.py.
 """
 
+import ast
 import datetime
 import pathlib
 import sys
@@ -524,6 +525,29 @@ class TestStartCannotSilentlyHalfStart:
 #    the raised error carries the matching reason.
 # ---------------------------------------------------------------------------
 
+_FUNNEL_LOOP = 'test_each_refusal_reason_notifies_once_with_matching_reason'
+
+# Every refusal reason the runner can raise, mapped to the test that pins
+# its notify-once contract. test_every_runner_refusal_reason_is_covered
+# diffs this map against the runner's source, so a reason added to the
+# runner reds the suite until it gets a scenario or a dedicated test AND
+# a row here; a reason retired from the runner reds until its row is
+# removed. The map cannot silently drift from production.
+RUNNER_REFUSAL_COVERAGE = {
+    'already_running': _FUNNEL_LOOP,
+    'files_writing': _FUNNEL_LOOP,
+    'files_writing_stalled': _FUNNEL_LOOP,
+    'autofocus_running': _FUNNEL_LOOP,
+    'empty_protocol': _FUNNEL_LOOP,
+    'validation_failed': _FUNNEL_LOOP,
+    'validation_crashed': _FUNNEL_LOOP,
+    'hardware_state_unknown': _FUNNEL_LOOP,
+    'hardware_disconnected': _FUNNEL_LOOP,
+    # Raised at start(), not prepare(), so it cannot ride the scenario
+    # loop (which drives _prepare); it gets the start-tier twin below.
+    'exclusive_activity_running': ('test_start_refused_while_recording_holds_activity_claim'),
+}
+
 
 class TestRefusalNotifyOnceFunnel:
     def _scenarios(self, executor, scope):
@@ -535,6 +559,22 @@ class TestRefusalNotifyOnceFunnel:
 
         def files_writing(mp):
             mp.setattr(executor.file_io_executor, 'is_protocol_queue_active', lambda: True)
+            return _make_single_step_protocol()
+
+        def files_writing_stalled(mp):
+            # The stalled branch nests under the queue-active gate: both
+            # probes must fire for the stalled refusal to be reachable.
+            mp.setattr(executor.file_io_executor, 'is_protocol_queue_active', lambda: True)
+            mp.setattr(
+                executor.file_io_executor,
+                'protocol_drain_stalled',
+                lambda threshold_s: True,
+            )
+            mp.setattr(
+                executor.file_io_executor,
+                'describe_running_task',
+                lambda: "write_capture 'A1_BF' 45s in flight",
+            )
             return _make_single_step_protocol()
 
         def empty_protocol(mp):
@@ -574,6 +614,7 @@ class TestRefusalNotifyOnceFunnel:
         return [
             ('already_running', already_running),
             ('files_writing', files_writing),
+            ('files_writing_stalled', files_writing_stalled),
             ('autofocus_running', autofocus_running),
             ('empty_protocol', empty_protocol),
             ('validation_failed', validation_failed),
@@ -585,7 +626,13 @@ class TestRefusalNotifyOnceFunnel:
     def test_each_refusal_reason_notifies_once_with_matching_reason(
         self, executor, scope, tmp_path, monkeypatch
     ):
-        for reason, setup in self._scenarios(executor, scope):
+        scenarios = self._scenarios(executor, scope)
+        assert {reason for reason, _ in scenarios} == {
+            reason
+            for reason, covered_by in RUNNER_REFUSAL_COVERAGE.items()
+            if covered_by == _FUNNEL_LOOP
+        }, 'the scenario list and RUNNER_REFUSAL_COVERAGE drifted apart'
+        for reason, setup in scenarios:
             with monkeypatch.context() as mp:
                 captured = _capture_notifications(mp)
                 protocol = setup(mp)
@@ -603,3 +650,76 @@ class TestRefusalNotifyOnceFunnel:
                 assert not executor.run_in_progress(), (
                     f'refusal {reason!r} must leave the runner idle'
                 )
+
+    def test_start_refused_while_recording_holds_activity_claim(
+        self, executor, tmp_path, monkeypatch
+    ):
+        """start()-tier twin of the loop above.
+
+        The session's activity claim is checked at the commitment point,
+        after prepare() has already succeeded, so a live video recording
+        refuses the run through the same notify-once funnel. The refusal
+        must not disturb the recording's claim, and the runner must stay
+        fully usable once the recording releases it.
+        """
+        with monkeypatch.context() as mp:
+            captured = _capture_notifications(mp)
+            plan = _prepare(executor, _make_single_step_protocol(), tmp_path)
+            assert executor._activity_claim.try_claim('recording')
+            try:
+                with pytest.raises(ProtocolRunRefusedError) as excinfo:
+                    executor.start(plan)
+                assert executor._activity_claim.owner == 'recording', (
+                    "a refused start must not steal or release the recording's claim"
+                )
+            finally:
+                executor._activity_claim.release('recording')
+        assert excinfo.value.reason == 'exclusive_activity_running'
+        assert 'recording' in excinfo.value.message.lower(), (
+            'the recording-holder branch must name the recording, not the '
+            f'generic other-activity copy; got {excinfo.value.message!r}'
+        )
+        assert len(captured) == 1, f'the refusal must notify exactly once; got {captured}'
+        assert not executor.run_in_progress(), 'a start()-tier refusal must leave the runner idle'
+        # Not wedged: with the claim released, the next run completes.
+        _run_to_completion(executor, _make_single_step_protocol(), tmp_path)
+
+
+def test_every_runner_refusal_reason_is_covered():
+    """Census guard: the coverage map above matches the runner's source.
+
+    Collects every reason literal the runner feeds to its _refuse funnel
+    (or a direct ProtocolRunRefusedError construction) and diffs the set
+    against RUNNER_REFUSAL_COVERAGE, in both directions. This is what
+    makes the notify-once suite's enumeration unmissable instead of
+    remembered: exclusive_activity_running shipped with zero coverage
+    because nothing coupled the scenario list to the runner's vocabulary.
+    """
+    import modules.sequenced_capture_runner as runner_mod
+
+    tree = ast.parse(pathlib.Path(runner_mod.__file__).read_text())
+    raised = set()
+
+    class ReasonCollector(ast.NodeVisitor):
+        def visit_Call(self, node):
+            callee = getattr(node.func, 'attr', None) or getattr(node.func, 'id', None)
+            if callee in ('_refuse', 'ProtocolRunRefusedError'):
+                for kw in node.keywords:
+                    if kw.arg == 'reason' and isinstance(kw.value, ast.Constant):
+                        raised.add(kw.value.value)
+            self.generic_visit(node)
+
+    ReasonCollector().visit(tree)
+    assert raised, 'found no refusal reasons in the runner source; the scan is broken'
+
+    uncovered = raised - set(RUNNER_REFUSAL_COVERAGE)
+    assert not uncovered, (
+        f'refusal reasons raised by the runner with no coverage row: {sorted(uncovered)}. '
+        'Pin the notify-once contract for each (scenario or dedicated test), '
+        'then add its row to RUNNER_REFUSAL_COVERAGE.'
+    )
+    stale = set(RUNNER_REFUSAL_COVERAGE) - raised
+    assert not stale, (
+        f'coverage rows for reasons the runner no longer raises: {sorted(stale)}. '
+        'Retire each row together with its test.'
+    )

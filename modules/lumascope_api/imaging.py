@@ -1994,7 +1994,11 @@ class ImagingAPI:
                     f'(drained={drain_iterations}, frames_until_valid={remaining}, '
                     f'device_removed={device_removed})'
                 )
-                return False
+                # None is the contract's failure sentinel. A bool here
+                # slips every `is None` caller check: the stills leg
+                # skipped its capture strike -- and reset the accumulated
+                # counter -- on exactly this stalled-feed failure mode.
+                return None
 
         image = self.get_image(
             force_to_8bit=force_to_8bit,
@@ -2707,6 +2711,25 @@ class ImagingAPI:
         """
         with self._camera_cache_lock:
             return dict(self._camera_cache['frame_size'])
+
+    @property
+    def camera_identity(self) -> dict:
+        """Connected camera's identity for provenance records.
+
+        Returns:
+            dict: ``{'model': str | None, 'serial': str | None,
+            'timestamp_tick_frequency_hz': float | None}``. All None when
+            no camera is connected -- callers record the absence rather
+            than probe drivers directly.
+        """
+        driver = self._driver
+        if not driver or not driver.active:
+            return {'model': None, 'serial': None, 'timestamp_tick_frequency_hz': None}
+        return {
+            'model': getattr(driver, 'model_name', None),
+            'serial': getattr(driver, '_device_serial', None),
+            'timestamp_tick_frequency_hz': getattr(driver, 'timestamp_tick_frequency_hz', None),
+        }
 
     @property
     def camera_min_frame_size(self) -> dict:

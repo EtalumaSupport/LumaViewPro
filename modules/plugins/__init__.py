@@ -80,7 +80,7 @@ class PluginSpec:
     probes to record which plugins were loaded when data was collected.
 
     subscribes_to lists settings-tree keys (dot-path notation, e.g.
-    'manual_video.max_fps'). The host fires on_settings_changed only
+    'video.max_fps'). The host fires on_settings_changed only
     when one of those keys changes. Empty tuple = hook never fires.
 
     auto_run_on_protocol_complete (post_processing namespace only):
@@ -540,10 +540,10 @@ class PluginRegistry:
         plugins regardless of namespace; the per-namespace registries
         retain runtime-error attribution via record_runtime_error.
 
-        Match semantics are prefix: subscribes_to=('manual_video',)
+        Match semantics are prefix: subscribes_to=('video',)
         fires for any changed key under that subtree
-        (manual_video.max_fps, manual_video.max_duration, ...).
-        subscribes_to=('manual_video.max_fps',) fires only when that
+        (video.max_fps, video.max_duration_seconds, ...).
+        subscribes_to=('video.max_fps',) fires only when that
         exact dot-path key changes.
 
         Exceptions from a plugin handler are logged + recorded but

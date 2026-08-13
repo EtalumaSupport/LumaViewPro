@@ -24,11 +24,6 @@ ids-peak-icv==1.3.0.9744
 ids-peak-afl==2.0.1.0.6
 psutil==7.2.2
 av==17.0.1
-# Kivy's kivy.core.spelling provider tries to import this on every import.
-# We don't use spell-checking, but missing pyenchant logs CRITICAL at every
-# Kivy startup (and during PyInstaller analysis), so we install it to keep
-# the build log clean. Wheel bundles libenchant.dll on Windows; ~2-4 MB.
-pyenchant==3.3.0
 
 # FX2 (LVC LS560/LS620/LS720) USB driver bindings. Both packages are
 # gated at runtime by drivers/fx2driver.py:_FX2_AVAILABLE — present

@@ -27,6 +27,22 @@ def parse_module(rel_path: str) -> ast.Module:
     return ast.parse((REPO_ROOT / rel_path).read_text())
 
 
+def iter_package_modules(packages):
+    """Yield ``(rel_path, ast.Module)`` for every ``.py`` under ``packages``.
+
+    The one walker for whole-package AST scans, so guards that sweep
+    `modules/` + `ui/` share it instead of each hand-rolling a
+    `rglob` + `ast.parse` loop. Paths are POSIX-relative to the repo
+    root and sorted, so failure messages are stable across platforms.
+    """
+    for package in packages:
+        for path in sorted((REPO_ROOT / package).rglob('*.py')):
+            yield (
+                path.relative_to(REPO_ROOT).as_posix(),
+                ast.parse(path.read_text(encoding='utf-8'), filename=str(path)),
+            )
+
+
 def find_def(rel_path: str, name: str, class_name: str | None = None):
     """Return the FunctionDef node for ``name``, or None when absent.
 

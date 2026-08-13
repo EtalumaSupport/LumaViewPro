@@ -23,7 +23,6 @@ import dataclasses
 import pathlib
 import threading
 import time
-from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -282,11 +281,14 @@ class TestOneRunOneEncoding:
             leds_off_fn=lambda: None,
             is_run_in_progress_fn=lambda: True,
             image_capture_config=config,
+            timestamp_overlay=True,
+            video_max_fps=0,
         )
 
     def test_still_and_video_legs_read_the_same_held_config(self, monkeypatch, tmp_path):
         config = ImageCaptureConfig.from_image_mode('12bit_scaled')
         writer = self._writer(config)
+        writer._scope.motion.has_turret.return_value = False
 
         # A live settings source that says 8-bit must have no say.
         monkeypatch.setattr(
@@ -295,18 +297,12 @@ class TestOneRunOneEncoding:
         )
 
         still_saves = _spy_save_image(monkeypatch, tmp_path)
-        video_writes = {}
-        monkeypatch.setattr(
-            'modules.protocol_image_writer.write_video',
-            lambda **kwargs: video_writes.update(kwargs) or (tmp_path / 'vid'),
-        )
 
         from modules.protocol_image_writer import CapturedFrame
 
         step = {'Name': 'A1_BF', 'Color': 'BF', 'X': 0.0, 'Y': 0.0, 'Z': 0.0}
         writer.write_capture(
             enable_image_saving=True,
-            is_video=False,
             captured_image=CapturedFrame(
                 image=np.zeros((4, 4), dtype=np.uint16), significant_bits=12
             ),
@@ -316,24 +312,58 @@ class TestOneRunOneEncoding:
             use_color='BF',
             output_format='TIFF',
         )
-        writer.write_capture(
-            enable_image_saving=True,
-            is_video=True,
-            video_as_frames=True,
-            video_result=SimpleNamespace(captured_frames=1, duration_sec=1.0),
-            step=step,
-            name='A1_BF_vid',
-            save_folder=tmp_path,
-        )
-
         assert still_saves, 'the still leg must reach save_image'
-        assert video_writes, 'the video leg must reach write_video'
-        assert (
-            still_saves[0]['save_encoding']
-            == video_writes['save_encoding']
-            == config.save_encoding
-            == SAVE_ENCODING_MSB_ALIGNED
-        ), 'one run has one encoding: both legs read the writer-held run config'
+        assert still_saves[0]['save_encoding'] == config.save_encoding == SAVE_ENCODING_MSB_ALIGNED
+
+        # The video leg hands the SAME held config object to its recorder --
+        # identity, not a copied value, so the two legs cannot diverge.
+        import modules.protocol_image_writer as piw
+
+        recorded = {}
+
+        class _FakeRecorder:
+            def __init__(self, **kwargs):
+                recorded.update(kwargs)
+
+            def run_blocking(self):
+                return piw.protocol_recording.COMPLETED
+
+        monkeypatch.setattr(piw, 'ProtocolVideoStep', _FakeRecorder)
+        protocol = MagicMock()
+        protocol.capture_root.return_value = ''
+        video_step = {
+            'Name': 'A1_BF_vid',
+            'Color': 'BF',
+            'False_Color': False,
+            'Acquire': 'video',
+            'Auto_Gain': False,
+            'Gain': 0,
+            'Exposure': 10.0,
+            'Video Config': {'fps': 5, 'duration': 1},
+            'Well': 'A1',
+            'Objective': 'obj',
+            'Tile': '',
+            'Z-Slice': 0,
+            'Illumination': 50.0,
+            'X': 0.0,
+            'Y': 0.0,
+            'Z': 0.0,
+            'Auto_Named': True,
+            'Label': '',
+        }
+        writer.capture(
+            save_folder=str(tmp_path),
+            step=video_step,
+            output_format='TIFF',
+            protocol=protocol,
+            scan_count=0,
+            curr_step=0,
+        )
+        assert recorded, 'the video leg must construct its step recorder'
+        assert recorded['capture_config'] is config, (
+            'one run has one encoding: the video leg hands the writer-held '
+            'run config to the recording controller'
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -400,7 +430,9 @@ RUN_PIPELINE_MODULES = [
     'modules/sequenced_capture_runner.py',
     'modules/protocol_image_writer.py',
     'modules/protocol_step_runner.py',
-    'modules/video_capture.py',
+    'modules/protocol_recording.py',
+    'modules/recording_frames.py',
+    'modules/video_recording.py',
 ]
 
 FORBIDDEN_CONFIG_SOURCES = {

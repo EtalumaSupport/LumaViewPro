@@ -26,7 +26,7 @@ Pipeline coverage:
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -107,20 +107,12 @@ def test_pure_blue_mp4_roundtrip(tmp_path):
     """Synth a 1-frame mono TIFF input; run VideoBuilder; decode the
     first MP4 frame via PyAV; assert the Blue channel carries the data.
 
-    Today: VideoBuilder's input loop calls ``cv2.imread`` (returns BGR
-    on 3-channel sources) then ``cvtColor(BGR2RGB)`` before encode.
-    With 3-channel-replica TIFF inputs this round-trips correctly but
-    the cv2 detour is the failure surface that produced ``eae5079``
-    (#657 video -- wrong channel on decode).
-
-    Post-1d: input TIFFs are mono. VideoBuilder reads via ``tf.imread``
-    (no cv2 detour), applies false-color via the boundary helper, then
-    encodes RGB to MP4. Same final pixel value at index 2 (Blue), but
-    via the canonical mono path.
-
-    The test is structural -- it asserts the decoded MP4 frame's Blue
-    channel carries the source mono value, regardless of internal
-    pipeline shape.
+    VideoBuilder reads the mono input (no cv2 detour -- the failure
+    surface that produced #657's wrong-channel decode), applies
+    false-color via the boundary helper, then encodes RGB to MP4. The
+    test is structural: the decoded frame's Blue channel must carry the
+    source mono value at its correct linear scaling, and the other
+    channels must stay dark, regardless of internal pipeline shape.
     """
     pytest.importorskip('av')
     import av
@@ -152,11 +144,14 @@ def test_pure_blue_mp4_roundtrip(tmp_path):
     arr = frame.to_ndarray(format='rgb24')
     container.close()
 
-    assert arr[0, 0, 2] > 200, (
-        f'Decoded Blue channel should carry the source value (scaled to '
-        f'uint8); got arr[0,0]={arr[0, 0]}. Today fails because '
-        f'VideoBuilder.build_video signature does not yet accept mono '
-        f'2D TIFF inputs through the false_color boundary helper.'
+    # The synthetic TIFF carries no significant-bits tag, so the loader
+    # correctly treats it as full 16-bit: 42000/65535 scales to 163 in
+    # uint8, and yuv420 encode rounding costs ~1 count either way. A
+    # value outside this window means the pipeline mis-scaled (e.g.
+    # treated the payload as 12-bit, the reads-near-black defect class).
+    assert 155 <= arr[0, 0, 2] <= 170, (
+        f'Decoded Blue channel must carry the source value at its 16-bit '
+        f'linear scaling (42000/65535 -> ~163); got arr[0,0]={arr[0, 0]}.'
     )
     assert arr[0, 0, 0] < 20  # Red close to zero
     assert arr[0, 0, 1] < 20  # Green close to zero
@@ -220,62 +215,6 @@ def test_composite_rgb_allchannels_roundtrip(tmp_path):
     assert result[0, 0, 0] == _to8(red_val)
     assert result[0, 0, 1] == _to8(green_val)
     assert result[0, 0, 2] == _to8(blue_val)
-
-
-# ---------------------------------------------------------------------------
-# MUST-HAVE 4: cv2.VideoWriter fallback RGB->BGR boundary (mocked)
-# ---------------------------------------------------------------------------
-
-
-def test_cv2_videowriter_fallback_bgr_boundary():
-    """Pass a mono frame into VideoWriter (cv2 fallback path); assert
-    the mocked ``cv2.VideoWriter.write`` receives a BGR-ordered frame
-    with the false-color applied correctly.
-
-    Today: the pre-1d caller already does add_false_color then BGR-swap.
-    Post-1d: the caller passes mono; VideoWriter does false-color +
-    BGR-swap internally before handing to cv2.VideoWriter.write.
-
-    The bug surface (``161ed0e`` / ``7f26c7c`` -- RGB->BGR fallback
-    swap regression) is the same; the test ensures the post-1d code
-    path preserves the boundary.
-    """
-    from modules.video_writer import VideoWriter
-
-    mono = np.full((8, 8), 50000, dtype=np.uint16)
-
-    captured = {}
-
-    def fake_write(frame):
-        captured['frame'] = frame.copy()
-
-    with patch('cv2.VideoWriter') as MockCv2:
-        instance = MagicMock()
-        instance.write = fake_write
-        instance.isOpened.return_value = True
-        MockCv2.return_value = instance
-
-        writer = VideoWriter(
-            output_path='/tmp/dummy.avi',
-            fps=10,
-            width=8,
-            height=8,
-            color='Red',
-        )
-        writer.add_frame(mono)
-        writer.close()
-
-    assert 'frame' in captured, 'cv2.VideoWriter.write was never called'
-    written = captured['frame']
-    # cv2 is BGR-native: a Red false-color frame should have non-zero
-    # at index 2 (B index in BGR == R index in source RGB after swap).
-    # Post-1d: mono Red enters VideoWriter, gets false-colored to RGB
-    # internally, then BGR-swapped at the cv2 boundary.
-    assert written.shape[-1] == 3
-    assert written[0, 0, 2] > 0, (
-        f'BGR[2] (== source RGB[0] == Red after swap) should be non-zero, got {written[0, 0]}'
-    )
-    assert written[0, 0, 0] == 0, 'BGR[0] (== source RGB[2] == Blue) should be zero for Red layer'
 
 
 # ---------------------------------------------------------------------------

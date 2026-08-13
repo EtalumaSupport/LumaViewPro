@@ -499,78 +499,6 @@ def test_save_encoding_rgb_keeps_transmitted_mono(tmp_path):
     assert result.ndim == 2, 'BF must stay mono even under rgb encoding (no color to bake)'
 
 
-# ---------------------------------------------------------------------------
-# Video: 12-bit frame honors false color (the silent-drop fix)
-# ---------------------------------------------------------------------------
-
-
-def test_videowriter_colorizes_uint16_frame():
-    """VideoWriter already downconverts a uint16 frame to 8-bit and applies
-    false color when a layer color is set -- the capability the manual-record
-    fix relies on. Regression guard: this must keep working."""
-    from unittest.mock import MagicMock, patch
-
-    from modules.video_writer import VideoWriter
-
-    mono = np.full((8, 8), 50000, dtype=np.uint16)
-    captured = {}
-
-    def fake_write(frame):
-        captured['frame'] = frame.copy()
-
-    with patch('cv2.VideoWriter') as MockCv2:
-        instance = MagicMock()
-        instance.write = fake_write
-        instance.isOpened.return_value = True
-        MockCv2.return_value = instance
-
-        writer = VideoWriter(
-            output_path='/tmp/dummy_imgmode.avi', fps=10, width=8, height=8, color='Green'
-        )
-        writer.add_frame(mono)
-        writer.close()
-
-    assert 'frame' in captured, 'a uint16 frame must reach cv2.VideoWriter.write'
-    written = captured['frame']
-    assert written.shape[-1] == 3, 'uint16 frame must be colorized to 3-channel, not skipped'
-    # Green source -> RGB index 1 -> BGR index 1 after the cv2 swap.
-    assert written[0, 0, 1] > 0, 'Green channel must carry the colorized value'
-
-
-def test_videowriter_colorizes_uint8_frame():
-    """VideoWriter colorizes a MONO uint8 frame when a layer color is set. With
-    the inline record-path bakes removed, the manual-record memmap and the
-    protocol-video queue feed the writer mono uint8, so the encoder is the sole
-    MP4 colorization site -- this capability is what keeps false-colored MP4s
-    from gray-encoding."""
-    from unittest.mock import MagicMock, patch
-
-    from modules.video_writer import VideoWriter
-
-    mono = np.full((8, 8), 200, dtype=np.uint8)
-    captured = {}
-
-    def fake_write(frame):
-        captured['frame'] = frame.copy()
-
-    with patch('cv2.VideoWriter') as MockCv2:
-        instance = MagicMock()
-        instance.write = fake_write
-        instance.isOpened.return_value = True
-        MockCv2.return_value = instance
-
-        writer = VideoWriter(
-            output_path='/tmp/dummy_uint8_imgmode.avi', fps=10, width=8, height=8, color='Green'
-        )
-        writer.add_frame(mono)
-        writer.close()
-
-    assert 'frame' in captured, 'a mono uint8 frame must reach cv2.VideoWriter.write'
-    written = captured['frame']
-    assert written.shape[-1] == 3, 'mono uint8 frame must be colorized to 3-channel'
-    assert written[0, 0, 1] > 0, 'Green channel must carry the colorized value'
-
-
 def test_mp4_writers_pass_layer_color():
     """Both MP4 writers pass color= to VideoWriter. The memmap (manual record) and
     the queue (protocol video) now hold MONO frames -- the inline RGB bakes were
@@ -578,16 +506,16 @@ def test_mp4_writers_pass_layer_color():
     the encoder every false-colored MP4 would silently gray-encode. Both call
     sites need a live scope to exercise end to end, so assert on source."""
     repo = pathlib.Path(__file__).resolve().parent.parent
-    # The manual-record MP4 writer lives in the finalize support module
-    # (extracted from MainDisplay); the protocol writer in video_capture.
-    finalize_src = (repo / 'modules' / 'manual_video_finalize.py').read_text()
-    cap_src = (repo / 'modules' / 'video_capture.py').read_text()
-    # The manual-record writer colorizes from the recorded layer's false-color
-    # signal; the protocol-video writer from the step's color gated by its
-    # False_Color toggle ('BF' gray-encodes when off).
-    assert 'color=video_false_color' in finalize_src
-    assert "color=step['Color'] if step['False_Color'] else 'BF'" in cap_src
-    # The inline protocol-capture bake is gone (one colorization authority).
+    # Both MP4 writers live in the recording controllers (manual, protocol
+    # video step).
+    manual_src = (repo / 'modules' / 'manual_recording.py').read_text()
+    cap_src = (repo / 'modules' / 'protocol_recording.py').read_text()
+    # Both colorize from the recorded layer's false-color signal, and both
+    # encode true grayscale (None) when false color is off -- one contract,
+    # no 'BF' gray-colormap divergence between the paths.
+    assert 'color=resolved_layer if false_color_on else None' in manual_src
+    assert "color=step['Color'] if false_color_on else None" in cap_src
+    # The inline protocol-capture bake stays gone (one colorization authority).
     assert 'add_false_color' not in cap_src
 
 

@@ -474,7 +474,7 @@ named LVP events (e.g. `protocol_started`, `protocol_completed`,
 
 **Pass-1 amendment (I-3 — `on_settings_changed` granularity)**: plugins
 declare subscription keys in `PluginSpec.subscribes_to` (e.g.
-`subscribes_to=("manual_video.max_fps", "camera.gain")`). The host calls
+`subscribes_to=("video.max_fps", "camera.gain")`). The host calls
 `on_settings_changed` only when one of those keys changes. Without
 subscription keys, the hook fires on every settings change and plugins
 get spammed; with subscription keys, hook firing is targeted. Empty
@@ -532,7 +532,7 @@ mode (4.2+) may add runtime gates.
 
 **Pass-1 amendment (I-3 — subscribes_to keys)**: `subscribes_to` lists
 settings-tree keys (dot-path notation, e.g.
-`("manual_video.max_fps", "manual_video.max_duration")`). Host fires
+`("video.max_fps", "video.max_duration_seconds")`). Host fires
 `on_settings_changed(ctx, settings)` only when one of those keys
 changes. Empty tuple = hook never fires.
 

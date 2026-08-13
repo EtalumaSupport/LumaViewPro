@@ -64,7 +64,23 @@ class TestThreadingTimerScheduler:
             time.sleep(0.2)  # let both fire ~3-4 times
             a_before = counter['a']
             sched.unschedule(handle_a)
-            time.sleep(0.3)  # b should keep firing
+            # Wait for b to overtake instead of sleeping a fixed 300 ms: on a
+            # loaded runner the 50 ms interval can slip enough that b has not
+            # passed a's frozen count yet, which fails for scheduling reasons
+            # rather than because unschedule() misbehaved.
+            #
+            # Still hold the floor at 300 ms. Polling alone can exit as soon
+            # as b overtakes, which would SHRINK the window in which a stray
+            # _a callback -- the thing the next assertion looks for -- has a
+            # chance to fire. Keeping the original floor means this change
+            # makes the b assertion robust without weakening the a assertion.
+            started = time.monotonic()
+            deadline = started + 5.0
+            while time.monotonic() < deadline and counter['b'] <= a_before:
+                time.sleep(0.01)
+            remaining_floor = 0.3 - (time.monotonic() - started)
+            if remaining_floor > 0:
+                time.sleep(remaining_floor)
             assert counter['a'] == a_before, '_a should NOT fire after unschedule'
             assert counter['b'] > a_before, '_b should keep firing after _a is unscheduled'
         finally:
@@ -81,11 +97,22 @@ class TestThreadingTimerScheduler:
         sched.schedule_interval(_cb, 0.05)
         time.sleep(0.15)
         before = counter['n']
+        assert before > 0, 'intervals never fired, so this proves nothing about shutdown'
+
         sched.shutdown()
+        # Asserted as "nothing fires once shutdown has SETTLED" rather than
+        # "at most N more ticks", which is the same invariant stated in a way
+        # that does not depend on runner speed. The old form allowed a fixed
+        # +2 for in-flight callbacks, so a loaded runner that landed three
+        # failed for scheduling reasons; this form tolerates any number of
+        # in-flight ticks and is stricter afterwards -- exact equality, where
+        # the old assertion permitted two extra forever.
+        time.sleep(0.5)
+        after_settle = counter['n']
         time.sleep(0.3)
-        # Allow up to one in-flight tick that started before shutdown took effect.
-        assert counter['n'] <= before + 2, (
-            f'shutdown should stop all intervals; counter went from {before} to {counter["n"]}'
+        assert counter['n'] == after_settle, (
+            f'a callback fired after shutdown settled: {after_settle} -> '
+            f'{counter["n"]}; intervals were not cancelled'
         )
 
     def test_schedule_after_shutdown_raises(self):

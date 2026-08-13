@@ -21,27 +21,13 @@ test_capture_collision_policy.py.
 from __future__ import annotations
 
 import pathlib
-from unittest.mock import MagicMock
 
 import numpy as np
 import pandas as pd
-import pytest
 import tifffile as tf
 
 from modules import image_utils
-from modules import stack_builder as stack_builder_module
 from modules.stack_builder import StackBuilder
-
-
-@pytest.fixture(autouse=True)
-def _real_available_memory(monkeypatch):
-    """Conftest mocks psutil globally, leaving virtual_memory().available a
-    MagicMock that cannot be compared with int. The hyperstack memory
-    pre-check needs a real int; route to a generous 16 GB sentinel so the
-    check passes for the small test arrays."""
-    mem = MagicMock()
-    mem.available = 16 * 1024 * 1024 * 1024
-    monkeypatch.setattr(stack_builder_module.psutil, 'virtual_memory', lambda: mem)
 
 
 def _write_frame(
@@ -171,3 +157,55 @@ def test_rectangular_multichannel_still_builds(tmp_path):
         ome_xml = tif.ome_metadata or ''
     # 1 T x 2 Z x 2 C = 4 planes, all real.
     assert ome_xml.count('<Plane ') == 4
+
+
+def test_sparse_stills_still_refuse_beside_a_building_video_group(tmp_path):
+    # The per-(well, scan) video grouping must not soften the stills
+    # refusal: a folder holding BOTH a sparse stills well and a video
+    # recording refuses the stills group exactly as before while the
+    # video group builds. Grouping keeps them apart; neither outcome
+    # leaks into the other.
+    from modules.common_utils import PostFunction
+
+    rows = []
+    for z_idx in range(3):
+        fname = f'bf_z{z_idx}.tiff'
+        _write_frame(tmp_path / fname, color='BF', value=50 + z_idx * 10)
+        rows.append(_row(fname, color='BF', z_idx=z_idx, z_um=100.0 + z_idx * 10))
+    _write_frame(tmp_path / 'green_z0.tiff', color='Green', value=200)
+    rows.append(_row('green_z0.tiff', color='Green', z_idx=0, z_um=100.0))
+
+    video_dir = tmp_path / 'BF' / 'A1_BF_0000_video'
+    video_dir.mkdir(parents=True)
+    for n in range(2):
+        fname = f'A1_BF_0000_video_Frame_{n:04}.tiff'
+        _write_frame(video_dir / fname, color='BF', value=n)
+        rows.append(_row(f'BF/A1_BF_0000_video/{fname}', color='BF', z_idx=0, z_um=100.0))
+
+    df = pd.DataFrame(rows)
+    for extra in ('Name', 'Label', 'Objective', 'Tile', 'Tile Group ID', 'Timestamp'):
+        df[extra] = ''
+    df['Custom Step'] = False
+    df['Raw'] = True
+    for column in PostFunction.list_values():
+        df[column] = False
+
+    builder = StackBuilder(has_turret=False)
+    groups = StackBuilder._get_groups(df)
+    assert len(groups) == 2
+
+    outcomes = {}
+    for i, (_, group) in enumerate(groups):
+        result = builder._group_algorithm(
+            path=tmp_path,
+            df=group.reset_index(drop=True),
+            output_file_loc=pathlib.Path(f'out_{i}.ome.tiff'),
+        )
+        from modules import recording_frames
+
+        is_video = recording_frames.is_video_frame(group.iloc[0]['Filepath'])
+        outcomes['video' if is_video else 'stills'] = result.status
+
+    assert outcomes == {'stills': False, 'video': True}, (
+        f'sparse stills must keep refusing while the video group builds; got {outcomes}'
+    )

@@ -320,26 +320,6 @@ class TestFocusLog:
         assert result == 1
 
 
-class TestBlockWaitForThreads:
-    def test_waits_for_all_futures(self):
-        futures = []
-        for i in range(3):
-            f = Future()
-            f.set_result(i)
-            futures.append(f)
-        # Should not raise
-        config_helpers.block_wait_for_threads(futures)
-
-    def test_logs_exceptions(self):
-        mock_log = MagicMock()
-        f = Future()
-        f.set_exception(ValueError('test error'))
-        with patch.object(config_helpers, 'logger', mock_log):
-            config_helpers.block_wait_for_threads([f], log_loc='TEST')
-        mock_log.error.assert_called()
-        assert 'test error' in str(mock_log.error.call_args)
-
-
 class TestGetCurrentPlatePosition:
     def test_returns_zeros_when_no_driver(self):
         scope = MagicMock()

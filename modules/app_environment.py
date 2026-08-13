@@ -186,8 +186,14 @@ def camera_sdk_probe() -> list[str]:
 _CAMERA_SDK_PRELOAD_REPORT: list[str] = []
 
 
-def _loaded_module_census() -> list[str]:
-    """Full paths of process-resident DLLs relevant to the camera stacks."""
+def loaded_module_census() -> list[str]:
+    """Full paths of process-resident DLLs relevant to the camera stacks.
+
+    The paths answer the question no log line otherwise can: WHICH copy of
+    a DLL won the loader's search -- an app-local file beside the exe
+    shadows System32 for the whole process, so two machines with identical
+    installs can load different runtimes.
+    """
     if os.name != 'nt':
         return []
     import ctypes
@@ -195,6 +201,29 @@ def _loaded_module_census() -> list[str]:
 
     psapi = ctypes.WinDLL('psapi')
     kernel32 = ctypes.WinDLL('kernel32')
+    # Without declared argtypes, ctypes passes integer arguments as 32-bit
+    # C ints -- an HMODULE is a 64-bit pointer, so any module mapped above
+    # 4 GiB got a truncated handle, GetModuleFileNameExW failed on it, and
+    # the module silently vanished from the census. ASLR routinely maps
+    # DLLs that high, so the census could read as clean while missing the
+    # very modules it exists to report.
+    kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+    psapi.EnumProcessModulesEx.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(wintypes.HMODULE),
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+        wintypes.DWORD,
+    ]
+    psapi.EnumProcessModulesEx.restype = wintypes.BOOL
+    psapi.GetModuleFileNameExW.argtypes = [
+        wintypes.HANDLE,
+        wintypes.HMODULE,
+        wintypes.LPWSTR,
+        wintypes.DWORD,
+    ]
+    psapi.GetModuleFileNameExW.restype = wintypes.DWORD
+
     process = kernel32.GetCurrentProcess()
     needed = wintypes.DWORD()
     module_handles = (wintypes.HMODULE * 2048)()
@@ -205,8 +234,8 @@ def _loaded_module_census() -> list[str]:
         return ['<module census unavailable>']
     count = min(needed.value // ctypes.sizeof(wintypes.HMODULE), len(module_handles))
     interesting = re.compile(
-        r'ids_|tbb|genapi|gcbase|pylon|msvcp|vcruntime|nodemapdata'
-        r'|xmlparser|mathparser|log4cpp|python3',
+        r'ids_|tbb|genapi|gcbase|pylon|msvcp|vcruntime|concrt|ucrtbase'
+        r'|nodemapdata|xmlparser|mathparser|log4cpp|python3',
         re.IGNORECASE,
     )
     paths = []
@@ -314,7 +343,7 @@ def preload_camera_sdks() -> None:
             _CAMERA_SDK_PRELOAD_REPORT.append(
                 f'ids preload FAILED at {name} ({statement}): {type(e).__name__}: {e}'
             )
-            for path in _loaded_module_census():
+            for path in loaded_module_census():
                 _CAMERA_SDK_PRELOAD_REPORT.append(f'  resident: {path}')
             return
     _CAMERA_SDK_PRELOAD_REPORT.append('ids preload: all stages imported in clean process state')

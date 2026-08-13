@@ -80,7 +80,8 @@ class ProtocolCallbacks:
 
     def to_dict(self) -> dict[str, Any]:
         """Convert back to a dict (only non-None entries), for passing
-        to sub-modules that still expect a plain dict (e.g. video_capture).
+        to sub-modules that still expect a plain dict (the recording
+        controllers' title callbacks).
 
         Uses field iteration instead of dataclasses.asdict() because asdict()
         calls copy.deepcopy() on values, which fails on Kivy bound methods

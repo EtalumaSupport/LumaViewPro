@@ -497,13 +497,23 @@ class TestVideoFrameCarriesDepth:
 
     def _write_video_frame(self, tmp_path, value, significant_bits):
         from modules import image_utils
+        from modules.recording_frames import tiff_frame_metadata
 
         arr = np.full((8, 8), value, dtype=np.uint16)
         path = tmp_path / 'frame.tif'
+        # The production builder both recording legs share, so this helper
+        # cannot drift from the metadata shape the writer actually receives.
+        metadata, _ = tiff_frame_metadata(
+            timestamp_s=1781956800.0,
+            frame_number=0,
+            chunks=None,
+            tick_freq_hz=None,
+            pixel_size_um=None,
+        )
         image_utils.write_tiff(
             data=arr,
             file_loc=path,
-            metadata={'datetime': '2026:06:19 12:00:00'},
+            metadata=metadata,
             ome=False,
             color='BF',
             significant_bits=significant_bits,

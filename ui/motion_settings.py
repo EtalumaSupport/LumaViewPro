@@ -159,12 +159,21 @@ class MotionSettings(BoxLayout):
     def _resolve_objective_accordion(self):
         """Return the Objective Control accordion widget, resolving from
         self.ids on first use. `set_ui_features_for_scope()` runs during
-        load_settings; lazy resolution mirrors the PC accordion pattern
-        (LVP a0e2eb3) so the initial hide works before any eager ref
-        would be captured.
+        load_settings; lazy resolution keeps the initial hide working
+        before any eager ref could be captured.
+
+        The cached ref must be the REAL widget (`.__self__`), never the
+        WeakProxy `self.ids` hands out: on scopes that hide this item,
+        remove_widget drops the tree's only strong reference, and a
+        proxy-cached item is garbage-collected -- taking VerticalControl
+        with it, so every later ids['verticalcontrol_id'] deref raises
+        ReferenceError. The other removable accordion items survive
+        hiding because their Python-constructed instance attributes ARE
+        strong references; this cache must give the same guarantee.
         """
         if self._accordion_item_objective_control is None:
-            self._accordion_item_objective_control = self.ids.get('objective_control_accordion_id')
+            proxy = self.ids.get('objective_control_accordion_id')
+            self._accordion_item_objective_control = proxy.__self__ if proxy is not None else None
         return self._accordion_item_objective_control
 
     def _show_objective_control(self):

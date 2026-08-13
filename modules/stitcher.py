@@ -102,6 +102,10 @@ class Stitcher(ProtocolPostProcessor):
         # Skip stacks
         df = df[df[PostFunction.HYPERSTACK.value] == False]  # noqa: E712 -- pandas mask
 
+        # A recording's frames are a time series, not tiles; stitching
+        # them would emit a mislabeled artifact.
+        df = self._without_video_frames(df)
+
         return df
 
     def _group_algorithm(

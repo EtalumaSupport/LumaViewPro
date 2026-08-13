@@ -4,26 +4,14 @@ MainDisplay -- primary application display (recording, camera, fit/zoom)
 extracted from lumaviewpro.py.
 """
 
-import datetime
 import logging
-import math
-import pathlib
-import threading
-import time
-
-import numpy as np
 
 from kivy.clock import Clock
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
 from modules import gui_logger
-from modules.config_helpers import (
-    get_image_capture_config_from_settings,
-    get_manual_video_max_duration,
-)
-import modules.image_utils as image_utils
-from modules.manual_video_finalize import finalize_manual_video
+from modules.exceptions import RecordingRefusedError
 from modules.sequential_io_executor import IOTask
 from ui.ui_helpers import set_last_save_folder
 from ui.composite_capture import CompositeCapture
@@ -38,31 +26,9 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         super().__init__(**kwargs)
         self.scope = lumascope_api.Lumascope(camera_type=camera_type, simulate=simulate)
         # LVP-A-2: camera_temps_event moved to Lumascope.start_camera_temp_logging.
-        self.recording = threading.Event()
-        self.recording.clear()
-        self.video_writing = threading.Event()  # Track if video is being written
-        self.video_writing.clear()
-        self._record_shape_warning_emitted = False
-        self.recording_check = None
-        self.recording_complete_event = None
-        self.recording_title_update = None
-        # Per-frame camera-callback driven recording (replaces the Kivy
-        # Clock save timer). Slot index reserved by callback under
-        # _record_lock; the IOTask on camera_executor writes the slot.
-        self._record_lock = threading.Lock()
-        self._save_interval_s = 0.0
-        self._next_save_slot_ts = 0.0
-        self._reserved_frames = 0
-        self._max_frames = 0
-        self.writing_progress_update = None
-        self.video_writing_progress = 0
-        self.video_writing_total_frames = 0
-        # Reused scratch buffer for the record-path 8-bit depth conversion in
-        # record_helper. Sized lazily on the first frame of a record and freed at
-        # finalize. Reuse is safe: record_helper runs on the single-threaded
-        # camera_executor and copies its result into the memmap slot before the
-        # next call can overwrite the scratch.
-        self._record_convert_buf = None
+        # Manual recording lives in the session's ManualRecordingController;
+        # this widget keeps only button wiring, the status poll, and titles.
+        self._recording_poll = None
         self._pause_led_snapshot = None  # save/restore via API
 
     def cam_toggle(self):
@@ -104,737 +70,145 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
 
     def record_button(self):
         gui_logger.button('RECORD')
-        from ui.notification_popup import show_notification_popup
+        ctx = _app_ctx.ctx
+        controller = ctx.session.manual_recording
 
-        if self.recording.is_set():
+        # Record and Stop are the same ToggleButton: a press that leaves
+        # the button 'normal' is the user stopping a live recording.
+        if self.ids['record_btn'].state == 'normal':
+            controller.stop()
             return
 
-        # Check if video is currently being written
-        if self.video_writing.is_set():
-            # The video write shares the file worker with long jobs
-            # (composite generation, z-projection): the finalize can sit
-            # queued behind one for minutes while this flag stays set.
-            # Name the real situation -- "wait for the video" alone reads
-            # as a hang when a composite run is what is actually ahead.
-            _ctx = _app_ctx.ctx
-            _ahead = 0
-            _busy_with = None
-            try:
-                _ahead = _ctx.file_io_executor.queue.qsize()
-                _running = _ctx.file_io_executor.running_task
-                if _running is not None:
-                    _busy_with = getattr(_running.action, '__name__', str(_running.action))
-            except Exception as e:
-                logger.debug(f'[LVP Main  ] file-lane status read failed: {e}')
-            logger.warning(
-                f'[LVP Main  ] Cannot start recording - previous video write '
-                f'still pending on the file worker (ahead={_ahead}, '
-                f'busy_with={_busy_with})'
-            )
-            if _busy_with or _ahead:
-                _msg = (
-                    'The previous video is waiting for other file work '
-                    '(such as composite generation) to finish first.'
-                )
-            else:
-                _msg = 'The previous video is still being written.'
-            Clock.schedule_once(
-                lambda dt: show_notification_popup(
-                    title='Video Being Written',
-                    message=f'{_msg} It will complete automatically; '
-                    'please try recording again afterward.',
-                ),
-                0,
-            )
-            # Reset button state
-            try:
-                self.ids['record_btn'].state = 'normal'
-            except Exception as e:
-                logger.warning(f'[LVP Main  ] Failed to reset record button state: {e}')
+        if controller.is_recording:
             return
 
         # H-3 fix: snapshot widget values on main thread before submitting
         # to camera executor, since .ids access is not thread-safe.
-        ctx = _app_ctx.ctx
-        # Gate on camera-connected before queueing record_init. Without
-        # this, clicking record on a disconnected camera queues a task
-        # that fails inside record_init with no clear user feedback.
-        if not getattr(ctx.scope, 'camera_connected', True):
-            from modules.notification_center import notifications
-
-            notifications.warning(
-                'Camera',
-                'Camera not connected',
-                'Cannot start recording -- camera is not connected. '
-                'Check USB and reconnect, then try again.',
-            )
-            try:
-                self.ids['record_btn'].state = 'normal'
-            except Exception as e:
-                logger.warning(f'[LVP Main  ] Failed to reset record button state: {e}')
-            return
-        false_color = None
-        for layer in common_utils.get_layers():
-            layer_accordion_obj = ctx.image_settings.accordion_item_lookup(layer=layer)
-            layer_obj = ctx.image_settings.layer_lookup(layer=layer)
+        # The open layer names the channel; its toggle governs display
+        # only. Reading one without the other is what left a brightfield
+        # recording with no channel name at all.
+        layer = None
+        false_color_on = False
+        for candidate in common_utils.get_layers():
+            layer_accordion_obj = ctx.image_settings.accordion_item_lookup(layer=candidate)
+            layer_obj = ctx.image_settings.layer_lookup(layer=candidate)
             if not layer_accordion_obj.collapse:
-                if layer_obj.ids['false_color'].active:
-                    false_color = layer
+                layer = candidate
+                false_color_on = layer_obj.ids['false_color'].active
                 break
 
-        _app_ctx.ctx.camera_executor.put(
+        # Start on the camera executor: the controller's start opens the
+        # encoder and probes disk, which must not stall the GUI thread.
+        ctx.camera_executor.put(
             IOTask(
-                self.record_init,
-                kwargs={'false_color': false_color},
+                self._start_recording_task,
+                kwargs={'layer': layer, 'false_color_on': false_color_on},
             )
         )
+
+    def _start_recording_task(self, layer=None, false_color_on=False, dt=None):
+        """Camera-executor task: start the controller, surface refusals."""
+        controller = _app_ctx.ctx.session.manual_recording
+        try:
+            controller.start(
+                layer=layer,
+                false_color_on=false_color_on,
+                on_complete=self._on_recording_complete,
+            )
+        except RecordingRefusedError as e:
+            logger.warning(f'[LVP Main  ] Recording refused ({e.reason}): {e.message}')
+            from modules.notification_center import notifications
+
+            notifications.error('Recording', e.title, e.message)
+            Clock.schedule_once(lambda dt: self._reset_record_button(), 0)
+            return
+        except Exception:
+            # Only refusals were handled, so every other failure left the
+            # toggle 'down' with nothing recording -- and a 'down' toggle
+            # sends the next press to the stop branch, which returns
+            # silently when no recording exists. The user pressed Record
+            # and nothing happened, twice. The executor still reports the
+            # failure itself, so this re-raises rather than swallowing.
+            Clock.schedule_once(lambda dt: self._reset_record_button(), 0)
+            raise
+        Clock.schedule_once(lambda dt: self._begin_recording_ui(), 0)
+
+    def _begin_recording_ui(self):
+        """Main thread: recording is live -- start the status poll."""
+        controller = _app_ctx.ctx.session.manual_recording
+        self._set_recording_active(True)
+        # Set immediately so "Open Last Save Folder" works during the
+        # recording, not only after cleanup lands (issue #603's shape).
+        if controller.save_folder is not None:
+            set_last_save_folder(controller.save_folder)
+        if self._recording_poll is None:
+            self._recording_poll = Clock.schedule_interval(self._poll_recording_state, 0.1)
+
+    def _set_recording_active(self, value):
+        """Main-thread write of the app-level lock mirror (controls_locked)."""
+        from kivy.app import App
+
+        app = App.get_running_app()
+        if app is not None:
+            app.recording_active = value
+
+    def _poll_recording_state(self, dt=None):
+        """Main-thread poll: duration cap, titles, button state.
+
+        The controller owns the recording; this poll only reflects it --
+        and enforces the wall-clock max-duration cap via tick(), which
+        must run somewhere periodic on every host (here, the Kivy Clock).
+        """
+        from ui.ui_helpers import set_title_event_text
+
+        controller = _app_ctx.ctx.session.manual_recording
+        controller.tick()
+        if controller.is_recording:
+            set_title_event_text(f'Recording Manual Video: {controller.elapsed_s:.1f}s')
+            return
+        # Selection closed (Stop, duration cap, or budget full). Unlock
+        # the controls, reflect it on the button, and show drain
+        # progress until the writer lane empties. (The session claim is
+        # held until the drain ends, so a protocol start attempted
+        # during the drain still gets its loud refusal.)
+        self._set_recording_active(False)
+        self._reset_record_button()
+        if controller.is_draining:
+            set_title_event_text(
+                f'Writing Manual Video: {controller.pending_writes} frames remaining'
+            )
+
+    def _on_recording_complete(self):
+        """Finish-thread callback from the controller; dispatch to GUI."""
+        Clock.schedule_once(lambda dt: self._finish_recording_ui(), 0)
+
+    def _finish_recording_ui(self):
+        """Main thread: drain + finish done -- clear poll, title, button."""
+        from ui.ui_helpers import set_title_event_text
+
+        if self._recording_poll is not None:
+            Clock.unschedule(self._recording_poll)
+            self._recording_poll = None
+        self._set_recording_active(False)
+        controller = _app_ctx.ctx.session.manual_recording
+        if controller.save_folder is not None:
+            set_last_save_folder(controller.save_folder)
+        set_title_event_text(None)
+        self._reset_record_button()
+        logger.info('[LVP Main  ] Manual recording UI cleanup complete')
+
+    def _reset_record_button(self):
+        try:
+            if self.ids['record_btn'].state != 'normal':
+                self.ids['record_btn'].state = 'normal'
+        except Exception as e:
+            logger.warning(f'[LVP Main  ] Failed to reset record button state: {e}')
 
     def open_save_folder_button(self):
         gui_logger.button('OPEN_SAVE_FOLDER')
         from ui.post_processing import open_last_save_folder
 
         open_last_save_folder()
-
-    def record_init(self, false_color=None):
-        from ui.notification_popup import show_notification_popup
-
-        logger.info('[LVP Main  ] MainDisplay.record()')
-
-        ctx = _app_ctx.ctx
-        settings = ctx.settings
-
-        # Guard against race condition: if another record_init() already started, abort
-        if self.recording.is_set():
-            logger.warning(
-                '[LVP Main  ] Recording already in progress, ignoring duplicate record_init()'
-            )
-            return
-
-        if not self.scope.imaging.camera_active:
-            return
-
-        # Atomically claim the recording operation
-        self.recording.set()
-        self._record_shape_warning_emitted = False
-
-        self.video_as_frames = settings['video_as_frames']
-        # Snapshot capture depth at record start so the per-frame record_helper
-        # reuses it without re-deriving the image mode on every frame.
-        self._record_capture_depth = get_image_capture_config_from_settings(settings).capture_depth
-
-        # false_color was snapshotted on main thread by record_button()
-        color = false_color
-
-        self.video_false_color = color
-
-        manual_video = settings.get('manual_video', {})
-        max_fps = manual_video.get('max_fps', 0)
-        max_duration = get_manual_video_max_duration(settings)
-        # max_fps == 0 means uncapped (camera free-run rate). The
-        # spinner ships at 0; non-zero is the explicit user opt-in
-        # that gates pre-flight + camera-rate-toggle below.
-        self._user_requested_fps_limit = max_fps > 0
-
-        frame_size = self.scope.imaging.camera_frame_size
-        exposure = self.scope.imaging.camera_exposure_ms
-        # The exposure cache seeds 0.0 and keeps the prior value when a
-        # read fails, so a camera whose exposure was never successfully
-        # read reports 0 here. The frame rate derived from it sizes the
-        # recording memmap; a fabricated fallback would misallocate the
-        # buffer, so refuse the record attempt loudly instead.
-        if exposure is None or exposure <= 0:
-            logger.error(
-                f'[LVP Main  ] record_init refused: camera exposure unknown '
-                f'({exposure}); cannot size the recording buffer'
-            )
-            from modules.notification_center import notifications
-
-            notifications.error(
-                'Recording',
-                'Camera exposure unavailable',
-                'The camera has not reported its exposure time, so the '
-                'recording cannot be sized. Reconnect the camera and try again.',
-            )
-            self.recording.clear()
-            return
-        exposure_freq = 1.0 / (exposure / 1000)
-        # Pre-flight: warn if the user requested an FPS limit that
-        # exposure can't hit. Accept the achievable rate either way.
-        if self._user_requested_fps_limit and max_fps > exposure_freq:
-            try:
-                from modules.notification_center import notifications
-
-                notifications.warning(
-                    'Recording',
-                    'FPS budget exceeded',
-                    f'Requested {max_fps:.1f} FPS at {exposure:.0f} ms exposure '
-                    f"exceeds the camera's max {exposure_freq:.1f} FPS for that "
-                    f'exposure. Recording will run at {exposure_freq:.1f} FPS '
-                    f'instead. Reduce exposure to hit the requested rate.',
-                )
-            except Exception as e:
-                logger.warning(f'[LVP Main  ] Could not notify FPS budget: {e}')
-        if self._user_requested_fps_limit:
-            video_fps = min(exposure_freq, max_fps)
-        else:
-            video_fps = exposure_freq
-
-        max_frames = math.ceil(video_fps * max_duration)
-
-        start_time = datetime.datetime.now()
-        self.start_time_str = start_time.strftime('%Y-%m-%d_%H.%M.%S')
-
-        if self.video_as_frames:
-            save_folder = (
-                pathlib.Path(settings['live_folder']) / 'Manual' / f'Video_{self.start_time_str}'
-            )
-        else:
-            save_folder = pathlib.Path(settings['live_folder']) / 'Manual'
-
-        self.video_save_folder = save_folder
-        # Set last save folder immediately so "Open Last Save Folder"
-        # works even if the async cleanup callback hasn't fired yet (fixes #603)
-        set_last_save_folder(save_folder)
-
-        self.start_ts = time.time()
-        self.stop_ts = self.start_ts + max_duration
-
-        self.memmap_location = pathlib.Path(settings['live_folder']) / 'recording_temp.dat'
-
-        # video_as_frames does double duty: it also selects the finalize path.
-        # False -> the MP4 encoder, whose depth argument is optional and would
-        # read a right-aligned frame as a 16-bit container, so the buffer must
-        # be 8-bit here. True -> the TIFF-per-frame path, which carries depth
-        # per file and may hold native-depth pixels.
-        if self._record_capture_depth == 8 or not settings['video_as_frames']:
-            dtype = 'uint8'
-        else:
-            dtype = 'uint16'
-
-        # Calculate expected file size and shape. The memmap is always mono (one
-        # plane per frame); false color is applied at the save edges, never baked
-        # into the recording buffer.
-        required_shape = (max_frames, frame_size['height'], frame_size['width'])
-
-        bytes_per_element = 1 if dtype == 'uint8' else 2
-        expected_size = int(np.prod(required_shape, dtype=np.int64)) * bytes_per_element
-
-        # Issue #633 Stage 2C: pre-flight disk space. The memmap creation
-        # below would error eventually, but at that point the user has
-        # already clicked Record and waited; surface earlier with an
-        # actionable message. 256 MB safety margin keeps the OS from
-        # running out of breathing room mid-record.
-        _DISK_SAFETY_MB = 256
-        try:
-            expected_mb = expected_size / (1024 * 1024)
-            required_mb = expected_mb + _DISK_SAFETY_MB
-            ok, free_mb = common_utils.check_disk_space_ok(self.memmap_location.parent, required_mb)
-            if not ok:
-                from modules.notification_center import notifications
-
-                notifications.error(
-                    'Recording',
-                    'Insufficient disk space',
-                    f'Recording would need {expected_mb / 1024:.1f} GB but only '
-                    f'{free_mb / 1024:.1f} GB free. Free up space or reduce '
-                    f'FPS / duration / pixel depth.',
-                )
-                self.recording.clear()
-                return
-        except Exception as e:
-            # Non-fatal: a disk_usage probe failure is a worse error than
-            # the eventual memmap-create failure. Log and proceed; the
-            # OSError catch below is the structural backstop.
-            logger.warning(f'[LVP Main  ] Disk-space pre-flight failed: {e}')
-
-        # Check if we can reuse existing file (fast path - no truncation needed)
-        reuse_existing = False
-        if self.memmap_location.exists():
-            try:
-                actual_size = self.memmap_location.stat().st_size
-                if actual_size == expected_size:
-                    logger.info('[LVP Main  ] Reusing existing memmap file (same size)')
-                    reuse_existing = True
-                else:
-                    logger.info(
-                        f'[LVP Main  ] Memmap size changed ({actual_size} -> {expected_size}), recreating'
-                    )
-                    # Try to delete old file, but don't block if it fails
-                    try:
-                        self.memmap_location.unlink()
-                    except (OSError, PermissionError) as e:
-                        logger.warning(
-                            f'[LVP Main  ] Could not remove old memmap: {e}, will overwrite'
-                        )
-            except Exception as e:
-                logger.warning(f'[LVP Main  ] Could not check memmap file: {e}')
-
-        # Create or reuse memmap
-        try:
-            # Use mode="r+" to reuse existing file without truncation (fast)
-            # Use mode="w+" only when creating new file or size changed (requires truncation)
-            memmap_mode = 'r+' if reuse_existing else 'w+'
-
-            self.current_video_frames = np.memmap(
-                str(self.memmap_location),
-                dtype=dtype,
-                mode=memmap_mode,
-                shape=(max_frames, frame_size['height'], frame_size['width']),
-            )
-        except OSError as e:
-            logger.error(f'[LVP Main  ] Failed to create memmap file: {e}')
-            logger.error(f'[LVP Main  ] If this persists, manually delete: {self.memmap_location}')
-            Clock.schedule_once(
-                lambda dt: show_notification_popup(
-                    title='Recording Failed',
-                    message=f'Could not create recording file. The file may be locked from a previous crash.\n\nTry manually deleting:\n{self.memmap_location.name}',
-                ),
-                0,
-            )
-            return
-
-        self.current_captured_frames = 0
-        # Pre-sized: callback reserves a slot index, IOTask writes at that
-        # index. Concurrent callbacks-then-IOTasks can't race on append() and
-        # produce out-of-order timestamps lists; slot-indexed writes match
-        # slot-indexed reads in recording_complete.
-        self.timestamps = [None] * max_frames
-        self.chunks_per_frame = [None] * max_frames
-        # Snapshot the camera-side timestamp tick frequency once. Used at
-        # finalize time to convert ChunkTimestamp ticks to seconds; None
-        # if the camera doesn't expose a Timestamp chunk.
-        self.timestamp_tick_freq_hz = (
-            getattr(self.scope._camera_driver, 'timestamp_tick_frequency_hz', None)
-            if self.scope._camera_driver
-            else None
-        )
-
-        logger.info('Manual-Video] Capturing video...')
-
-        # Considered camera-side AcquisitionFrameRate cap; rejected because
-        # the cap controls AVERAGE rate while jittering individual frames
-        # widely around the target. Cadence is enforced host-side via the
-        # callback slot scheduler below. The _fps_limit_was_enabled flag
-        # stays as defense against future re-introduction.
-        self._fps_limit_was_enabled = False
-
-        # Considered host-side Kivy Clock timer; rejected because Clock's
-        # ~16-30 ms Windows display-frame floor plus main-thread GIL
-        # contention produces ~30% cadence stdev. Camera SDK ticks arrive
-        # on the ingest thread at sub-ms accuracy. check_recording_state
-        # stays on Clock for button-state and time-stop detection
-        # (main-thread Kivy widget reads).
-        self._save_interval_s = 1.0 / video_fps
-        self._next_save_slot_ts = self.start_ts + self._save_interval_s
-        self._reserved_frames = 0
-        self._max_frames = max_frames
-        capture_interval = 1.0 / video_fps
-        self.recording_title_update = Clock.schedule_interval(self.update_recording_title, 0.1)
-        self.recording_check = Clock.schedule_interval(self.check_recording_state, capture_interval)
-        self.scope.imaging.add_frame_listener(self._on_camera_frame, name='manual_recording')
-
-    def _on_camera_frame(self, image, frame_ts, chunks):
-        """Camera-SDK-thread callback: reserve next save slot and enqueue write.
-
-        Runs on the camera ingest thread (Pylon ``PylonImageGrab`` / IDS
-        grab loop / SimCameraPump). Fast decision only -- the actual
-        memmap write happens on ``camera_executor`` via ``record_helper``.
-        """
-        if not self.recording.is_set():
-            return
-        now = time.time()
-        with self._record_lock:
-            if not self.recording.is_set():
-                return
-            if self._reserved_frames >= self._max_frames:
-                return
-            if now < self._next_save_slot_ts:
-                return
-            # Backpressure: if the single CAMERA_WORKER is behind on memmap
-            # writes, drop this frame BEFORE reserving a slot -- reserving then
-            # dropping would leave an unwritten (black) slot. Bounds the
-            # in-flight image backlog that was the manual-record RAM balloon.
-            if not _app_ctx.ctx.camera_executor.admit_live_frame():
-                return
-            slot_index = self._reserved_frames
-            self._reserved_frames += 1
-            self._next_save_slot_ts += self._save_interval_s
-        _app_ctx.ctx.camera_executor.put(
-            IOTask(
-                self.record_helper,
-                kwargs={
-                    'slot_index': slot_index,
-                    'image': image,
-                    'frame_ts': frame_ts,
-                    'chunks': chunks,
-                },
-                droppable_live=True,
-            )
-        )
-
-    def check_recording_state(self, dt=None):
-        # Time-stop or capacity-stop: max_frames reserved means the
-        # memmap is full; no more callbacks will reserve a slot.
-        if time.time() >= self.stop_ts or self._reserved_frames >= self._max_frames:
-            self._stop_recording_clocks()
-            self.video_duration = time.time() - self.start_ts
-            self.recording_complete_event = Clock.schedule_once(self._enqueue_recording_complete, 0)
-            # Flip the record_btn back to 'normal' so the UI shows "ready"; the
-            # next block (button-released stop) must NOT fall through and
-            # double-schedule the complete event -- return here.
-            self.ids['record_btn'].state = 'normal'
-            return
-
-        # Button not clicked yet, keep recording
-        if self.ids['record_btn'].state == 'down':
-            return
-
-        # Button clicked, stop recording
-        self._stop_recording_clocks()
-        self.video_duration = time.time() - self.start_ts
-        self.recording_complete_event = Clock.schedule_once(self._enqueue_recording_complete, 0)
-
-    def _stop_recording_clocks(self):
-        """Unschedule recording clocks and unregister the camera callback.
-
-        Called from both ``check_recording_state`` stop branches. Order
-        matters: unregister the callback BEFORE the finalize IOTask
-        runs so no new ``record_helper`` task can be enqueued after
-        ``_finalize_recording_state`` has snapshotted state. The
-        camera_executor is FIFO, so any record_helper tasks already
-        queued ahead of the finalize task complete first.
-        """
-        try:
-            self.scope.imaging.remove_frame_listener(self._on_camera_frame)
-        except Exception as e:
-            logger.warning(f'[LVP Main  ] remove_frame_listener failed: {e}')
-        if self.recording_check is not None:
-            Clock.unschedule(self.recording_check)
-            self.recording_check = None
-        if self.recording_title_update is not None:
-            Clock.unschedule(self.recording_title_update)
-            self.recording_title_update = None
-
-    def update_recording_title(self, dt=None):
-        """Update window title-bar event suffix with recording elapsed time."""
-        if self.recording.is_set():
-            from ui.ui_helpers import set_title_event_text
-
-            elapsed = time.time() - self.start_ts
-            set_title_event_text(f'Recording Manual Video: {elapsed:.1f}s')
-
-    def update_writing_progress(self, dt=None):
-        """Update window title-bar event suffix with video writing progress."""
-        if self.video_writing_total_frames > 0:
-            from ui.ui_helpers import set_title_event_text
-
-            progress_pct = (self.video_writing_progress / self.video_writing_total_frames) * 100
-            set_title_event_text(f'Writing Manual Video: {progress_pct:.0f}%')
-
-    def _enqueue_recording_complete(self, dt=None):
-        """Enqueue recording finalization task on camera executor.
-
-        This runs on the main thread (via Clock.schedule_once), so we snapshot
-        all UI-dependent values here before handing off to background threads.
-        """
-        from modules.config_ui_getters import (
-            get_active_layer_config,
-            get_image_capture_config_from_ui,
-            get_current_objective_info,
-            get_binning_from_ui,
-        )
-
-        # H-4 fix: snapshot widget values on main thread
-        ui_snapshot = {}
-        try:
-            ui_snapshot['active_layer_config'] = get_active_layer_config()
-        except Exception as e:
-            logger.warning(f'[LVP Main  ] Could not snapshot active_layer_config: {e}')
-            ui_snapshot['active_layer_config'] = None
-        try:
-            ui_snapshot['image_capture_config'] = get_image_capture_config_from_ui()
-        except Exception as e:
-            logger.warning(f'[LVP Main  ] Could not snapshot image_capture_config: {e}')
-            ui_snapshot['image_capture_config'] = None
-        try:
-            ui_snapshot['objective_info'] = get_current_objective_info()
-        except Exception as e:
-            logger.warning(f'[LVP Main  ] Could not snapshot objective_info: {e}')
-            ui_snapshot['objective_info'] = None
-        try:
-            ui_snapshot['binning'] = get_binning_from_ui()
-        except Exception as e:
-            logger.warning(f'[LVP Main  ] Could not snapshot binning: {e}')
-            ui_snapshot['binning'] = 1
-
-        _app_ctx.ctx.camera_executor.put(
-            IOTask(
-                self._finalize_recording_state,
-                kwargs={'ui_snapshot': ui_snapshot},
-            )
-        )
-
-    def _finalize_recording_state(self, dt=None, ui_snapshot=None):
-        """Run on camera executor: Capture final state quickly and hand off to file writer."""
-        memmap_path = None
-        # Issue #633 Stage 2C: restore camera free-run before anything else
-        # so live preview unsticks immediately after recording stops.
-        # _fps_limit_was_enabled is set in record_init only when we
-        # actually toggled the camera; never call disable when we didn't
-        # enable, to avoid touching a knob the user may have set elsewhere.
-        if getattr(self, '_fps_limit_was_enabled', False):
-            try:
-                self.scope.imaging.set_max_acquisition_frame_rate(False, 0.0)
-                self._fps_limit_was_enabled = False
-                logger.info('Manual-Video] Camera FPS limit disabled (free-run restored)')
-            except Exception as e:
-                logger.warning(
-                    f'[LVP Main  ] Could not disable FPS limit: {e}; '
-                    f'live preview may stay at recording rate until next config'
-                )
-        try:
-            logger.info('Manual-Video] Finalizing recording state...')
-
-            # Capture state (atomic with respect to camera thread, as we are ON camera thread)
-            captured_frames = (
-                self.current_captured_frames if hasattr(self, 'current_captured_frames') else 0
-            )
-            timestamps = self.timestamps[:] if hasattr(self, 'timestamps') else []
-            chunks_per_frame = self.chunks_per_frame[:] if hasattr(self, 'chunks_per_frame') else []
-            tick_freq_hz = (
-                self.timestamp_tick_freq_hz if hasattr(self, 'timestamp_tick_freq_hz') else None
-            )
-            video_frames = (
-                self.current_video_frames if hasattr(self, 'current_video_frames') else None
-            )
-            video_duration = self.video_duration if hasattr(self, 'video_duration') else 0
-            video_save_folder = (
-                self.video_save_folder if hasattr(self, 'video_save_folder') else None
-            )
-            start_time_str = self.start_time_str if hasattr(self, 'start_time_str') else ''
-            video_as_frames = self.video_as_frames if hasattr(self, 'video_as_frames') else False
-            video_false_color = (
-                self.video_false_color if hasattr(self, 'video_false_color') else None
-            )
-            memmap_path = self.memmap_location if hasattr(self, 'memmap_location') else None
-
-            # Release memmap reference from MainDisplay so file_io_executor has exclusive ownership
-            self.current_video_frames = None
-            # Drop the per-record conversion scratch buffer; a record is a
-            # bounded event and it is multi-MB.
-            self._record_convert_buf = None
-
-            # Clear recording event immediately - camera is now free
-            if not self.recording.is_set():
-                logger.warning('Manual-Video] Recording already cleared in finalize')
-            else:
-                self.recording.clear()
-
-            # Set video writing event to block new recordings
-            self.video_writing.set()
-
-            # Initialize progress tracking on main thread
-            total = max(1, captured_frames)
-            Clock.schedule_once(lambda dt: setattr(self, 'video_writing_progress', 0), 0)
-            Clock.schedule_once(
-                lambda dt, t=total: setattr(self, 'video_writing_total_frames', t), 0
-            )
-
-            # Schedule progress updates
-            self.writing_progress_update = Clock.schedule_interval(
-                self.update_writing_progress, 0.1
-            )
-
-            # Prepare kwargs for file IO
-            kwargs = {
-                'captured_frames': captured_frames,
-                'timestamps': timestamps,
-                'chunks_per_frame': chunks_per_frame,
-                'tick_freq_hz': tick_freq_hz,
-                'video_frames': video_frames,
-                'video_duration': video_duration,
-                'video_save_folder': video_save_folder,
-                'start_time_str': start_time_str,
-                'video_as_frames': video_as_frames,
-                'memmap_path': memmap_path,
-                'video_false_color': video_false_color,
-                'ui_snapshot': ui_snapshot or {},
-            }
-
-            # Hand off to file IO executor (doesn't block camera)
-            _app_ctx.ctx.file_io_executor.put(
-                IOTask(
-                    self.recording_complete,
-                    kwargs=kwargs,
-                    callback=self._recording_cleanup_callback,
-                    pass_result=True,
-                )
-            )
-
-        except Exception as e:
-            logger.exception(f'Manual-Video] Error in finalize_recording: {e}')
-            # Ensure cleanup happens even if error
-            Clock.schedule_once(lambda dt: self._recording_cleanup_gui(memmap_path=memmap_path), 0)
-
-    def _recording_cleanup_callback(self, dt=None, result=None, exception=None):
-        """Callback after file writing completes - run cleanup on GUI thread."""
-        memmap_path = result
-        Clock.schedule_once(lambda dt: self._recording_cleanup_gui(memmap_path=memmap_path), 0)
-
-    def recording_complete(self, **kwargs):
-        """Run on file_io_executor: finalize a finished manual recording.
-
-        Thin wrapper over finalize_manual_video: unpacks the main-thread
-        UI snapshot kwargs and delegates the write, injecting the live
-        scope and a Clock-based progress callback so the support function
-        stays GUI-agnostic.
-        """
-
-        def _progress_cb(value):
-            Clock.schedule_once(lambda dt, p=value: setattr(self, 'video_writing_progress', p), 0)
-
-        return finalize_manual_video(
-            captured_frames=kwargs.get('captured_frames', 0),
-            timestamps=kwargs.get('timestamps', []),
-            chunks_per_frame=kwargs.get('chunks_per_frame', []),
-            tick_freq_hz=kwargs.get('tick_freq_hz'),
-            video_frames=kwargs.get('video_frames'),
-            video_duration=kwargs.get('video_duration', 0),
-            video_save_folder=kwargs.get('video_save_folder'),
-            start_time_str=kwargs.get('start_time_str', ''),
-            video_as_frames=kwargs.get('video_as_frames', False),
-            memmap_path=kwargs.get('memmap_path'),
-            video_false_color=kwargs.get('video_false_color'),
-            ui_snapshot=kwargs.get('ui_snapshot', {}),
-            scope=_app_ctx.ctx.scope,
-            progress_cb=_progress_cb,
-        )
-
-    def _recording_cleanup_gui(self, memmap_path=None):
-        """Final cleanup on GUI thread after video writing completes."""
-        try:
-            # Unschedule progress updates
-            if hasattr(self, 'writing_progress_update') and self.writing_progress_update:
-                Clock.unschedule(self.writing_progress_update)
-
-            # Unschedule recording complete event if it exists
-            if hasattr(self, 'recording_complete_event') and self.recording_complete_event:
-                Clock.unschedule(self.recording_complete_event)
-
-            # Set last save folder
-            if hasattr(self, 'video_save_folder'):
-                set_last_save_folder(self.video_save_folder)
-
-            # Clear the title-bar event suffix; status bar will show FPS only.
-            from ui.ui_helpers import set_title_event_text
-
-            set_title_event_text(None)
-
-            # Delete the memmap scratch file from the user's capture folder.
-            # record_init kept it around for size-match reuse on the next run,
-            # but that's only useful when the next recording matches geometry;
-            # the cost is a multi-GB litter file in the user's live folder
-            # after every record. record_init recreates as needed.
-            if memmap_path is not None:
-                try:
-                    pathlib.Path(memmap_path).unlink(missing_ok=True)
-                except OSError as e:
-                    logger.warning(
-                        f'Manual-Video] Could not remove memmap scratch file {memmap_path}: {e}'
-                    )
-
-            logger.info('Manual-Video] Recording cleanup complete')
-        except Exception as e:
-            logger.exception(f'Manual-Video] Error during GUI cleanup: {e}')
-        finally:
-            # Recording can only restart once this flag clears; clear on
-            # every exit so a failure earlier in cleanup cannot leave the
-            # Record button permanently dead.
-            self.video_writing.clear()
-
-    def record_helper(self, slot_index, image, frame_ts, chunks, dt=None):
-        """Write one reserved frame slot on the camera_executor.
-
-        Called via IOTask from ``_on_camera_frame``. ``slot_index`` was
-        reserved under ``_record_lock`` in the callback, so two
-        concurrent ``record_helper`` tasks always have distinct slots
-        and slot-indexed writes never collide.
-        """
-        # Defensive: finalize may have nulled the memmap if a stray
-        # task slipped past the FIFO discipline; the increment-and-write
-        # is then a no-op rather than a NoneType crash.
-        if self.current_video_frames is None:
-            return
-        if not isinstance(image, np.ndarray):
-            return
-        if slot_index >= self.current_video_frames.shape[0]:
-            return
-
-        settings = _app_ctx.ctx.settings
-        force_to_8bit = self._record_capture_depth == 8 or not settings['video_as_frames']
-
-        if force_to_8bit and image.dtype != np.uint8:
-            if self._record_convert_buf is None or self._record_convert_buf.shape != image.shape:
-                self._record_convert_buf = np.empty(image.shape, dtype=np.uint8)
-            image = image_utils.convert_to_8bit(
-                image, self._record_capture_depth, out=self._record_convert_buf
-            )
-        # A uint16 capture travels into the memmap VERBATIM: the camera delivers
-        # a right-aligned payload (0..4095 for a 12-bit sensor) and the save edge
-        # (image_save.write_video_frame) is the single depth encoder. Left-
-        # justifying here too would double-encode -- the memmap shifts the
-        # payload up, then the save edge shifts (msb_aligned) or mislabels
-        # (right_aligned) it again. The slot assignment below copies the frame
-        # into the memmap, so the camera buffer is not aliased past this call and
-        # no scratch copy is needed.
-
-        # Every frame travels into the memmap MONO -- the memmap is never widened
-        # to RGB. False color is applied once at each output edge instead: the
-        # MP4 VideoWriter colorizes via its color= argument, and the per-frame
-        # TIFF write (image_save.write_video_frame) bakes it for the saved frames.
-        # Keeping the memmap mono drops the 3x RGB bloat and moves the per-frame
-        # false-color allocation off this capture-thread task to the save edge.
-        image = np.flip(image, 0)
-
-        target_shape = self.current_video_frames.shape[1:]
-        if image.shape != target_shape:
-            image = self._fit_recording_frame_to_buffer(image, target_shape)
-            if image is None:
-                return
-
-        self.current_video_frames[slot_index] = image
-        self.timestamps[slot_index] = frame_ts if frame_ts is not None else datetime.datetime.now()
-        self.chunks_per_frame[slot_index] = chunks
-        self.current_captured_frames = max(self.current_captured_frames, slot_index + 1)
-
-    def _fit_recording_frame_to_buffer(
-        self,
-        image: np.ndarray,
-        target_shape: tuple[int, ...],
-    ) -> np.ndarray | None:
-        """Pad/crop a frame whose live size differs from the recording buffer.
-
-        Manual recording should not crash the camera worker when a delivered
-        frame size differs from the pre-allocated buffer; black-pad/crop the
-        spatial overhang (via image_utils.fit_frame_to_shape) and warn once.
-        Fundamentally incompatible frames (different ndim / channel count) are
-        skipped.
-        """
-        fitted = image_utils.fit_frame_to_shape(image, target_shape)
-        if fitted is None:
-            logger.warning(
-                f'[Manual-Video] Skipping frame with incompatible shape '
-                f'{image.shape}; expected {target_shape}'
-            )
-            return None
-
-        if not self._record_shape_warning_emitted:
-            logger.warning(
-                f'[Manual-Video] Recording frame shape {image.shape} does not '
-                f'match buffer {target_shape}; padding/cropping frame'
-            )
-            self._record_shape_warning_emitted = True
-        return fitted
 
     def fit_image(self):
         gui_logger.button('FIT_IMAGE')

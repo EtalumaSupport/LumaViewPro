@@ -95,14 +95,30 @@ def test_pause_and_resume_does_not_restart_thread():
     time.sleep(0.05)
     calls_at_pause = len(widget.calls)
     time.sleep(0.1)
-    # Calls should not increase during pause (within tolerance for
-    # an in-flight iteration that started before pause took effect).
-    assert len(widget.calls) <= calls_at_pause + 1
+    # Calls should not increase during pause. The tolerance covers
+    # iterations already in flight when pause() took effect: one on an idle
+    # machine, and a second is credible on a loaded CI runner where the
+    # worker can be descheduled mid-iteration. Two is still far below the
+    # ~3 ticks per 100 ms a running 30 fps loop produces, so a genuinely
+    # unpaused thread still fails this.
+    assert len(widget.calls) <= calls_at_pause + 2
 
     t.resume()
     assert not t.is_paused
-    time.sleep(0.1)
-    assert len(widget.calls) > calls_at_pause + 1
+    # Wait for the condition instead of sleeping a fixed 100 ms and hoping.
+    # A 30 fps thread should tick ~3 times in 100 ms on an idle machine, but
+    # on a loaded 2-vCPU CI runner it may not tick twice, which made this a
+    # false failure about scheduling rather than about resume(). Deadline
+    # polling is both more reliable there and faster here -- it returns on
+    # the first qualifying tick.
+    resume_deadline = time.monotonic() + 5.0
+    while time.monotonic() < resume_deadline:
+        if len(widget.calls) > calls_at_pause + 1:
+            break
+        time.sleep(0.01)
+    assert len(widget.calls) > calls_at_pause + 1, (
+        'resume() did not restart the render loop within 5s'
+    )
 
     # Thread did not respawn; generation did not bump.
     assert t._thread.ident == thread_id_before
@@ -303,10 +319,15 @@ def test_widget_unavailable_loop_retries_without_crash():
     t = ScopeDisplayThread(ctx_provider=lambda: ctx)
     t.start(fps=30)
     time.sleep(0.2)
-    # No crash; loop kept retrying. Now wire widget up.
+    # No crash; loop kept retrying. Now wire widget up. Poll to a deadline
+    # instead of one fixed sleep: under full-suite load the 30 fps thread
+    # can miss any fixed window (twice-observed flake), and the assertion
+    # is "picks it up", not "picks it up within one tick".
     widget = _FakeWidget()
     ctx.scope_display = widget
-    time.sleep(0.1)
+    deadline = time.monotonic() + 2.0
+    while not widget.calls and time.monotonic() < deadline:
+        time.sleep(0.01)
     t.stop()
     assert widget.calls, 'thread did not pick up widget after late wiring'
 

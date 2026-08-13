@@ -151,6 +151,30 @@ class MetricsLogger:
         Resets the consecutive-stalled-ticks counter whenever the
         camera is not grabbing (so a paused live view doesn't trip
         the alarm) or fps recovers above _FRAME_FLOW_STALL_FPS.
+
+        DISARMED, DELIBERATELY -- read this before "fixing" the probe
+        below. `Lumascope` has no `camera` attribute, so the getattr
+        always yields None and this detector returns on its first line
+        every tick. It has never fired in the field.
+
+        Arming it is one line; arming it CORRECTLY is not, which is why
+        it is still off:
+
+          * The probe asks about "the current camera." Today a reconnect
+            builds a new Lumascope and never re-points the logger, so an
+            armed detector would poll the DEAD scope after every
+            reconnect and report a stall that is really a stale handle.
+            Scope identity has to have one owner first.
+          * The fps value it compares against is read off a UI widget's
+            private attribute (see below), which is a module reaching
+            up into the view. Frame accounting belongs to the imaging
+            API; arming this activates the wrong read.
+
+        So the order is: fix scope identity, move fps accounting into
+        the API, then arm. Until then a False here is honest and a True
+        would be a guess. Whoever arms it should delete this note and
+        the matching entry in tests/test_capability_probe_reality.py,
+        which fails the moment `camera` becomes a real attribute.
         """
         try:
             cam = getattr(self._scope, 'camera', None)

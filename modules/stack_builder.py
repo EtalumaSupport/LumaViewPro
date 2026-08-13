@@ -4,12 +4,14 @@ import pathlib
 
 import numpy as np
 import pandas as pd
-import psutil
 
 import modules.image_utils as image_utils
 import modules.common_utils as common_utils
+import modules.recording_frames as recording_frames
 from modules.common_utils import PostFunction
 from modules.exceptions import CaptureError
+from modules.notification_center import notifications
+from modules.path_utils import get_source_root
 from modules.protocol_post_processor import ProtocolPostProcessor
 from modules.protocol_post_processing_result import PostProcResult
 from modules.protocol_post_record import ProtocolPostRecord
@@ -19,16 +21,32 @@ import logging
 logger = logging.getLogger('lvp_logger')
 
 
-def _check_hyperstack_memory(num_t, num_z, num_c, h, w, dtype):
-    """Raise MemoryError if hyperstack would exceed 80% of available RAM."""
-    bytes_per_element = np.dtype(dtype).itemsize
-    required_bytes = num_t * num_z * num_c * h * w * bytes_per_element
-    available_bytes = psutil.virtual_memory().available
-    if required_bytes > available_bytes * 0.8:
-        raise MemoryError(
-            f'Hyperstack requires {required_bytes / 1e9:.1f} GB but only '
-            f'{available_bytes / 1e9:.1f} GB available. Reduce Z-slices, '
-            f'timepoints, or channels.'
+def build_hyperstacks_for_run(run_dir: pathlib.Path, has_turret: bool) -> None:
+    """Build per-well hyperstacks from a finished run's folder.
+
+    The below-UI entry point the run trigger calls: config and paths come
+    from the caller and the canonical source root, never the live UI, so
+    a headless / L2 run builds the same stacks a GUI run does.
+    load_folder emits its own start / done / failed notifications on the
+    unattended (popup-less) path; the backstop below covers only faults
+    before or around the build. Runs on the caller's (background) thread.
+    """
+    tiling_loc = get_source_root() / 'data' / 'tiling.json'
+    logger.info('Building OME-TIFF Hyperstacks from captured data')
+    try:
+        StackBuilder(has_turret=has_turret).load_folder(
+            path=run_dir,
+            tiling_configs_file_loc=tiling_loc,
+        )
+        logger.info('Hyperstack creation complete')
+    except Exception as ex:
+        # Background-thread boundary: without this the user never sees a
+        # result for the build the completion notice announced.
+        logger.exception(f'Error building hyperstacks: {ex}')
+        notifications.error(
+            'Post-processing',
+            'Hyperstack build failed',
+            'Could not create hyperstacks. See the log for details; source files are untouched.',
         )
 
 
@@ -43,6 +61,12 @@ class StackBuilder(ProtocolPostProcessor):
 
     @staticmethod
     def _get_groups(df: pd.DataFrame) -> pd.DataFrame:
+        # A video recording's frames form their own stack per (well, scan)
+        # -- one OME-TIFF per recording -- while stills keep grouping
+        # across scans (their T axis IS the scan axis). The shared derived
+        # key separates the two, so a well holding both stills and video
+        # steps yields both artifact families.
+        df = StackBuilder._with_recording_scan(df)
         return df.groupby(
             by=[
                 'Well',
@@ -53,6 +77,7 @@ class StackBuilder(ProtocolPostProcessor):
                 'Tile Group ID',
                 'Custom Step',
                 'Raw',
+                'Recording Scan',
                 *PostFunction.list_values(),
             ],
             dropna=False,
@@ -70,12 +95,21 @@ class StackBuilder(ProtocolPostProcessor):
         # single slice index would mislabel the whole stack. The per-tile token
         # is kept: a stack is still one tile. Collapsed dimensions are dropped
         # by construction, never by stripping tokens back out of a name.
+        # One stack per recording means one stack PER SCAN for recorded video
+        # frames; the scan token keeps those names distinct (and mirrors the
+        # on-disk recording folder's name). A stills stack spans scans, so its
+        # name carries no scan token.
+        scan_count = None
+        if recording_frames.is_video_frame(row0['Filepath']):
+            scan_count = int(row0['Scan Count'])
+
         name = common_utils.build_step_name(
             common_utils.step_components(
                 row0,
                 channel=None,
                 z_index=None,
                 objective=objective_short_name,
+                scan_count=scan_count,
                 post=('hyperstack',),
             )
         )
@@ -96,6 +130,16 @@ class StackBuilder(ProtocolPostProcessor):
         df: pd.DataFrame,
         **kwargs,
     ):
+        # A video group's T axis is the frame ordinal within its recording
+        # ('Scan Count' carries the temporal ordinal per the execution-record
+        # contract; within one recording that is the frame number). The
+        # loader keys every frame row to the recording's execution-record
+        # row, so all rows arrive sharing the recording's scan -- remap
+        # before the grid build. The Recording Scan group key puts stills
+        # (sentinel) and video rows in different groups, so row 0 decides
+        # for the whole group.
+        if len(df) and recording_frames.is_video_frame(df['Filepath'].iloc[0]):
+            df = df.assign(**{'Scan Count': df['Filepath'].map(recording_frames.frame_number)})
         return PostProcResult.from_group_result(
             StackBuilder._create_stack(
                 path=path,
@@ -156,10 +200,7 @@ class StackBuilder(ProtocolPostProcessor):
         # which on a scope with no objective selector is a default, not a
         # measurement. Nothing here rebins; planes are stacked as read, so the
         # input's own scale is the output's scale.
-        input_meta = image_utils.read_postproc_input_metadata(sample_image_file_loc)
-        pixel_size_um = input_meta['pixel_size_um'] if input_meta else None
-        if pixel_size_um is not None and pixel_size_um <= 0:
-            pixel_size_um = None
+        pixel_size_um = image_utils.read_pixel_size_um(sample_image_file_loc)
 
         if pixel_size_um is None:
             # Older / third-party / pre-metadata captures carry no scale, and
@@ -186,6 +227,7 @@ class StackBuilder(ProtocolPostProcessor):
                 'PositionX': plane_metadata['PositionX'],
                 'PositionY': plane_metadata['PositionY'],
                 'PositionZ': plane_metadata['PositionZ'],
+                'DeltaT': plane_metadata['DeltaT'],
             },
             significant_bits=sample_significant_bits,
             pixel_size_um=pixel_size_um,
@@ -193,14 +235,22 @@ class StackBuilder(ProtocolPostProcessor):
 
         options = {
             'photometric': 'minisblack',
-            'tile': (128, 128),
             'compression': 'lzw',
             # tifffile always emits an XResolution tag, defaulting to 1/1. Under
             # CENTIMETER that reads as one pixel per centimetre -- a concrete and
             # wildly wrong scale claim. NONE is the TIFF convention for "ratio
             # only, no absolute unit", which is what an unknown scale means.
             'resolutionunit': 'CENTIMETER' if pixel_size_um is not None else 'NONE',
-            'maxworkers': 2,
+            # 0 for the same Windows kernel-handle-leak reason as the still save
+            # paths -- tifffile's per-write ThreadPoolExecutor holds an Event
+            # handle that outlives cleanup. That leak is the governing reason
+            # and holds regardless of throughput. A hyperstack is ONE write()
+            # call streaming every plane, so the executor's per-page overhead is
+            # paid per plane; on a fast many-core dev machine dropping it
+            # measured several times faster, but that margin has not been
+            # measured on slower field hardware, where compression is a larger
+            # share of each page and could outweigh the overhead.
+            'maxworkers': 0,
         }
 
         # The TIFF resolution tag is a scale claim too, and it is built by
@@ -216,6 +266,27 @@ class StackBuilder(ProtocolPostProcessor):
                 else None
             ),
         }
+
+    @staticmethod
+    def _read_plane_header(path: pathlib.Path):
+        """Header-only read of one input frame's depth and capture time.
+
+        The output's depth claim and per-plane timing must resolve from
+        EVERY input before the streaming write begins (the OME metadata
+        lands ahead of the pixel planes), and reading the IFD alone keeps
+        this pre-scan from decoding every frame's pixels twice. Fails with
+        the same typed, file-naming error as _load_plane.
+
+        Returns:
+            (significant_bits, timestamp) -- timestamp is None when the
+            frame carries no readable capture time.
+        """
+        try:
+            return image_utils.read_tiff_depth_and_timestamp(path)
+        except Exception as ex:
+            raise CaptureError(
+                f'failed to read hyperstack input frame {path}: {type(ex).__name__}: {ex}'
+            ) from ex
 
     @staticmethod
     def _load_plane(path: pathlib.Path) -> tuple[np.ndarray, int]:
@@ -244,6 +315,21 @@ class StackBuilder(ProtocolPostProcessor):
         if sort_order is None:
             sort_order = ['Scan Count', 'Z-Slice', 'Color Index']
 
+        # An empty frame set has no columns to read when it arrives as an
+        # empty row list, and satisfies the rectangularity test below by
+        # comparing zero to zero when it arrives typed -- so it reaches the
+        # sample-row read and dies there. Refuse it here, where len() is
+        # the only thing that must be safe.
+        if len(df) == 0:
+            return {
+                'status': False,
+                'error': 'Cannot build a hyperstack: no images were captured.',
+                'metadata': {},
+            }
+
+        # 'Scan Count' is the T axis per the execution-record contract:
+        # scan ordinal for protocol wells, frame ordinal for a
+        # per-recording (manual frames) build.
         num_t = df['Scan Count'].nunique()
         num_z = df['Z-Slice'].nunique()
         num_c = df['Color'].nunique()
@@ -274,61 +360,82 @@ class StackBuilder(ProtocolPostProcessor):
         _, color_idx_map = np.unique(df['Color'], return_inverse=True)
         df['Color Index'] = color_idx_map
 
+        df = df.sort_values(by=sort_order, ascending=True)
+
         row0 = df.iloc[0]
         sample_image_file_loc = path / row0['Filepath']
         sample_image, _ = StackBuilder._load_plane(sample_image_file_loc)
-        sample_image_shape = sample_image.shape
-        h, w = sample_image_shape[0], sample_image_shape[1]
+        h, w = sample_image.shape[0], sample_image.shape[1]
+        stack_dtype = sample_image.dtype
 
-        _check_hyperstack_memory(num_t, num_z, num_c, h, w, sample_image.dtype)
-        stacked_image = np.zeros(
-            shape=(num_t, num_z, num_c, h, w),  # Hyperstack order TZCYX
-            dtype=sample_image.dtype,
-        )
+        # The output's depth claim and per-plane timing resolve from every
+        # input's header before the write starts -- neither can be collected
+        # during the plane stream because the OME metadata is written first.
+        headers = [StackBuilder._read_plane_header(path / fp) for fp in df['Filepath']]
+        input_depths = [depth for depth, _ in headers]
+        output_depth = image_utils.resolve_output_depth(input_depths)
+        timestamps = [ts for _, ts in headers]
 
-        df = df.sort_values(by=sort_order, ascending=True)
-
+        # Positions only: build_hyperstack_output_metadata derives every
+        # unit list itself, so unit entries built here would be dead.
         plane_metadata = {
-            'PositionX': [],
-            'PositionY': [],
-            'PositionZ': [],
+            'PositionX': df['X'].tolist(),
+            'PositionY': df['Y'].tolist(),
+            'PositionZ': df['Z'].tolist(),
         }
 
-        input_depths = []
-        for _, row in df.iterrows():
-            t = row['Scan Count']
-            z = row['Z-Slice']
-            c = row['Color Index']
-            image, significant_bits = StackBuilder._load_plane(path / row['Filepath'])
-            input_depths.append(significant_bits)
-
-            if image_utils.is_color_image(image):
-                image = image_utils.rgb_image_to_gray(image=image)
-
-            # Each plane must share the hyperstack's canvas; a per-plane stitch
-            # divergence otherwise surfaces as a cryptic broadcast error on the
-            # slice assignment below.
-            image_utils.require_uniform_geometry(
-                [('first plane', sample_image), (f'plane t{t} z{z} c{c}', image)],
-                operation='assemble this hyperstack',
-            )
-            stacked_image[t, z, c, :, :] = image
-            plane_metadata['PositionX'].append(row['X'])
-            plane_metadata['PositionY'].append(row['Y'])
-            plane_metadata['PositionZ'].append(row['Z'])
-
-        num_planes = len(plane_metadata['PositionX'])
-        plane_metadata['PositionXUnit'] = num_planes * ['mm']
-        plane_metadata['PositionYUnit'] = num_planes * ['mm']
-        plane_metadata['PositionZUnit'] = num_planes * ['um']
+        # Timing is all-or-nothing: DeltaT is the measured list only when
+        # EVERY plane carries a readable capture time, else None (no timing
+        # claim). A partial list would misalign planes against times, and
+        # None is the honest state for inputs that predate per-frame
+        # timestamps. The key is always present so consumers index it.
+        if all(ts is not None for ts in timestamps):
+            t0 = min(timestamps)
+            plane_metadata['DeltaT'] = [round((ts - t0).total_seconds(), 6) for ts in timestamps]
+        else:
+            plane_metadata['DeltaT'] = None
 
         ome_info = StackBuilder._generate_image_metadata(
             df=df,
             path=path,
             output_file_loc=output_file_loc,
             plane_metadata=plane_metadata,
-            significant_bits=image_utils.resolve_output_depth(input_depths),
+            significant_bits=output_depth,
         )
+
+        def _planes():
+            # Planes stream in sorted (T, Z, C) order -- exactly the C-order
+            # page sequence of the TZCYX shape declared to the writer. Ordering
+            # by sorted RANK rather than indexing a cube with raw Scan Count
+            # values also builds rectangular wells whose scan counts are not a
+            # dense 0..N-1 range.
+            for _, row in df.iterrows():
+                t, z, c = row['Scan Count'], row['Z-Slice'], row['Color Index']
+                image, _ = StackBuilder._load_plane(path / row['Filepath'])
+
+                if image_utils.is_color_image(image):
+                    image = image_utils.rgb_image_to_gray(image=image)
+
+                # Each plane must share the hyperstack's canvas; a per-plane
+                # stitch divergence otherwise surfaces as a cryptic tifffile
+                # error mid-write.
+                image_utils.require_uniform_geometry(
+                    [('first plane', sample_image), (f'plane t{t} z{z} c{c}', image)],
+                    operation='assemble this hyperstack',
+                )
+
+                # Mixed pixel types cannot share one stack. The cube build
+                # silently CAST mismatched planes into the stack dtype (uint16
+                # into uint8 truncates) -- wrong data under a success status.
+                if image.dtype != stack_dtype:
+                    raise CaptureError(
+                        f'hyperstack input frame {row["Filepath"]} is {image.dtype} but '
+                        f'this stack is {stack_dtype}: mixed pixel types cannot share one '
+                        f'hyperstack. Re-capture the well at one bit depth or build each '
+                        f'capture group separately.'
+                    )
+
+                yield image
 
         output_file_loc_abs = path / output_file_loc
         output_file_loc_abs.parent.mkdir(exist_ok=True, parents=True)
@@ -337,8 +444,10 @@ class StackBuilder(ProtocolPostProcessor):
         # OME dict carries the per-plane depth, so this path needs no
         # scalar significant_bits.
         image_utils.write_hyperstack_tiff(
-            data=stacked_image,
+            planes=_planes(),
             file_loc=output_file_loc_abs,
+            shape=(num_t, num_z, num_c, h, w),
+            dtype=stack_dtype,
             hyperstack_metadata=ome_info['metadata'],
             hyperstack_options=ome_info['options'],
             hyperstack_resolution=ome_info['resolution'],
@@ -347,7 +456,7 @@ class StackBuilder(ProtocolPostProcessor):
         return {
             'status': True,
             'error': None,
-            'significant_bits': image_utils.resolve_output_depth(input_depths),
+            'significant_bits': output_depth,
             'metadata': {},
         }
 

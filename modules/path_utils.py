@@ -8,6 +8,69 @@ import pathlib
 import modules.app_context as _app_ctx
 
 
+MAX_COLLISION_SUFFIX = 999
+
+
+class CaptureLocationError(Exception):
+    """The capture location cannot hold a new output directory."""
+
+
+def allocate_directory(desired: pathlib.Path) -> pathlib.Path:
+    """Reserve a new directory at ``desired``, or the next free name after it.
+
+    Output directory names are derived from second-resolution timestamps, so
+    two captures started inside the same second ask for the same name. The
+    reservation IS the creation: ``mkdir(exist_ok=False)`` fails if the name is
+    taken, so two racing callers cannot both win one. Checking first and
+    creating after would let the loser silently join -- and a joined directory
+    mixes two captures' files under one manifest, with per-capture indices that
+    restart, which reads back as a single scrambled capture.
+
+    The plain name is kept when it is free, so ordinary output names never
+    carry a suffix.
+
+    Args:
+        desired: The directory to create, suffix-free.
+
+    Returns:
+        The directory actually created -- ``desired``, or ``desired`` with a
+        numeric suffix.
+
+    Raises:
+        CaptureLocationError: if the parent does not exist or is not writable,
+            or if every candidate name is taken.
+    """
+    desired = pathlib.Path(desired)
+    candidates = [desired] + [
+        desired.with_name(f'{desired.name}_{i:03d}') for i in range(1, MAX_COLLISION_SUFFIX + 1)
+    ]
+    for candidate in candidates:
+        try:
+            candidate.mkdir(exist_ok=False)
+        except FileExistsError:
+            continue
+        except (FileNotFoundError, NotADirectoryError) as exc:
+            # A missing parent means the configured capture location is wrong --
+            # an unplugged drive, a stale path from another machine. Creating it
+            # would put the capture in a new empty directory on whatever volume
+            # happens to be mounted there, where the user will not look for it.
+            raise CaptureLocationError(
+                f'{desired.parent} is not an accessible capture location. '
+                'Check that the save location exists and any external drive is '
+                'connected, then try again.'
+            ) from exc
+        except OSError as exc:
+            raise CaptureLocationError(
+                f'Could not create {candidate} in the capture location: {exc}'
+            ) from exc
+        return candidate
+    raise CaptureLocationError(
+        f'{desired.name} and its first {MAX_COLLISION_SUFFIX} numbered variants '
+        'all exist in the capture location. Move or remove some captures, or '
+        'choose a different save location.'
+    )
+
+
 def get_script_root() -> pathlib.Path:
     """Return the application install/source root."""
     return pathlib.Path(__file__).resolve().parent.parent
