@@ -50,11 +50,14 @@ class ProtocolRunRefusedError(ProtocolError):
 class RecordingRefusedError(CaptureError):
     """A video recording start was refused before any state was committed.
 
-    Raised by VideoRecordingEngine.start() when a recording cannot begin
-    (an exclusive activity -- a protocol run or another recording --
-    already holds the session's activity claim, or the engine is still
-    draining a prior recording). Mirrors the ProtocolRunRefusedError
-    shape so callers reconcile state the same way in both directions.
+    Raised when a recording cannot begin: by VideoRecordingEngine.start()
+    when an exclusive activity -- a protocol run or another recording --
+    already holds the session's activity claim or the engine is still
+    draining, and by the recording controllers for the caller-shaped
+    refusals they own (a previous recording still finishing, an inactive
+    camera, an unknown exposure, insufficient disk). Mirrors the
+    ProtocolRunRefusedError shape so callers reconcile state the same way
+    in both directions.
 
     Attributes:
         reason: Machine-readable refusal code for callers that map

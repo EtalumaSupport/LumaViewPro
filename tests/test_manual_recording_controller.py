@@ -137,10 +137,17 @@ def feed_frames(scope, clock, n, *, fps=10.0, width=32, height=24, jitter=None):
     step = 1.0 / fps
     for i in range(n):
         clock.advance(step)
+        listener = scope.imaging.listener
+        if listener is None:
+            # The recording ended mid-feed and deregistered. Production
+            # delivers nothing to a removed listener, so neither does this
+            # -- the write lane's own disk-floor breach ends a recording
+            # exactly this way, from a thread racing this loop.
+            return
         host_ts = clock() + (jitter[i % len(jitter)] if jitter else 0.0)
         chunks = {'Timestamp': int(clock() * TICK_HZ), 'FrameID': i}
         image = np.full((height, width), i % 256, dtype=np.uint8)
-        scope.imaging.listener(image, host_ts, chunks)
+        listener(image, host_ts, chunks)
 
 
 def finish(controller, timeout=15.0):
@@ -367,7 +374,7 @@ class TestFailedStartUnwind:
         assert not controller.is_busy
 
     def test_post_commit_raise_removes_listener(self, tmp_path, monkeypatch):
-        _capture_engine_and_writer(monkeypatch)
+        made = _capture_engine_and_writer(monkeypatch)
         controller, scope, _clock = make_controller(tmp_path)
         _fail_the_finish_thread(monkeypatch)
 
@@ -375,6 +382,9 @@ class TestFailedStartUnwind:
             controller.start()
 
         assert scope.imaging.listener is None
+        # The unwind deliberately does not wait for the drain, so the lane
+        # outlives start(). Join it here or it runs on into later tests.
+        assert made['engine'].wait_for_drain(timeout=5)
 
     def test_pre_registration_raise_unwinds_without_a_listener(self, tmp_path, monkeypatch):
         # The removal must tolerate a callable that was never added: the
@@ -404,6 +414,7 @@ class TestFailedStartUnwind:
             controller.start()
 
         assert made['writer'].close_calls == 1
+        assert made['engine'].wait_for_drain(timeout=5)
 
     def test_failed_start_leaves_no_zero_frame_mp4(self, tmp_path, monkeypatch):
         # False color ON is the discriminator, not decoration. The writer
@@ -423,6 +434,7 @@ class TestFailedStartUnwind:
         # leave it on disk for the next recording to rename around.
         assert made['writer'].close_calls == 1
         assert not list((tmp_path / 'Manual').glob('*.mp4'))
+        assert made['engine'].wait_for_drain(timeout=5)
 
     def test_listener_is_not_registered_before_the_commit_point(self, tmp_path, monkeypatch):
         # Registering the listener ahead of engine.start was proposed and
@@ -444,6 +456,81 @@ class TestFailedStartUnwind:
         assert scope.imaging.listener is not None
 
         controller.stop()
+        finish(controller)
+
+
+def _block_the_finish(monkeypatch):
+    """Park the finish thread inside the hyperstack build.
+
+    This is the window the guard exists for: selection is closed, the
+    drain is over and the engine has already released its claim, so the
+    engine's own second-capture guard would admit a new recording -- while
+    the finish thread is still reading this controller's per-recording
+    state.
+    """
+    entered = threading.Event()
+    release = threading.Event()
+
+    class _BlockingBuilder:
+        def __init__(self, **kwargs):
+            pass
+
+        def create_single_recording_stack(self, df, path, output_file_loc):
+            entered.set()
+            release.wait(timeout=15)
+            return {'status': True, 'error': None, 'metadata': {}}
+
+    monkeypatch.setattr(manual_recording_module, 'StackBuilder', _BlockingBuilder)
+    return entered, release
+
+
+class TestExclusivitySpansTheFinish:
+    def test_second_start_during_finish_is_refused(self, tmp_path, monkeypatch):
+        entered, release = _block_the_finish(monkeypatch)
+        controller, scope, clock = make_controller(tmp_path, hyperstack=True, lit='Blue')
+        try:
+            controller.start(layer='Blue', false_color_on=True)
+            feed_frames(scope, clock, 3, fps=10.0)
+            controller.stop()
+            assert entered.wait(timeout=10)
+
+            # The engine would NOT refuse here -- selection is closed, the
+            # drain is done and the claim is free. Only the controller
+            # knows the recording is not over.
+            assert not controller.is_recording
+            assert not controller.is_draining
+            assert controller._claim.owner is None
+            assert controller.is_busy
+
+            with pytest.raises(RecordingRefusedError) as e:
+                controller.start()
+            assert e.value.reason == 'recording_active'
+        finally:
+            release.set()
+        finish(controller)
+
+    def test_refusal_during_finish_emits_no_fps_warning(self, tmp_path, monkeypatch):
+        # The guard has to precede the rate clamp, which pops a warning
+        # before the last refusal: a refused start that still nags the
+        # user about their FPS budget has already run half of start().
+        entered, release = _block_the_finish(monkeypatch)
+        controller, scope, clock = make_controller(
+            tmp_path, hyperstack=True, lit='Blue', max_fps=20
+        )
+        try:
+            controller.start(layer='Blue', false_color_on=True)
+            feed_frames(scope, clock, 3, fps=10.0)
+            controller.stop()
+            assert entered.wait(timeout=10)
+
+            # Installed only now: the first start legitimately warns.
+            recorder = NotifyRecorder()
+            monkeypatch.setattr(manual_recording_module, 'notifications', recorder)
+            with pytest.raises(RecordingRefusedError):
+                controller.start()
+            assert recorder.calls == []
+        finally:
+            release.set()
         finish(controller)
 
 

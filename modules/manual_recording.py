@@ -215,12 +215,33 @@ class ManualRecordingController:
                 UI cleanup from it.
 
         Raises:
-            RecordingRefusedError: The start cannot proceed -- another
-                exclusive activity is running, a recording is still
-                draining, the camera is inactive or has no known
-                exposure, or free disk is below the floor. Nothing is
-                committed when this raises.
+            RecordingRefusedError: The start cannot proceed -- a previous
+                recording is still recording, draining or finishing,
+                another exclusive activity is running, the camera is
+                inactive or has no known exposure, or free disk is below
+                the floor. Nothing is committed when this raises.
         """
+        # Exclusivity has to span the finish, not just the drain. The
+        # engine frees its claim before the finish thread stops reading
+        # this controller's per-recording state, so a second start landing
+        # in that gap rebinds every slot underneath a recording that is
+        # still closing its encoder and building its hyperstack. Must stay
+        # the FIRST statement: the refusals below are not side-effect-free
+        # (the rate clamp pops an FPS-budget warning).
+        #
+        # Shares the engine's reason code, whose message says "stop it"
+        # while this one says "wait". Considered a distinct code; rejected
+        # because nothing dispatches on .reason. Revisit if an L2 caller
+        # ever branches on it.
+        if self.is_busy:
+            raise RecordingRefusedError(
+                reason='recording_active',
+                title='Recording Active',
+                message=(
+                    'A recording is still finishing. Wait for it to complete, then record again.'
+                ),
+            )
+
         settings = self._settings
         scope = self._scope
 

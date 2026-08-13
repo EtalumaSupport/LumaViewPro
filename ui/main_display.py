@@ -122,6 +122,15 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
             notifications.error('Recording', e.title, e.message)
             Clock.schedule_once(lambda dt: self._reset_record_button(), 0)
             return
+        except Exception:
+            # Only refusals were handled, so every other failure left the
+            # toggle 'down' with nothing recording -- and a 'down' toggle
+            # sends the next press to the stop branch, which returns
+            # silently when no recording exists. The user pressed Record
+            # and nothing happened, twice. The executor still reports the
+            # failure itself, so this re-raises rather than swallowing.
+            Clock.schedule_once(lambda dt: self._reset_record_button(), 0)
+            raise
         Clock.schedule_once(lambda dt: self._begin_recording_ui(), 0)
 
     def _begin_recording_ui(self):
