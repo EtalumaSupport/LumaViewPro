@@ -527,6 +527,10 @@ class SequentialIOExecutor:
         self.blocker.set()
 
     def put(self, task: IOTask, return_future: bool = False):
+        # Naming precedes every queue insertion below: once a task is on a
+        # queue the worker may already be running it, and an unnamed task
+        # renames its worker thread to the empty string.
+        task.set_name(self.executor_name)
         if self._disable:
             return None
 
@@ -572,7 +576,6 @@ class SequentialIOExecutor:
             task._queue_depth_at_enqueue = self.queue.qsize() + (1 if self._running_task else 0)
             task._queue_kind = 'default'
         self.queue.put(task)
-        task.set_name(self.executor_name)
         return fut
 
     def admit_live_frame(self) -> bool:
@@ -622,8 +625,6 @@ class SequentialIOExecutor:
 
     def _finish_protocol_enqueue(self, task: IOTask, fut, return_future: bool):
         """Success tail shared by the drop-on-full and blocking enqueues."""
-        task.set_name(self.executor_name)
-
         # Early warning that file writes are falling behind, before the
         # bound is reached.
         depth = self.protocol_queue.qsize()
@@ -656,6 +657,7 @@ class SequentialIOExecutor:
         did not enter the queue and will never run. Callers whose task must
         not be droppable use protocol_put_wait instead.
         """
+        task.set_name(self.executor_name)
         if self._disable:
             return None
 
@@ -754,6 +756,7 @@ class SequentialIOExecutor:
             stall_timeout_s: minimum full-queue wait before a wedge may be
                 declared; also the floor for the no-retirement window.
         """
+        task.set_name(self.executor_name)
         if self._disable:
             return None
 
