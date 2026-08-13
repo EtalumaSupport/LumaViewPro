@@ -1,7 +1,11 @@
 # LumaViewPro Build Script
 #
 # SETUP (one time):
-#   1. Install tools: Python 3.12+, Git, WiX (dotnet tool install --global wix)
+#   1. Install tools: Python 3.12+, Git, WiX 6.x
+#      (dotnet tool install --global wix --version 6.0.0)
+#      The version is required, not advisory: this script refuses anything
+#      but 6.x, because a v7-built bundle installs fine on the build box
+#      and then fails at every customer install with 0x80070057.
 #   2. Put dependencies in dependencies\ next to this script (see dependencies\README.md)
 #
 # USAGE:
@@ -148,13 +152,45 @@ Write-Host "================================================================"
 # Select branch
 # ---------------------------------------------------------------------------
 if (-not $Branch) {
-    $branches = @(
-        "4.0.0-beta"
-        "4.0.0-wave7-decomp"
-        "4.1.0-dev"
-        "main"
-    )
-    Write-Host "`nAvailable branches:"
+    # Built from the live remote, never hardcoded. The previous hardcoded
+    # four offered 4.0.0-wave7-decomp and 4.1.0-dev, neither of which
+    # exists on origin -- two of four entries failed at the clone.
+    #
+    # Ordering by recency needs commit DATES, and ls-remote cannot supply
+    # them here: `git ls-remote --heads --sort=-committerdate` fatals with
+    # "requires access to object data" outside a repo, and with "missing
+    # object" inside an empty one. A blobless bare clone carries the
+    # commits without any file contents -- measured 1.7 s / 3.5 MB against
+    # this repo -- and is deleted again as soon as the list is read.
+    $refcache = Join-Path $build_dir "_branchrefs.git"
+    if (Test-Path $refcache) { Remove-Item $refcache -Recurse -Force }
+    $ErrorActionPreference = "Continue"
+    git clone --bare --filter=blob:none --no-tags -q $repo_url $refcache 2>&1 | Out-Null
+    $refcache_exit = $LASTEXITCODE
+    $ErrorActionPreference = "Stop"
+    if ($refcache_exit -ne 0) {
+        Write-Host "ERROR: could not read the branch list from $repo_url (git exit $refcache_exit)."
+        Write-Host "  The build clones this same remote a few steps later, so this is"
+        Write-Host "  almost certainly a network or credential problem that would stop"
+        Write-Host "  the build anyway."
+        Write-Host "  To skip the menu entirely:  .\build.ps1 -Branch <name>"
+        Set-Location $build_dir
+        Exit 1
+    }
+
+    # Release lines first so a release build is never buried under active
+    # development, then the ten most recently updated branches. The release
+    # pattern is derived rather than listed, so 4.0.1 / 4.1.0 age in with
+    # no edit here; anything older or oddly named is still reachable by
+    # typing it, or via -Branch.
+    $release_pattern = '^[0-9]+\.[0-9]+\.[0-9]+(-beta[0-9]*)?$'
+    $all_refs = @(& git --git-dir=$refcache for-each-ref --sort=-committerdate --format='%(refname:short)' refs/heads/)
+    $releases = @($all_refs | Where-Object { $_ -match $release_pattern })
+    $recent = @($all_refs | Where-Object { $releases -notcontains $_ } | Select-Object -First 10)
+    $branches = @($releases) + @($recent)
+    Remove-Item $refcache -Recurse -Force
+
+    Write-Host "`nAvailable branches (releases first, then 10 most recent):"
     for ($i = 0; $i -lt $branches.Count; $i++) {
         Write-Host "  [$($i+1)] $($branches[$i])"
     }
@@ -261,17 +297,24 @@ if (-not $fx2_libusb_dll) { Write-Host "No FX2 libusb-1.0.dll in dependencies\fx
 Write-Host "`nChecking tools..."
 try { $wix_version_raw = & wix --version 2>&1; Write-Host "  WiX: $wix_version_raw" } catch { Write-Host "ERROR: WiX not found. Run: dotnet tool install --global wix --version 6.0.0"; Exit 1 }
 
-# Refuse WiX v7+: Bundle.wxs is authored for the v4-v6 WixToolset.Bal.wixext
-# API. v7 restructured WixStdBA and added a required scope field in the
-# Burn-BA plan protocol; bundles built with v7 still produce a -setup.exe
-# but fail at customer install with 0x80070057 "Failed to read plan scope
-# of BAEnginePlan args". Catch the wrong WiX up front, before the build
-# wastes 5+ minutes producing a broken bundle.
-$wix_major = $null
-if ($wix_version_raw -match '^\s*(\d+)\.') { $wix_major = [int]$matches[1] }
-if ($null -ne $wix_major -and $wix_major -ge 7) {
+# Require WiX v6.x. Bundle.wxs is authored for the v4-v6
+# WixToolset.Bal.wixext API. v7 restructured WixStdBA and added a required
+# scope field in the Burn-BA plan protocol; bundles built with v7 still
+# produce a -setup.exe but fail at customer install with 0x80070057 "Failed
+# to read plan scope of BAEnginePlan args". Catch the wrong WiX up front,
+# before the build wastes 5+ minutes producing a broken bundle.
+#
+# Written as an allowlist rather than a refusal of v7, because a refusal has
+# to enumerate every way it can be fooled. `wix --version` goes through
+# Out-String first: with 2>&1 it can arrive as an ARRAY, and -match against
+# an array does not populate $Matches -- so a version test reading
+# $matches[1] silently picks up whatever the branch menu above left there,
+# and [int]$null is 0, which passes a "-ge 7" test. Array, empty, null and
+# unparseable inputs now land in the same refusal as v5 and v7.
+$wix_version_text = ($wix_version_raw | Out-String).Trim()
+if ($wix_version_text -notmatch '^6\.') {
     Write-Host ""
-    Write-Host "ERROR: WiX $wix_version_raw is not supported by this build."
+    Write-Host "ERROR: WiX version '$wix_version_text' is not supported by this build."
     Write-Host "  This build's Bundle.wxs requires WiX v6.x."
     Write-Host "  Downgrade with:"
     Write-Host "    dotnet tool uninstall --global wix"
@@ -323,6 +366,16 @@ $ver_raw = (Get-Content "$clone\version.txt" -TotalCount 1).Trim()
 if ($ver_raw -match '^\S+') { $version = $matches[0] } else { Write-Host "ERROR: Can't parse version.txt"; Exit 1 }
 
 $product = "LumaViewPro-$version"
+
+# The per-build output folder, established here rather than at the MSI step
+# because the diagnostics written during PyInstaller belong in it too. It
+# holds one build's complete record -- installer, bundle, log, PyInstaller
+# warn file and TOC manifests -- and everything in it is overwritten as a
+# unit by the next build of the same version, so the folder is always
+# internally consistent: the log and manifests describe the installer
+# sitting beside them.
+$output_dir = Join-Path $artifacts $product
+New-Item $output_dir -ItemType Directory -Force | Out-Null
 
 # Build a 4-part Major.Minor.Patch.Revision installer version. WiX Bundle
 # ProductVersion + MSI ProductVersion are what Windows Installer compares to
@@ -458,7 +511,7 @@ Write-Host "--- PyInstaller warn file ---"
 $warn_file = Get-ChildItem ".\build\lumaviewpro\warn-*.txt" -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($warn_file) {
     Get-Content $warn_file.FullName | Write-Host
-    Copy-Item $warn_file.FullName (Join-Path $artifacts "pyinstaller_warn_$version.txt") -Force
+    Copy-Item $warn_file.FullName (Join-Path $output_dir "pyinstaller_warn_${version}_$build_log_ts.txt") -Force
 } else {
     Write-Host "WARNING: no PyInstaller warn file found under .\build\lumaviewpro\"
 }
@@ -470,8 +523,15 @@ if ($warn_file) {
 # and the temp tree that holds them is deleted at the end of every build.
 # Without this copy, "which directory did that DLL come from" is
 # unanswerable for any shipped artifact.
+#
+# Named by build timestamp as well as version, because the version alone
+# is not a build identity: consecutive builds of one version overwrote
+# each other's manifests, leaving the survivor unattributable and
+# defeating the purpose above. ${version} is braced deliberately -- a bare
+# $version_ parses the underscore as part of the variable name and
+# expands to nothing, silently dropping the version from the filename.
 foreach ($toc in Get-ChildItem ".\build\lumaviewpro\*.toc" -ErrorAction SilentlyContinue) {
-    Copy-Item $toc.FullName (Join-Path $artifacts ("pyinstaller_" + $toc.BaseName + "_$version.toc")) -Force
+    Copy-Item $toc.FullName (Join-Path $output_dir ("pyinstaller_" + $toc.BaseName + "_${version}_$build_log_ts.toc")) -Force
 }
 
 # Dist census + hard gate: an exe missing a camera-SDK package cannot see
@@ -630,8 +690,6 @@ Write-Phase "WiX MSI"
 $wix_dir = Join-Path $src "scripts\appBuild\build_exe\wix"
 Set-Location $wix_dir
 
-$output_dir = Join-Path $artifacts $product
-New-Item $output_dir -ItemType Directory -Force | Out-Null
 $msi = Join-Path $output_dir "$product.msi"
 
 Write-Host "Building MSI..."
@@ -663,16 +721,40 @@ Write-Host "MSI: $msi"
 # Build Bundle (if dependencies available)
 # ---------------------------------------------------------------------------
 $bundle = ""
+# Distinguishes "no bundle was attempted" (a deliberate MSI-only build) from
+# "a bundle was attempted and failed". Both leave $bundle empty, so $bundle
+# alone cannot tell the summary below which happened.
+$bundle_failed = $false
 if ($pylon_msi -and $vc_redist_exe) {
     Write-Host "`n--- WiX Bundle ---"
     $bundle = Join-Path $output_dir "$product-setup.exe"
 
-    # Find BAL extension
-    $bal_dep = Join-Path $src "scripts\appBuild\build_exe\deps\WixToolset.BootstrapperApplications.wixext.dll"
-    $bal_script = Join-Path $script_dir "build_exe\deps\WixToolset.BootstrapperApplications.wixext.dll"
-    if (Test-Path $bal_dep) { $ext = $bal_dep }
-    elseif (Test-Path $bal_script) { $ext = $bal_script }
-    else { & wix extension add -g WixToolset.Bal.wixext 2>&1 | Out-Null; $ext = "WixToolset.Bal.wixext" }
+    # Find BAL extension. Hand-placed in dependencies\ like every other
+    # build prerequisite. It used to be the sole exception -- tracked in
+    # this repo -- which is how a 1.6 MB binary rode every source-ZIP
+    # download of a public repo. It is no longer in the repo, so this is
+    # the only place it can come from.
+    #
+    # No feed fallback. The extension is version-pinned by virtue of being
+    # a file we placed; `wix extension add -g` fetches whatever the feed
+    # currently serves, and nothing here inspects the extension's version
+    # -- the check above reads the WiX TOOLCHAIN version, which a v7-era
+    # BAL extension passes untouched. A feed-fetched extension is
+    # therefore the one way a bundle can look clean here and still fail
+    # 0x80070057 on every customer machine.
+    $bal_dll = Join-Path $deps "WixToolset.BootstrapperApplications.wixext.dll"
+    if (Test-Path $bal_dll) { $ext = $bal_dll }
+    else {
+        Write-Host "ERROR: WiX BAL extension not found. Looked in:"
+        Write-Host "  $bal_dll"
+        Write-Host "  Place WixToolset.BootstrapperApplications.wixext.dll there."
+        Write-Host "  The archived copy lives in the Firmware repo under"
+        Write-Host "  tools\appbuild\deps\. It is byte-identical to the"
+        Write-Host "  WixToolset.BootstrapperApplications.wixext nuget package and is"
+        Write-Host "  pinned to a v4-v6-compatible version on purpose."
+        Set-Location $build_dir
+        Exit 1
+    }
 
     Write-Host "Building bundle..."
     $bundle_args = @(
@@ -698,8 +780,9 @@ if ($pylon_msi -and $vc_redist_exe) {
     & $wix_exe @bundle_args
 
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "Warning: Bundle build failed"
+        Write-Host "ERROR: Bundle build failed (wix exit $LASTEXITCODE)"
         $bundle = ""
+        $bundle_failed = $true
     } else {
         Write-Host "Bundle: $bundle"
     }
@@ -714,10 +797,19 @@ Set-Location $build_dir
 Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Host "`n======================================="
-Write-Host "  BUILD COMPLETE"
+if ($bundle_failed) {
+    Write-Host "  BUILD INCOMPLETE - the bundle failed"
+} else {
+    Write-Host "  BUILD COMPLETE"
+}
 Write-Host "======================================="
 Write-Host "  MSI:      $msi"
-if ($bundle -and (Test-Path $bundle)) {
+# A failed bundle must appear here. Omitting the line is how an attempted-
+# and-failed bundle became indistinguishable from a deliberate MSI-only
+# build, which prints no Bundle line either.
+if ($bundle_failed) {
+    Write-Host "  Bundle:   FAILED - see the wix errors above; the MSI above is still usable"
+} elseif ($bundle -and (Test-Path $bundle)) {
     Write-Host "  Bundle:   $bundle"
 }
 Write-Host "  Output:   $output_dir"
@@ -727,9 +819,15 @@ Write-Host "  Log:      $build_log"
 Write-Host "  Ended:    $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
 Write-Host "======================================="
 
-# Copy the build log into the version-specific output dir so it ships
-# alongside the MSI / bundle. The primary copy in $artifacts root
-# remains for cross-build sorting by timestamp.
+# Copy the build log into the output dir, completing that folder's record
+# of this build: installer, bundle, log, warn file and TOC manifests.
+#
+# The transcript cannot be written there directly -- it opens at the top of
+# the run, and $output_dir's name depends on $version, which is not known
+# until the clone succeeds. So the log starts at the $artifacts root and is
+# copied here at the end. That root copy is deliberately kept: it is
+# timestamped rather than overwritten, and is the only record that survives
+# a rebuild of the same version.
 if (Test-Path $output_dir) {
     try {
         Copy-Item $build_log -Destination (Join-Path $output_dir "build.log") -Force
@@ -739,3 +837,12 @@ if (Test-Path $output_dir) {
 }
 
 Stop-Transcript | Out-Null
+
+# Non-zero ONLY when a bundle was attempted and failed. A deliberate MSI-only
+# build never attempted one and still exits 0, which several documented
+# workflows rely on.
+#
+# Placed after Stop-Transcript deliberately: every Exit above this point
+# bypasses both the transcript close and the build.log copy, so exiting at the
+# failure site would destroy the log for the one run that most needs it.
+if ($bundle_failed) { Exit 1 }
