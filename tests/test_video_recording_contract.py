@@ -16,6 +16,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+import modules.video_recording as video_recording_module
 from modules.exceptions import ProtocolRunRefusedError, RecordingRefusedError
 from modules.video_recording import RecordingConfig, VideoRecordingEngine
 from tests.video_engine_harness import (
@@ -714,4 +715,47 @@ class TestClaimLifetime:
         assert engine.wait_for_drain(timeout=5)
         assert engine.result().manifest_path is None
         assert not list(pathlib.Path(tmp_path).glob('*.json'))
+        assert claim.owner is None
+
+    def test_lane_boundary_logs_its_own_abnormal_exit(self, tmp_path, monkeypatch):
+        # An exception escaping a thread target reaches
+        # threading.excepthook, not this module's logger, so without the
+        # lane's own boundary the failure it exists to report leaves no
+        # trace in the app log -- a support bundle would show a recording
+        # that simply stopped. The raising sink is what carries an
+        # exception past the abort handler and out of the lane body.
+        #
+        # Asserted on the module's logger rather than caplog: conftest
+        # installs lvp_logger as a MagicMock for the whole session, so
+        # these calls never become logging records for caplog to capture.
+        recorder = MagicMock()
+        monkeypatch.setattr(video_recording_module, 'logger', recorder)
+        writer = WriterStub(tmp_path, die_on_frame=2)
+        engine, _writer, clock, claim = make_engine(
+            tmp_path, writer=writer, notify=RaisingNotify('critical')
+        )
+        engine.start(make_config(tmp_path, fps=5, duration_s=2))
+        feed_uniform(engine, clock, FrameFeed(), delivery_fps=20, duration_s=1)
+        assert engine.wait_for_drain(timeout=5)
+
+        logged = [call.args[0] for call in recorder.critical.call_args_list if call.args]
+        assert any('writer lane exited abnormally' in message for message in logged)
+        assert claim.owner is None
+
+    def test_lane_death_frees_the_claim_for_the_next_recording(self, tmp_path):
+        # The interaction, not just the flag: a lane death that strands the
+        # claim is only visible when something later tries to take it.
+        claim = ClaimStub()
+        writer = WriterStub(tmp_path, die_on_frame=2)
+        engine, _writer, clock, _ = make_engine(tmp_path, writer=writer, claim=claim)
+        engine.start(make_config(tmp_path, fps=5, duration_s=2))
+        feed_uniform(engine, clock, FrameFeed(), delivery_fps=20, duration_s=1)
+        assert engine.wait_for_drain(timeout=5)
+
+        # A fresh engine, as production builds one per recording.
+        next_engine, _w, next_clock, _c = make_engine(tmp_path, claim=claim)
+        next_engine.start(make_config(tmp_path, fps=5, duration_s=1))
+        feed_uniform(next_engine, next_clock, FrameFeed(), delivery_fps=20, duration_s=2)
+        assert next_engine.wait_for_drain(timeout=5)
+        assert next_engine.result().frames_written > 0
         assert claim.owner is None

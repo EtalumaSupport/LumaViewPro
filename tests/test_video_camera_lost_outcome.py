@@ -9,7 +9,9 @@ names the truncation; the caller strikes without resetting.
 
 import threading
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 import modules.protocol_recording as protocol_recording
 
@@ -128,6 +130,40 @@ class TestZeroFrameOutcomeMapping:
         # via the finish thread instead).
         result = self._run_with_outcome(tmp_path, protocol_recording.CAMERA_LOST)
         assert result == protocol_recording.NO_FRAMES
+
+
+class TestStartFailureEndsTheStep:
+    """A step start that raises after the engine committed must end the
+    recording it opened.
+
+    The nested claim leaks nothing to the session, so the damage is not a
+    stranded claim here -- it is a step left recording, which never
+    satisfies the runner's end-of-run wait, so the whole protocol hangs
+    on a step that never began.
+    """
+
+    def test_start_failure_ends_the_step_and_leaves_no_zero_frame_mp4(self, tmp_path):
+        clock = {'t': 1000.0}
+        recorder = _make_recorder(tmp_path, clock, camera_active=True)
+        # False color ON with a chromatic label is what makes the writer
+        # open its container at construction; with it off the encoder init
+        # defers and there is no artifact to leave behind, so the unlink
+        # would go unexercised.
+        recorder._step['Color'] = 'Blue'
+        recorder._step['False_Color'] = True
+        recorder._scope.imaging.add_frame_listener.side_effect = RuntimeError(
+            'scripted registration failure'
+        )
+
+        with (
+            patch.object(recorder, '_prologue', return_value=None),
+            pytest.raises(RuntimeError),
+        ):
+            recorder.run_blocking()
+
+        assert recorder._engine is None
+        assert recorder._writer is None
+        assert not list(tmp_path.glob('*.mp4'))
 
 
 class TestPrologueFeedDeath:

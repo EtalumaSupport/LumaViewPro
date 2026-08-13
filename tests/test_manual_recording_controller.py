@@ -10,6 +10,7 @@ a stub delivering frames straight into the registered listener.
 
 import itertools
 import json
+import threading
 
 import numpy as np
 import pytest
@@ -56,7 +57,12 @@ class _FakeImaging:
         self.listener = cb
 
     def remove_frame_listener(self, cb):
-        if self.listener is cb:
+        # Equality, not identity. A bound method is a fresh object on every
+        # attribute access, so `is` never matches one that was stored
+        # earlier; the production API keys its wrapper dict by the callable
+        # and removes by equality, and a fake that removes by identity
+        # would report a leaked listener the real path does not have.
+        if self.listener == cb:
             self.listener = None
 
 
@@ -284,6 +290,192 @@ class TestMp4Leg:
         assert len(manifests) == 1
         manifest = json.loads(manifests[0].read_text())
         assert manifest['frames_written'] == 5
+
+
+def _capture_engine_and_writer(monkeypatch):
+    """Hold the per-recording engine and writer the unwind detaches.
+
+    A failed start clears ``_engine`` and ``_writer``, so a test that
+    reads them off the controller afterwards sees None and can prove
+    nothing about the drain or the container. Both subclass the real
+    types, so the production path is unchanged.
+    """
+    made = {}
+    real_engine = manual_recording_module.VideoRecordingEngine
+    real_writer = manual_recording_module.VideoWriter
+
+    class _CapturingEngine(real_engine):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            made['engine'] = self
+
+    class _CapturingWriter(real_writer):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            made['writer'] = self
+            self.close_calls = 0
+
+        def close(self):
+            self.close_calls += 1
+            super().close()
+
+    monkeypatch.setattr(manual_recording_module, 'VideoRecordingEngine', _CapturingEngine)
+    monkeypatch.setattr(manual_recording_module, 'VideoWriter', _CapturingWriter)
+    return made
+
+
+def _fail_the_finish_thread(monkeypatch):
+    """Raise at the last statement of start(), after every commit.
+
+    Thread exhaustion at ``_finish_thread.start()`` is the only reachable
+    raise site at or after the listener registration, so it is the one
+    that exercises the unwind's listener removal. Keyed on the thread's
+    production name: the engine's writer lane is constructed in the same
+    window and must still start, or the claim could never be released.
+    """
+    real_thread = threading.Thread
+
+    def _thread(*args, **kwargs):
+        if kwargs.get('name') == 'ManualRecordingFinish':
+            raise RuntimeError('scripted thread exhaustion')
+        return real_thread(*args, **kwargs)
+
+    monkeypatch.setattr(manual_recording_module.threading, 'Thread', _thread)
+
+
+class TestFailedStartUnwind:
+    """A start that raises after the engine committed must leave nothing
+    behind: no claim, no listener, no open container, no empty artifact.
+
+    These pin the controller half of the unwind. The engine half has its
+    own contract tests; the two frames hold different resources, so
+    neither set covers the other.
+    """
+
+    def test_post_commit_raise_releases_claim(self, tmp_path, monkeypatch):
+        made = _capture_engine_and_writer(monkeypatch)
+        controller, _scope, _clock = make_controller(tmp_path)
+        _fail_the_finish_thread(monkeypatch)
+
+        with pytest.raises(RuntimeError):
+            controller.start()
+
+        # The unwind ends the recording without waiting for the drain, so
+        # the release lands on the writer lane rather than in start().
+        assert made['engine'].wait_for_drain(timeout=5)
+        assert controller._claim.owner is None
+        assert not controller.is_busy
+
+    def test_post_commit_raise_removes_listener(self, tmp_path, monkeypatch):
+        _capture_engine_and_writer(monkeypatch)
+        controller, scope, _clock = make_controller(tmp_path)
+        _fail_the_finish_thread(monkeypatch)
+
+        with pytest.raises(RuntimeError):
+            controller.start()
+
+        assert scope.imaging.listener is None
+
+    def test_pre_registration_raise_unwinds_without_a_listener(self, tmp_path, monkeypatch):
+        # The removal must tolerate a callable that was never added: the
+        # registration sits late in start(), so an earlier raise reaches
+        # the unwind with nothing to remove.
+        made = _capture_engine_and_writer(monkeypatch)
+        controller, scope, _clock = make_controller(tmp_path)
+
+        def _explode(*_args, **_kwargs):
+            raise ValueError('scripted stall-watch failure')
+
+        monkeypatch.setattr(manual_recording_module, 'StallWatch', _explode)
+
+        with pytest.raises(ValueError):
+            controller.start()
+
+        assert scope.imaging.listener is None
+        assert made['engine'].wait_for_drain(timeout=5)
+        assert controller._claim.owner is None
+
+    def test_failed_start_closes_container(self, tmp_path, monkeypatch):
+        made = _capture_engine_and_writer(monkeypatch)
+        controller, _scope, _clock = make_controller(tmp_path, video_as_frames=False)
+        _fail_the_finish_thread(monkeypatch)
+
+        with pytest.raises(RuntimeError):
+            controller.start()
+
+        assert made['writer'].close_calls == 1
+
+    def test_failed_start_leaves_no_zero_frame_mp4(self, tmp_path, monkeypatch):
+        # False color ON is the discriminator, not decoration. The writer
+        # eager-opens its container at construction only when the label
+        # applies a chromatic map, so this is the configuration where a
+        # failed start has a real file to leave behind -- with the toggle
+        # off the encoder init defers and the assertion would hold for a
+        # reason that has nothing to do with the unwind.
+        made = _capture_engine_and_writer(monkeypatch)
+        controller, _scope, _clock = make_controller(tmp_path, video_as_frames=False, lit='Blue')
+        _fail_the_finish_thread(monkeypatch)
+
+        with pytest.raises(RuntimeError):
+            controller.start(layer='Blue', false_color_on=True)
+
+        # The file existed: close() alone would flush and close it, and
+        # leave it on disk for the next recording to rename around.
+        assert made['writer'].close_calls == 1
+        assert not list((tmp_path / 'Manual').glob('*.mp4'))
+
+    def test_listener_is_not_registered_before_the_commit_point(self, tmp_path, monkeypatch):
+        # Registering the listener ahead of engine.start was proposed and
+        # refused: the frame gate reads self._engine, assigned after the
+        # commit, so an early listener routes frames into a writer that
+        # does not exist yet. Pin the ordering so it cannot return.
+        seen = {}
+        real_start = manual_recording_module.VideoRecordingEngine.start
+        controller, scope, _clock = make_controller(tmp_path)
+
+        def _spy(engine_self, config):
+            seen['listener_at_commit'] = scope.imaging.listener
+            return real_start(engine_self, config)
+
+        monkeypatch.setattr(manual_recording_module.VideoRecordingEngine, 'start', _spy)
+
+        controller.start()
+        assert seen['listener_at_commit'] is None
+        assert scope.imaging.listener is not None
+
+        controller.stop()
+        finish(controller)
+
+
+class TestFinishThreadResilience:
+    def test_finish_thread_survives_a_finalize_failure(self, tmp_path, monkeypatch):
+        # The finish thread must complete even when the engine never
+        # produced a result. result() raises in exactly that case, and it
+        # used to sit upstream of the container close and the completion
+        # callback -- so a failed finalize left an unclosed MP4 and a UI
+        # stuck in its recording state, with the drain already over.
+        made = _capture_engine_and_writer(monkeypatch)
+        recorder = NotifyRecorder()
+        monkeypatch.setattr(manual_recording_module, 'notifications', recorder)
+        controller, scope, clock = make_controller(tmp_path, video_as_frames=False)
+
+        def _explode(_self):
+            raise RuntimeError('scripted finalize failure')
+
+        monkeypatch.setattr(
+            manual_recording_module.VideoRecordingEngine, '_finalize_locked', _explode
+        )
+
+        completed = threading.Event()
+        controller.start(on_complete=completed.set)
+        feed_frames(scope, clock, 3, fps=10.0)
+        controller.stop()
+        finish(controller)
+
+        assert completed.is_set()
+        assert made['writer'].close_calls == 1
+        assert 'error' in recorder.severities()
+        assert not controller.is_busy
 
 
 class TestDurationCap:
