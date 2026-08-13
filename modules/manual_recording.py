@@ -35,6 +35,7 @@ import pandas as pd
 import modules.image_mode as image_mode
 import modules.image_save as image_save
 import modules.image_utils as image_utils
+import modules.path_utils as path_utils
 from lvp_logger import logger, version as lvp_version
 from modules.common_utils import (
     DISK_FLOOR_CHECK_INTERVAL_S,
@@ -313,6 +314,38 @@ class ManualRecordingController:
                 'start a recording. Free up space and try again.',
             )
 
+        if video_as_frames:
+            # Reserve the per-recording folder here: after the last refusal
+            # that can still turn this press away, and before RecordingConfig
+            # freezes output_dir, so the config carries the name actually
+            # taken. Two presses inside one second derive the same name, and
+            # joining the first folder mixes both recordings' frames under one
+            # manifest with indices that restart.
+            try:
+                # Create the Manual/ level -- LVP's own subfolder, absent until
+                # the first recording -- but NOT its parents: if the configured
+                # live folder itself is gone, that is an unplugged drive or a
+                # stale path, and the allocator refuses rather than building a
+                # fresh tree on whatever is mounted there.
+                save_folder.parent.mkdir(exist_ok=True)
+                save_folder = path_utils.allocate_directory(save_folder)
+            except OSError as exc:
+                raise RecordingRefusedError(
+                    reason='capture_location_unusable',
+                    title='Cannot Save Recording',
+                    message=(
+                        f'{save_folder.parent.parent} is not an accessible save '
+                        'location. Check that it exists and any external drive '
+                        'is connected, then try again.'
+                    ),
+                ) from exc
+            except path_utils.CaptureLocationError as exc:
+                raise RecordingRefusedError(
+                    reason='capture_location_unusable',
+                    title='Cannot Save Recording',
+                    message=str(exc),
+                ) from exc
+
         resolved_layer = self._resolve_channel_identity(layer)
 
         frame_size = scope.imaging.camera_frame_size
@@ -407,8 +440,8 @@ class ManualRecordingController:
             self._hyperstack_rows = [] if hyperstack else None
             self._last_disk_check_ts = 0.0
             self._on_complete = on_complete
-            if plan.video_as_frames:
-                save_folder.mkdir(exist_ok=True, parents=True)
+            # The frames folder was reserved before the commit point; nothing
+            # to create here.
 
             scope.imaging.add_frame_listener(self._on_camera_frame, name='manual_recording')
             self._finish_thread = threading.Thread(

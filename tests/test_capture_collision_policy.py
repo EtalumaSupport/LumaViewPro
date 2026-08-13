@@ -29,6 +29,7 @@ import pathlib
 from unittest.mock import MagicMock
 
 import pandas as pd
+import pytest
 
 from modules.common_utils import PostFunction
 from modules.protocol import Protocol
@@ -801,3 +802,77 @@ def test_zprojection_callback_routes_collision_to_failure_message():
         "a reason='collision' result must take the failed-with-message branch "
         '(its message carries the real remedy), not the pick-a-different-folder path'
     )
+
+
+# ---------------------------------------------------------------------------
+# The shared directory allocator: one reservation, three callers.
+#
+# Two recordings started inside the same wall-clock second derived the same
+# folder name and the second joined the first via mkdir(exist_ok=True) --
+# measured on the bench as 19 recordings landing in 6 folders, with frame
+# numbers restarting per recording so a rebuild interleaved them. The walk-and
+# -reserve loop already existed twice (protocol run dirs, autofocus results);
+# the recording path is the site that never got it.
+# ---------------------------------------------------------------------------
+
+
+def test_allocator_keeps_the_plain_name_when_it_is_free(tmp_path):
+    from modules.path_utils import allocate_directory
+
+    allocated = allocate_directory(tmp_path / 'Video_2026-08-13_13.49.03')
+
+    assert allocated.name == 'Video_2026-08-13_13.49.03'
+    assert allocated.is_dir()
+
+
+def test_allocator_increments_instead_of_joining(tmp_path):
+    from modules.path_utils import allocate_directory
+
+    base = tmp_path / 'Video_2026-08-13_13.49.03'
+    first = allocate_directory(base)
+    (first / 'frame_0000.tiff').write_text('recording one')
+
+    second = allocate_directory(base)
+
+    assert second != first, 'a second reservation must not return the first folder'
+    assert second.name == 'Video_2026-08-13_13.49.03_001'
+    # The point of the whole fix: recording one is untouched and still alone.
+    assert (first / 'frame_0000.tiff').read_text() == 'recording one'
+    assert list(second.iterdir()) == []
+
+
+def test_allocator_reservation_is_exclusive(tmp_path):
+    # The reservation must be the directory creation itself, not a check
+    # followed by a create -- two racing starts cannot both win a name.
+    from modules.path_utils import allocate_directory
+
+    allocated = allocate_directory(tmp_path / 'Video_x')
+
+    with pytest.raises(FileExistsError):
+        allocated.mkdir(exist_ok=False)
+
+
+def test_allocator_refuses_when_the_parent_is_missing(tmp_path):
+    # A missing parent means the configured save location is wrong -- an
+    # unplugged drive, a stale path. Creating it silently would write data to
+    # a fresh empty directory on the wrong volume.
+    from modules.path_utils import CaptureLocationError, allocate_directory
+
+    with pytest.raises(CaptureLocationError) as excinfo:
+        allocate_directory(tmp_path / 'does_not_exist' / 'Video_x')
+
+    assert 'capture location' in str(excinfo.value)
+
+
+def test_allocator_refuses_visibly_when_exhausted(tmp_path, monkeypatch):
+    from modules import path_utils
+
+    monkeypatch.setattr(path_utils, 'MAX_COLLISION_SUFFIX', 3)
+    base = tmp_path / 'Video_x'
+    for _ in range(4):
+        path_utils.allocate_directory(base)
+
+    with pytest.raises(path_utils.CaptureLocationError) as excinfo:
+        path_utils.allocate_directory(base)
+
+    assert 'Video_x' in str(excinfo.value)

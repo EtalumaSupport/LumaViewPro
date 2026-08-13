@@ -284,6 +284,39 @@ class TestFramesLeg:
         assert manifest['timestamp_grade'] == 'camera'
         assert all(entry['chunks'] is not None for entry in manifest['frame_index'])
 
+    def test_two_recordings_in_one_second_get_their_own_folders(self, tmp_path):
+        # The folder name comes from a one-second-resolution timestamp, and a
+        # full start-stop-finish-start cycle runs in about 250 ms, so pressing
+        # Record twice quickly derived the same name twice. The second used to
+        # join the first via mkdir(exist_ok=True): measured on the bench as 19
+        # recordings landing in 6 folders, frame numbers restarting per
+        # recording so a rebuild interleaved them into one scrambled video.
+        controller, scope, clock = make_controller(tmp_path, lit='Blue')
+
+        controller.start(layer='Blue', false_color_on=True)
+        feed_frames(scope, clock, 3, fps=10.0)
+        controller.stop()
+        finish(controller)
+
+        # Same wall-clock second: the derived name collides.
+        controller.start(layer='Blue', false_color_on=True)
+        feed_frames(scope, clock, 4, fps=10.0)
+        controller.stop()
+        finish(controller)
+
+        folders = sorted((tmp_path / 'Manual').glob('Video_*'))
+        assert len(folders) == 2, f'each recording needs its own folder, got {folders}'
+
+        # Neither recording's frames leaked into the other's folder, and each
+        # manifest counts only its own.
+        counts = sorted(len(list(f.glob('ManualVideo_Frame_*.tiff'))) for f in folders)
+        assert counts == [3, 4], counts
+        written = sorted(
+            json.loads((f / 'recording_manifest.json').read_text())['frames_written']
+            for f in folders
+        )
+        assert written == [3, 4], written
+
     def test_camera_ticks_smooth_host_jitter(self, tmp_path):
         # Host arrival stamps jitter around the true instants; the camera
         # ticks are uniform. The manifest timeline must follow the ticks.
@@ -454,26 +487,27 @@ class TestFailedStartUnwind:
         assert not list((tmp_path / 'Manual').glob('*.mp4'))
         assert made['engine'].wait_for_drain(timeout=5)
 
-    def test_read_only_save_location_raises_after_the_commit(self, tmp_path, monkeypatch):
-        # The only post-commit failure reachable by hand, which makes it the
-        # one a bench run can use: the disk pre-flight probes the LIVE
-        # folder, while the per-recording subfolder is created after the
-        # engine has committed. A read-only live folder therefore refuses
-        # nothing up front and raises inside the commit window.
-        made = _capture_engine_and_writer(monkeypatch)
+    def test_read_only_save_location_refuses_before_the_commit(self, tmp_path):
+        # Reserving the per-recording folder is what makes two same-second
+        # recordings land in two folders, and it happens ahead of the commit
+        # point so the config can carry the name actually taken. That moves an
+        # unwritable save location from a post-commit raise to a clean refusal:
+        # the user gets a message and the button back, with nothing started.
         controller, scope, _clock = make_controller(tmp_path)
         tmp_path.chmod(0o500)
         try:
-            with pytest.raises(OSError):
+            with pytest.raises(RecordingRefusedError) as excinfo:
                 controller.start()
         finally:
             tmp_path.chmod(0o700)
 
-        # Not a refusal: the engine committed, so the unwind had to run.
+        assert excinfo.value.reason == 'capture_location_unusable'
+        # Nothing was started: no listener, no claim, and the button is free.
         assert scope.imaging.listener is None
-        assert made['engine'].wait_for_drain(timeout=5)
         assert controller._claim.owner is None
         assert not controller.is_busy
+        # A refused recording leaves no folder behind.
+        assert not (tmp_path / 'Manual').exists()
 
     def test_listener_is_not_registered_before_the_commit_point(self, tmp_path, monkeypatch):
         # Registering the listener ahead of engine.start was proposed and
