@@ -436,6 +436,27 @@ class TestFailedStartUnwind:
         assert not list((tmp_path / 'Manual').glob('*.mp4'))
         assert made['engine'].wait_for_drain(timeout=5)
 
+    def test_read_only_save_location_raises_after_the_commit(self, tmp_path, monkeypatch):
+        # The only post-commit failure reachable by hand, which makes it the
+        # one a bench run can use: the disk pre-flight probes the LIVE
+        # folder, while the per-recording subfolder is created after the
+        # engine has committed. A read-only live folder therefore refuses
+        # nothing up front and raises inside the commit window.
+        made = _capture_engine_and_writer(monkeypatch)
+        controller, scope, _clock = make_controller(tmp_path)
+        tmp_path.chmod(0o500)
+        try:
+            with pytest.raises(OSError):
+                controller.start()
+        finally:
+            tmp_path.chmod(0o700)
+
+        # Not a refusal: the engine committed, so the unwind had to run.
+        assert scope.imaging.listener is None
+        assert made['engine'].wait_for_drain(timeout=5)
+        assert controller._claim.owner is None
+        assert not controller.is_busy
+
     def test_listener_is_not_registered_before_the_commit_point(self, tmp_path, monkeypatch):
         # Registering the listener ahead of engine.start was proposed and
         # refused: the frame gate reads self._engine, assigned after the
