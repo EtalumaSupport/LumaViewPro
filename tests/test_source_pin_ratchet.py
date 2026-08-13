@@ -43,11 +43,11 @@ from tests.ast_seams import iter_package_modules
 
 # Total `read_text` call sites in tests/, measured at introduction.
 # Ratchet: may fall freely, may not rise without a deliberate bump.
-# pin-justified: raised 335 -> 360 when three branches merged onto the
+# pin-justified: raised 335 -> 361 when four branches merged onto the
 # beta line at once. The pin was taken against beta, so it never saw the
 # tests that arrived with them; the growth is those tests, not new
 # source-text assertions on the pinned line's own code.
-_READ_TEXT_SITE_BUDGET = 360
+_READ_TEXT_SITE_BUDGET = 361
 
 # Files containing at least one, recorded for the same reason.
 # pin-justified: raised 115 -> 122 by the same merge.

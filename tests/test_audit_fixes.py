@@ -10808,6 +10808,26 @@ class TestWindowsBuildIsWindowed_559:
 
         return (Path(__file__).resolve().parent.parent / 'lumaviewpro.py').read_text()
 
+    def _build_ps1_code(self):
+        """build.ps1 with comment lines removed, for source pins.
+
+        A substring pin over the raw file cannot tell code from prose,
+        which breaks it in both directions: a negative pin trips on the
+        comment explaining why the banned thing was removed, and a
+        positive pin passes on a comment that merely mentions the thing
+        it is supposed to prove exists -- green over a build script whose
+        real code was deleted. Pinning the code text is what these
+        assertions always meant.
+        """
+        from pathlib import Path
+
+        # pin-justified: no PowerShell harness exists, and the build box
+        # is the only place this code runs.
+        raw = (
+            Path(__file__).resolve().parent.parent / 'scripts' / 'appBuild' / 'build.ps1'
+        ).read_text()
+        return '\n'.join(line for line in raw.splitlines() if not line.lstrip().startswith('#'))
+
     def test_windows_spec_is_windowed_build(self):
         """Spec must declare `console=False` so PyInstaller produces
         a windowed .exe (no bootloader terminal window). Issue #559."""
@@ -10836,15 +10856,11 @@ class TestWindowsBuildIsWindowed_559:
 
         Closed-world pin over a literal command, the only shape that
         survives here: a rewrite cannot reintroduce the feed fetch
-        without reintroducing this string.
+        without reintroducing this string. Pinned against the CODE, so
+        the comment recording why the fetch was removed does not read as
+        the fetch itself.
         """
-        from pathlib import Path
-
-        # pin-justified: no PowerShell harness exists, and the build box
-        # is the only place this code runs.
-        build_ps1 = (
-            Path(__file__).resolve().parent.parent / 'scripts' / 'appBuild' / 'build.ps1'
-        ).read_text()
+        build_ps1 = self._build_ps1_code()
         assert 'wix extension add' not in build_ps1, (
             'build.ps1 must not fetch the WiX BAL extension from the nuget '
             'feed. The feed serves an unpinned version and no version check '
@@ -10866,15 +10882,11 @@ class TestWindowsBuildIsWindowed_559:
 
         Pins the mechanism rather than the wording: the $bundle_failed
         flag, and the exit placed AFTER Stop-Transcript so the failing
-        run keeps its own build log.
+        run keeps its own build log. Pinned against the CODE, so a
+        comment mentioning the flag cannot satisfy this on a build script
+        whose real handling was deleted.
         """
-        from pathlib import Path
-
-        # pin-justified: no PowerShell harness exists, and the build box
-        # is the only place this code runs.
-        build_ps1 = (
-            Path(__file__).resolve().parent.parent / 'scripts' / 'appBuild' / 'build.ps1'
-        ).read_text()
+        build_ps1 = self._build_ps1_code()
         assert '$bundle_failed' in build_ps1, (
             'build.ps1 must track whether a bundle was ATTEMPTED and FAILED '
             'separately from whether one was built. Both states leave $bundle '
