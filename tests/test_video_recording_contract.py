@@ -557,3 +557,161 @@ class TestEndReason:
         engine.stop('user_stop')
         assert engine.wait_for_drain(timeout=5)
         assert engine.result().end_reason == 'frame_budget_filled'
+
+
+class RaisingNotify(NotifyRecorder):
+    """Notification sink that raises on one severity.
+
+    A sink is host code the engine does not own, so any of its calls can
+    throw; the engine must still end the recording.
+    """
+
+    def __init__(self, raise_on: str):
+        super().__init__()
+        self._raise_on = raise_on
+
+    def _record(self, severity):
+        inner = super()._record(severity)
+
+        def _call(*args, **kwargs):
+            inner(*args, **kwargs)
+            if severity == self._raise_on:
+                raise RuntimeError(f'scripted {severity} sink failure')
+
+        return _call
+
+
+class TestClaimLifetime:
+    """The claim is freed on every end path, including the failing ones.
+
+    A stranded claim outlives the engine that took it and blocks every
+    later recording AND protocol run for the life of the process, with no
+    user-visible cause -- so each of these asserts the claim is free, not
+    merely that the recording looks finished.
+    """
+
+    def test_successful_recording_releases_and_reports(self, tmp_path):
+        engine, _writer, clock, claim = make_engine(tmp_path)
+        engine.start(make_config(tmp_path, fps=5, duration_s=1))
+        feed_uniform(engine, clock, FrameFeed(), delivery_fps=20, duration_s=2)
+        assert engine.wait_for_drain(timeout=5)
+        assert claim.owner is None
+        assert engine.result().manifest_path is not None
+        assert not engine.is_recording
+
+    def test_lane_death_clears_recording_and_releases(self, tmp_path):
+        writer = WriterStub(tmp_path, die_on_frame=2)
+        engine, _writer, clock, claim = make_engine(tmp_path, writer=writer)
+        engine.start(make_config(tmp_path, fps=5, duration_s=2))
+        feed_uniform(engine, clock, FrameFeed(), delivery_fps=20, duration_s=1)
+        assert engine.wait_for_drain(timeout=5)
+        # The app-close gate reads is_recording; a lane death that leaves it
+        # set means the application can never be closed again.
+        assert not engine.is_recording
+        assert claim.owner is None
+        assert engine.result().aborted
+
+    def test_notify_failure_on_lane_death_still_releases(self, tmp_path):
+        # The abort notification runs BEFORE finalize, so a raising sink
+        # strands the claim no matter what finalize itself guards.
+        writer = WriterStub(tmp_path, die_on_frame=2)
+        engine, _writer, clock, claim = make_engine(
+            tmp_path, writer=writer, notify=RaisingNotify('critical')
+        )
+        engine.start(make_config(tmp_path, fps=5, duration_s=2))
+        feed_uniform(engine, clock, FrameFeed(), delivery_fps=20, duration_s=1)
+        assert engine.wait_for_drain(timeout=5)
+        assert claim.owner is None
+        assert not engine.is_recording
+
+    def test_manifest_notify_failure_still_releases(self, tmp_path):
+        # The manifest-failure sink is called from inside finalize, before
+        # the result exists -- invisible to any guard keyed on the result.
+        engine, _writer, clock, claim = make_engine(tmp_path, notify=RaisingNotify('warning'))
+        # Frames land in tmp_path, but the manifest is written to a
+        # directory that does not exist -- so the manifest write raises,
+        # its handler calls the sink, and the sink raises from inside
+        # finalize before any result exists.
+        engine.start(make_config(tmp_path / 'absent', fps=5, duration_s=1))
+        feed_uniform(engine, clock, FrameFeed(), delivery_fps=20, duration_s=2)
+        assert engine.wait_for_drain(timeout=5)
+        assert claim.owner is None
+
+    def test_finalize_escape_still_releases_and_drains(self, tmp_path, monkeypatch):
+        engine, _writer, clock, claim = make_engine(tmp_path)
+        engine.start(make_config(tmp_path, fps=5, duration_s=1))
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError('scripted manifest failure')
+
+        monkeypatch.setattr(engine, '_write_manifest', _boom)
+        feed_uniform(engine, clock, FrameFeed(), delivery_fps=20, duration_s=2)
+        # Without a release in a finally the lane leaves the claim held and
+        # drained clear, and every later wait_for_drain parks forever.
+        assert engine.wait_for_drain(timeout=5)
+        assert claim.owner is None
+
+    def test_double_finalize_does_not_double_release(self, tmp_path):
+        # Behavior-preservation guard: the claim stub raises on a release by
+        # a non-owner, so a second end path reaching the release would fail
+        # loudly here rather than silently freeing someone else's claim.
+        engine, _writer, clock, claim = make_engine(tmp_path)
+        engine.start(make_config(tmp_path, fps=5, duration_s=1))
+        feed_uniform(engine, clock, FrameFeed(), delivery_fps=20, duration_s=2)
+        assert engine.wait_for_drain(timeout=5)
+        engine._finalize()
+        assert claim.owner is None
+
+    def test_discard_with_wedged_writer_releases(self, tmp_path):
+        # The app-close Discard hatch: the lane is stuck inside a write and
+        # will never exit, so the release cannot be the lane's alone.
+        writer = WriterStub(tmp_path, blocked=True)
+        engine, _writer, clock, claim = make_engine(tmp_path, writer=writer)
+        engine.start(make_config(tmp_path, fps=10, duration_s=1))
+        feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=1)
+        engine.stop('user_stop')
+        engine.discard_pending()
+        assert claim.owner is None
+        assert engine.result().short_delivery is True
+
+    def test_start_failure_releases_claim(self, tmp_path, monkeypatch):
+        # Nothing outside start() ever holds a reference to this engine, so
+        # if start() strands the claim no caller can free it.
+        engine, _writer, _clock, claim = make_engine(tmp_path)
+        real_thread = threading.Thread
+
+        def _no_threads(*args, **kwargs):
+            raise RuntimeError('scripted thread exhaustion')
+
+        monkeypatch.setattr(threading, 'Thread', _no_threads)
+        with pytest.raises(RuntimeError):
+            engine.start(make_config(tmp_path, fps=5, duration_s=1))
+        monkeypatch.setattr(threading, 'Thread', real_thread)
+        assert claim.owner is None
+
+    def test_start_failure_leaves_engine_startable_again(self, tmp_path, monkeypatch):
+        engine, _writer, clock, claim = make_engine(tmp_path)
+
+        def _no_threads(*args, **kwargs):
+            raise RuntimeError('scripted thread exhaustion')
+
+        real_thread = threading.Thread
+        monkeypatch.setattr(threading, 'Thread', _no_threads)
+        with pytest.raises(RuntimeError):
+            engine.start(make_config(tmp_path, fps=5, duration_s=1))
+        monkeypatch.setattr(threading, 'Thread', real_thread)
+        engine.start(make_config(tmp_path, fps=5, duration_s=1))
+        feed_uniform(engine, clock, FrameFeed(), delivery_fps=20, duration_s=2)
+        assert engine.wait_for_drain(timeout=5)
+        assert claim.owner is None
+
+    def test_failed_start_publishes_no_manifest(self, tmp_path):
+        # The literal, not the module constant: this test must import and
+        # run against a tree where the constant does not exist yet.
+        engine, _writer, _clock, claim = make_engine(tmp_path)
+        engine.start(make_config(tmp_path, fps=5, duration_s=1))
+        engine.stop('start_failed')
+        assert engine.wait_for_drain(timeout=5)
+        assert engine.result().manifest_path is None
+        assert not list(pathlib.Path(tmp_path).glob('*.json'))
+        assert claim.owner is None

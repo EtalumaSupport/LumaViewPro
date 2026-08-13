@@ -348,6 +348,12 @@ class VideoWriter:
             logger.warning('VideoWriter.close() called without adding any frames.')
 
     @property
+    def frame_count(self) -> int:
+        """Frames successfully encoded into the container so far."""
+        with self._frame_lock:
+            return self._frame_count
+
+    @property
     def dropped_frames(self) -> int:
         """Frames the encoder failed to write during this recording."""
         with self._frame_lock:

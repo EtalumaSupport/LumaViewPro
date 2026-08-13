@@ -57,7 +57,11 @@ from modules.recording_frames import (
 from modules.recording_manifest import gather_host_provenance
 from modules.stack_builder import StackBuilder
 from modules.video_cadence import StallWatch, effective_recording_fps, stall_threshold_s
-from modules.video_recording import RecordingConfig, VideoRecordingEngine
+from modules.video_recording import (
+    END_REASON_START_FAILED,
+    RecordingConfig,
+    VideoRecordingEngine,
+)
 from modules.video_writer import VideoWriter
 
 # The channel LumaViewPro comes up on. A recording that can name no other
@@ -369,29 +373,75 @@ class ManualRecordingController:
         # Engine start is the commit point: it acquires the claim or
         # raises. Assign controller state only after it succeeds.
         engine.start(config)
-        self._engine = engine
-        self._config = config
-        self._plan = plan
-        self._writer = writer
-        self._start_ts = self._clock()
-        self._stall_watch = StallWatch(stall_threshold_s(effective_fps, exposure / 1000.0))
-        self._rebaser = CameraTickRebaser(identity['timestamp_tick_frequency_hz'], self._clock)
-        self._hyperstack_rows = [] if hyperstack else None
-        self._last_disk_check_ts = 0.0
-        self._on_complete = on_complete
-        if plan.video_as_frames:
-            save_folder.mkdir(exist_ok=True, parents=True)
+        try:
+            self._engine = engine
+            self._config = config
+            self._plan = plan
+            self._writer = writer
+            self._start_ts = self._clock()
+            self._stall_watch = StallWatch(stall_threshold_s(effective_fps, exposure / 1000.0))
+            self._rebaser = CameraTickRebaser(identity['timestamp_tick_frequency_hz'], self._clock)
+            self._hyperstack_rows = [] if hyperstack else None
+            self._last_disk_check_ts = 0.0
+            self._on_complete = on_complete
+            if plan.video_as_frames:
+                save_folder.mkdir(exist_ok=True, parents=True)
 
-        scope.imaging.add_frame_listener(self._on_camera_frame, name='manual_recording')
-        self._finish_thread = threading.Thread(
-            target=self._finish_after_drain, name='ManualRecordingFinish', daemon=True
-        )
-        self._finish_thread.start()
+            scope.imaging.add_frame_listener(self._on_camera_frame, name='manual_recording')
+            self._finish_thread = threading.Thread(
+                target=self._finish_after_drain, name='ManualRecordingFinish', daemon=True
+            )
+            self._finish_thread.start()
+        except BaseException:
+            # Past the commit point the engine holds the claim, and this is
+            # the only frame holding the writer -- the engine is handed a
+            # write_frame callable and can never close it.
+            self._unwind_failed_start(engine, writer)
+            raise
         logger.info(
             f'[ManualRecord] Recording started: {effective_fps:.2f} fps, '
             f'max {duration_s:.0f} s, {"frames" if video_as_frames else "mp4"} '
             f'-> {save_folder}'
         )
+
+    def _unwind_failed_start(self, engine: VideoRecordingEngine, writer: Any) -> None:
+        """Undo a start that raised after the engine committed.
+
+        Order matters: stop delivering frames, then end the recording so
+        the writer lane drains and frees the claim, and only then dispose
+        the artifact -- disposing first would leave the lane writing into
+        a closed encoder and count those frames as saved.
+        """
+        try:
+            self._scope.imaging.remove_frame_listener(self._on_camera_frame)
+        except Exception as e:
+            # The listener registers late in start(), so an earlier failure
+            # unwinds without one ever having been added.
+            logger.debug(f'[ManualRecord] listener removal during start unwind: {e}')
+
+        # Deliberately does not wait for the drain: the lane only has to pop
+        # a sentinel to exit and free the claim, and blocking here would run
+        # on the single-worker camera executor, so a wedged writer would take
+        # the executor down with it rather than just this recording.
+        try:
+            engine.stop(END_REASON_START_FAILED)
+        except Exception:
+            logger.exception('[ManualRecord] engine did not end cleanly during start unwind')
+
+        if writer is not None:
+            try:
+                writer.close()
+                if writer.frame_count == 0:
+                    # A start that never completed leaves an empty container
+                    # behind; the next recording's collision resolver would
+                    # otherwise rename around a file holding no frames.
+                    writer.output_path.unlink(missing_ok=True)
+            except Exception:
+                logger.exception('[ManualRecord] writer disposal failed during start unwind')
+
+        self._engine = None
+        self._writer = None
+        self._finish_thread = None
 
     def stop(self, reason: str = 'user_stop') -> None:
         """Close selection; the drain and finish continue on their own.
@@ -576,17 +626,23 @@ class ManualRecordingController:
         except Exception as e:
             logger.debug(f'[ManualRecord] listener removal at finish: {e}')
 
-        result = engine.result()
-        dropped = result.write_failures
+        result = None
+        writer_dropped = 0
         try:
+            # Close the encoder before reading measured truth. An unclosed
+            # container is a corrupt file on disk, while the result is only a
+            # report -- and result() raises when the engine never finished
+            # finalizing, which is exactly when the close matters most.
             if self._writer is not None:
                 self._writer.close()
                 # The MP4 writer swallows per-frame encode errors into its
                 # own counter; fold them into the user-facing total. The
                 # manifest carries the engine-counted failures -- the
                 # frames+manifest leg is the reference artifact.
-                dropped += self._writer.dropped_frames
+                writer_dropped = self._writer.dropped_frames
                 logger.info(f'[ManualRecord] Video written to {self._writer.output_path}')
+
+            result = engine.result()
 
             if self._hyperstack_rows is not None:
                 self._build_hyperstack()
@@ -599,19 +655,24 @@ class ManualRecordingController:
                 'assembled. Frames already written are on disk; check the log.',
             )
         finally:
-            if dropped > 0 and not result.aborted:
-                notifications.warning(
-                    'Recording',
-                    'Video Frames Dropped',
-                    f'{dropped} of {result.frames_selected} frame(s) could not '
-                    'be written, so the saved video is shorter than the '
-                    'recording. Check the log for the cause.',
+            # Reporting needs the measured truth; completing the recording
+            # does not. Keeping them apart is what lets the callback fire --
+            # and the UI leave its recording state -- after a failed finish.
+            if result is not None:
+                dropped = result.write_failures + writer_dropped
+                if dropped > 0 and not result.aborted:
+                    notifications.warning(
+                        'Recording',
+                        'Video Frames Dropped',
+                        f'{dropped} of {result.frames_selected} frame(s) could not '
+                        'be written, so the saved video is shorter than the '
+                        'recording. Check the log for the cause.',
+                    )
+                logger.info(
+                    f'[ManualRecord] Finished: {result.frames_written} written, '
+                    f'{result.write_failures} failed, measured '
+                    f'{result.measured_fps:.2f} fps over {result.measured_duration_s:.2f} s'
                 )
-            logger.info(
-                f'[ManualRecord] Finished: {result.frames_written} written, '
-                f'{result.write_failures} failed, measured '
-                f'{result.measured_fps:.2f} fps over {result.measured_duration_s:.2f} s'
-            )
             if self._on_complete is not None:
                 try:
                     self._on_complete()

@@ -59,7 +59,11 @@ from modules.video_cadence import (
     prologue_stall_threshold_s,
     stall_threshold_s,
 )
-from modules.video_recording import RecordingConfig, VideoRecordingEngine
+from modules.video_recording import (
+    END_REASON_START_FAILED,
+    RecordingConfig,
+    VideoRecordingEngine,
+)
 from modules.video_writer import VideoWriter
 
 # Outcomes of run_blocking(), consumed by ProtocolImageWriter's video leg.
@@ -320,8 +324,17 @@ class ProtocolVideoStep:
             notify=notifications,
         )
         engine.start(config)
-        self._engine = engine
-        scope.imaging.add_frame_listener(self._on_camera_frame, name=f'protocol_video:{self._name}')
+        try:
+            self._engine = engine
+            scope.imaging.add_frame_listener(
+                self._on_camera_frame, name=f'protocol_video:{self._name}'
+            )
+        except BaseException:
+            # The nested claim leaks nothing to the session, but a step left
+            # recording never satisfies the runner's end-of-run wait, so the
+            # whole run hangs on a step that never began.
+            self._unwind_failed_start(engine)
+            raise
         logger.info(
             f'[PROTOCOL-VIDEO] Recording started: {fps:.2f} fps, {duration_s:.0f} s, '
             f'{"frames" if self._video_as_frames else "mp4"} -> {self._output_dir}'
@@ -548,6 +561,34 @@ class ProtocolVideoStep:
     # Post-drain finish (per-step thread; the protocol thread moves on)
     # ------------------------------------------------------------------
 
+    def _unwind_failed_start(self, engine: VideoRecordingEngine) -> None:
+        """Undo a step start that raised after the engine committed.
+
+        Order matters: stop delivering frames, then end the recording so
+        the writer lane drains, and only then dispose the artifact --
+        disposing first would leave the lane writing into a closed encoder.
+        """
+        try:
+            self._scope.imaging.remove_frame_listener(self._on_camera_frame)
+        except Exception as e:
+            logger.debug(f'[PROTOCOL-VIDEO] listener removal during start unwind: {e}')
+
+        try:
+            engine.stop(END_REASON_START_FAILED)
+        except Exception:
+            logger.exception('[PROTOCOL-VIDEO] engine did not end cleanly during start unwind')
+
+        if self._writer is not None:
+            try:
+                self._writer.close()
+                if self._writer.frame_count == 0:
+                    self._writer.output_path.unlink(missing_ok=True)
+            except Exception:
+                logger.exception('[PROTOCOL-VIDEO] writer disposal failed during start unwind')
+            self._writer = None
+
+        self._engine = None
+
     def _finish_after_drain(self) -> None:
         """Wait out the drain, close artifacts, record the row, report."""
         engine = self._engine
@@ -557,16 +598,21 @@ class ProtocolVideoStep:
                 done = total - engine.pending_writes
                 self._set_title('set_writing_title', progress=done / total * 100)
 
-        result = engine.result()
-        dropped = result.write_failures
+        result = None
+        writer_dropped = 0
         try:
+            # Close the encoder before reading measured truth: an unclosed
+            # container is a corrupt file on disk, while the result is only
+            # a report -- and result() raises when the engine never finished
+            # finalizing, which is exactly when the close matters most.
             if self._writer is not None:
                 self._writer.close()
                 # The MP4 writer swallows per-frame encode errors into its
                 # own counter; fold them into the user-facing total. The
                 # manifest carries the engine-counted failures.
-                dropped += self._writer.dropped_frames
+                writer_dropped = self._writer.dropped_frames
                 logger.info(f'[PROTOCOL-VIDEO] Video written to {self._writer.output_path}')
+            result = engine.result()
         except Exception:
             logger.exception('[PROTOCOL-VIDEO] Post-drain finish failed')
             notifications.error(
@@ -576,48 +622,57 @@ class ProtocolVideoStep:
                 'assembled. Frames already written are on disk; check the log.',
             )
         finally:
-            if result.aborted:
-                # The engine already surfaced writer-lane death at
-                # critical severity; arm the run abort without a second
-                # popup and leave an honest no-artifact row.
-                self._abort_run_on_writer_death()
+            self._reset_title()
+            if result is None:
+                # The finish failed before any measured truth existed. The
+                # step still owes the run a row: a video step that vanishes
+                # from the execution record reads as one that never ran.
                 self._record_dropped_capture(
-                    reason='video_write_failed', capture_time=self._start_dt
-                )
-            elif result.frames_written == 0:
-                # The row's reason is the engine's recorded end reason --
-                # a camera death and a user stop must not share a label.
-                self._record_dropped_capture(
-                    reason=f'video_{result.end_reason}', capture_time=self._start_dt
+                    reason='video_finalize_failed', capture_time=self._start_dt
                 )
             else:
-                if self._writer is not None:
-                    artifact_name = self._writer.output_path.name
+                dropped = result.write_failures + writer_dropped
+                if result.aborted:
+                    # The engine already surfaced writer-lane death at
+                    # critical severity; arm the run abort without a second
+                    # popup and leave an honest no-artifact row.
+                    self._abort_run_on_writer_death()
+                    self._record_dropped_capture(
+                        reason='video_write_failed', capture_time=self._start_dt
+                    )
+                elif result.frames_written == 0:
+                    # The row's reason is the engine's recorded end reason --
+                    # a camera death and a user stop must not share a label.
+                    self._record_dropped_capture(
+                        reason=f'video_{result.end_reason}', capture_time=self._start_dt
+                    )
                 else:
-                    artifact_name = self._output_dir.name
-                self._record_step_row(
-                    capture_result_file_name=artifact_name,
-                    frame_count=result.frames_written,
-                    duration_sec=result.measured_duration_s,
-                    timestamp=self._start_dt,
+                    if self._writer is not None:
+                        artifact_name = self._writer.output_path.name
+                    else:
+                        artifact_name = self._output_dir.name
+                    self._record_step_row(
+                        capture_result_file_name=artifact_name,
+                        frame_count=result.frames_written,
+                        duration_sec=result.measured_duration_s,
+                        timestamp=self._start_dt,
+                    )
+                if dropped > 0 and not result.aborted:
+                    # The center's protocol mute suppresses this popup during
+                    # an unattended run; the manifest and end-of-run report
+                    # carry the counts either way.
+                    notifications.warning(
+                        'Protocol',
+                        'Video Frames Dropped',
+                        f'{dropped} of {result.frames_selected} frame(s) in a video step '
+                        'could not be written, so that video is shorter than its '
+                        'recording. Check the log for the cause.',
+                    )
+                logger.info(
+                    f'[PROTOCOL-VIDEO] Finished: {result.frames_written} written, '
+                    f'{result.write_failures} failed, measured '
+                    f'{result.measured_fps:.2f} fps over {result.measured_duration_s:.2f} s'
                 )
-            if dropped > 0 and not result.aborted:
-                # The center's protocol mute suppresses this popup during
-                # an unattended run; the manifest and end-of-run report
-                # carry the counts either way.
-                notifications.warning(
-                    'Protocol',
-                    'Video Frames Dropped',
-                    f'{dropped} of {result.frames_selected} frame(s) in a video step '
-                    'could not be written, so that video is shorter than its '
-                    'recording. Check the log for the cause.',
-                )
-            self._reset_title()
-            logger.info(
-                f'[PROTOCOL-VIDEO] Finished: {result.frames_written} written, '
-                f'{result.write_failures} failed, measured '
-                f'{result.measured_fps:.2f} fps over {result.measured_duration_s:.2f} s'
-            )
 
     # ------------------------------------------------------------------
     # UI titles (dispatched to the UI scheduler; callbacks may be absent)
