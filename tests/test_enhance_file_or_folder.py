@@ -69,6 +69,15 @@ def test_enhance_progress_is_counted_and_each_saved_image_reaches_the_main_viewe
     assert 'bump_protocol_hold' in viewer_method
 
 
+def test_enhance_completion_hides_the_derived_output_path():
+    callback = _class_method_source(
+        'ui/post_processing.py', 'QuickEnhanceControls', '_export_callback'
+    )
+
+    assert "summary = 'Enhance complete.'" in callback
+    assert "f'Saved: {saved_path}'" not in callback
+
+
 def test_stitching_manual_matches_the_stage_constrained_mode_router():
     manual = (REPO / 'docs' / 'STITCHING.md').read_text(encoding='utf-8')
     router = (REPO / 'modules' / 'stitching_core.py').read_text(encoding='utf-8')
