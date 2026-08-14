@@ -25,6 +25,7 @@ module-level lock. Writes are line-buffered -- no tail-buffer loss on crash.
 """
 
 import atexit
+import csv
 import os
 import threading
 import time
@@ -80,7 +81,16 @@ def disable():
 
 
 def trace(filename, header, fields):
-    """Append one row to the named CSV. No-op when disabled."""
+    """Append one row to the named CSV. No-op when disabled.
+
+    A field's CONTENT can never change how many columns the row has: the row
+    goes through csv.writer, which quotes commas, quotes and newlines. Call
+    sites used to carry that duty themselves and it was honoured at some and
+    missed at others -- the motion monitor's axis field is a ','.join of the
+    moving axes, so every simultaneous XY poll wrote one column too many under
+    a header that never changed shape. Rows like that still parse, so the
+    damage arrives as quietly wrong numbers rather than as an error.
+    """
     if not ENABLE_PROFILE_TRACE:
         return
     try:
@@ -89,11 +99,19 @@ def trace(filename, header, fields):
             if fh is None:
                 path = _output_dir / filename
                 need_header = not path.exists()
-                fh = open(path, 'a', buffering=1)  # noqa: SIM115 -- long-lived handle stored in _writers, closed in disable() via atexit
+                # newline='' is csv's requirement, not a preference: without
+                # it the writer's terminator gets translated again on Windows
+                # and every row is followed by a blank one. utf-8 is explicit
+                # because traced fields carry user-supplied text -- a step
+                # name outside the platform's default codepage would raise
+                # inside the except below and lose the row silently.
+                fh = open(path, 'a', newline='', encoding='utf-8', buffering=1)  # noqa: SIM115 -- long-lived handle stored in _writers, closed in disable() via atexit
                 if need_header:
                     fh.write(header + '\n')
                 _writers[filename] = fh
-            fh.write(','.join(str(x) for x in fields) + '\n')
+            # lineterminator matches the header write above; the default would
+            # emit \r\n for rows and leave the header with a bare \n.
+            csv.writer(fh, lineterminator='\n').writerow([str(x) for x in fields])
     except Exception as e:
         logger.warning(f'[PROFILE   ] trace write failed ({filename}): {e}')
 

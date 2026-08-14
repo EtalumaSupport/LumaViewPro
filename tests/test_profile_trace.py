@@ -1,6 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Tests for the opt-in profile_trace module."""
 
+import csv
 import os
 import sys
 import threading
@@ -73,6 +74,69 @@ class TestTrace:
         profile_trace.trace('a.csv', 'col1,col2', ['y', 2])
         lines = (tmp_path / 'a.csv').read_text().splitlines()
         assert lines == ['col1,col2', 'x,1', 'y,2']
+
+
+def _read_rows(path):
+    """Parse a trace CSV the way any consumer would.
+
+    ``newline=''`` is csv's documented requirement on the READ side too --
+    without it a quoted field containing a newline is split across records.
+    """
+    with open(path, newline='', encoding='utf-8') as fh:
+        return list(csv.reader(fh))
+
+
+class TestFieldContentCannotShiftColumns:
+    """A field's CONTENT must never change how many columns a row has.
+
+    These rows were shifted, not hypothetically but in production:
+    modules/lumascope_api/motion.py builds its `axis` field as
+    ','.join(moving_axes), so every simultaneously-moving XY poll wrote a
+    6-field row under a 5-column header. Two other call sites defended
+    themselves with a per-call .replace(',', ';'); two did not. Quoting
+    belongs to the writer, so no call site has to remember.
+    """
+
+    def test_comma_bearing_field_stays_one_column(self, tmp_path):
+        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.trace('c.csv', 'a,b,c', ['x', 'Well A1, BF', 'z'])
+        rows = _read_rows(tmp_path / 'c.csv')
+        assert rows[0] == ['a', 'b', 'c']
+        assert rows[1] == ['x', 'Well A1, BF', 'z']
+
+    def test_motion_trace_multi_axis_field_stays_one_column(self, tmp_path):
+        # The exact shape motion.py emits: header of 5, axis field 'X,Y'.
+        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.trace(
+            'motion_trace.csv',
+            'ts_ms,duration_ms,event,axis,detail',
+            [1234, '0.500', 'poll', 'X,Y', ''],
+        )
+        rows = _read_rows(tmp_path / 'motion_trace.csv')
+        assert len(rows[1]) == len(rows[0]) == 5
+        assert rows[1][3] == 'X,Y'
+
+    def test_quote_bearing_field_round_trips(self, tmp_path):
+        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.trace('q.csv', 'a,b', ['say "hi"', 'end'])
+        rows = _read_rows(tmp_path / 'q.csv')
+        assert rows[1] == ['say "hi"', 'end']
+
+    def test_newline_bearing_field_stays_one_record(self, tmp_path):
+        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.trace('n.csv', 'a,b', ['line1\nline2', 'end'])
+        rows = _read_rows(tmp_path / 'n.csv')
+        assert len(rows) == 2, 'embedded newline split the row into two records'
+        assert rows[1] == ['line1\nline2', 'end']
+
+    def test_rows_are_not_double_spaced(self, tmp_path):
+        """csv.writer on a handle opened without newline='' doubles line
+        endings on Windows. Assert no blank records survive the round trip."""
+        profile_trace.enable(output_dir=tmp_path)
+        profile_trace.trace('d.csv', 'a,b', [1, 2])
+        profile_trace.trace('d.csv', 'a,b', [3, 4])
+        rows = _read_rows(tmp_path / 'd.csv')
+        assert rows == [['a', 'b'], ['1', '2'], ['3', '4']]
 
 
 class TestTimer:

@@ -727,7 +727,9 @@ class SerialBoard:
                 'ts_ms,duration_ms,board,command,response_lines',
                 lambda: [
                     self._label.strip('[] '),
-                    command.strip().replace(',', ';')[:40],
+                    # The truncation is deliberate; the comma substitution that
+                    # used to sit here is not needed -- the writer quotes.
+                    command.strip()[:40],
                     response_numlines,
                 ],
             ):
