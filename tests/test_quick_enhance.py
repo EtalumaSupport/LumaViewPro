@@ -407,7 +407,7 @@ def test_fixed_recipe_deepens_a_close_bead_pair_saddle_without_lifting_backgroun
         return centerline[2:7].min() / min(centerline[:2].max(), centerline[-2:].max())
 
     assert saddle_to_peak(result) < saddle_to_peak(image) * 0.9
-    assert result[0, 0] == 0
+    assert result[0, 0] == image[0, 0]
 
 
 def test_folder_batch_skips_unreadable_file_and_continues(tmp_path):

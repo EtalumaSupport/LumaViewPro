@@ -14,6 +14,7 @@ Quick Enhance applies the same non-AI recipe to every selected image:
 
 1. **Global illumination correction** fits a field-scale brightness plane and divides by it multiplicatively. It does not follow or subtract individual bright structures, avoiding dark halos around them.
 2. **Auto levels** maps the 1st–99th percentile into the available image range, followed by gentle midtone brightening.
+3. **Signal-gated sharpening** applies a fixed one-pixel unsharp mask only above the background. It makes bead edges and close bead saddles clearer without amplifying the dark field.
 
 This is classical presentation processing, not AI denoising or restoration. LumaQuant Pro remains the separate AI-assisted cleanup workflow.
 

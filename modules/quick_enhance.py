@@ -23,7 +23,7 @@ from lvp_logger import logger
 from modules import common_utils, image_utils
 
 
-PIPELINE_VERSION = '2'
+PIPELINE_VERSION = '3'
 QUANTITATIVE_USE_WARNING = (
     'Quick Enhance is for visual inspection and derived exports. '
     'Use raw images for quantitative analysis. '
@@ -76,15 +76,36 @@ class QuickEnhancer:
         return errors
 
     @staticmethod
-    def _source_channel(source_path: pathlib.Path) -> str | None:
-        metadata = image_utils.read_postproc_input_metadata(source_path) or {}
+    def _legacy_false_color_channel(source_pixels: np.ndarray) -> tuple[str, int] | None:
+        """Return the channel encoded by a legacy one-plane RGB TIFF, if any."""
+        if source_pixels.ndim != 3 or source_pixels.shape[2] != 3:
+            return None
+        nonzero_channels = [index for index in range(3) if source_pixels[..., index].any()]
+        if len(nonzero_channels) != 1:
+            return None
+        index = nonzero_channels[0]
+        return ('Red', 'Green', 'Blue')[index], index
+
+    @classmethod
+    def _source_channel(
+        cls,
+        source_path: pathlib.Path,
+        *,
+        source_pixels: np.ndarray | None = None,
+        source_metadata: dict | None = None,
+    ) -> str | None:
+        metadata = source_metadata or image_utils.read_postproc_input_metadata(source_path) or {}
         channel = metadata.get('channel')
         if isinstance(channel, str) and channel:
             return channel
+        if source_pixels is not None:
+            legacy_channel = cls._legacy_false_color_channel(source_pixels)
+            if legacy_channel is not None:
+                return legacy_channel[0]
         # Some ImageJ-style monochrome TIFFs do not round-trip the channel
-        # field through read_postproc_input_metadata. LVP names include the
-        # layer as a token, so use that explicit label -- not pixel appearance.
-        tokens = {token.upper() for token in re.split(r'[^A-Za-z0-9]+', source_path.stem)}
+        # field through read_postproc_input_metadata. A channel may follow a
+        # numeric acquisition prefix (for example ``0green_s``), so letters
+        # rather than digits form the conservative filename boundary.
         channel_by_token = {
             'BF': 'BF',
             'PC': 'PC',
@@ -96,7 +117,7 @@ class QuickEnhancer:
             'COMPOSITE': 'Composite',
         }
         for token, label in channel_by_token.items():
-            if token in tokens:
+            if re.search(rf'(?<![A-Za-z]){token}(?![A-Za-z])', source_path.stem, re.IGNORECASE):
                 return label
         return None
 
@@ -111,6 +132,38 @@ class QuickEnhancer:
         if image.ndim == 2 and channel in common_utils.get_image_layers():
             return image_utils.mono_to_rgb_falsecolor(image, channel)
         return image
+
+    @staticmethod
+    def _apply_guarded_unsharp(channels: np.ndarray, is_mono: bool) -> np.ndarray:
+        """Sharpen signal edges without amplifying the dark background."""
+        if min(channels.shape[:2]) < 3:
+            return channels
+        intensity = channels if is_mono else channels.mean(axis=2)
+        finite = intensity[np.isfinite(intensity)]
+        if finite.size == 0:
+            return channels
+        background = float(np.percentile(finite, 65.0))
+        signal_top = float(np.percentile(finite, 99.5))
+        if signal_top <= background:
+            signal_top = float(finite.max())
+        if signal_top <= background:
+            return channels
+
+        blurred = cv2.GaussianBlur(intensity.astype(np.float32, copy=False), (0, 0), 1.0)
+        signal_gate = np.clip(
+            (intensity - background) / max(signal_top - background, 1.0 / 65535.0),
+            0.0,
+            1.0,
+        )
+        sharpened_intensity = np.clip(
+            intensity + 0.65 * (intensity - blurred) * signal_gate,
+            0.0,
+            1.0,
+        )
+        if is_mono:
+            return sharpened_intensity
+        gain = sharpened_intensity / np.maximum(intensity, 1.0 / 65535.0)
+        return np.clip(channels * gain[..., np.newaxis], 0.0, 1.0)
 
     def apply(
         self,
@@ -174,13 +227,11 @@ class QuickEnhancer:
         black, white = np.percentile(
             finite, (float(settings.low_percentile), float(settings.high_percentile))
         )
-        if white <= black:
-            # A uniform image has no meaningful levels to stretch.  Returning
-            # a copy avoids inventing contrast (or changing it via gamma).
-            return image.copy()
-        channels = np.clip((channels - black) / (white - black), 0.0, 1.0)
-        if settings.gamma != 1.0:
-            channels = np.power(channels, float(settings.gamma), dtype=np.float32)
+        if white > black:
+            channels = np.clip((channels - black) / (white - black), 0.0, 1.0)
+            if settings.gamma != 1.0:
+                channels = np.power(channels, float(settings.gamma), dtype=np.float32)
+        channels = self._apply_guarded_unsharp(channels, is_mono)
 
         restored = image.copy()
         enhanced_channels = np.rint(np.clip(channels, 0.0, 1.0) * source_max).astype(
@@ -284,6 +335,12 @@ class QuickEnhancer:
                     'enabled': settings.denoise_enabled,
                     'kernel_size': settings.denoise_kernel_size,
                 },
+                'sharpen': {
+                    'enabled': True,
+                    'method': 'signal_gated_unsharp_mask',
+                    'sigma_px': 1.0,
+                    'gain': 0.65,
+                },
             },
             'settings': asdict(settings),
             'quantitative_use_warning': QUANTITATIVE_USE_WARNING,
@@ -296,7 +353,15 @@ class QuickEnhancer:
         display_callback: Callable[[np.ndarray, int], None] | None = None,
     ) -> dict:
         source_path = pathlib.Path(source_path)
-        image, significant_bits = image_utils.load_pixels(source_path)
+        source_pixels, significant_bits = image_utils.load_pixels(
+            source_path, collapse_legacy_false_color=False
+        )
+        legacy_channel = self._legacy_false_color_channel(source_pixels)
+        image = (
+            source_pixels[..., legacy_channel[1]].copy()
+            if legacy_channel is not None
+            else source_pixels
+        )
         output = self.apply(image, settings, significant_bits)
         output_path = self._next_output_path(source_path)
         recipe_path = output_path.with_suffix('.recipe.json')
@@ -306,7 +371,12 @@ class QuickEnhancer:
         try:
             source_metadata = image_utils.read_postproc_input_metadata(source_path) or {}
             channel = str(
-                source_metadata.get('channel') or self._source_channel(source_path) or 'BF'
+                self._source_channel(
+                    source_path,
+                    source_pixels=source_pixels,
+                    source_metadata=source_metadata,
+                )
+                or 'BF'
             )
             metadata = image_utils.build_postproc_output_metadata(
                 input_path=source_path,
