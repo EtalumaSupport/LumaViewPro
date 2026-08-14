@@ -51,6 +51,7 @@ def make_config(
     bit_depth=8,
     timestamp_overlay=True,
     manifest_extra=None,
+    manifest_filename=video_recording_module.MANIFEST_FILENAME,
 ):
     return RecordingConfig(
         fps=fps,
@@ -62,7 +63,43 @@ def make_config(
         filename_template='frame_{n:06d}.tiff',
         timestamp_overlay=timestamp_overlay,
         manifest_extra=manifest_extra,
+        manifest_filename=manifest_filename,
     )
+
+
+class SingleFileWriterStub:
+    """Writer edge for the flat-MP4 shape: every frame lands in ONE file.
+
+    Mirrors the real MP4 writer where it matters here -- the destination is
+    resolved at the FIRST write, which is when the container opens, and an
+    existing file at the requested name pushes the write to a suffixed one.
+    So the name the caller asked for is not necessarily the name on disk.
+    """
+
+    def __init__(self, out_dir: pathlib.Path, requested_name: str):
+        self.out_dir = pathlib.Path(out_dir)
+        self.requested = self.out_dir / requested_name
+        self.output_path: pathlib.Path | None = None
+        self.frames_written = 0
+
+    def _resolve(self) -> pathlib.Path:
+        if not self.requested.exists():
+            return self.requested
+        n = 1
+        while True:
+            candidate = self.requested.with_name(
+                f'{self.requested.stem}_{n:06d}{self.requested.suffix}'
+            )
+            if not candidate.exists():
+                return candidate
+            n += 1
+
+    def __call__(self, image, timestamp_s, frame_number, config, chunks=None) -> pathlib.Path:
+        if self.output_path is None:
+            self.output_path = self._resolve()
+            self.output_path.write_bytes(b'')
+        self.frames_written += 1
+        return self.output_path
 
 
 def make_engine(tmp_path, *, clock=None, writer=None, claim=None, notify=None):
@@ -298,6 +335,75 @@ class TestManifestTruth:
         manifest = json.loads(manifest_path.read_text())
         missing = REQUIRED_MANIFEST_KEYS - set(manifest)
         assert not missing, f'manifest missing keys: {sorted(missing)}'
+
+
+class TestManifestNamesTheArtifactItDescribes:
+    """A manifest belongs to the file that was written, not the one requested.
+
+    The flat-MP4 leg shares one folder across recordings, so two recordings
+    starting inside the same wall-clock second ask for the same video name.
+    The writer renames the second one; a manifest named from the request
+    would then overwrite the first recording's manifest AND describe a video
+    it never measured.
+    """
+
+    def _record(self, tmp_path, clock_start, frames, requested='Video_same_second.mp4'):
+        writer = SingleFileWriterStub(tmp_path, requested)
+        engine, _w, clock, _c = make_engine(tmp_path, writer=writer)
+        engine.start(make_config(tmp_path, fps=5, duration_s=10, manifest_filename=None))
+        feed = FrameFeed()
+        for _ in range(frames):
+            clock.advance(1.0 / 5)
+            image, ts, chunk = feed.frame(clock(), with_camera_chunks=True)
+            engine.ingest_frame(image, ts, chunk)
+        engine.stop('user_stop')
+        assert engine.wait_for_drain(timeout=5)
+        return engine.result(), writer
+
+    def test_same_second_recordings_each_keep_their_own_manifest(self, tmp_path):
+        first, first_writer = self._record(tmp_path, 0.0, frames=3)
+        second, second_writer = self._record(tmp_path, 0.0, frames=7)
+
+        # The writer renamed the second video; the manifests must follow.
+        assert first_writer.output_path != second_writer.output_path
+        assert first.manifest_path != second.manifest_path
+        assert first.manifest_path.exists() and second.manifest_path.exists()
+
+        # Each manifest describes the video whose name it carries -- the
+        # failure this pins is a manifest reporting the OTHER recording's
+        # frame count.
+        for result, writer in ((first, first_writer), (second, second_writer)):
+            manifest = json.loads(result.manifest_path.read_text())
+            assert result.manifest_path.stem == f'{writer.output_path.stem}_manifest'
+            assert manifest['frames_written'] == writer.frames_written
+
+    def test_manifest_takes_the_name_the_writer_resolved(self, tmp_path):
+        (tmp_path / 'Video_taken.mp4').write_bytes(b'')  # force the rename
+        result, writer = self._record(tmp_path, 0.0, frames=2, requested='Video_taken.mp4')
+        assert writer.output_path.name == 'Video_taken_000001.mp4'
+        assert result.manifest_path.name == 'Video_taken_000001_manifest.json'
+
+    def test_a_pinned_name_still_wins(self, tmp_path):
+        engine, _writer, clock, _ = make_engine(tmp_path)
+        engine.start(make_config(tmp_path, fps=5, duration_s=1))
+        feed_uniform(engine, clock, FrameFeed(), delivery_fps=10, duration_s=1)
+        engine.stop('user_stop')
+        assert engine.wait_for_drain(timeout=5)
+        result = engine.result()
+        assert result.manifest_path.name == video_recording_module.MANIFEST_FILENAME
+
+    def test_a_recording_that_wrote_nothing_leaves_no_manifest(self, tmp_path):
+        writer = SingleFileWriterStub(tmp_path, 'Video_empty.mp4')
+        engine, _w, _clock, _c = make_engine(tmp_path, writer=writer)
+        engine.start(make_config(tmp_path, fps=5, duration_s=10, manifest_filename=None))
+        engine.stop('user_stop')
+        assert engine.wait_for_drain(timeout=5)
+        # No frames, so no container was ever opened and no file exists to
+        # attach a manifest to. Naming one after the request would describe
+        # a file that was never created.
+        assert writer.output_path is None
+        assert engine.result().manifest_path is None
+        assert list(tmp_path.glob('*_manifest.json')) == []
 
 
 class TestManifestWriteFailureIsLoud:

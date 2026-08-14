@@ -375,14 +375,14 @@ class ManualRecordingController:
             filename_template=manual_frame_filename_template(),
             timestamp_overlay=video_settings.get('timestamp_overlay', True),
             manifest_extra=manifest_extra,
-            # The MP4 leg's artifacts share the flat Manual folder, so
-            # its manifest is named per recording; the frames leg owns a
-            # per-recording folder and keeps the default name.
-            manifest_filename=(
-                'recording_manifest.json'
-                if video_as_frames
-                else f'Video_{start_time_str}_manifest.json'
-            ),
+            # The MP4 leg's artifacts share the flat Manual folder, so its
+            # manifest is named after the video the writer actually wrote --
+            # the writer renames itself on collision, so two recordings
+            # inside one second write two videos, and a manifest named from
+            # the start timestamp would describe whichever one it did not
+            # measure. The frames leg owns a per-recording folder and keeps
+            # the default name.
+            manifest_filename=('recording_manifest.json' if video_as_frames else None),
         )
 
         hyperstack = (

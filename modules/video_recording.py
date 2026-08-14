@@ -104,10 +104,13 @@ class RecordingConfig:
             camera identity, channel color) merged into the manifest.
             Engine-measured fields always win on key collision -- the
             engine is the authority on measured truth.
-        manifest_filename: Manifest name inside ``output_dir``. Callers
-            whose artifacts share a folder across recordings (the flat
-            MP4 leg) name it per recording so manifests never overwrite
-            each other; per-recording folders keep the default.
+        manifest_filename: Manifest name inside ``output_dir``, or None to
+            name it after the file this recording actually writes. Callers
+            whose artifacts share a folder across recordings (the flat MP4
+            leg) pass None: the writer is the only authority on its own
+            name, because it renames itself on collision, and a manifest
+            named any other way describes a file it did not measure.
+            Per-recording folders keep the default.
     """
 
     fps: float
@@ -119,7 +122,7 @@ class RecordingConfig:
     filename_template: str
     timestamp_overlay: bool
     manifest_extra: dict | None = None
-    manifest_filename: str = MANIFEST_FILENAME
+    manifest_filename: str | None = MANIFEST_FILENAME
 
     @property
     def frame_budget(self) -> int:
@@ -233,6 +236,11 @@ class VideoRecordingEngine:
         self._pending = 0
         self._frames_selected = 0
         self._frames_written = 0
+        # The artifact this recording actually produced, as reported by the
+        # write edge. A writer may not take the name it was asked for -- an
+        # MP4 writer renames on collision -- so a manifest named from the
+        # REQUESTED name can end up describing a different recording's file.
+        self._last_written_path: pathlib.Path | None = None
         self._write_failures = 0
         self._timestamps: list[float] = []
         self._chunks: list = []
@@ -477,7 +485,9 @@ class VideoRecordingEngine:
                         'ts_ms,duration_ms,frame_number,pending',
                         lambda n=frame_number: [n, self._pending],
                     ):
-                        self._write_frame(image, timestamp_s, frame_number, self._config, chunks)
+                        written_path = self._write_frame(
+                            image, timestamp_s, frame_number, self._config, chunks
+                        )
                 except Exception as ex:
                     with self._lock:
                         self._write_failures += 1
@@ -491,6 +501,7 @@ class VideoRecordingEngine:
                 else:
                     with self._lock:
                         self._frames_written += 1
+                        self._last_written_path = written_path
                 finally:
                     with self._lock:
                         self._pending -= 1
@@ -559,11 +570,18 @@ class VideoRecordingEngine:
         grade = 'camera' if timestamps and self._all_frames_carried_chunks else 'host'
         short_delivery = self._frames_written < self._config.frame_budget
         manifest_path = None
+        manifest_name = self._manifest_name()
         # An aborted recording has no trustworthy measured truth to publish,
-        # and a failed start has nothing to describe at all; both get a
+        # a failed start has nothing to describe at all, and a recording that
+        # produced no artifact has nothing to attach a manifest to; all get a
         # result in memory but no manifest on disk.
-        if not self._aborted and self._end_reason != END_REASON_START_FAILED:
+        if (
+            not self._aborted
+            and self._end_reason != END_REASON_START_FAILED
+            and manifest_name is not None
+        ):
             manifest_path = self._write_manifest(
+                name=manifest_name,
                 measured_fps=measured_fps,
                 measured_duration=measured_duration,
                 grade=grade,
@@ -586,8 +604,30 @@ class VideoRecordingEngine:
             end_reason=self._end_reason,
         )
 
+    def _manifest_name(self) -> str | None:
+        """The manifest's filename, or None when nothing exists to name it after.
+
+        A caller whose artifacts share a folder across recordings leaves the
+        name unpinned, and the manifest takes the name of the file this
+        recording actually wrote. That file is the only authority: an MP4
+        writer renames itself on collision, so two recordings starting in one
+        second produce two differently-named videos, and manifests built from
+        the requested name would collapse onto one -- overwriting each other
+        and describing the wrong video.
+
+        None means the recording wrote nothing, so there is no artifact for a
+        manifest to describe.
+        """
+        pinned = self._config.manifest_filename
+        if pinned is not None:
+            return pinned
+        if self._last_written_path is None:
+            return None
+        return f'{self._last_written_path.stem}_manifest.json'
+
     def _write_manifest(
         self,
+        name: str,
         measured_fps: float,
         measured_duration: float,
         grade: str,
@@ -623,7 +663,7 @@ class VideoRecordingEngine:
                 ],
             }
         )
-        path = pathlib.Path(self._config.output_dir) / self._config.manifest_filename
+        path = pathlib.Path(self._config.output_dir) / name
         try:
             path.write_text(json.dumps(manifest, indent=2))
         except OSError as ex:
