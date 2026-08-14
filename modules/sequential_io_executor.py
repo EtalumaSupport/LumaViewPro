@@ -1121,6 +1121,7 @@ class SequentialIOExecutor:
                         f'{exec_ms:.3f}',
                         type(exception).__name__ if exception is not None else '',
                     ],
+                    recording_id=profile_trace.NO_RECORDING,
                 )
         with self._caller_futures_lock:
             caller_fut = self.caller_futures.pop(task, None)

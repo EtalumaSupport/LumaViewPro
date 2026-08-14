@@ -156,6 +156,7 @@ class FrameValidity:
                     counter + skip,
                     len(self._pending),
                 ],
+                recording_id=profile_trace.NO_RECORDING,
             )
 
     def count_frame(self, chunk_data: dict | None = None, frame_ts=None):
@@ -213,6 +214,7 @@ class FrameValidity:
                 'frame_validity_trace.csv',
                 'ts_ms,event,source,frame_counter,target_frame,pending_count',
                 [int(time.time() * 1000), 'settled', '+'.join(settled), counter, counter, pending],
+                recording_id=profile_trace.NO_RECORDING,
             )
 
     def _is_source_settled_unlocked(self, source: str, target: int) -> bool:

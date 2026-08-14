@@ -663,6 +663,7 @@ class PylonCamera(Camera):
                     f'{rfr:.3f}' if rfr is not None else None,
                     temp_state,
                 ],
+                recording_id=profile_trace.NO_RECORDING,
             )
 
             # --- Thread counts ---
@@ -685,6 +686,7 @@ class PylonCamera(Camera):
                     'ts_ms,pylon_native_grab_count,pylon_worker_count,'
                     'dummy_count,total_thread_count',
                     [ts_ms, n_pylon_native, n_pylon_worker, n_dummy, n_total],
+                    recording_id=profile_trace.NO_RECORDING,
                 )
             except Exception as e:
                 logger.debug(f'[INSTR PYLON ] thread-count poll error: {e}')
@@ -2766,6 +2768,7 @@ class PylonCamera(Camera):
                         _outcome,
                         f'{timeout_s:.3f}',
                     ],
+                    recording_id=profile_trace.NO_RECORDING,
                 )
 
     def set_frame_size(self, w, h) -> None:
@@ -4073,6 +4076,7 @@ class ImageHandler(pylon.ImageEventHandler):
                             # schema stability.
                             0,
                         ],
+                        recording_id=profile_trace.NO_RECORDING,
                     )
             except BaseException as e:
                 _log_safely(f'profile_trace.trace raised {type(e).__name__}: {e}')
