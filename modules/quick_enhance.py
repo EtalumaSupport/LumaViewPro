@@ -143,7 +143,7 @@ class QuickEnhancer:
         if finite.size == 0:
             return channels
         background = float(np.percentile(finite, 65.0))
-        signal_top = float(np.percentile(finite, 99.5))
+        signal_top = float(np.percentile(finite, 95.0))
         if signal_top <= background:
             signal_top = float(finite.max())
         if signal_top <= background:
