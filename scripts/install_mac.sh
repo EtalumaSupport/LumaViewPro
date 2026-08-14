@@ -35,7 +35,7 @@ done
 if [ ${#FOUND[@]} -eq 0 ]; then
     if command -v python3 &>/dev/null; then
         py_minor=$(python3 -c "import sys; print(sys.version_info.minor)")
-        if [ "$py_minor" -ge 11 ] && [ "$py_minor" -le 13 ]; then
+        if [ "$py_minor" -ge 12 ] && [ "$py_minor" -le 13 ]; then
             ver=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')")
             FOUND+=("$ver")
             FOUND_CMDS+=("python3")

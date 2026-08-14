@@ -13,7 +13,7 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 VENV_DIR="$PROJECT_DIR/venv"
 
 MIN_MAJOR=3
-MIN_MINOR=11
+MIN_MINOR=12
 MAX_MINOR=13
 
 # --- Install system dependencies ---

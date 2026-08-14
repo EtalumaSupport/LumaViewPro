@@ -181,7 +181,7 @@ build-backend = "setuptools.build_meta"
 name = "hello-postproc"
 version = "0.1.0"
 description = "Hello-world post-processor for LumaViewPro."
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 authors = [{name = "Your Name", email = "you@example.com"}]
 
 [project.entry-points."lvp.plugins"]

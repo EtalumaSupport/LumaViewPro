@@ -19,7 +19,7 @@ The warning retires when the first non-`-beta` LumaViewPro release ships (the `4
 LumaViewPro controls Etaluma microscopes: LED illumination, XYZ stage + turret motion, and camera image acquisition. This document is the integration reference for developers building scripts, headless automation, or external control applications on top of LumaViewPro.
 
 **Repository**: `EtalumaSupport/LumaViewPro`
-**Platform**: Python 3.11–3.13, Windows / macOS / Linux
+**Platform**: Python 3.12–3.13, Windows / macOS / Linux
 
 ---
 

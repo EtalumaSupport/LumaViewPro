@@ -3,15 +3,15 @@
 
 import os
 
-# Python version check -- must run before any imports that require 3.11+
+# Python version check -- must run before any imports that require 3.12+
 import sys
 
-if sys.version_info < (3, 11):  # noqa: UP036 -- runtime check is load-bearing UX (friendly error before deeper SyntaxError on Python 3.10).
+if sys.version_info < (3, 12):  # noqa: UP036 -- runtime check is load-bearing UX (friendly error before a deeper SyntaxError from a dependency on an unsupported Python).
     _ver = f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}'
     _msg = (
-        f'LumaViewPro requires Python 3.11 or later.\n'
+        f'LumaViewPro requires Python 3.12 or later.\n'
         f'You are running Python {_ver}.\n\n'
-        f'Supported versions: 3.11, 3.12, 3.13'
+        f'Supported versions: 3.12, 3.13'
     )
     try:
         # Try GUI dialog first
