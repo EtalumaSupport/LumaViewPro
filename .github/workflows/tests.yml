@@ -41,9 +41,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 3.12 is the FLOOR, and the floor is what a gate should test: it is the
+      # oldest interpreter we promise to work on, so it fails first. 3.13 is
+      # supported and deliberately not exercised here -- adding it is a matrix,
+      # which is a separate decision. Keep this in step with the floor declared
+      # in scripts/_find_python.py, both install scripts, and lumaviewpro.py's
+      # startup gate; a dependency floor that outruns these is what made this
+      # job unable to install anything at all.
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
           cache: pip
           cache-dependency-path: |
             requirements.txt
