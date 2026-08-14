@@ -224,12 +224,18 @@ def test_recipe_has_required_provenance_and_quantitative_warning(tmp_path):
     # The version pins the recipe GENERATION: the global-plane rework changed
     # the algorithm, the defaults, and the sidecar schema, so its outputs must
     # not be provenance-identical to generation-1 exports.
-    assert recipe['pipeline_version'] == '2'
+    assert recipe['pipeline_version'] == '3'
     assert recipe['quantitative_use_warning']
     assert recipe['input_dtype'] == 'uint16'
     assert recipe['operations']['auto_levels']['enabled'] is True
     assert recipe['operations']['illumination_correction']['enabled'] is True
     assert recipe['operations']['illumination_correction']['method'] == 'global_plane_normalization'
+    assert recipe['operations']['sharpen'] == {
+        'enabled': True,
+        'method': 'signal_gated_unsharp_mask',
+        'sigma_px': 1.0,
+        'gain': 0.65,
+    }
 
 
 def test_quantitative_warning_routes_ai_workflows_to_lumaquant_pro():
@@ -360,6 +366,48 @@ def test_green_export_is_rgb_and_a_second_run_keeps_green_metadata(tmp_path):
     assert not output[..., 0].any()
     assert not output[..., 2].any()
     assert metadata['channel'] == 'Green'
+
+
+def test_metadata_less_legacy_green_rgb_with_numeric_prefix_exports_green(tmp_path):
+    source = tmp_path / '0green_s.tiff'
+    source_data = np.zeros((32, 32, 3), dtype=np.uint8)
+    source_data[..., 1] = np.arange(32, dtype=np.uint8)[:, np.newaxis] * 8
+    tf.imwrite(source, source_data, photometric='rgb')
+    original = source.read_bytes()
+
+    exported = QuickEnhancer().export_file(source, QuickEnhanceSettings())
+    output, significant_bits = image_utils.load_pixels(
+        exported['output_path'], collapse_legacy_false_color=False
+    )
+    metadata = image_utils.read_postproc_input_metadata(exported['output_path'])
+
+    assert source.read_bytes() == original
+    assert output.shape == source_data.shape
+    assert output.dtype == np.uint8
+    assert significant_bits == 8
+    assert output[..., 1].any()
+    assert not output[..., 0].any()
+    assert not output[..., 2].any()
+    assert metadata['channel'] == 'Green'
+
+
+def test_fixed_recipe_deepens_a_close_bead_pair_saddle_without_lifting_background():
+    yy, xx = np.mgrid[:256, :256]
+    image = np.clip(
+        16
+        + 200 * np.exp(-((xx - 124) ** 2 + (yy - 128) ** 2) / (2 * 2.0**2))
+        + 200 * np.exp(-((xx - 132) ** 2 + (yy - 128) ** 2) / (2 * 2.0**2)),
+        0,
+        255,
+    ).astype(np.uint8)
+    result = QuickEnhancer().apply(image, QuickEnhanceSettings(), 8)
+
+    def saddle_to_peak(array):
+        centerline = array[128, 124:133].astype(np.float32)
+        return centerline[2:7].min() / min(centerline[:2].max(), centerline[-2:].max())
+
+    assert saddle_to_peak(result) < saddle_to_peak(image) * 0.9
+    assert result[0, 0] == image[0, 0]
 
 
 def test_folder_batch_skips_unreadable_file_and_continues(tmp_path):
