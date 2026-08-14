@@ -26,7 +26,12 @@ module-level lock. Writes are line-buffered -- no tail-buffer loss on crash.
 
 import atexit
 import csv
+import hashlib
+import json
 import os
+import platform
+import socket
+import subprocess
 import threading
 import time
 import weakref
@@ -93,7 +98,116 @@ def enable(output_dir=None):
     if not _atexit_registered:
         atexit.register(disable)
         _atexit_registered = True
+    _write_run_info()
     logger.info(f'[PROFILE   ] Trace enabled. Writing to {_output_dir}')
+
+
+def _write_run_info():
+    """Record what produced this run's rows, beside the rows themselves.
+
+    Numbers read months later are worth little without the host and build
+    that made them, and neither is recoverable from the CSVs. Written here
+    rather than asked of callers: these are process-wide facts, so a caller
+    supplying them is one more thing to forget. Written once per run, and
+    only when tracing is on, so a disabled build never pays for the
+    subprocesses this fires.
+    """
+    if _output_dir is None:
+        return
+    try:
+        info = {
+            'hostname': socket.gethostname(),
+            'platform': platform.platform(),
+            'python': platform.python_version(),
+            'defender': _defender_state(),
+        }
+        info.update(_build_identity(Path(__file__).resolve().parent.parent))
+        (_output_dir / 'run_info.json').write_text(json.dumps(info, indent=2, default=str))
+    except Exception as e:
+        logger.warning(f'[PROFILE   ] run info write failed: {e}')
+
+
+def _build_identity(repo_root):
+    """Name the build that produced this run, and say where the name came from.
+
+    `git rev-parse` is preferred and is the only source that cannot go stale.
+    It is also unavailable exactly where these runs happen: a source tree
+    downloaded as a zip has no `.git`, so git answers nothing on the bench
+    machine while answering fine on a developer clone. version.txt is the
+    fallback rather than the primary because it does not refresh under a
+    source run -- it has carried a SHA naming a commit that exists in no
+    repository.
+
+    Every field is paired with `build_identity_source` so a reader never has
+    to guess which one answered. A bare null would say "unknown" in the one
+    place whose whole purpose is stating what produced the rows.
+    """
+    sha = _git(repo_root, 'rev-parse', 'HEAD')
+    if sha:
+        return {
+            'build_identity_source': 'git',
+            'git_sha': sha,
+            'git_branch': _git(repo_root, 'rev-parse', '--abbrev-ref', 'HEAD'),
+            'git_dirty': bool(_git(repo_root, 'status', '--porcelain')),
+        }
+    identity = {
+        'build_identity_source': 'fallback -- no git metadata in this source tree',
+        'git_sha': None,
+        'git_branch': None,
+        'git_dirty': None,
+        'source_dir': repo_root.name,
+    }
+    try:
+        identity['version_txt'] = (repo_root / 'version.txt').read_text().strip()[:200]
+    except OSError as e:
+        identity['version_txt'] = f'unreadable: {e}'
+    return identity
+
+
+def _git(repo_root, *args):
+    """Run one read-only git command in the repo, or return None."""
+    try:
+        out = subprocess.run(
+            ['git', *args],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        return out.stdout.strip() if out.returncode == 0 else None
+    except Exception:
+        return None
+
+
+def _defender_state():
+    """Real-time monitoring state and exclusion paths, on Windows.
+
+    Per-frame write cost gets compared across hosts, and an antivirus
+    exclusion on one of them explains a difference that would otherwise be
+    attributed to the hardware. Asking the host beats asking the operator to
+    remember.
+    """
+    if not platform.system().startswith('Win'):
+        return 'not_windows'
+    try:
+        out = subprocess.run(
+            [
+                'powershell',
+                '-NoProfile',
+                '-Command',
+                '$p = Get-MpPreference; '
+                '"realtime_disabled=$($p.DisableRealtimeMonitoring);'
+                "exclusions=$($p.ExclusionPath -join ';')\"",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+        return out.stdout.strip() if out.returncode == 0 else 'query_failed'
+    except Exception:
+        return 'query_failed'
 
 
 def disable():
@@ -121,6 +235,30 @@ def disable():
             except Exception:
                 pass
         _writers.clear()
+    _write_csv_md5()
+
+
+def _write_csv_md5():
+    """Seal the run with an md5 of every CSV it emitted.
+
+    Two bench archives were once byte-identical -- one session delivered
+    under two names -- and it was caught by hand after both had already been
+    counted as independent replications. Comparing this file across runs
+    answers that in one diff. Best-effort: a run that cannot be sealed is
+    still a run whose rows are worth having.
+    """
+    if _output_dir is None:
+        return
+    try:
+        lines = []
+        for path in sorted(_output_dir.glob('*.csv')):
+            # md5 detects a duplicated archive; it guards nothing.
+            digest = hashlib.md5(path.read_bytes()).hexdigest()
+            lines.append(f'{digest}  {path.name}')
+        if lines:
+            (_output_dir / 'csv_md5.txt').write_text('\n'.join(lines) + '\n')
+    except Exception as e:
+        logger.warning(f'[PROFILE   ] csv md5 seal failed: {e}')
 
 
 def _check_arity(filename, header, fields):
