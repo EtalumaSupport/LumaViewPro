@@ -62,7 +62,7 @@ class _BudgetedHandler:
     auto-remove path.
     """
 
-    __slots__ = ('_consecutive_over', '_handler', '_imaging', '_name', '_removed')
+    __slots__ = ('_budget_trace', '_consecutive_over', '_handler', '_imaging', '_name', '_removed')
 
     def __init__(self, imaging: ImagingAPI, handler, name: str) -> None:
         self._imaging = imaging
@@ -70,6 +70,19 @@ class _BudgetedHandler:
         self._name = name
         self._consecutive_over = 0
         self._removed = False
+        # Budget-consumption census. The over-budget branch below already
+        # logs, but only once it is ALREADY over -- so a handler sitting just
+        # under the cap is indistinguishable from one costing nothing, right
+        # up until a faster frame rate pushes it over and the listener is
+        # auto-removed mid-recording. One writer per handler, and a handler
+        # outlives the recordings it serves, so the row's identity is the
+        # handler rather than a recording; correlate by timestamp against a
+        # recording-scoped trace.
+        self._budget_trace = profile_trace.BatchTrace(
+            'handler_budget_trace.csv',
+            'ts_ms,handler,elapsed_ms,budget_ms,consecutive_over,drop_k',
+            profile_trace.NO_RECORDING,
+        )
 
     def __call__(self, image, timestamp, chunks) -> None:
         if self._removed:
@@ -84,6 +97,17 @@ class _BudgetedHandler:
             logger.exception(f"[SCOPE API ] live_processing handler '{self._name}' raised: {e}")
             return
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
+        if profile_trace.ENABLE_PROFILE_TRACE:
+            self._budget_trace.add(
+                [
+                    f'{time.time() * 1000.0:.3f}',
+                    self._name,
+                    f'{elapsed_ms:.3f}',
+                    HANDLER_BUDGET_MS,
+                    self._consecutive_over,
+                    HANDLER_DROP_K,
+                ]
+            )
         if elapsed_ms > HANDLER_BUDGET_MS:
             self._consecutive_over += 1
             logger.warning(

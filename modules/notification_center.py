@@ -26,6 +26,8 @@ import time
 from dataclasses import dataclass, field
 from enum import IntEnum
 
+from lib import profile_trace
+
 logger = logging.getLogger('LVP.notifications')
 
 
@@ -157,16 +159,42 @@ class NotificationCenter:
         # Dedup check + shutdown suppression
         key = (category, title)
         now = time.monotonic()
+        suppressed_reason = None
         with self._lock:
             if self._shutting_down:
-                return  # logged above; listeners suppressed during close
-            if self._protocol_running and not fatal:
-                return  # logged above; non-fatal popups suppressed mid-protocol
-            last = self._dedup.get(key, 0.0)
-            if (now - last) < self._dedup_window_s:
-                return  # suppressed -- already shown recently
-            self._dedup[key] = now
-            listeners = list(self._listeners)
+                suppressed_reason = 'shutdown'  # logged above; suppressed during close
+            elif self._protocol_running and not fatal:
+                # logged above; non-fatal popups suppressed mid-protocol
+                suppressed_reason = 'protocol_running'
+            else:
+                last = self._dedup.get(key, 0.0)
+                if (now - last) < self._dedup_window_s:
+                    suppressed_reason = 'dedup'  # already shown recently
+                else:
+                    self._dedup[key] = now
+                    listeners = list(self._listeners)
+        if suppressed_reason is not None:
+            # Emitted outside the lock: the tracer takes its own module-wide
+            # lock, and nesting the two would order a pair of locks for the
+            # sake of a diagnostic. What the user never saw IS the
+            # measurement here -- the popup is currently the only carrier for
+            # these failures, so a suppressed one otherwise leaves no record
+            # anywhere that it happened.
+            if profile_trace.ENABLE_PROFILE_TRACE:
+                profile_trace.trace(
+                    'notification_suppressed_trace.csv',
+                    'ts_ms,reason,severity,category,title,fatal',
+                    [
+                        f'{time.time() * 1000.0:.3f}',
+                        suppressed_reason,
+                        getattr(severity, 'name', severity),
+                        category,
+                        title,
+                        int(bool(fatal)),
+                    ],
+                    recording_id=profile_trace.NO_RECORDING,
+                )
+            return
 
         n = Notification(
             severity=severity,

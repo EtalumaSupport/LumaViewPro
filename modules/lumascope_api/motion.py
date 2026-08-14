@@ -1474,6 +1474,7 @@ class MotionAPI:
                 'motion_trace.csv',
                 'ts_ms,duration_ms,event,axis,detail',
                 [int(time.time() * 1000), 0, 'transition', axis, f'{old_state}->{state}'],
+                recording_id=profile_trace.NO_RECORDING,
             )
 
         if state in (AxisState.MOVING, AxisState.HOMING):

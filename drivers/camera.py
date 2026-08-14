@@ -3,9 +3,11 @@ from abc import ABC, abstractmethod
 import contextlib
 import re
 import threading
+import time
 
 import numpy as np
 
+from lib import profile_trace
 from lvp_logger import logger
 
 try:
@@ -46,6 +48,22 @@ class ImageHandlerBase:
         # Snapshotted-then-released under _frame_lock at _store_frame time so
         # a slow callback never holds the SDK thread.
         self._frame_callbacks: list = []
+        # Grab-arrival census. This is the ONE site every driver funnels
+        # through, and it fires whether or not a listener is attached -- the
+        # only way to learn whether the camera keeps delivering during a
+        # protocol run, when the record listener is unregistered and nothing
+        # downstream would notice a stalled stream. Batched because a per-row
+        # write here would land inside the interval it times. Arrivals are a
+        # property of the camera rather than of a recording: this instance
+        # outlives every recording and keeps firing between them, so rows
+        # correlate to a recording by timestamp against a recording-scoped
+        # trace rather than by an id carried here.
+        self._arrival_trace = profile_trace.BatchTrace(
+            'camera_arrival_trace.csv',
+            'ts_ms,interarrival_ms,n_listeners,fanout_ms,significant_bits,frame_bytes',
+            profile_trace.NO_RECORDING,
+        )
+        self._last_arrival_t = None
 
     def get_last_image(self):
         """Return (success, image, timestamp, significant_bits). Thread-safe.
@@ -143,6 +161,15 @@ class ImageHandlerBase:
                 pixels stay together and a later format switch cannot make the
                 buffered frame's depth read wrong.
         """
+        _tracing = profile_trace.ENABLE_PROFILE_TRACE
+        if _tracing:
+            _arrive_t = time.perf_counter()
+            _gap_ms = (
+                -1.0
+                if self._last_arrival_t is None
+                else (_arrive_t - self._last_arrival_t) * 1000.0
+            )
+            self._last_arrival_t = _arrive_t
         with self._frame_lock:
             self.last_result = True
             self.last_img = image
@@ -154,11 +181,23 @@ class ImageHandlerBase:
         # Snapshot under lock + invoke outside: a callback that takes >0
         # microseconds never extends the SDK thread's lock hold past the
         # storage write. One failing callback can't block its peers.
+        _fanout_t = time.perf_counter() if _tracing else None
         for cb in cbs:
             try:
                 cb(image, timestamp, chunks)
             except Exception as e:
                 _cam_log.exception(f'[CAM Class ] frame callback raised: {e}')
+        if _tracing:
+            self._arrival_trace.add(
+                [
+                    f'{time.time() * 1000.0:.3f}',
+                    f'{_gap_ms:.3f}',
+                    len(cbs),
+                    f'{(time.perf_counter() - _fanout_t) * 1000.0:.3f}',
+                    significant_bits,
+                    getattr(image, 'nbytes', 0),
+                ]
+            )
 
     def _record_failure(self):
         """Called by subclass when a grab fails.

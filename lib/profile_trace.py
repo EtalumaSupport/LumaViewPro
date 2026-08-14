@@ -26,9 +26,15 @@ module-level lock. Writes are line-buffered -- no tail-buffer loss on crash.
 
 import atexit
 import csv
+import hashlib
+import json
 import os
+import platform
+import socket
+import subprocess
 import threading
 import time
+import weakref
 from datetime import datetime
 from pathlib import Path
 
@@ -45,23 +51,163 @@ except ImportError:
 # the divergent cached-copy shape; reads here always see the latest toggle.
 ENABLE_PROFILE_TRACE = False
 _output_dir = None
+_base_dir = None
+_run_index = 0
+_atexit_registered = False
 _lock = threading.Lock()
 _writers = {}
+_batch_traces = []
+
+# Identity for a row emitted outside any recording (serial, motion,
+# frame-validity). Sites pass it explicitly rather than omitting the argument:
+# a file whose rows cannot be partitioned by recording gets averaged across
+# recordings, and that produces a plausible wrong rate instead of a visible
+# failure.
+NO_RECORDING = '-'
 
 
 def enable(output_dir=None):
-    """Start writing trace CSVs. Safe to call multiple times."""
-    global ENABLE_PROFILE_TRACE, _output_dir
+    """Open a new run directory and start writing trace CSVs.
+
+    Args:
+        output_dir: base directory the timestamped run directories go under.
+            Defaults to ``./logs/profile``.
+
+    Every call starts a RUN: an already-running one is sealed first (batches
+    flushed, handles closed) and a fresh directory opened. This used to return
+    early when tracing was already on, which made a second run within one
+    launch impossible -- so a session that changed one axis between recordings
+    appended both to the same CSVs with nothing in the rows saying which
+    configuration produced them.
+    """
+    global ENABLE_PROFILE_TRACE, _output_dir, _base_dir, _run_index, _atexit_registered
     if ENABLE_PROFILE_TRACE:
-        return
-    if output_dir is None:
-        ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-        output_dir = Path('./logs/profile') / ts
-    _output_dir = Path(output_dir)
+        disable()
+    if output_dir is not None:
+        _base_dir = Path(output_dir)
+    elif _base_dir is None:
+        _base_dir = Path('./logs/profile')
+    _run_index += 1
+    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+    # The run index is in the name, not just the timestamp: two enable() calls
+    # inside one second would otherwise resolve to the same directory, which is
+    # the merge this exists to prevent.
+    _output_dir = _base_dir / f'{ts}_run{_run_index}'
     _output_dir.mkdir(parents=True, exist_ok=True)
     ENABLE_PROFILE_TRACE = True
-    atexit.register(disable)
+    if not _atexit_registered:
+        atexit.register(disable)
+        _atexit_registered = True
+    _write_run_info()
     logger.info(f'[PROFILE   ] Trace enabled. Writing to {_output_dir}')
+
+
+def _write_run_info():
+    """Record what produced this run's rows, beside the rows themselves.
+
+    Numbers read months later are worth little without the host and build
+    that made them, and neither is recoverable from the CSVs. Written here
+    rather than asked of callers: these are process-wide facts, so a caller
+    supplying them is one more thing to forget. Written once per run, and
+    only when tracing is on, so a disabled build never pays for the
+    subprocesses this fires.
+    """
+    if _output_dir is None:
+        return
+    try:
+        info = {
+            'hostname': socket.gethostname(),
+            'platform': platform.platform(),
+            'python': platform.python_version(),
+            'defender': _defender_state(),
+        }
+        info.update(_build_identity(Path(__file__).resolve().parent.parent))
+        (_output_dir / 'run_info.json').write_text(json.dumps(info, indent=2, default=str))
+    except Exception as e:
+        logger.warning(f'[PROFILE   ] run info write failed: {e}')
+
+
+def _build_identity(repo_root):
+    """Name the build that produced this run, and say where the name came from.
+
+    `git rev-parse` is preferred and is the only source that cannot go stale.
+    It is also unavailable exactly where these runs happen: a source tree
+    downloaded as a zip has no `.git`, so git answers nothing on the bench
+    machine while answering fine on a developer clone. version.txt is the
+    fallback rather than the primary because it does not refresh under a
+    source run -- it has carried a SHA naming a commit that exists in no
+    repository.
+
+    Every field is paired with `build_identity_source` so a reader never has
+    to guess which one answered. A bare null would say "unknown" in the one
+    place whose whole purpose is stating what produced the rows.
+    """
+    sha = _git(repo_root, 'rev-parse', 'HEAD')
+    if sha:
+        return {
+            'build_identity_source': 'git',
+            'git_sha': sha,
+            'git_branch': _git(repo_root, 'rev-parse', '--abbrev-ref', 'HEAD'),
+            'git_dirty': bool(_git(repo_root, 'status', '--porcelain')),
+        }
+    identity = {
+        'build_identity_source': 'fallback -- no git metadata in this source tree',
+        'git_sha': None,
+        'git_branch': None,
+        'git_dirty': None,
+        'source_dir': repo_root.name,
+    }
+    try:
+        identity['version_txt'] = (repo_root / 'version.txt').read_text().strip()[:200]
+    except OSError as e:
+        identity['version_txt'] = f'unreadable: {e}'
+    return identity
+
+
+def _git(repo_root, *args):
+    """Run one read-only git command in the repo, or return None."""
+    try:
+        out = subprocess.run(
+            ['git', *args],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        return out.stdout.strip() if out.returncode == 0 else None
+    except Exception:
+        return None
+
+
+def _defender_state():
+    """Real-time monitoring state and exclusion paths, on Windows.
+
+    Per-frame write cost gets compared across hosts, and an antivirus
+    exclusion on one of them explains a difference that would otherwise be
+    attributed to the hardware. Asking the host beats asking the operator to
+    remember.
+    """
+    if not platform.system().startswith('Win'):
+        return 'not_windows'
+    try:
+        out = subprocess.run(
+            [
+                'powershell',
+                '-NoProfile',
+                '-Command',
+                '$p = Get-MpPreference; '
+                '"realtime_disabled=$($p.DisableRealtimeMonitoring);'
+                "exclusions=$($p.ExclusionPath -join ';')\"",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+        return out.stdout.strip() if out.returncode == 0 else 'query_failed'
+    except Exception:
+        return 'query_failed'
 
 
 def disable():
@@ -70,6 +216,17 @@ def disable():
     if not ENABLE_PROFILE_TRACE:
         return
     ENABLE_PROFILE_TRACE = False
+    # Drain pending batches BEFORE closing the handles they write through.
+    # flush() gates on its own row list rather than the flag, so it still
+    # works after the flag is cleared.
+    with _lock:
+        # Drop refs whose owner has already been collected while we hold the
+        # lock anyway, so the registry cannot grow without bound across a long
+        # session of short recordings.
+        live = [bt for bt in (ref() for ref in _batch_traces) if bt is not None]
+        _batch_traces[:] = [weakref.ref(bt) for bt in live]
+    for bt in live:
+        bt.flush()
     with _lock:
         for fh in _writers.values():
             try:
@@ -78,10 +235,81 @@ def disable():
             except Exception:
                 pass
         _writers.clear()
+    _write_csv_md5()
 
 
-def trace(filename, header, fields):
+def _write_csv_md5():
+    """Seal the run with an md5 of every CSV it emitted.
+
+    Two bench archives were once byte-identical -- one session delivered
+    under two names -- and it was caught by hand after both had already been
+    counted as independent replications. Comparing this file across runs
+    answers that in one diff. Best-effort: a run that cannot be sealed is
+    still a run whose rows are worth having.
+    """
+    if _output_dir is None:
+        return
+    try:
+        lines = []
+        for path in sorted(_output_dir.glob('*.csv')):
+            # md5 detects a duplicated archive; it guards nothing.
+            digest = hashlib.md5(path.read_bytes()).hexdigest()
+            lines.append(f'{digest}  {path.name}')
+        if lines:
+            (_output_dir / 'csv_md5.txt').write_text('\n'.join(lines) + '\n')
+    except Exception as e:
+        logger.warning(f'[PROFILE   ] csv md5 seal failed: {e}')
+
+
+def _check_arity(filename, header, fields):
+    """Raise when a row would misalign against its header.
+
+    A misaligned row is worse than a missing one: it still parses, so every
+    column past the short one silently shifts and the damage surfaces as wrong
+    numbers rather than as an error. A header-shape check cannot cover this --
+    the sites that get it wrong are the ones a given run never exercises -- so
+    the check has to be per row.
+    """
+    expected = header.count(',') + 1
+    if len(fields) != expected:
+        raise ValueError(f'{filename}: row has {len(fields)} fields, header declares {expected}')
+
+
+def _write_rows_unlocked(filename, header, rows):
+    """Append rows to one trace file, opening and heading it on first use.
+
+    Caller holds ``_lock``. This is the ONLY place a trace file is opened and
+    the only place a row is serialized, so the row-at-a-time and the batched
+    writer cannot drift apart on quoting or on line endings. Splitting this is
+    how one writer's escaping rules come to differ from the other's.
+    """
+    fh = _writers.get(filename)
+    if fh is None:
+        path = _output_dir / filename
+        need_header = not path.exists()
+        # newline='' is csv's requirement, not a preference: without it the
+        # writer's terminator gets translated again on Windows and every row
+        # is followed by a blank one. utf-8 is explicit because traced fields
+        # carry user-supplied text -- a step name outside the platform's
+        # default codepage would raise inside the callers' except and lose the
+        # row silently.
+        fh = open(path, 'a', newline='', encoding='utf-8', buffering=1)  # noqa: SIM115 -- long-lived handle stored in _writers, closed in disable() via atexit
+        if need_header:
+            csv.writer(fh, lineterminator='\n').writerow(['recording_id', *header.split(',')])
+        _writers[filename] = fh
+    csv.writer(fh, lineterminator='\n').writerows(rows)
+
+
+def trace(filename, header, fields, *, recording_id):
     """Append one row to the named CSV. No-op when disabled.
+
+    Args:
+        filename: CSV basename inside the active output directory.
+        header: comma-separated column names, excluding the identity column.
+        fields: one value per header column.
+        recording_id: the recording this row belongs to, or NO_RECORDING.
+            Keyword-only and required so that no site can emit an
+            unattributable row.
 
     A field's CONTENT can never change how many columns the row has: the row
     goes through csv.writer, which quotes commas, quotes and newlines. Call
@@ -93,27 +321,88 @@ def trace(filename, header, fields):
     """
     if not ENABLE_PROFILE_TRACE:
         return
+    _check_arity(filename, header, fields)
     try:
         with _lock:
-            fh = _writers.get(filename)
-            if fh is None:
-                path = _output_dir / filename
-                need_header = not path.exists()
-                # newline='' is csv's requirement, not a preference: without
-                # it the writer's terminator gets translated again on Windows
-                # and every row is followed by a blank one. utf-8 is explicit
-                # because traced fields carry user-supplied text -- a step
-                # name outside the platform's default codepage would raise
-                # inside the except below and lose the row silently.
-                fh = open(path, 'a', newline='', encoding='utf-8', buffering=1)  # noqa: SIM115 -- long-lived handle stored in _writers, closed in disable() via atexit
-                if need_header:
-                    fh.write(header + '\n')
-                _writers[filename] = fh
-            # lineterminator matches the header write above; the default would
-            # emit \r\n for rows and leave the header with a bare \n.
-            csv.writer(fh, lineterminator='\n').writerow([str(x) for x in fields])
+            _write_rows_unlocked(filename, header, [[recording_id, *(str(x) for x in fields)]])
     except Exception as e:
         logger.warning(f'[PROFILE   ] trace write failed ({filename}): {e}')
+
+
+class BatchTrace:
+    """Accumulate rows in memory, write them to CSV in batches.
+
+    For trace sites whose per-row cost would perturb what they measure.
+    ``trace()`` takes the module-wide lock and the CSV handles are
+    line-buffered, so every row costs a syscall serialized against every other
+    trace site. On a camera SDK grab thread delivering 40+ fps that cost lands
+    inside the very inter-frame interval being timed, and it biases the answer
+    in one direction: the sink looks slower than it is. A row here costs a list
+    append; the syscall amortizes over ``batch_size`` frames.
+
+    Single-writer per instance: ``add()`` takes no lock, so each instance must
+    be appended to from exactly one thread. The driver fan-out and the record
+    callback both satisfy this -- each SDK fire-site is single-threaded. A
+    shared instance would need a lock, reintroducing the contention this
+    exists to avoid.
+    """
+
+    __slots__ = ('__weakref__', '_batch_size', '_filename', '_header', '_recording_id', '_rows')
+
+    def __init__(self, filename, header, recording_id, batch_size=200):
+        """Open a batched writer bound to one recording.
+
+        Args:
+            filename: CSV basename inside the active output directory.
+            header: comma-separated column names, excluding the identity column.
+            recording_id: the recording every row from this instance belongs
+                to, or NO_RECORDING. Required and positional: recordings
+                overlap -- a step's write runs on the file lane while the next
+                step captures -- so identity cannot come from a module-level
+                "current recording" without attributing rows to the wrong one.
+            batch_size: rows accumulated before a write.
+        """
+        self._filename = filename
+        self._header = header
+        self._recording_id = recording_id
+        self._batch_size = batch_size
+        self._rows = []
+        # Registry append is gated: with tracing off this instance can never
+        # accumulate a row, so registering it would grow a list that teardown
+        # walks for nothing -- on a path that constructs one per camera handler
+        # in every shipped build.
+        if ENABLE_PROFILE_TRACE:
+            with _lock:
+                # Weak refs: an instance lives as long as its owner, and the
+                # registry exists only to flush stragglers at teardown. A
+                # strong ref would retain every writer, and its buffered rows,
+                # for the life of the process.
+                _batch_traces.append(weakref.ref(self))
+
+    def add(self, fields):
+        """Record one row. No-op when disabled."""
+        if not ENABLE_PROFILE_TRACE:
+            return
+        _check_arity(self._filename, self._header, fields)
+        self._rows.append(fields)
+        if len(self._rows) >= self._batch_size:
+            self.flush()
+
+    def flush(self):
+        """Write accumulated rows. Safe to call when empty or disabled."""
+        if not self._rows:
+            return
+        rows, self._rows = self._rows, []
+        rid = self._recording_id
+        try:
+            with _lock:
+                _write_rows_unlocked(
+                    self._filename,
+                    self._header,
+                    [[rid, *(str(x) for x in r)] for r in rows],
+                )
+        except Exception as e:
+            logger.warning(f'[PROFILE   ] batch trace write failed ({self._filename}): {e}')
 
 
 class timer:  # noqa: N801 -- deliberate stdlib-style lowercase context-manager name, used as profile_trace.timer(...) across files
@@ -153,7 +442,15 @@ class timer:  # noqa: N801 -- deliberate stdlib-style lowercase context-manager 
             except Exception as e:
                 logger.warning(f'[PROFILE   ] timer extra_fn failed: {e}')
                 return
-            trace(self.filename, self.header, [ts_ms, f'{dt_ms:.3f}', *extra])
+            # Timed operations (serial round-trips, motion polls) are not
+            # scoped to a recording, so they declare that rather than
+            # inheriting an ambient one.
+            trace(
+                self.filename,
+                self.header,
+                [ts_ms, f'{dt_ms:.3f}', *extra],
+                recording_id=NO_RECORDING,
+            )
 
 
 class TimedLock:

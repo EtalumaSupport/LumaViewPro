@@ -866,6 +866,7 @@ class ProtocolImageWriter:
                         scan_count,
                         _proto_outcome,
                     ],
+                    recording_id=profile_trace.NO_RECORDING,
                 )
 
     def write_capture(
