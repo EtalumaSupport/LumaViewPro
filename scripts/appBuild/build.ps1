@@ -21,6 +21,12 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+# Bump on every load-bearing change to this file. A branch that cannot be
+# built correctly by an older copy raises scripts\appBuild\MIN_BUILD_SCRIPT_VERSION
+# to match, and the check after the clone stops the build.
+$script_version = 1
+
 $repo_url = "https://github.com/EtalumaSupport/LumaViewPro.git"
 $script_dir = Split-Path -Parent $PSCommandPath
 $config_file = Join-Path $script_dir ".build_config"
@@ -356,6 +362,35 @@ $git_sha = (& git -C $clone rev-parse HEAD 2>$null).Trim()
 $ErrorActionPreference = "Stop"
 $git_sha_short = if ($git_sha) { $git_sha.Substring(0, 7) } else { '<unknown>' }
 Write-Host "Git SHA: $git_sha ($git_sha_short)"
+
+# This script is copied to the build box by hand while every other build
+# input comes from the clone, so it is the one input that can silently be
+# older than the branch it is building. Checked here because the clone is
+# what declares the requirement, and this is the first point it exists --
+# roughly five seconds in, before venv, pip, PyInstaller and WiX.
+$min_file = Join-Path $clone "scripts\appBuild\MIN_BUILD_SCRIPT_VERSION"
+if (Test-Path $min_file) {
+    # Out-String normalises the String-vs-Object[] return that has defeated
+    # version guards in this file before; the BOM strip handles a one-line
+    # text file edited on Windows. Anchored both ends, compared as integers.
+    $min_raw = ((Get-Content $min_file -TotalCount 1 | Out-String) -replace "`u{FEFF}", '').Trim()
+    if ($min_raw -notmatch '^\d+$') {
+        Write-Host ""
+        Write-Host "ERROR: MIN_BUILD_SCRIPT_VERSION is unreadable ('$min_raw')."
+        Write-Host "  Refusing to build rather than assume this copy is current."
+        Exit 1
+    }
+    $min_version = [int]$min_raw
+    if ($script_version -lt $min_version) {
+        Write-Host ""
+        Write-Host "ERROR: your build.ps1 is v$script_version; this branch requires v$min_version."
+        Write-Host "  Copy scripts\appBuild\build.ps1 from the latest LVP and re-run."
+        Exit 1
+    }
+    Write-Host "Build script: v$script_version (branch requires v$min_version)"
+} else {
+    Write-Host "Build script: v$script_version (this branch declares no minimum)"
+}
 
 Remove-Item "$clone\.git*" -Recurse -Force -ErrorAction SilentlyContinue
 
