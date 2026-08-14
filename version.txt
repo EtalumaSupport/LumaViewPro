@@ -1,4 +1,4 @@
-4.0.0-beta26
-2026-08-14 09:20
-fix/mp4-manifest-name
-2aac4927
+4.0.0-beta27
+2026-08-13 17:33
+4.0.0-beta
+b4ff0ee6
