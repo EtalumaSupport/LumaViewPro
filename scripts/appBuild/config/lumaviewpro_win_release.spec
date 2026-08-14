@@ -215,6 +215,37 @@ if _crt_leftover:
         f'after removal: {_crt_leftover}'
     )
 
+# vcruntime140.dll and vcruntime140_1.dll are one matched set -- the
+# second is a separate library carrying the newer C++ exception
+# handler, not an older copy of the first, so neither can be dropped.
+# PyInstaller resolves each name independently through the DLL search
+# order, so the two halves can arrive from different hosts: one build
+# took vcruntime140.dll from System32 and vcruntime140_1.dll from the
+# Python install directory, nine minor versions apart. That is the
+# msvcp140 failure above wearing a different filename -- an app-root
+# runtime out of step with its companions, shadowing System32 for the
+# whole process -- and the max-version check downstream cannot see it,
+# because it compares the newest bundled file against the redistributable
+# and never compares the pair to each other. These two cannot be deleted
+# the way msvcp140 was, so they are instead taken from one source: the
+# System32 set that the chained redistributable installs. Sourcing beats
+# checking here -- it makes a split pair unconstructible rather than
+# merely detectable.
+import shutil as _shutil
+
+_system32 = _os.path.join(_os.environ.get('SystemRoot', r'C:\Windows'), 'System32')
+for _vc_name in ('vcruntime140.dll', 'vcruntime140_1.dll'):
+    _vc_src = _os.path.join(_system32, _vc_name)
+    if not _os.path.exists(_vc_src):
+        raise SystemExit(
+            f'FATAL: CRT policy: {_vc_name} not found in {_system32}. The '
+            f'app-local VC runtime is sourced there so the shipped set '
+            f'matches the runtime the installer chains. Install the VC++ '
+            f'Redistributable on the build host before building.'
+        )
+    _shutil.copy2(_vc_src, _os.path.join(_dist_root, _vc_name))
+    print(f'CRT policy: sourced app-root {_vc_name} from System32')
+
 if not _os.path.exists(_os.path.join(_dist_root, 'vcruntime140.dll')):
     raise SystemExit(
         'FATAL: CRT policy: vcruntime140.dll missing at the app root -- '
