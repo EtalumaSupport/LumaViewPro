@@ -1,6 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 """Tests for the opt-in profile_trace module."""
 
+import ast
 import csv
 import os
 import sys
@@ -13,6 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 import pytest
 
 from lib import profile_trace
+from tests.ast_seams import iter_package_modules
 
 
 @pytest.fixture(autouse=True)
@@ -137,6 +139,54 @@ class TestFieldContentCannotShiftColumns:
         profile_trace.trace('d.csv', 'a,b', [3, 4])
         rows = _read_rows(tmp_path / 'd.csv')
         assert rows == [['a', 'b'], ['1', '2'], ['3', '4']]
+
+
+def _imports_profile_trace(node):
+    """Whether an AST import statement pulls in profile_trace."""
+    if isinstance(node, ast.Import):
+        return any(a.name.endswith('profile_trace') for a in node.names)
+    if isinstance(node, ast.ImportFrom):
+        return any(a.name == 'profile_trace' for a in node.names)
+    return False
+
+
+class TestProfileTraceImportIsUnconditional:
+    """No consumer may wrap its profile_trace import in a swallowing guard.
+
+    lib/profile_trace imports only stdlib at module scope and its one logger
+    import carries a real fallback, so `from lib import profile_trace` cannot
+    legitimately raise. A guard around it therefore defends nothing and can
+    only convert a wrong import path into permanent silent disablement -- which
+    is exactly what happened: the protocol capture path imported it from the
+    wrong package and emitted nothing at all from the day it was written until
+    a packaging warning surfaced it. An ImportError here must be loud.
+    """
+
+    def test_no_consumer_guards_the_import(self):
+        offenders = []
+        for rel_path, tree in iter_package_modules(['drivers', 'lib', 'modules', 'ui']):
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Try):
+                    continue
+                guarded = any(
+                    _imports_profile_trace(stmt) for stmt in ast.walk(node) if stmt in node.body
+                )
+                if not guarded:
+                    continue
+                for handler in node.handlers:
+                    names = (
+                        [handler.type]
+                        if not isinstance(handler.type, ast.Tuple)
+                        else handler.type.elts
+                    )
+                    if any(getattr(n, 'id', None) == 'ImportError' for n in names if n):
+                        offenders.append(f'{rel_path}:{node.lineno}')
+        assert not offenders, (
+            'profile_trace import wrapped in `except ImportError` at: '
+            + ', '.join(offenders)
+            + '. The import cannot legitimately fail; a guard here turns a '
+            'wrong path into a permanently dead trace.'
+        )
 
 
 class TestTimer:

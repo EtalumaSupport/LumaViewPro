@@ -15,10 +15,7 @@ from drivers.registry import camera_registry
 from lib.log_helpers import log_to
 from lvp_logger import logger
 
-try:
-    from lib import profile_trace
-except ImportError:
-    profile_trace = None
+from lib import profile_trace
 
 try:
     from lvp_logger import camera_logger as _cam_log
@@ -427,7 +424,7 @@ class PylonCamera(Camera):
     )
 
     def _start_stats_poller(self):
-        if profile_trace is None or not profile_trace.ENABLE_PROFILE_TRACE:
+        if not profile_trace.ENABLE_PROFILE_TRACE:
             return
         # Active poller cleanup before fresh start. Naive code that
         # returns early on existing.is_alive() loses the poller across
@@ -2708,7 +2705,7 @@ class PylonCamera(Camera):
         """
         # Per-grab duration trace; zero overhead when
         # ENABLE_PROFILE_TRACE is unset (production builds).
-        _trace_enabled = profile_trace is not None and profile_trace.ENABLE_PROFILE_TRACE
+        _trace_enabled = profile_trace.ENABLE_PROFILE_TRACE
         _t0 = time.perf_counter() if _trace_enabled else None
         _outcome = 'unknown'
         dropped = 0
@@ -3919,7 +3916,7 @@ class ImageHandler(pylon.ImageEventHandler):
         node-map accessors after. The put_nowait / get pair provides
         happens-before without explicit locking.
         """
-        _trace_enabled = profile_trace is not None and profile_trace.ENABLE_PROFILE_TRACE
+        _trace_enabled = profile_trace.ENABLE_PROFILE_TRACE
         _t0 = time.perf_counter() if _trace_enabled else None
         _outcome = 'unknown'
         try:

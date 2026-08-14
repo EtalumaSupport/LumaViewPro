@@ -33,10 +33,7 @@ import threading
 import time
 from typing import ClassVar
 
-try:
-    from lib import profile_trace
-except ImportError:
-    profile_trace = None
+from lib import profile_trace
 
 
 class FrameValidity:
@@ -147,7 +144,7 @@ class FrameValidity:
         with self._lock:
             self._pending[source] = self._frame_counter + skip
             counter = self._frame_counter
-        if profile_trace is not None and profile_trace.ENABLE_PROFILE_TRACE:
+        if profile_trace.ENABLE_PROFILE_TRACE:
             profile_trace.trace(
                 'frame_validity_trace.csv',
                 'ts_ms,event,source,frame_counter,target_frame,pending_count',
@@ -211,7 +208,7 @@ class FrameValidity:
                 del self._pending[s]
             counter = self._frame_counter
             pending = len(self._pending)
-        if profile_trace is not None and profile_trace.ENABLE_PROFILE_TRACE and settled:
+        if profile_trace.ENABLE_PROFILE_TRACE and settled:
             profile_trace.trace(
                 'frame_validity_trace.csv',
                 'ts_ms,event,source,frame_counter,target_frame,pending_count',

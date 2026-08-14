@@ -28,10 +28,7 @@ import modules.protocol_recording as protocol_recording
 from modules.protocol_recording import ProtocolVideoStep
 from modules.sequential_io_executor import IOTask, PROTOCOL_QUEUE_WEDGED
 
-try:
-    from modules import profile_trace
-except ImportError:
-    profile_trace = None
+from lib import profile_trace
 
 if TYPE_CHECKING:
     from modules.image_mode import ImageCaptureConfig
@@ -510,7 +507,7 @@ class ProtocolImageWriter:
         # Wraps capture body in try/finally -- single row per capture invocation
         # captures duration + outcome + step identity, regardless of return path.
         # Disambiguates "real stall" vs "between-step pause" in the timeline.
-        _trace_enabled = profile_trace is not None and profile_trace.ENABLE_PROFILE_TRACE
+        _trace_enabled = profile_trace.ENABLE_PROFILE_TRACE
         _proto_t0 = time.perf_counter() if _trace_enabled else None
         _proto_outcome = 'unknown'
         # step is dict-like (supports .get) but not always a dict subclass --

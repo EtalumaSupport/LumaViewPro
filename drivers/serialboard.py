@@ -27,10 +27,7 @@ from drivers.raw_repl import (
     verify_firmware_running as _verify_firmware_running,
 )
 
-try:
-    from lib import profile_trace
-except ImportError:
-    profile_trace = None
+from lib import profile_trace
 
 _serial_log = logging.getLogger('LVP.serial')
 
@@ -721,7 +718,7 @@ class SerialBoard:
         stop_on_empty=False,
         expect_unsupported=False,
     ):
-        if profile_trace is not None and profile_trace.ENABLE_PROFILE_TRACE:
+        if profile_trace.ENABLE_PROFILE_TRACE:
             with profile_trace.timer(
                 'serial_trace.csv',
                 'ts_ms,duration_ms,board,command,response_lines',
