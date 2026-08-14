@@ -3,7 +3,12 @@
 
 -r requirements.txt
 
-pytest==8.3.5
+# A pin's job is to make CI run what local verification actually ran. This one
+# had drifted a full major behind the interpreter that produces every green
+# suite result we quote, so CI would have run the suite under a pytest we have
+# never used. Bump this whenever the development environment moves; a pin that
+# disagrees with the environment that validates the suite is worse than none.
+pytest==9.0.2
 pyinstaller==6.19.0
 
 # Linter + formatter. PINNED EXACTLY, and the pin is load-bearing: ruff
