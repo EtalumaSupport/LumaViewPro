@@ -367,6 +367,30 @@ if ($ver_raw -match '^\S+') { $version = $matches[0] } else { Write-Host "ERROR:
 
 $product = "LumaViewPro-$version"
 
+# Two names, because they answer different questions.
+#
+# $product identifies an ARTIFACT and carries the version: the output
+# folder, the .msi and the -setup.exe. Two builds must never overwrite
+# each other on disk, and a returned installer has to be attributable to
+# the build that produced it.
+#
+# $product_installed identifies the INSTALLED PRODUCT and must never
+# carry the version. Windows Installer reference-counts components by
+# GUID and requires each GUID to own the same resource at the same path
+# for the life of the product. Feeding a version-bearing name to
+# ProductName made the install folder, Start Menu folder and both
+# shortcut filenames change every release while their component GUIDs
+# stayed fixed -- so on upgrade the component was still referenced by
+# the incoming build, Windows Installer correctly declined to remove it,
+# and the previous release's differently-named shortcut was left behind
+# pointing at a deleted target. A stable name is what makes the
+# component contract satisfiable at all.
+#
+# The version stays visible where it belongs: Add/Remove Programs (from
+# ProductVersion), the app's own banner, version.txt, and support
+# bundles.
+$product_installed = "LumaViewPro"
+
 # The per-build output folder, established here rather than at the MSI step
 # because the diagnostics written during PyInstaller belong in it too. It
 # holds one build's complete record -- installer, bundle, log, PyInstaller
@@ -702,7 +726,7 @@ $msi_args = @(
     # once $wix_dir contains a space (e.g. a user profile with a space).
     # Package.wxs supplies the path separator, same as InstallFolderDir.
     '-d', "ProjectDir=$wix_dir",
-    '-d', "ProductName=$product",
+    '-d', "ProductName=$product_installed",
     '-d', "Version=$wix_ver"
 )
 # Pass optional FX2 INF path. Package.wxs gates the FX2 driver-install
@@ -765,7 +789,7 @@ if ($pylon_msi -and $vc_redist_exe) {
         '-d', "LVPMsiDir=$msi",
         '-d', "PylonDriverDir=$pylon_msi",
         '-d', "VCRedistExe=$vc_redist_exe",
-        '-d', "ProductName=$product",
+        '-d', "ProductName=$product_installed",
         '-d', "ProductVersion=$wix_ver"
     )
     # Pass optional IDS Peak runtime EXE + setup.iss. Bundle.wxs gates the

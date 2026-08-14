@@ -44,7 +44,18 @@
 	  <Icon Id="icon.ico" SourceFile="$(var.InstallerAssetsDir)\data\icons\icon.ico"/>
 	  <Property Id="ARPPRODUCTICON" Value="icon.ico" />
 	  <DirectoryRef Id="ApplicationProgramsFolder">
-		  <Component Id="ApplicationShortcut" Guid="90907569-ca5a-4e20-b393-2e042e9f8b93">
+		  <!-- Rotated once when ProductName stopped carrying the version.
+		       The old GUID owns a Start Menu folder and shortcut named for
+		       whichever release installed them; a component GUID may only
+		       ever own one path, so the incoming build cannot adopt those
+		       and must let them go. Rotating releases the old component so
+		       its refcount reaches zero during the upgrade and Windows
+		       Installer removes the stale folder. Now that the paths are
+		       stable this GUID is permanent: rotating it again would
+		       strand whatever it owns, which is the bug it just fixed.
+		       It also used to duplicate the Package UpgradeCode above, and
+		       one GUID naming two things is how that went unnoticed. -->
+		  <Component Id="ApplicationShortcut" Guid="b07bc132-8c03-4178-8794-def33621ee92">
 			  <Shortcut Id="ApplicationStartMenuShortcut"
 						Name="$(var.ProductName)"
 						Description="Etaluma LumaViewPro"
@@ -60,7 +71,11 @@
 	       KeyPaths. RemoveFolder is unnecessary — the desktop is a system
 	       folder, not one we created. -->
 	  <StandardDirectory Id="DesktopFolder">
-		  <Component Id="ApplicationDesktopShortcut" Guid="d9f1c4e2-7a8b-4e1f-9c3a-5b6d8e2f1a4c">
+		  <!-- Rotated once alongside the Start Menu component above, and
+		       permanent for the same reason: it releases the desktop
+		       shortcut named for the previous release so the upgrade can
+		       delete it instead of stranding it beside the new one. -->
+		  <Component Id="ApplicationDesktopShortcut" Guid="c2a8bfcf-1afd-488a-b572-671e496efe26">
 			  <Shortcut Id="DesktopShortcut"
 						Name="$(var.ProductName)"
 						Description="Etaluma LumaViewPro"
