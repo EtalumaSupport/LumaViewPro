@@ -163,11 +163,7 @@ class QuickEnhanceControls(BoxLayout):
             popup.text = self.status_text
             return
         self.last_output_folder = str(output_folder)
-        if result.get('target_is_folder'):
-            saved_path = output_folder
-        else:
-            saved_path = result['created'][0]['output_path']
-        summary = f'Saved: {saved_path}'
+        summary = 'Enhance complete.'
         popup.text = summary
         self.status_text = summary
         Clock.schedule_once(lambda _dt: popup.dismiss(), 2)

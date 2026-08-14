@@ -6,7 +6,7 @@ Quick Enhance creates a derived TIFF for visual inspection. It never changes the
 
 1. Select **Enhance**.
 2. In the native picker, choose either one supported image or a folder.
-3. Enhancement starts immediately. Every output is saved as a derived TIFF, and the main viewer briefly shows each completed image. The panel reports `Image x of y` while a folder runs, then the saved output path.
+3. Enhancement starts immediately. Every output is saved as a derived TIFF, and the main viewer briefly shows each completed image. The panel reports `Image x of y` while a folder runs, then confirms completion without displaying the output path.
 
 ## Fixed recipe
 
