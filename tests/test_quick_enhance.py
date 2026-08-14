@@ -224,12 +224,18 @@ def test_recipe_has_required_provenance_and_quantitative_warning(tmp_path):
     # The version pins the recipe GENERATION: the global-plane rework changed
     # the algorithm, the defaults, and the sidecar schema, so its outputs must
     # not be provenance-identical to generation-1 exports.
-    assert recipe['pipeline_version'] == '2'
+    assert recipe['pipeline_version'] == '3'
     assert recipe['quantitative_use_warning']
     assert recipe['input_dtype'] == 'uint16'
     assert recipe['operations']['auto_levels']['enabled'] is True
     assert recipe['operations']['illumination_correction']['enabled'] is True
     assert recipe['operations']['illumination_correction']['method'] == 'global_plane_normalization'
+    assert recipe['operations']['sharpen'] == {
+        'enabled': True,
+        'method': 'signal_gated_unsharp_mask',
+        'sigma_px': 1.0,
+        'gain': 0.65,
+    }
 
 
 def test_quantitative_warning_routes_ai_workflows_to_lumaquant_pro():
