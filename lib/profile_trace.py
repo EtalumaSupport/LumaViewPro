@@ -49,6 +49,28 @@ except ImportError:
 # Diagnostic trace gate, toggled explicitly via enable() / disable() (not
 # mirrored from a setting). Single global owning its own on/off state -- not
 # the divergent cached-copy shape; reads here always see the latest toggle.
+def _appdata_root():
+    """Where this process may read its config and write its diagnostics.
+
+    On an installed build the working directory is the install folder, which
+    is not writable -- so a CWD-relative output path fails at mkdir, and since
+    the gate below calls enable() at import time, that failure takes the whole
+    application down before it starts. lvp_logger resolves the per-user data
+    directory the application logs already live under; diagnostics belong
+    beside them, and a support bundle collects that tree wholesale.
+
+    Falls back to the source root when lvp_logger is not importable (unit
+    tests exercising this module alone) -- which is also what lvp_appdata
+    resolves to on a source run, so the developer case is unchanged.
+    """
+    try:
+        import lvp_logger
+
+        return lvp_logger.lvp_appdata
+    except (ImportError, AttributeError):
+        return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
 ENABLE_PROFILE_TRACE = False
 _output_dir = None
 _base_dir = None
@@ -86,7 +108,7 @@ def enable(output_dir=None):
     if output_dir is not None:
         _base_dir = Path(output_dir)
     elif _base_dir is None:
-        _base_dir = Path('./logs/profile')
+        _base_dir = Path(_appdata_root()) / 'logs' / 'profile'
     _run_index += 1
     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
     # The run index is in the name, not just the timestamp: two enable() calls
@@ -586,18 +608,9 @@ class TimedLock:
 def _read_settings_gate():
     from modules.settings_init import load_profile_trace_setting
 
-    # Reuse lvp_logger.lvp_appdata so the production-installed path
-    # (~/Documents/LumaViewPro <version>/data/) resolves the same way
-    # the logger's debug-mode gate does. Fall back to the source root
-    # when lvp_logger isn't importable (e.g. unit tests that exercise
-    # this module in isolation).
-    try:
-        import lvp_logger
-
-        base_dir = lvp_logger.lvp_appdata
-    except (ImportError, AttributeError):
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    result = load_profile_trace_setting(base_dir)
+    # Same root the trace output uses, so the settings this reads and the
+    # files it decides to write always resolve against one location.
+    result = load_profile_trace_setting(_appdata_root())
     # Tests that register a bare MagicMock as `modules.settings_init`
     # (without configuring `load_profile_trace_setting`) cause the call
     # above to return a MagicMock. The MagicMock is truthy under

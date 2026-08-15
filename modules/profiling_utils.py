@@ -4,6 +4,8 @@ import datetime
 import pathlib
 import pstats
 
+from lib import profile_trace
+
 
 class ProfilingHelper:
     def __init__(self, save_path: pathlib.Path | None = None):
@@ -11,7 +13,17 @@ class ProfilingHelper:
             # logs/cprofile/ -- kept distinct from logs/profile/, which is the
             # profile_trace CSV namespace; sharing the dir mixed cProfile dumps
             # with the per-frame trace CSVs.
-            self._profile_artifact_path = pathlib.Path(f'./logs/cprofile/{self._get_timestamp()}')
+            #
+            # Anchored to the per-user data directory, not the working
+            # directory: an installed build runs with its CWD in the install
+            # folder, where mkdir is denied, and this constructor's mkdir is
+            # unguarded on a path reached at startup whenever the flag is set.
+            self._profile_artifact_path = (
+                pathlib.Path(profile_trace._appdata_root())
+                / 'logs'
+                / 'cprofile'
+                / self._get_timestamp()
+            )
         else:
             self._profile_artifact_path = pathlib.Path(save_path)
 

@@ -33,7 +33,14 @@ def test_cprofile_gated_on_own_flag_not_debug_mode():
 def test_cprofile_default_dir_is_cprofile_namespace(tmp_path, monkeypatch):
     # Constructing ProfilingHelper with no save_path must land artifacts in
     # logs/cprofile/, NOT logs/profile/ (the profile_trace CSV namespace).
-    monkeypatch.chdir(tmp_path)
+    #
+    # Anchored on the data directory rather than the working directory: the
+    # default used to be CWD-relative, which an installed build cannot write
+    # to. The namespace separation is what this test is for; where the root
+    # comes from is not.
+    import lvp_logger
+
+    monkeypatch.setattr(lvp_logger, 'lvp_appdata', str(tmp_path))
     from modules.profiling_utils import ProfilingHelper
 
     helper = ProfilingHelper()

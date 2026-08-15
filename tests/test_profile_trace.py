@@ -358,6 +358,65 @@ class TestEveryTraceSitePassesIdentity:
         )
 
 
+class TestDiagnosticOutputIsWritable:
+    """Diagnostic output must never default to the working directory.
+
+    An installed build runs with its CWD in the install folder, where mkdir is
+    denied. profile_trace's gate calls enable() at import, so a CWD-relative
+    default does not merely fail to trace -- the PermissionError escapes a
+    module-level call and the application does not start. The same shape sits
+    in the cProfile helper, reached whenever its own flag is set.
+    """
+
+    def test_default_output_dir_is_under_appdata(self, tmp_path, monkeypatch):
+        import lvp_logger
+
+        monkeypatch.setattr(lvp_logger, 'lvp_appdata', str(tmp_path))
+        profile_trace._base_dir = None  # forget any base a prior test supplied
+        profile_trace.enable()
+        run = profile_trace._output_dir
+        assert run.is_absolute(), f'{run} is relative and would resolve against the CWD'
+        assert tmp_path in run.parents
+        assert run.parent == tmp_path / 'logs' / 'profile'
+
+    def test_cprofile_default_path_is_under_appdata(self, tmp_path, monkeypatch):
+        import lvp_logger
+
+        from modules.profiling_utils import ProfilingHelper
+
+        monkeypatch.setattr(lvp_logger, 'lvp_appdata', str(tmp_path))
+        helper = ProfilingHelper()
+        out = helper._profile_artifact_path
+        assert out.is_absolute()
+        assert tmp_path in out.parents
+        assert out.parent == tmp_path / 'logs' / 'cprofile'
+
+    def test_no_module_declares_a_cwd_relative_log_path(self):
+        """The cluster guard: a literal './logs...' or 'logs/...' default.
+
+        Two sites shipped this shape independently, so the fix is only durable
+        if a third cannot be added quietly. Scans source rather than behaviour
+        because the failure needs an unwritable CWD to reproduce, which no
+        developer machine has.
+        """
+        offenders = []
+        for rel_path, tree in iter_package_modules(['drivers', 'lib', 'modules', 'ui']):
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Constant) or not isinstance(node.value, str):
+                    continue
+                # './logs...' is the CWD-relative marker -- both shipped
+                # instances wrote it that way. A bare 'logs/...' is allowed
+                # because it is only ever joined to an already-resolved root.
+                if node.value.startswith('./logs'):
+                    offenders.append(f'{rel_path}:{node.lineno} {node.value!r}')
+        assert not offenders, (
+            'CWD-relative diagnostic output path(s): '
+            + ', '.join(offenders)
+            + '. Anchor to profile_trace._appdata_root() -- an installed build '
+            'cannot write to its working directory.'
+        )
+
+
 class TestTimer:
     def test_timer_writes_duration(self, tmp_path):
         profile_trace.enable(output_dir=tmp_path)
