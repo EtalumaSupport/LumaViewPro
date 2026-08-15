@@ -541,6 +541,10 @@ class TimedLock:
                 if ENABLE_PROFILE_TRACE:
                     ts_ms = int(time.time() * 1000)
                     thread_name = threading.current_thread().name
+                    # A lock is process-scoped: the same instance is held
+                    # across every recording and between them, so the row
+                    # declares that rather than claiming an ownership it
+                    # does not have.
                     trace(
                         'lock_trace.csv',
                         'ts_ms,duration_ms,lock_name,thread,acquire_wait_ms,hold_ms',
@@ -552,6 +556,7 @@ class TimedLock:
                             f'{acquire_wait_ms:.3f}',
                             f'{hold_ms:.3f}',
                         ],
+                        recording_id=NO_RECORDING,
                     )
         self._lock.release()
         return False

@@ -311,6 +311,53 @@ class TestProfileTraceImportIsUnconditional:
         )
 
 
+class TestEveryTraceSitePassesIdentity:
+    """The suite must exercise tracing ON, not merely tracing's existence.
+
+    recording_id was made required while one caller -- TimedLock.__exit__ --
+    still omitted it. Every test here had tracing enabled OR touched a lock,
+    never both, so 5000+ tests passed over a startup crash: enabling the flag
+    raised TypeError on the first lock release, which is inside
+    illumination.leds_off() during scope initialize. A simulator launch found
+    it in seconds. These two tests are the cheap standing version of that.
+    """
+
+    def test_timed_lock_writes_a_row_with_tracing_enabled(self, tmp_path):
+        profile_trace.enable(output_dir=tmp_path)
+        lock = profile_trace.TimedLock(threading.Lock(), name='unit.lock')
+        with lock:
+            pass
+        profile_trace.disable()
+        rows = _read_rows(_run_dir(tmp_path) / 'lock_trace.csv')
+        assert rows[0][0] == 'recording_id'
+        assert rows[1][0] == profile_trace.NO_RECORDING
+        assert rows[1][3] == 'unit.lock'
+
+    def test_no_trace_call_site_omits_recording_id(self):
+        """Structural cluster guard over every call, however it is spelled.
+
+        A grep for 'profile_trace.trace(' cannot see the bare 'trace(' call
+        that shipped this defect, so the check walks call nodes instead.
+        """
+        offenders = []
+        for rel_path, tree in iter_package_modules(['drivers', 'lib', 'modules', 'ui']):
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                fn = node.func
+                name = fn.attr if isinstance(fn, ast.Attribute) else getattr(fn, 'id', None)
+                if name != 'trace':
+                    continue
+                if not any(k.arg == 'recording_id' for k in node.keywords):
+                    offenders.append(f'{rel_path}:{node.lineno}')
+        assert not offenders, (
+            'trace() called without recording_id at: '
+            + ', '.join(offenders)
+            + '. The argument is required; omitting it raises at runtime, '
+            'which for a lock means every acquire/release.'
+        )
+
+
 class TestTimer:
     def test_timer_writes_duration(self, tmp_path):
         profile_trace.enable(output_dir=tmp_path)
