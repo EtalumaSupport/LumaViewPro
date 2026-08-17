@@ -163,10 +163,10 @@ class ScopeSession:
         )
         if executor_bundle is not None:
             scope.register_executor_bundle(executor_bundle, settings=settings)
-        # LAYER-I: register source_path for scope.load_protocol /
-        # create_protocol -- falls back to current working dir for the
-        # rare ScopeSession path that doesn't pass source_path.
-        scope.register_source_path(source_path)
+        # Register source_path for the protocol constructors -- falls back
+        # to current working dir for the rare ScopeSession path that
+        # doesn't pass source_path.
+        scope.protocols.register_source_path(source_path)
 
         # Optional helpers -- import and construct if available.
         # Every silent helper-init failure has a downstream AttributeError
@@ -302,8 +302,8 @@ class ScopeSession:
         # LVP-A-13: wire the bundle so metrics_logger.snapshot() reports
         # all 4 executor queue depths instead of a degraded subset.
         scope.register_executor_bundle(executor_bundle, settings=settings)
-        # LAYER-I: register source_path (defaults to "." in headless).
-        scope.register_source_path(source_path)
+        # Register source_path (defaults to "." in headless).
+        scope.protocols.register_source_path(source_path)
 
         return cls(
             settings=settings,

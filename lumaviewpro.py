@@ -880,9 +880,9 @@ class LumaViewProApp(TooltipMixin, App):
             io_executor=io_executor,
             file_io_executor=file_io_executor,
         )
-        # Register source_path so scope.load_protocol / create_protocol
-        # can resolve data/tiling.json without callers passing the path.
-        lumaview.scope.register_source_path(source_path)
+        # Register source_path so the protocol constructors can resolve
+        # data/tiling.json without callers passing the path.
+        lumaview.scope.protocols.register_source_path(source_path)
 
         autofocus_runner = AutofocusRunner(
             scope=lumaview.scope,

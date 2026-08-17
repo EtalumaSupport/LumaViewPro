@@ -206,7 +206,7 @@ class ZStack(FloatLayout):
                 }
             )
 
-            zstack_sequence = ctx.scope.create_protocol(input_config=config)
+            zstack_sequence = ctx.scope.protocols.create_protocol(input_config=config)
 
             autogain_settings = get_auto_gain_settings()
 

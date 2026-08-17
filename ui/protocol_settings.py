@@ -36,6 +36,7 @@ from modules.config_ui_getters import (
     is_image_saving_enabled,
 )
 from modules.path_utils import get_source_root
+from modules.protocol import Protocol
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
 from modules.sequential_io_executor import IOTask, PRIORITY_MED
 from ui.step_navigation import go_to_step
@@ -246,7 +247,7 @@ class ProtocolSettings(FloatLayout):
                 settings['protocol']['filepath'] = ''
 
                 protocol_config = get_sequenced_capture_config_from_ui()
-                self._protocol = ctx.scope.create_protocol(
+                self._protocol = ctx.scope.protocols.create_protocol(
                     empty_config=protocol_config,
                 )
 
@@ -255,7 +256,7 @@ class ProtocolSettings(FloatLayout):
             filepath = ''
             settings['protocol']['filepath'] = ''
             protocol_config = get_sequenced_capture_config_from_ui()
-            self._protocol = ctx.scope.create_protocol(
+            self._protocol = ctx.scope.protocols.create_protocol(
                 empty_config=protocol_config,
             )
 
@@ -337,14 +338,12 @@ class ProtocolSettings(FloatLayout):
         )
 
     def step_name_validation(self, text: str):
-        ctx = _app_ctx.ctx
-
         if (
             hasattr(self, '_protocol')
             and (self._protocol is not None)
             and (self._protocol.num_steps() > 0 and self.curr_step >= 0)
         ):
-            new_name = common_utils.resolve_step_rename(text, ctx.scope.sanitize_step_name)
+            new_name = common_utils.resolve_step_rename(text, Protocol.sanitize_step_name)
             if new_name is None:
                 # Blank field = keep the existing name; leave the field
                 # empty so the auto-name hint shows.
@@ -358,8 +357,7 @@ class ProtocolSettings(FloatLayout):
 
     def update_capture_root(self, text: str):
         # Sanitize and store capture root on protocol to avoid invalid path chars
-        ctx = _app_ctx.ctx
-        sanitized = ctx.scope.sanitize_step_name(text)
+        sanitized = Protocol.sanitize_step_name(text)
         self.ids['capture_root'].text = sanitized
         if hasattr(self, '_protocol') and (self._protocol is not None):
             self._protocol.modify_capture_root(capture_root=sanitized)
@@ -602,7 +600,7 @@ class ProtocolSettings(FloatLayout):
         # setting without re-plumbing.
 
         try:
-            protocol = ctx.scope.create_protocol(input_config=config)
+            protocol = ctx.scope.protocols.create_protocol(input_config=config)
         except Exception as e:
             logger.error(f'[LVP Main  ] Protocol creation failed: {e}')
             from ui.notification_popup import show_notification_popup
@@ -761,7 +759,7 @@ class ProtocolSettings(FloatLayout):
             raise FileNotFoundError(f'Protocol not found at {filepath}')
 
         try:
-            protocol = ctx.scope.load_protocol(file_path=filepath)
+            protocol = ctx.scope.protocols.load_protocol(file_path=filepath)
         except OSError:
             return False
 
@@ -780,7 +778,7 @@ class ProtocolSettings(FloatLayout):
             error_msg = 'Warning: Selected protocol had no steps. Empty protocol loaded.'
             protocol_config = get_sequenced_capture_config_from_ui()
 
-            protocol = ctx.scope.create_protocol(empty_config=protocol_config)
+            protocol = ctx.scope.protocols.create_protocol(empty_config=protocol_config)
 
         if protocol is None:
             logger.error(f'Unable to load protocol at {filepath}')
@@ -1207,7 +1205,7 @@ class ProtocolSettings(FloatLayout):
             # step's channel token tracks a channel change and a user label
             # rides along untouched -- no name branching needed here.
             label = common_utils.resolve_step_rename(
-                self.ids['step_name_input'].text, ctx.scope.sanitize_step_name
+                self.ids['step_name_input'].text, Protocol.sanitize_step_name
             )
 
             self._protocol.modify_step(

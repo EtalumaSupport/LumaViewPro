@@ -10021,7 +10021,6 @@ class TestCreateDiagnosticSharesInitMinimal:
         '_io_executor',
         '_file_io_executor',
         '_executor_bundle',
-        '_source_path',
         'metrics_logger',
     )
 
@@ -10376,14 +10375,18 @@ class TestLumascopeSkillsApiPluginDocBatch:
         assert hasattr(ScopeSession, 'start_application_session')
 
     def test_protocol_canonical_entry_points_documented(self):
-        # F25: name scope.load_protocol / scope.create_protocol as canonical
-        from modules.lumascope_api import Lumascope
+        # F25: the L2 doc names the canonical protocol constructors, and
+        # they exist at the address it names. The constructors moved from
+        # Lumascope to the protocols sub-API; the invariant is unchanged,
+        # only the address is. Doc and code must move together or this
+        # test catches whichever lagged.
+        from modules.lumascope_api import ProtocolsAPI
 
         doc = self._doc()
-        assert 'scope.load_protocol' in doc
-        assert 'scope.create_protocol' in doc
-        assert hasattr(Lumascope, 'load_protocol')
-        assert hasattr(Lumascope, 'create_protocol')
+        assert 'scope.protocols.load_protocol' in doc
+        assert 'scope.protocols.create_protocol' in doc
+        assert hasattr(ProtocolsAPI, 'load_protocol')
+        assert hasattr(ProtocolsAPI, 'create_protocol')
 
     def test_listener_signature_overview_present(self):
         # F20: the four differing callback signatures appear in one overview.

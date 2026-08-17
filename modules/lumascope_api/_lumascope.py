@@ -1,9 +1,7 @@
 #!/usr/bin/python3
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
-import pathlib
 import warnings
-from typing import TYPE_CHECKING
 
 from lvp_logger import logger
 
@@ -91,13 +89,6 @@ def _fire_pre_release_warning(stacklevel: int = 3) -> None:
         return
     _PRE_RELEASE_WARNING_FIRED = True
     warnings.warn(_PRE_RELEASE_WARNING_TEXT, FutureWarning, stacklevel=stacklevel)
-
-
-# Protocol is imported function-locally in the load/create methods (keeps
-# the data class off this module's import surface); declare it for the
-# return annotations without adding a runtime import.
-if TYPE_CHECKING:
-    from modules.protocol import Protocol
 
 
 # AxisState lives in the package's leaf _constants.py (so sub-API modules can
@@ -317,7 +308,6 @@ class Lumascope:
         self._io_executor = None
         self._file_io_executor = None
         self._executor_bundle = None
-        self._source_path = None
 
         # Metrics logger pre-constructed in __init__; diagnostic mode
         # leaves it None.
@@ -471,20 +461,21 @@ class Lumascope:
         )
 
         # ----- Sub-API wiring -----
-        # Six sub-APIs: motion, illumination, imaging, diagnostics,
-        # capabilities, io. motion was already constructed above (it needs
-        # earlier construction so init_axes / start_monitor can run
-        # before the LED/camera drivers are set up). Remaining sub-APIs:
+        # motion was already constructed above (it needs earlier
+        # construction so init_axes / start_monitor can run before the
+        # LED/camera drivers are set up). Remaining sub-APIs:
         from modules.lumascope_api.illumination import IlluminationAPI
         from modules.lumascope_api.imaging import ImagingAPI
         from modules.lumascope_api.diagnostics import DiagnosticsAPI
         from modules.lumascope_api.io import IOAPI
+        from modules.lumascope_api.protocols import ProtocolsAPI
         from modules.lumascope_api.runtime_state import RuntimeState
 
         self.illumination = IlluminationAPI(self, self._led_driver)
         self.imaging = ImagingAPI(self, self._camera_driver)
         self.diagnostics = DiagnosticsAPI(self)
         self.io = IOAPI(self)
+        self.protocols = ProtocolsAPI(self)
         self.runtime_state = RuntimeState(self)
 
         # Partial-hardware notification deferred to initialize(config) --
@@ -785,118 +776,6 @@ class Lumascope:
             if settings is not None:
                 self.metrics_logger._settings = settings
 
-    def register_source_path(self, source_path) -> None:
-        """Register the LVP source/data path used by protocol API methods.
-
-        Used by ``load_protocol()`` and ``create_protocol()`` to find
-        ``data/tiling.json``. Called once at startup. Tests that don't
-        drive the protocol API can skip this.
-
-        Args:
-            source_path: Path-like to the LVP source/data root.
-        """
-        self._source_path = source_path
-
-    def _tiling_configs_path(self):
-        """Resolve data/tiling.json from the registered source path."""
-
-        if self._source_path is None:
-            raise RuntimeError(
-                'Lumascope.load_protocol/create_protocol require '
-                'register_source_path() to have been called.'
-            )
-        return pathlib.Path(self._source_path) / 'data' / 'tiling.json'
-
-    # --- Protocol API (LAYER-I / LV-16) ---
-
-    def load_protocol(self, file_path) -> 'Protocol':
-        """Load a Protocol from disk.
-
-        Wraps ``Protocol.from_file(...)`` and resolves
-        ``data/tiling.json`` from the registered source_path.
-
-        Args:
-            file_path: Path to the protocol file.
-
-        Returns:
-            Protocol: The loaded Protocol instance.
-
-        Raises:
-            ProtocolFormatError: On format issues (same surface as
-                Protocol.from_file).
-        """
-        from modules.protocol import Protocol
-
-        return Protocol.from_file(
-            file_path=file_path,
-            tiling_configs_file_loc=self._tiling_configs_path(),
-        )
-
-    def create_protocol(self, *, config=None, input_config=None, empty_config=None) -> 'Protocol':
-        """Construct a Protocol in-memory.
-
-        Three modes (pass exactly one):
-          - config={...}: full config dict passed to Protocol() directly.
-          - input_config={...}: partial config (positions, layer_configs,
-            etc.); routed through Protocol.from_config which fills defaults.
-          - empty_config={...}: labware/objective config for an empty-steps
-            protocol; routed through Protocol.create_empty.
-        tiling_configs_file_loc is resolved internally from the registered
-        source_path.
-
-        Args:
-            config: Full config dict, or None.
-            input_config: Partial config dict, or None.
-            empty_config: Empty-steps config dict, or None.
-
-        Returns:
-            Protocol: Newly constructed Protocol instance.
-
-        Raises:
-            ValueError: If exactly one of config/input_config/empty_config
-                was not provided.
-        """
-        from modules.protocol import Protocol
-
-        provided = sum(1 for x in (config, input_config, empty_config) if x is not None)
-        if provided != 1:
-            raise ValueError(
-                'create_protocol(): pass exactly one of config=, input_config=, or empty_config='
-            )
-        tcfg = self._tiling_configs_path()
-        if input_config is not None:
-            return Protocol.from_config(
-                input_config=input_config,
-                tiling_configs_file_loc=tcfg,
-            )
-        if empty_config is not None:
-            return Protocol.create_empty(
-                config=empty_config,
-                tiling_configs_file_loc=tcfg,
-            )
-        return Protocol(
-            tiling_configs_file_loc=tcfg,
-            config=config,
-        )
-
-    @staticmethod
-    def sanitize_step_name(input: str) -> str:
-        """Sanitize a step name string.
-
-        Thin pass-through to ``Protocol.sanitize_step_name`` so UI /
-        module callers don't need to import the Protocol data class for
-        this utility.
-
-        Args:
-            input: Raw step name to sanitize.
-
-        Returns:
-            str: Sanitized step name.
-        """
-        from modules.protocol import Protocol
-
-        return Protocol.sanitize_step_name(input=input)
-
     def _require_executor(self, executor, name):
         if executor is None:
             raise RuntimeError(
@@ -1185,12 +1064,14 @@ class Lumascope:
         from modules.lumascope_api.imaging import ImagingAPI
         from modules.lumascope_api.diagnostics import DiagnosticsAPI
         from modules.lumascope_api.io import IOAPI
+        from modules.lumascope_api.protocols import ProtocolsAPI
         from modules.lumascope_api.runtime_state import RuntimeState
 
         instance.illumination = IlluminationAPI(instance, instance._led_driver)
         instance.imaging = ImagingAPI(instance, None)
         instance.diagnostics = DiagnosticsAPI(instance)
         instance.io = IOAPI(instance)
+        instance.protocols = ProtocolsAPI(instance)
         instance.runtime_state = RuntimeState(instance)
 
         # No-hardware probe mirrors __init__ -- diagnostic mode is never
