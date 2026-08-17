@@ -349,12 +349,23 @@ class VerticalControl(BoxLayout):
 
             ctx.lumaview.scope.runtime_state.set_objective(objective_id=objective_id)
 
+            binning_size = get_binning_from_ui()
+
+            # The optics that set image scale change here and nowhere else in
+            # a session; recording them now is what lets a returned bundle
+            # explain the scale baked into its own images.
+            common_utils.log_resolved_optics(
+                objective_id=objective_id,
+                focal_length=objective['focal_length'],
+                binning_size=binning_size,
+            )
+
             # Update UI FOV
             microscope_settings_id = ctx.motion_settings.ids['microscope_settings_id']
             fov_size = common_utils.get_field_of_view(
                 focal_length=objective['focal_length'],
                 frame_size=settings['frame'],
-                binning_size=get_binning_from_ui(),
+                binning_size=binning_size,
             )
             fov_w_text, fov_h_text = common_utils.format_field_of_view(fov_size)
             microscope_settings_id.ids['field_of_view_width_id'].text = fov_w_text

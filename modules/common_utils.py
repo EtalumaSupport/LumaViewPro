@@ -629,6 +629,55 @@ def get_pixel_size(
     return um_per_pixel * binning_size
 
 
+def log_resolved_optics(objective_id: str, focal_length: float, binning_size: int) -> None:
+    """Record the optics behind image scale, at the moment they are chosen.
+
+    Scale is written into every frame, hyperstack and still as a real
+    PhysicalSizeX, but the values producing it are read off the scope and
+    consumed in process -- so a returned support bundle could only show the
+    shipped default templates, which describe what ships rather than what this
+    scope is set to. On a bench unit the two disagreed in the fourth decimal,
+    which is the size of error a wrong-measurement report is about.
+
+    The um/px comes from get_pixel_size rather than being recomputed, so the
+    logged number cannot drift from the one written into the images. A scope
+    that cannot report its optics still logs, naming the missing input: "no
+    scale" is the condition a returned bundle most needs explained.
+    """
+    import modules.app_context as _app_ctx
+
+    ctx = _app_ctx.ctx
+    scope = None if ctx is None else ctx.scope
+    capabilities = None if scope is None else scope.capabilities
+    tube_focal_length = None if capabilities is None else capabilities.lens_focal_length_mm
+    pixel_width = None if capabilities is None else capabilities.pixel_size_um
+
+    um_per_pixel = get_pixel_size(focal_length=focal_length, binning_size=binning_size)
+
+    if um_per_pixel is None:
+        missing = [
+            name
+            for name, value in (
+                ('active scope', scope),
+                ('tube lens focal length', tube_focal_length),
+                ('sensor pixel size', pixel_width),
+            )
+            if value is None
+        ]
+        logger.warning(
+            f'[Optics   ] objective={objective_id} objective_focal_length={focal_length}mm '
+            f'binning={binning_size} -- no image scale available, missing: '
+            f'{", ".join(missing)}. Images from this scope carry no PhysicalSizeX.'
+        )
+        return
+
+    logger.info(
+        f'[Optics   ] objective={objective_id} objective_focal_length={focal_length}mm '
+        f'tube_focal_length={tube_focal_length}mm sensor_pixel_size={pixel_width}um '
+        f'binning={binning_size} -> {um_per_pixel}um/px'
+    )
+
+
 def get_field_of_view(
     focal_length: float,
     frame_size: dict,
