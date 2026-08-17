@@ -293,10 +293,6 @@ class VerticalControl(BoxLayout):
 
             show_notification_popup(title='Error', message=str(e))
 
-    def load_objective_from_settings(self):
-        settings = _app_ctx.ctx.settings
-        self.ids['objective_spinner2'] = settings['objective_id']
-
     def load_objectives(self):
         ctx = _app_ctx.ctx
         logger.info('[LVP Main  ] VerticalControl.load_objectives()')
