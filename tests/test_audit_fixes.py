@@ -10021,7 +10021,6 @@ class TestCreateDiagnosticSharesInitMinimal:
         '_io_executor',
         '_file_io_executor',
         '_executor_bundle',
-        '_source_path',
         'metrics_logger',
     )
 
