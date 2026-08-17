@@ -178,11 +178,6 @@ class TestConstructorsRefuseToGuess:
             scope.disconnect()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason='Guard A: production callers migrate to scope.protocols in the '
-    'caller-migration stage. Remove this marker in that same commit.',
-)
 def test_no_caller_reaches_the_cluster_through_scope():
     survivors = sorted(_legacy_call_sites())
     assert not survivors, 'still reaching the protocol cluster via scope: ' + ', '.join(
