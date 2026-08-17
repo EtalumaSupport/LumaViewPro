@@ -91,6 +91,54 @@ def show_notification_popup(title: str, message: str):
     return popup
 
 
+# Popups opened on behalf of a named operation, as {key: (popup, timestamp)}.
+# A long unattended job announces its start and then its outcome; without a
+# reference to what the start opened, the outcome could only stack a second
+# modal on top of a "please wait" dialog describing work that had finished.
+#
+# Touched only from the Kivy thread, inside the scheduled callback below --
+# the Popup does not exist until then, which is also why the bookkeeping
+# cannot live in the listener. Single-threaded access, so no lock.
+_operation_popups: dict = {}
+
+
+def _show_superseding(n) -> None:
+    """Open n's popup, replacing any popup still open for the same operation."""
+    key = n.operation_key
+    if not key:
+        show_notification_popup(title=n.title, message=n.message)
+        return
+
+    recorded = _operation_popups.get(key)
+    if recorded is not None:
+        popup, recorded_timestamp = recorded
+        # Kivy's clock core ships compiled, so the order in which two
+        # zero-delay callbacks are applied is not something this code can
+        # read and rely on. Comparing the notifications' own timestamps makes
+        # the order irrelevant: an older notice arriving late neither
+        # dismisses the newer popup nor puts its own stale message back up.
+        if recorded_timestamp > n.timestamp:
+            return
+        popup.dismiss()  # a no-op if the user already closed it by hand
+        del _operation_popups[key]
+
+    _operation_popups[key] = (
+        show_notification_popup(title=n.title, message=n.message),
+        n.timestamp,
+    )
+
+
+def notification_popup_bridge(n) -> None:
+    """Render a notification as a popup, on the Kivy thread.
+
+    Notification listeners run on whichever thread produced the notification,
+    so the work hops to the main thread here.
+    """
+    from kivy.clock import Clock
+
+    Clock.schedule_once(lambda dt: _show_superseding(n), 0)
+
+
 def show_confirmation_w_ack_popup(
     title: str, message: str, ack_button_text: str, on_ack: typing.Callable
 ):

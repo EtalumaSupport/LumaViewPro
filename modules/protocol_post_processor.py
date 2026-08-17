@@ -162,6 +162,16 @@ class ProtocolPostProcessor(abc.ABC):
             self._notify_unattended_result(result)
         return result
 
+    @property
+    def _unattended_operation_key(self) -> str:
+        """Ties the start notice to the outcome notice that answers it.
+
+        Both ends must name the same operation or the outcome opens a second
+        modal instead of replacing the "please wait" one. Derived in one place
+        so the two ends cannot drift apart.
+        """
+        return f'post-processing:{self._post_function.value}'
+
     def _notify_unattended_result(self, result: dict) -> None:
         fname = self._post_function.value
         if result.get('status'):
@@ -175,12 +185,18 @@ class ProtocolPostProcessor(abc.ABC):
                 # never see it (a silently skipped well looks like success).
                 accounting = result.get('accounting_note', '')
                 body = f'{new_count} {fname.lower()}(s) saved to {output_root}.{accounting}'
-            notifications.notice('Post-processing', f'{fname}s Saved', body)
+            notifications.notice(
+                'Post-processing',
+                f'{fname}s Saved',
+                body,
+                operation_key=self._unattended_operation_key,
+            )
         else:
             notifications.error(
                 'Post-processing',
                 f'{fname} Save Failed',
                 result.get('message', 'See lumaviewpro.log for details.'),
+                operation_key=self._unattended_operation_key,
             )
 
     def _load_folder_inner(
@@ -296,6 +312,7 @@ class ProtocolPostProcessor(abc.ABC):
                 f'Saving {fname}s',
                 f'Building {group_count} {fname.lower()}(s). This can take '
                 f'several minutes; a message will confirm completion.',
+                operation_key=self._unattended_operation_key,
             )
 
         # When two DIFFERENT groups would render one output filename,

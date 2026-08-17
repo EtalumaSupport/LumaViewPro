@@ -63,6 +63,12 @@ class Notification:
     timestamp: float = field(default_factory=time.monotonic)
     source: str = ''  # optional originating module/function
     fatal: bool = False  # reaches listeners even while a protocol suppresses popups
+    # Names the operation this notification is about, when it is one of a
+    # sequence describing the same piece of work -- a "starting" notice and
+    # the "finished" or "failed" notice that answers it. A UI listener can
+    # then replace the earlier message instead of stacking a second one on
+    # top of it. Empty for the ordinary standalone notification.
+    operation_key: str = ''
 
 
 class NotificationCenter:
@@ -126,11 +132,16 @@ class NotificationCenter:
         message: str,
         source: str = '',
         fatal: bool = False,
+        operation_key: str = '',
     ) -> None:
         """Post a notification.  Thread-safe.  Always logs.
 
         ``fatal`` notifications reach listeners even while a protocol
         suppresses non-fatal popups (set via ``set_protocol_running``).
+
+        ``operation_key`` marks this as one of a sequence about a single piece
+        of work, so a UI listener can replace the earlier message rather than
+        stack on it.
         """
         # Always log at the matching level
         logger.log(int(severity), f'[{category}] {title}: {message}')
@@ -204,6 +215,7 @@ class NotificationCenter:
             timestamp=now,
             source=source,
             fatal=fatal,
+            operation_key=operation_key,
         )
         for min_sev, cb in listeners:
             if severity >= min_sev:

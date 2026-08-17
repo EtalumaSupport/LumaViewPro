@@ -776,17 +776,10 @@ class LumaViewProApp(TooltipMixin, App):
         # go to the log but never reach the user as popups.
         from modules.notification_center import Severity, notifications
 
-        def _ui_notification_bridge(n):
-            from kivy.clock import Clock
-
-            from ui.notification_popup import show_notification_popup
-
-            Clock.schedule_once(
-                lambda dt: show_notification_popup(title=n.title, message=n.message), 0
-            )
+        from ui.notification_popup import notification_popup_bridge
 
         notifications.add_listener(
-            _ui_notification_bridge,
+            notification_popup_bridge,
             # NOTICE (not WARNING) so user-facing status of long unattended
             # operations crosses the bridge; INFO stays log-only.
             min_severity=Severity.DEBUG if ENGINEERING_MODE else Severity.NOTICE,
