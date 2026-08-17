@@ -2185,10 +2185,9 @@ class TechSupportReport:
             exe_dir = pathlib.Path(sys.executable).resolve().parent
             lines.append('')
             lines.append(f'C-runtime files on disk under {exe_dir}:')
-            crt_pattern = re.compile(
-                r'^(msvcp140|vcruntime140|concrt140|ucrtbase)[a-z0-9_\-]*\.dll$',
-                re.IGNORECASE,
-            )
+            from modules.app_environment import crt_dll_pattern
+
+            crt_pattern = crt_dll_pattern()
             found_any = False
             for p in sorted(exe_dir.rglob('*.dll')):
                 if crt_pattern.match(p.name):

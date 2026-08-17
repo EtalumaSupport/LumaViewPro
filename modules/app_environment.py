@@ -186,6 +186,51 @@ def camera_sdk_probe() -> list[str]:
 _CAMERA_SDK_PRELOAD_REPORT: list[str] = []
 
 
+# C-runtime DLL families the censuses report, as bare stems so a version
+# bump (msvcp140 -> msvcp150) cannot silently drop a family from view.
+# A runtime that ships but is missing from this tuple is invisible in the
+# exact report that exists to find shadowing, so the list is deliberately
+# wider than the set the app ships today: vcomp140 (OpenMP) and the
+# legacy msvcr* both shadow the same way msvcp does.
+#
+# api-ms-win-crt-* is deliberately EXCLUDED: ~40 OS-provided stubs that
+# resolve from System32 on every process and never shadow, so listing
+# them buries the entries that carry information.
+C_RUNTIME_DLL_FAMILIES = (
+    'concrt',
+    'msvcp',
+    'msvcr',
+    'ucrtbase',
+    'vcomp',
+    'vcruntime',
+)
+
+# Camera-stack modules worth reporting alongside the C runtimes -- the
+# SDKs whose native loads are what a shadowed runtime actually breaks.
+_CAMERA_STACK_FAMILIES = (
+    'gcbase',
+    'genapi',
+    'ids_',
+    'log4cpp',
+    'mathparser',
+    'nodemapdata',
+    'pylon',
+    'python3',
+    'tbb',
+    'xmlparser',
+)
+
+
+def crt_dll_pattern() -> re.Pattern:
+    """Filename matcher for C-runtime DLLs, version-agnostic.
+
+    Matches the bare family plus any version/hash suffix, so both
+    ``MSVCP140.dll`` and numpy's ``msvcp140-<hash>.dll`` are caught.
+    """
+    families = '|'.join(C_RUNTIME_DLL_FAMILIES)
+    return re.compile(rf'^({families})[a-z0-9_\-]*\.dll$', re.IGNORECASE)
+
+
 def loaded_module_census() -> list[str]:
     """Full paths of process-resident DLLs relevant to the camera stacks.
 
@@ -234,8 +279,7 @@ def loaded_module_census() -> list[str]:
         return ['<module census unavailable>']
     count = min(needed.value // ctypes.sizeof(wintypes.HMODULE), len(module_handles))
     interesting = re.compile(
-        r'ids_|tbb|genapi|gcbase|pylon|msvcp|vcruntime|concrt|ucrtbase'
-        r'|nodemapdata|xmlparser|mathparser|log4cpp|python3',
+        '|'.join(_CAMERA_STACK_FAMILIES + C_RUNTIME_DLL_FAMILIES),
         re.IGNORECASE,
     )
     paths = []

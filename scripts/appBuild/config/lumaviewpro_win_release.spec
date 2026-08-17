@@ -258,7 +258,7 @@ if not _os.path.exists(_os.path.join(_dist_root, 'vcruntime140.dll')):
 # chained redistributable is at least as new as anything bundled.
 import re as _re
 _vc_family = _re.compile(
-    r'^(msvcp140|vcruntime140|concrt140)[a-z0-9_\-]*\.dll$', _re.IGNORECASE
+    r'^(concrt|msvcp|msvcr|ucrtbase|vcomp|vcruntime)[a-z0-9_\-]*\.dll$', _re.IGNORECASE
 )
 print('CRT inventory (dist tree):')
 for _dirpath, _dirnames, _filenames in _os.walk(_dist_root):
