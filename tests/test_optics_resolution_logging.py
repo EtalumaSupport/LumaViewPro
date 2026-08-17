@@ -14,13 +14,14 @@ implementations of the scale formula would make the logged number worthless as
 evidence, which is the whole point of recording it.
 """
 
-import pathlib
+import ast
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 import modules.app_context as _app_ctx
 import modules.common_utils as common_utils
+from tests.ast_seams import find_def
 
 
 TUBE_FOCAL_LENGTH_MM = 47.8
@@ -135,13 +136,17 @@ class TestResolverStaysSilent:
         paths, far more often than the optics change. Logging inside it would
         bury the event it is meant to record.
         """
-        source = (
-            pathlib.Path(__file__).resolve().parent.parent / 'modules' / 'common_utils.py'
-        ).read_text()
-        start = source.index('def get_pixel_size(')
-        body = source[start : source.index('\ndef ', start)]
-        assert 'logger.' not in body, (
-            'get_pixel_size logs. It is called per-frame by the scale bar and '
-            'field-of-view paths; the optics record belongs at the point the '
-            'optics are chosen, not at every read.'
+        resolver = find_def('modules/common_utils.py', 'get_pixel_size')
+        offenders = [
+            node.lineno
+            for node in ast.walk(resolver)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == 'logger'
+        ]
+        assert not offenders, (
+            f'get_pixel_size logs at line(s) {offenders}. It is called per frame '
+            'by the scale bar and field-of-view paths; the optics record belongs '
+            'at the point the optics are chosen, not at every read.'
         )

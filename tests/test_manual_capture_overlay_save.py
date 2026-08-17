@@ -19,7 +19,7 @@ Only the luminescence layer offers a summing control today, which is the sole
 reason this had not been noticed.
 """
 
-import pathlib
+import ast
 import sys
 import types
 from types import ModuleType
@@ -27,6 +27,8 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
+
+from tests.ast_seams import parse_module
 
 # ui.composite_capture is a Kivy widget module; conftest mocks `kivy` but not
 # the uix submodules, and CompositeCapture subclasses FloatLayout (a bare
@@ -150,15 +152,20 @@ class TestOverlayIsSavedRegardlessOfBuildMode:
         """Structural: the mode gate cannot be reintroduced quietly.
 
         A behavioural test only covers the modes it is run in; this pins that
-        the capture path has no opinion about the build mode at all.
+        the capture path has no opinion about the build mode at all. Walks the
+        AST rather than the text, so a mention in a comment is not a failure
+        and an attribute read cannot hide behind reformatting.
         """
-        source = (
-            pathlib.Path(__file__).resolve().parent.parent / 'ui' / 'composite_capture.py'
-        ).read_text()
-        assert 'engineering_mode' not in source, (
-            'ui/composite_capture.py consults engineering_mode again. What a '
-            'capture writes follows from which overlays are switched on, not '
-            'from how the application was built.'
+        tree = parse_module('ui/composite_capture.py')
+        offenders = [
+            node.lineno
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Attribute) and node.attr == 'engineering_mode'
+        ]
+        assert not offenders, (
+            f'ui/composite_capture.py reads engineering_mode at line(s) '
+            f'{offenders}. What a capture writes follows from which overlays '
+            'are switched on, not from how the application was built.'
         )
 
 

@@ -16,13 +16,8 @@ cannot return anywhere in the UI.
 """
 
 import ast
-import pathlib
 
-
-def _ui_modules():
-    ui_dir = pathlib.Path(__file__).resolve().parent.parent / 'ui'
-    for path in sorted(ui_dir.rglob('*.py')):
-        yield path, ast.parse(path.read_text())
+from tests.ast_seams import iter_package_modules
 
 
 def test_no_ui_module_assigns_over_a_widget_in_the_ids_dict():
@@ -32,7 +27,7 @@ def test_no_ui_module_assigns_over_a_widget_in_the_ids_dict():
     formatted or multi-target assignment cannot slip past.
     """
     offenders = []
-    for path, tree in _ui_modules():
+    for rel_path, tree in iter_package_modules(['ui']):
         for node in ast.walk(tree):
             if not isinstance(node, ast.Assign):
                 continue
@@ -46,7 +41,7 @@ def test_no_ui_module_assigns_over_a_widget_in_the_ids_dict():
                     and isinstance(container.value, ast.Name)
                     and container.value.id == 'self'
                 ):
-                    offenders.append(f'{path.name}:{node.lineno}')
+                    offenders.append(f'{rel_path}:{node.lineno}')
 
     assert not offenders, (
         'assignment over a Kivy ids entry at: '

@@ -16,34 +16,43 @@ which makes the failure notice the call site most likely to be forgotten, and
 the one a test has to hold.
 """
 
-import pathlib
+import ast
 import sys
 from types import ModuleType, SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 
-# ui.notification_popup builds real Kivy widgets at import time; conftest mocks
-# `kivy` but not these submodules. The bridge under test never constructs a
-# widget -- show_notification_popup is replaced below -- so permissive mocks
-# are enough here.
-for _name in (
-    'kivy.clock',
-    'kivy.uix',
-    'kivy.uix.boxlayout',
-    'kivy.uix.button',
-    'kivy.uix.label',
-    'kivy.uix.popup',
-    'kivy.uix.scrollview',
-    'kivy.metrics',
-    'kivy.core.window',
-):
-    sys.modules.setdefault(_name, MagicMock())
+from tests.ast_seams import parse_module
 
-if 'kivy.lang' not in sys.modules:
-    _lang = ModuleType('kivy.lang')
-    _lang.Builder = MagicMock()
-    sys.modules['kivy.lang'] = _lang
+# ui.notification_popup imports Kivy widget classes at module scope; conftest
+# mocks `kivy` but not these submodules.
+#
+# These are REAL stub classes, not MagicMocks, and that distinction is
+# load-bearing across the whole suite: sys.modules entries planted here
+# outlive this module, and ui/file_dialogs.py does
+# `class FileChooseBTN(HoverBehavior, Button)`. A MagicMock Button makes that
+# a metaclass conflict at import time, which surfaces as errors in whichever
+# unrelated test file happens to import file_dialogs later.
+
+
+class _StubWidget:
+    def __init__(self, *args, **kwargs):
+        pass
+
+
+for _name, _attr in (
+    ('kivy.uix.boxlayout', 'BoxLayout'),
+    ('kivy.uix.button', 'Button'),
+    ('kivy.uix.label', 'Label'),
+    ('kivy.uix.popup', 'Popup'),
+):
+    if _name not in sys.modules:
+        _module = ModuleType(_name)
+        setattr(_module, _attr, type(_attr, (_StubWidget,), {}))
+        sys.modules[_name] = _module
+
+sys.modules.setdefault('kivy.uix', MagicMock())
 
 import ui.notification_popup as notification_popup
 from modules.notification_center import Notification, Severity
@@ -176,14 +185,33 @@ class TestOrderingCannotCorruptTheState:
 
 class TestBothEndsNameTheSameOperation:
     def test_start_and_outcome_share_one_key_owner(self):
-        """The two ends deriving the key separately is how they drift apart."""
-        source = (
-            pathlib.Path(__file__).resolve().parent.parent
-            / 'modules'
-            / 'protocol_post_processor.py'
-        ).read_text()
-        assert source.count('operation_key=self._unattended_operation_key') == 3, (
-            'the start, completion and failure notices must all take the key '
-            'from the one property; a hand-spelled key at any of the three '
-            'drifts and the popup stops being replaced.'
+        """The two ends deriving the key separately is how they drift apart.
+
+        Walks the AST rather than the text, so a reformatted or line-wrapped
+        call still counts and a mention inside a comment does not.
+        """
+        tree = parse_module('modules/protocol_post_processor.py')
+        from_the_property = 0
+        hand_spelled = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            for keyword in node.keywords:
+                if keyword.arg != 'operation_key':
+                    continue
+                value = keyword.value
+                if isinstance(value, ast.Attribute) and value.attr == '_unattended_operation_key':
+                    from_the_property += 1
+                else:
+                    hand_spelled.append(node.lineno)
+
+        assert not hand_spelled, (
+            f'operation_key spelled by hand at line(s) {hand_spelled}. Both ends '
+            'must take it from the one property, or the outcome notice stops '
+            'matching the start notice and opens a second popup instead.'
+        )
+        assert from_the_property == 3, (
+            f'expected the start, completion and failure notices to carry the '
+            f'key; found {from_the_property}. The failure path is the one that '
+            'gets forgotten, and no sim run reaches it.'
         )
