@@ -185,11 +185,6 @@ def test_no_caller_reaches_the_cluster_through_scope():
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason='Guard B: the Lumascope forwarders retire in the final stage. '
-    'Remove this marker in that same commit.',
-)
 def test_lumascope_no_longer_carries_the_protocol_cluster():
     survivors = [
         name

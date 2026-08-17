@@ -281,13 +281,16 @@ After the split, `Lumascope` is a thin facade with ~30 methods:
 - Construction: `__init__` (constructs sub-APIs, wires them together,
   registers atexit emergency shutdown)
 - Composition: holds `motion`, `illumination`, `imaging`, `diagnostics`,
-  `capabilities`, **`io`** as public attributes (six sub-APIs per pass-3 D2)
+  `capabilities`, **`io`**, `runtime_state`, **`protocols`** as public
+  attributes (eight sub-APIs; `runtime_state` split from `capabilities`
+  per §2.5, `protocols` added per §2.11)
 - Lifecycle: `disconnect`, `_emergency_shutdown`
 - Hardware presence: `motor_connected`, `led_connected`,
   `_no_hardware`, `are_all_connected`, `_notify_partial_hardware`
 - Executor wiring: `register_executors`, `register_executor_bundle`,
-  `register_source_path`, `_require_executor` (until Wave 3 retires this
-  pattern)
+  `_require_executor` (until Wave 3 retires this pattern).
+  `register_source_path` moved to `scope.protocols` with the cluster
+  that reads it (§2.11)
 - Top-level info getters: `get_microscope_model`, `get_motor_info`,
   `get_led_info`, `get_camera_info`, `get_system_info`,
   `get_camera_profile_info` (these read from the relevant sub-APIs +
@@ -399,6 +402,24 @@ GUI / Engineering plugin / REST  ->  Session  ->  Lumascope API  ->
 **L2 entry-point clarification** (pass-3 layer-audit §2.6): L2 callers (Matlab / micromanager / SDK script / REST client) target `ScopeSession`. The sub-API surface is L3/L4 visible (lives in source; appears in tests) but L2 consumers see Session methods. After Wave 7, LumascopeSkills.md restructures to lead with Session as the L2 entry point (see §6.6).
 
 **ScopeSession survives Wave 7 intact**. The dedicated REST design session (deferred per pass-2 C-6/C-7) decides REST URL convention and whether REST-side adapters change shape; ScopeSession's existence at the Session layer is NOT deferred. The decision that's deferred is the URL routing on top of Session, not Session itself.
+
+### 2.11 `scope.protocols`
+
+`ProtocolsAPI` (`modules/lumascope_api/protocols.py`) hosts the protocol-author cluster: the two public constructors, the private path helper they share, and the one piece of state all three read.
+
+**Surface**:
+- `load_protocol(file_path)` -- build a `Protocol` from a `.tsv` on disk
+- `create_protocol(config= | input_config= | empty_config=)` -- build one in memory; pass exactly one
+- `register_source_path(source_path)` -- register the installation data root the constructors resolve against
+- `_source_path` -- the registered root; single store, no copy on the composition root
+
+**Why it is a sub-API and not composition-root surface**: the cluster touches no hardware. It exists to resolve `data/tiling.json`, which is a property of the running installation rather than of any protocol, so callers never pass `tiling_configs_file_loc` by hand. Hosting it on `Lumascope` made the hardware-composition-root the home of state with a different lifetime and no hardware relationship.
+
+**Why `register_source_path` moved with it**: `source_path` arrives after construction, because the application builds the scope before it knows its own data root. That leaves a registration call somewhere. Keeping it on `Lumascope` while the slot lived on the sub-API would mean a higher layer writing a peer's private attribute; moving the setter to the same object as the state keeps the write inside the boundary that owns it.
+
+**Why the constructors raise instead of defaulting** when `source_path` was never registered: a guessed tiling config produces a protocol whose tiling geometry silently disagrees with the instrument. Loud failure at build time beats wrong geometry at run time.
+
+`sanitize_step_name` is deliberately NOT here. It was a pass-through on `Lumascope` to save callers an import; `Protocol.sanitize_step_name` is its canonical home and callers now use it directly.
 
 ---
 

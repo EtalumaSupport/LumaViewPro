@@ -12,7 +12,7 @@ and new_protocol() had no post-construction step-count guard.
 
 Fix
 ---
-After ctx.scope.create_protocol() in ProtocolSettings.new_protocol,
+After ctx.scope.protocols.create_protocol() in ProtocolSettings.new_protocol,
 check protocol.num_steps() == 0 and pop a "No Channels Selected"
 notification before queueing new_protocol_ex on the worker pool.
 

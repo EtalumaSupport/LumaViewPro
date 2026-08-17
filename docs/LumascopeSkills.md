@@ -259,7 +259,7 @@ save_image(
 
 ```python
 runner = session.create_protocol_runner()
-protocol = session.scope.load_protocol('my_protocol.tsv')
+protocol = session.scope.protocols.load_protocol('my_protocol.tsv')
 
 # image_capture_config is REQUIRED: the caller states the run's image mode
 # (bit depth + on-disk encoding) explicitly -- there is no silent default.
@@ -284,7 +284,7 @@ session.recover_file_writer()   # discards pending unsaved writes, unlocks the w
 
 Recovery is deliberate data loss: pending writes from the wedged run are discarded (they were never going to finish), and a partial file from the stuck write may remain on disk. Returns `False` when the session holds no file-IO executor (a GUI-hosted session -- use the GUI's recovery popup instead).
 
-**Canonical entry points.** Build the runner with `session.create_protocol_runner()`. Build the `Protocol` it runs with one of the two scope-level constructors -- `scope.load_protocol(file_path)` (from a `.tsv` on disk) or `scope.create_protocol(config=... | input_config=... | empty_config=...)` (in-memory). Both resolve `data/tiling.json` from the session's registered `source_path`, so prefer them over calling `Protocol.from_file(...)` directly (which makes you pass `tiling_configs_file_loc` by hand).
+**Canonical entry points.** Build the runner with `session.create_protocol_runner()`. Build the `Protocol` it runs with one of the two constructors on the protocols sub-API -- `scope.protocols.load_protocol(file_path)` (from a `.tsv` on disk) or `scope.protocols.create_protocol(config=... | input_config=... | empty_config=...)` (in-memory). Both resolve `data/tiling.json` from the session's registered `source_path`, so prefer them over calling `Protocol.from_file(...)` directly (which makes you pass `tiling_configs_file_loc` by hand).
 
 ### Video steps and recordings
 

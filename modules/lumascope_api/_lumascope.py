@@ -2,7 +2,6 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 
 import warnings
-from typing import TYPE_CHECKING
 
 from lvp_logger import logger
 
@@ -90,13 +89,6 @@ def _fire_pre_release_warning(stacklevel: int = 3) -> None:
         return
     _PRE_RELEASE_WARNING_FIRED = True
     warnings.warn(_PRE_RELEASE_WARNING_TEXT, FutureWarning, stacklevel=stacklevel)
-
-
-# Protocol is imported function-locally where it is used, keeping the
-# data class off this module's import surface; declare it here for the
-# return annotations without adding a runtime import.
-if TYPE_CHECKING:
-    from modules.protocol import Protocol
 
 
 # AxisState lives in the package's leaf _constants.py (so sub-API modules can
@@ -783,49 +775,6 @@ class Lumascope:
             self.metrics_logger._bundle = executor_bundle
             if settings is not None:
                 self.metrics_logger._settings = settings
-
-    # --- Protocol API forwarders ---
-    # The protocol cluster lives on self.protocols; these forward so
-    # existing callers keep working until they migrate. They hold no
-    # state of their own -- source_path is stored once, on ProtocolsAPI.
-
-    def register_source_path(self, source_path) -> None:
-        """Forward to ``scope.protocols.register_source_path``."""
-        self.protocols.register_source_path(source_path)
-
-    def _tiling_configs_path(self):
-        """Forward to ``scope.protocols._tiling_configs_path``."""
-        return self.protocols._tiling_configs_path()
-
-    def load_protocol(self, file_path) -> 'Protocol':
-        """Forward to ``scope.protocols.load_protocol``."""
-        return self.protocols.load_protocol(file_path=file_path)
-
-    def create_protocol(self, *, config=None, input_config=None, empty_config=None) -> 'Protocol':
-        """Forward to ``scope.protocols.create_protocol``."""
-        return self.protocols.create_protocol(
-            config=config,
-            input_config=input_config,
-            empty_config=empty_config,
-        )
-
-    @staticmethod
-    def sanitize_step_name(input: str) -> str:
-        """Sanitize a step name string.
-
-        Thin pass-through to ``Protocol.sanitize_step_name`` so UI /
-        module callers don't need to import the Protocol data class for
-        this utility.
-
-        Args:
-            input: Raw step name to sanitize.
-
-        Returns:
-            str: Sanitized step name.
-        """
-        from modules.protocol import Protocol
-
-        return Protocol.sanitize_step_name(input=input)
 
     def _require_executor(self, executor, name):
         if executor is None:
