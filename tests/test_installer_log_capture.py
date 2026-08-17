@@ -106,3 +106,88 @@ def test_startup_captures_installer_logs_after_logging_is_available():
     assert logger_import < call, (
         'the capture must run after the logger exists so its own failures are recorded'
     )
+
+
+def _make_utf16(directory: pathlib.Path, name: str, content: str) -> pathlib.Path:
+    """Write a file the way MSI writes its verbose log: UTF-16 with a BOM."""
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / name
+    path.write_bytes(b'\xff\xfe' + content.encode('utf-16-le'))
+    return path
+
+
+def test_a_utf16_installer_log_lands_as_utf8(tmp_path):
+    """MSI's verbose log is UTF-16, which costs two bytes per character for
+    no added information. These sit in the user's Documents folder and are
+    never pruned, so the copy transcodes instead of storing the wide form."""
+    temp_dir = tmp_path / 'temp'
+    log_dir = tmp_path / 'logs'
+    body = '=== Verbose logging started ===\r\nExecuting op: FileCopy(...)\r\n'
+    source = _make_utf16(temp_dir, 'LumaViewPro-4.0.0-beta23_1_LVP.log', body)
+
+    capture_installer_logs(log_dir, temp_dir=temp_dir)
+
+    target = log_dir / 'install' / 'LumaViewPro-4.0.0-beta23_1_LVP.log'
+    raw = target.read_bytes()
+    assert raw == body.encode('utf-8'), 'content must survive the transcode intact'
+    assert raw[:2] not in (b'\xff\xfe', b'\xfe\xff'), 'the byte-order mark must be dropped'
+    assert target.stat().st_size < source.stat().st_size
+
+
+def test_a_transcoded_log_is_not_recopied_every_startup(tmp_path):
+    """The convergence check cannot compare sizes once a file is transcoded --
+    the target is permanently smaller than its source, so a size comparison
+    would never match and every startup would recopy every log forever."""
+    temp_dir = tmp_path / 'temp'
+    log_dir = tmp_path / 'logs'
+    _make_utf16(temp_dir, 'LumaViewPro-4.0.0-beta23_2_LVP.log', 'body\r\n')
+
+    first = capture_installer_logs(log_dir, temp_dir=temp_dir)
+    second = capture_installer_logs(log_dir, temp_dir=temp_dir)
+
+    assert first == ['LumaViewPro-4.0.0-beta23_2_LVP.log']
+    assert second == [], 'a transcoded log must not be recaptured on the next startup'
+
+
+def test_a_grown_utf16_log_is_recaptured(tmp_path):
+    temp_dir = tmp_path / 'temp'
+    log_dir = tmp_path / 'logs'
+    source = _make_utf16(temp_dir, 'LumaViewPro-4.0.0-beta23_3_LVP.log', 'partial\r\n')
+    capture_installer_logs(log_dir, temp_dir=temp_dir)
+
+    source.write_bytes(b'\xff\xfe' + 'partial\r\nand the rest\r\n'.encode('utf-16-le'))
+    again = capture_installer_logs(log_dir, temp_dir=temp_dir)
+
+    assert again == ['LumaViewPro-4.0.0-beta23_3_LVP.log']
+    target = log_dir / 'install' / 'LumaViewPro-4.0.0-beta23_3_LVP.log'
+    assert target.read_bytes() == b'partial\r\nand the rest\r\n'
+
+
+def test_a_non_utf16_log_is_copied_byte_for_byte(tmp_path):
+    """The burn bundle log is already ASCII; it must not be rewritten."""
+    temp_dir = tmp_path / 'temp'
+    log_dir = tmp_path / 'logs'
+    source = _make(temp_dir, 'LumaViewPro-4.0.0-beta23_4.log', content='plain ascii body')
+
+    capture_installer_logs(log_dir, temp_dir=temp_dir)
+
+    target = log_dir / 'install' / 'LumaViewPro-4.0.0-beta23_4.log'
+    assert target.read_bytes() == source.read_bytes()
+
+
+def test_a_bom_that_does_not_decode_is_copied_verbatim(tmp_path):
+    """A log that cannot be transcoded is still evidence. Halving its size
+    is never worth losing it, so the bytes go across untouched."""
+    temp_dir = tmp_path / 'temp'
+    log_dir = tmp_path / 'logs'
+    # A BOM followed by an odd byte count cannot be valid UTF-16.
+    corrupt = b'\xff\xfe' + b'a\x00b\x00\x41'
+    directory = temp_dir
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / 'LumaViewPro-4.0.0-beta23_5_LVP.log').write_bytes(corrupt)
+
+    copied = capture_installer_logs(log_dir, temp_dir=temp_dir)
+
+    assert copied == ['LumaViewPro-4.0.0-beta23_5_LVP.log']
+    target = log_dir / 'install' / 'LumaViewPro-4.0.0-beta23_5_LVP.log'
+    assert target.read_bytes() == corrupt, 'an undecodable log must survive intact'

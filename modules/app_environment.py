@@ -295,6 +295,39 @@ def loaded_module_census() -> list[str]:
 INSTALLER_LOG_PATTERN = 'LumaViewPro*.log'
 _MAX_CAPTURED_INSTALLER_LOGS = 10
 
+# MSI writes its verbose log as UTF-16, so every character costs two bytes
+# for no added information -- a single install log runs ~6 MB where the
+# same text is ~3 MB. These land in the user's Documents folder and stay
+# there, so the copy transcodes to UTF-8 rather than storing the wide
+# form. Byte-order marks, little- and big-endian.
+_UTF16_BOMS = (b'\xff\xfe', b'\xfe\xff')
+
+
+def _transcode_utf16_to_utf8(source: pathlib.Path, target: pathlib.Path) -> bool:
+    """Write ``source`` to ``target`` as UTF-8 when it is UTF-16.
+
+    Returns True when the transcode happened. A file that is not UTF-16,
+    or that will not decode as the BOM claims, returns False so the
+    caller copies the bytes verbatim -- a log that cannot be transcoded
+    is still evidence, and halving its size is never worth losing it.
+    """
+    try:
+        raw = source.read_bytes()
+    except OSError:
+        return False
+    if raw[:2] not in _UTF16_BOMS:
+        return False
+    try:
+        # 'utf-16' reads the BOM to pick the endianness and drops it.
+        text = raw.decode('utf-16')
+    except (UnicodeDecodeError, ValueError):
+        return False
+    target.write_bytes(text.encode('utf-8'))
+    # Carry the source's timestamps across: the recapture check below
+    # compares mtime, which is the only field that survives a transcode.
+    shutil.copystat(source, target)
+    return True
+
 
 def capture_installer_logs(
     log_dir: str | pathlib.Path,
@@ -309,6 +342,10 @@ def capture_installer_logs(
     also sweeps TEMP on its own schedule, so the copy happens at every
     startup rather than on request.
 
+    MSI's verbose log is UTF-16; it is transcoded to UTF-8 on the way in
+    (see ``_transcode_utf16_to_utf8``), which halves what the user's
+    Documents folder carries and loses nothing.
+
     Args:
         log_dir: Application log folder; logs land in its ``install``
             subfolder.
@@ -317,9 +354,12 @@ def capture_installer_logs(
             startup into a large copy.
 
     Returns:
-        Names copied by THIS call. Files already captured at the same
-        size are skipped, so repeated startups converge; a log that grew
-        (an install still writing when the app started) is recaptured.
+        Names copied by THIS call. Files already captured are recognised
+        by modification time, so repeated startups converge; a log that
+        grew (an install still writing when the app started) is
+        recaptured. Timestamp rather than size, because a transcoded copy
+        is never the size of its source -- and a same-size content change
+        would slip past a size comparison anyway.
     """
     source_dir = (
         pathlib.Path(temp_dir) if temp_dir is not None else pathlib.Path(tempfile.gettempdir())
@@ -336,10 +376,11 @@ def capture_installer_logs(
     for source in candidates[:max_files]:
         target = destination / source.name
         try:
-            if target.exists() and target.stat().st_size == source.stat().st_size:
+            if target.exists() and target.stat().st_mtime_ns == source.stat().st_mtime_ns:
                 continue
             destination.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, target)
+            if not _transcode_utf16_to_utf8(source, target):
+                shutil.copy2(source, target)
         except OSError as e:
             _logger.warning(f'Could not capture installer log {source.name}: {e}')
             continue
