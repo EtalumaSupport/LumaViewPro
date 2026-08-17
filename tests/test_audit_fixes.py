@@ -4044,12 +4044,11 @@ class TestFrameValidity_AutofocusDrainsBeforeScore:
             )
 
 
-class TestFrameValidity_CompositeEngineeringBranchDrains:
-    """The engineering-mode branch of composite_capture's live_capture path
-    (bullseye / crosshairs enabled) grabs an extra image_orig for overlay
-    rendering. Bare get_image here would persist a mid-transition raw
-    image to disk via the subsequent save_image call. Must route through
-    capture_and_wait."""
+class TestFrameValidity_CompositeOverlayBranchDrains:
+    """The overlay branch of composite_capture's live_capture path (bullseye /
+    crosshairs enabled) grabs an extra image_orig for overlay rendering. Bare
+    get_image here would persist a mid-transition raw image to disk via the
+    subsequent save_image call. Must route through capture_and_wait."""
 
     def test_live_capture_impl_uses_capture_and_wait(self):
         from pathlib import Path
@@ -4058,8 +4057,8 @@ class TestFrameValidity_CompositeEngineeringBranchDrains:
         body = _function_source(src, '_live_capture_impl')
         assert 'ctx.scope.imaging.capture_and_wait(' in body, (
             'composite_capture._live_capture_impl must call '
-            'ctx.scope.imaging.capture_and_wait(...) for the engineering bullseye/'
-            'crosshairs branch (was bare get_image).'
+            'ctx.scope.imaging.capture_and_wait(...) for the bullseye/crosshairs '
+            'overlay branch (was bare get_image).'
         )
 
     def test_live_capture_impl_no_bare_ctx_scope_get_image(self):

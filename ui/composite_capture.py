@@ -121,7 +121,15 @@ class CompositeCapture(FloatLayout):
             and layer_configs[layer]['illumination_ma'] > 0
         )
 
-        if ctx.engineering_mode is False:
+        # Whether an overlay is active is the only question a capture has to
+        # ask. The operator can switch crosshairs or the bullseye on at any
+        # time, so gating the overlaid copy on a build mode meant the screen
+        # showed an overlay the capture then declined to save, with nothing
+        # reporting the omission.
+        use_bullseye = ctx.scope_display.use_bullseye
+        use_crosshairs = ctx.scope_display.use_crosshairs
+
+        if not use_bullseye and not use_crosshairs:
             return save_live_image(
                 ctx.scope,
                 save_folder,
@@ -140,97 +148,82 @@ class CompositeCapture(FloatLayout):
                 dark_floor_check=dark_floor_check,
             )
 
+        # Summing is carried here exactly as save_live_image carries it above:
+        # an overlay is a display choice, and switching one on must not
+        # silently reduce a summed capture to a single frame.
+        image_orig = ctx.scope.imaging.capture_and_wait(
+            force_to_8bit=force_to_8bit_pixel_depth,
+            all_ones_check=True,
+            dark_floor_check=dark_floor_check,
+            timeout_s=1.0,
+            sum_count=sum_count,
+            sum_delay_s=sum_delay_s,
+            sum_iteration_callback=sum_iteration_callback,
+        )
+        if image_orig is None:
+            return
+
+        # Save both versions of the image (unaltered and overlayed)
+        now = datetime.datetime.now()
+        time_string = now.strftime('%Y%m%d_%H%M%S')
+        append = f'{append}_{time_string}'
+
+        # If not in 8-bit mode, generate an 8-bit copy of the image for
+        # visualization. image_orig is a single native-depth capture here,
+        # so its depth is the per-frame delivery stamp (not a live format
+        # query, which can fail or already describe a newer format) so
+        # the downconvert scales against the real range.
+        if not force_to_8bit_pixel_depth:
+            image = image_utils.convert_to_8bit(image_orig, ctx.scope.imaging.last_significant_bits)
         else:
-            use_bullseye = ctx.scope_display.use_bullseye
-            use_crosshairs = ctx.scope_display.use_crosshairs
+            image = image_orig
 
-            if not use_bullseye and not use_crosshairs:
-                return save_live_image(
-                    ctx.scope,
-                    save_folder,
-                    file_root,
-                    append,
-                    color,
-                    force_to_8bit=force_to_8bit_pixel_depth,
-                    output_format=settings['image_output_format']['live'],
-                    all_ones_check=True,
-                    sum_count=sum_count,
-                    sum_delay_s=sum_delay_s,
-                    sum_iteration_callback=sum_iteration_callback,
-                    turn_off_all_leds_after=False,
-                    jpeg_quality=settings.get('jpg_quality', 90),
-                    save_encoding=save_encoding,
-                    dark_floor_check=dark_floor_check,
-                )
+        # Original image may be in 8 or 12-bit. Its depth is the per-frame
+        # delivery stamp of the capture above (the same value the 8-bit copy
+        # is scaled by), handed down so the save marks the file at the frame's
+        # true depth rather than the camera's live format. Summing widens that
+        # depth, so the frame count resolves it here for the same reason it
+        # does inside save_live_image.
+        save_image(
+            ctx.scope,
+            array=image_orig,
+            save_folder=save_folder,
+            file_root=file_root,
+            append=append,
+            color=color,
+            tail_id_mode=None,
+            output_format=settings['image_output_format']['live'],
+            jpeg_quality=settings.get('jpg_quality', 90),
+            save_encoding=save_encoding,
+            significant_bits=ctx.scope.imaging.capture_frame_depth(image_orig, sum_count),
+        )
 
-            image_orig = ctx.scope.imaging.capture_and_wait(
-                force_to_8bit=force_to_8bit_pixel_depth,
-                all_ones_check=True,
-                dark_floor_check=dark_floor_check,
-                timeout_s=1.0,
-            )
-            if image_orig is None:
-                return
+        if use_bullseye:
+            bullseye_image = ctx.scope_display.transform_to_bullseye(image)
+        else:
+            bullseye_image = image
 
-            # Save both versions of the image (unaltered and overlayed)
-            now = datetime.datetime.now()
-            time_string = now.strftime('%Y%m%d_%H%M%S')
-            append = f'{append}_{time_string}'
+        if use_crosshairs:
+            crosshairs_image = ctx.scope_display.add_crosshairs(bullseye_image)
+        else:
+            crosshairs_image = bullseye_image
 
-            # If not in 8-bit mode, generate an 8-bit copy of the image for
-            # visualization. image_orig is a single native-depth capture here,
-            # so its depth is the per-frame delivery stamp (not a live format
-            # query, which can fail or already describe a newer format) so
-            # the downconvert scales against the real range.
-            if not force_to_8bit_pixel_depth:
-                image = image_utils.convert_to_8bit(
-                    image_orig, ctx.scope.imaging.last_significant_bits
-                )
-            else:
-                image = image_orig
-
-            # Original image may be in 8 or 12-bit. Its depth is the per-frame
-            # delivery stamp of the single capture above (the same value the
-            # 8-bit copy is scaled by), handed down so the save marks the file
-            # at the frame's true depth rather than the camera's live format.
-            save_image(
-                ctx.scope,
-                array=image_orig,
-                save_folder=save_folder,
-                file_root=file_root,
-                append=append,
-                color=color,
-                tail_id_mode=None,
-                output_format=settings['image_output_format']['live'],
-                jpeg_quality=settings.get('jpg_quality', 90),
-                save_encoding=save_encoding,
-                significant_bits=ctx.scope.imaging.capture_frame_depth(image_orig),
-            )
-
-            if use_bullseye:
-                bullseye_image = ctx.scope_display.transform_to_bullseye(image)
-            else:
-                bullseye_image = image
-
-            if use_crosshairs:
-                crosshairs_image = ctx.scope_display.add_crosshairs(bullseye_image)
-            else:
-                crosshairs_image = bullseye_image
-
-            # Overlay image is in 8-bits (rendered display image)
-            save_image(
-                ctx.scope,
-                array=crosshairs_image,
-                save_folder=save_folder,
-                file_root=file_root,
-                append=f'{append}_overlay',
-                color=color,
-                tail_id_mode=None,
-                output_format=settings['image_output_format']['live'],
-                jpeg_quality=settings.get('jpg_quality', 90),
-                save_encoding=save_encoding,
-                significant_bits=ctx.scope.imaging.capture_frame_depth(crosshairs_image),
-            )
+        # Overlay image is in 8-bits (rendered display image), so its depth is
+        # read off the rendered array and not widened by the frame count --
+        # the downconvert above already normalised the summed range away.
+        save_image(
+            ctx.scope,
+            array=crosshairs_image,
+            save_folder=save_folder,
+            file_root=file_root,
+            append=f'{append}_overlay',
+            color=color,
+            tail_id_mode=None,
+            output_format=settings['image_output_format']['live'],
+            jpeg_quality=settings.get('jpg_quality', 90),
+            save_encoding=save_encoding,
+            significant_bits=ctx.scope.imaging.capture_frame_depth(crosshairs_image),
+        )
 
     # capture and save a composite image using the current settings
     def composite_capture(self):

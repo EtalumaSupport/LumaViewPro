@@ -2486,14 +2486,14 @@
 				Label:
 					font_size: '12sp'
 					text: 'Enable Crosshairs'
-					tooltip_text: 'Display a bullseye pattern over the live image \n(Bullseye will not be in saved images)'
+					tooltip_text: 'Display crosshairs over the live image \n(A capture also saves a second copy with the overlay)'
 					halign: 'left'
 					valign: 'middle'
 					text_size: self.size
 				ToggleButton:
 					id: enable_crosshairs_btn
 					disabled: app.protocol_running
-					tooltip_text: 'Display a bullseye pattern over the live image \n(Bullseye will not be in saved images)'
+					tooltip_text: 'Display crosshairs over the live image \n(A capture also saves a second copy with the overlay)'
 					size_hint: None, None
 					size: '45dp', '30dp'
 					border: 0, 0, 0, 0
