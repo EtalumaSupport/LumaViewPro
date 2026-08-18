@@ -44,9 +44,9 @@ class TestRepoCheckMap:
         monkeypatch.chdir(repo_root)
         key = repo_root.name
         config = _repo_config()
-        # Which repo this test runs in depends on which working tree the
-        # file sits in (the test file itself is LVP-only today, but the
-        # contract is written repo-agnostically on purpose).
+        # This file exists in both repos; which map it resolves depends
+        # on the working tree it sits in, so the assertion is written
+        # repo-agnostically on purpose.
         assert config in _REPO_CHECK_MAP.values(), (key, config)
 
     def test_missing_key_fails_loud(self, tmp_path, monkeypatch):
