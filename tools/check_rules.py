@@ -54,8 +54,11 @@ Firmware-only (doc_status family):
                 `## Status` section (WARN if absent) and an edit to such a
                 doc must touch that section (BLOCK)
     plan_truth_base -- plan docs carry a `Truth base` row in Status (WARN)
-    daily_log_rulings -- new DAILY_LOG entries carry a `**Rulings:**` line
-                (WARN)
+    daily_log_rulings -- new DAILY_LOG-shard entries carry a `**Rulings:**`
+                line (WARN)
+    daily_log_frozen -- the un-suffixed docs/DAILY_LOG.md is frozen; an
+                edit that grows it is BLOCKED (append to the monthly
+                shard docs/DAILY_LOG_<YYYY-MM>.md)
 
 Severities: 'block' fails the commit (exit 1); 'warn' prints to stderr
 but does not affect exit code.
@@ -1064,13 +1067,40 @@ def _check_plan_truth_base(content: str, path: str) -> list[Violation]:
 
 _DAILY_LOG_ENTRY_RE = re.compile(r'^## \d{4}-\d{2}-\d{2}')
 _RULINGS_LINE_RE = re.compile(r'^\*\*Rulings\b', re.IGNORECASE)
+_DAILY_LOG_RE = re.compile(r'(?:^|/)docs/DAILY_LOG(?:_\d{4}-\d{2})?\.md$')
 
 
 def _is_daily_log(path: str) -> bool:
     """The narrative session log -- the one doc whose per-entry SHAPE
     (not Status freshness) is checked; each doc check owns the predicate
-    that scopes it, and the staged-file collection is their union."""
-    return path.replace('\\', '/').endswith('docs/DAILY_LOG.md')
+    that scopes it, and the staged-file collection is their union.
+    Matches the frozen docs/DAILY_LOG.md AND the live monthly shards
+    (docs/DAILY_LOG_YYYY-MM.md), so the rulings check follows the shard.
+    """
+    return _DAILY_LOG_RE.search(path.replace('\\', '/')) is not None
+
+
+def _check_daily_log_frozen(path: str, added: set[int] | None) -> list[Violation]:
+    """BLOCK growth of the frozen docs/DAILY_LOG.md.
+
+    The un-suffixed file froze 2026-08-18 so its line-number citations
+    stay valid forever; new entries go to the monthly shard. Without
+    this gate the freeze is a convention holding back the corpus's most
+    instructed append habit. Diff-aware only.
+    """
+    if not path.replace('\\', '/').endswith('docs/DAILY_LOG.md') or not added:
+        return []
+    return [
+        Violation(
+            path,
+            min(added),
+            0,
+            'daily_log_frozen',
+            'docs/DAILY_LOG.md is FROZEN (its line-number citations must stay '
+            'valid); append the entry to the current monthly shard '
+            'docs/DAILY_LOG_<YYYY-MM>.md instead',
+        )
+    ]
 
 
 def _check_daily_log_rulings(content: str, path: str, added: set[int] | None) -> list[Violation]:
@@ -1149,6 +1179,7 @@ def check_doc(content: str, path: str, added: set[int] | None) -> list[Violation
     violations.extend(_check_rule_45(content, path, added))
     violations.extend(_check_plan_truth_base(content, path))
     violations.extend(_check_daily_log_rulings(content, path, added))
+    violations.extend(_check_daily_log_frozen(path, added))
     return violations
 
 
