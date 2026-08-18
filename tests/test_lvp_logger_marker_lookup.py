@@ -163,14 +163,14 @@ class TestInstalledPackageInventory:
 
 
 class TestBannerReadsBuildIdentityFromInstallDir:
-    """The banner reads version.txt (Built / Branch / BuildGUID) from the
-    directory the executable runs from -- where version.txt ships -- NOT
-    the per-user data directory.
+    """The banner reads version.txt (Built / Branch / CommitGUID / BuildID)
+    from the directory the executable runs from -- where version.txt ships --
+    NOT the per-user data directory.
 
     Bug: the call passed source_path, which on an installed build points at
     the Documents appdata folder (only data/ + logs/ are copied there, never
     version.txt). The banner's open() then failed and the bare except left
-    Built/Branch/BuildGUID reporting "unknown" -- even though the Runtime
+    Built/Branch/CommitGUID reporting "unknown" -- even though the Runtime
     line correctly said "installed exe". The fix passes script_path (the
     install root); on a source/dev run the two paths coincide.
     """
@@ -187,7 +187,7 @@ class TestBannerReadsBuildIdentityFromInstallDir:
             f'log_environment_banner must be called with script_path (the '
             f'install dir where version.txt ships), not {first_arg!r}. '
             f'source_path is the Documents data dir on installed builds and '
-            f'has no version.txt, so Built/Branch/BuildGUID report "unknown".'
+            f'has no version.txt, so Built/Branch/CommitGUID report "unknown".'
         )
 
     def test_banner_reads_version_txt_from_its_path_param(self):

@@ -104,8 +104,8 @@ dependencies\
 |------|--------|-------|
 | `pylon_USB_Camera_Driver.msi` | [baslerweb.com/en/downloads/software-downloads](https://www.baslerweb.com/en/downloads/software-downloads/) | Free MyBasler account required. Pick the standalone USB driver MSI (not the full Pylon SDK installer). |
 | `vc_redist.x64.exe` | [aka.ms/vs/17/release/vc_redist.x64.exe](https://aka.ms/vs/17/release/vc_redist.x64.exe) | Microsoft's latest VC++ x64 redistributable, no account needed. The build fails if its version is older than the newest VC runtime any bundled wheel carries (build.ps1 prints both in the CRT census). |
-| `ids_peak_<version>.exe` | [en.ids-imaging.com/download-peak.html](https://en.ids-imaging.com/download-peak.html) → Runtime variant (~26 MB) | Free MyIDS account required. Pick a runtime version that matches the `ids-peak` PyPI binding pinned in `requirements.txt` (`1.13.0.0.6` → runtime ≥ 2.18). |
-| `setup.iss` | Generated locally, once per IDS Peak runtime version | Run `ids_peak_<version>.exe /r` on a Windows host with a clean install of that exact runtime; it records your interactive choices into `%WINDIR%\setup.iss`. Copy that file into `dependencies\` next to the EXE. |
+| `ids_peak_<version>.exe` | [en.ids-imaging.com/download-peak.html](https://en.ids-imaging.com/download-peak.html) → Runtime variant | Free MyIDS account required. **The download is a package; extract it and use the inner `ids_peak_<version>.exe` (underscores). The hyphenated outer file cannot be driven silently.** Chaining IDS is not currently supported — see the IDS Peak section below before using these two rows. |
+| `setup.iss` | Generated locally, once per IDS Peak runtime version | Run the **inner** `ids_peak_<version>.exe /r`; it records your interactive choices into `%WINDIR%\setup.iss`. The choices matter — the USB3 Vision Transport Layer must be selected. See the IDS Peak section below. |
 | `fx2\LumaScope_WinUSB.inf` | Firmware repo, `fx2_firmware/build_deps/LumaScope_WinUSB.inf` | ~2 KB text file. Copy as-is. |
 | `fx2\libusb-1.0.dll` | Firmware repo, `fx2_firmware/build_deps/libusb-1.0.dll` | x64 build, ~150 KB. Pinned to libusb v1.0.29 (VS2019/MS64). To upgrade, replace the file in the Firmware repo and update `fx2_firmware/build_deps/README.md`. |
 
@@ -140,25 +140,88 @@ dependencies\
 `-- setup.iss                        # Recorded silent-install response file
 ```
 
-`ids_peak_*.exe` is the **Runtime** variant, not the full IDS peak
-Comprehensive package. It contains drivers + GenTL transport layers only —
-no Cockpit, no IPL Viewer, no SDK headers.
+> **Status: chaining IDS is NOT currently supported, and not a shipping
+> requirement.** It was attempted on 2026-08-17 and failed; the unresolved
+> defects are listed at the end of this section. Ship without it — IDS
+> customers install the IDS peak runtime themselves, which works. Read the
+> rest of this section before attempting it again.
 
-`setup.iss` must be recorded once per runtime version. On a clean Windows
-host, run `ids_peak_<version>.exe /r` and step through the interactive
-installer. It writes `%WINDIR%\setup.iss` capturing every choice. Copy that
-file alongside the EXE in `dependencies\`. Re-record whenever you bump the
-runtime version or change install options.
+##### The two executables — the trap that costs a bench trip
 
-When both are present, the bundle chains an `ExePackage` that runs
-`ids_peak_<version>.exe /s /f1"setup.iss"` per machine. When either is
-missing, the bundle is built without IDS Peak (IDS cameras still need a
-manual driver install on customer machines).
+IDS ships **a download package that contains the installer**, and only the
+inner one can be driven silently. From the IDS peak 26.06 readme:
 
-**Version pairing constraint:** IDS hard-couples the Python binding's
-`genericAPI` major.minor to the runtime's. Mismatched runtime/binding
-versions fail silently at camera enumeration. Confirm against the runtime's
-`readme.html` shipped inside the EXE before locking in a pair.
+> Extract the IDS peak setup package to a local directory. **The required
+> silent setup command line parameters can only be processed by the
+> `ids_peak_<version>.exe`.**
+
+| File | Naming | Accepts `/s /f1`? |
+|---|---|---|
+| `ids-peak-win-<variant>-setup-64-<ver>.exe` — the download | **hyphens** | **No** |
+| `ids_peak_<version>.exe` — inside it | **underscores** | Yes |
+
+The underscore spelling in the selector is therefore load-bearing, not an
+accident to be "fixed" by widening. Putting the wrapper in `dependencies\`
+builds a bundle whose IDS package exits **`0x80042000`** at install time.
+The build script detects the wrapper by name and fails with instructions.
+
+Pick the **Runtime** variant (drivers + GenTL transport layers only — no
+Cockpit, no SDK headers), not Standard or Extended.
+
+##### Recording `setup.iss`
+
+Required by IDS, not by us: silent mode reads its choices from a recorded
+response file. Record once per runtime version, **from the extracted inner
+exe**, on a host with a clean install of that version:
+
+```powershell
+ids_peak_<version>.exe /r      # writes %WINDIR%\setup.iss
+```
+
+The interactive installer presents **many component choices** — transport
+layers (USB3 Vision / GigE Vision socket vs kernel / uEye), SDKs, examples,
+DirectShow, tools. Whatever you tick is what every silent install replays,
+so tick deliberately: **the USB3 Vision Transport Layer (U3VK) is the one
+that makes IDS cameras enumerate.** Without it, the app still fails with
+`GENICAM_GENTLN_PATH environment variable not found`.
+
+Copy the file next to the EXE. Re-record on any version bump.
+
+**No spaces in the `/f1` path** — the IDS readme states this twice, and it
+is why the documented invocation is the relative form
+`/s /f1".\setup.iss"` (the response file sits in the setup directory).
+
+##### Unresolved defects — fix these before chaining is viable
+
+1. **The `setup.iss` path is baked in from the build machine.**
+   `build.ps1` passes `$ids_iss_files[0].FullName` into `Bundle.wxs`'s
+   `InstallArguments`, so the installer looks for e.g.
+   `C:\LVP\appbuild\dependencies\setup.iss` on the *customer's* machine.
+   It resolves nowhere but the build host. The `.iss` must ship as a
+   `<Payload>` and be referenced relatively — and note Burn's package cache
+   lives under `C:\ProgramData\Package Cache\…`, which contains a space, so
+   an absolute path there would violate the no-spaces rule anyway.
+2. **The IDS `ExePackage` is vital.** `Vital` defaults to yes, so a failed
+   optional camera driver **rolls back the entire LumaViewPro install** —
+   observed twice on 2026-08-17, leaving the machine with no LVP and an
+   "unspecified error". An optional driver must never be able to do that.
+3. **Re-runs every time.** `DetectCondition="0"` means the IDS installer
+   runs on every install, including repairs and upgrades.
+4. **A reboot is required** after IDS peak installs, which the bundle does
+   not currently account for.
+
+Diagnosing a failure: the IDS installer writes its own `Setup.log` with the
+real error, and Burn names its per-package log in the bundle log
+(`WixBundleLog_IDSPeakRuntime`). Neither is in a support bundle.
+
+**Version pairing constraint:** IDS couples the Python bindings to the
+runtime. Check the runtime's own `readme.html` for the exact binding
+versions it ships and compare against `requirements.txt` before pairing —
+the readme lists them explicitly. IDS peak 26.06 also introduced a new
+`ids_peak_common` package that the readme puts **first** in the install
+order and that `requirements.txt` does not currently carry. IDS renumbered
+releases from `2.x` to `YY.MM` (2.21 → 26.06), so any "runtime ≥ 2.18"
+guidance predates the change and cannot be compared numerically.
 
 #### FX2 WinUSB Driver (LVC cameras: LS560 / LS620 / LS720)
 

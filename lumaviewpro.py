@@ -728,7 +728,7 @@ class LumaViewProApp(TooltipMixin, App):
         # directory (source_path). version.txt and .git_archival.txt ship next
         # to the executable; on an installed build source_path points at the
         # Documents data folder, which has no version.txt, so the banner would
-        # report Built/Branch/BuildGUID as "unknown". On a source/dev run the
+        # report Built/Branch/CommitGUID as "unknown". On a source/dev run the
         # two paths are identical.
         log_environment_banner(script_path, version, camera_sdk_probe())
 

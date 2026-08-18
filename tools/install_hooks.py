@@ -72,19 +72,27 @@ if python3 -m ruff --version >/dev/null 2>&1; then
     fi
 fi
 
-# version.txt refresh (LVP-specific). 4-line format:
+# version.txt refresh (LVP-specific). 5-line format:
 #   Line 1: release moniker (manual bump on promotion; path-safe)
 #   Line 2: commit timestamp (this hook rewrites)
 #   Line 3: branch name (this hook rewrites)
-#   Line 4: build GUID -- random per commit, embedded IN the commit
+#   Line 4: COMMIT GUID -- random per commit, embedded IN the commit
 #           that produces it. Sidesteps the SHA chicken-and-egg: the
 #           GUID does not need to match the resulting SHA; a unique
 #           tag per commit is enough for log triage. Lookup via:
 #               git log -S "<guid>" -- version.txt
+#   Line 5: BUILD ID -- written by scripts\appBuild\build.ps1, NOT by
+#           this hook, and deliberately dropped by the printf below.
+#           It identifies a build event, so a fresh commit invalidates
+#           it by definition; carrying one forward would let a rebuilt
+#           tree claim an earlier build's identity.
 # Lines 2+3 give triage "branch + timestamp" identity for bench bundles;
-# Line 4 gives an exact commit lookup that works in any distribution
+# line 4 gives an exact commit lookup that works in any distribution
 # (ZIP, clone, installer alike) without depending on GitHub or git
-# archive substitution.
+# archive substitution; line 5 separates "which build" from "which
+# commit", which line 4 alone cannot do -- rebuilding one SHA produces
+# identical lines 1-4, so builds that differ only in bundled inputs
+# were previously indistinguishable in the banner.
 VERSION_FILE="$REPO_ROOT/version.txt"
 if [ -f "$VERSION_FILE" ]; then
     VERSION=$(head -1 "$VERSION_FILE")

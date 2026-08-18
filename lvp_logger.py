@@ -644,17 +644,26 @@ def log_environment_banner(install_path: str, version_str: str, camera_sdk_lines
     logger.info('[LVP Main  ] -----------------------------------------')
     logger.info(f'[LVP Main  ] Version:   {version_str}')
 
-    # Build identity: branch + commit timestamp + build GUID from
-    # version.txt. The pre-commit hook rewrites lines 2-4 on every commit
-    # so these are always present in source clones, ZIP downloads, and
-    # installer bundles alike. Triage chains:
+    # Two DIFFERENT identities, deliberately reported as two lines.
+    #
+    # Lines 2-4 (timestamp, branch, GUID) are written by the pre-commit
+    # hook and identify a COMMIT -- the GUID is random per commit, not per
+    # build. It was previously labelled "BuildGUID", which reads as a build
+    # identity and is not one: three separate builds of one SHA produced
+    # byte-identical banners, and telling them apart needed an install-log
+    # timestamp. That collision happens precisely when build INPUTS change
+    # while source does not -- a bundled driver, a dependency version.
+    #
+    # Line 5 is the real build identity, stamped by the build script.
+    # Triage chains:
     #   - `git log -S "<guid>" -- version.txt` finds the exact commit
     #     by GUID (works in any distribution).
     #   - `git log --before=<Built>+1m <Branch>` finds it by timestamp.
     #   - `.git_archival.txt` carries the actual SHA in GitHub ZIPs.
     _built = ''
     _branch = ''
-    _build_guid = ''
+    _commit_guid = ''
+    _build_id = ''
     try:
         with open(os.path.join(install_path, 'version.txt')) as _vf:
             _lines = _vf.read().splitlines()
@@ -663,12 +672,25 @@ def log_environment_banner(install_path: str, version_str: str, camera_sdk_lines
             if len(_lines) >= 3:
                 _branch = _lines[2].strip()
             if len(_lines) >= 4:
-                _build_guid = _lines[3].strip()
+                _commit_guid = _lines[3].strip()
+            if len(_lines) >= 5:
+                _build_id = _lines[4].strip()
     except Exception as _e:
         logger.debug(f'[LVP Main  ] version.txt not read from {install_path}: {_e}')
     logger.info(f'[LVP Main  ] Built:     {_built or "unknown"}')
     logger.info(f'[LVP Main  ] Branch:    {_branch or "unknown"}')
-    logger.info(f'[LVP Main  ] BuildGUID: {_build_guid or "unknown"}')
+    logger.info(f'[LVP Main  ] CommitGUID: {_commit_guid or "unknown"}')
+    # A missing build ID means two different things and they must not share
+    # a message: an installed exe with no build ID was produced by a build
+    # script too old to stamp one, and saying "source / dev" there would be
+    # a lying log line introduced by the fix meant to stop misattribution.
+    if _build_id:
+        _build_id_str = _build_id
+    elif lvp_installed:
+        _build_id_str = 'unknown (built by build script < v2)'
+    else:
+        _build_id_str = 'source / dev (no build event)'
+    logger.info(f'[LVP Main  ] BuildID:   {_build_id_str}')
 
     # Runtime: distinguish installed .exe from running directly from a
     # source clone. The presence of marker.lvpinstalled means the MSI
@@ -685,7 +707,7 @@ def log_environment_banner(install_path: str, version_str: str, camera_sdk_lines
     #      .git present. Installer builds wipe .git so this returns
     #      nothing.
     # Either path that yields a real value wins; otherwise fall back to
-    # Branch + Built + BuildGUID for triage.
+    # Branch + Built + CommitGUID for triage.
     _git_hash = None
     try:
         with open(os.path.join(install_path, '.git_archival.txt')) as _af:
@@ -712,7 +734,7 @@ def log_environment_banner(install_path: str, version_str: str, camera_sdk_lines
         except Exception:
             pass
     logger.info(
-        f'[LVP Main  ] Git:       {_git_hash or "unknown (use BuildGUID or Branch + Built)"}'
+        f'[LVP Main  ] Git:       {_git_hash or "unknown (use CommitGUID or Branch + Built)"}'
     )
 
     # debug_mode gates all DEBUG-level output (including the preview [PERF]

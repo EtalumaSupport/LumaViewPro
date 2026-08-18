@@ -51,11 +51,25 @@ from tests.ast_seams import iter_package_modules
 # back a manifest the recording just wrote. The seam this pin prefers
 # asserts against SOURCE; this reads a JSON artifact produced by the run,
 # which has no seam to assert instead.
-_READ_TEXT_SITE_BUDGET = 362
+# pin-justified: 362 -> 365 for the build-chain guards
+# (test_build_dependency_and_identity.py), three sites, none of which has a
+# seam available:
+#   1. build.ps1 -- PowerShell. No Python AST, and no PowerShell parser in
+#      the test environment.
+#   2. MIN_BUILD_SCRIPT_VERSION -- a bare integer in a text file.
+#   3. lvp_logger.py -- behavioural tests were written FIRST and had to be
+#      withdrawn: conftest replaces lvp_logger in sys.modules with a
+#      MagicMock, so the banner is a no-op under pytest and every
+#      assertion passed vacuously against an empty capture. Importing the
+#      real module under an alias was rejected because it installs a
+#      global sys.excepthook at import, which has already polluted one
+#      bench log. One read site serves all four assertions.
+_READ_TEXT_SITE_BUDGET = 365
 
 # Files containing at least one, recorded for the same reason.
 # pin-justified: raised 115 -> 122 by the same merge.
-_READ_TEXT_FILE_BUDGET = 122
+# pin-justified: 122 -> 123 for test_build_dependency_and_identity.py.
+_READ_TEXT_FILE_BUDGET = 123
 
 
 def _nodes_inside_iteration(tree):

@@ -25,7 +25,11 @@ $ErrorActionPreference = "Stop"
 # Bump on every load-bearing change to this file. A branch that cannot be
 # built correctly by an older copy raises scripts\appBuild\MIN_BUILD_SCRIPT_VERSION
 # to match, and the check after the clone stops the build.
-$script_version = 1
+#
+# v2: writes version.txt line 5 (the build ID). A branch whose lvp_logger
+# reads that line cannot be built by v1 -- the exe would come out with no
+# build identity and say so, which is the silent gap v2 exists to close.
+$script_version = 2
 
 $repo_url = "https://github.com/EtalumaSupport/LumaViewPro.git"
 $script_dir = Split-Path -Parent $PSCommandPath
@@ -239,9 +243,25 @@ if ($pylon_files) { $pylon_msi = $pylon_files[0].FullName; Write-Host "Found Pyl
 # IDS Peak runtime (USB3 transport layer for IDS cameras). InstallShield
 # .exe — needs a recorded setup.iss for silent install. See
 # BUILD_INSTRUCTIONS.md > Optional Dependencies.
+#
+# IDS ships TWO executables and only one of them can be driven silently.
+# The DOWNLOAD is a package named "ids-peak-win-<variant>-setup-64-<ver>"
+# (hyphens); the actual installer lives INSIDE it as
+# "ids_peak_<ver>.exe" (underscores). Per the IDS peak 26.06 readme:
+# "The required silent setup command line parameters can only be
+# processed by the ids_peak_<version>.exe."
+#
+# So the underscore spelling is not an accident to be widened away -- it
+# is what distinguishes the driveable installer from the wrapper. Bundling
+# the wrapper yields an ExePackage that rejects /s /f1 at install time
+# (observed 2026-08-17: exit 0x80042000, twice). The near-miss guard below
+# catches the wrapper by name and says so.
+$IDS_EXE_PATTERN = '(?i)^ids_peak_.*\.exe$'
+$IDS_WRAPPER_PATTERN = '(?i)^ids[- ]peak[- ].*\.exe$'
 $ids_peak_exe = ""
 $ids_peak_iss = ""
-$ids_files = Get-ChildItem -Path $deps -Filter "ids_peak_*.exe" -ErrorAction SilentlyContinue
+$ids_files = @(Get-ChildItem -Path $deps -File -ErrorAction SilentlyContinue |
+               Where-Object { $_.Name -match $IDS_EXE_PATTERN })
 if ($ids_files) {
     $ids_iss_files = Get-ChildItem -Path $deps -Filter "setup.iss" -ErrorAction SilentlyContinue
     if ($ids_iss_files) {
@@ -289,6 +309,54 @@ $vc_redist_files = Get-ChildItem -Path $deps -Filter "vc_redist.x64.exe" -ErrorA
 if ($vc_redist_files) {
     $vc_redist_exe = $vc_redist_files[0].FullName
     Write-Host "Found VC++ Redistributable: $vc_redist_exe ($((Get-Item $vc_redist_exe).VersionInfo.FileVersion))"
+}
+
+# Near-miss guard. Absence of an optional dependency is LEGAL -- most builds
+# ship without IDS or FX2 on purpose. What is not legal is a file that was
+# clearly placed here to be bundled and silently was not, which is what a
+# selector mismatch produces: the build reports success and the installer
+# carries no driver. The cost of detecting the one occurrence of this was a
+# bench trip plus log forensics, so it fails the build here instead.
+#
+# Each entry is (what was actually selected, a deliberately loose matcher for
+# "a human meant this", the message). Loose matchers anchor on the real
+# extension so .bak / .zip parking copies are ignored.
+$near_misses = @()
+
+if (-not $ids_files) {
+    foreach ($f in @(Get-ChildItem -Path $deps -File -ErrorAction SilentlyContinue |
+                     Where-Object { $_.Name -match $IDS_WRAPPER_PATTERN })) {
+        $near_misses += "dependencies\$($f.Name) is the IDS DOWNLOAD PACKAGE, not the installer. Extract it and use the inner ids_peak_<version>.exe -- only that one accepts /s /f1 (the wrapper exits 0x80042000)"
+    }
+    foreach ($f in @(Get-ChildItem -Path $deps -File -ErrorAction SilentlyContinue |
+                     Where-Object { $_.Name -match '(?i)ids.*peak.*\.exe$' -and
+                                    $_.Name -notmatch $IDS_WRAPPER_PATTERN })) {
+        $near_misses += "dependencies\$($f.Name) looks like an IDS Peak installer but did not match the selector $IDS_EXE_PATTERN"
+    }
+}
+if ($ids_files -and -not $ids_peak_iss) {
+    $iss_lookalikes = @(Get-ChildItem -Path $deps -File -ErrorAction SilentlyContinue |
+                        Where-Object { $_.Name -match '(?i)\.iss$' -and $_.Name -ne 'setup.iss' })
+    foreach ($f in $iss_lookalikes) {
+        $near_misses += "dependencies\$($f.Name) is a response file but the IDS silent install requires it to be named exactly 'setup.iss'"
+    }
+}
+# FX2 pair lives in dependencies\fx2\, not the dependencies\ root. Dropping
+# them one level too high is the same silent-miss shape.
+foreach ($f in @(Get-ChildItem -Path $deps -File -ErrorAction SilentlyContinue |
+                 Where-Object { $_.Name -match '(?i)(winusb.*\.inf|^libusb.*\.dll)$' })) {
+    $near_misses += "dependencies\$($f.Name) is an FX2 dependency but belongs in dependencies\fx2\, not the dependencies\ root"
+}
+
+if ($near_misses.Count -gt 0) {
+    Write-Host ""
+    Write-Host "ERROR: dependencies\ contains file(s) that were meant to be bundled but were not:"
+    $near_misses | ForEach-Object { Write-Host "  $_" }
+    Write-Host ""
+    Write-Host "Rename to match, or move the file out of dependencies\ if the omission is deliberate."
+    Write-Host "Refusing to build an installer that silently lacks a driver someone tried to add."
+    Set-Location $build_dir
+    Exit 1
 }
 
 if (-not $pylon_msi) { Write-Host "No Pylon MSI in dependencies\ - bundle will be skipped" }
@@ -399,6 +467,25 @@ Remove-Item "$clone\.git*" -Recurse -Force -ErrorAction SilentlyContinue
 # ---------------------------------------------------------------------------
 $ver_raw = (Get-Content "$clone\version.txt" -TotalCount 1).Trim()
 if ($ver_raw -match '^\S+') { $version = $matches[0] } else { Write-Host "ERROR: Can't parse version.txt"; Exit 1 }
+
+# Stamp a real BUILD identity as line 5. Lines 2-4 are written by the
+# pre-commit hook and identify a COMMIT (line 4's "GUID" is random per
+# commit, not per build), so every rebuild of one SHA produced banners
+# that were byte-identical -- three builds of f17cac2a on 2026-08-17 all
+# reported the same GUID, and the only way to tell them apart was an
+# install-log timestamp. That is exactly the case that arises when build
+# INPUTS change while source does not, which is when it matters most.
+#
+# UTC start + build host: deterministic, sorts, no RNG, and it survives
+# into the installed exe because the spec bundles version.txt.
+# Collision needs two builds started in the same second on one host;
+# a build takes minutes, so that is left unguarded on purpose.
+$build_id = "{0}-{1}" -f (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssZ"), $env:COMPUTERNAME
+$ver_lines = @(Get-Content "$clone\version.txt")
+while ($ver_lines.Count -lt 4) { $ver_lines += "" }
+$ver_lines = $ver_lines[0..3] + @($build_id)
+Set-Content -Path "$clone\version.txt" -Value $ver_lines -Encoding UTF8
+Write-Host "Build ID: $build_id"
 
 $product = "LumaViewPro-$version"
 
@@ -874,6 +961,20 @@ if ($bundle_failed) {
 Write-Host "  Output:   $output_dir"
 Write-Host "  Version:  $version"
 Write-Host "  Git SHA:  $git_sha_short  ($git_sha)"
+Write-Host "  Build ID: $build_id"
+# One consolidated receipt of what the installer actually carries. The
+# per-dependency "Found X" / "No X" lines are 600 lines earlier and read as
+# routine chatter; a driver that silently did not ship is the single most
+# expensive thing to discover later, so it gets stated where the builder
+# already looks.
+$dep_receipt = @(
+    "Pylon=$(if ($pylon_msi) {'bundled'} else {'NOT BUNDLED'})"
+    "VCRedist=$(if ($vc_redist_exe) {'bundled'} else {'NOT BUNDLED'})"
+    "IDS=$(if ($ids_peak_exe -and $ids_peak_iss) {'bundled'} else {'NOT BUNDLED'})"
+    "FX2-INF=$(if ($fx2_inf) {'bundled'} else {'NOT BUNDLED'})"
+    "FX2-DLL=$(if ($fx2_libusb_dll) {'bundled'} else {'NOT BUNDLED'})"
+) -join '  '
+Write-Host "  Drivers:  $dep_receipt"
 Write-Host "  Log:      $build_log"
 Write-Host "  Ended:    $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
 Write-Host "======================================="
