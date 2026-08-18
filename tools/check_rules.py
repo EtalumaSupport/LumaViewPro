@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Mechanical pre-commit gate for CLAUDE.md Rules 24/27/28/42.
+"""Mechanical pre-commit gate for the numbered CLAUDE.md rules.
+
+This file is BYTE-IDENTICAL in the LumaViewPro and Firmware repos -- one
+canonical implementation, two tracked copies. The os_census drift
+detector fails loud when the two copies diverge; edit both together.
+Which checks run in which repo is decided by `_REPO_CHECK_MAP`, keyed by
+the `[tool.etaluma] repo` value in the repo's own pyproject.toml (never
+a path substring, which lies in renamed clones and worktrees).
 
 Run as a pre-commit hook (via tools/install_hooks.py) or directly:
 
@@ -12,7 +19,7 @@ they appear on lines added by the staged commit. Pre-existing violations
 in untouched lines are not blocked. Use --all to flag every violation in
 every modified file (useful for cleanup sweeps).
 
-Rules implemented:
+Checks implemented (universal -- both repos):
     rule_24  -- ASCII-only over the full source text per CLAUDE.md spec
                 ('every string ... every comment ... every docstring ...
                 every identifier in .py / .c / .h / .kv / similar files').
@@ -21,19 +28,41 @@ Rules implemented:
                 string value contains U+000D. File-level exempt:
                 test_check_rules*.py. Line-level exempt registry:
                 _RULE_24_LINE_EXEMPT (load-bearing literals only).
-                Same source-text scan applied to .kv files.
     rule_27a -- no `# TODO` / `# FIXME` / `# XXX` in source comments
     rule_27b -- no rule / audit / session / smoke / wave / phase IDs in comments
     rule_27d -- same patterns as 27b but applied to docstrings
-    rule_28  -- no internal IDs in notifications.{level} string args
+    rule_28  -- no internal IDs and no exception reprs in
+                notifications.{level} string args
+    rule_35d -- no bare scope.<method> for methods relocated to sub-APIs
     rule_42  -- WARN on "healthy"/"fine"/"within range" in comments without a
                 `PERFORMANCE_BUDGETS.md` cite in the same file
 
-Severities: 'block' fails the commit (exit 1); 'warn' prints to stderr
-but does not affect exit code. Rule 42 is the only WARN-severity check
-today.
+LumaViewPro-only (kv_ascii + cv2_channel families):
+    rule_24 over staged .kv files, and the cv2_channel_* guards that keep
+    channel order / bit depth / false-color application on their canonical
+    routes:
+    cv2_channel_io          -- bare cv2.imread/imwrite/VideoWriter
+    cv2_channel_false_color -- add_false_color outside the display/encode
+                               boundary
+    cv2_channel_tiff_write  -- bare tifffile.imwrite in post-processors
+                               without a paired false-color helper
+    cv2_channel_tiff_read   -- bare tifffile.imread outside
+                               image_utils.load_pixels
 
-Exit code: 0 clean (warns allowed), 1 blocks present.
+Firmware-only (doc_status family):
+    rule_45  -- plan/audit docs (AUDIT_*.md, *_PLAN*.md in docs/) carry a
+                `## Status` section (WARN if absent) and an edit to such a
+                doc must touch that section (BLOCK)
+    plan_truth_base -- plan docs carry a `Truth base` row in Status (WARN)
+    daily_log_rulings -- new DAILY_LOG entries carry a `**Rulings:**` line
+                (WARN)
+
+Severities: 'block' fails the commit (exit 1); 'warn' prints to stderr
+but does not affect exit code.
+
+Exit code: 0 clean (warns allowed), 1 blocks present, 2 repo identity
+undeterminable (a gate that cannot know which checks apply must not
+silently pass).
 """
 
 from __future__ import annotations
@@ -45,8 +74,50 @@ import re
 import subprocess
 import sys
 import tokenize
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
+
+# Which check families run in which repo. Keys are the `[tool.etaluma]
+# repo` values in each repo's pyproject.toml. The split preserves each
+# repo's pre-unification behavior exactly: the kv/cv2 families never ran
+# in Firmware, the doc-status family never ran in LumaViewPro.
+_REPO_CHECK_MAP: dict[str, dict[str, bool]] = {
+    'lumaviewpro': {'kv_ascii': True, 'cv2_channel': True, 'doc_status': False},
+    'etaluma-firmware': {'kv_ascii': False, 'cv2_channel': False, 'doc_status': True},
+}
+
+
+def _repo_config() -> dict[str, bool]:
+    """Resolve the current repo's check families, failing LOUD on doubt.
+
+    The key comes from `[tool.etaluma] repo` in the pyproject.toml at the
+    git toplevel. A gate that cannot determine which checks apply must
+    refuse to pass rather than silently run the wrong subset.
+    """
+    try:
+        top = subprocess.check_output(
+            ['git', 'rev-parse', '--show-toplevel'], text=True, stderr=subprocess.DEVNULL
+        ).strip()
+    except (subprocess.CalledProcessError, OSError) as e:
+        print(f'check_rules: cannot locate the git toplevel: {e}', file=sys.stderr)
+        raise SystemExit(2) from e
+    pyproject = Path(top) / 'pyproject.toml'
+    try:
+        data = tomllib.loads(pyproject.read_text(encoding='utf-8'))
+    except (OSError, tomllib.TOMLDecodeError) as e:
+        print(f'check_rules: cannot read {pyproject}: {e}', file=sys.stderr)
+        raise SystemExit(2) from e
+    key = data.get('tool', {}).get('etaluma', {}).get('repo')
+    config = _REPO_CHECK_MAP.get(key)
+    if config is None:
+        print(
+            f'check_rules: unknown or missing [tool.etaluma] repo key {key!r} in '
+            f'{pyproject}; expected one of {sorted(_REPO_CHECK_MAP)}',
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    return config
 
 
 @dataclass
@@ -87,11 +158,8 @@ _INTERNAL_ID_PATTERN = re.compile(r'\b(A\d+|LV-\d+|F\d+|M\d+|LVP-A-\d+|Rule\s+\d
 _RULE_42_TRIGGER = re.compile(r'\b(healthy|fine|within\s+range)\b', re.IGNORECASE)
 _RULE_42_SUPPRESS = re.compile(r'PERFORMANCE_BUDGETS\.md')
 
-_LOGGER_BASES = frozenset({'logger', '_log', '_cam_log', 'lvp_logger'})
-_LOGGER_METHODS = frozenset({'info', 'warning', 'error', 'critical', 'debug', 'exception'})
 _NOTIFICATIONS_BASES = frozenset({'notifications'})
 _NOTIFICATIONS_METHODS = frozenset({'info', 'warning', 'error', 'critical'})
-_PRINT_NAMES = frozenset({'print'})
 
 
 def _is_notification_call(node: ast.AST) -> bool:
@@ -190,7 +258,7 @@ _RULE_24_LINE_EXEMPT: dict[str, frozenset[int]] = {
 def _is_rule_24_exempt(path: str) -> bool:
     """File-level exempt: test files whose purpose is to construct
     synthetic non-ASCII fixtures for the rule_24 check itself. Pattern
-    matches test_check_rules*.py (sibling variants like rule_24_kv).
+    matches test_check_rules*.py (sibling variants included).
     """
     norm = path.replace('\\', '/')
     basename = norm.rsplit('/', 1)[-1]
@@ -317,6 +385,16 @@ def _iter_comments(source: str) -> list[tokenize.TokenInfo]:
     return comments
 
 
+def _is_self_meta_path(path: str) -> bool:
+    """The rule-check file's purpose is to talk about the rule
+    keywords + patterns it enforces, which inherently requires
+    mentioning the words "audit", "Rule N", etc. Exempt it from
+    rule_27 self-flagging.
+    """
+    norm = path.replace('\\', '/')
+    return norm.endswith('tools/check_rules.py') or norm == 'check_rules.py'
+
+
 def _is_test_path(path: str) -> bool:
     """Test files are exempt from Rule 27a / 27b because naming the
     bug / issue / audit finding under regression IS the point of the
@@ -324,24 +402,18 @@ def _is_test_path(path: str) -> bool:
     code path are load-bearing for the test's purpose; Rule 27's "no
     chronology" goal is the opposite shape -- production code.
 
-    Also exempts this rule-check file itself -- its purpose is to talk
-    about the rule keywords + patterns it enforces, which inherently
-    requires mentioning the words "audit", "Rule N", etc.
-
     Matches files under any directory named ``tests`` OR whose basename
     starts with ``test_`` (the pytest convention).
     """
     norm = path.replace('\\', '/')
     if '/tests/' in norm or norm.startswith('tests/'):
         return True
-    if norm.endswith('tools/check_rules.py') or norm == 'check_rules.py':
-        return True
     basename = norm.rsplit('/', 1)[-1]
     return basename.startswith('test_')
 
 
 def _check_rule_27a(source: str, path: str) -> list[Violation]:
-    if _is_test_path(path):
+    if _is_test_path(path) or _is_self_meta_path(path):
         return []
     violations: list[Violation] = []
     for tok in _iter_comments(source):
@@ -364,7 +436,7 @@ def _check_rule_27a(source: str, path: str) -> list[Violation]:
 
 
 def _check_rule_27b(source: str, path: str) -> list[Violation]:
-    if _is_test_path(path):
+    if _is_test_path(path) or _is_self_meta_path(path):
         return []
     violations: list[Violation] = []
     for tok in _iter_comments(source):
@@ -407,7 +479,7 @@ def _iter_docstrings(tree: ast.AST):
 
 def _check_rule_27d(tree: ast.AST, path: str) -> list[Violation]:
     """Same patterns as 27b (comments) but applied to docstrings."""
-    if _is_test_path(path):
+    if _is_test_path(path) or _is_self_meta_path(path):
         return []
     violations: list[Violation] = []
     for lineno, col, text in _iter_docstrings(tree):
@@ -447,8 +519,8 @@ _FALSE_COLOR_HELPER_NAMES = frozenset(
     }
 )
 
-_RULE_31A_PATH_SCOPE = ('modules/', 'ui/')
-_RULE_31A_FILE_EXEMPT = frozenset(
+_CV2_CHANNEL_IO_PATH_SCOPE = ('modules/', 'ui/')
+_CV2_CHANNEL_IO_FILE_EXEMPT = frozenset(
     {
         # image_utils.py owns image_file_to_image (multi-format L1 file
         # loader called from the post-processing UI + Kivy display path)
@@ -462,10 +534,10 @@ _RULE_31A_FILE_EXEMPT = frozenset(
         'modules/video_writer.py',
     }
 )
-_RULE_31A_BANNED_CV2_ATTRS = frozenset({'imread', 'imwrite', 'VideoWriter'})
+_CV2_CHANNEL_IO_BANNED_ATTRS = frozenset({'imread', 'imwrite', 'VideoWriter'})
 
-_RULE_31D_PATH_SCOPE = ('modules/', 'ui/')
-_RULE_31D_FILE_EXEMPT = frozenset(
+_CV2_CHANNEL_TIFF_READ_PATH_SCOPE = ('modules/', 'ui/')
+_CV2_CHANNEL_TIFF_READ_FILE_EXEMPT = frozenset(
     {
         # image_utils.py owns load_pixels -- the one reader that returns the
         # pixels AND their significant-bit depth together -- plus the
@@ -475,7 +547,7 @@ _RULE_31D_FILE_EXEMPT = frozenset(
     }
 )
 
-_RULE_31B_BOUNDARY_PATHS = frozenset(
+_CV2_CHANNEL_FALSE_COLOR_BOUNDARY_PATHS = frozenset(
     {
         # The display / encode boundary where mono -> RGB false-color
         # widening is correct. Save / process callers must apply false
@@ -500,7 +572,7 @@ _RULE_31B_BOUNDARY_PATHS = frozenset(
 )
 
 
-def _check_rule_31c(tree: ast.AST, path: str) -> list[Violation]:
+def _check_cv2_channel_tiff_write(tree: ast.AST, path: str) -> list[Violation]:
     """Block bare ``tf.imwrite`` / ``tifffile.imwrite`` in post-processor
     modules whose canonical save path is the false-color-aware
     ``image_utils.write_tiff`` (or its extracted helper
@@ -551,7 +623,7 @@ def _check_rule_31c(tree: ast.AST, path: str) -> list[Violation]:
                         path,
                         c.lineno,
                         c.col_offset,
-                        'rule_31c',
+                        'cv2_channel_tiff_write',
                         'bare tifffile.imwrite without a paired '
                         'image_utils.maybe_apply_false_color (or '
                         'image_utils.write_tiff) call in the same '
@@ -563,7 +635,7 @@ def _check_rule_31c(tree: ast.AST, path: str) -> list[Violation]:
     return violations
 
 
-def _check_rule_31a(tree: ast.AST, path: str) -> list[Violation]:
+def _check_cv2_channel_io(tree: ast.AST, path: str) -> list[Violation]:
     """Block bare ``cv2.imread`` / ``cv2.imwrite`` / ``cv2.VideoWriter``
     in production ``modules/`` and ``ui/`` outside the canonical owner
     files.
@@ -581,14 +653,15 @@ def _check_rule_31a(tree: ast.AST, path: str) -> list[Violation]:
 
     Path scope: only fires on ``modules/`` and ``ui/`` sources. File-
     level exempt for the canonical owner files in
-    ``_RULE_31A_FILE_EXEMPT``. Test files exempt via ``_is_test_path``.
+    ``_CV2_CHANNEL_IO_FILE_EXEMPT``. Test files exempt via
+    ``_is_test_path``.
     """
     if _is_test_path(path):
         return []
     norm = path.replace('\\', '/')
-    if not any(norm.startswith(scope) for scope in _RULE_31A_PATH_SCOPE):
+    if not any(norm.startswith(scope) for scope in _CV2_CHANNEL_IO_PATH_SCOPE):
         return []
-    if norm in _RULE_31A_FILE_EXEMPT:
+    if norm in _CV2_CHANNEL_IO_FILE_EXEMPT:
         return []
     violations: list[Violation] = []
     for node in ast.walk(tree):
@@ -600,14 +673,14 @@ def _check_rule_31a(tree: ast.AST, path: str) -> list[Violation]:
         if (
             isinstance(f.value, ast.Name)
             and f.value.id == 'cv2'
-            and f.attr in _RULE_31A_BANNED_CV2_ATTRS
+            and f.attr in _CV2_CHANNEL_IO_BANNED_ATTRS
         ):
             violations.append(
                 Violation(
                     path,
                     node.lineno,
                     node.col_offset,
-                    'rule_31a',
+                    'cv2_channel_io',
                     f'bare cv2.{f.attr} in modules/ or ui/; route through '
                     f'image_utils.imread_color / imwrite_color / '
                     f'videowriter_color (capability-flag wrappers) or the '
@@ -619,7 +692,7 @@ def _check_rule_31a(tree: ast.AST, path: str) -> list[Violation]:
     return violations
 
 
-def _check_rule_31d(tree: ast.AST, path: str) -> list[Violation]:
+def _check_cv2_channel_tiff_read(tree: ast.AST, path: str) -> list[Violation]:
     """Block bare ``tf.imread`` / ``tifffile.imread`` in production
     ``modules/`` and ``ui/`` outside the canonical depth-carrying reader.
 
@@ -633,18 +706,19 @@ def _check_rule_31d(tree: ast.AST, path: str) -> list[Violation]:
     obtained apart.
 
     Path scope: only fires on ``modules/`` and ``ui/`` sources. File-level
-    exempt for the reader owner in ``_RULE_31D_FILE_EXEMPT``. Test files
-    exempt via ``_is_test_path``. The write side (depth-less ``write_tiff``)
-    is already impossible by signature -- ``significant_bits`` is a required
-    positional -- so this guard covers the read side; rule_31a covers the
-    cv2 read side; rule_31c covers the false-color-aware write side.
+    exempt for the reader owner in ``_CV2_CHANNEL_TIFF_READ_FILE_EXEMPT``.
+    Test files exempt via ``_is_test_path``. The write side (depth-less
+    ``write_tiff``) is already impossible by signature --
+    ``significant_bits`` is a required positional -- so this guard covers
+    the read side; cv2_channel_io covers the cv2 read side;
+    cv2_channel_tiff_write covers the false-color-aware write side.
     """
     if _is_test_path(path):
         return []
     norm = path.replace('\\', '/')
-    if not any(norm.startswith(scope) for scope in _RULE_31D_PATH_SCOPE):
+    if not any(norm.startswith(scope) for scope in _CV2_CHANNEL_TIFF_READ_PATH_SCOPE):
         return []
-    if norm in _RULE_31D_FILE_EXEMPT:
+    if norm in _CV2_CHANNEL_TIFF_READ_FILE_EXEMPT:
         return []
     violations: list[Violation] = []
     for node in ast.walk(tree):
@@ -659,7 +733,7 @@ def _check_rule_31d(tree: ast.AST, path: str) -> list[Violation]:
                     path,
                     node.lineno,
                     node.col_offset,
-                    'rule_31d',
+                    'cv2_channel_tiff_read',
                     f'bare {f.value.id}.imread in modules/ or ui/; route '
                     f'through image_utils.load_pixels, which returns '
                     f'(image, significant_bits) together. A bare read hands '
@@ -670,7 +744,7 @@ def _check_rule_31d(tree: ast.AST, path: str) -> list[Violation]:
     return violations
 
 
-def _check_rule_31b(tree: ast.AST, path: str) -> list[Violation]:
+def _check_cv2_channel_false_color(tree: ast.AST, path: str) -> list[Violation]:
     """Block ``add_false_color`` callsites outside the display / encode
     boundary.
 
@@ -684,9 +758,9 @@ def _check_rule_31b(tree: ast.AST, path: str) -> list[Violation]:
     consumers that expect mono + layer metadata.
 
     Path scope: any production ``.py``. Allowed call sites are listed
-    in ``_RULE_31B_BOUNDARY_PATHS`` -- the manual record path, protocol
-    video capture, and image_utils itself (the sanctioned save-layer
-    exception: the false-color image mode widens 16-bit
+    in ``_CV2_CHANNEL_FALSE_COLOR_BOUNDARY_PATHS`` -- the manual record
+    path, protocol video capture, and image_utils itself (the sanctioned
+    save-layer exception: the false-color image mode widens 16-bit
     fluorescence to RGB for Windows-Preview color via
     maybe_apply_false_color, which no-ops when the setting is off).
     Test files exempt via ``_is_test_path``.
@@ -694,7 +768,7 @@ def _check_rule_31b(tree: ast.AST, path: str) -> list[Violation]:
     if _is_test_path(path):
         return []
     norm = path.replace('\\', '/')
-    if norm in _RULE_31B_BOUNDARY_PATHS:
+    if norm in _CV2_CHANNEL_FALSE_COLOR_BOUNDARY_PATHS:
         return []
     violations: list[Violation] = []
     for node in ast.walk(tree):
@@ -707,13 +781,13 @@ def _check_rule_31b(tree: ast.AST, path: str) -> list[Violation]:
             pass
         else:
             continue
-        boundary_list = ', '.join(sorted(_RULE_31B_BOUNDARY_PATHS))
+        boundary_list = ', '.join(sorted(_CV2_CHANNEL_FALSE_COLOR_BOUNDARY_PATHS))
         violations.append(
             Violation(
                 path,
                 node.lineno,
                 node.col_offset,
-                'rule_31b',
+                'cv2_channel_false_color',
                 f'add_false_color callsite outside the display / encode '
                 f'boundary. Allowed call sites: {boundary_list}. Mono '
                 f'fluorescence saves carry the layer as TIFF metadata; '
@@ -774,6 +848,9 @@ def _check_rule_35d(tree: ast.AST, path: str) -> list[Violation]:
     package itself (the API surface that defines or forwards these names),
     and this rule-check file. New broken-on-Lumascope names get added to
     `_BROKEN_SCOPE_METHODS` as Wave-7 phases retire more forwarders.
+
+    On the Firmware-repo side, this rule fires primarily on plugin code
+    under etaluma-engineering/ that consumes the LVP Lumascope API.
     """
     norm = path.replace('\\', '/')
     if _is_test_path(norm):
@@ -844,8 +921,198 @@ def _check_rule_42(source: str, path: str) -> list[Violation]:
     return violations
 
 
-def check_source(content: str, path: str) -> list[Violation]:
-    """Run all enabled rule checks against one source file's content."""
+_RULE_45_DOC_RE = re.compile(r'(?:^|/)(?:AUDIT_[^/]+|[^/]*_PLAN[^/]*)\.md$')
+_RULE_45_STATUS_RE = re.compile(r'^##[ \t]+Status\b', re.IGNORECASE)
+
+
+def _is_rule_45_doc(path: str) -> bool:
+    """Mechanical proxy for "plan / audit / design / roadmap doc" (Rule 45).
+
+    Fires on docs/ markdown whose basename is AUDIT_* or contains _PLAN
+    (FIRMWARE_PLAN, REST_API_PLAN, *_TEST_PLAN, MASTER_PLAN, ...).
+    Archived docs under docs/completed/ are exempt -- they are frozen
+    records, not live trackers. CLAUDE.md, DAILY_LOG, TODO, README,
+    SESSION_HANDOVER, MEMORY, and the hardware reference do not match the
+    pattern, so they are exempt by construction.
+    """
+    norm = path.replace('\\', '/')
+    if '/completed/' in norm:
+        return False
+    return _RULE_45_DOC_RE.search(norm) is not None
+
+
+def _status_section_lines(content: str) -> set[int]:
+    """1-based line numbers spanned by the doc's `## Status` section.
+
+    The section runs from its `## Status` header to the line before the
+    next h2 (`## `) header (or EOF). `### ` subheaders stay inside.
+    Empty set if there is no `## Status` header.
+    """
+    lines = content.splitlines()
+    start = None
+    for i, ln in enumerate(lines):
+        if _RULE_45_STATUS_RE.match(ln):
+            start = i
+            break
+    if start is None:
+        return set()
+    end = len(lines)
+    for j in range(start + 1, len(lines)):
+        if lines[j].startswith('## ') and not lines[j].startswith('### '):
+            end = j
+            break
+    return set(range(start + 1, end + 1))
+
+
+def _check_rule_45(content: str, path: str, added: set[int] | None) -> list[Violation]:
+    """Plan/audit docs carry a kept-current Status section (Rule 45).
+
+    Two facets:
+      structure (WARN) -- the doc must HAVE a `## Status` section. WARN,
+        not block, while the existing missing-Status backlog is normalized
+        in a separate reconciliation pass; the warning names the gap.
+      freshness (BLOCK) -- when a doc that HAS a Status section is edited
+        (staged diff has added/modified lines) but none of them fall inside
+        the Status section, the state changed without the Status moving in
+        the same commit. Only evaluated when `added` is provided.
+    """
+    if not _is_rule_45_doc(path):
+        return []
+    status_lines = _status_section_lines(content)
+    if not status_lines:
+        return [
+            Violation(
+                path,
+                1,
+                0,
+                'rule_45',
+                'plan/audit doc lacks a `## Status` section; Rule 45 requires '
+                'a structured Status section as the first content after the title',
+                severity='warn',
+            )
+        ]
+    if added and not (added & status_lines):
+        return [
+            Violation(
+                path,
+                min(added),
+                0,
+                'rule_45',
+                'plan/audit doc edited but its `## Status` section was not '
+                'touched in the same commit; update Status alongside the '
+                'state change (Rule 45)',
+            )
+        ]
+    return []
+
+
+_PLAN_REVISIONS_DIR_RE = re.compile(r'(?:^|/)[^/]*(?:_revisions|_plan)/')
+_TRUTH_BASE_ROW_RE = re.compile(r'truth\s+base|drafting\s+sources?', re.IGNORECASE)
+
+
+def _is_plan_doc(path: str) -> bool:
+    """Plan docs only (audits are fact-gathering and need no truth base):
+    *_PLAN*.md anywhere plus any .md inside a plan ledger dir -- both the
+    *_revisions/ shape and the newer *_plan/ shape -- whose revision files
+    usually drop the _PLAN infix. Knowledge/carry-forward accumulator
+    dirs are NOT plan docs (they are what plans draft FROM). Archived
+    docs under completed/ are frozen records, exempt.
+    """
+    norm = path.replace('\\', '/')
+    if '/completed/' in norm:
+        return False
+    if not norm.endswith('.md'):
+        return False
+    if _PLAN_REVISIONS_DIR_RE.search(norm):
+        return True
+    basename = norm.rsplit('/', 1)[-1]
+    return '_PLAN' in basename
+
+
+def _check_plan_truth_base(content: str, path: str) -> list[Violation]:
+    """WARN when a plan doc's Status section has no `Truth base` row.
+
+    A plan derived from an approved knowledge document names it in
+    Status; a plan carrying no truth-base row is the
+    write-the-plan-straight-from-findings shape that repeatedly fails
+    adversarial review. WARN, not block: the legacy-plan backlog
+    normalizes over time, and the judgment layer (what counts as a
+    valid truth base) lives in the planning skills, not here.
+    """
+    if not _is_plan_doc(path):
+        return []
+    status_lines = _status_section_lines(content)
+    if not status_lines:
+        return []  # the missing-Status structure warning is rule_45's
+    lines = content.splitlines()
+    for ln in sorted(status_lines):
+        if ln - 1 < len(lines) and _TRUTH_BASE_ROW_RE.search(lines[ln - 1]):
+            return []
+    return [
+        Violation(
+            path,
+            min(status_lines),
+            0,
+            'plan_truth_base',
+            'plan doc Status has no `Truth base` / `Drafting sources` row; '
+            'name the accumulator docs (passed + approved) the plan is '
+            'derived from, or state why this plan class needs none',
+            severity='warn',
+        )
+    ]
+
+
+_DAILY_LOG_ENTRY_RE = re.compile(r'^## \d{4}-\d{2}-\d{2}')
+_RULINGS_LINE_RE = re.compile(r'^\*\*Rulings\b', re.IGNORECASE)
+
+
+def _is_daily_log(path: str) -> bool:
+    """The narrative session log -- the one doc whose per-entry SHAPE
+    (not Status freshness) is checked; each doc check owns the predicate
+    that scopes it, and the staged-file collection is their union."""
+    return path.replace('\\', '/').endswith('docs/DAILY_LOG.md')
+
+
+def _check_daily_log_rulings(content: str, path: str, added: set[int] | None) -> list[Violation]:
+    """WARN when a NEW DAILY_LOG entry lands without a `Rulings:` line.
+
+    A ruling recorded only when it is the session's headline gets lost
+    when it is incidental, and a field that can be silently omitted will
+    be -- the literal value "none" satisfies the check. Diff-aware only:
+    without a staged diff there is no notion of a NEW entry.
+    """
+    if not _is_daily_log(path) or not added:
+        return []
+    lines = content.splitlines()
+    new_entry_lines = [
+        ln
+        for ln in sorted(added)
+        if ln - 1 < len(lines) and _DAILY_LOG_ENTRY_RE.match(lines[ln - 1])
+    ]
+    if not new_entry_lines:
+        return []
+    if any(ln - 1 < len(lines) and _RULINGS_LINE_RE.match(lines[ln - 1]) for ln in added):
+        return []
+    return [
+        Violation(
+            path,
+            new_entry_lines[0],
+            0,
+            'daily_log_rulings',
+            'new DAILY_LOG entry has no `**Rulings:**` line; record every '
+            'decision made this session, or the literal word "none"',
+            severity='warn',
+        )
+    ]
+
+
+def check_source(content: str, path: str, *, cv2_channel: bool = True) -> list[Violation]:
+    """Run the .py rule checks against one source file's content.
+
+    `cv2_channel` gates the LVP-only false-color / channel-order family;
+    main() passes the repo map's value, and the default keeps direct
+    callers (tests) on the full check set.
+    """
     violations: list[Violation] = []
     # Rule 24 is text-scan only -- run regardless of AST parseability.
     violations.extend(_check_rule_24(content, path))
@@ -864,10 +1131,11 @@ def check_source(content: str, path: str) -> list[Violation]:
     else:
         violations.extend(_check_rule_28(tree, path))
         violations.extend(_check_rule_27d(tree, path))
-        violations.extend(_check_rule_31a(tree, path))
-        violations.extend(_check_rule_31b(tree, path))
-        violations.extend(_check_rule_31c(tree, path))
-        violations.extend(_check_rule_31d(tree, path))
+        if cv2_channel:
+            violations.extend(_check_cv2_channel_io(tree, path))
+            violations.extend(_check_cv2_channel_false_color(tree, path))
+            violations.extend(_check_cv2_channel_tiff_write(tree, path))
+            violations.extend(_check_cv2_channel_tiff_read(tree, path))
         violations.extend(_check_rule_35d(tree, path))
     violations.extend(_check_rule_27a(content, path))
     violations.extend(_check_rule_27b(content, path))
@@ -875,20 +1143,27 @@ def check_source(content: str, path: str) -> list[Violation]:
     return violations
 
 
-def _staged_python_files() -> list[str]:
+def check_doc(content: str, path: str, added: set[int] | None) -> list[Violation]:
+    """Run the doc-status checks against one markdown file's content."""
+    violations: list[Violation] = []
+    violations.extend(_check_rule_45(content, path, added))
+    violations.extend(_check_plan_truth_base(content, path))
+    violations.extend(_check_daily_log_rulings(content, path, added))
+    return violations
+
+
+def _staged_files(suffix: str) -> list[str]:
     out = subprocess.check_output(
         ['git', 'diff', '--cached', '--name-only', '--diff-filter=AM'],
         text=True,
     )
-    return [p for p in out.splitlines() if p.endswith('.py')]
+    return [p for p in out.splitlines() if p.endswith(suffix)]
 
 
-def _staged_kv_files() -> list[str]:
-    out = subprocess.check_output(
-        ['git', 'diff', '--cached', '--name-only', '--diff-filter=AM'],
-        text=True,
-    )
-    return [p for p in out.splitlines() if p.endswith('.kv')]
+def _staged_doc_files() -> list[str]:
+    return [
+        p for p in _staged_files('.md') if _is_rule_45_doc(p) or _is_plan_doc(p) or _is_daily_log(p)
+    ]
 
 
 def _read_staged_content(path: str) -> str:
@@ -944,29 +1219,41 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    config = _repo_config()
     violations: list[Violation] = []
 
     if args.staged:
-        for p in _staged_python_files():
+        for p in _staged_files('.py'):
             try:
                 content = _read_staged_content(p)
             except subprocess.CalledProcessError:
                 continue
-            file_violations = check_source(content, p)
+            file_violations = check_source(content, p, cv2_channel=config['cv2_channel'])
             if not args.all:
                 added = _added_lines(p)
                 file_violations = _filter_to_added(file_violations, added)
             violations.extend(file_violations)
-        for p in _staged_kv_files():
-            try:
-                content = _read_staged_content(p)
-            except subprocess.CalledProcessError:
-                continue
-            file_violations = _check_rule_24_kv(content, p)
-            if not args.all:
-                added = _added_lines(p)
-                file_violations = _filter_to_added(file_violations, added)
-            violations.extend(file_violations)
+        if config['kv_ascii']:
+            for p in _staged_files('.kv'):
+                try:
+                    content = _read_staged_content(p)
+                except subprocess.CalledProcessError:
+                    continue
+                file_violations = _check_rule_24_kv(content, p)
+                if not args.all:
+                    added = _added_lines(p)
+                    file_violations = _filter_to_added(file_violations, added)
+                violations.extend(file_violations)
+        if config['doc_status']:
+            for p in _staged_doc_files():
+                try:
+                    content = _read_staged_content(p)
+                except subprocess.CalledProcessError:
+                    continue
+                # The doc checks are diff-aware (freshness) and content-aware
+                # (structure); they do their own line-range filtering, so they
+                # are not subject to the --all / added-line filter above.
+                violations.extend(check_doc(content, p, _added_lines(p)))
     else:
         for p in args.paths or []:
             try:
@@ -975,9 +1262,14 @@ def main(argv: list[str] | None = None) -> int:
                 print(f'{p}: cannot read: {e}', file=sys.stderr)
                 continue
             if p.endswith('.kv'):
-                violations.extend(_check_rule_24_kv(content, p))
+                if config['kv_ascii']:
+                    violations.extend(_check_rule_24_kv(content, p))
+            elif p.endswith('.md'):
+                # Structural-only in --paths mode (no diff available).
+                if config['doc_status']:
+                    violations.extend(check_doc(content, p, None))
             else:
-                violations.extend(check_source(content, p))
+                violations.extend(check_source(content, p, cv2_channel=config['cv2_channel']))
 
     if not violations:
         return 0
@@ -997,10 +1289,10 @@ def main(argv: list[str] | None = None) -> int:
 
     print('', file=sys.stderr)
     if blocks:
-        print('See .claude/rules/ (Rules 24, 27, 28, 42).', file=sys.stderr)
+        print('See .claude/rules/ for the mechanically enforced rules.', file=sys.stderr)
         print('To bypass (NOT recommended): git commit --no-verify', file=sys.stderr)
         return 1
-    print('Warnings only; commit allowed. See .claude/rules/docs.md Rule 42.', file=sys.stderr)
+    print('Warnings only; commit allowed.', file=sys.stderr)
     return 0
 
 

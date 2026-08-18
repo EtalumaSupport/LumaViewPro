@@ -1,6 +1,6 @@
-"""Tests for tools/check_rules.py rule_31a.
+"""Tests for tools/check_rules.py cv2_channel_io.
 
-rule_31a blocks bare ``cv2.imread`` / ``cv2.imwrite`` / ``cv2.VideoWriter``
+cv2_channel_io blocks bare ``cv2.imread`` / ``cv2.imwrite`` / ``cv2.VideoWriter``
 in production ``modules/`` and ``ui/`` outside the canonical owner
 files. The canonical owners are ``modules/image_utils.py`` (which
 holds the L1 file loader plus the capability-flag wrappers) and
@@ -24,7 +24,7 @@ from tools.check_rules import check_source
 
 
 def _violations(content: str, path: str) -> list:
-    return [v for v in check_source(content, path) if v.rule == 'rule_31a']
+    return [v for v in check_source(content, path) if v.rule == 'cv2_channel_io']
 
 
 class TestRule31aBlocksBareCv2InProductionPaths:
@@ -48,7 +48,7 @@ def save(arr, path):
 """
         violations = _violations(src, 'modules/another_processor.py')
         assert len(violations) == 1
-        assert violations[0].rule == 'rule_31a'
+        assert violations[0].rule == 'cv2_channel_io'
 
     def test_bare_cv2_VideoWriter_in_modules_blocks(self):
         src = """
@@ -122,7 +122,7 @@ def main():
 
 class TestRule31aIgnoresNonCv2Calls:
     def test_cv2_cvtColor_does_not_fire(self):
-        # rule_31a covers only imread / imwrite / VideoWriter --
+        # cv2_channel_io covers only imread / imwrite / VideoWriter --
         # cv2.cvtColor and other cv2 functions are out of scope (LAB
         # color transfer in stitch_algorithms uses cvtColor + split +
         # merge legitimately).

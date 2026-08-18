@@ -1,3 +1,8 @@
+# Repo identity for the unified tools/check_rules.py gate (byte-identical
+# in both repos); the key decides which check families run here.
+[tool.etaluma]
+repo = "lumaviewpro"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--tb=short -q --durations=15"

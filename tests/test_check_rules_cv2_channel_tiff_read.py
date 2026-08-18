@@ -1,6 +1,6 @@
-"""Tests for tools/check_rules.py rule_31d.
+"""Tests for tools/check_rules.py cv2_channel_tiff_read.
 
-rule_31d blocks bare ``tf.imread`` / ``tifffile.imread`` in production
+cv2_channel_tiff_read blocks bare ``tf.imread`` / ``tifffile.imread`` in production
 ``modules/`` and ``ui/`` outside the canonical reader. The one sanctioned
 reader is ``modules/image_utils.load_pixels``, which returns the pixels
 AND their significant-bit depth together; ``image_utils.py`` is the only
@@ -13,7 +13,7 @@ remember to read the depth separately. A right-aligned 12-bit frame read
 without its depth scales ~16x dark. Routing every read through
 load_pixels makes the depth inseparable from the pixels by construction.
 
-Companion to rule_31a (which bans bare cv2.imread / cv2.imwrite on the
+Companion to cv2_channel_io (which bans bare cv2.imread / cv2.imwrite on the
 same paths); together they close both the cv2 and tifffile read sides.
 """
 
@@ -29,7 +29,7 @@ from tools.check_rules import check_source
 
 
 def _violations(content: str, path: str) -> list:
-    return [v for v in check_source(content, path) if v.rule == 'rule_31d']
+    return [v for v in check_source(content, path) if v.rule == 'cv2_channel_tiff_read']
 
 
 class TestRule31dBlocksBareTiffileReadInProductionPaths:
@@ -53,7 +53,7 @@ def load(path):
 """
         violations = _violations(src, 'modules/another_processor.py')
         assert len(violations) == 1
-        assert violations[0].rule == 'rule_31d'
+        assert violations[0].rule == 'cv2_channel_tiff_read'
 
     def test_bare_tf_imread_in_ui_blocks(self):
         src = """
@@ -115,7 +115,7 @@ def main():
 
 class TestRule31dIgnoresNonTiffileReads:
     def test_tf_imwrite_does_not_fire(self):
-        # rule_31d covers only the read side; tifffile.imwrite is rule_31c's
+        # cv2_channel_tiff_read covers only the read side; tifffile.imwrite is cv2_channel_tiff_write's
         # domain (false-color-aware write routing).
         src = """
 import tifffile as tf
@@ -126,7 +126,7 @@ def save(arr, path):
         assert _violations(src, 'modules/some_processor.py') == []
 
     def test_cv2_imread_does_not_fire(self):
-        # cv2.imread is rule_31a's domain, not rule_31d's.
+        # cv2.imread is cv2_channel_io's domain, not cv2_channel_tiff_read's.
         src = """
 import cv2
 

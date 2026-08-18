@@ -1,6 +1,6 @@
-"""Tests for tools/check_rules.py rule_31c.
+"""Tests for tools/check_rules.py cv2_channel_tiff_write.
 
-rule_31c blocks bare ``tifffile.imwrite`` (aliased ``tf`` or
+cv2_channel_tiff_write blocks bare ``tifffile.imwrite`` (aliased ``tf`` or
 ``tifffile``) calls in post-processor modules unless the same function
 also calls one of the false-color helpers
 (``image_utils.maybe_apply_false_color`` or ``image_utils.write_tiff``).
@@ -21,7 +21,7 @@ from tools.check_rules import check_source
 
 
 def _violations(content: str, path: str) -> list:
-    return [v for v in check_source(content, path) if v.rule == 'rule_31c']
+    return [v for v in check_source(content, path) if v.rule == 'cv2_channel_tiff_write']
 
 
 class TestRule31cBlocksBareImwriteWithoutHelper:
@@ -34,7 +34,7 @@ def _zproject(self, path, df):
 """
         violations = _violations(src, 'modules/zprojector.py')
         assert len(violations) == 1
-        assert violations[0].rule == 'rule_31c'
+        assert violations[0].rule == 'cv2_channel_tiff_write'
         assert violations[0].line == 5
 
     def test_bare_tifffile_imwrite_in_stitcher_with_no_helper_blocks(self):
@@ -46,7 +46,7 @@ def _stitch(path):
 """
         violations = _violations(src, 'modules/stitcher.py')
         assert len(violations) == 1
-        assert violations[0].rule == 'rule_31c'
+        assert violations[0].rule == 'cv2_channel_tiff_write'
 
 
 class TestRule31cAllowsBareImwriteWithPairedHelper:
@@ -80,7 +80,7 @@ class TestRule31cScopedToPostProcessorPaths:
         # protocol_image_writer is NOT in the post-processor scope yet
         # (it is the canonical capture-side save path and already uses
         # write_tiff for fluorescence). A bare tf.imwrite somewhere in
-        # protocol_image_writer is not in scope for rule_31c.
+        # protocol_image_writer is not in scope for cv2_channel_tiff_write.
         src = """
 import tifffile as tf
 
@@ -134,7 +134,7 @@ def _build_composite(arr, path):
 """
         violations = _violations(src, 'modules/composite_generation.py')
         assert len(violations) == 1
-        assert violations[0].rule == 'rule_31c'
+        assert violations[0].rule == 'cv2_channel_tiff_write'
 
     def test_composite_with_write_tiff_helper_passes(self):
         src = """
@@ -159,7 +159,7 @@ def _save(arr, path):
 """
         violations = _violations(src, 'modules/stack_builder.py')
         assert len(violations) == 1
-        assert violations[0].rule == 'rule_31c'
+        assert violations[0].rule == 'cv2_channel_tiff_write'
 
     def test_stack_builder_with_write_hyperstack_tiff_helper_passes(self):
         # The canonical shape: stack_builder calls write_hyperstack_tiff.

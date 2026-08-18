@@ -1,6 +1,6 @@
-"""Tests for tools/check_rules.py rule_31b.
+"""Tests for tools/check_rules.py cv2_channel_false_color.
 
-rule_31b blocks ``add_false_color`` callsites outside the display /
+cv2_channel_false_color blocks ``add_false_color`` callsites outside the display /
 encode boundary. The boundary owners are ``ui/main_display.py``
 (manual record path) and ``modules/video_capture.py`` (protocol
 video capture).
@@ -24,7 +24,7 @@ from tools.check_rules import check_source
 
 
 def _violations(content: str, path: str) -> list:
-    return [v for v in check_source(content, path) if v.rule == 'rule_31b']
+    return [v for v in check_source(content, path) if v.rule == 'cv2_channel_false_color']
 
 
 class TestRule31bBlocksAddFalseColorOutsideBoundary:
@@ -38,7 +38,7 @@ def save(arr):
 """
         violations = _violations(src, 'modules/some_processor.py')
         assert len(violations) == 1
-        assert violations[0].rule == 'rule_31b'
+        assert violations[0].rule == 'cv2_channel_false_color'
         assert violations[0].line == 5
 
     def test_bare_name_call_in_modules_blocks(self):
