@@ -677,7 +677,7 @@ The host detects which class by examining the exception type during `plugin.regi
 
 ## 5. REST surface mapping
 
-**Status (pass-2 C-6 DEFERRED 2026-05-11)**: this section is design-only-not-locked. REST URL convention conflicts with `REST_API_PLAN.md` flat `/api/v1/{move,led,camera,focus}` (lines 156-170) and is deferred to a dedicated REST design session. The session decides which convention wins and produces a V2 plan that supersedes both this §5 and the current REST_API_PLAN URL convention. The rule-change commit + Wave 0 + Wave 1 + the §10 namespace lock ship WITHOUT REST URL specifics.
+**Status (RESOLVED 2026-08-17)**: the REST design session was held and pinned the **hierarchical** convention this section proposes -- REST paths mirror the sub-API tree, `/api/v1/<sub-api>/<method>`. The conflicting flat convention is retired. The prefixes in the table below are therefore current; the individual endpoint names remain provisional and are **design-only-not-locked** until the REST server ships, at which point URL + request shape + response shape become L2 contracts (Rule 30 wire-contract symmetry).
 
 For design-only reference, the hierarchical convention proposed by this doc:
 
