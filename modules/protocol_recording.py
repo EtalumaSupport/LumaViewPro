@@ -615,7 +615,6 @@ class ProtocolVideoStep:
                 # own counter; fold them into the user-facing total. The
                 # manifest carries the engine-counted failures.
                 writer_dropped = self._writer.dropped_frames
-                logger.info(f'[PROTOCOL-VIDEO] Video written to {self._writer.output_path}')
             result = engine.result()
         except Exception:
             logger.exception('[PROTOCOL-VIDEO] Post-drain finish failed')
@@ -650,9 +649,18 @@ class ProtocolVideoStep:
                     self._record_dropped_capture(
                         reason=f'video_{result.end_reason}', capture_time=self._start_dt
                     )
+                    # No file exists to name: the mp4 muxer writes nothing at
+                    # all for an empty stream, so the configured output path
+                    # was never created. Announcing it would contradict the
+                    # dropped-capture row recorded immediately above.
+                    logger.info(
+                        '[PROTOCOL-VIDEO] No video written: the step captured 0 '
+                        'frames, so no file was produced'
+                    )
                 else:
                     if self._writer is not None:
                         artifact_name = self._writer.output_path.name
+                        logger.info(f'[PROTOCOL-VIDEO] Video written to {self._writer.output_path}')
                     else:
                         artifact_name = self._output_dir.name
                     self._record_step_row(

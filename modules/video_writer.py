@@ -345,7 +345,12 @@ class VideoWriter:
             except Exception as e:
                 logger.error(f'VideoWriter: PyAV close failed: {e}')
         else:
-            logger.warning('VideoWriter.close() called without adding any frames.')
+            # Reached only when the encoder was never opened -- _init_pyav
+            # creates the container eagerly, so a recording that ran and
+            # captured nothing still takes the branch above and reports
+            # "closed (0 frames)". Naming the frame count here described a
+            # condition this branch does not test.
+            logger.warning('VideoWriter.close() called before the encoder was opened.')
 
     @property
     def frame_count(self) -> int:

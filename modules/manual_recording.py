@@ -696,7 +696,6 @@ class ManualRecordingController:
                 # manifest carries the engine-counted failures -- the
                 # frames+manifest leg is the reference artifact.
                 writer_dropped = self._writer.dropped_frames
-                logger.info(f'[ManualRecord] Video written to {self._writer.output_path}')
 
             result = engine.result()
 
@@ -715,6 +714,21 @@ class ManualRecordingController:
             # does not. Keeping them apart is what lets the callback fire --
             # and the UI leave its recording state -- after a failed finish.
             if result is not None:
+                # Announce the artifact only once its existence is known.
+                # A recording that captured nothing leaves NO file at all --
+                # the mp4 muxer writes neither header nor trailer for an
+                # empty stream -- so naming output_path here would print a
+                # path that was never created. frames_written is the same
+                # authority the row-recording branches use, rather than a
+                # second opinion from a filesystem probe.
+                if result.frames_written == 0:
+                    logger.info(
+                        '[ManualRecord] No video written: the recording captured 0 '
+                        'frames, so no file was produced'
+                    )
+                elif self._writer is not None:
+                    logger.info(f'[ManualRecord] Video written to {self._writer.output_path}')
+
                 dropped = result.write_failures + writer_dropped
                 if dropped > 0 and not result.aborted:
                     notifications.warning(
