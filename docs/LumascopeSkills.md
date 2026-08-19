@@ -1,5 +1,11 @@
 # LumaViewPro — API & Integration Reference
 
+**What is public.** This document defines the public API. If a method or
+property is not documented here, it is not public API: it may be renamed,
+moved, or removed in any release without notice, and code that calls it is
+unsupported. Bench-characterization and tech-support surfaces exist on the
+same objects and are deliberately not listed here.
+
 ## PRE-RELEASE API
 
 The Lumascope SDK API documented in this file is **subject to breaking changes** in 4.1 / 4.1.5 / 4.2. Specifically:
@@ -303,7 +309,7 @@ Recording starts are guarded like protocol starts: `RecordingRefusedError` (`mod
 
 **Opening hyperstacks in Fiji:** the container is OME-TIFF; channel color travels as OME `Channel.Color`. Open via `Plugins > Bio-Formats > Importer` with **Color mode = Composite** (the choice persists per user through that dialog). A plain `File > Open` renders ImageJ's default LUTs, not the file's channel colors.
 
-**Run-state semantics:** `session.is_protocol_running()` reports True while any exclusive GUI-side activity holds the run lockout -- protocol runs, autofocus scans, and the standalone Autofocus button's scan included. An L2 poller should treat it as "the instrument is busy with an exclusive activity", not strictly "a protocol is executing".
+**Run-state semantics:** `session.is_protocol_running` (a property, not a call) reports True while any exclusive GUI-side activity holds the run lockout -- protocol runs, autofocus scans, and the standalone Autofocus button's scan included. An L2 poller should treat it as "the instrument is busy with an exclusive activity", not strictly "a protocol is executing".
 
 ### Configuration queries
 
@@ -362,8 +368,6 @@ scope.motion.tmove(2)                            # turret position 2
 scope.motion.xycenter()                          # move to stage center
 scope.motion.get_axis_limits('Z')                # {'min': 0, 'max': 14000}
 scope.motion.get_axes_config()                   # per-axis config dict: limits + ustep-conversion funcs (motion-driver shape)
-scope.motion.axes_present()                      # e.g. ['X', 'Y', 'Z', 'T']
-scope.motion.has_axis('T')
 ```
 
 **Axes: two different questions, two different surfaces.** Asking *what
@@ -871,7 +875,7 @@ scope.runtime_state.firmware_features       # dict[str, frozenset[str]]
 
 **Status in 4.0.x: empty placeholder.** Both fields ship as empty dicts. Real content lands when FW4.0 populates `INFO.features` (firmware_features) and when reconnect-aware versioning hooks are added to the driver layer (firmware_versions). Callers treat empty as "feature unknown" per the Rule 8 capability-probe contract — `scope.runtime_state.firmware_features.get('motor', frozenset())` returns the empty set today, never `KeyError`.
 
-Until the real content ships, query firmware version via `scope.diagnostics.get_motor_info()['version']` / `scope.diagnostics.get_led_info()['version']`. The diagnostic-getter path is the live query; `runtime_state` will become the cached snapshot once reflash hooks fire it.
+Until the real content ships, query firmware version via `scope.diagnostics.get_motor_info()['firmware_version']` / `scope.diagnostics.get_led_info()['firmware_version']`. The diagnostic-getter path is the live query; `runtime_state` will become the cached snapshot once reflash hooks fire it.
 
 ---
 
