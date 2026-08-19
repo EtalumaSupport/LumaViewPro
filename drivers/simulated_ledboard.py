@@ -134,12 +134,21 @@ class SimulatedLEDBoard:
             logger.info('[LED Sim   ] SimulatedLEDBoard.connect()')
 
     def disconnect(self) -> None:
-        """Mark the simulated board as disconnected and clear LED state."""
+        """Mark the simulated board as disconnected.
+
+        Deliberately does NOT zero `_channel_states`. Closing the host's
+        serial port does not darken a real board: the channels keep driving
+        whatever current they were last commanded until something sends an
+        off or the board loses power -- which is exactly why the real driver
+        sends a safety off on CONNECT, to recover from a previous session
+        that died lit. Zeroing here would model a safety property the
+        hardware does not have, and would hide from every test the case
+        where a teardown path closes the port with the sample still
+        illuminated.
+        """
         with self._lock:
             self.driver = None
             self.port = None
-            for ch in self._channel_states:
-                self._channel_states[ch] = 0
             logger.info('[LED Sim   ] SimulatedLEDBoard.disconnect()')
 
     def is_connected(self) -> bool:

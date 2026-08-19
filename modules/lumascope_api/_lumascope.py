@@ -847,6 +847,26 @@ class Lumascope:
         """
         logger.info('[SCOPE API ] Disconnecting from microscope...')
 
+        # Darken the LEDs before anything else is torn down. Closing the
+        # serial port does not turn a board off -- the channels hold their
+        # commanded current until something sends an off or power drops --
+        # so a teardown without this leaves the sample illuminated until the
+        # next connect's safety off, or indefinitely if there is no next
+        # connect. Same defense-in-depth argument as the motor stop below:
+        # every teardown path benefits without the caller having to
+        # remember, and it means no LED-specific member has to be public for
+        # a client to shut a scope down safely.
+        #
+        # Bounded acquire (the emergency variant) because an in-flight LED
+        # write holding the lock must not be able to wedge teardown; it runs
+        # first so the ordering the atexit hook relies on is unchanged.
+        # Best-effort like every other step here: a failure is logged and
+        # the port teardown still proceeds.
+        try:
+            self.illumination._leds_off_emergency()
+        except Exception as ex:
+            logger.exception(f'[SCOPE API ] LED shutoff during disconnect failed: {ex}')
+
         # LVP-A-1: stop motors before tearing down the serial port so we
         # don't leave a stage/turret moving against an end-stop after
         # the host stops responding to status polls. Defense in depth --
@@ -963,14 +983,11 @@ class Lumascope:
         atexit completes cleanly even when the logging stack or hardware
         access is already torn down.
 
-        Uses `leds_off_emergency` (bounded `_led_lock` acquire) rather
-        than `leds_off` to avoid atexit deadlock when an in-flight LED
-        command holds the lock.
+        The LED shutoff is not repeated here: `disconnect()` performs it as
+        its first step, using the same bounded acquire, so there is one
+        place that darkens the channels on the way down rather than two
+        that have to be kept in agreement.
         """
-        try:
-            self.illumination._leds_off_emergency()
-        except Exception:
-            pass
         try:
             self.disconnect()
         except Exception:
