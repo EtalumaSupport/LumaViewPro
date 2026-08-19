@@ -9325,44 +9325,6 @@ class TestProtocolIOTimeoutsAreNotShort:
         )
 
 
-class TestWaitUntilLedOnSymmetry:
-    """Audit Finding #8 -- illumination.wait_until_led_on mirrors
-    motion.wait_until_finished_moving in shape: takes a `timeout_s`
-    kwarg (renamed from bare `timeout` in audit U6) and returns a
-    bool."""
-
-    def test_signature_has_timeout_kwarg_with_default(self):
-        import inspect
-        from modules.lumascope_api.illumination import IlluminationAPI
-
-        sig = inspect.signature(IlluminationAPI.wait_until_led_on)
-        params = sig.parameters
-        assert 'timeout_s' in params, 'wait_until_led_on must accept timeout_s kwarg'
-        assert 'timeout' not in params, (
-            'wait_until_led_on must not still expose bare `timeout` (audit U6)'
-        )
-        assert params['timeout_s'].default == 5.0
-        # `from __future__ import annotations` -> string forms.
-        assert params['timeout_s'].annotation in (float, 'float')
-
-    def test_returns_bool_annotation(self):
-        import inspect
-        from modules.lumascope_api.illumination import IlluminationAPI
-
-        sig = inspect.signature(IlluminationAPI.wait_until_led_on)
-        assert sig.return_annotation in (bool, 'bool')
-
-    def test_no_driver_returns_false(self, sim_scope):
-        # Force the no-driver branch (driver resolved via scope._led_driver).
-        original = sim_scope._led_driver
-        sim_scope._led_driver = None
-        try:
-            result = sim_scope.illumination.wait_until_led_on(timeout_s=0.1)
-        finally:
-            sim_scope._led_driver = original
-        assert result is False
-
-
 class TestSessionLedOnArgNameIsMa:
     """Audit Finding #33 -- ScopeSession.led_on_async / led_on_sync use `mA`,
     matching the canonical Lumascope.illumination.led_on(channel, mA, ...)
@@ -9636,7 +9598,6 @@ class TestTimeoutParamNamesUseSecondSuffix:
         ('modules.lumascope_api.motion', 'MotionAPI', 'move_absolute_sync'),
         ('modules.lumascope_api.illumination', 'IlluminationAPI', 'led_on_sync'),
         ('modules.lumascope_api.illumination', 'IlluminationAPI', 'leds_off_sync'),
-        ('modules.lumascope_api.illumination', 'IlluminationAPI', 'wait_until_led_on'),
         ('modules.lumascope_api.imaging', 'ImagingAPI', 'set_gain_sync'),
         ('modules.lumascope_api.imaging', 'ImagingAPI', 'set_exposure_sync'),
         ('modules.lumascope_api.imaging', 'ImagingAPI', 'capture_and_wait'),
@@ -10135,22 +10096,6 @@ class TestGetterSetterSymmetry:
         # Round-trip: set then get returns the same value.
         sim_scope.runtime_state.set_stage_offset({'x': 1.0, 'y': 2.0})
         assert sim_scope.runtime_state.get_stage_offset() == {'x': 1.0, 'y': 2.0}
-
-    def test_imaging_get_scale_bar_exists(self, sim_scope):
-        assert callable(getattr(sim_scope.imaging, 'get_scale_bar', None))
-        # Round-trip: set then get reflects the change.
-        sim_scope.imaging.set_scale_bar(enabled=True, color='white')
-        snap = sim_scope.imaging.get_scale_bar()
-        assert snap['enabled'] is True
-        assert snap['color'] == 'white'
-
-    def test_get_scale_bar_returns_defensive_copy(self, sim_scope):
-        """Mutating the returned dict must not affect internal state."""
-        sim_scope.imaging.set_scale_bar(enabled=True, color='white')
-        snap = sim_scope.imaging.get_scale_bar()
-        snap['enabled'] = False
-        # Internal state untouched
-        assert sim_scope.imaging.scale_bar_enabled is True
 
 
 class TestHardwareFeaturesCapability:

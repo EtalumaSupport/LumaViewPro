@@ -387,11 +387,6 @@ class ScopeSession:
             self.wellplate_loader,
         )
 
-    def log_system_metrics(self) -> None:
-        import modules.config_helpers as config_helpers
-
-        config_helpers.log_system_metrics(self.settings)
-
     # --- LED commands (thin shims around Lumascope's executor-backed API) ---
     # All async-by-default; *_sync counterparts call the matching
     # scope.illumination.*_sync method.

@@ -239,7 +239,6 @@ EXCLUDED = {
     'get_available_binning_sizes': 'profile-backed; no per-call SDK read to contain',
     'get_native_resolution': 'profile-backed; no per-call SDK read to contain',
     'get_pixel_alignment': 'profile-backed; no per-call SDK read to contain',
-    'get_scale_bar': 'local overlay-config snapshot; never touches the camera SDK',
     'get_live_camera_settings': (
         'live-confirmed surface; deliberately the inverse contract '
         '(omits unknown rather than answering last-known-good)'

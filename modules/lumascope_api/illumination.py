@@ -152,8 +152,10 @@ class LedLease:
     """Opaque LED-ownership token handed out by IlluminationAPI.
 
     Holding the lease grants exclusive LED control: while it is held the
-    illumination API refuses writes from anyone else (the run-boundary
-    callers consult ``led_write_allowed`` before driving the LEDs).
+    illumination API refuses writes from anyone else. The refusal is enforced
+    inside ``led_on`` / ``led_off`` themselves -- there is no separate
+    permission check for a caller to consult first, and adding one would just
+    create a window between the check and the write.
     Release it at the end of the run -- which turns the owner's channels
     off by default so the end-state is decided by the release, not
     reconstructed at each call site -- or use it as a context manager.
@@ -749,8 +751,8 @@ class IlluminationAPI:
         """Read driver.last_command_error and fire a sample-safety
         notification if the most recent LED command did not confirm.
 
-        Called after every LED driver call (leds_off, led_on, led_off,
-        leds_enable, leds_disable). Drivers that don't expose the field
+        Called after every LED driver call (leds_off, led_on, led_off).
+        Drivers that don't expose the field
         (NullLEDBoard, SimulatedLEDBoard, FX2 -- pre-migration) are
         silently skipped via getattr-default. notification_center
         dedups by (category, title) over a 5s window so a stream of
@@ -1104,17 +1106,6 @@ class IlluminationAPI:
                 for color in all_colors
             }
 
-    def get_led_status(self) -> int | None:
-        """Get the LED board status register.
-
-        Returns:
-            Driver-defined status object (typically int bitfield), or
-            None if no LED board is connected.
-        """
-        if not self._driver:
-            return None
-        return self._driver.get_status()
-
     # --- Save / restore ---
     def save_led_state(self, tag: str) -> dict:
         """Snapshot the current LED state for later restoration.
@@ -1379,19 +1370,6 @@ class IlluminationAPI:
                 [held.owner_name for held in stranded],
             )
 
-    def led_write_allowed(self, owner_name: str) -> bool:
-        """Whether *owner_name* may drive the LEDs right now.
-
-        True when no lease is held (live UI control is open season) or when
-        owner_name matches the active (innermost) holder. An empty owner --
-        a bare UI click -- is therefore allowed only while the LEDs are
-        unleased.
-        """
-        with self._led_lease_lock:
-            if not self._led_lease_stack:
-                return True
-            return owner_name == self._led_lease_stack[-1].owner_name
-
     def _lease_violation(self, owner: str) -> str | None:
         """The active lease owner if *owner* may NOT write right now, else None.
 
@@ -1507,37 +1485,7 @@ class IlluminationAPI:
         self.leds_off()
 
     # --- Enable / disable ---
-    def leds_enable(self) -> None:
-        """Enable all LED channels (allows them to be turned on)."""
-        if not self._driver:
-            return
-        self._driver.leds_enable()
-        self._notify_if_led_command_failed()
-
-    def leds_disable(self) -> None:
-        """Disable all LED channels (prevents them from turning on)."""
-        if not self._driver:
-            return
-        self._driver.leds_disable()
-        self._notify_if_led_command_failed()
-
     # --- Wait ---
-    def wait_until_led_on(self, timeout_s: float = 5.0) -> bool:
-        """Block until the LED board confirms an LED is on.
-
-        Mirrors motion.wait_until_finished_moving in shape.
-
-        Args:
-            timeout_s: Maximum seconds to wait (default 5s).
-
-        Returns:
-            bool: True if confirmed on, False on timeout / no driver /
-            firmware lacks STATUS (current state until v3.1 firmware).
-        """
-        if not self._driver:
-            return False
-        return self._driver.wait_until_on(timeout_s)
-
     # --- Channel mapping ---
     def ch2color(self, channel: int) -> str | None:
         """Convert a channel number to its color name string.

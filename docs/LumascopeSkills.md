@@ -75,7 +75,7 @@ The remainder of this document is organized as the sub-API reference (one sectio
 
 Methods on the L2 surface follow one of two contracts; if a method's docstring has a `Raises:` section it follows the raise contract, otherwise the sentinel contract.
 
-- **Hardware-state queries** (capability probes, status reads, getters like `get_led_ma`, `get_target_position`, `get_led_status`, `camera_max_gain`, `read_motor_voltages`) return a sentinel value -- `None`, `False`, or an empty container -- when the value cannot be read (no hardware, channel not set, firmware does not implement the probe). No exception is raised. The caller branches on the sentinel.
+- **Hardware-state queries** (capability probes, status reads, getters like `get_led_ma`, `get_target_position`, `get_led_states`, `camera_max_gain`, `read_motor_voltages`) return a sentinel value -- `None`, `False`, or an empty container -- when the value cannot be read (no hardware, channel not set, firmware does not implement the probe). No exception is raised. The caller branches on the sentinel.
 - **Camera value getters** (`get_gain`, `get_exposure_time`, `get_frame_size`, `get_width`/`get_height`, `get_max_width`/`get_max_height`, `get_binning_size`, `get_pixel_format`) are a stricter subclass of the sentinel contract: a **transient read failure is invisible** -- the getter answers with the validated last-known-good value, so a momentary USB/SDK glitch can never hand you a failure code where a physical value belongs (no `-1` gain into arithmetic, no `None` frame size into a subscript). The documented camera-absent defaults (`get_gain` -1.0, `get_exposure_time` 0.0, `get_frame_size`/`get_pixel_format` `None`, width/height getters 0, `get_binning_size` 1) occur **only** when no camera is active or the value has never been successfully read -- stable states you can see coming via `camera_connected`, not something a transient failure produces mid-session. Callers that must record what the hardware was at a specific moment (file metadata, logs of record) use `get_live_camera_settings()` instead: it returns only fields whose driver read succeeded right now (`gain_db`, `exposure_ms`) and omits the rest -- there, unknown stays unknown by design.
 - **State-changing operations** (setters like `set_gain`, `move_absolute`, `led_on`, etc.) typically return `True` on success and `False` for "couldn't do it" (no driver, mode invalid, driver does not implement, etc.). A `Raises:` section in the docstring documents the typed exception (`HardwareError`, `CaptureError`, `ConfigError` from `modules.exceptions`) that propagates when the underlying SDK call itself fails. The API layer logs (`logger.error`) and fires a user-facing notification (`notifications.error`) before re-raising at the driver boundary; the typed exception is what L2 callers should catch.
 - **Sentinel-return methods log** at `logger.warning` or `logger.info` per Rule 5; they do **not** fire user notifications (no actionable failure occurred -- the value is just unknown).
@@ -407,13 +407,11 @@ Channels available depend on the scope — always check `scope.capabilities.led_
 **Luminescence** (`Lumi`): not an LED channel. In luminescence mode, all LEDs must be off — the image captures emitted light only.
 
 ```python
-scope.illumination.leds_enable()
 scope.illumination.led_on('Blue', 200)                 # Blue LED at 200 mA
 scope.illumination.led_on(0, 200)                      # same, by channel number
 scope.illumination.led_on('Blue', 200, block=True)     # wait for firmware confirmation
 scope.illumination.led_off('Blue')
 scope.illumination.leds_off()                          # turn off all LEDs
-scope.illumination.leds_disable()
 
 # Fast path (no response wait — timing-critical code only)
 scope.illumination.led_on_fast('Red', 100)
@@ -424,8 +422,6 @@ scope.illumination.leds_off_fast()
 scope.illumination.color2ch('Blue')                    # 0  (or None if the scope doesn't have this color)
 scope.illumination.ch2color(0)                         # 'Blue'
 
-# Wait for firmware confirmation (mirrors motion.wait_until_finished_moving)
-scope.illumination.wait_until_led_on(timeout_s=5.0)    # True if confirmed on, False on timeout
 ```
 
 **Safety limits** (enforced by firmware on RP2040 boards): per-channel max 1000 mA, board total max 3000 mA. FX2 boards have their own per-channel cap declared in the camera profile.

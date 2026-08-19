@@ -755,7 +755,7 @@ class ScopeDisplay(Image):
         # Update scale bar color based on active channel (black for transmitted, white for fluorescence)
         if active_layer is not None:
             ctx.scope.imaging.set_scale_bar(
-                enabled=ctx.scope.imaging.scale_bar_enabled, color=active_layer
+                enabled=ctx.scope.imaging.scale_bar_config['enabled'], color=active_layer
             )
 
         # Likely not an IO call as image will be stored in buffer

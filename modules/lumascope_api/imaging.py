@@ -3175,21 +3175,16 @@ class ImagingAPI:
     def scale_bar_config(self) -> dict:
         """Return a snapshot of scale bar settings.
 
+        The one read for this state: a defensive copy of the whole
+        ``{'enabled', 'color', ...}`` configuration, so a caller reading more
+        than one field sees a single consistent setting rather than fields
+        from either side of a concurrent ``set_scale_bar``.
+
         Returns:
             dict: Copy of the scale bar config (e.g. enabled, color).
         """
         with self._state_lock:
             return dict(self._scale_bar)
-
-    @property
-    def scale_bar_enabled(self) -> bool:
-        """Whether the scale bar overlay is enabled.
-
-        Returns:
-            bool: True if the scale bar is enabled.
-        """
-        with self._state_lock:
-            return bool(self._scale_bar.get('enabled', False))
 
     def set_scale_bar(self, enabled: bool, color: str | None = None) -> None:
         """Configure the scale bar overlay on captured images.
@@ -3205,20 +3200,6 @@ class ImagingAPI:
             self._scale_bar['enabled'] = enabled
             if color is not None:
                 self._scale_bar['color'] = color
-
-    def get_scale_bar(self) -> dict:
-        """Get the full scale-bar configuration.
-
-        Companion getter to ``set_scale_bar``; ``scale_bar_enabled`` covers
-        just the on/off flag, but this returns the full
-        ``{'enabled', 'color', ...}`` snapshot so a caller can read what
-        was previously set.
-
-        Returns:
-            Snapshot dict (defensive copy) of the scale-bar state.
-        """
-        with self._state_lock:
-            return dict(self._scale_bar)
 
     # --- Camera diagnostics (live in-flight only; data source = DiagnosticsAPI) ---
     def log_camera_temps(self) -> None:
