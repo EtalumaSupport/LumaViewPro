@@ -220,7 +220,10 @@ class ImagingAPI:
         self._camera_temp_unschedule_fn = None
 
         # Scale-bar overlay config -- defaults disabled; users opt in via
-        # set_scale_bar(...). Reads/writes under self._state_lock.
+        # set_scale_bar(...). Written from the GUI thread and read from the
+        # capture and live-view threads, so every access outside this
+        # constructor goes through self._state_lock, and readers take a
+        # snapshot rather than reading the fields one at a time.
         self._scale_bar = {
             'enabled': False,
             'color': None,
@@ -2487,7 +2490,10 @@ class ImagingAPI:
 
             image = np.clip(combined, None, max_value).astype(orig_dtype)
 
-        use_scale_bar = self._scale_bar['enabled']
+        # One snapshot for the whole overlay decision: enabled and color must
+        # come from the same configuration even if the GUI toggles mid-frame.
+        scale_bar = self.scale_bar_config
+        use_scale_bar = scale_bar['enabled']
         if self._scope.runtime_state._objective is None:
             use_scale_bar = False
 
@@ -2508,7 +2514,7 @@ class ImagingAPI:
                 image=image,
                 objective=self._scope.runtime_state._objective,
                 binning_size=self._binning_size,
-                color=self._scale_bar.get('color'),
+                color=scale_bar.get('color'),
                 significant_bits=significant_bits,
             )
 
@@ -2567,7 +2573,9 @@ class ImagingAPI:
         with self._state_lock:
             self._frame_buffer = tmp
 
-        use_scale_bar = self._scale_bar['enabled']
+        # Snapshot both fields together; see get_image for why.
+        scale_bar = self.scale_bar_config
+        use_scale_bar = scale_bar['enabled']
         if self._scope.runtime_state._objective is None:
             use_scale_bar = False
 
@@ -2576,7 +2584,7 @@ class ImagingAPI:
                 image=tmp,
                 objective=self._scope.runtime_state._objective,
                 binning_size=self._binning_size,
-                color=self._scale_bar.get('color'),
+                color=scale_bar.get('color'),
                 significant_bits=frame_significant_bits,
             )
 
@@ -3190,9 +3198,13 @@ class ImagingAPI:
             enabled: Whether to draw the scale bar.
             color: Scale bar color (e.g. "white"). Uses default if None.
         """
-        self._scale_bar['enabled'] = enabled
-        if color is not None:
-            self._scale_bar['color'] = color
+        # One critical section for both fields: the capture path reads
+        # enabled and color as a pair, and a toggle landing between two
+        # separate writes would draw the bar in the previous colour.
+        with self._state_lock:
+            self._scale_bar['enabled'] = enabled
+            if color is not None:
+                self._scale_bar['color'] = color
 
     def get_scale_bar(self) -> dict:
         """Get the full scale-bar configuration.
