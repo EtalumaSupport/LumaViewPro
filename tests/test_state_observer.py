@@ -67,15 +67,6 @@ class TestLEDListener:
         assert len(events) >= 2
         assert all(e[1] is False for e in events)
 
-    def test_listener_fires_on_fast_methods(self, scope):
-        events = []
-        scope.illumination.add_led_listener(lambda c, e, m, o: events.append((c, e, m, o)))
-        scope.illumination.led_on_fast(channel=0, mA=100)
-        scope.illumination.led_off_fast(channel=0)
-        assert len(events) == 2
-        assert events[0][1] is True  # on
-        assert events[1][1] is False  # off
-
     def test_listener_not_fired_on_skip(self, scope):
         """When led_on is called with same params (skip-check), no listener fires."""
         scope.illumination.led_on(channel=0, mA=100)

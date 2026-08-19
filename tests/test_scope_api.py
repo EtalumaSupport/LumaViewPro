@@ -10,7 +10,6 @@ Uses mock objects + Lumascope(simulate=True) -- no hardware or Kivy needed.
 """
 
 import datetime
-from concurrent.futures import Future
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
@@ -20,6 +19,7 @@ import pytest
 import modules.config_helpers as config_helpers
 import modules.lumascope_api as lumascope_api
 from modules.scope_session import ScopeSession
+from modules.sequential_io_executor import SequentialIOExecutor
 
 
 # ---------------------------------------------------------------------------
@@ -97,22 +97,35 @@ def _make_mock_scope(led_available=True):
     return scope
 
 
-def _make_mock_executor():
-    """Build a mock SequentialIOExecutor."""
-    executor = MagicMock()
-    fut = Future()
-    fut.set_result(None)
-    executor.put = MagicMock(return_value=fut)
-    return executor
+class _RecordingExecutor(SequentialIOExecutor):
+    """A real executor that also records what was submitted to it.
+
+    The dispatch tests below assert two things, and only a real executor
+    can answer both: that the right callable was bound, and that the work
+    actually ran. The binding half matters because the async tiers must
+    bind the private ``_impl`` and never the public name -- a task bound to
+    the public member would re-enter dispatch from the worker it already
+    occupies. A mock executor answers the binding half and silently passes
+    the other, since nothing it is handed ever executes.
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.submitted = []
+
+    def put(self, task, return_future=False):
+        self.submitted.append(task)
+        return super().put(task, return_future=return_future)
 
 
-def _make_real_scope_with_mock_executors(led=True, motor=True):
-    """Build a real `Lumascope(simulate=True)` with mock executors registered.
+def _make_real_scope_with_recording_executors(led=True, motor=True):
+    """Build a real `Lumascope(simulate=True)` with real executors running.
 
-    Real Lumascope code path (the new X_async / X_sync API methods run for
-    real); only the executor side is mocked so we can assert on dispatch
-    shape. Set led=False or motor=False to install Null* boards (mimics
+    Set led=False or motor=False to install Null* boards (mimics
     "controller not present"); the API methods early-return in that case.
+
+    The caller owns shutdown: `scope.disconnect()` plus `shutdown()` on
+    each executor, or the worker threads outlive the test.
     """
     scope = lumascope_api.Lumascope(simulate=True)
     if not led:
@@ -123,10 +136,28 @@ def _make_real_scope_with_mock_executors(led=True, motor=True):
         from drivers.null_motorboard import NullMotionBoard
 
         scope._motion_driver = NullMotionBoard()
-    io_ex = _make_mock_executor()
-    cam_ex = _make_mock_executor()
+    io_ex = _RecordingExecutor(name='TEST_IO')
+    cam_ex = _RecordingExecutor(name='TEST_CAMERA')
+    io_ex.start()
+    cam_ex.start()
     scope.register_executors(io_executor=io_ex, camera_executor=cam_ex)
+    _LIVE_RIGS.append((scope, io_ex, cam_ex))
     return scope, io_ex, cam_ex
+
+
+# Real executors run real worker threads, so every rig built above has to
+# be torn down or the threads outlive the test that made them.
+_LIVE_RIGS = []
+
+
+@pytest.fixture(autouse=True)
+def _shutdown_recording_rigs():
+    yield
+    while _LIVE_RIGS:
+        scope, io_ex, cam_ex = _LIVE_RIGS.pop()
+        io_ex.shutdown()
+        cam_ex.shutdown()
+        scope.disconnect()
 
 
 # ===========================================================================
@@ -399,88 +430,101 @@ class TestLogSystemMetrics:
 
 class TestLumascopeLedAPI:
     def test_leds_off_async_dispatches(self):
-        scope, io_ex, _ = _make_real_scope_with_mock_executors()
+        scope, io_ex, _ = _make_real_scope_with_recording_executors()
         scope.illumination.leds_off_async()
-        io_ex.put.assert_called_once()
-        task = io_ex.put.call_args[0][0]
-        assert task.action == scope.illumination.leds_off
+        assert len(io_ex.submitted) == 1
+        task = io_ex.submitted[0]
+        assert task.action == scope.illumination._leds_off_impl
 
     def test_leds_off_async_with_callback(self):
-        scope, io_ex, _ = _make_real_scope_with_mock_executors()
+        scope, io_ex, _ = _make_real_scope_with_recording_executors()
         cb = MagicMock()
         scope.illumination.leds_off_async(callback=cb)
-        task = io_ex.put.call_args[0][0]
+        task = io_ex.submitted[0]
         assert task.callback == cb
 
     def test_leds_off_async_skips_when_no_led(self):
-        scope, io_ex, _ = _make_real_scope_with_mock_executors(led=False)
+        scope, io_ex, _ = _make_real_scope_with_recording_executors(led=False)
         scope.illumination.leds_off_async()
-        io_ex.put.assert_not_called()
+        assert io_ex.submitted == []
 
     def test_led_on_async_dispatches(self):
-        scope, io_ex, _ = _make_real_scope_with_mock_executors()
+        scope, io_ex, _ = _make_real_scope_with_recording_executors()
         scope.illumination.led_on_async(channel=2, mA=100)
-        task = io_ex.put.call_args[0][0]
-        assert task.action == scope.illumination.led_on
+        task = io_ex.submitted[0]
+        assert task.action == scope.illumination._led_on_impl
         assert task.args == (2, 100)
 
     def test_led_on_async_with_callback(self):
-        scope, io_ex, _ = _make_real_scope_with_mock_executors()
+        scope, io_ex, _ = _make_real_scope_with_recording_executors()
         cb = MagicMock()
         scope.illumination.led_on_async(1, 50, callback=cb, cb_kwargs={'layer': 'Red'})
-        task = io_ex.put.call_args[0][0]
+        task = io_ex.submitted[0]
         assert task.callback == cb
         assert task.cb_kwargs == {'layer': 'Red'}
 
     def test_led_on_async_skips_when_no_led(self):
-        scope, io_ex, _ = _make_real_scope_with_mock_executors(led=False)
+        scope, io_ex, _ = _make_real_scope_with_recording_executors(led=False)
         scope.illumination.led_on_async(0, 50)
-        io_ex.put.assert_not_called()
+        assert io_ex.submitted == []
 
     def test_led_off_async_dispatches(self):
-        scope, io_ex, _ = _make_real_scope_with_mock_executors()
+        scope, io_ex, _ = _make_real_scope_with_recording_executors()
         scope.illumination.led_off_async(channel=3)
-        task = io_ex.put.call_args[0][0]
-        assert task.action == scope.illumination.led_off
+        task = io_ex.submitted[0]
+        assert task.action == scope.illumination._led_off_impl
         assert task.kwargs == {'channel': 3}
 
     def test_led_off_async_skips_when_no_led(self):
-        scope, io_ex, _ = _make_real_scope_with_mock_executors(led=False)
+        scope, io_ex, _ = _make_real_scope_with_recording_executors(led=False)
         scope.illumination.led_off_async(0)
-        io_ex.put.assert_not_called()
+        assert io_ex.submitted == []
 
-    def test_led_on_sync_blocks(self):
-        scope, io_ex, _ = _make_real_scope_with_mock_executors()
-        scope.illumination.led_on_sync(channel=1, mA=75)
-        io_ex.put.assert_called_once()
-        _, kwargs = io_ex.put.call_args
-        assert kwargs.get('return_future') is True
+    def test_led_on_blocks_until_the_write_lands(self):
+        # led_on absorbed the blocking tier: it submits and does not return
+        # until the worker has run the body, so the state is readable the
+        # moment it returns rather than eventually. Reading it here is the
+        # assertion -- a dispatcher that submitted without waiting would
+        # find the channel still dark.
+        scope, io_ex, _ = _make_real_scope_with_recording_executors()
+        scope.illumination.led_on(channel=1, mA=75)
+        assert len(io_ex.submitted) == 1
+        color = scope.illumination.ch2color(1)
+        assert scope.illumination.get_led_ma(color) == 75.0
 
-    def test_led_on_sync_skips_when_no_led(self):
-        scope, io_ex, _ = _make_real_scope_with_mock_executors(led=False)
-        scope.illumination.led_on_sync(0, 50)
-        io_ex.put.assert_not_called()
+    def test_led_on_skips_when_no_led(self):
+        scope, io_ex, _ = _make_real_scope_with_recording_executors(led=False)
+        scope.illumination.led_on(0, 50)
+        assert io_ex.submitted == []
 
-    def test_unregistered_io_executor_raises(self):
-        """Methods that need the io_executor raise RuntimeError if executors
-        have not been registered (rather than silently no-op'ing or
-        dispatching to None)."""
+    def test_unregistered_io_executor_runs_the_body_directly(self):
+        """With no executor registered there is nothing to submit to, so the
+        body runs on the calling thread instead of raising. A bare
+        Lumascope() in a script or an example has no executors and must
+        still drive hardware -- both the blocking and the fire-and-forget
+        form."""
         scope = lumascope_api.Lumascope(simulate=True)
-        with pytest.raises(RuntimeError, match='register_executors'):
+        try:
+            scope.illumination.led_on_async(channel=0, mA=30)
+            color = scope.illumination.ch2color(0)
+            assert scope.illumination.get_led_ma(color) == 30.0
             scope.illumination.leds_off_async()
+            assert scope.illumination.get_led_ma(color) in (None, 0.0)
+        finally:
+            scope.disconnect()
 
 
 class TestLumascopeMotionAPI:
     def test_move_absolute_async_dispatches(self):
-        scope, io_ex, _ = _make_real_scope_with_mock_executors()
+        scope, io_ex, _ = _make_real_scope_with_recording_executors()
         scope.motion.move_absolute_async('Z', 5000.0)
-        task = io_ex.put.call_args[0][0]
-        assert task.action == scope.motion.move_absolute_position
+        task = io_ex.submitted[0]
+        assert task.action == scope.motion._move_absolute_position_impl
         assert task.kwargs['axis'] == 'Z'
         assert task.kwargs['pos'] == 5000.0
 
     def test_move_absolute_async_with_options(self):
-        scope, io_ex, _ = _make_real_scope_with_mock_executors()
+        scope, io_ex, _ = _make_real_scope_with_recording_executors()
         cb = MagicMock()
         scope.motion.move_absolute_async(
             'X',
@@ -490,62 +534,62 @@ class TestLumascopeMotionAPI:
             callback=cb,
             cb_kwargs={'axis': 'X'},
         )
-        task = io_ex.put.call_args[0][0]
+        task = io_ex.submitted[0]
         assert task.kwargs['wait_until_complete'] is True
         assert task.kwargs['overshoot_enabled'] is False
         assert task.callback == cb
         assert task.cb_kwargs == {'axis': 'X'}
 
     def test_move_relative_async_dispatches(self):
-        scope, io_ex, _ = _make_real_scope_with_mock_executors()
+        scope, io_ex, _ = _make_real_scope_with_recording_executors()
         scope.motion.move_relative_async('Y', -500.0)
-        task = io_ex.put.call_args[0][0]
-        assert task.action == scope.motion.move_relative_position
+        task = io_ex.submitted[0]
+        assert task.action == scope.motion._move_relative_position_impl
         assert task.kwargs['axis'] == 'Y'
         assert task.kwargs['um'] == -500.0
 
     def test_move_home_async_z(self):
-        scope, io_ex, _ = _make_real_scope_with_mock_executors()
+        scope, io_ex, _ = _make_real_scope_with_recording_executors()
         scope.motion.move_home_async('Z')
-        task = io_ex.put.call_args[0][0]
-        assert task.action == scope.motion.zhome
+        task = io_ex.submitted[0]
+        assert task.action == scope.motion._zhome_impl
 
     def test_move_home_async_all(self):
-        scope, io_ex, _ = _make_real_scope_with_mock_executors()
+        scope, io_ex, _ = _make_real_scope_with_recording_executors()
         scope.motion.move_home_async('all')  # lowercase should work
-        task = io_ex.put.call_args[0][0]
-        assert task.action == scope.motion.home
+        task = io_ex.submitted[0]
+        assert task.action == scope.motion._home_impl
 
     def test_move_home_async_legacy_xy_alias(self):
         """Legacy 'XY' axis label still dispatches to scope.motion.home() so
         existing callers keep working during the rename window."""
-        scope, io_ex, _ = _make_real_scope_with_mock_executors()
+        scope, io_ex, _ = _make_real_scope_with_recording_executors()
         scope.motion.move_home_async('XY')
-        task = io_ex.put.call_args[0][0]
-        assert task.action == scope.motion.home
+        task = io_ex.submitted[0]
+        assert task.action == scope.motion._home_impl
 
     def test_move_home_async_turret(self):
-        scope, io_ex, _ = _make_real_scope_with_mock_executors()
+        scope, io_ex, _ = _make_real_scope_with_recording_executors()
         scope.motion.move_home_async('T')
-        task = io_ex.put.call_args[0][0]
-        assert task.action == scope.motion.thome
+        task = io_ex.submitted[0]
+        assert task.action == scope.motion._thome_impl
 
     def test_move_home_async_with_callback(self):
-        scope, io_ex, _ = _make_real_scope_with_mock_executors()
+        scope, io_ex, _ = _make_real_scope_with_recording_executors()
         cb = MagicMock()
         scope.motion.move_home_async('Z', callback=cb, cb_args=('Z',))
-        task = io_ex.put.call_args[0][0]
+        task = io_ex.submitted[0]
         assert task.callback == cb
         assert task.cb_args == ('Z',)
 
     def test_move_home_async_unknown_axis(self):
-        scope, io_ex, _ = _make_real_scope_with_mock_executors()
+        scope, io_ex, _ = _make_real_scope_with_recording_executors()
         # move_home_async body lives on MotionAPI (motion.py) after the
         # stateful relocation; the warning is logged through that module's
         # logger, not _lumascope.py's.
         with patch('modules.lumascope_api.motion.logger') as mock_log:
             scope.motion.move_home_async('W')
-        io_ex.put.assert_not_called()
+        assert io_ex.submitted == []
         mock_log.warning.assert_called()
 
 
@@ -561,7 +605,7 @@ class TestScopeSession:
         `scope`'s registered mock executor (same instance as session.io_executor)
         so call-count assertions work end-to-end through the new API.
         """
-        scope, io_ex, cam_ex = _make_real_scope_with_mock_executors()
+        scope, io_ex, cam_ex = _make_real_scope_with_recording_executors()
         defaults = {
             'settings': _make_settings(),
             'scope': scope,
@@ -585,7 +629,7 @@ class TestScopeSession:
 
     def test_init_stores_all_fields(self):
         settings = _make_settings()
-        scope, io, cam = _make_real_scope_with_mock_executors()
+        scope, io, cam = _make_real_scope_with_recording_executors()
         session = ScopeSession(
             settings=settings,
             scope=scope,
@@ -628,10 +672,13 @@ class TestScopeSession:
         from unittest.mock import MagicMock
 
         session = self._make_session()
-        session.scope.imaging.capture_and_wait_sync = MagicMock(return_value=None)
-        session.capture_and_wait_sync(dark_floor_check=True, grab_timeout_s=2.5)
-        kwargs = session.scope.imaging.capture_and_wait_sync.call_args.kwargs
-        assert kwargs['grab_timeout_s'] == 2.5
+        # The imaging sync tier dissolved into capture_and_wait, and the two
+        # timeouts merged: what a caller used to pass as grab_timeout_s is
+        # now the one timeout_s the merged member carries.
+        session.scope.imaging.capture_and_wait = MagicMock(return_value=None)
+        session.capture_and_wait_sync(dark_floor_check=True, timeout_s=2.5)
+        kwargs = session.scope.imaging.capture_and_wait.call_args.kwargs
+        assert kwargs['timeout_s'] == 2.5
         assert kwargs['dark_floor_check'] is True
 
     def test_get_current_objective_info_delegates(self):
@@ -645,44 +692,44 @@ class TestScopeSession:
     def test_leds_off_delegates(self):
         session = self._make_session()
         session.leds_off_async()
-        session.io_executor.put.assert_called_once()
+        assert len(session.io_executor.submitted) == 1
 
     def test_led_on_delegates(self):
         session = self._make_session()
         session.led_on_async(channel=2, mA=100)
-        session.io_executor.put.assert_called_once()
+        assert len(session.io_executor.submitted) == 1
 
     def test_led_off_delegates(self):
         session = self._make_session()
         session.led_off_async(channel=1)
-        session.io_executor.put.assert_called_once()
+        assert len(session.io_executor.submitted) == 1
 
     def test_move_absolute_delegates(self):
         session = self._make_session()
         session.move_absolute_async('Z', 3000)
-        session.io_executor.put.assert_called_once()
-        task = session.io_executor.put.call_args[0][0]
+        assert len(session.io_executor.submitted) == 1
+        task = session.io_executor.submitted[0]
         assert task.kwargs['axis'] == 'Z'
         assert task.kwargs['pos'] == 3000
 
     def test_move_relative_delegates(self):
         session = self._make_session()
         session.move_relative_async('X', 100)
-        session.io_executor.put.assert_called_once()
+        assert len(session.io_executor.submitted) == 1
 
     def test_move_home_delegates(self):
         session = self._make_session()
         session.move_home_async('Z')
-        session.io_executor.put.assert_called_once()
-        task = session.io_executor.put.call_args[0][0]
-        assert task.action == session.scope.motion.zhome
+        assert len(session.io_executor.submitted) == 1
+        task = session.io_executor.submitted[0]
+        assert task.action == session.scope.motion._zhome_impl
 
     def test_no_led_skips_commands(self):
         session = self._make_session(scope=_make_mock_scope(led_available=False))
         session.leds_off_async()
         session.led_on_async(0, 50)
         session.led_off_async(0)
-        session.io_executor.put.assert_not_called()
+        assert session.io_executor.submitted == []
 
     def test_protocol_running_event(self):
         session = self._make_session()

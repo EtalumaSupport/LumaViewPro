@@ -1054,11 +1054,18 @@ class TestAxisState:
         sim_scope.motion.move_relative_position('Z', 100, wait_until_complete=True)
         assert sim_scope.motion.get_axis_state('Z') == AxisState.IDLE
 
-    def test_xycenter_state_tracking(self, sim_scope):
-        """xycenter sets X/Y to IDLE after completion."""
+    def test_xy_move_state_tracking(self, sim_scope):
+        """An X/Y move leaves both axes IDLE after completion.
+
+        Was written against ``xycenter``, which is retired -- it had no
+        production caller. The state-tracking invariant it covered is not
+        specific to centering, so it is driven through the move path that
+        survives rather than dropped with the member.
+        """
         from modules.lumascope_api import AxisState
 
-        sim_scope.motion.xycenter()
+        sim_scope.motion.move_absolute_position('X', 500, wait_until_complete=True)
+        sim_scope.motion.move_absolute_position('Y', 500, wait_until_complete=True)
         assert sim_scope.motion.get_axis_state('X') == AxisState.IDLE
         assert sim_scope.motion.get_axis_state('Y') == AxisState.IDLE
 
@@ -4088,11 +4095,11 @@ class TestFrameValidity_AllLedMutatorsInvalidate:
         illum = sim_scope.illumination
         validity = sim_scope.imaging.frame_validity
         mutator_calls = {
+            # The API-level *_fast tier is gone; the driver keeps its own
+            # *_fast methods, which do not touch frame validity because
+            # they never reach this layer.
             'led_on': lambda: illum.led_on(channel=0, mA=10),
             'led_off': lambda: illum.led_off(channel=0),
-            'led_on_fast': lambda: illum.led_on_fast(channel=0, mA=10),
-            'led_off_fast': lambda: illum.led_off_fast(channel=0),
-            'leds_off_fast': lambda: illum.leds_off_fast(),
             'leds_off': lambda: illum.leds_off(),
         }
         missing = []
@@ -9347,21 +9354,21 @@ class TestSessionLedOnArgNameIsMa:
         assert 'mA' in params
         assert 'illumination' not in params
 
-    def test_illumination_api_led_on_async_signature_uses_mA(self):
-        """U6 paired with Finding #33 (was: ScopeSession only). The
-        async/sync surface on IlluminationAPI proper also drops the
-        ambiguous `illumination=` keyword. The drift had been at the
-        sub-API layer (not just the Session forwarder) and U6 closes
-        it pre-freeze."""
-        import inspect
-        from modules.lumascope_api.illumination import IlluminationAPI
-
-        for method_name in ('led_on_async', 'led_on_sync'):
-            params = inspect.signature(getattr(IlluminationAPI, method_name)).parameters
-            assert 'mA' in params, f'IlluminationAPI.{method_name} must accept mA'
-            assert 'illumination' not in params, (
-                f'IlluminationAPI.{method_name} must retire `illumination` kwarg'
+    def test_illumination_api_led_on_signatures_use_mA(self, sim_scope):
+        """The illumination surface names the LED current `mA`, not the
+        ambiguous `illumination=`. The drift had been at the sub-API layer,
+        not just the Session forwarder."""
+        # Driven rather than introspected: passing mA by keyword is what an
+        # L2 caller does, and a revived `illumination=` keyword fails this
+        # with TypeError the same way a signature check would -- while also
+        # proving the value reaches the LED state.
+        color = sim_scope.illumination.ch2color(0)
+        for method_name in ('led_on', 'led_on_async'):
+            getattr(sim_scope.illumination, method_name)(channel=0, mA=42.0)
+            assert sim_scope.illumination.get_led_ma(color) == 42.0, (
+                f'illumination.{method_name} must accept mA by keyword and apply it'
             )
+            sim_scope.illumination.leds_off()
 
 
 class TestImagingTimeoutsAreFloatSeconds:
@@ -10928,80 +10935,6 @@ class TestShutdownLedsOffRoutedThroughIoExecutor:
             'io_executor down. Otherwise the put() races with the '
             'worker exiting and the leds_off may never fire.'
         )
-
-
-class TestImagingAsyncSyncThreeVariantPattern:
-    """Imaging sub-API must match the illumination 3-variant pattern:
-    bare name = direct sync, _async = queued + immediate return,
-    _sync = queued + blocking. Session forwarders for imaging must
-    also follow the symmetric _async / _sync split. Plain `set_gain`
-    / `set_exposure_time` / `capture_and_wait` on ScopeSession
-    retired in favor of explicit suffixes so the LumascopeSkills
-    'async-by-default' preface stops lying for imaging. Closes API
-    audit F6 + F7 cluster.
-    """
-
-    def test_imaging_has_set_gain_async(self):
-        from modules.lumascope_api.imaging import ImagingAPI
-
-        assert hasattr(ImagingAPI, 'set_gain_async')
-        assert callable(ImagingAPI.set_gain_async)
-
-    def test_imaging_has_set_exposure_time_async(self):
-        from modules.lumascope_api.imaging import ImagingAPI
-
-        assert hasattr(ImagingAPI, 'set_exposure_time_async')
-        assert callable(ImagingAPI.set_exposure_time_async)
-
-    def test_imaging_has_capture_and_wait_async(self):
-        from modules.lumascope_api.imaging import ImagingAPI
-
-        assert hasattr(ImagingAPI, 'capture_and_wait_async')
-        assert callable(ImagingAPI.capture_and_wait_async)
-
-    def test_session_imaging_forwarders_renamed(self):
-        from modules.scope_session import ScopeSession
-
-        # _async + _sync variants must exist
-        for name in (
-            'set_gain_async',
-            'set_gain_sync',
-            'set_exposure_time_async',
-            'set_exposure_time_sync',
-            'capture_and_wait_async',
-            'capture_and_wait_sync',
-        ):
-            assert callable(getattr(ScopeSession, name, None)), (
-                f'ScopeSession.{name} must exist per audit F6/F7 three-variant pattern.'
-            )
-        # Unsuffixed forwarders are retired -- they were the source of the
-        # preface lie. Plain `set_gain` / `set_exposure_time` /
-        # `capture_and_wait` should NOT exist on ScopeSession.
-        for name in ('set_gain', 'set_exposure_time', 'capture_and_wait'):
-            assert not hasattr(ScopeSession, name), (
-                f'ScopeSession.{name} must be retired per audit F7 -- '
-                f'use {name}_async or {name}_sync instead.'
-            )
-
-    def test_session_set_gain_async_routes_through_executor(self):
-        # The async variant should return None and submit via executor.
-        from modules.scope_session import ScopeSession
-
-        session = ScopeSession.create_headless()
-        session.start_executors()
-        try:
-            result = session.set_gain_async(7.0)
-            assert result is None, (
-                'set_gain_async must return None (fire-and-forget); '
-                'value lands after the executor processes the IOTask.'
-            )
-            # Drain by calling _sync afterwards -- if executor wiring
-            # is healthy, the prior async write completes first.
-            session.set_gain_sync(7.0)
-            assert session.scope.imaging.camera_gain == 7.0
-        finally:
-            session.shutdown_executors()
-            session.scope.disconnect()
 
 
 class TestImagingPylonSdkPerfSettersPrivatized:

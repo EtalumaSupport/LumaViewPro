@@ -130,9 +130,8 @@ class TestAutoGainOnceInvalidates:
 
 
 class TestMotionValiditySources:
-    """Turret moves must record the 'turret' source (so the settle-check
-    gates on the turret reaching IDLE, not X/Y); xycenter must invalidate
-    at all."""
+    """Turret moves must record the 'turret' source, so the settle-check
+    gates on the turret reaching IDLE rather than on X/Y."""
 
     def test_turret_axis_maps_to_turret_source(self):
         assert MotionAPI._AXIS_VALIDITY_SOURCE.get('T', 'xy_move') == 'turret'
@@ -197,16 +196,6 @@ class TestMotionValiditySources:
             assert source in recorded, (
                 f'move_relative_position({axis!r}) must invalidate {source!r}; recorded {recorded}'
             )
-        finally:
-            scope.disconnect()
-
-    def test_xycenter_invalidates_xy_move(self):
-        """xycenter physically moves X/Y; before the fix it recorded no
-        validity source at all."""
-        scope, recorded = self._scope_with_invalidate_recorder()
-        try:
-            scope.motion.xycenter()
-            assert 'xy_move' in recorded, f'xycenter must invalidate xy_move; recorded {recorded}'
         finally:
             scope.disconnect()
 
