@@ -73,6 +73,36 @@ class RecordingRefusedError(CaptureError):
         self.message = message
 
 
+class HardwareCommandRefusedError(Exception):
+    """A hardware command was refused: an exclusive activity holds the executor.
+
+    Raised by the public hardware members (LED, camera and motion commands)
+    when the executor that would carry the work will not accept it -- because
+    a protocol run fenced it, or because the run disabled it outright. Both
+    executor states make ``put()`` return None, and the caller cannot tell
+    which one applies; asking whether work is accepted covers both, while
+    asking why would need a list of reasons kept in sync with the executor.
+
+    Distinct from the run and recording refusals, which are raised when an
+    ACTIVITY is refused at start and which carry the title and body already
+    shown to the user. This refusal reaches an external API caller that no
+    notification path serves, so it carries no user-facing strings -- the
+    caller that provoked it owns the response. Without it the command would
+    be dropped silently, which is how a fenced write reaches no hardware and
+    reports success.
+
+    Attributes:
+        reason: Machine-readable refusal code for callers that map refusals
+            to responses (REST status codes, SDK branches).
+        member: The public member that was refused, for the log and message.
+    """
+
+    def __init__(self, reason: str, member: str):
+        super().__init__(f'{member} refused: {reason}')
+        self.reason = reason
+        self.member = member
+
+
 class AutofocusAborted(Exception):  # noqa: N818 -- cancellation/abort signal, not an error; non-Error suffix is intentional
     """Autofocus run aborted by caller (e.g. user cancelled, protocol
     aborted, or app teardown)."""
