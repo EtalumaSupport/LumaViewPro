@@ -577,13 +577,16 @@ def test_confirm_on_transitions_block_others_do_not(scope):
     driver); the MANUAL_STEP preview does not block (no acquire waits on it)."""
     ill = scope.illumination
     blocks = []
-    real_led_on = ill.led_on
+    # Spy on the private body, not the public name: the authority emits its
+    # diff straight to _led_on_impl so an internal write never re-enters
+    # dispatch. A spy on led_on would see nothing and read as "never lit".
+    real_led_on = ill._led_on_impl
 
     def _spy(*args, **kwargs):
         blocks.append(kwargs.get('block', False))
         return real_led_on(*args, **kwargs)
 
-    ill.led_on = _spy
+    ill._led_on_impl = _spy
     try:
         lease = ill.acquire_led_lease('protocol', alive=lambda: True)
         lease.apply(LedTransition.STEP_LIGHT, _ctx(scope, 'Green', GREEN_MA))

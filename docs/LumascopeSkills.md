@@ -417,10 +417,10 @@ scope.illumination.led_on('Blue', 200, block=True)     # wait for firmware confi
 scope.illumination.led_off('Blue')
 scope.illumination.leds_off()                          # turn off all LEDs
 
-# Fast path (no response wait — timing-critical code only)
-scope.illumination.led_on_fast('Red', 100)
-scope.illumination.led_off_fast('Red')
-scope.illumination.leds_off_fast()
+# Fire-and-forget: returns immediately, the write lands on the io worker
+scope.illumination.led_on_async('Red', 100)
+scope.illumination.led_off_async('Red')
+scope.illumination.leds_off_async()
 
 # Channel mapping
 scope.illumination.color2ch('Blue')                    # 0  (or None if the scope doesn't have this color)

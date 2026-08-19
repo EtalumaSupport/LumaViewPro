@@ -526,15 +526,30 @@ class SequentialIOExecutor:
         self._disable = False
         self.blocker.set()
 
+    def accepts_work(self) -> bool:
+        """Whether a task submitted to ``put`` right now would be queued.
+
+        ``put`` drops silently -- returns None -- in two unrelated states: the
+        executor was disabled outright, and a protocol fenced it. A caller that
+        must know BEFORE submitting asks this instead of re-deriving the two
+        conditions, because a second copy of them drifts from the ones ``put``
+        actually enforces, and the drift is invisible -- the task is dropped and
+        the caller is told nothing. ``put`` reads them from here for the same
+        reason, so there is exactly one place they are written down.
+
+        Does NOT describe ``protocol_put``, whose fence runs the other way: it
+        requires a protocol to be running and drops when none is.
+        """
+        if self._disable:
+            return False
+        return not (self.protocol_running.is_set() and not self.protocol_finish.is_set())
+
     def put(self, task: IOTask, return_future: bool = False):
         # Naming precedes every queue insertion below: once a task is on a
         # queue the worker may already be running it, and an unnamed task
         # renames its worker thread to the empty string.
         task.set_name(self.executor_name)
-        if self._disable:
-            return None
-
-        if self.protocol_running.is_set() and not self.protocol_finish.is_set():
+        if not self.accepts_work():
             return None
 
         # Selective backpressure: cap in-flight frame-carrying tasks so a

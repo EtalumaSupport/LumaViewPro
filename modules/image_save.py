@@ -739,7 +739,7 @@ def save_live_image(
     )
 
     if turn_off_all_leds_after:
-        scope.illumination.leds_off()
+        scope.illumination._leds_off_impl()
 
     if array is None:
         return None

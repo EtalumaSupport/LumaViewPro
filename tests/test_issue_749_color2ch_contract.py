@@ -68,6 +68,12 @@ class _FourColourRecordingBoard:
     def __init__(self):
         self.commands = []
 
+    def is_connected(self):
+        # A double standing in for a present board has to answer this: the
+        # API asks it to tell a real board from the Null one, and a double
+        # that omits it is treated as absent rather than failing loudly.
+        return True
+
     def color2ch(self, color):
         return self._COLOR_TO_CH.get(color)
 

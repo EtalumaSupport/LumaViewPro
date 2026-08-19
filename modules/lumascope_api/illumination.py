@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 
 from lib import profile_trace
 from lvp_logger import logger
-from modules.exceptions import ConfigError
+from modules.exceptions import ConfigError, HardwareCommandRefusedError
 from modules.sequential_io_executor import IOTask
 
 if TYPE_CHECKING:
@@ -48,6 +48,14 @@ def _read_fx2_wire_setting() -> bool:
 
 
 _FX2_WIRE_SETTING = _read_fx2_wire_setting()
+
+# How long a dispatched LED write waits on the io worker before giving up.
+# An LED command is a short serial write behind at most one other queued
+# command, so this is a liveness bound rather than a budget -- if it ever
+# expires, the worker is wedged and the caller should hear about it instead
+# of blocking forever. Deliberately not a public parameter: an external
+# caller has no way to know what value would be right.
+_LED_WRITE_TIMEOUT_S = 5.0
 
 
 class LedTransition(enum.Enum):
@@ -525,7 +533,7 @@ class IlluminationAPI:
         return self._scope._led_driver
 
     # --- Sync control ---
-    def led_on(
+    def _led_on_impl(
         self, channel, mA, block: bool = False, owner: str = '', _lease_owner: str | None = None
     ) -> None:
         """Turn on an LED channel at the specified current.
@@ -628,7 +636,7 @@ class IlluminationAPI:
                 self._led_owners[color_name] = owner
             self._fire_led_listeners(color_name, True, float(mA), owner)
 
-    def led_off(self, channel, owner: str = '', _lease_owner: str | None = None) -> None:
+    def _led_off_impl(self, channel, owner: str = '', _lease_owner: str | None = None) -> None:
         """Turn off an LED channel.
 
         Args:
@@ -700,7 +708,7 @@ class IlluminationAPI:
                 self._led_owners.pop(color_name, None)
             self._fire_led_listeners(color_name, False, 0.0, owner)
 
-    def leds_off(self) -> None:
+    def _leds_off_impl(self) -> None:
         """Turn off all LEDs (nuclear -- ignores ownership, clears all owners)."""
         if not self._driver:
             return
@@ -715,7 +723,97 @@ class IlluminationAPI:
         for color in self._driver.available_colors():
             self._fire_led_listeners(color, False, 0.0, '')
 
-    def leds_off_emergency(self, *, timeout_s: float = 2.0) -> None:
+    # --- Public dispatch ---
+    # These four are what an external caller reaches: an SDK script, a REST
+    # handler, the GUI. Every internal caller and both async tiers bind the
+    # matching `_impl` instead, so nothing already running on an executor
+    # worker or on protocol_thread ever arrives here.
+
+    def _dispatch_led(self, impl, name, args=(), kwargs=None):
+        """Run one LED command for an external caller, on the right thread.
+
+        Three outcomes. With no executor registered the body runs on the
+        calling thread -- a bare `Lumascope()` in a script or an example has
+        no executors and still has to drive hardware. With a live executor
+        the body runs on the io worker, serialized against every other
+        hardware write, and this blocks until it has. With an executor that
+        will not accept work the caller is told so, because the alternative
+        is `put` returning None and the command disappearing with nothing
+        raised and nothing logged.
+
+        The refusal asks only WHETHER work is accepted. A run disables the
+        camera executor while io and file are fenced instead, and `put`
+        reports both the same way, so a branch that asked WHY would need a
+        list of executor states kept in sync with the executor.
+        """
+        kwargs = kwargs or {}
+        # The board check has to live here, not be left to the body. Each
+        # `_impl` opens with `if not self._driver: return`, which never fires:
+        # the composition root installs a NullLEDBoard rather than None when
+        # no board is present, and that object is truthy. So the body would
+        # run, the Null driver would swallow the command, and the state cache
+        # would go on to record the channel as lit -- the API reporting an LED
+        # on with no board attached. `led_connected` is the check that
+        # distinguishes a Null board from a real one.
+        if not self._scope.led_connected:
+            logger.warning('[SCOPE API ] LED controller not available.')
+            return None
+        ex = self._scope._io_executor
+        if ex is None:
+            return impl(*args, **kwargs)
+        if not ex.accepts_work():
+            raise HardwareCommandRefusedError('exclusive_activity_running', name)
+        fut = ex.put(IOTask(action=impl, args=args, kwargs=kwargs), return_future=True)
+        return fut.result(timeout=_LED_WRITE_TIMEOUT_S)
+
+    def led_on(
+        self, channel, mA, block: bool = False, owner: str = '', _lease_owner: str | None = None
+    ) -> None:
+        """Turn on an LED channel at the specified current, and wait for it.
+
+        See ``_led_on_impl`` for the argument contract and the errors it
+        raises; this adds only the dispatch described on ``_dispatch_led``.
+        """
+        return self._dispatch_led(
+            self._led_on_impl,
+            'led_on',
+            args=(channel, mA, block, owner, _lease_owner),
+        )
+
+    def led_off(self, channel, owner: str = '', _lease_owner: str | None = None) -> None:
+        """Turn off an LED channel, and wait for it.
+
+        See ``_led_off_impl`` for the argument contract.
+        """
+        return self._dispatch_led(
+            self._led_off_impl, 'led_off', args=(channel, owner, _lease_owner)
+        )
+
+    def leds_off(self) -> None:
+        """Turn off all LEDs, and wait for it.
+
+        Nuclear -- ignores ownership, clears all owners. See
+        ``_leds_off_impl``.
+        """
+        return self._dispatch_led(self._leds_off_impl, 'leds_off')
+
+    def apply_transition(
+        self, transition: LedTransition, ctx: LedTransitionCtx, *, owner: str = ''
+    ) -> None:
+        """Drive an unleased LED transition through the authority, and wait.
+
+        See ``_apply_transition_impl`` for what a transition is and when it
+        is refused for lease reasons, which is separate from the dispatch
+        refusal here.
+        """
+        return self._dispatch_led(
+            self._apply_transition_impl,
+            'apply_transition',
+            args=(transition, ctx),
+            kwargs={'owner': owner},
+        )
+
+    def _leds_off_emergency(self, *, timeout_s: float = 2.0) -> None:
         """Bounded leds-off for atexit / abnormal-exit paths only.
 
         Normal `leds_off` blocks on `_led_lock` indefinitely. atexit hooks
@@ -787,69 +885,6 @@ class IlluminationAPI:
                 e,
             )
 
-    def led_on_fast(self, channel, mA) -> None:
-        """Turn on an LED with write-only (no read-back) for time-critical pulses.
-
-        Args:
-            channel: Channel number (0-5) or color name string.
-            mA: Illumination current in milliamps.
-
-        Raises:
-            ValueError: If channel or mA is out of range.
-            ConfigError: If a colour name this scope cannot drive is given.
-        """
-        if not self._driver:
-            return
-        channel = self._resolve_channel(channel, missing_off_ok=False)
-        valid_channels = self._driver.available_channels()
-        if channel not in valid_channels:
-            raise ValueError(f'LED channel must be one of {valid_channels}, got {channel}')
-        led_max_ma = self._scope.capabilities.led_max_ma
-        if not isinstance(mA, (int, float)) or mA < 0 or mA > led_max_ma:
-            raise ValueError(f'LED current must be 0-{led_max_ma} mA, got {mA}')
-        with self._led_lock:
-            self._driver.led_on_fast(channel, mA)
-        self._scope.imaging.frame_validity.invalidate('led')
-        color_name = self.ch2color(channel)
-        if color_name:
-            self._fire_led_listeners(color_name, True, float(mA), '')
-
-    def led_off_fast(self, channel) -> None:
-        """Turn off an LED with write-only (no read-back) for time-critical pulses.
-
-        Args:
-            channel: Channel number (0-5) or color name string.
-
-        Raises:
-            ValueError: If channel is out of range.
-        """
-        if not self._driver:
-            return
-        channel = self._resolve_channel(channel, missing_off_ok=True)
-        if channel is self._OFF_NOOP:
-            return
-        valid_channels = self._driver.available_channels()
-        if channel not in valid_channels:
-            raise ValueError(f'LED channel must be one of {valid_channels}, got {channel}')
-        with self._led_lock:
-            self._driver.led_off_fast(channel)
-        self._scope.imaging.frame_validity.invalidate('led')
-        color_name = self.ch2color(channel)
-        if color_name:
-            self._fire_led_listeners(color_name, False, 0.0, '')
-
-    def leds_off_fast(self) -> None:
-        """Turn off all LEDs with write-only (no read-back) for time-critical pulses."""
-        if not self._driver:
-            return
-        with self._led_lock:
-            self._driver.leds_off_fast()
-        self._scope.imaging.frame_validity.invalidate('led')
-        with self._led_owner_lock:
-            self._led_state.clear()
-        for color in self._driver.available_colors():
-            self._fire_led_listeners(color, False, 0.0, '')
-
     # --- Async control ---
     def _submit_io(
         self,
@@ -885,17 +920,39 @@ class IlluminationAPI:
         if not self._scope.led_connected:
             logger.warning('[SCOPE API ] LED controller not available.')
             return False
-        ex = self._scope._require_executor(self._scope._io_executor, name)
-        result = ex.put(
-            IOTask(
-                action=action,
-                args=args,
-                kwargs=kwargs,
-                callback=callback,
-                cb_kwargs=cb_kwargs,
-            ),
-            return_future=return_future,
+        task = IOTask(
+            action=action,
+            args=args,
+            kwargs=kwargs,
+            callback=callback,
+            cb_kwargs=cb_kwargs,
         )
+        ex = self._scope._io_executor
+        if ex is None:
+            # Nothing to defer to, so the work happens on this thread -- the
+            # same rule the public dispatcher follows, so the surface has one
+            # answer for "no executor" rather than one per tier. Running the
+            # task rather than the bare action keeps the callback and the
+            # error reporting on the production path; IOTask already falls
+            # back to a direct dispatch when there is no UI dispatcher.
+            # Returning None for a return_future caller is correct: those
+            # callers wait only `if fut`, and the work is already done.
+            result, exception = task.run()
+            task.on_complete(result, exception)
+            if exception is not None:
+                raise exception
+            return None if return_future else True
+        result = ex.put(task, return_future=return_future)
+        if result is None:
+            # put() drops silently when the executor is disabled or fenced.
+            # Fire-and-forget callers cannot be handed an exception -- every
+            # UI callsite would need a handler for a state it cannot prevent --
+            # so the drop is recorded instead of vanishing.
+            logger.warning(
+                f'[SCOPE API ] {name} dropped: the io executor is not accepting '
+                f'work (disabled, or fenced by a running protocol)'
+            )
+            return None if return_future else False
         return result if return_future else True
 
     def leds_off_async(self, *, callback=None) -> None:
@@ -906,7 +963,7 @@ class IlluminationAPI:
         Args:
             callback: Optional completion callback.
         """
-        if self._submit_io(self.leds_off, 'leds_off_async', callback=callback):
+        if self._submit_io(self._leds_off_impl, 'leds_off_async', callback=callback):
             logger.info('[SCOPE API ] leds_off_async()')
 
     def led_on_async(self, channel, mA, *, callback=None, cb_kwargs=None, owner: str = '') -> None:
@@ -921,7 +978,7 @@ class IlluminationAPI:
         """
         kwargs = {'owner': owner} if owner else None
         self._submit_io(
-            self.led_on,
+            self._led_on_impl,
             'led_on_async',
             args=(channel, mA),
             kwargs=kwargs,
@@ -943,7 +1000,7 @@ class IlluminationAPI:
         if owner:
             kwargs['owner'] = owner
         self._submit_io(
-            self.led_off,
+            self._led_off_impl,
             'led_off_async',
             kwargs=kwargs,
             callback=callback,
@@ -961,7 +1018,7 @@ class IlluminationAPI:
         """
         kwargs = {'owner': owner} if owner else None
         fut = self._submit_io(
-            self.led_on,
+            self._led_on_impl,
             'led_on_sync',
             args=(channel, mA),
             kwargs=kwargs,
@@ -976,7 +1033,7 @@ class IlluminationAPI:
         Args:
             timeout_s: Max seconds to wait for completion.
         """
-        fut = self._submit_io(self.leds_off, 'leds_off_sync', return_future=True)
+        fut = self._submit_io(self._leds_off_impl, 'leds_off_sync', return_future=True)
         if fut:
             fut.result(timeout=timeout_s)
 
@@ -1159,11 +1216,11 @@ class IlluminationAPI:
                 owned = [c for c, own in self._led_owners.items() if own == owner]
             for color in owned:
                 if color not in target_on:
-                    self.led_off(channel=color, owner=owner)
+                    self._led_off_impl(channel=color, owner=owner)
         else:
             for color in list(self.get_led_states()):
                 if color not in target_on and self.led_enabled(color):
-                    self.led_off(channel=color, _lease_owner=owner)
+                    self._led_off_impl(channel=color, _lease_owner=owner)
 
         # Re-assert the target channels; led_on self-skips channels already at
         # their target mA, so this does not blink an already-correct channel.
@@ -1174,7 +1231,7 @@ class IlluminationAPI:
                 # The restored owner tag is the channel's original owner, but
                 # the lease check is on behalf of the restorer (e.g. AF
                 # re-asserting a pre-run UI channel).
-                self.led_on(channel=ch, mA=mA, owner=saved_owner, _lease_owner=owner)
+                self._led_on_impl(channel=ch, mA=mA, owner=saved_owner, _lease_owner=owner)
 
     def leds_off_owned(self, owner: str) -> None:
         """Turn off only the LED channels owned by *owner*.
@@ -1414,11 +1471,11 @@ class IlluminationAPI:
         for color in self.led_states:
             ch = self.color2ch(color)
             if ch is not None and ch not in target_channels:
-                self.led_off(channel=ch, _lease_owner=owner)
+                self._led_off_impl(channel=ch, _lease_owner=owner)
         for ch, mA in target:
-            self.led_on(channel=ch, mA=mA, owner=owner, block=block)
+            self._led_on_impl(channel=ch, mA=mA, owner=owner, block=block)
 
-    def apply_transition(
+    def _apply_transition_impl(
         self, transition: LedTransition, ctx: LedTransitionCtx, *, owner: str = ''
     ) -> None:
         """Drive an unleased LED transition through the authority.
@@ -1462,7 +1519,7 @@ class IlluminationAPI:
         """
         kwargs = {'owner': owner} if owner else None
         self._submit_io(
-            self.apply_transition,
+            self._apply_transition_impl,
             'apply_transition_async',
             args=(transition, ctx),
             kwargs=kwargs,
@@ -1482,7 +1539,7 @@ class IlluminationAPI:
         held = self.led_lease_owner
         if held is not None:
             _api_log.warning('force_off bypassing held LED lease owned by %r', held)
-        self.leds_off()
+        self._leds_off_impl()
 
     # --- Enable / disable ---
     # --- Wait ---

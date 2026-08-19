@@ -493,9 +493,16 @@ class TestLumascopeLedAPI:
         assert scope.illumination.get_led_ma(color) == 75.0
 
     def test_led_on_skips_when_no_led(self):
+        # Nothing is queued AND nothing is recorded as lit. The second half
+        # is the one with teeth: the body's own `if not self._driver` guard
+        # cannot catch a Null board (it is truthy), so without the dispatch
+        # guard the command would no-op at the driver while the state cache
+        # went on claiming the channel was on.
         scope, io_ex, _ = _make_real_scope_with_recording_executors(led=False)
         scope.illumination.led_on(0, 50)
         assert io_ex.submitted == []
+        lit = [c for c, s in scope.illumination.get_led_states().items() if s.get('enabled')]
+        assert lit == []
 
     def test_unregistered_io_executor_runs_the_body_directly(self):
         """With no executor registered there is nothing to submit to, so the

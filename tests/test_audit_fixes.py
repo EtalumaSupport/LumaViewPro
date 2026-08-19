@@ -10916,8 +10916,8 @@ class TestShutdownLedsOffRoutedThroughIoExecutor:
             'so the LED serial bus is not contended by a parallel '
             'writer during shutdown drain.'
         )
-        assert 'IOTask(action=lumaview.scope.illumination.leds_off)' in block, (
-            'IOTask must wrap lumaview.scope.illumination.leds_off so '
+        assert 'IOTask(action=lumaview.scope.illumination._leds_off_impl)' in block, (
+            'IOTask must wrap the private _leds_off_impl so '
             'io_executor serializes it with other LED writes.'
         )
         assert 'fut.result(timeout=2.0)' in block, (
@@ -12296,7 +12296,7 @@ class TestEmergencyShutdownBoundedLeds_F6:
         assert any(ma > 0 for ma in driver._channel_states.values()), (
             'precondition: at least one LED on at the driver'
         )
-        illum.leds_off_emergency()
+        illum._leds_off_emergency()
         assert not any(ma > 0 for ma in driver._channel_states.values()), (
             'leds_off_emergency must drive every LED off when the lock is free'
         )
@@ -12311,7 +12311,7 @@ class TestEmergencyShutdownBoundedLeds_F6:
             finished = threading.Event()
 
             def call():
-                illum.leds_off_emergency(timeout_s=0.2)
+                illum._leds_off_emergency(timeout_s=0.2)
                 finished.set()
 
             worker = threading.Thread(target=call, daemon=True)

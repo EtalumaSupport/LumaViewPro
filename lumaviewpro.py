@@ -1310,7 +1310,7 @@ class LumaViewProApp(TooltipMixin, App):
 
             fut = (
                 ctx.io_executor.put(
-                    IOTask(action=lumaview.scope.illumination.leds_off),
+                    IOTask(action=lumaview.scope.illumination._leds_off_impl),
                     return_future=True,
                 )
                 if ctx.io_executor is not None

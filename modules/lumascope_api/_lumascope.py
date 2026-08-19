@@ -968,7 +968,7 @@ class Lumascope:
         command holds the lock.
         """
         try:
-            self.illumination.leds_off_emergency()
+            self.illumination._leds_off_emergency()
         except Exception:
             pass
         try:
