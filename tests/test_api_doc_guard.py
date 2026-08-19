@@ -88,6 +88,17 @@ def _fenced_call_forms(text):
 
 
 @pytest.fixture(scope='module')
+def doc_text():
+    """The published reference, read once for the module.
+
+    pin-justified: the guard's subject IS the document text, so there is no
+    AST seam to assert instead -- the doc-example case the source-pin ratchet
+    names as justified. One read site serves both checks.
+    """
+    return DOC.read_text(encoding='utf-8')
+
+
+@pytest.fixture(scope='module')
 def live_objects():
     """Every receiver the reference documents, as live instances.
 
@@ -117,10 +128,9 @@ def _first_missing_attr(root, receiver, chain):
 class TestLumascopeSkillsCallFormsResolve:
     """Polarity 1: documented call forms exist on the live API surface."""
 
-    def test_every_fenced_call_form_resolves(self, live_objects):
-        text = DOC.read_text(encoding='utf-8')
+    def test_every_fenced_call_form_resolves(self, live_objects, doc_text):
         failures = []
-        for receiver, chain, lineno in _fenced_call_forms(text):
+        for receiver, chain, lineno in _fenced_call_forms(doc_text):
             missing = _first_missing_attr(live_objects[receiver], receiver, chain)
             if missing:
                 failures.append(
@@ -134,7 +144,7 @@ class TestLumascopeSkillsCallFormsResolve:
             'satisfy a doc line.\n' + '\n'.join(sorted(set(failures)))
         )
 
-    def test_guard_actually_reaches_the_reference(self, live_objects):
+    def test_guard_actually_reaches_the_reference(self, doc_text):
         """The extractor is wired to real content, not silently finding nothing.
 
         A regex or fence-tracking regression would make the check above pass
@@ -142,7 +152,7 @@ class TestLumascopeSkillsCallFormsResolve:
         today, so a run that misses one means the extractor broke, not that
         the doc got smaller.
         """
-        receivers = {r for r, _, _ in _fenced_call_forms(DOC.read_text(encoding='utf-8'))}
+        receivers = {r for r, _, _ in _fenced_call_forms(doc_text)}
         assert receivers == {'scope', 'session', 'caps'}, (
             f'expected call forms for every documented receiver, saw {receivers or "none"} -- '
             'the fence tracker or the call-form pattern has regressed'

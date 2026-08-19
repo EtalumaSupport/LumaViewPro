@@ -64,12 +64,21 @@ from tests.ast_seams import iter_package_modules
 #      real module under an alias was rejected because it installs a
 #      global sys.excepthook at import, which has already polluted one
 #      bench log. One read site serves all four assertions.
-_READ_TEXT_SITE_BUDGET = 365
+# pin-justified: 365 -> 366 for the API doc guard
+# (test_api_doc_guard.py), one site. The guard's SUBJECT is the text of
+# LumascopeSkills.md -- it extracts the call forms an L2 reader would copy
+# and resolves each one against the live API object. The thing asserted is
+# the document, so there is no production seam to assert instead; this is
+# the doc-example case named above. One module-scoped read serves both
+# checks in the file.
+_READ_TEXT_SITE_BUDGET = 366
 
 # Files containing at least one, recorded for the same reason.
 # pin-justified: raised 115 -> 122 by the same merge.
 # pin-justified: 122 -> 123 for test_build_dependency_and_identity.py.
-_READ_TEXT_FILE_BUDGET = 123
+# pin-justified: 123 -> 124 for test_api_doc_guard.py, same reason as the
+# site bump above.
+_READ_TEXT_FILE_BUDGET = 124
 
 
 def _nodes_inside_iteration(tree):
