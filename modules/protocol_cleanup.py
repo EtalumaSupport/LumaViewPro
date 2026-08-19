@@ -258,12 +258,15 @@ def run_cleanup(
     # Cleanup runs while ``protocol_running`` is still set, so we use
     # ``protocol_put`` (which accepts during a running protocol) rather
     # than ``put`` (which rejects until protocol_end fires).
+    #
+    # That choice is necessary but not sufficient: the camera executor is
+    # also DISABLED for the duration of a run and is not re-enabled until
+    # the end-executors step further down this function, and protocol_put
+    # refuses while disabled. So on a normal run the enqueue below returns
+    # None and the direct-call branch is what actually restores state.
     try:
         if saved_camera_state:
             tag = saved_camera_state.get('tag', '?')
-            logger.info(
-                f'[{logger_name}] Cleanup: restoring camera state tag={tag} (via CAMERA_WORKER)'
-            )
             fut = camera_executor.protocol_put(
                 IOTask(
                     action=scope.imaging.restore_camera_state,
@@ -272,12 +275,22 @@ def run_cleanup(
                 return_future=True,
             )
             if fut is not None:
+                # Reached only when the executor is still live -- a run that
+                # failed before the disable, or a caller driving cleanup
+                # without a run behind it.
+                logger.info(
+                    f'[{logger_name}] Cleanup: restoring camera state tag={tag} (via CAMERA_WORKER)'
+                )
                 fut.result(timeout=30)
             else:
-                # Executor disabled / protocol already ended -- fall back to
-                # a direct call so state is still restored. Real-hardware
-                # path normally hits the executor branch above; this branch
-                # mostly covers tests / shutdown races.
+                # The normal path: the enqueue was refused because the camera
+                # executor is disabled, so restore inline on the cleanup
+                # thread. State still gets restored either way; the log says
+                # which thread did it so a trace of this run is readable.
+                logger.info(
+                    f'[{logger_name}] Cleanup: restoring camera state '
+                    f'tag={tag} (direct -- camera executor disabled)'
+                )
                 scope.imaging.restore_camera_state(saved_camera_state)
     except Exception as ex:
         logger.error(f'[PROTOCOL] Error restoring camera gain/exposure during cleanup: {ex}')
