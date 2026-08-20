@@ -144,8 +144,8 @@ class TestLumascopeHome:
         )
         assert received, 'home() short-circuit must still fire the Rule 14 notification.'
 
-    def test_thome_short_circuits_on_disconnected_motor(self):
-        """Same contract as home() -- thome must fail-fast with a clear
+    def test_home_axis_t_short_circuits_on_disconnected_motor(self):
+        """Same contract as home() -- home(axis='T') must fail-fast with a clear
         notification rather than letting exchange_command burn its
         15s timeout."""
         import time
@@ -155,15 +155,84 @@ class TestLumascopeHome:
         scope._motion_driver = NullMotionBoard()
 
         t0 = time.monotonic()
-        scope.motion.thome()
+        scope.motion.home(axis='T')
         elapsed = time.monotonic() - t0
 
         assert elapsed < 0.5, (
-            f'thome() on disconnected motor took {elapsed:.2f}s -- must be < 0.5s.'
+            f"home(axis='T') on disconnected motor took {elapsed:.2f}s -- must be < 0.5s."
         )
         assert any('Motor Not Connected' in n.title for n in received), (
-            f"thome() must notify 'Motor Not Connected', got: {[n.title for n in received]}"
+            f"home(axis='T') must notify 'Motor Not Connected', got: {[n.title for n in received]}"
         )
+
+    def test_home_axis_z_short_circuits_on_disconnected_motor(self):
+        """home(axis='Z') fails fast with the Motor Not Connected
+        notification, like its full-home and turret siblings. The Z body
+        historically lacked this short-circuit, so a disconnected motor
+        burned the driver's auto-reconnect timeout (the beachball shape)."""
+        import time
+
+        received = self._capture_errors()
+        scope = Lumascope(simulate=True)
+        scope._motion_driver = NullMotionBoard()
+
+        t0 = time.monotonic()
+        result = scope.motion.home(axis='Z')
+        elapsed = time.monotonic() - t0
+
+        assert result is False
+        assert elapsed < 0.5, (
+            f"home(axis='Z') on disconnected motor took {elapsed:.2f}s -- must be < 0.5s."
+        )
+        assert any('Motor Not Connected' in n.title for n in received), (
+            f"home(axis='Z') must notify 'Motor Not Connected', got: {[n.title for n in received]}"
+        )
+
+    def test_home_unknown_axis_raises_valueerror(self):
+        """A blocking bool member must not turn a typo'd axis into a
+        falsy return indistinguishable from a homing failure. The legacy
+        'XY' alias of the async form is deliberately not accepted: a new
+        parameter has no legacy callers to serve."""
+        scope = Lumascope(simulate=True)
+        with pytest.raises(ValueError):
+            scope.motion.home(axis='Q')
+        with pytest.raises(ValueError):
+            scope.motion.home(axis='XY')
+
+    def test_home_axis_vocabulary_selects_the_right_body(self):
+        """'Z' | 'T' | 'ALL' route to the Z / turret / full-home bodies
+        (the same selector vocabulary as move_home_async)."""
+        scope = Lumascope(simulate=True)
+        ran = []
+        scope.motion._zhome_impl = lambda: ran.append('Z') or True
+        scope.motion._thome_impl = lambda: ran.append('T') or True
+        scope.motion._home_impl = lambda: ran.append('ALL') or True
+
+        assert scope.motion.home(axis='Z') is True
+        assert scope.motion.home(axis='T') is True
+        assert scope.motion.home() is True
+        assert ran == ['Z', 'T', 'ALL']
+
+    def test_home_axis_t_waits_three_settle_windows(self):
+        """The turret home is three physically-waited motions (Z park,
+        turret home, Z restore), so its dispatch wait bound carries three
+        settle windows; 'Z' and 'ALL' carry one."""
+        scope = Lumascope(simulate=True)
+        timeouts = {}
+        base = scope.motion._MOTION_WAIT_BASE_S
+        settle = scope.motion._MOTION_SETTLE_TIMEOUT_S
+
+        def record(impl, name, timeout_s):
+            timeouts[len(timeouts)] = timeout_s
+            return True
+
+        scope.motion._dispatch_motion = record
+        scope.motion.home(axis='Z')
+        scope.motion.home(axis='T')
+        scope.motion.home()
+        assert timeouts[0] == base + settle
+        assert timeouts[1] == base + 3 * settle
+        assert timeouts[2] == base + settle
 
     def test_home_on_z_only_board_marks_z_idle(self):
         """LS820 (Z-only): the driver recognizes the 'X not present'
@@ -379,7 +448,7 @@ class TestMotorBoardHomePartialResponse:
 
 class TestFrameValidityDuringHoming:
     """Issue #609: the frame valid marker was showing green during homing
-    because zhome/home/thome never called frame_validity.invalidate().
+    because the homing bodies never called frame_validity.invalidate().
     The settle-check callback correctly rejects HOMING state, but only if
     the source is actually in _pending -- which requires invalidate().
 
@@ -400,11 +469,11 @@ class TestFrameValidityDuringHoming:
 
         scope._motion_driver.zhome = fake_zhome
 
-        scope.motion.zhome()
+        scope.motion.home(axis='Z')
 
         assert captured['z_state'] == AxisState.HOMING
         assert 'z_move' in captured['pending'], (
-            "zhome() must invalidate 'z_move' so frame_validity "
+            "home(axis='Z') must invalidate 'z_move' so frame_validity "
             'can consult the settle-check callback (#609)'
         )
         assert captured['is_valid'] is False, (
@@ -473,7 +542,7 @@ class TestFrameValidityDuringHoming:
 
     def test_thome_marks_frame_invalid_during_motion(self):
         # Must use a turret-equipped sim (LS850T) since post-B4 the
-        # default LS850 sim has no T axis and `thome()` correctly
+        # default LS850 sim has no T axis and `home(axis='T')` correctly
         # no-ops there. The phantom-T behavior the original test relied
         # on is gone.
         from drivers.simulated_motorboard import SimulatedMotorBoard
@@ -500,11 +569,11 @@ class TestFrameValidityDuringHoming:
 
         scope._motion_driver.thome = spy_thome
 
-        scope.motion.thome()
+        scope.motion.home(axis='T')
 
         assert captured['t_state'] == AxisState.HOMING
         assert 'turret' in captured['pending'], (
-            "thome() must invalidate 'turret' so the frame valid marker "
+            "home(axis='T') must invalidate 'turret' so the frame valid marker "
             'goes red while the turret is rotating (#609)'
         )
         assert captured['is_valid'] is False

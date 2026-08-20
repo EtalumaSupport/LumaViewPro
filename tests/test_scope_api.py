@@ -90,9 +90,7 @@ def _make_mock_scope(led_available=True):
     scope.illumination.led_off = MagicMock()
     scope.motion.move_absolute = MagicMock()
     scope.motion.move_relative = MagicMock()
-    scope.motion.zhome = MagicMock()
     scope.motion.home = MagicMock()
-    scope.motion.thome = MagicMock()
     scope.motion.get_current_position = MagicMock(return_value={'X': 1000, 'Y': 2000, 'Z': 500})
     return scope
 

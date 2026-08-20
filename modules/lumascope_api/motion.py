@@ -6,7 +6,7 @@ _arrival_events, _move_profile, _position_listeners, _motion_wake,
 _motion_monitor_stop, _motion_monitor_thread, _homing_event,
 _turreting_event) and the bodies of all stage / focus / turret
 methods. Lumascope keeps a small set of one-line method-name
-forwarders (zhome, home, thome, move_absolute, etc.) for
+forwarders (home, move_absolute, etc.) for
 production callers; those retire as production migrates.
 
 Constructor signature:
@@ -524,7 +524,7 @@ class MotionAPI:
                 step's target -- the restore is wasted motion). When
                 False, Z is left at 0 and the caller is responsible for
                 the next Z move. Standalone callers (UI turret button,
-                thome) leave the default True.
+                the turret-home body) leave the default True.
         """
         # Save off current Z position before moving Z to 0
         logger.info('[SCOPE API ] Moving Z to 0', extra={'force_error': True})
@@ -535,7 +535,7 @@ class MotionAPI:
             yield
         finally:
             # Always clear the flag, even if the body raised (e.g. driver
-            # HardwareError from thome). Without this, a failed turret
+            # HardwareError from the turret home). Without this, a failed turret
             # home would leave is_turreting=True and the stage stuck at
             # Z=0.
             self.is_turreting = False
@@ -560,11 +560,11 @@ class MotionAPI:
                 the bool.
         """
         # Short-circuit on disconnected motor -- same rationale as
-        # home() above. Without this, thome dispatches into the driver
+        # home() above. Without this, the turret home dispatches into the driver
         # where exchange_command burns its 15s timeout doing failed
         # auto-reconnect attempts. Fire one clean notification.
         if not self._scope.motor_connected:
-            logger.warning('[SCOPE API ] thome() called with motor not connected')
+            logger.warning('[SCOPE API ] turret home requested with motor not connected')
             if not getattr(self._scope, 'no_hardware', False):
                 notifications.error(
                     'Motion',
@@ -578,7 +578,7 @@ class MotionAPI:
         # Move turret -- set HOMING after Z is safe, not before.
         # Setting T to HOMING clears its arrival event, which would block
         # wait_until_finished_moving() inside safe_turret_move's Z move.
-        _api_log.info('thome START')
+        _api_log.info('T home START')
         try:
             with self.reference_position_logger(), self.safe_turret_move():
                 self._set_axis_state('T', AxisState.HOMING)
@@ -609,7 +609,7 @@ class MotionAPI:
             # tmove(1) is a no-op rather than a redundant Z-retract / rotate /
             # restore (see home() for the full rationale).
             self._last_turret_position = 1
-            _api_log.info('thome DONE')
+            _api_log.info('T home DONE')
             return True
         except Exception:
             logger.exception('[SCOPE API ] Turret homing exception')
@@ -617,7 +617,7 @@ class MotionAPI:
             notifications.error(
                 'Motion', 'Homing Error', 'Turret homing encountered an error. Position is unknown.'
             )
-            _api_log.info('thome DONE')
+            _api_log.info('T home DONE')
             return False
 
     def has_thomed(self) -> bool:
@@ -1010,12 +1010,28 @@ class MotionAPI:
         """Home the Z axis (focus).
 
         Returns:
-            bool: True on successful Z homing. False if the driver
-                returned False or raised (e.g. HardwareError on
-                no-response / firmware-error). The user is notified on
-                failure; programmatic callers can branch on the bool.
+            bool: True on successful Z homing. False if the motor is not
+                connected, the driver returned False, or the driver
+                raised (e.g. HardwareError on no-response /
+                firmware-error). The user is notified on failure;
+                programmatic callers can branch on the bool.
         """
-        _api_log.info('zhome START')
+        # Short-circuit on disconnected motor -- same rationale as the
+        # full-home body: without this, the driver's exchange_command
+        # burns its auto-reconnect timeout and the user sees a hang
+        # instead of the actual cause. Fire one clean notification.
+        if not self._scope.motor_connected:
+            logger.warning('[SCOPE API ] Z home requested with motor not connected')
+            if not getattr(self._scope, 'no_hardware', False):
+                notifications.error(
+                    'Motion',
+                    'Motor Not Connected',
+                    'Cannot home Z -- motor controller is not connected. '
+                    'Check the USB cable and that no other program '
+                    '(Thonny, mpremote, etc.) is holding the port.',
+                )
+            return False
+        _api_log.info('Z home START')
         self._set_axis_state('Z', AxisState.HOMING)
         self._scope.imaging.frame_validity.invalidate('z_move')
         try:
@@ -1030,7 +1046,7 @@ class MotionAPI:
                 return False
             self._set_axis_state('Z', AxisState.IDLE)
             self.refresh_position_cache()
-            _api_log.info('zhome DONE')
+            _api_log.info('Z home DONE')
             return True
         except Exception:
             logger.exception('[SCOPE API ] Z homing exception')
@@ -1038,7 +1054,7 @@ class MotionAPI:
             notifications.error(
                 'Motion', 'Homing Error', 'Z axis homing encountered an error. Position is unknown.'
             )
-            _api_log.info('zhome DONE')
+            _api_log.info('Z home DONE')
             return False
 
     def has_homed(self) -> bool:
@@ -1491,49 +1507,46 @@ class MotionAPI:
             + (self._MOTION_SETTLE_TIMEOUT_S if wait_until_complete else 0.0),
         )
 
-    def home(self) -> bool:
-        """Home every axis the motor board has, and wait for it.
+    def home(self, axis: str = 'ALL') -> bool:
+        """Home the given axis set, and wait for it.
 
-        See ``_home_impl`` for the notify-on-failure contract.
+        Args:
+            axis: ``'Z'`` homes the Z axis only. ``'T'`` homes the turret
+                (parks Z at 0, homes T, restores Z -- three
+                physically-waited motions, so its wait bound is three
+                settle windows). ``'ALL'`` (default) homes every axis the
+                board has; the firmware routine homes Z, then T, then X/Y.
+                Same vocabulary as ``move_home_async``, minus its legacy
+                ``'XY'`` alias.
+
+        See the ``_home_impl`` / ``_zhome_impl`` / ``_thome_impl``
+        docstrings for the per-axis notify-on-failure contracts.
 
         Returns:
-            bool: True on full or partial success; False when the motor is
-                not connected, the driver reported failure, or it raised.
+            bool: True on success (full or partial for ``'ALL'``; a
+                no-turret board is success for ``'T'``); False when the
+                motor is not connected, the driver reported failure, or
+                it raised.
+
+        Raises:
+            ValueError: on an unknown axis. A blocking member returning
+                bool must not turn a typo'd axis into a falsy return
+                indistinguishable from a real homing failure (the async
+                twin, fire-and-forget, warns instead).
         """
+        a = axis.upper()
+        if a == 'Z':
+            impl, settle_windows = self._zhome_impl, 1
+        elif a == 'T':
+            impl, settle_windows = self._thome_impl, 3
+        elif a == 'ALL':
+            impl, settle_windows = self._home_impl, 1
+        else:
+            raise ValueError(f"Unknown home axis {axis!r}: expected 'Z', 'T', or 'ALL'")
         return self._dispatch_motion(
-            self._home_impl,
+            impl,
             'home',
-            timeout_s=self._MOTION_WAIT_BASE_S + self._MOTION_SETTLE_TIMEOUT_S,
-        )
-
-    def zhome(self) -> bool:
-        """Home the Z axis, and wait for it. See ``_zhome_impl``.
-
-        Returns:
-            bool: True on successful Z homing; False when the driver
-                reported failure or raised.
-        """
-        return self._dispatch_motion(
-            self._zhome_impl,
-            'zhome',
-            timeout_s=self._MOTION_WAIT_BASE_S + self._MOTION_SETTLE_TIMEOUT_S,
-        )
-
-    def thome(self) -> bool:
-        """Home the turret, and wait for it. See ``_thome_impl``.
-
-        The wait bound covers three physically-waited motions: the Z park,
-        the turret homing itself, and the Z restore.
-
-        Returns:
-            bool: True on successful turret homing (or when the board has
-                no turret); False when the motor is not connected, the
-                driver reported failure, or it raised.
-        """
-        return self._dispatch_motion(
-            self._thome_impl,
-            'thome',
-            timeout_s=self._MOTION_WAIT_BASE_S + 3 * self._MOTION_SETTLE_TIMEOUT_S,
+            timeout_s=self._MOTION_WAIT_BASE_S + settle_windows * self._MOTION_SETTLE_TIMEOUT_S,
         )
 
     def tmove(self, position: int, restore_z: bool = True) -> None:

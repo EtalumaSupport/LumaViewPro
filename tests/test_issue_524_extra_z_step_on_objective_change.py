@@ -23,7 +23,7 @@ Fix
 Option A (chosen): thread restore_z=False from go_to_step through
 the call chain so safe_turret_move skips the wasted restore. The
 default in each function is restore_z=True so standalone callers
-(thome, UI turret button) preserve their existing contract.
+(_thome_impl, UI turret button) preserve their existing contract.
 
 Test approach
 -------------
@@ -86,7 +86,7 @@ def test_safe_turret_move_accepts_restore_z_default_true():
     default = _default_for(method, 'restore_z')
     assert default is not None, 'restore_z must have a default value. (#524)'
     assert isinstance(default, ast.Constant) and default.value is True, (
-        'restore_z default must be True so standalone callers (thome, '
+        'restore_z default must be True so standalone callers (_thome_impl, '
         'UI turret button) preserve their pre-fix behavior. (#524)'
     )
 
@@ -144,9 +144,7 @@ def test_turret_select_threads_restore_z():
 def test_move_absolute_threads_restore_z_for_T():
     method = _function_node(_module_tree(UIHELPERS_SRC), 'move_absolute')
     all_names = [a.arg for a in method.args.args] + [a.arg for a in method.args.kwonlyargs]
-    assert 'restore_z' in all_names, (
-        'ui_helpers.move_absolute must accept restore_z. (#524)'
-    )
+    assert 'restore_z' in all_names, 'ui_helpers.move_absolute must accept restore_z. (#524)'
     src = ast.unparse(method)
     # The T-axis branch must thread restore_z to turret_select. The
     # non-T-axis branch does not need it.

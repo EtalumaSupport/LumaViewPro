@@ -269,17 +269,13 @@ class TestMoveAbsolutePositionValidation:
         from modules.lumascope_api import Lumascope
 
         with pytest.raises(ValueError, match='exceeds safety limit'):
-            sim_scope.motion.move_absolute(
-                axis='Z', pos=Lumascope.MOTOR_POSITION_LIMIT + 1
-            )
+            sim_scope.motion.move_absolute(axis='Z', pos=Lumascope.MOTOR_POSITION_LIMIT + 1)
 
     def test_rejects_large_negative_position(self, sim_scope):
         from modules.lumascope_api import Lumascope
 
         with pytest.raises(ValueError, match='exceeds safety limit'):
-            sim_scope.motion.move_absolute(
-                axis='Z', pos=-(Lumascope.MOTOR_POSITION_LIMIT + 1)
-            )
+            sim_scope.motion.move_absolute(axis='Z', pos=-(Lumascope.MOTOR_POSITION_LIMIT + 1))
 
     def test_accepts_valid_input(self, sim_scope):
         sim_scope.motion.move_absolute(axis='Z', pos=1000)
@@ -942,10 +938,10 @@ class TestAxisState:
         assert state in (AxisState.MOVING, AxisState.IDLE)
 
     def test_axis_state_homing_zhome(self, sim_scope):
-        """After zhome, Z axis should be IDLE (homing is blocking)."""
+        """After home(axis='Z'), Z axis should be IDLE (homing is blocking)."""
         from modules.lumascope_api import AxisState
 
-        sim_scope.motion.zhome()
+        sim_scope.motion.home(axis='Z')
         assert sim_scope.motion.get_axis_state('Z') == AxisState.IDLE
 
     def test_axis_state_homing_home(self, sim_scope):
@@ -958,13 +954,13 @@ class TestAxisState:
             assert sim_scope.motion.get_axis_state(ax) == AxisState.IDLE
 
     def test_axis_state_homing_thome(self, _mock_heavy_deps):
-        """After thome on a turret-equipped scope, T axis should be IDLE.
+        """After home(axis='T') on a turret-equipped scope, T axis should be IDLE.
 
         Uses an LS850T sim explicitly instead of the default LS850
         sim_scope fixture (which has no turret) -- pre-B4 the test passed
         on LS850 only because `_axis_state['T']` was a phantom key from
         the hardcoded VALID_AXES tuple. Post-B4, T is correctly absent
-        on no-turret scopes and `thome()` is a Rule 8 silent no-op there.
+        on no-turret scopes and `home(axis='T')` is a silent no-op there.
         """
         from modules.lumascope_api import Lumascope, AxisState
         from drivers.simulated_motorboard import SimulatedMotorBoard
@@ -980,11 +976,11 @@ class TestAxisState:
             ev.set()
         scope.motion._move_profile = dict.fromkeys(present)
 
-        scope.motion.thome()
+        scope.motion.home(axis='T')
         assert scope.motion.get_axis_state('T') == AxisState.IDLE
 
     def test_thome_on_no_turret_scope_is_silent_noop(self, _mock_heavy_deps):
-        """Audit B4 + Rule 8: calling thome() on a scope without a
+        """Audit B4 + Rule 8: calling home(axis='T') on a scope without a
         turret must not raise and must leave T in UNKNOWN state --
         there is no phantom T axis to transition.
 
@@ -999,7 +995,7 @@ class TestAxisState:
         try:
             assert 'T' not in tuple(scope._motion_driver.detect_present_axes())
             assert 'T' not in scope.capabilities.axes
-            scope.motion.thome()
+            scope.motion.home(axis='T')
             assert scope.motion.get_axis_state('T') == AxisState.UNKNOWN
         finally:
             scope.disconnect()
@@ -1008,7 +1004,7 @@ class TestAxisState:
         """is_any_axis_moving() returns False when all axes are IDLE."""
         sim_scope._motion_driver.set_timing_mode('instant')
         # Home all axes to set them IDLE
-        sim_scope.motion.zhome()
+        sim_scope.motion.home(axis='Z')
         sim_scope.motion.home()
         assert not sim_scope.motion.is_any_axis_moving()
 
@@ -1027,7 +1023,7 @@ class TestAxisState:
         """After disconnect, all axes should be UNKNOWN."""
         from modules.lumascope_api import AxisState
 
-        sim_scope.motion.zhome()  # Set to IDLE first
+        sim_scope.motion.home(axis='Z')  # Set to IDLE first
         sim_scope.disconnect()
         for ax in ('X', 'Y', 'Z', 'T'):
             assert sim_scope.motion.get_axis_state(ax) == AxisState.UNKNOWN
@@ -1884,25 +1880,15 @@ class TestSetBinningSizeReturnsBool:
 
 
 class TestHomeReturnsBool:
-    """Wave 2 / B8 + B9 + B10 + D1: Lumascope.{home, zhome, thome} must
-    propagate the driver's bool, and MotorBoard / SimulatedMotorBoard
-    must raise HardwareError instead of returning False on no-response /
-    firmware-error paths (Rule 29).
+    """The blocking home(axis=) member must propagate the driver's bool
+    for every axis selector, and MotorBoard / SimulatedMotorBoard must
+    raise HardwareError instead of returning False on no-response /
+    firmware-error paths.
 
     Pairs with the existing `--run-homing` opt-in test set; this class
     pins the mechanical contract (annotations + return propagation +
     typed exceptions) so a future regression can't silently revert it.
     """
-
-    def test_lumascope_zhome_has_bool_return_annotation(self):
-        from tests.ast_seams import assert_def
-
-        assert_def(
-            'modules/lumascope_api/motion.py',
-            'zhome',
-            returns='bool',
-            msg='MotionAPI.zhome must declare `-> bool` (Rule 37)',
-        )
 
     def test_lumascope_home_has_bool_return_annotation(self):
         from tests.ast_seams import assert_def
@@ -1912,16 +1898,6 @@ class TestHomeReturnsBool:
             'home',
             returns='bool',
             msg='MotionAPI.home must declare `-> bool` (Rule 37)',
-        )
-
-    def test_lumascope_thome_has_bool_return_annotation(self):
-        from tests.ast_seams import assert_def
-
-        assert_def(
-            'modules/lumascope_api/motion.py',
-            'thome',
-            returns='bool',
-            msg='MotionAPI.thome must declare `-> bool` (Rule 37)',
         )
 
     @staticmethod
@@ -1936,13 +1912,13 @@ class TestHomeReturnsBool:
     def test_zhome_propagates_driver_true(self, sim_scope, monkeypatch):
         errors = self._record_errors(monkeypatch)
         monkeypatch.setattr(sim_scope._motion_driver, 'zhome', lambda: True)
-        assert sim_scope.motion.zhome() is True
+        assert sim_scope.motion.home(axis='Z') is True
         assert errors == [], f'success path must not notify; got {errors}'
 
     def test_zhome_returns_false_and_notifies_on_driver_false(self, sim_scope, monkeypatch):
         errors = self._record_errors(monkeypatch)
         monkeypatch.setattr(sim_scope._motion_driver, 'zhome', lambda: False)
-        assert sim_scope.motion.zhome() is False
+        assert sim_scope.motion.home(axis='Z') is False
         assert any('Homing Failed' in e for e in errors), (
             f'driver False must notify the user (Rule 14); got {errors}'
         )
@@ -1954,7 +1930,7 @@ class TestHomeReturnsBool:
             raise HardwareError('no response from motor board')
 
         monkeypatch.setattr(sim_scope._motion_driver, 'zhome', boom)
-        assert sim_scope.motion.zhome() is False
+        assert sim_scope.motion.home(axis='Z') is False
         assert any('Homing Error' in e for e in errors), (
             f'driver raise must notify the user (Rule 14); got {errors}'
         )
@@ -1989,14 +1965,14 @@ class TestHomeReturnsBool:
         sim_scope._motion_driver.set_timing_mode('instant')
         errors = self._record_errors(monkeypatch)
         monkeypatch.setattr(sim_scope._motion_driver, 'thome', lambda: True)
-        assert sim_scope.motion.thome() is True
+        assert sim_scope.motion.home(axis='T') is True
         assert errors == [], f'success path must not notify; got {errors}'
 
     def test_thome_returns_false_and_notifies_on_driver_false(self, sim_scope, monkeypatch):
         sim_scope._motion_driver.set_timing_mode('instant')
         errors = self._record_errors(monkeypatch)
         monkeypatch.setattr(sim_scope._motion_driver, 'thome', lambda: False)
-        assert sim_scope.motion.thome() is False
+        assert sim_scope.motion.home(axis='T') is False
         assert any('Turret' in ' '.join(e) for e in errors), (
             f'turret-homing failure must name the turret (Rule 14/20); got {errors}'
         )
@@ -2009,7 +1985,7 @@ class TestHomeReturnsBool:
             raise HardwareError('no response from motor board')
 
         monkeypatch.setattr(sim_scope._motion_driver, 'thome', boom)
-        assert sim_scope.motion.thome() is False
+        assert sim_scope.motion.home(axis='T') is False
         assert any('Turret' in ' '.join(e) for e in errors), (
             f'turret-homing raise must notify naming the turret; got {errors}'
         )
@@ -2021,7 +1997,7 @@ class TestHomeReturnsBool:
         sim_scope._motion_driver.set_timing_mode('instant')
         self._record_errors(monkeypatch)
         monkeypatch.setattr(sim_scope._motion_driver, 'thome', lambda: False)
-        assert sim_scope.motion.thome() is False
+        assert sim_scope.motion.home(axis='T') is False
         assert sim_scope.motion._arrival_events['T'].is_set()
 
     def test_homing_docstrings_document_returns(self):
@@ -2029,7 +2005,7 @@ class TestHomeReturnsBool:
         (Rule 38) -- runtime introspection, not a source pin."""
         from modules.lumascope_api.motion import MotionAPI
 
-        for method in (MotionAPI.zhome, MotionAPI.home, MotionAPI.thome):
+        for method in (MotionAPI.home,):
             assert 'Returns:' in (method.__doc__ or ''), (
                 f'{method.__name__} docstring must have a Returns: section'
             )
@@ -13089,9 +13065,7 @@ class TestGreaseRedistributionGateAlwaysReleased:
         runner = self._make_runner()
         step = ProtocolStepRunner(runner)
         runner._grease_redistribution_event.clear()
-        runner._scope.motion._move_absolute_impl.side_effect = RuntimeError(
-            'Z move timeout'
-        )
+        runner._scope.motion._move_absolute_impl.side_effect = RuntimeError('Z move timeout')
 
         # The failure still propagates (the executor runner logs it), but the
         # gate must be released by the finally so the next scan is not blocked.

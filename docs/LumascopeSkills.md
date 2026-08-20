@@ -335,9 +335,11 @@ Axes available depend on the scope — always check `scope.capabilities.axes`.
 
 ```python
 # Homing (required before movement)
-scope.motion.home()                              # home everything the board has
-scope.motion.zhome()                             # Z only
-scope.motion.thome()                             # turret only
+scope.motion.home()                              # home everything the board has (axis='ALL' default)
+scope.motion.home(axis='Z')                      # Z only
+scope.motion.home(axis='T')                      # turret only (parks Z at 0, homes T, restores Z)
+# Unknown axis raises ValueError; the async twin move_home_async(axis)
+# shares the same 'Z' | 'T' | 'ALL' vocabulary.
 scope.motion.has_homed()                         # True if home() has ever succeeded
 scope.motion.has_thomed()                        # turret-specific
 

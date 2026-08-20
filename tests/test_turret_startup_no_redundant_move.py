@@ -5,7 +5,7 @@ select-position-1 at startup does not bounce Z.
 Bug
 ---
 The firmware homes the turret to position 1 (home() homes Z -> T -> X/Y, and
-thome() homes T), but Lumascope.motion never seeded _last_turret_position --
+home(axis='T') homes T), but Lumascope.motion never seeded _last_turret_position --
 it stayed None. The existing idempotent skip in tmove() ("if
 _last_turret_position == position: return") therefore could not fire, so the
 startup select-position-1 ran a full Z-retract -> rotate -> Z-restore even
@@ -13,7 +13,7 @@ though the turret was already at 1.
 
 Fix
 ---
-home() (when T is present) and thome() seed _last_turret_position = 1 on
+home() (when T is present) and home(axis='T') seed _last_turret_position = 1 on
 success, so a following tmove(1) is a no-op.
 """
 
@@ -30,7 +30,7 @@ def test_home_seeds_turret_position_one():
 def test_thome_seeds_turret_position_one():
     scope = Lumascope(simulate=True)
     assert scope.capabilities.has_turret
-    scope.motion.thome()
+    scope.motion.home(axis='T')
     assert scope.motion._last_turret_position == 1
 
 

@@ -26,10 +26,10 @@ or be migrated to MotionAPI directly.
 
 Out of scope (intentionally still on Lumascope, retire later):
 - is_homing / is_turreting public @property pair (lines 881-899; Phase 2e/2f)
-- method-name forwarders zhome / home / thome / get_current_position /
-  move_absolute etc. (lines 3974-4090; Phase 2e/2f)
 - get_axis_state / _set_axis_state method-name forwarders (kept for now;
   production callers still use them directly on Lumascope).
+(The homing/move method-name forwarders this note once listed were since
+retired; the sub-API surface-list guards pin their absence.)
 """
 
 from __future__ import annotations

@@ -677,7 +677,7 @@ class VerticalControl(BoxLayout):
                     ctx.io_executor.put(IOTask(ctx.lumaview.scope.motion._thome_impl))
                 else:
                     # Protocol context runs on protocol_thread, not the io
-                    # worker -- route thome through the protocol queue so it
+                    # worker -- route the turret home through the protocol queue so it
                     # stays ordered ahead of the subsequent tmove/X/Y/Z and
                     # behind the prior step's leds_off on the single worker.
                     fut = ctx.io_executor.protocol_put(
@@ -700,7 +700,7 @@ class VerticalControl(BoxLayout):
                     )
                 )
             else:
-                # See the thome branch above: route the protocol-context
+                # See the turret-home branch above: route the protocol-context
                 # tmove through the protocol queue so it serializes with the
                 # step's other moves and LED ops on the single io worker
                 # instead of racing them from protocol_thread.

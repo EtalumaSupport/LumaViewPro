@@ -153,10 +153,8 @@ MOTION_ONLY_METHODS = frozenset(
         'set_acceleration_limit',
         'set_precision_mode',
         'stop_motion',
-        'thome',
         'tmove',
         'wait_until_finished_moving',
-        'zhome',
     }
 )
 
@@ -165,8 +163,8 @@ def _find_motion_method_accesses(tree: ast.AST) -> list[tuple[int, str]]:
     """Find `<chain ending in scope>.<motion_only_method>` accesses.
 
     The chain-ending logic mirrors _chain_ends_in_scope so we catch
-    `scope.zhome`, `self._scope.zhome`, `p._scope.zhome`,
-    `_app_ctx.ctx.scope.zhome`, etc.
+    `scope.home`, `self._scope.home`, `p._scope.home`,
+    `_app_ctx.ctx.scope.home`, etc.
     """
     hits: list[tuple[int, str]] = []
     for node in ast.walk(tree):
