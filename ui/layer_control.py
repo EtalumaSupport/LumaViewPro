@@ -26,10 +26,10 @@ FLUORESCENCE_MIN_EXPOSURE_MS = 1.0
 # AG can drive transmitted-channel exposure down to the camera's
 # physical minimum (Pylon ExposureTime.Min ~= 30 us = 0.030 ms on
 # common sensors). Sub-threshold values written back to settings via
-# update_auto_gain_cb then fire the set_exposure_time(<0.1ms)
+# update_auto_gain_cb then fire the set_exposure_ms(<0.1ms)
 # "value should be in milliseconds" warning on every subsequent
 # apply_settings (visible in beta9 logs as recurring WARNING spam).
-# The threshold matches set_exposure_time's internal warning gate so
+# The threshold matches set_exposure_ms's internal warning gate so
 # AG-feedback values can never trigger it; live AG can still drive
 # the camera lower (the floor applies only to the settings write-back
 # in update_auto_gain_cb).
@@ -456,7 +456,7 @@ class LayerControl(BoxLayout):
         # During auto-gain, the SDK adjusts gain/exposure but doesn't
         # update the cache -- cache still has the pre-auto-gain values.
         actual_gain = ctx.scope.imaging.get_gain()
-        actual_exp = ctx.scope.imaging.get_exposure_time()
+        actual_exp = ctx.scope.imaging.get_exposure_ms()
 
         return (init, state, actual_gain, actual_exp)
 
@@ -495,7 +495,7 @@ class LayerControl(BoxLayout):
                 # minimum (Pylon ~30us on bright samples); writing those
                 # raw values to settings produces (a) nearly-black images
                 # if the user creates protocol steps from these settings,
-                # and (b) recurring set_exposure_time(<0.1ms) WARNING spam
+                # and (b) recurring set_exposure_ms(<0.1ms) WARNING spam
                 # on every subsequent apply_settings. Fluorescence + lumi
                 # floor at 1ms (sub-ms never realistic in those modes);
                 # transmitted (BF/PC/DF) floor at 0.1ms (the warning

@@ -415,7 +415,7 @@ class CompositeCapture(FloatLayout):
                 # On-worker camera writes bind _impl, as with the move above.
                 ctx.scope.imaging._set_gain_impl(gain)
                 exposure = layer_settings[trans_layer]['exp_ms']
-                ctx.scope.imaging._set_exposure_time_impl(exposure)
+                ctx.scope.imaging._set_exposure_ms_impl(exposure)
                 illumination = layer_settings[trans_layer]['ill_ma']
 
                 # Colour string to the seam unmapped: an undrivable colour
@@ -477,7 +477,7 @@ class CompositeCapture(FloatLayout):
                 # On-worker camera writes bind _impl, as above.
                 ctx.scope.imaging._set_gain_impl(gain)
                 exposure = layer_settings[layer]['exp_ms']
-                ctx.scope.imaging._set_exposure_time_impl(exposure)
+                ctx.scope.imaging._set_exposure_ms_impl(exposure)
                 sum_count = layer_settings[layer]['sum']
                 # Stage B1: see comment above; update_scopedisplay retired.
                 sum_iteration_callback = None

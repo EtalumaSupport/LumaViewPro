@@ -136,9 +136,7 @@ def go_to_step(
 
         # #610 diagnostic: trace what go_to_step does with camera settings
         _curr_gain = ctx.scope.imaging.get_gain() if ctx.scope.imaging.active_cached else '?'
-        _curr_exp = (
-            ctx.scope.imaging.get_exposure_time() if ctx.scope.imaging.active_cached else '?'
-        )
+        _curr_exp = ctx.scope.imaging.get_exposure_ms() if ctx.scope.imaging.active_cached else '?'
         logger.debug(
             f'[GO_TO_STEP DIAG] step_idx={step_idx} color={color} '
             f'step_gain={step["Gain"]} step_exp={step["Exposure"]} '

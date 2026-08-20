@@ -250,7 +250,7 @@ class TestCameraListener:
     def test_listener_fires_on_set_exposure(self, scope):
         events = []
         scope.imaging.add_camera_listener(lambda p, v: events.append((p, v)))
-        scope.imaging.set_exposure_time(25.0)  # Different from default 10ms
+        scope.imaging.set_exposure_ms(25.0)  # Different from default 10ms
         assert len(events) == 1
         assert events[0] == ('exposure', 25.0)
 
@@ -288,16 +288,16 @@ class TestCameraSaveRestore:
 
     def test_save_restore_roundtrip(self, scope):
         scope.imaging.set_gain(5.0)
-        scope.imaging.set_exposure_time(25.0)
+        scope.imaging.set_exposure_ms(25.0)
         snapshot = scope.imaging.save_camera_state('test')
         # Change to different values
         scope.imaging.set_gain(10.0)
-        scope.imaging.set_exposure_time(50.0)
+        scope.imaging.set_exposure_ms(50.0)
         assert scope.imaging.get_gain() != 5.0
         # Restore
         scope.imaging.restore_camera_state(snapshot)
         assert abs(scope.imaging.get_gain() - 5.0) < 0.01
-        assert abs(scope.imaging.get_exposure_time() - 25.0) < 0.01
+        assert abs(scope.imaging.get_exposure_ms() - 25.0) < 0.01
 
     def test_restore_empty_snapshot(self, scope):
         scope.imaging.set_gain(5.0)

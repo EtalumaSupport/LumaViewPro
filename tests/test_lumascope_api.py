@@ -1178,7 +1178,7 @@ def dataclasses_fields(cls):
 
 
 class TestSetExposureTimeValueWarningSuppression:
-    """`set_exposure_time` warns at < 0.005 ms (5us) exposures -- the
+    """`set_exposure_ms` warns at < 0.005 ms (5us) exposures -- the
     Basler sensor physical minimum. Sub-5us requests indicate a
     unit-confusion bug (seconds-as-ms, ms-as-us). Bright-field at
     0.03 ms is legitimate, so the threshold sits below that range.
@@ -1198,7 +1198,7 @@ class TestSetExposureTimeValueWarningSuppression:
     def _patch_logger(self, monkeypatch):
         from unittest.mock import MagicMock
 
-        # Phase 4d relocated set_exposure_time's body to imaging.py; the
+        # Phase 4d relocated set_exposure_ms's body to imaging.py; the
         # warning is now emitted via imaging.py's `logger` import.
         import modules.lumascope_api.imaging as imaging_mod
 
@@ -1209,10 +1209,10 @@ class TestSetExposureTimeValueWarningSuppression:
     def test_warning_fires_by_default_at_sub_0_005_ms(self, monkeypatch):
         mock_logger = self._patch_logger(monkeypatch)
         scope = Lumascope(simulate=True)
-        scope.imaging.set_exposure_time(0.003)
+        scope.imaging.set_exposure_ms(0.003)
         # Find the warning among any other logger calls
         warn_msgs = [str(c) for c in mock_logger.warning.call_args_list]
-        assert any('set_exposure_time(0.003ms)' in m and 'below' in m for m in warn_msgs), (
+        assert any('set_exposure_ms(0.003ms)' in m and 'below' in m for m in warn_msgs), (
             f'expected sub-0.005ms warning but got: {warn_msgs}'
         )
 
@@ -1220,9 +1220,9 @@ class TestSetExposureTimeValueWarningSuppression:
         mock_logger = self._patch_logger(monkeypatch)
         scope = Lumascope(simulate=True)
         with scope.imaging.suppress_value_warnings():
-            scope.imaging.set_exposure_time(0.003)
+            scope.imaging.set_exposure_ms(0.003)
         warn_msgs = [str(c) for c in mock_logger.warning.call_args_list]
-        assert not any('set_exposure_time(0.003ms)' in m for m in warn_msgs), (
+        assert not any('set_exposure_ms(0.003ms)' in m for m in warn_msgs), (
             f'expected no sub-0.005ms warning inside context, got: {warn_msgs}'
         )
 
@@ -1255,8 +1255,8 @@ class TestSetExposureTimeValueWarningSuppression:
     def test_warning_does_not_fire_at_or_above_threshold(self, monkeypatch):
         mock_logger = self._patch_logger(monkeypatch)
         scope = Lumascope(simulate=True)
-        scope.imaging.set_exposure_time(0.5)
-        scope.imaging.set_exposure_time(20.0)
+        scope.imaging.set_exposure_ms(0.5)
+        scope.imaging.set_exposure_ms(20.0)
         warn_msgs = [str(c) for c in mock_logger.warning.call_args_list]
         assert not any('very low' in m for m in warn_msgs), (
             f'no sub-0.1ms warning expected, got: {warn_msgs}'

@@ -146,7 +146,7 @@ def _make_simulated_scope():
     from modules.lumascope_api._lumascope import Lumascope
 
     scope = Lumascope(simulate=True)
-    scope.imaging.set_exposure_time(1.0)
+    scope.imaging.set_exposure_ms(1.0)
     return scope
 
 

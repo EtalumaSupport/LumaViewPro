@@ -82,7 +82,7 @@ The remainder of this document is organized as the sub-API reference (one sectio
 Methods on the L2 surface follow one of two contracts; if a method's docstring has a `Raises:` section it follows the raise contract, otherwise the sentinel contract.
 
 - **Hardware-state queries** (capability probes, status reads, getters like `get_led_ma`, `get_target_position`, `get_led_states`, `max_gain_cached`, `read_motor_voltages`) return a sentinel value -- `None`, `False`, or an empty container -- when the value cannot be read (no hardware, channel not set, firmware does not implement the probe). No exception is raised. The caller branches on the sentinel.
-- **Camera value getters** (`get_gain`, `get_exposure_time`, `get_width`/`get_height`, `get_max_width`/`get_max_height`, `get_binning_size`) are a stricter subclass of the sentinel contract: a **transient read failure is invisible** -- the getter answers with the validated last-known-good value, so a momentary USB/SDK glitch can never hand you a failure code where a physical value belongs (no `-1` gain into arithmetic, no `None` frame size into a subscript). The documented camera-absent defaults (`get_gain` -1.0, `get_exposure_time` 0.0, width/height getters 0, `get_binning_size` 1) occur **only** when no camera is active or the value has never been successfully read -- stable states you can see coming via `camera_connected`, not something a transient failure produces mid-session. Callers that must record what the hardware was at a specific moment (file metadata, logs of record) use `get_live_camera_settings()` instead: it returns only fields whose driver read succeeded right now (`gain_db`, `exposure_ms`) and omits the rest -- there, unknown stays unknown by design.
+- **Camera value getters** (`get_gain`, `get_exposure_ms`, `get_width`/`get_height`, `get_max_width`/`get_max_height`, `get_binning_size`) are a stricter subclass of the sentinel contract: a **transient read failure is invisible** -- the getter answers with the validated last-known-good value, so a momentary USB/SDK glitch can never hand you a failure code where a physical value belongs (no `-1` gain into arithmetic, no `None` frame size into a subscript). The documented camera-absent defaults (`get_gain` -1.0, `get_exposure_ms` 0.0, width/height getters 0, `get_binning_size` 1) occur **only** when no camera is active or the value has never been successfully read -- stable states you can see coming via `camera_connected`, not something a transient failure produces mid-session. Callers that must record what the hardware was at a specific moment (file metadata, logs of record) use `get_live_camera_settings()` instead: it returns only fields whose driver read succeeded right now (`gain_db`, `exposure_ms`) and omits the rest -- there, unknown stays unknown by design.
 - **Naming convention -- `*_cached` vs `get_*`**: a property ending in `_cached` (`gain_cached`, `exposure_ms_cached`, `frame_size_cached`, `pixel_format_cached`, `active_cached`, `min_frame_size_cached`, `max_exposure_ms_cached`, `max_gain_cached`) reads the host-side camera cache and performs **no driver I/O** -- safe to read at any frequency from any thread. A `get_*` method is a **live driver read** under the last-known-good contract above. The name carries the contract, so a call site's I/O behavior is visible without opening the implementation.
 - **State-changing operations** (setters like `set_gain`, `move_absolute`, `led_on`, etc.) typically return `True` on success and `False` for "couldn't do it" (no driver, mode invalid, driver does not implement, etc.). A `Raises:` section in the docstring documents the typed exception (`HardwareError`, `CaptureError`, `ConfigError` from `modules.exceptions`) that propagates when the underlying SDK call itself fails. The API layer logs (`logger.error`) and fires a user-facing notification (`notifications.error`) before re-raising at the driver boundary; the typed exception is what L2 callers should catch.
 - **Hardware-command dispatch** (LED, motion, and camera commands): each command submits to its executor and blocks until the hardware has it. While a protocol run owns the executors (or an executor is disabled), the blocking form raises `HardwareCommandRefusedError` (`modules.exceptions`), carrying the machine-readable `reason` (`exclusive_activity_running`) and the refused member; the `*_async` forms drop the command with a logged warning instead of raising. With no executors registered at all (a bare `Lumascope()` in a script), every command -- blocking and `*_async` alike -- runs directly on the calling thread.
@@ -227,7 +227,7 @@ session.scope.motion.move_relative_async('X', 500)
 
 # Imaging (blocking-only -- no imaging *_async forms)
 session.scope.imaging.set_gain(8.0)                 # dB; blocks until applied
-session.scope.imaging.set_exposure_time(50.0)       # ms; blocks until applied
+session.scope.imaging.set_exposure_ms(50.0)       # ms; blocks until applied
 image = session.scope.imaging.capture_and_wait()    # returns frame-valid grab
 
 # capture_and_wait accepts dark_floor_check (default False): pass True when
@@ -542,8 +542,8 @@ image = scope.imaging.capture_and_wait(
 )
 
 # Exposure (milliseconds) + gain (dB)
-scope.imaging.set_exposure_time(exposure_ms=50)
-scope.imaging.get_exposure_time()                  # last-known-good on transient read failure; 0.0 camera-absent
+scope.imaging.set_exposure_ms(exposure_ms=50)
+scope.imaging.get_exposure_ms()                  # last-known-good on transient read failure; 0.0 camera-absent
 scope.imaging.set_gain(gain_db=10.0)
 scope.imaging.get_gain()                           # last-known-good on transient read failure; -1.0 camera-absent
 
@@ -552,13 +552,13 @@ scope.imaging.get_gain()                           # last-known-good on transien
 # (the value getters above would answer last-known-good instead).
 scope.imaging.get_live_camera_settings()           # {} | {'gain_db': ..., 'exposure_ms': ...}
 
-# `set_exposure_time` warns + logs a stack trace at < 0.005 ms (the
+# `set_exposure_ms` warns + logs a stack trace at < 0.005 ms (the
 # common L1 failure is typing 0.05 thinking microseconds and getting
 # a black image). Internal sweep callers that walk that range
 # deliberately wrap their loop in `suppress_value_warnings()`:
 with scope.imaging.suppress_value_warnings():
     for exp_ms in (0.05, 0.1, 0.5, 5.0, 50.0):
-        scope.imaging.set_exposure_time(exp_ms)
+        scope.imaging.set_exposure_ms(exp_ms)
         # ... grab + measure ...
 # Flag is restored on context exit (incl. exception).
 
@@ -598,7 +598,7 @@ scope.imaging.set_max_acquisition_frame_rate(enabled=True, fps=10.0)
 scope.imaging.set_max_acquisition_frame_rate(enabled=False)   # remove cap
 ```
 
-The acquisition frame-rate cap lives on the camera driver and clamps frame production regardless of sensor-readout capability. Used by the manual-record path to match user-requested video FPS, and by characterization tools to bound capture rate during long-running probes. No-op on drivers that do not implement the underlying setter (warning logged). Distinct from `set_exposure_time` (per-frame integration time) and from any host-side throttling.
+The acquisition frame-rate cap lives on the camera driver and clamps frame production regardless of sensor-readout capability. Used by the manual-record path to match user-requested video FPS, and by characterization tools to bound capture rate during long-running probes. No-op on drivers that do not implement the underlying setter (warning logged). Distinct from `set_exposure_ms` (per-frame integration time) and from any host-side throttling.
 
 ### Dynamic camera capabilities
 
@@ -1083,7 +1083,7 @@ scope.motion.home()
 scope.motion.wait_until_finished_moving()
 
 scope.runtime_state.set_objective('10x Oly')
-scope.imaging.set_exposure_time(50)
+scope.imaging.set_exposure_ms(50)
 scope.imaging.set_gain(5.0)
 
 scope.motion.move_absolute('X', 60000, wait_until_complete=True)
@@ -1117,14 +1117,14 @@ for color, mA, exp_ms, gain_db in [
     ('Green', 150,  80, 12),
     ('Red',   180,  90, 10),
 ]:
-    scope.imaging.set_exposure_time(exp_ms)
+    scope.imaging.set_exposure_ms(exp_ms)
     scope.imaging.set_gain(gain_db)
     scope.illumination.led_on(color, mA)
     channel_images[color] = scope.imaging.capture_and_wait(dark_floor_check=True)
     scope.illumination.led_off(color)
 
 # Transmitted (brightfield) base image
-scope.imaging.set_exposure_time(2.0)
+scope.imaging.set_exposure_ms(2.0)
 scope.imaging.set_gain(1.0)
 scope.illumination.led_on('BF', 100)
 bf_image = scope.imaging.capture_and_wait(dark_floor_check=True)

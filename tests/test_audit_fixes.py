@@ -4188,7 +4188,7 @@ class TestLumascopeRecordsTargetForChunkMatch:
     frame_validity.set_target() so capture_and_wait's chunk-match can
     short-circuit skip-frames once a frame's chunks match the target.
 
-    Manual setters (set_gain, set_exposure_time) record the value; auto
+    Manual setters (set_gain, set_exposure_ms) record the value; auto
     setters (set_auto_gain, set_auto_exposure_time) clear the target
     (None) since auto dynamically changes the value and chunk-match
     against a stale manual target would be wrong."""
@@ -4219,9 +4219,9 @@ class TestLumascopeRecordsTargetForChunkMatch:
         Conversion must happen at the seam so chunk-match's tolerance
         is in matching units."""
         imaging, calls = self._recording_imaging()
-        imaging.set_exposure_time(2.5)
+        imaging.set_exposure_ms(2.5)
         assert ('exposure', 2500.0) in calls, (
-            'set_exposure_time must record the target in microseconds '
+            'set_exposure_ms must record the target in microseconds '
             f'(ms * 1000) for chunk-match; got {calls}'
         )
 
@@ -9487,7 +9487,7 @@ class TestImagingParamNamesUseUnitSuffix:
     _IMAGING_PARAMS = (
         # (method, expected_param_name_set, banned_param_name_set)
         ('set_gain', frozenset({'gain_db'}), frozenset({'gain'})),
-        ('set_exposure_time', frozenset({'exposure_ms'}), frozenset({'t', 'exposure'})),
+        ('set_exposure_ms', frozenset({'exposure_ms'}), frozenset({'t', 'exposure'})),
         ('apply_layer_camera_settings', frozenset({'gain_db', 'exposure_ms'}), frozenset({'gain'})),
         (
             'auto_gain_once',
@@ -10502,7 +10502,7 @@ class TestAutoGainArmedInScanIterate:
         assert not imaging.apply_layer_camera_settings.called, (
             'AG-step capture must not re-apply layer camera settings'
         )
-        assert not imaging._set_gain_impl.called and not imaging._set_exposure_time_impl.called, (
+        assert not imaging._set_gain_impl.called and not imaging._set_exposure_ms_impl.called, (
             'AG-step capture must not drive manual gain/exposure either'
         )
 
@@ -10510,7 +10510,7 @@ class TestAutoGainArmedInScanIterate:
         """Control: a non-AG step DOES drive the step gain/exposure."""
         imaging = self._drive_capture(auto_gain=False)
         imaging._set_gain_impl.assert_called_once_with(2.0)
-        imaging._set_exposure_time_impl.assert_called_once_with(10.0)
+        imaging._set_exposure_ms_impl.assert_called_once_with(10.0)
 
     def test_arm_block_returns_after_arming(self, monkeypatch):
         """The arm tick must NOT capture -- the next scan_iterate tick

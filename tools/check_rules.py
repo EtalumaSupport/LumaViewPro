@@ -828,6 +828,7 @@ _BROKEN_SCOPE_METHODS = frozenset(
         'set_gain',
         'set_exposure_t',
         'set_exposure_time',
+        'set_exposure_ms',
         'capture_and_wait',
         'get_channels',
         'run_pylon_diagnostic_probe',

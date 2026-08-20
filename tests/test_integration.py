@@ -613,7 +613,7 @@ class TestIntegrationAutofocus:
         # Simulate the multi-channel scenario: camera is at Green settings
         # when BF AF starts with its own explicit targets.
         scope.imaging.set_gain(20.0)
-        scope.imaging.set_exposure_time(100.0)
+        scope.imaging.set_exposure_ms(100.0)
 
         # Drive AF through AutofocusThread so the abort_event contract
         # is satisfied and the Future resolves when AFE.run()'s finally
@@ -644,7 +644,7 @@ class TestIntegrationAutofocus:
         # values, 1.0 dB / 2.0 ms here) are KEPT after AF rather than
         # reverted to the pre-AF snapshot (20.0 / 100.0).
         actual_gain = scope.imaging.get_gain()
-        actual_exp = scope.imaging.get_exposure_time()
+        actual_exp = scope.imaging.get_exposure_ms()
         assert abs(actual_gain - 1.0) < 0.1, (
             f'Camera gain should remain at the committed AF target 1.0 '
             f'when the AF Future resolves, but got {actual_gain}'

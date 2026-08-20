@@ -249,7 +249,7 @@ class FrameValidity:
     def set_target(self, source: str, value):
         """Record the requested value for a chunk-validatable source.
 
-        The API layer (Lumascope.set_gain / set_exposure_time) calls this
+        The API layer (Lumascope.set_gain / set_exposure_ms) calls this
         after invalidate() so that when chunk metadata arrives via
         count_frame(chunk_data=...), the validity module can match the
         chunk against the target and clear the source deterministically.

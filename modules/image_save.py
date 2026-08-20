@@ -325,7 +325,7 @@ def generate_image_metadata(scope: Lumascope, color, x, y, z) -> dict:
     # Timestamp every frame). These are the same chunk values frame_validity
     # checks the camera settled to, so they are the authoritative, race-free
     # source for the frame's gain/exposure metadata. The live
-    # get_exposure_time / get_gain calls are the fallback for cameras /
+    # get_exposure_ms / get_gain calls are the fallback for cameras /
     # frames without chunk data (IDS stores frames without chunks; also
     # simulator and legacy). Both sources report what the hardware is
     # ACTUALLY set to, never the requested value -- so even if a settings
@@ -339,7 +339,7 @@ def generate_image_metadata(scope: Lumascope, color, x, y, z) -> dict:
 
     _chunk_exp_us = chunks.get('ExposureTime')
     _chunk_gain_db = chunks.get('Gain')
-    # The live-confirmed surface, not get_gain()/get_exposure_time(): the
+    # The live-confirmed surface, not get_gain()/get_exposure_ms(): the
     # value getters answer last-known-good on a failed read, which is
     # right for control flow but would record a gain/exposure this frame
     # was not captured at. get_live_camera_settings omits a field whose

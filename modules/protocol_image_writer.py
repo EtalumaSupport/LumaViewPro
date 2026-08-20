@@ -539,7 +539,7 @@ class ProtocolImageWriter:
             if logger.isEnabledFor(logging.DEBUG):
                 _ag = step['Auto_Gain']
                 _curr_gain = self._scope.imaging.get_gain()
-                _curr_exp = self._scope.imaging.get_exposure_time()
+                _curr_exp = self._scope.imaging.get_exposure_ms()
                 logger.debug(
                     f'[CAPTURE DIAG] step={step.get("Name", "?")} color={step["Color"]} '
                     f'Auto_Gain={_ag!r} (type={type(_ag).__name__}) '
@@ -574,7 +574,7 @@ class ProtocolImageWriter:
                 # thread while the run has the camera executor disabled, so
                 # the public dispatchers would refuse every per-step write.
                 self._scope.imaging._set_gain_impl(step['Gain'])
-                self._scope.imaging._set_exposure_time_impl(step['Exposure'])
+                self._scope.imaging._set_exposure_ms_impl(step['Exposure'])
             else:
                 # Auto_Gain step: scan_iterate already lit the LED and armed AG
                 # against the lit scene; the apply is skipped here to avoid

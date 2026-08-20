@@ -144,9 +144,7 @@ class ProtocolStepRunner:
                     f'capturing at fallback Z and continuing'
                 )
             _cam_gain = p._scope.imaging.get_gain() if p._scope.imaging.active_cached else '?'
-            _cam_exp = (
-                p._scope.imaging.get_exposure_time() if p._scope.imaging.active_cached else '?'
-            )
+            _cam_exp = p._scope.imaging.get_exposure_ms() if p._scope.imaging.active_cached else '?'
             logger.info(
                 f'[SCAN DIAG] AF gate passed: future.done()=True '
                 f'camera_gain={_cam_gain} camera_exp={_cam_exp} step={p._curr_step}'

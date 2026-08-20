@@ -340,7 +340,7 @@ class ImagingAPI:
         try:
             self.get_binning_size()
             self.get_gain()
-            self.get_exposure_time()
+            self.get_exposure_ms()
             self._get_frame_size()
             self._get_pixel_format()
             self._get_max_frame_size()
@@ -377,7 +377,7 @@ class ImagingAPI:
         directly without going through this layer's cache, so when the
         auto cycle toggles off the cache may hold a stale pre-auto
         value. Without this refresh, the cache-equality skip at
-        ``set_gain`` / ``set_exposure_time`` short-circuits subsequent
+        ``set_gain`` / ``set_exposure_ms`` short-circuits subsequent
         setter calls and hardware silently stays at the converged auto
         value -- the user-visible failure shape was a protocol's first
         run capturing at an unintended exposure inherited from a
@@ -638,7 +638,7 @@ class ImagingAPI:
             _api_log.info(f'set_gain {gain_db}dB')
             self._fire_camera_listeners('gain', float(gain_db))
 
-    def _set_exposure_time_impl(self, exposure_ms: float) -> None:
+    def _set_exposure_ms_impl(self, exposure_ms: float) -> None:
         """Set the camera exposure time.
 
         Args:
@@ -662,7 +662,7 @@ class ImagingAPI:
 
             _caller = ''.join(traceback.format_stack(limit=6)[-4:-1]).strip()
             logger.warning(
-                f'[SCOPE API ] set_exposure_time({exposure_ms}ms) is below '
+                f'[SCOPE API ] set_exposure_ms({exposure_ms}ms) is below '
                 f'any Basler sensor physical minimum -- camera '
                 f'will clamp the request. Confirm the value is '
                 f'in milliseconds, not seconds or microseconds.\n'
@@ -773,15 +773,15 @@ class ImagingAPI:
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
         )
 
-    def set_exposure_time(self, exposure_ms: float) -> None:
+    def set_exposure_ms(self, exposure_ms: float) -> None:
         """Set the camera exposure time, and wait for it.
 
-        See ``_set_exposure_time_impl`` for the value contract and the
+        See ``_set_exposure_ms_impl`` for the value contract and the
         unit-confusion warning it carries.
         """
         return self._dispatch_camera(
-            self._set_exposure_time_impl,
-            'set_exposure_time',
+            self._set_exposure_ms_impl,
+            'set_exposure_ms',
             args=(exposure_ms,),
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
         )
@@ -1712,7 +1712,7 @@ class ImagingAPI:
 
         For consumers that record what the hardware was at a specific
         moment (saved-image metadata, state snapshots): the value getters
-        (get_gain / get_exposure_time) deliberately hide read failures
+        (get_gain / get_exposure_ms) deliberately hide read failures
         behind the last-known-good cache, which is right for control flow
         but would record a value the frame was not captured at. Here,
         unknown stays unknown.
@@ -1757,7 +1757,7 @@ class ImagingAPI:
             -1.0,
         )
 
-    def get_exposure_time(self) -> float:
+    def get_exposure_ms(self) -> float:
         """Get the current camera exposure time.
 
         Returns:
@@ -2012,7 +2012,7 @@ class ImagingAPI:
             return None
 
         hold_start = time.monotonic()
-        exposure_s = self.get_exposure_time() / 1000
+        exposure_s = self.get_exposure_ms() / 1000
         grab_timeout_s = max(exposure_s * 3, 1.0)
 
         # Drain stale frames until all pending state changes have settled.
@@ -2813,7 +2813,7 @@ class ImagingAPI:
                 f'been successfully read; snapshot omits it and the restore '
                 f'will leave gain unchanged'
             )
-        exposure_ms = self.get_exposure_time()
+        exposure_ms = self.get_exposure_ms()
         if common_utils.is_valid_exposure_ms(exposure_ms):
             snapshot['exposure_ms'] = exposure_ms
         else:
@@ -2874,7 +2874,7 @@ class ImagingAPI:
         if gain_known:
             self._set_gain_impl(gain_db)
         if exposure_known:
-            self._set_exposure_time_impl(exposure_ms)
+            self._set_exposure_ms_impl(exposure_ms)
 
     # --- Camera config orchestration ---
     def apply_layer_camera_settings(
@@ -2900,7 +2900,7 @@ class ImagingAPI:
             self._notify_camera_absent('gain / exposure')
             return
         self._set_gain_impl(gain_db)
-        self._set_exposure_time_impl(exposure_ms)
+        self._set_exposure_ms_impl(exposure_ms)
         if auto_gain_settings is not None:
             self.set_auto_gain(auto_gain, settings=auto_gain_settings)
         _api_log.info(
@@ -2979,7 +2979,7 @@ class ImagingAPI:
 
             with scope.imaging.update_camera_config():
                 scope.imaging.set_gain(5.0)
-                scope.imaging.set_exposure_time(100)
+                scope.imaging.set_exposure_ms(100)
 
         Returns:
             A context manager. Falls back to ``contextlib.nullcontext()``
@@ -3243,7 +3243,7 @@ class ImagingAPI:
         It fires from the thread that caused the change, so listeners
         **must** schedule UI work via ``Clock.schedule_once``.
 
-        Note: this fires on set_gain/set_exposure_time (user actions),
+        Note: this fires on set_gain/set_exposure_ms (user actions),
         NOT on every camera frame grab -- zero overhead on display framerate.
 
         Args:

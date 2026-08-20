@@ -118,7 +118,7 @@ class AutofocusRunner:
         z_min = max(0, center - range)
         z_max = center + range
         resolution = self._objective['AF_max']
-        exposure = self._scope.imaging.get_exposure_time()
+        exposure = self._scope.imaging.get_exposure_ms()
 
         self._params = {
             'center': center,
@@ -254,7 +254,7 @@ class AutofocusRunner:
         if self._camera_gain is not None:
             self._scope.imaging._set_gain_impl(self._camera_gain)
         if self._camera_exposure is not None:
-            self._scope.imaging._set_exposure_time_impl(self._camera_exposure)
+            self._scope.imaging._set_exposure_ms_impl(self._camera_exposure)
         last_gc_time = time.monotonic()
         completed_successfully = False
         try:
@@ -466,7 +466,7 @@ class AutofocusRunner:
             _af_log.info(
                 f'[AF DIAG] Clearing _af_in_progress -- '
                 f'camera now at gain={self._scope.imaging.get_gain()} '
-                f'exp={self._scope.imaging.get_exposure_time()}'
+                f'exp={self._scope.imaging.get_exposure_ms()}'
             )
             self._af_in_progress.clear()
             # Clear the public ImagingAPI mirror AFTER camera/LED/Z restore

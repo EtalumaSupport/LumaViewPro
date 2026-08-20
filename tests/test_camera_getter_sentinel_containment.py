@@ -171,7 +171,7 @@ def _build_imaging(cam) -> ImagingAPI:
 # one good populate round from good_then_failing_driver()).
 CONVERTED_GETTERS = [
     ('get_gain', -1.0, 12.5),
-    ('get_exposure_time', 0.0, 50.0),
+    ('get_exposure_ms', 0.0, 50.0),
     ('get_width', 0, 1936),
     ('get_height', 0, 1216),
     ('get_max_width', 0, 3840),
@@ -538,7 +538,7 @@ def test_chunkless_metadata_omits_keys_when_live_reads_fail():
     assert 'exposure_time_ms' not in metadata
     # Same state, control-flow surface: the value getters still answer LKG.
     assert imaging.get_gain() == 12.5
-    assert imaging.get_exposure_time() == 50.0
+    assert imaging.get_exposure_ms() == 50.0
 
 
 # --- Depth properties (significant_bits / last_significant_bits) ----------------
@@ -783,7 +783,7 @@ def test_restore_camera_state_trimmed_snapshot_restores_only_present_fields(monk
     monkeypatch.setattr('modules.lumascope_api.imaging.logger', _recording_logger(warnings))
     calls = []
     monkeypatch.setattr(imaging, '_set_gain_impl', lambda g: calls.append(('gain', g)))
-    monkeypatch.setattr(imaging, '_set_exposure_time_impl', lambda e: calls.append(('exposure', e)))
+    monkeypatch.setattr(imaging, '_set_exposure_ms_impl', lambda e: calls.append(('exposure', e)))
 
     imaging.restore_camera_state({'tag': 't', 'exposure_ms': 50.0})
 
@@ -797,7 +797,7 @@ def test_restore_camera_state_empty_snapshot_is_noop(monkeypatch):
     imaging = _build_imaging(steady_good_driver())
     calls = []
     monkeypatch.setattr(imaging, '_set_gain_impl', lambda g: calls.append(('gain', g)))
-    monkeypatch.setattr(imaging, '_set_exposure_time_impl', lambda e: calls.append(('exposure', e)))
+    monkeypatch.setattr(imaging, '_set_exposure_ms_impl', lambda e: calls.append(('exposure', e)))
 
     imaging.restore_camera_state({})
 

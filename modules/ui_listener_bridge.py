@@ -161,7 +161,7 @@ class UIListenerBridge:
         self._ui_dispatch(_reconcile, 0)
 
     def _on_camera_setting_changed(self, param, value):
-        """Camera listener -- fires on set_gain / set_exposure_time.
+        """Camera listener -- fires on set_gain / set_exposure_ms.
 
         Updates the OPEN tab's text fields with what the camera is
         actually running at (after AF, auto-gain, REST API, etc.).

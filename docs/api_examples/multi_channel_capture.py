@@ -64,7 +64,7 @@ def main():
         print(f'  LED on: {ch["mA"]} mA')
 
         # Set exposure time (ms)
-        scope.imaging.set_exposure_time(ch['exposure_ms'])
+        scope.imaging.set_exposure_ms(ch['exposure_ms'])
         print(f'  Exposure: {ch["exposure_ms"]} ms')
 
         # Capture a frame valid for the current LED + exposure state.

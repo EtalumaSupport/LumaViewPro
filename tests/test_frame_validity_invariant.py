@@ -82,25 +82,25 @@ class TestSetExposureAlwaysInvalidatesDespiteStaleCache:
 
     def test_desynced_cache_still_drives_hardware(self, sim_imaging):
         imaging, cam = sim_imaging
-        imaging.set_exposure_time(0.1)  # cache = 0.1, hw = 0.1
+        imaging.set_exposure_ms(0.1)  # cache = 0.1, hw = 0.1
         with cam._lock:
             cam._exposure_us = 14.0  # hw drifted to 0.014 ms
-        imaging.set_exposure_time(0.1)
+        imaging.set_exposure_ms(0.1)
         assert cam.get_exposure_t() == pytest.approx(0.1, abs=0.001), (
-            'set_exposure_time must drive hardware even when the cache '
+            'set_exposure_ms must drive hardware even when the cache '
             f'already reads the requested value; got {cam.get_exposure_t()}'
         )
 
     def test_desynced_cache_still_turns_marker_red(self, sim_imaging):
         imaging, cam = sim_imaging
-        imaging.set_exposure_time(0.1)
+        imaging.set_exposure_ms(0.1)
         imaging.frame_validity.reset()
         assert imaging.frame_validity.is_valid
         with cam._lock:
             cam._exposure_us = 14.0
-        imaging.set_exposure_time(0.1)
+        imaging.set_exposure_ms(0.1)
         assert not imaging.frame_validity.is_valid, (
-            'set_exposure_time must invalidate frame validity even when '
+            'set_exposure_ms must invalidate frame validity even when '
             'the cache already reads the requested value'
         )
         assert 'exposure' in imaging.frame_validity.pending_sources
@@ -314,10 +314,10 @@ class TestRejectedSettingNotifiesAndKeepsCache:
             'modules.lumascope_api.imaging.notifications.error',
             lambda *a, **kw: captured.append(a),
         )
-        imaging.set_exposure_time(20.0)  # establish a known cache value
+        imaging.set_exposure_ms(20.0)  # establish a known cache value
         monkeypatch.setattr(cam, 'exposure_t', lambda v: False)
 
-        imaging.set_exposure_time(50.0)
+        imaging.set_exposure_ms(50.0)
 
         assert captured, 'A confirmed exposure rejection must notify the user'
         assert imaging.exposure_ms_cached == 20.0, (

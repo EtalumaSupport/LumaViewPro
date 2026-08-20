@@ -136,7 +136,7 @@ class TestValueSetterSequences:
 
     def test_set_exposure_time_sequence(self, imaging_capable):
         events = _record_validity_events(imaging_capable)
-        imaging_capable.set_exposure_time(0.1)
+        imaging_capable.set_exposure_ms(0.1)
         # Target is recorded in microseconds (chunk-match unit); API takes ms.
         assert events == [
             ('invalidate', 'exposure'),
