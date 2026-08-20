@@ -1054,3 +1054,71 @@ def test_s12_transient_scan_failure_goes_dark_before_retry(scope, runner, tmp_pa
     _assert_only_lit(sub, 'Green')
     assert sub.lit_at_most_one(), f'double illumination\n{sub.render()}'
     assert sub.final_lit() == set(), sub.render()
+
+
+# --- Multi-channel illumination: SUPPORTED on the API, deliberately not in the GUI ---
+#
+# The split is intentional. The GUI lights one channel at a time and that is
+# correct behaviour for it. The API deliberately permits several at once: an L2
+# caller that wants two channels lit may have them. That is not an accident of
+# the implementation -- _led_on_impl writes its own entry and never clears a
+# peer, and leds_off / leds_off_owned only mean something if plural-lit is
+# reachable -- but until these tests nothing pinned it, so a later stage could
+# have removed the capability by "simplifying" the diff or by pushing the GUI's
+# mutual exclusion down into the API, and the suite would have stayed green.
+#
+# The mutual-exclusion the scenarios above assert is a property of protocol and
+# AF TRANSITIONS, not of the API surface. Do not generalize it.
+#
+# These two pin _emit_led_diff over a multi-channel lit set, which every
+# transition routes through. The diff iterates a SNAPSHOT of the lit channels
+# and clears non-target ones as it goes -- so the loop is mutating the same
+# state it is walking, and the snapshot is what makes that safe. Nothing else
+# in the suite lights more than one channel at a time, so nothing else would
+# notice if that snapshot were lost.
+
+
+def test_multi_channel_lit_diff_clears_only_non_target_channels(scope):
+    """Three channels lit, diff to one: the other two go dark exactly once and
+    the survivor is neither offed nor re-asserted."""
+    ill = scope.illumination
+    sub = LedSubstream()
+    ill.add_led_listener(sub)
+
+    for color, mA in (('Blue', 100.0), ('Green', 250.0), ('Red', 350.0)):
+        ill.led_on(channel=ill.color2ch(color), mA=mA)
+    assert sub.final_lit() == {'Blue', 'Green', 'Red'}, (
+        'multi-channel illumination is API-legal; if this fails the premise of '
+        f'the test is gone, not the diff\n{sub.render()}'
+    )
+
+    ill._emit_led_diff(frozenset({(ill.color2ch('Red'), 350.0)}), owner='', block=False)
+
+    assert sub.final_lit() == {'Red'}, sub.render()
+    # Red was already at its target current, so the diff must emit nothing for
+    # it -- an off/on round trip here would be a visible blink.
+    assert sub.lit_transitions('Red') == [True], sub.render()
+    assert sub.lit_transitions('Blue') == [True, False], sub.render()
+    assert sub.lit_transitions('Green') == [True, False], sub.render()
+    assert sub.on_events() == [('Blue', 100.0), ('Green', 250.0), ('Red', 350.0)], sub.render()
+
+
+def test_multi_channel_target_lights_several_and_clears_the_rest(scope):
+    """A diff whose target names two channels leaves both lit."""
+    ill = scope.illumination
+    sub = LedSubstream()
+    ill.add_led_listener(sub)
+
+    for color, mA in (('Blue', 100.0), ('Green', 250.0)):
+        ill.led_on(channel=ill.color2ch(color), mA=mA)
+
+    ill._emit_led_diff(
+        frozenset({(ill.color2ch('Green'), 250.0), (ill.color2ch('Red'), 350.0)}),
+        owner='',
+        block=False,
+    )
+
+    assert sub.final_lit() == {'Green', 'Red'}, sub.render()
+    assert sub.lit_transitions('Blue') == [True, False], sub.render()
+    assert sub.lit_transitions('Green') == [True], sub.render()
+    assert sub.lit_transitions('Red') == [True], sub.render()
