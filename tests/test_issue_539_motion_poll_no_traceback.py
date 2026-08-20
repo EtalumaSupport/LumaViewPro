@@ -2,7 +2,8 @@
 traceback per poll when the motor is disconnected.
 
 On a USB yank mid-move the motion-monitor thread keeps polling
-get_target_status / get_home_status. The driver correctly raises a typed
+get_target_status. (get_home_status carried the same guard and was
+retired with the member.) The driver correctly raises a typed
 HardwareError (Rule 29); the API correctly catches it for a state query and
 returns the not-at-target sentinel (Rule 8). But it logged logger.exception
 (full ERROR traceback) for that expected, handled disconnect -- the stack
@@ -44,7 +45,7 @@ def log(monkeypatch):
     return fake_log
 
 
-@pytest.mark.parametrize('method', ['get_target_status', 'get_home_status'])
+@pytest.mark.parametrize('method', ['get_target_status'])
 def test_disconnected_returns_sentinel_without_touching_driver(method, log):
     fake = _fake(motor_connected=False)
     assert getattr(MotionAPI, method)(fake, 'Z') is False
@@ -54,7 +55,7 @@ def test_disconnected_returns_sentinel_without_touching_driver(method, log):
     log.warning.assert_not_called()
 
 
-@pytest.mark.parametrize('method', ['get_target_status', 'get_home_status'])
+@pytest.mark.parametrize('method', ['get_target_status'])
 def test_hardware_error_warns_without_traceback(method, log):
     fake = _fake(motor_connected=True, driver_exc=HardwareError('no response from motor board'))
     assert getattr(MotionAPI, method)(fake, 'Z') is False
@@ -62,7 +63,7 @@ def test_hardware_error_warns_without_traceback(method, log):
     log.exception.assert_not_called()  # no full traceback for an expected disconnect
 
 
-@pytest.mark.parametrize('method', ['get_target_status', 'get_home_status'])
+@pytest.mark.parametrize('method', ['get_target_status'])
 def test_unexpected_error_still_logs_traceback(method, log):
     fake = _fake(motor_connected=True, driver_exc=ValueError('genuinely unexpected'))
     assert getattr(MotionAPI, method)(fake, 'Z') is False

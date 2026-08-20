@@ -688,34 +688,6 @@ class MotionAPI:
             return
         self._driver.set_precision_mode(axis, enabled)
 
-    def get_home_status(self, axis: str) -> bool:
-        """Check if an axis is at its home position.
-
-        Args:
-            axis: Axis name ("X", "Y", "Z", "T").
-
-        Returns:
-            bool: True if the axis is homed, False otherwise or on error.
-        """
-        if not self._scope.motor_connected:
-            # Disconnected is an expected degradation, not an error -- the
-            # motion monitor polls this; provoking + tracing a per-poll
-            # HardwareError floods the log on a mid-move USB yank (#539).
-            return False
-        try:
-            status = self._driver.home_status(axis)
-            return status
-        except HardwareError as e:
-            # Typed disconnect/timeout at the moment of unplug (before
-            # motor_connected flips). Expected; log without the traceback.
-            logger.warning(f'[SCOPE API ] get_home_status({axis}): {e}; treating as not home')
-            return False
-        except Exception as e:
-            logger.exception(
-                f'[SCOPE API ] get_home_status({axis}) failed; treating as not home: {e}'
-            )
-            return False
-
     def get_target_status(self, axis: str) -> bool:
         """Check if an axis has reached its target position.
 
@@ -726,9 +698,10 @@ class MotionAPI:
             bool: True if at target (always True for T if no turret present).
         """
         if not self._scope.motor_connected:
-            # See get_home_status: disconnected is an expected degradation;
-            # the motion monitor polls this, so don't provoke + trace a
-            # per-poll HardwareError on a mid-move USB yank (#539).
+            # Disconnected is an expected degradation, not a fault: the
+            # motion monitor polls this on a timer, so provoking the driver
+            # would trace a HardwareError on every poll after a mid-move USB
+            # yank. Answer False and stay quiet.
             return False
 
         # Handle case where we want to know if turret has reached its target, but there is no turret
@@ -750,17 +723,6 @@ class MotionAPI:
                 f'[SCOPE API ] get_target_status({axis}) failed; treating as not at target: {e}'
             )
             return False
-
-    def get_reference_status(self, axis: str) -> str:
-        """Get reference status register bits for an axis.
-
-        Args:
-            axis: Axis name ("X", "Y", "Z", "T").
-
-        Returns:
-            str: 32-character binary string of register bits (MSB first).
-        """
-        return self._driver.reference_status(axis=axis)
 
     def get_limit_switch_status(self, axis: str) -> tuple[int, int]:
         """Get the limit switch status for an axis.

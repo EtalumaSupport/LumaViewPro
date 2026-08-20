@@ -82,7 +82,7 @@ The remainder of this document is organized as the sub-API reference (one sectio
 Methods on the L2 surface follow one of two contracts; if a method's docstring has a `Raises:` section it follows the raise contract, otherwise the sentinel contract.
 
 - **Hardware-state queries** (capability probes, status reads, getters like `get_led_ma`, `get_target_position`, `get_led_states`, `max_gain_db_cached`, `read_motor_fan_rpm`) return a sentinel value -- `None`, `False`, or an empty container -- when the value cannot be read (no hardware, channel not set, firmware does not implement the probe). No exception is raised. The caller branches on the sentinel.
-- **Camera value getters** (`get_gain_db`, `get_exposure_ms`, `get_width`/`get_height`, `get_max_width`/`get_max_height`, `get_binning_size`) are a stricter subclass of the sentinel contract: a **transient read failure is invisible** -- the getter answers with the validated last-known-good value, so a momentary USB/SDK glitch can never hand you a failure code where a physical value belongs (no `-1` gain into arithmetic, no `None` frame size into a subscript). The documented camera-absent defaults (`get_gain_db` -1.0, `get_exposure_ms` 0.0, width/height getters 0, `get_binning_size` 1) occur **only** when no camera is active or the value has never been successfully read -- stable states you can see coming via `camera_connected`, not something a transient failure produces mid-session. Callers that must record what the hardware was at a specific moment (file metadata, logs of record) use `get_live_camera_settings()` instead: it returns only fields whose driver read succeeded right now (`gain_db`, `exposure_ms`) and omits the rest -- there, unknown stays unknown by design.
+- **Camera value getters** (`get_gain_db`, `get_exposure_ms`, `get_width`/`get_height`, `get_binning_size`) are a stricter subclass of the sentinel contract: a **transient read failure is invisible** -- the getter answers with the validated last-known-good value, so a momentary USB/SDK glitch can never hand you a failure code where a physical value belongs (no `-1` gain into arithmetic, no `None` frame size into a subscript). The documented camera-absent defaults (`get_gain_db` -1.0, `get_exposure_ms` 0.0, width/height getters 0, `get_binning_size` 1) occur **only** when no camera is active or the value has never been successfully read -- stable states you can see coming via `camera_connected`, not something a transient failure produces mid-session. Callers that must record what the hardware was at a specific moment (file metadata, logs of record) use `get_live_camera_settings()` instead: it returns only fields whose driver read succeeded right now (`gain_db`, `exposure_ms`) and omits the rest -- there, unknown stays unknown by design.
 - **Naming convention -- `*_cached` vs `get_*`**: a property ending in `_cached` (`gain_db_cached`, `exposure_ms_cached`, `frame_size_cached`, `pixel_format_cached`, `active_cached`, `min_frame_size_cached`, `max_exposure_ms_cached`, `max_gain_db_cached`) reads the host-side camera cache and performs **no driver I/O** -- safe to read at any frequency from any thread. A `get_*` method is a **live driver read** under the last-known-good contract above. The name carries the contract, so a call site's I/O behavior is visible without opening the implementation.
 - **State-changing operations** (setters like `set_gain_db`, `move_absolute`, `led_on`, etc.) typically return `True` on success and `False` for "couldn't do it" (no driver, mode invalid, driver does not implement, etc.). A `Raises:` section in the docstring documents the typed exception (`HardwareError`, `CaptureError`, `ConfigError` from `modules.exceptions`) that propagates when the underlying SDK call itself fails. The API layer logs (`logger.error`) and fires a user-facing notification (`notifications.error`) before re-raising at the driver boundary; the typed exception is what L2 callers should catch.
 - **Hardware-command dispatch** (LED, motion, and camera commands): each command submits to its executor and blocks until the hardware has it. While a protocol run owns the executors (or an executor is disabled), the blocking form raises `HardwareCommandRefusedError` (`modules.exceptions`), carrying the machine-readable `reason` (`exclusive_activity_running`) and the refused member; the `*_async` forms drop the command with a logged warning instead of raising. With no executors registered at all (a bare `Lumascope()` in a script), every command -- blocking and `*_async` alike -- runs directly on the calling thread.
@@ -578,8 +578,7 @@ delivered = scope.imaging.set_frame_size(2048, 2048)
 # refuses the apply; returns None (no-op) when no camera is active.
 # Base geometry code on the returned dict, never on the request.
 scope.imaging.frame_size_cached                    # {'width': ..., 'height': ...} -- cache read, no driver I/O
-scope.imaging.get_max_width()                      # max at the current binning
-scope.imaging.get_max_height()
+scope.capabilities.camera_max_frame_size           # (width, height) sensor ceiling -- static structure
 scope.imaging.get_native_resolution()              # {'width','height'} unbinned sensor ceiling
 scope.imaging.get_pixel_alignment()                # {'width','height'} deliverable frame-size granularity (even on IDS; camera grid on floor-only drivers)
 
@@ -592,10 +591,6 @@ scope.imaging.set_binning_size(2)
 # record a rejected apply.
 scope.imaging.get_binning_size()                   # always >= 1 (last-known-good on failed read)
 scope.imaging.get_available_binning_sizes()        # e.g. [1, 2, 4]
-
-# Acquisition frame-rate cap (camera-side; clamps sensor-readout pace)
-scope.imaging.set_max_acquisition_frame_rate(enabled=True, fps=10.0)
-scope.imaging.set_max_acquisition_frame_rate(enabled=False)   # remove cap
 ```
 
 The acquisition frame-rate cap lives on the camera driver and clamps frame production regardless of sensor-readout capability. Used by the manual-record path to match user-requested video FPS, and by characterization tools to bound capture rate during long-running probes. No-op on drivers that do not implement the underlying setter (warning logged). Distinct from `set_exposure_ms` (per-frame integration time) and from any host-side throttling.
@@ -692,11 +687,8 @@ Frame validity is the single source of truth for "is the next frame still what I
 ```python
 scope.imaging.frame_is_valid                       # True if next frame is valid
 scope.imaging.frames_until_valid()                 # 0 = ready, >0 = keep draining
-scope.imaging.count_frame()                        # record that you grabbed a frame
-                                           # (advances the drain count;
-                                           # only callers who run their own
-                                           # grab loop need this; capture_and_wait
-                                           # handles it internally)
+# To record a frame you grabbed yourself, call the frame_validity instance
+# directly (see below) -- capture_and_wait handles it internally.
 ```
 
 For deeper introspection (diagnostic tooling, plugin authors writing custom capture loops, advanced timing analysis), the underlying `FrameValidity` instance is available as `scope.imaging.frame_validity` and is part of the L2-stable surface:

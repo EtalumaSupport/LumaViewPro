@@ -551,8 +551,8 @@ class ProtocolImageWriter:
                 logger.debug(
                     f'[CAPTURE DIAG] Applying step camera settings: gain={step["Gain"]}, exp={step["Exposure"]}'
                 )
-                # STALL-1 fix: removed the `with self._scope.imaging.update_camera_config():`
-                # wrapper that was here. update_camera_config() does StopGrabbing +
+                # Deliberately NOT wrapped in the driver's camera-config context
+                # manager. That manager does StopGrabbing +
                 # StartGrabbing, which Pylon SDK only requires for buffer-geometry
                 # changes (Width/Height/PixelFormat/Binning/Offset) -- NOT for Gain
                 # or ExposureTime, which are live-updateable. The wrapper was

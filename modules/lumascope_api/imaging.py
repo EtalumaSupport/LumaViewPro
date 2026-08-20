@@ -2,9 +2,8 @@
 """ImagingAPI -- sub-API for camera capture / image acquisition.
 
 ImagingAPI owns _camera_cache, _frame_buffer, _scale_bar,
-_capturing_event, _focusing_event, _camera_listeners,
-_camera_temp_event, _suppress_value_warnings,
-_capture_return, _autofocus_return, and the frame_validity instance.
+_focusing_event, _camera_listeners, _camera_temp_event,
+_suppress_value_warnings, and the frame_validity instance.
 """
 
 from __future__ import annotations
@@ -158,8 +157,8 @@ class ImagingAPI:
         # IlluminationAPI._driver.
         del driver  # intentionally unused, kept for backward call sites
 
-        # State / camera locks. _state_lock guards _capture_return /
-        # _autofocus_return / _scale_bar; _cam_lock serializes
+        # State / camera locks. _state_lock guards _scale_bar;
+        # _cam_lock serializes
         # access to the camera driver itself (any path that touches
         # the SDK reads/writes goes through this lock).
         self._state_lock = threading.Lock()
@@ -187,14 +186,11 @@ class ImagingAPI:
         self._frame_buffer = None
 
         # Boolean operation flags -- threading.Event for wait/signal.
-        self._capturing_event = threading.Event()  # set => capture in progress
         self._focusing_event = threading.Event()  # set => autofocus in progress
 
         # Capture / autofocus return slots. Reads/writes under
         # self._state_lock. Per the Sentinel-return contract: None
         # means "no result yet."
-        self._capture_return = None
-        self._autofocus_return = None
 
         # Evidence about the most recent capture_and_wait (hold duration,
         # drained frame count, chunk-verified exposure / gain). Read via
@@ -1577,51 +1573,6 @@ class ImagingAPI:
             )
             raise
 
-    def set_max_acquisition_frame_rate(
-        self,
-        enabled: bool,
-        fps: float = 1.0,
-    ) -> None:
-        """Enable or disable the camera's acquisition frame-rate cap.
-
-        Passthrough to the camera driver's ``set_max_acquisition_frame_rate``.
-        When enabled, the camera will not produce frames faster than
-        ``fps`` regardless of sensor-readout capability. Used by the
-        manual-record path (#633 Stage 2C) to clamp video to the user's
-        requested FPS, and by char-tool crash protection.
-
-        Args:
-            enabled: True to cap frame rate, False to remove the cap.
-            fps: Target frame rate in fps when ``enabled=True``.
-                Ignored when ``enabled=False``.
-
-        Raises:
-            HardwareError: Underlying SDK call failed in the driver.
-        """
-        if not self._driver or not self._driver.active:
-            return
-        if not hasattr(self._driver, 'set_max_acquisition_frame_rate'):
-            logger.warning(
-                f'[SCOPE API ] set_max_acquisition_frame_rate: '
-                f'{type(self._driver).__name__} does not implement this method'
-            )
-            return
-        try:
-            self._driver.set_max_acquisition_frame_rate(enabled=enabled, fps=fps)
-        except Exception as ex:
-            logger.exception(f'[SCOPE API ] Error setting max_acquisition_frame_rate: {ex}')
-            from modules.notification_center import notifications
-
-            notifications.error(
-                'Camera',
-                'Frame-rate cap change failed',
-                f'Could not set frame-rate cap to enabled={enabled}, '
-                f'fps={fps}. Camera may still be at the previous setting. '
-                f'See the log for details.',
-            )
-            raise
-
-    # --- Getters ---
     def _live_validated_read(
         self,
         key: str,
@@ -2950,23 +2901,6 @@ class ImagingAPI:
         # converged value while LVP's cache is still pre-auto.
         self._refresh_cache_from_hardware_after_auto()
 
-    def update_camera_config(self) -> contextlib.AbstractContextManager[Any]:
-        """Context manager for batched camera config updates.
-
-        Usage::
-
-            with scope.imaging.update_camera_config():
-                scope.imaging.set_gain_db(5.0)
-                scope.imaging.set_exposure_ms(100)
-
-        Returns:
-            A context manager. Falls back to ``contextlib.nullcontext()``
-            when no camera is active.
-        """
-        if not self._driver or not self._driver.active:
-            return contextlib.nullcontext()
-        return self._driver.update_camera_config()
-
     @contextlib.contextmanager
     def suppress_value_warnings(self) -> Iterator[None]:
         """Suppress programmatic value-range warnings (sub-0.1ms exposure
@@ -2992,23 +2926,6 @@ class ImagingAPI:
 
     # --- Operation flags ---
     @property
-    def is_capturing(self) -> bool:
-        """True while the microscope is capturing an image.
-
-        Returns:
-            bool: True if a capture is in progress.
-        """
-        return self._capturing_event.is_set()
-
-    @is_capturing.setter
-    def is_capturing(self, value: bool) -> None:
-        """Set the capture-in-progress flag."""
-        if value:
-            self._capturing_event.set()
-        else:
-            self._capturing_event.clear()
-
-    @property
     def is_focusing(self) -> bool:
         """True while the microscope is running autofocus.
 
@@ -3024,41 +2941,6 @@ class ImagingAPI:
             self._focusing_event.set()
         else:
             self._focusing_event.clear()
-
-    @property
-    def capture_return(self) -> np.ndarray | None:
-        """Latest capture result (image array or None).
-
-        Returns:
-            Image array on success, or None when no capture has
-            completed yet. Per the Sentinel-return contract:
-            `if scope.imaging.capture_return is None: ...`.
-        """
-        with self._state_lock:
-            return self._capture_return
-
-    @capture_return.setter
-    def capture_return(self, value) -> None:
-        """Store the latest capture result."""
-        with self._state_lock:
-            self._capture_return = value
-
-    @property
-    def autofocus_return(self) -> Any | None:
-        """Latest autofocus result.
-
-        Returns:
-            The most recent autofocus return value (driver-defined), or
-            None if autofocus has not run.
-        """
-        with self._state_lock:
-            return self._autofocus_return
-
-    @autofocus_return.setter
-    def autofocus_return(self, value) -> None:
-        """Store the latest autofocus result."""
-        with self._state_lock:
-            self._autofocus_return = value
 
     # --- Frame validity ---
     @property
@@ -3087,13 +2969,6 @@ class ImagingAPI:
         return self.frame_validity.frames_until_valid(
             exclude_sources=exclude_sources,
         )
-
-    def count_frame(self) -> None:
-        """Record that a frame was grabbed from the camera.
-
-        Delegates to frame_validity (no driver call).
-        """
-        self.frame_validity.count_frame()
 
     @property
     def last_capture_info(self) -> dict | None:
