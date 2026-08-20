@@ -201,6 +201,35 @@ def test_live_executor_submits_and_blocks(
     assert result is IMPL_RESULT
 
 
+def test_capture_wait_scales_with_the_declared_work(sim_scope, executors):
+    """The capture dispatcher's executor wait is a liveness bound, so it
+    must sit ABOVE the work the caller declared: base + the content-gate
+    retry budget + the summed-frame time. A flat bound times out a healthy
+    long capture (large sum_count at long exposure -- luminescence) while
+    the worker is still legitimately grinding, which is a wedged-worker
+    verdict on a working capture."""
+    imaging = sim_scope.imaging
+    recorded = {}
+
+    class _RecordingFuture:
+        def result(self, timeout=None):
+            recorded['timeout'] = timeout
+            return None
+
+    with patch.object(executors['camera'], 'put', return_value=_RecordingFuture()):
+        imaging.capture_and_wait(
+            dark_floor_check=False, timeout_s=5.0, sum_count=10, sum_delay_s=0.2
+        )
+
+    expected = (
+        imaging._CAPTURE_WAIT_TIMEOUT_S + 5.0 + 10 * (imaging.camera_exposure_ms / 1000.0 + 0.2)
+    )
+    assert recorded['timeout'] == pytest.approx(expected), (
+        f'the executor wait must be base + content budget + summed-frame '
+        f'time; got {recorded["timeout"]}, expected {expected}'
+    )
+
+
 @pytest.mark.parametrize(
     ('family', 'member', 'async_member', 'kwargs', 'slot'),
     ASYNC_FAMILIES,

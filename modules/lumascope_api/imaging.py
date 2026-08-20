@@ -716,10 +716,11 @@ class ImagingAPI:
     # would be right.
     _CAMERA_WRITE_TIMEOUT_S = 5.0
 
-    # The capture bound is wider: a dispatched capture legitimately spends
-    # time draining stale frames and retrying content gates before it
-    # returns, so its liveness bound has to sit above a slow but healthy
-    # capture, not just above a single SDK call.
+    # The capture bound is wider, and it is a BASE: a dispatched capture
+    # legitimately spends time draining stale frames before it returns, and
+    # the dispatcher adds the caller's declared work on top -- the
+    # content-gate retry budget and the summed-frame time -- so a healthy
+    # long capture is never timed out by its own liveness bound.
     _CAPTURE_WAIT_TIMEOUT_S = 30.0
 
     def _dispatch_camera(self, impl, name, args=(), kwargs=None, *, timeout_s):
@@ -2142,6 +2143,17 @@ class ImagingAPI:
         stays the content-gate retry budget the body reads; the executor
         wait is bounded separately and internally.
         """
+        # The executor wait is a liveness bound, not a budget, so it scales
+        # with the work the caller declared: the content-gate retry budget
+        # runs inside the body, and each summed frame costs an exposure plus
+        # the configured inter-frame delay. A flat bound times out a healthy
+        # long capture (large sum_count at long exposure -- luminescence)
+        # while the worker is still legitimately grinding.
+        wait_s = (
+            self._CAPTURE_WAIT_TIMEOUT_S
+            + timeout_s
+            + sum_count * (self.camera_exposure_ms / 1000.0 + sum_delay_s)
+        )
         return self._dispatch_camera(
             self._capture_and_wait_impl,
             'capture_and_wait',
@@ -2156,7 +2168,7 @@ class ImagingAPI:
                 'sum_delay_s': sum_delay_s,
                 'sum_iteration_callback': sum_iteration_callback,
             },
-            timeout_s=self._CAPTURE_WAIT_TIMEOUT_S,
+            timeout_s=wait_s,
         )
 
     def capture_and_wait_sync(
