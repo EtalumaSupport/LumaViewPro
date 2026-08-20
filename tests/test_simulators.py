@@ -663,14 +663,14 @@ class TestSimulatedCamera:
     def test_set_get_gain(self):
         cam = SimulatedCamera()
         cam.gain(5.0)
-        assert cam.get_gain_db() == 5.0
+        assert cam.get_gain() == 5.0
 
     def test_auto_gain(self):
         cam = SimulatedCamera()
         result = cam.auto_gain(state=True, target_brightness=0.3, min_gain_db=1.0, max_gain_db=10.0)
         assert result is True
         # Gain should converge to mid-range
-        assert 1.0 <= cam.get_gain_db() <= 10.0
+        assert 1.0 <= cam.get_gain() <= 10.0
 
     def test_auto_gain_once(self):
         cam = SimulatedCamera()
@@ -678,7 +678,7 @@ class TestSimulatedCamera:
             state=True, target_brightness=0.5, min_gain_db=2.0, max_gain_db=8.0
         )
         assert result is True
-        assert 2.0 <= cam.get_gain_db() <= 8.0
+        assert 2.0 <= cam.get_gain() <= 8.0
 
     def test_update_auto_gain_target(self):
         cam = SimulatedCamera()

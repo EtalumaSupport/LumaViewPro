@@ -300,7 +300,7 @@ class TestGainDbConversion:
 
     def test_get_gain_returns_db(self):
         cam = self._cam_with_gain_node(value=10.0)
-        assert cam.get_gain_db() == pytest.approx(20.0)  # 20*log10(10)
+        assert cam.get_gain() == pytest.approx(20.0)  # 20*log10(10)
 
     def test_capability_range_reported_in_db(self):
         cam = bare_ids_camera()

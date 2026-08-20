@@ -288,13 +288,13 @@ class TestGeometrySetterSequences:
         prior_gain = imaging_capable.gain_db_cached
         prior_exposure = imaging_capable.exposure_ms_cached
         cam = imaging_capable._driver
-        orig_gain, orig_exp = cam.get_gain_db, cam.get_exposure_t
-        cam.get_gain_db = lambda: -1.0
+        orig_gain, orig_exp = cam.get_gain, cam.get_exposure_t
+        cam.get_gain = lambda: -1.0
         cam.get_exposure_t = lambda: -1.0
         try:
             imaging_capable._populate_camera_cache()
         finally:
-            cam.get_gain_db, cam.get_exposure_t = orig_gain, orig_exp
+            cam.get_gain, cam.get_exposure_t = orig_gain, orig_exp
         # A negative return is the drivers' failed-read sentinel. The old
         # `or 0.0` idiom passed it through (-1.0 is truthy) and latched -1
         # into the UI gain/exposure readout; a failed read must leave the

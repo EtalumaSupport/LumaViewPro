@@ -174,9 +174,9 @@ class TestAutoGainOnceRefreshesCache:
         )
         # Cache should match whatever hardware ended up at, not the
         # pre-call cached value (which would still read 5.0 / 0.1).
-        assert imaging.gain_db_cached == pytest.approx(cam.get_gain_db(), abs=0.001), (
+        assert imaging.gain_db_cached == pytest.approx(cam.get_gain(), abs=0.001), (
             f'cache gain {imaging.gain_db_cached} must match hardware '
-            f'{cam.get_gain_db()} after auto_gain_once'
+            f'{cam.get_gain()} after auto_gain_once'
         )
         assert imaging.exposure_ms_cached == pytest.approx(0.014, abs=0.001), (
             f'cache exposure {imaging.exposure_ms_cached} must match '

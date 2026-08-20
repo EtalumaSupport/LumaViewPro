@@ -593,7 +593,7 @@ class ImagingAPI:
             _api_log.debug(f'camera {key} read failed: {cause}')
 
     # --- Setters ---
-    def _set_gain_impl(self, gain_db: float) -> None:
+    def _set_gain_db_impl(self, gain_db: float) -> None:
         """Set the camera gain.
 
         Args:
@@ -762,12 +762,12 @@ class ImagingAPI:
     def set_gain_db(self, gain_db: float) -> None:
         """Set the camera gain, and wait for it.
 
-        See ``_set_gain_impl`` for the value contract and the rejection
+        See ``_set_gain_db_impl`` for the value contract and the rejection
         notification; this adds only the dispatch described on
         ``_dispatch_camera``.
         """
         return self._dispatch_camera(
-            self._set_gain_impl,
+            self._set_gain_db_impl,
             'set_gain_db',
             args=(gain_db,),
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
@@ -2872,7 +2872,7 @@ class ImagingAPI:
             f'exp={exposure_ms if exposure_known else "skipped"}'
         )
         if gain_known:
-            self._set_gain_impl(gain_db)
+            self._set_gain_db_impl(gain_db)
         if exposure_known:
             self._set_exposure_ms_impl(exposure_ms)
 
@@ -2899,7 +2899,7 @@ class ImagingAPI:
         if not self._driver or not self._driver.active:
             self._notify_camera_absent('gain / exposure')
             return
-        self._set_gain_impl(gain_db)
+        self._set_gain_db_impl(gain_db)
         self._set_exposure_ms_impl(exposure_ms)
         if auto_gain_settings is not None:
             self.set_auto_gain(auto_gain, settings=auto_gain_settings)

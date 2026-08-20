@@ -252,7 +252,7 @@ class AutofocusRunner:
         # Apply the step's camera settings so AF scans with correct gain
         # and exposure rather than inheriting the prior step's values.
         if self._camera_gain is not None:
-            self._scope.imaging._set_gain_impl(self._camera_gain)
+            self._scope.imaging._set_gain_db_impl(self._camera_gain)
         if self._camera_exposure is not None:
             self._scope.imaging._set_exposure_ms_impl(self._camera_exposure)
         last_gc_time = time.monotonic()

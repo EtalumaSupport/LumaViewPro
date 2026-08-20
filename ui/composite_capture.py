@@ -413,7 +413,7 @@ class CompositeCapture(FloatLayout):
 
                 gain = layer_settings[trans_layer]['gain_db']
                 # On-worker camera writes bind _impl, as with the move above.
-                ctx.scope.imaging._set_gain_impl(gain)
+                ctx.scope.imaging._set_gain_db_impl(gain)
                 exposure = layer_settings[trans_layer]['exp_ms']
                 ctx.scope.imaging._set_exposure_ms_impl(exposure)
                 illumination = layer_settings[trans_layer]['ill_ma']
@@ -475,7 +475,7 @@ class CompositeCapture(FloatLayout):
 
                 gain = layer_settings[layer]['gain_db']
                 # On-worker camera writes bind _impl, as above.
-                ctx.scope.imaging._set_gain_impl(gain)
+                ctx.scope.imaging._set_gain_db_impl(gain)
                 exposure = layer_settings[layer]['exp_ms']
                 ctx.scope.imaging._set_exposure_ms_impl(exposure)
                 sum_count = layer_settings[layer]['sum']

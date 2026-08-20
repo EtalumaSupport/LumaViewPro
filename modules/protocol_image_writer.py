@@ -573,7 +573,7 @@ class ProtocolImageWriter:
                 # The non-dispatching bodies: this runs on the protocol
                 # thread while the run has the camera executor disabled, so
                 # the public dispatchers would refuse every per-step write.
-                self._scope.imaging._set_gain_impl(step['Gain'])
+                self._scope.imaging._set_gain_db_impl(step['Gain'])
                 self._scope.imaging._set_exposure_ms_impl(step['Exposure'])
             else:
                 # Auto_Gain step: scan_iterate already lit the LED and armed AG

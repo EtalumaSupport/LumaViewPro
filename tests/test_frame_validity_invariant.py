@@ -57,9 +57,9 @@ class TestSetGainAlwaysInvalidatesDespiteStaleCache:
         with cam._lock:
             cam._gain = 10.8
         imaging.set_gain_db(0.0)  # request the per-step intended gain
-        assert cam.get_gain_db() == pytest.approx(0.0, abs=0.001), (
+        assert cam.get_gain() == pytest.approx(0.0, abs=0.001), (
             'set_gain_db must drive hardware to the requested value even '
-            f'when the cache already reads it; got {cam.get_gain_db()}'
+            f'when the cache already reads it; got {cam.get_gain()}'
         )
 
     def test_desynced_cache_still_turns_marker_red(self, sim_imaging):

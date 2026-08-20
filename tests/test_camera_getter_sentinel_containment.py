@@ -782,7 +782,7 @@ def test_restore_camera_state_trimmed_snapshot_restores_only_present_fields(monk
     warnings = []
     monkeypatch.setattr('modules.lumascope_api.imaging.logger', _recording_logger(warnings))
     calls = []
-    monkeypatch.setattr(imaging, '_set_gain_impl', lambda g: calls.append(('gain', g)))
+    monkeypatch.setattr(imaging, '_set_gain_db_impl', lambda g: calls.append(('gain', g)))
     monkeypatch.setattr(imaging, '_set_exposure_ms_impl', lambda e: calls.append(('exposure', e)))
 
     imaging.restore_camera_state({'tag': 't', 'exposure_ms': 50.0})
@@ -796,7 +796,7 @@ def test_restore_camera_state_trimmed_snapshot_restores_only_present_fields(monk
 def test_restore_camera_state_empty_snapshot_is_noop(monkeypatch):
     imaging = _build_imaging(steady_good_driver())
     calls = []
-    monkeypatch.setattr(imaging, '_set_gain_impl', lambda g: calls.append(('gain', g)))
+    monkeypatch.setattr(imaging, '_set_gain_db_impl', lambda g: calls.append(('gain', g)))
     monkeypatch.setattr(imaging, '_set_exposure_ms_impl', lambda e: calls.append(('exposure', e)))
 
     imaging.restore_camera_state({})

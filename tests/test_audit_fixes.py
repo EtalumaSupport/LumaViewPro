@@ -10487,14 +10487,14 @@ class TestAutoGainArmedInScanIterate:
         assert not imaging.apply_layer_camera_settings.called, (
             'AG-step capture must not re-apply layer camera settings'
         )
-        assert not imaging._set_gain_impl.called and not imaging._set_exposure_ms_impl.called, (
+        assert not imaging._set_gain_db_impl.called and not imaging._set_exposure_ms_impl.called, (
             'AG-step capture must not drive manual gain/exposure either'
         )
 
     def test_capture_applies_settings_for_manual_step(self):
         """Control: a non-AG step DOES drive the step gain/exposure."""
         imaging = self._drive_capture(auto_gain=False)
-        imaging._set_gain_impl.assert_called_once_with(2.0)
+        imaging._set_gain_db_impl.assert_called_once_with(2.0)
         imaging._set_exposure_ms_impl.assert_called_once_with(10.0)
 
     def test_arm_block_returns_after_arming(self, monkeypatch):
