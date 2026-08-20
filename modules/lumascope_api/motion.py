@@ -652,7 +652,7 @@ class MotionAPI:
             self._last_turret_position = position
 
     def get_actual_position(self, axis: str) -> float:
-        """Query the actual hardware position via serial (not cached).
+        """Query the actual hardware position via serial (not cached); um for X/Y/Z, turret slot for T.
 
         Unlike get_current_position() which returns the last commanded
         target, this queries the motor controller for where it actually is
@@ -994,7 +994,7 @@ class MotionAPI:
             return any(s in (AxisState.MOVING, AxisState.HOMING) for s in self._axis_state.values())
 
     def get_axis_limits(self, axis: str) -> dict | None:
-        """Get the travel limits for an axis.
+        """Get the travel limits for an axis, in um.
 
         Args:
             axis: Axis name ("X", "Y", "Z", or "T").
@@ -1102,7 +1102,7 @@ class MotionAPI:
             return self._pos_cache.get(axis, 0.0)
 
     def get_target_position(self, axis: str | None = None) -> float | dict | None:
-        """Get the target position for an axis (where it is commanded to go).
+        """Get the target position for an axis (where it is commanded to go); um for X/Y/Z, turret slot for T.
 
         During MOVING: returns the target captured in _move_profile when the
         move was commanded. This is what the host told the chip; no serial
@@ -1134,7 +1134,7 @@ class MotionAPI:
         return self._read_position_cache(axis)
 
     def get_current_position(self, axis: str | None = None) -> float | dict:
-        """Get the current position for an axis.
+        """Get the current position for an axis; um for X/Y/Z, turret slot (1-4) for T.
 
         Reads from the in-memory position cache. During MOVING the cache
         is refreshed by _motion_monitor_loop polling the motor's actual
