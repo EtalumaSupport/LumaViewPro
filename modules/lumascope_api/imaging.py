@@ -2734,7 +2734,7 @@ class ImagingAPI:
             return dict(self._camera_cache['min_frame_size'])
 
     @property
-    def max_exposure_cached(self) -> float | None:
+    def max_exposure_ms_cached(self) -> float | None:
         """Maximum camera exposure time in ms, or None if no camera is connected.
 
         Returns None (not a sentinel 0.0) so callers can distinguish
@@ -2753,7 +2753,7 @@ class ImagingAPI:
     def max_gain_cached(self) -> float | None:
         """Maximum camera gain in dB, or None if no camera is connected.
 
-        Parallel to max_exposure_cached -- lets the UI size the gain
+        Parallel to max_exposure_ms_cached -- lets the UI size the gain
         slider to the connected camera's profile-declared cap instead
         of a universal hardcoded 48 dB that can drive the image past
         the sensor's usable range (observed on LS620 2026-04-16).

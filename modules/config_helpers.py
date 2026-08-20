@@ -734,8 +734,8 @@ def focus_log(positions, values, focus_round: int, source_path: str) -> int:
 # ---------------------------------------------------------------------------
 
 # Fallback exposure slider upper bound used when no camera is connected.
-# Lumascope.max_exposure_cached returns None in that case; callers pattern
-# is `scope.imaging.max_exposure_cached or DEFAULT_MAX_EXPOSURE_MS`. See #616.
+# Lumascope.max_exposure_ms_cached returns None in that case; callers pattern
+# is `scope.imaging.max_exposure_ms_cached or DEFAULT_MAX_EXPOSURE_MS`. See #616.
 DEFAULT_MAX_EXPOSURE_MS = 1000.0
 
 # Per-channel-class upper bound on the exposure AG/AE may drive to, in ms.
@@ -775,7 +775,7 @@ def camera_max_exposure_for_ui(imaging) -> float:
     default. The single UI-facing resolver, so the connect (load_settings) and
     reconnect paths can't apply the fallback differently.
     """
-    return _camera_cap_for_ui(imaging.max_exposure_cached, DEFAULT_MAX_EXPOSURE_MS)
+    return _camera_cap_for_ui(imaging.max_exposure_ms_cached, DEFAULT_MAX_EXPOSURE_MS)
 
 
 def camera_max_gain_for_ui(imaging) -> float:

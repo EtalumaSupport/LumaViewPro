@@ -83,7 +83,7 @@ Methods on the L2 surface follow one of two contracts; if a method's docstring h
 
 - **Hardware-state queries** (capability probes, status reads, getters like `get_led_ma`, `get_target_position`, `get_led_states`, `max_gain_cached`, `read_motor_voltages`) return a sentinel value -- `None`, `False`, or an empty container -- when the value cannot be read (no hardware, channel not set, firmware does not implement the probe). No exception is raised. The caller branches on the sentinel.
 - **Camera value getters** (`get_gain`, `get_exposure_time`, `get_width`/`get_height`, `get_max_width`/`get_max_height`, `get_binning_size`) are a stricter subclass of the sentinel contract: a **transient read failure is invisible** -- the getter answers with the validated last-known-good value, so a momentary USB/SDK glitch can never hand you a failure code where a physical value belongs (no `-1` gain into arithmetic, no `None` frame size into a subscript). The documented camera-absent defaults (`get_gain` -1.0, `get_exposure_time` 0.0, width/height getters 0, `get_binning_size` 1) occur **only** when no camera is active or the value has never been successfully read -- stable states you can see coming via `camera_connected`, not something a transient failure produces mid-session. Callers that must record what the hardware was at a specific moment (file metadata, logs of record) use `get_live_camera_settings()` instead: it returns only fields whose driver read succeeded right now (`gain_db`, `exposure_ms`) and omits the rest -- there, unknown stays unknown by design.
-- **Naming convention -- `*_cached` vs `get_*`**: a property ending in `_cached` (`gain_cached`, `exposure_ms_cached`, `frame_size_cached`, `pixel_format_cached`, `active_cached`, `min_frame_size_cached`, `max_exposure_cached`, `max_gain_cached`) reads the host-side camera cache and performs **no driver I/O** -- safe to read at any frequency from any thread. A `get_*` method is a **live driver read** under the last-known-good contract above. The name carries the contract, so a call site's I/O behavior is visible without opening the implementation.
+- **Naming convention -- `*_cached` vs `get_*`**: a property ending in `_cached` (`gain_cached`, `exposure_ms_cached`, `frame_size_cached`, `pixel_format_cached`, `active_cached`, `min_frame_size_cached`, `max_exposure_ms_cached`, `max_gain_cached`) reads the host-side camera cache and performs **no driver I/O** -- safe to read at any frequency from any thread. A `get_*` method is a **live driver read** under the last-known-good contract above. The name carries the contract, so a call site's I/O behavior is visible without opening the implementation.
 - **State-changing operations** (setters like `set_gain`, `move_absolute`, `led_on`, etc.) typically return `True` on success and `False` for "couldn't do it" (no driver, mode invalid, driver does not implement, etc.). A `Raises:` section in the docstring documents the typed exception (`HardwareError`, `CaptureError`, `ConfigError` from `modules.exceptions`) that propagates when the underlying SDK call itself fails. The API layer logs (`logger.error`) and fires a user-facing notification (`notifications.error`) before re-raising at the driver boundary; the typed exception is what L2 callers should catch.
 - **Hardware-command dispatch** (LED, motion, and camera commands): each command submits to its executor and blocks until the hardware has it. While a protocol run owns the executors (or an executor is disabled), the blocking form raises `HardwareCommandRefusedError` (`modules.exceptions`), carrying the machine-readable `reason` (`exclusive_activity_running`) and the refused member; the `*_async` forms drop the command with a logged warning instead of raising. With no executors registered at all (a bare `Lumascope()` in a script), every command -- blocking and `*_async` alike -- runs directly on the calling thread.
 - **Sentinel-return methods log** at `logger.warning` or `logger.info` per Rule 5; they do **not** fire user notifications (no actionable failure occurred -- the value is just unknown).
@@ -605,7 +605,7 @@ The acquisition frame-rate cap lives on the camera driver and clamps frame produ
 Cameras advertise their real limits at connect time. Use these to size UI sliders and clamp auto-exposure / auto-gain:
 
 ```python
-scope.imaging.max_exposure_cached                  # ms, None if no camera connected
+scope.imaging.max_exposure_ms_cached                  # ms, None if no camera connected
 scope.imaging.max_gain_cached                      # dB, None if no camera connected
 ```
 
@@ -837,7 +837,7 @@ caps.camera_supports_auto_exposure
 caps.camera_pixel_formats       # e.g. ('Mono8',) or ('Mono8', 'Mono12')
 caps.camera_binning_sizes       # e.g. (1, 2, 4)
 caps.camera_max_frame_size      # (width, height) tuple in pixels; (0, 0) if no camera
-# Exposure ceiling: scope.imaging.max_exposure_cached (ms; None if no camera) -- see scope.imaging
+# Exposure ceiling: scope.imaging.max_exposure_ms_cached (ms; None if no camera) -- see scope.imaging
 ```
 
 Important consequences:

@@ -348,7 +348,7 @@ IMAGING_ONLY_METHODS = frozenset(
         'exposure_ms_cached',
         'frame_size_cached',
         'gain_cached',
-        'max_exposure_cached',
+        'max_exposure_ms_cached',
         'max_gain_cached',
         'min_frame_size_cached',
         'pixel_format_cached',
