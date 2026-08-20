@@ -11,6 +11,7 @@ a stub delivering frames straight into the registered listener.
 import itertools
 import json
 import threading
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -72,9 +73,6 @@ class _FakeMotion:
     def get_current_position(self):
         return {'X': 1.0, 'Y': 2.0, 'Z': 3.0}
 
-    def has_turret(self):
-        return False
-
 
 class _FakeIllumination:
     """Commanded LED state, the shape get_led_states() returns.
@@ -117,6 +115,7 @@ class _FakeScope:
         self.motion = _FakeMotion()
         self.illumination = _FakeIllumination(lit=lit, board=board)
         self.runtime_state = _FakeRuntimeState()
+        self.capabilities = SimpleNamespace(has_turret=False)
 
 
 def make_settings(tmp_path, *, video_as_frames=True, max_fps=0, duration_s=60, hyperstack=False):

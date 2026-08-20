@@ -1084,15 +1084,6 @@ class TestScopeCapabilities:
         with pytest.raises(dataclasses.FrozenInstanceError):
             scope.capabilities.axes = ('X',)  # type: ignore[misc]
 
-    def test_motion_has_turret_matches_capabilities(self):
-        """motion.has_turret() must match capabilities.has_turret. The
-        axes_present / has_axis wrappers were retired per audit F9; the
-        prior wrapper-equivalence test is obsolete. This narrow check
-        on motion.has_turret remains because that method is still a
-        live wrapper (not retired)."""
-        scope = Lumascope(simulate=True)
-        assert scope.motion.has_turret() == scope.capabilities.has_turret
-
     def test_motor_connected_stays_live_not_in_capabilities(self):
         """Runtime connection state must NOT be a field on capabilities --
         it needs to reflect disconnects at runtime, which a frozen

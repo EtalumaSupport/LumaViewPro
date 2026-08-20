@@ -288,7 +288,7 @@ class TestOneRunOneEncoding:
     def test_still_and_video_legs_read_the_same_held_config(self, monkeypatch, tmp_path):
         config = ImageCaptureConfig.from_image_mode('12bit_scaled')
         writer = self._writer(config)
-        writer._scope.motion.has_turret.return_value = False
+        writer._scope.capabilities.has_turret = False
 
         # A live settings source that says 8-bit must have no say.
         monkeypatch.setattr(

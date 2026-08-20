@@ -109,7 +109,7 @@ def test_writer_capture_paces_to_full_queue_without_drop_row(tmp_path, monkeypat
     record = MagicMock()
     writer = _bare_protocol_writer(file_io_executor=ex, execution_record=record)
     scope = writer._scope
-    scope.motion.has_turret.return_value = False
+    scope.capabilities.has_turret = False
     scope.imaging._capture_and_wait_impl.return_value = np.zeros((4, 4), dtype=np.uint8)
     scope.imaging.capture_frame_depth.return_value = 8
     protocol = MagicMock()
@@ -210,7 +210,7 @@ def test_wedged_writer_declares_stall_notifies_and_aborts(tmp_path, monkeypatch)
         abort_fn=lambda: aborts.append(1),
     )
     scope = writer._scope
-    scope.motion.has_turret.return_value = False
+    scope.capabilities.has_turret = False
     scope.imaging._capture_and_wait_impl.return_value = np.zeros((4, 4), dtype=np.uint8)
     scope.imaging.capture_frame_depth.return_value = 8
     protocol = MagicMock()

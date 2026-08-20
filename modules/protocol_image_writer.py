@@ -588,7 +588,7 @@ class ProtocolImageWriter:
 
             # Objective short name for filename
             objective_short_name = None
-            if self._scope.motion.has_turret():
+            if self._scope.capabilities.has_turret:
                 obj_info = self._scope.runtime_state.get_objective_info(
                     objective_id=step['Objective']
                 )
@@ -613,7 +613,7 @@ class ProtocolImageWriter:
 
             turret_pos = None
             engineering_mode = getattr(_app_ctx_im.ctx, 'engineering_mode', False)
-            if engineering_mode and self._scope.motion.has_turret():
+            if engineering_mode and self._scope.capabilities.has_turret:
                 try:
                     turret_pos = int(self._scope.motion.get_current_position('T'))
                 except Exception as e:

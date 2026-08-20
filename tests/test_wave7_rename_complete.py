@@ -137,7 +137,6 @@ MOTION_ONLY_METHODS = frozenset(
         'get_turret_position_for_objective_id',
         'has_homed',
         'has_thomed',
-        'has_turret',
         'home',
         'init_axes',
         'is_any_axis_moving',

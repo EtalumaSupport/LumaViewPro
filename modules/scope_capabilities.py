@@ -17,9 +17,8 @@ lives -- query capabilities, don't assume.
 
 ScopeCapabilities is that place. It's a frozen dataclass built once at
 init from the three drivers (motion / LED / camera). Callers read fields
-directly. The existing capability methods on Lumascope (`axes_present`,
-`has_turret`, etc.) stay as thin wrappers so no caller code has to
-change -- but new code should prefer `scope.capabilities.*`.
+directly; the per-API alias wrappers are retired, so
+`scope.capabilities.*` is the single spelling.
 
 **Scope:** ScopeCapabilities contains static hardware *structure* (what
 axes exist, what LED channels exist, what camera profile is loaded) --

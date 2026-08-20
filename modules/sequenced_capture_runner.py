@@ -1161,7 +1161,7 @@ class SequencedCaptureRunner:
         run_dir = self._run_dir
         if run_dir is None:
             return None
-        has_turret = self._scope.motion.has_turret()
+        has_turret = self._scope.capabilities.has_turret
 
         def _wait_and_build():
             while self.file_io_executor.is_protocol_queue_active():

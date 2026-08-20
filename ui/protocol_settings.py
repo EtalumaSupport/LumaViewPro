@@ -655,7 +655,7 @@ class ProtocolSettings(FloatLayout):
         settings = _app_ctx.ctx.settings
         ctx = _app_ctx.ctx
 
-        if (ctx.lumaview.scope.motion.has_turret()) and (
+        if (ctx.lumaview.scope.capabilities.has_turret) and (
             not ctx.lumaview.scope.motion.is_current_turret_position_objective_set()
         ):
             error_msg = (
@@ -1182,7 +1182,7 @@ class ProtocolSettings(FloatLayout):
 
             # logger.error(f"CURRENT Z POSITION IN UM {plate_position['z']}")
 
-            if (ctx.lumaview.scope.motion.has_turret()) and (
+            if (ctx.lumaview.scope.capabilities.has_turret) and (
                 not ctx.lumaview.scope.motion.is_current_turret_position_objective_set()
             ):
                 error_msg = (
@@ -1269,7 +1269,7 @@ class ProtocolSettings(FloatLayout):
             plate_position = get_current_plate_position()
             objective_id, _ = get_current_objective_info()
 
-            if (ctx.lumaview.scope.motion.has_turret()) and (
+            if (ctx.lumaview.scope.capabilities.has_turret) and (
                 not ctx.lumaview.scope.motion.is_current_turret_position_objective_set()
             ):
                 error_msg = (
@@ -1517,7 +1517,7 @@ class ProtocolSettings(FloatLayout):
 
         # If turret is present, validate all protocol objectives are assigned (#606)
         ctx = _app_ctx.ctx
-        if ctx.lumaview.scope.motion.has_turret() and not self._validate_objectives_in_protocol(
+        if ctx.lumaview.scope.capabilities.has_turret and not self._validate_objectives_in_protocol(
             protocol_df=self._protocol.steps()
         ):
             turret_objectives = settings.get('turret_objectives', {})

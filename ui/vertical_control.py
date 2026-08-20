@@ -318,7 +318,7 @@ class VerticalControl(BoxLayout):
 
             # With a turret, the objective must be assigned to a turret position
             # before it can be selected; warn (but still allow) if it is not.
-            if ctx.lumaview.scope.motion.has_turret():
+            if ctx.lumaview.scope.capabilities.has_turret:
                 turret_objectives = list(settings.get('turret_objectives', {}).values())
                 assigned = [obj for obj in turret_objectives if obj is not None]
                 if assigned and objective_id not in assigned:
@@ -338,7 +338,7 @@ class VerticalControl(BoxLayout):
                 settings['objective_id'] = objective_id
 
             # Set objective in lumascope
-            if ctx.lumaview.scope.motion.has_turret():
+            if ctx.lumaview.scope.capabilities.has_turret:
                 ctx.lumaview.scope.runtime_state.set_turret_config(
                     turret_config=settings['turret_objectives']
                 )
@@ -623,7 +623,7 @@ class VerticalControl(BoxLayout):
 
             # Push the new assignment to the microscope -- the settings write
             # alone does not reach hardware (mirrors select_objective).
-            if ctx.lumaview.scope.motion.has_turret():
+            if ctx.lumaview.scope.capabilities.has_turret:
                 ctx.lumaview.scope.runtime_state.set_turret_config(
                     turret_config=settings['turret_objectives']
                 )
@@ -656,7 +656,7 @@ class VerticalControl(BoxLayout):
 
             # Push the cleared slot to the microscope -- the settings write
             # alone does not reach hardware (mirrors select_objective).
-            if _app_ctx.ctx.lumaview.scope.motion.has_turret():
+            if _app_ctx.ctx.lumaview.scope.capabilities.has_turret:
                 _app_ctx.ctx.lumaview.scope.runtime_state.set_turret_config(
                     turret_config=settings['turret_objectives']
                 )

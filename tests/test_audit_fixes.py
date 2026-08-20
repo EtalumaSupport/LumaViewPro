@@ -3139,7 +3139,7 @@ def test_not_saving_capture_builds_record_task_without_crash():
 
     writer = _bare_protocol_writer()
     scope = writer._scope
-    scope.motion.has_turret.return_value = False
+    scope.capabilities.has_turret = False
     scope.led_connected = False
     protocol = MagicMock()
     protocol.capture_root.return_value = ''
@@ -10621,7 +10621,7 @@ class TestAutoGainArmedInScanIterate:
 
         writer = _bare_protocol_writer()
         scope = writer._scope
-        scope.motion.has_turret.return_value = False
+        scope.capabilities.has_turret = False
         scope.led_connected = False
         scope.imaging._capture_and_wait_impl.return_value = np.zeros((4, 4), dtype=np.uint8)
         protocol = MagicMock()
@@ -12789,7 +12789,7 @@ class TestPS11VideoCancelledRecordsRow:
 
         record = MagicMock()
         writer = _bare_protocol_writer(execution_record=record)
-        writer._scope.motion.has_turret.return_value = False
+        writer._scope.capabilities.has_turret = False
 
         fake_recorder = MagicMock()
         fake_recorder.run_blocking.return_value = piw.protocol_recording.NO_FRAMES
@@ -12836,7 +12836,7 @@ class TestVideoCameraLostFeedsStrikeCounter:
 
         record = MagicMock()
         writer = _bare_protocol_writer(execution_record=record)
-        writer._scope.motion.has_turret.return_value = False
+        writer._scope.capabilities.has_turret = False
         writer._consecutive_capture_failures = preset_failures
 
         fake_recorder = MagicMock()
@@ -13006,7 +13006,7 @@ class TestCaptureFailureAbortNotificationOrdering:
         )
         scope = writer._scope
         scope.led_connected = False
-        scope.motion.has_turret.return_value = False
+        scope.capabilities.has_turret = False
         # Force the capture to fail (returns no frame) so the failure branch runs.
         scope.imaging._capture_and_wait_impl.return_value = None
         monkeypatch.setattr(nc.notifications, 'critical', lambda *a, **k: order.append('notify'))

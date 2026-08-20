@@ -577,7 +577,7 @@ class ScopeSession:
            Firmware homes Z, T, X, Y in one routine; on Z-only boards
            it homes what it has and reports the missing axes.
 
-        2. (when ``self.scope.motion.has_turret()`` is True) move T-axis
+        2. (when ``self.scope.capabilities.has_turret`` is True) move T-axis
            to the position that matches ``settings['objective_id']`` --
            falls back to position 1 if the objective isn't in the turret
            config. Updates ``settings['turret_position']`` so later code
@@ -601,7 +601,7 @@ class ScopeSession:
         if not disable_homing:
             move_home('ALL')
 
-        if self.scope.motion.has_turret():
+        if self.scope.capabilities.has_turret:
             objective_id = self.settings.get('objective_id')
             turret_position = self.scope.motion.get_turret_position_for_objective_id(
                 objective_id=objective_id,

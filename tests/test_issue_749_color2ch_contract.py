@@ -210,7 +210,7 @@ class TestDarkFloorKeysOnLedDrivability:
 
         writer = _bare_protocol_writer()
         scope = writer._scope
-        scope.motion.has_turret.return_value = False
+        scope.capabilities.has_turret = False
         scope.led_connected = False
         if writer_setup is not None:
             writer_setup(writer, scope)
@@ -276,7 +276,7 @@ class TestCaptureAbortWording:
         )
         writer = _bare_protocol_writer()
         scope = writer._scope
-        scope.motion.has_turret.return_value = False
+        scope.capabilities.has_turret = False
         scope.led_connected = led_connected
         scope.illumination.color2ch.return_value = channel
         scope.imaging._capture_and_wait_impl.return_value = None

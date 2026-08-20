@@ -89,7 +89,8 @@ def stepnav_env(monkeypatch):
             toggle_settings=MagicMock(),
         ),
         scope=SimpleNamespace(
-            motion=SimpleNamespace(has_turret=MagicMock(return_value=False)),
+            motion=SimpleNamespace(),
+            capabilities=SimpleNamespace(has_turret=False),
             motor_connected=False,
             imaging=SimpleNamespace(active_cached=False),
             illumination=SimpleNamespace(

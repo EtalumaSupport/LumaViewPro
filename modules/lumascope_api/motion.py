@@ -651,16 +651,6 @@ class MotionAPI:
             self._move_absolute_position_impl('T', position, wait_until_complete=True)
             self._last_turret_position = position
 
-    def has_turret(self) -> bool:
-        """Check if the microscope has a turret axis.
-
-        Thin wrapper over ``self.capabilities.has_turret``.
-
-        Returns:
-            bool: True if the scope reports a turret axis.
-        """
-        return self._scope.capabilities.has_turret
-
     def get_actual_position(self, axis: str) -> float:
         """Query the actual hardware position via serial (not cached).
 

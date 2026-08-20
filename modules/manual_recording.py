@@ -754,7 +754,7 @@ class ManualRecordingController:
         df = pd.DataFrame(self._hyperstack_rows)
         output = plan.save_folder / MANUAL_HYPERSTACK_FILENAME
         result = StackBuilder(
-            has_turret=self._scope.motion.has_turret()
+            has_turret=self._scope.capabilities.has_turret
         ).create_single_recording_stack(
             df=df,
             path=plan.save_folder,

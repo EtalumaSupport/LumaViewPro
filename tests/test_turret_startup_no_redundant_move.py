@@ -22,14 +22,14 @@ from modules.lumascope_api import Lumascope
 
 def test_home_seeds_turret_position_one():
     scope = Lumascope(simulate=True)
-    assert scope.motion.has_turret(), 'simulated scope is expected to have a turret'
+    assert scope.capabilities.has_turret, 'simulated scope is expected to have a turret'
     scope.motion.home()
     assert scope.motion._last_turret_position == 1
 
 
 def test_thome_seeds_turret_position_one():
     scope = Lumascope(simulate=True)
-    assert scope.motion.has_turret()
+    assert scope.capabilities.has_turret
     scope.motion.thome()
     assert scope.motion._last_turret_position == 1
 
@@ -37,7 +37,7 @@ def test_thome_seeds_turret_position_one():
 def test_tmove_to_one_after_home_is_noop():
     """tmove(1) right after homing must skip the move (and its Z bounce)."""
     scope = Lumascope(simulate=True)
-    assert scope.motion.has_turret()
+    assert scope.capabilities.has_turret
     scope.motion.home()
     moves = []
     original = scope.motion.move_absolute_position

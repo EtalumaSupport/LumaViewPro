@@ -38,7 +38,7 @@ def _drive_capture(monkeypatch, debug_enabled):
         video_max_fps=0,
     )
     scope = writer._scope
-    scope.motion.has_turret.return_value = False
+    scope.capabilities.has_turret = False
     scope.led_connected = False
     scope.imaging._capture_and_wait_impl.return_value = np.zeros((4, 4), dtype=np.uint8)
 

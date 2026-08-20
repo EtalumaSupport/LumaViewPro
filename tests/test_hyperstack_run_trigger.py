@@ -28,7 +28,7 @@ def _hyperstack_runner(tmp_path, run_mode=SequencedCaptureRunMode.FULL_PROTOCOL)
     )
     runner._run_dir = tmp_path
     runner.file_io_executor.is_protocol_queue_active.return_value = False
-    runner._scope.motion.has_turret.return_value = False
+    runner._scope.capabilities.has_turret = False
     return runner
 
 

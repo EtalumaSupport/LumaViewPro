@@ -361,7 +361,7 @@ scope.motion.wait_until_finished_moving()        # block until all idle
 scope.motion.get_overshoot()                     # Z overshoot in progress?
 
 # Turret
-scope.motion.has_turret()
+scope.capabilities.has_turret                    # turret presence probe
 scope.motion.tmove(2)                            # turret position 2
 
 # Stage

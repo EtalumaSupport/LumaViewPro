@@ -119,7 +119,7 @@ class TestProtocolWriterWiring:
 
         writer = _bare_protocol_writer()
         scope = writer._scope
-        scope.motion.has_turret.return_value = False
+        scope.capabilities.has_turret = False
         scope.led_connected = False
         protocol = MagicMock()
         protocol.capture_root.return_value = ''

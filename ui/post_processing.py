@@ -203,7 +203,7 @@ class StitchControls(BoxLayout):
         popup.auto_dismiss = False
 
         stitcher = Stitcher(
-            has_turret=ctx.lumaview.scope.motion.has_turret(),
+            has_turret=ctx.lumaview.scope.capabilities.has_turret,
         )
         ctx.file_io_executor.put(
             IOTask(
@@ -278,7 +278,7 @@ class ZProjectionControls(BoxLayout):
         status_map = {True: 'Success', False: 'FAILED'}
         popup.text = 'Generating Z-Projection images...'
 
-        zproj = zprojector.ZProjector(has_turret=ctx.lumaview.scope.motion.has_turret())
+        zproj = zprojector.ZProjector(has_turret=ctx.lumaview.scope.capabilities.has_turret)
         ctx.file_io_executor.put(
             IOTask(
                 action=zproj.load_folder,
@@ -357,7 +357,7 @@ class CompositeGenControls(BoxLayout):
         popup.auto_dismiss = False
 
         composite_gen = CompositeGeneration(
-            has_turret=ctx.lumaview.scope.motion.has_turret(),
+            has_turret=ctx.lumaview.scope.capabilities.has_turret,
         )
 
         # The manual button has no run config, so the composite output format
@@ -447,7 +447,7 @@ class VideoCreationControls(BoxLayout):
             return
 
         video_builder = VideoBuilder(
-            has_turret=ctx.lumaview.scope.motion.has_turret(),
+            has_turret=ctx.lumaview.scope.capabilities.has_turret,
         )
 
         ctx.file_io_executor.put(

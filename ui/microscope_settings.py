@@ -429,7 +429,7 @@ class MicroscopeSettings(BoxLayout):
                 int(k): v for k, v in settings['turret_objectives'].items()
             }
 
-            if lumaview.scope.motion.has_turret():
+            if lumaview.scope.capabilities.has_turret:
                 turret_objectives = list(settings['turret_objectives'].values())
                 assigned = [obj for obj in turret_objectives if obj is not None]
                 if not assigned:

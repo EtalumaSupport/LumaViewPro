@@ -13,7 +13,7 @@ Fix
 ---
 After the settings write, both handlers now call
 scope.runtime_state.set_turret_config(turret_config=settings['turret_objectives'])
-guarded by motion.has_turret(), mirroring select_objective().
+guarded by capabilities.has_turret, mirroring select_objective().
 
 Test approach
 -------------
