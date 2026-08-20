@@ -1122,9 +1122,9 @@ class MotorBoard(SerialBoard):
 
         When uncached, the probe sends a real STOP: harmless while
         motors are idle (STOP sets target=actual on every axis) and
-        idempotent. ScopeCapabilities.from_drivers probes at boot,
-        before any motion is commanded, so steady-state motor_stop
-        calls never re-probe.
+        idempotent. In practice motor_stop's own first send doubles as
+        the probe (it interprets and caches the response), so this
+        predicate rarely pays a wire exchange of its own.
         """
         return self._command_supported('STOP', '_supports_stop_cached')
 

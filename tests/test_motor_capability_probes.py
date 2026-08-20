@@ -1,21 +1,16 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Motor firmware command-family capability probes + ScopeCapabilities
-registration.
+"""Motor firmware command-family capability probes.
 
 The driver answers "does the connected firmware implement STOP / the
 fan commands / the diagnostic queries" via probe-and-cache predicates
 (supports_motor_stop / supports_fan / supports_diagnostics), mirroring
-the LED board's firmware-stim probe. ScopeCapabilities.from_drivers
-registers the answers at boot as has_motor_stop / has_fan /
-has_diagnostics so callers gate on scope.capabilities.* instead of
-firmware version strings or per-call ERROR handling.
+the LED board's firmware-stim probe, so callers gate on the probe
+answer instead of firmware version strings or per-call ERROR handling.
 """
 
 from __future__ import annotations
 
 from unittest.mock import MagicMock
-
-from modules.scope_capabilities import ScopeCapabilities
 
 
 def _make_board(response):
@@ -67,63 +62,3 @@ class TestSupportsPredicates:
         args, kwargs = board2.exchange_command.call_args
         assert args[0] == 'VOLTAGE'
         assert kwargs.get('expect_unsupported') is True
-
-
-class _FakeMotion:
-    """Minimal motion driver for from_drivers: present axes plus the
-    three capability predicates."""
-
-    def __init__(self, stop=True, fan=True, diagnostics=False):
-        self._stop = stop
-        self._fan = fan
-        self._diagnostics = diagnostics
-
-    def detect_present_axes(self):
-        return ('X', 'Y', 'Z')
-
-    def get_microscope_model(self):
-        return 'LS850'
-
-    def supports_motor_stop(self):
-        return self._stop
-
-    def supports_fan(self):
-        return self._fan
-
-    def supports_diagnostics(self):
-        return self._diagnostics
-
-
-class TestCapabilitiesRegistration:
-    def test_from_drivers_registers_predicate_answers(self):
-        caps = ScopeCapabilities.from_drivers(
-            motion=_FakeMotion(stop=True, fan=True, diagnostics=False),
-            led=None,
-            camera=None,
-        )
-        assert caps.has_motor_stop is True
-        assert caps.has_fan is True
-        assert caps.has_diagnostics is False
-
-    def test_missing_predicates_default_false(self):
-        """A driver without the predicate methods (older / minimal
-        implementations) yields False, never raises."""
-
-        class _BareMotion:
-            def detect_present_axes(self):
-                return ()
-
-        caps = ScopeCapabilities.from_drivers(motion=_BareMotion(), led=None, camera=None)
-        assert caps.has_motor_stop is False
-        assert caps.has_fan is False
-        assert caps.has_diagnostics is False
-
-    def test_supports_helper_routes_by_token(self):
-        caps = ScopeCapabilities.from_drivers(
-            motion=_FakeMotion(stop=True, fan=False, diagnostics=True),
-            led=None,
-            camera=None,
-        )
-        assert caps.supports('motor_stop') is True
-        assert caps.supports('fan') is False
-        assert caps.supports('diagnostics') is True

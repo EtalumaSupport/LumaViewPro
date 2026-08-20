@@ -215,7 +215,6 @@ class ScopeCapabilities:
 
     camera_pixel_formats: tuple[str, ...]
     camera_binning_sizes: tuple[int, ...]
-    camera_max_exposure_ms: int
 
     camera_max_frame_size: tuple[int, int]
     """Maximum camera frame size as ``(width, height)`` in pixels.
@@ -258,39 +257,6 @@ class ScopeCapabilities:
     pulse train inside the LED firmware with sub-microsecond pulse-edge
     accuracy. Caller gates with `caps.supports('firmware_stim')`."""
 
-    has_motor_stop: bool = False
-    """True when the motor firmware implements the STOP emergency-stop
-    command (sets target=actual on every axis). Probed at boot via
-    `motion.supports_motor_stop()`. Field firmware from 2024 replies
-    ERROR to STOP; the driver returns False from motor_stop there and
-    motors latch on host disconnect instead."""
-
-    has_fan: bool = False
-    """True when the motor firmware implements the fan commands
-    (FAN:<duty> PWM control + FANSPEED tachometer query). Probed at
-    boot via `motion.supports_fan()`."""
-
-    has_diagnostics: bool = False
-    """True when the motor firmware implements the diagnostic queries
-    (VOLTAGE power-rail check, DRVSTAT_<axis> driver status). Probed
-    at boot via `motion.supports_diagnostics()`."""
-
-    hardware_features: frozenset[str] = frozenset()
-    """Set of hardware-feature tokens this scope advertises. Per Rule 8
-    empty-default semantic: empty means 'feature set unknown / no
-    features advertised,' not 'feature X is absent.' Use
-    ``caps.supports(feature)`` to test for a token; that helper also
-    searches has_X / camera_supports_X fields so callers don't need to
-    know which surface owns a particular capability.
-
-    Reserved tokens (populated as drivers mature):
-      'trigger_in', 'trigger_out'    -- external trigger hardware
-      'temperature_sensor'           -- camera temp probe
-      'cooled_sensor'                -- TEC / Peltier camera
-      'global_shutter'               -- non-rolling shutter
-    Tokens are deliberately documented per L2 contract; new tokens
-    require a LumascopeSkills entry."""
-
     def supports(self, feature: str) -> bool:
         """Return True if the scope advertises the named feature.
 
@@ -307,21 +273,18 @@ class ScopeCapabilities:
             caps.supports('xy_stage')    # True if has_xy_stage
             caps.supports('auto_gain')   # True if camera_supports_auto_gain
             caps.supports('warp_drive')  # False (unknown)
-
-        Also searches the ``hardware_features`` frozenset by token:
-        ``caps.supports('trigger_in')`` returns True iff 'trigger_in' is
-        in ``caps.hardware_features``. The empty-default contract means
-        an empty set yields False for any token -- never raises.
         """
         if getattr(self, f'has_{feature}', False):
             return True
-        if getattr(self, f'camera_supports_{feature}', False):
-            return True
-        return feature in self.hardware_features
+        return bool(getattr(self, f'camera_supports_{feature}', False))
 
     @classmethod
     def from_drivers(cls, motion, led, camera, led_max_ma: int = LED_MAX_MA) -> ScopeCapabilities:
         """Build a ScopeCapabilities snapshot from the three drivers.
+
+        Internal constructor -- called by Lumascope at init and not part
+        of the L2 API surface (L2 callers read the built snapshot via
+        `scope.capabilities`).
 
         Tolerant of None / Null implementations. Never raises -- if a
         driver method blows up or returns something unexpected, the
@@ -359,25 +322,6 @@ class ScopeCapabilities:
         pixel_size_um = _resolve_pixel_size_um(motorconfig, model, camera)
         lens_focal_length_mm = _resolve_lens_focal_length_mm(motorconfig, model)
 
-        # Motor firmware command families. Probe-and-cache on the
-        # driver: one wire exchange each at boot (motors idle), then
-        # cached for the life of the connection.
-        has_motor_stop = _probe(
-            'motion.supports_motor_stop',
-            lambda: bool(motion.supports_motor_stop()),
-            False,
-        )
-        has_fan = _probe(
-            'motion.supports_fan',
-            lambda: bool(motion.supports_fan()),
-            False,
-        )
-        has_diagnostics = _probe(
-            'motion.supports_diagnostics',
-            lambda: bool(motion.supports_diagnostics()),
-            False,
-        )
-
         # LED
         led_channels = _probe('led.available_channels', lambda: tuple(led.available_channels()), ())
         led_colors = _probe('led.available_colors', lambda: tuple(led.available_colors()), ())
@@ -393,7 +337,6 @@ class ScopeCapabilities:
         camera_supports_auto_exposure = False
         camera_pixel_formats: tuple[str, ...] = ()
         camera_binning_sizes: tuple[int, ...] = ()
-        camera_max_exposure_ms = 0
         camera_max_frame_size: tuple[int, int] = (0, 0)
         is_color_native = False
         native_bit_depth = 16
@@ -407,8 +350,6 @@ class ScopeCapabilities:
                 camera_supports_auto_exposure = bool(getattr(profile, 'has_auto_exposure', False))
                 camera_pixel_formats = tuple(getattr(profile, 'pixel_formats', ()) or ())
                 camera_binning_sizes = tuple(getattr(profile, 'binning_sizes', ()) or ())
-                exposure_max_us = getattr(profile, 'exposure_max_us', 0) or 0
-                camera_max_exposure_ms = int(exposure_max_us / 1000)
             size = _probe('camera.get_max_frame_size', lambda: camera.get_max_frame_size(), None)
             if size:
                 camera_max_frame_size = (int(size.get('width', 0)), int(size.get('height', 0)))
@@ -438,9 +379,6 @@ class ScopeCapabilities:
             has_xy_stage=('X' in axes and 'Y' in axes),
             has_turret='T' in axes,
             motor_model=model,
-            has_motor_stop=has_motor_stop,
-            has_fan=has_fan,
-            has_diagnostics=has_diagnostics,
             axis_travel_limits_um=MappingProxyType(travel_limits),
             pixel_size_um=pixel_size_um,
             lens_focal_length_mm=lens_focal_length_mm,
@@ -453,7 +391,6 @@ class ScopeCapabilities:
             camera_supports_auto_exposure=camera_supports_auto_exposure,
             camera_pixel_formats=camera_pixel_formats,
             camera_binning_sizes=camera_binning_sizes,
-            camera_max_exposure_ms=camera_max_exposure_ms,
             camera_max_frame_size=camera_max_frame_size,
             is_color_native=is_color_native,
             native_bit_depth=native_bit_depth,

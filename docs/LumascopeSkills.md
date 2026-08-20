@@ -825,9 +825,8 @@ caps.led_max_ma                 # per-channel current cap
 caps.pixel_size_um              # um/pixel, or None if the scope cannot report it
 caps.lens_focal_length_mm       # tube lens focal length mm, or None if unavailable
 
-# Hardware features (cross-cutting capability tokens)
-caps.hardware_features          # frozenset({'trigger_in', 'cooled_sensor', ...}); empty default
-caps.supports('trigger_in')     # also searches has_X / camera_supports_X / hardware_features
+# Feature probe (cross-surface, by token)
+caps.supports('turret')         # searches has_X and camera_supports_X fields; unknown tokens -> False
 
 # Camera
 caps.camera_model               # 'MT9P031-LS620', 'acA2500-60um', etc.
@@ -837,8 +836,8 @@ caps.camera_supports_auto_gain
 caps.camera_supports_auto_exposure
 caps.camera_pixel_formats       # e.g. ('Mono8',) or ('Mono8', 'Mono12')
 caps.camera_binning_sizes       # e.g. (1, 2, 4)
-caps.camera_max_exposure_ms     # per-camera exposure ceiling (e.g. 178 ms on FX2)
 caps.camera_max_frame_size      # (width, height) tuple in pixels; (0, 0) if no camera
+# Exposure ceiling: scope.imaging.max_exposure_cached (ms; None if no camera) -- see scope.imaging
 ```
 
 Important consequences:
@@ -854,7 +853,7 @@ Important consequences:
 
 **Reserved.** Not populated in LumaViewPro 4.0.x.
 
-The `scope.io` sub-API is named in the locked sub-API decomposition per `docs/PLUGIN_API_DESIGN_2026-05-09.md` §6.6. It will document future I/O surfaces (trigger devices, USB-to-IO trigger boards, external sync) once those surfaces ship. See `caps.hardware_features` for the hardware-capability tokens that gate trigger-device features today.
+The `scope.io` sub-API is named in the locked sub-API decomposition per `docs/PLUGIN_API_DESIGN_2026-05-09.md` §6.6. It will document future I/O surfaces (trigger devices, USB-to-IO trigger boards, external sync) once those surfaces ship; the feature flags that gate them will ride `scope.runtime_state` when they exist.
 
 ---
 
