@@ -13105,7 +13105,9 @@ class TestGreaseRedistributionGateAlwaysReleased:
         runner = self._make_runner()
         step = ProtocolStepRunner(runner)
         runner._grease_redistribution_event.clear()
-        step._move_axis_through_io = MagicMock(side_effect=RuntimeError('Z move timeout'))
+        runner._scope.motion._move_absolute_position_impl.side_effect = RuntimeError(
+            'Z move timeout'
+        )
 
         # The failure still propagates (the executor runner logs it), but the
         # gate must be released by the finally so the next scan is not blocked.
@@ -13121,11 +13123,48 @@ class TestGreaseRedistributionGateAlwaysReleased:
         runner = self._make_runner()
         runner._callbacks = MagicMock(move_position=None)
         step = ProtocolStepRunner(runner)
-        step._move_axis_through_io = MagicMock()
         runner._grease_redistribution_event.clear()
 
         step._grease_redist_w_pos()
         assert runner._grease_redistribution_event.is_set()
+
+    def test_grease_completes_promptly_and_restores_z(self, sim_scope):
+        """The grease routine executes ON the single io worker. Enqueueing
+        its Z moves back onto that worker and blocking could never succeed
+        -- the worker cannot reach a task queued behind the one it is
+        running -- so each wait consumed its full 120 s move timeout, the
+        still-queued Z->0 then ran out of band on the unwind, and the
+        restore to the original Z never enqueued. The moves run inline on
+        the worker now: the routine must finish promptly and leave Z where
+        it started. Driven through a real executor and the simulated scope
+        so the enqueue topology under test is the production one."""
+        from modules.protocol_step_runner import ProtocolStepRunner
+        from modules.sequential_io_executor import SequentialIOExecutor
+
+        io = SequentialIOExecutor(name='TEST_IO')
+        io.start()
+        io.protocol_start()
+        try:
+            runner = _make_capture_runner(scope=sim_scope, io_executor=io)
+            runner._callbacks = MagicMock(move_position=None)
+            step = ProtocolStepRunner(runner)
+
+            z_start = 500.0
+            sim_scope.motion._move_absolute_position_impl('Z', z_start, wait_until_complete=True)
+
+            runner._grease_redistribution_event.clear()
+            step.perform_grease_redistribution()
+            done = runner._grease_redistribution_event.wait(timeout=15.0)
+            assert done, (
+                'the grease routine must complete without consuming its move '
+                'timeout; not finishing within 15s means it re-enqueued onto '
+                'the worker it occupies and is blocked on itself'
+            )
+            assert sim_scope.motion.get_current_position('Z') == pytest.approx(z_start), (
+                'the grease routine must restore Z to its starting position'
+            )
+        finally:
+            io.shutdown()
 
     def test_enqueue_failure_releases_gate(self):
         from modules.protocol_step_runner import ProtocolStepRunner

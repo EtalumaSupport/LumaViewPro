@@ -538,27 +538,24 @@ class ProtocolStepRunner:
                 if p._callbacks.move_position:
                     _schedule_ui(lambda dt: p._callbacks.move_position('Z'), 0)
 
-    def _move_axis_through_io(
-        self,
-        axis: str,
-        pos,
-        *,
-        wait_until_complete: bool = False,
-        overshoot_enabled: bool = False,
-        timeout: float = 60.0,
-    ):
+    def _move_axis_through_io(self, axis: str, pos):
         """Submit a single-axis move to io_executor and wait for completion.
 
-        Used by ``default_move`` and ``_grease_redist_w_pos`` to keep
-        motor writes off PROTOCOL_WORKER. Falls back to a direct call if
-        the executor isn't available (early init / standalone tests).
+        Used by ``default_move``, which runs on PROTOCOL_WORKER, to keep
+        motor writes off that thread. Falls back to a direct call if the
+        executor isn't available (early init / standalone tests).
+
+        Only a caller OFF the io worker may use this: the io worker cannot
+        reach a task queued behind the one it is running, so enqueue-and-
+        wait from the worker itself can never complete -- code already on
+        the worker (the grease routine) calls the move body directly.
         """
         p = self._p
         kwargs = {
             'axis': axis,
             'pos': pos,
-            'wait_until_complete': wait_until_complete,
-            'overshoot_enabled': overshoot_enabled,
+            'wait_until_complete': False,
+            'overshoot_enabled': False,
         }
         if p._io_executor is None:
             p._scope.motion._move_absolute_position_impl(**kwargs)
@@ -568,7 +565,7 @@ class ProtocolStepRunner:
             return_future=True,
         )
         if fut:
-            fut.result(timeout=timeout)
+            fut.result(timeout=60.0)
 
     def go_to_step(self, step_idx: int):
         """Move to the position for a given protocol step."""
@@ -619,23 +616,21 @@ class ProtocolStepRunner:
             # get_current_position is a cache read (a zero-serial-IO accessor);
             # safe to call directly from any thread that needs the live z position.
             z_orig = p._scope.motion.get_current_position(axis=axis)
-            self._move_axis_through_io(
-                axis,
-                0,
-                wait_until_complete=True,
-                overshoot_enabled=True,
-                timeout=120.0,
+            # This routine already RUNS on the io worker, so the moves run
+            # inline: enqueueing them back onto the single worker and waiting
+            # could never complete -- the worker cannot reach a task queued
+            # behind the one it is running, so the wait always expired, the
+            # queued Z->0 then ran out of band on unwind, and the restore to
+            # z_orig never enqueued at all.
+            p._scope.motion._move_absolute_position_impl(
+                axis, 0, wait_until_complete=True, overshoot_enabled=True
             )
 
             if p._callbacks.move_position:
                 _schedule_ui(lambda dt, a=axis: p._callbacks.move_position(a))
 
-            self._move_axis_through_io(
-                axis,
-                z_orig,
-                wait_until_complete=True,
-                overshoot_enabled=True,
-                timeout=120.0,
+            p._scope.motion._move_absolute_position_impl(
+                axis, z_orig, wait_until_complete=True, overshoot_enabled=True
             )
 
             if p._callbacks.move_position:
