@@ -428,11 +428,11 @@ scope.illumination.ch2color(0)                         # 'Blue'
 
 ### State queries — read from the API, never the driver
 
-Lumascope holds the authoritative LED state in an internal cache. The API layer's `get_led_state()` / `led_enabled()` / `led_illumination()` read from that cache. **Never call the driver's state methods directly** — for FX2 scopes the driver is a pure command translator and its state queries return sentinels.
+Lumascope holds the authoritative LED state in an internal cache. The API layer's `get_led_state()` / `led_enabled()` / `get_led_ma()` read from that cache. **Never call the driver's state methods directly** — for FX2 scopes the driver is a pure command translator and its state queries return sentinels.
 
 ```python
 scope.illumination.led_enabled('Blue')                 # True / False
-scope.illumination.led_illumination('Blue')            # current mA, or None if off / no LED board
+scope.illumination.get_led_ma('Blue')                  # current mA, or None if off / no LED board
 scope.illumination.get_led_state('Blue')               # {'enabled': True, 'illumination_ma': 200, 'owner': '…'} when on; {'enabled': False, 'illumination_ma': None, 'owner': ''} when off
 scope.illumination.get_led_states()                    # all channels, same per-channel shape as get_led_state
 ```

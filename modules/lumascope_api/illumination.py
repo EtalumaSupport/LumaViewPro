@@ -1057,20 +1057,6 @@ class IlluminationAPI:
         with self._led_owner_lock:
             return self._led_state.get(color) is not None
 
-    def led_illumination(self, color: str) -> float | None:
-        """Current mA for an LED channel, or None if off / unavailable.
-
-        Thin wrapper over ``get_led_ma``; see that method for the
-        None-vs-float contract.
-
-        Args:
-            color: Channel color name (e.g. "Blue", "Green", "Red", "BF").
-
-        Returns:
-            Illumination in milliamps when set; None otherwise.
-        """
-        return self.get_led_ma(color)
-
     @property
     def led_states(self) -> dict:
         """Snapshot of all LED states {color: {enabled, illumination}}.
@@ -1098,7 +1084,7 @@ class IlluminationAPI:
         Returns:
             {'enabled': bool, 'illumination_ma': float | None, 'owner': str}.
             illumination_ma is None when off / no LED board (matches the
-            None sentinel contract on get_led_ma and led_illumination).
+            None sentinel contract on get_led_ma).
             owner is '' when off / no LED board.
         """
         if not self._driver:

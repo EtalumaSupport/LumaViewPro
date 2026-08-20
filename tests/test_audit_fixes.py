@@ -9933,10 +9933,10 @@ class TestCreateDiagnosticSharesInitMinimal:
 class TestLedSentinelReturnsAreNone:
     """Freeze audit Finding #39 -- sentinel return shapes were
     inconsistent across "off / unavailable" methods: get_led_ma
-    returned -1 (int) or -1.0 (float); led_illumination forwarded it;
-    get_led_status / max_gain_db_cached / get_target_position('T')
-    already returned None. Audit chose the pythonic None convention;
-    the float | None type is now uniform across the LED query surface."""
+    returned -1 (int) or -1.0 (float); get_led_status /
+    max_gain_db_cached / get_target_position('T') already returned
+    None. Audit chose the pythonic None convention; the float | None
+    type is now uniform across the LED query surface."""
 
     def test_get_led_ma_returns_none_when_driver_absent(self):
         """A diagnostic-mode instance with a NullLEDBoard driver path
@@ -9950,7 +9950,6 @@ class TestLedSentinelReturnsAreNone:
             # IlluminationAPI._driver re-resolves through _scope._led_driver
             # each call, so the hot-swap propagates.
             assert scope.illumination.get_led_ma('Blue') is None
-            assert scope.illumination.led_illumination('Blue') is None
         finally:
             scope.disconnect()
 
@@ -9968,20 +9967,6 @@ class TestLedSentinelReturnsAreNone:
         assert sim_scope.illumination.get_led_ma('Blue') == 50.0
         sim_scope.illumination._led_state.pop('Blue', None)
         assert sim_scope.illumination.get_led_ma('Blue') is None
-
-    def test_led_illumination_forwards_to_get_led_ma(self, sim_scope):
-        """The two surfaces must return the same value -- they answer
-        the same question."""
-        sim_scope.illumination._led_state['Green'] = {
-            'enabled': True,
-            'illumination_ma': 75.5,
-            'owner': '',
-        }
-        assert sim_scope.illumination.led_illumination(
-            'Green'
-        ) == sim_scope.illumination.get_led_ma('Green')
-        sim_scope.illumination._led_state.pop('Green', None)
-        assert sim_scope.illumination.led_illumination('Green') is None
 
 
 class TestGetterSetterSymmetry:
