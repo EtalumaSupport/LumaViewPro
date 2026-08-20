@@ -538,7 +538,7 @@ class ProtocolImageWriter:
             # even though the line is dropped in normal operation.
             if logger.isEnabledFor(logging.DEBUG):
                 _ag = step['Auto_Gain']
-                _curr_gain = self._scope.imaging.get_gain()
+                _curr_gain = self._scope.imaging.get_gain_db()
                 _curr_exp = self._scope.imaging.get_exposure_ms()
                 logger.debug(
                     f'[CAPTURE DIAG] step={step.get("Name", "?")} color={step["Color"]} '

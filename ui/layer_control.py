@@ -447,15 +447,12 @@ class LayerControl(BoxLayout):
             )
         )
 
-        # actual_gain = lumaview.scope.camera.get_gain()
-        # actual_exp = lumaview.scope.camera.get_exposure_t()
-
     def get_gain_exposure(self, init, state):
         ctx = _app_ctx.ctx
         # Read directly from camera hardware, not cache.
         # During auto-gain, the SDK adjusts gain/exposure but doesn't
         # update the cache -- cache still has the pre-auto-gain values.
-        actual_gain = ctx.scope.imaging.get_gain()
+        actual_gain = ctx.scope.imaging.get_gain_db()
         actual_exp = ctx.scope.imaging.get_exposure_ms()
 
         return (init, state, actual_gain, actual_exp)

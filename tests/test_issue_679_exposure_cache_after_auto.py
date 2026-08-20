@@ -95,8 +95,8 @@ class TestSetAutoGainRefreshesCacheAtAutoOff:
 
     def test_auto_gain_off_refreshes_cache_after_hardware_drift(self, sim_imaging):
         imaging, cam = sim_imaging
-        imaging.set_gain(5.0)
-        assert imaging.gain_cached == pytest.approx(5.0)
+        imaging.set_gain_db(5.0)
+        assert imaging.gain_db_cached == pytest.approx(5.0)
         imaging.set_auto_gain(
             state=True,
             settings={
@@ -117,8 +117,8 @@ class TestSetAutoGainRefreshesCacheAtAutoOff:
                 'max_gain_db': 24.0,
             },
         )
-        assert imaging.gain_cached == pytest.approx(17.2), (
-            f'cache must reflect hardware gain after AG-off; got {imaging.gain_cached}'
+        assert imaging.gain_db_cached == pytest.approx(17.2), (
+            f'cache must reflect hardware gain after AG-off; got {imaging.gain_db_cached}'
         )
         assert imaging.exposure_ms_cached == pytest.approx(0.014, abs=0.001), (
             f'cache must reflect hardware exposure after AG-off; got {imaging.exposure_ms_cached}'
@@ -128,7 +128,7 @@ class TestSetAutoGainRefreshesCacheAtAutoOff:
         # AG-on transition: cache stays at pre-AG truth (auto cycle is
         # still running; refresh would race with the SDK adjustments).
         imaging, cam = sim_imaging
-        imaging.set_gain(5.0)
+        imaging.set_gain_db(5.0)
         imaging.set_exposure_ms(0.1)
         # Drift hardware after caching but before AG-on -- if AG-on
         # were to refresh, cache would jump to the drifted values.
@@ -143,7 +143,7 @@ class TestSetAutoGainRefreshesCacheAtAutoOff:
                 'max_gain_db': 24.0,
             },
         )
-        assert imaging.gain_cached == pytest.approx(5.0), (
+        assert imaging.gain_db_cached == pytest.approx(5.0), (
             'cache must NOT refresh on AG-on (auto cycle still active)'
         )
         assert imaging.exposure_ms_cached == pytest.approx(0.1)
@@ -158,7 +158,7 @@ class TestAutoGainOnceRefreshesCache:
         # midpoint of [min_gain_db, max_gain_db]; that's the hardware
         # value the cache must catch up to.
         imaging, cam = sim_imaging
-        imaging.set_gain(5.0)
+        imaging.set_gain_db(5.0)
         imaging.set_exposure_ms(0.1)
         # Drift hardware exposure independently of the simulator's
         # one-shot (the sim's auto_gain_once only touches gain, so an
@@ -174,9 +174,9 @@ class TestAutoGainOnceRefreshesCache:
         )
         # Cache should match whatever hardware ended up at, not the
         # pre-call cached value (which would still read 5.0 / 0.1).
-        assert imaging.gain_cached == pytest.approx(cam.get_gain(), abs=0.001), (
-            f'cache gain {imaging.gain_cached} must match hardware '
-            f'{cam.get_gain()} after auto_gain_once'
+        assert imaging.gain_db_cached == pytest.approx(cam.get_gain_db(), abs=0.001), (
+            f'cache gain {imaging.gain_db_cached} must match hardware '
+            f'{cam.get_gain_db()} after auto_gain_once'
         )
         assert imaging.exposure_ms_cached == pytest.approx(0.014, abs=0.001), (
             f'cache exposure {imaging.exposure_ms_cached} must match '

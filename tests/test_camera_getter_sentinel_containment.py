@@ -170,7 +170,7 @@ def _build_imaging(cam) -> ImagingAPI:
 # (getter name, camera-absent default, expected last-known-good after the
 # one good populate round from good_then_failing_driver()).
 CONVERTED_GETTERS = [
-    ('get_gain', -1.0, 12.5),
+    ('get_gain_db', -1.0, 12.5),
     ('get_exposure_ms', 0.0, 50.0),
     ('get_width', 0, 1936),
     ('get_height', 0, 1216),
@@ -400,7 +400,7 @@ def test_get_live_camera_settings_omits_failed_gain_while_getter_answers_lkg():
     settings = imaging.get_live_camera_settings()
     assert settings == {'exposure_ms': 50.0}
     assert 'gain_db' not in settings
-    assert imaging.get_gain() == 12.5
+    assert imaging.get_gain_db() == 12.5
 
 
 def test_get_live_camera_settings_empty_when_inactive():
@@ -432,7 +432,7 @@ def test_authoritative_write_beats_in_flight_stale_read():
     driver.get_gain = held_gain_read
 
     result = {}
-    reader_thread = threading.Thread(target=lambda: result.update(value=imaging.get_gain()))
+    reader_thread = threading.Thread(target=lambda: result.update(value=imaging.get_gain_db()))
     reader_thread.start()
     assert read_started.wait(timeout=5.0), 'driver read never started'
     imaging._commit_camera_writes({'gain_db': 20.0})  # setter write-through lands
@@ -444,7 +444,7 @@ def test_authoritative_write_beats_in_flight_stale_read():
         f'racing getter must answer the newer authoritative write, '
         f'not its stale hardware read; got {result["value"]}'
     )
-    assert imaging.gain_cached == 20.0
+    assert imaging.gain_db_cached == 20.0
 
 
 # --- Populate resilience --------------------------------------------------------
@@ -457,7 +457,7 @@ def test_populate_survives_raising_key_and_caches_the_rest():
     # read silently dropped every remaining key.
     driver = steady_good_driver({'get_frame_size': [RAISE]})
     imaging = _build_imaging(driver)
-    assert imaging.gain_cached == 12.5
+    assert imaging.gain_db_cached == 12.5
     assert imaging.exposure_ms_cached == 50.0
     assert imaging.pixel_format_cached == 'Mono12'
     assert imaging.frame_size_cached == {'width': 0, 'height': 0}  # seed intact
@@ -480,8 +480,8 @@ def test_failed_read_warns_once_per_window(monkeypatch):
     monkeypatch.setattr('modules.lumascope_api.imaging.logger', _recording_logger(warnings))
 
     driver._scripts['get_gain'] = [RAISE]
-    imaging.get_gain()
-    imaging.get_gain()  # back-to-back, well inside the 5 s window
+    imaging.get_gain_db()
+    imaging.get_gain_db()  # back-to-back, well inside the 5 s window
 
     hits = [w for w in warnings if 'read failed' in w]
     assert len(hits) == 1, (
@@ -537,7 +537,7 @@ def test_chunkless_metadata_omits_keys_when_live_reads_fail():
     )
     assert 'exposure_time_ms' not in metadata
     # Same state, control-flow surface: the value getters still answer LKG.
-    assert imaging.get_gain() == 12.5
+    assert imaging.get_gain_db() == 12.5
     assert imaging.get_exposure_ms() == 50.0
 
 
@@ -788,7 +788,7 @@ def test_restore_camera_state_trimmed_snapshot_restores_only_present_fields(monk
     imaging.restore_camera_state({'tag': 't', 'exposure_ms': 50.0})
 
     assert calls == [('exposure', 50.0)], (
-        f'only the present field may be restored; set_gain must not run: {calls}'
+        f'only the present field may be restored; set_gain_db must not run: {calls}'
     )
     assert warnings == []
 

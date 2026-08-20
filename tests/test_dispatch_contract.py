@@ -60,7 +60,7 @@ IMPL_RESULT = object()
 # dispatcher as its only public form and has no async member to pin.
 FAMILIES = [
     ('illumination', 'led_on', 'led_on_async', {'channel': 0, 'mA': 10.0}, 'io'),
-    ('imaging', 'set_gain', None, {'gain_db': 1.0}, 'camera'),
+    ('imaging', 'set_gain_db', None, {'gain_db': 1.0}, 'camera'),
     (
         'motion',
         'move_absolute',

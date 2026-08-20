@@ -2958,7 +2958,7 @@ class TestAOC2_RetrySaturationCheckOutsideCamLock:
     """AOC-2: lumascope_api.get_image saturation-retry path used to hold
     cam_lock across the np.all validation walk on the retry frame. The walk
     doesn't need camera state -- only the buffer returned from get_array().
-    Holding cam_lock across the walk blocked concurrent set_gain/set_exposure
+    Holding cam_lock across the walk blocked concurrent set_gain_db/set_exposure
     from other threads for ~50-150 ms per saturated retry.
 
     Fix: move the saturation walk outside the cam_lock block. Retry frame
@@ -2969,7 +2969,7 @@ class TestAOC2_RetrySaturationCheckOutsideCamLock:
 
     def test_retry_saturation_walk_runs_outside_cam_lock(self, monkeypatch):
         """The saturation walk needs no camera state; it must run with
-        cam_lock RELEASED so concurrent set_gain/set_exposure are not
+        cam_lock RELEASED so concurrent set_gain_db/set_exposure are not
         blocked. Proven by probing the lock from a helper thread inside
         every fraction call: each must find the lock acquirable."""
         import numpy as np
@@ -4129,7 +4129,7 @@ class TestCaptureAndWaitPassesChunksToValidity:
         imaging, cam = _sim_backed_imaging()
         chunk = {'Gain': 2.0, 'ExposureTime': 5000.0}
         cam.cam_image_handler = SimpleNamespace(get_last_chunks=lambda: dict(chunk))
-        imaging.set_gain(2.0)  # pending 'gain' forces the drain loop to run
+        imaging.set_gain_db(2.0)  # pending 'gain' forces the drain loop to run
 
         recorded = []
         orig_count_frame = imaging.frame_validity.count_frame
@@ -4188,7 +4188,7 @@ class TestLumascopeRecordsTargetForChunkMatch:
     frame_validity.set_target() so capture_and_wait's chunk-match can
     short-circuit skip-frames once a frame's chunks match the target.
 
-    Manual setters (set_gain, set_exposure_ms) record the value; auto
+    Manual setters (set_gain_db, set_exposure_ms) record the value; auto
     setters (set_auto_gain, set_auto_exposure_time) clear the target
     (None) since auto dynamically changes the value and chunk-match
     against a stale manual target would be wrong."""
@@ -4209,9 +4209,9 @@ class TestLumascopeRecordsTargetForChunkMatch:
 
     def test_set_gain_records_target(self):
         imaging, calls = self._recording_imaging()
-        imaging.set_gain(5.0)
+        imaging.set_gain_db(5.0)
         assert ('gain', 5.0) in calls, (
-            f'set_gain must record the gain target via set_target; got {calls}'
+            f'set_gain_db must record the gain target via set_target; got {calls}'
         )
 
     def test_set_exposure_time_records_target_in_microseconds(self):
@@ -9486,7 +9486,7 @@ class TestImagingParamNamesUseUnitSuffix:
 
     _IMAGING_PARAMS = (
         # (method, expected_param_name_set, banned_param_name_set)
-        ('set_gain', frozenset({'gain_db'}), frozenset({'gain'})),
+        ('set_gain_db', frozenset({'gain_db'}), frozenset({'gain'})),
         ('set_exposure_ms', frozenset({'exposure_ms'}), frozenset({'t', 'exposure'})),
         ('apply_layer_camera_settings', frozenset({'gain_db', 'exposure_ms'}), frozenset({'gain'})),
         (
@@ -9934,7 +9934,7 @@ class TestLedSentinelReturnsAreNone:
     """Freeze audit Finding #39 -- sentinel return shapes were
     inconsistent across "off / unavailable" methods: get_led_ma
     returned -1 (int) or -1.0 (float); led_illumination forwarded it;
-    get_led_status / max_gain_cached / get_target_position('T')
+    get_led_status / max_gain_db_cached / get_target_position('T')
     already returned None. Audit chose the pythonic None convention;
     the float | None type is now uniform across the LED query surface."""
 
@@ -10157,7 +10157,7 @@ class TestLumascopeSkillsApiPluginDocBatch:
         # F16: the sentinel-vs-raise contract used set_acquisition_stop_mode
         # as a public-setter example, but it is private now.
         doc = self._doc()
-        assert 'set_acquisition_stop_mode`, `set_gain`' not in doc, (
+        assert 'set_acquisition_stop_mode`, `set_gain_db`' not in doc, (
             'set_acquisition_stop_mode is private (_set_acquisition_stop_mode); '
             'do not use it as a public-setter example.'
         )

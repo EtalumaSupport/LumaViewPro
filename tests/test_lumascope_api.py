@@ -924,13 +924,13 @@ class TestRunGrabLifecycleBenchmark:
         and 4.0 dB (odd cycles)."""
         scope = self._scope_with_camera()
         gain_calls = []
-        original_set_gain = scope.imaging.set_gain
+        original_set_gain = scope.imaging.set_gain_db
 
         def _track(gain):
             gain_calls.append(gain)
             return original_set_gain(gain)
 
-        scope.imaging.set_gain = _track
+        scope.imaging.set_gain_db = _track
 
         scope.diagnostics.run_grab_lifecycle_benchmark(
             num_cycles=4, inter_cycle_delay_ms=0, vary_settings=True

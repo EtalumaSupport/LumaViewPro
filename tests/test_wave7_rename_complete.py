@@ -347,9 +347,9 @@ IMAGING_ONLY_METHODS = frozenset(
         'active_cached',
         'exposure_ms_cached',
         'frame_size_cached',
-        'gain_cached',
+        'gain_db_cached',
         'max_exposure_ms_cached',
-        'max_gain_cached',
+        'max_gain_db_cached',
         'min_frame_size_cached',
         'pixel_format_cached',
         'capture_and_wait',
@@ -360,7 +360,7 @@ IMAGING_ONLY_METHODS = frozenset(
         'get_available_binning_sizes',
         'get_binning_size',
         'get_exposure_ms',
-        'get_gain',
+        'get_gain_db',
         'get_height',
         'get_image',
         'get_image_from_buffer',
@@ -385,7 +385,7 @@ IMAGING_ONLY_METHODS = frozenset(
         'set_device_link_throughput_limit',
         'set_exposure_ms',
         'set_frame_size',
-        'set_gain',
+        'set_gain_db',
         'set_gev_inter_packet_delay',
         'set_gev_packet_size',
         'set_max_acquisition_frame_rate',
@@ -406,8 +406,8 @@ def _find_imaging_method_accesses(tree: ast.AST) -> list[tuple[int, str]]:
     """Find `<chain ending in scope>.<imaging_only_method>` accesses.
 
     Mirrors the motion / illumination chain check above -- catches
-    `scope.set_gain`, `self.scope.set_gain`, `p.scope.set_gain`, etc.
-    Does NOT catch `self._scope.set_gain` (sub-API back-reference
+    `scope.set_gain_db`, `self.scope.set_gain_db`, `p.scope.set_gain_db`, etc.
+    Does NOT catch `self._scope.set_gain_db` (sub-API back-reference
     pattern) -- those are addressed by the bulk word-boundary sed in
     Phase 4e production migration; carried-forward Phase 3 limitation.
     """

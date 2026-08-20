@@ -826,6 +826,7 @@ _BROKEN_SCOPE_METHODS = frozenset(
         'set_pixel_format',
         'set_frame_size',
         'set_gain',
+        'set_gain_db',
         'set_exposure_t',
         'set_exposure_time',
         'set_exposure_ms',

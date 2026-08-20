@@ -127,12 +127,12 @@ class TestValueSetterSequences:
 
     def test_set_gain_sequence(self, imaging_capable):
         events = _record_validity_events(imaging_capable)
-        imaging_capable.set_gain(7.0)
+        imaging_capable.set_gain_db(7.0)
         assert events == [
             ('invalidate', 'gain'),
             ('set_target', 'gain', 7.0),
         ]
-        assert imaging_capable.gain_cached == pytest.approx(7.0)
+        assert imaging_capable.gain_db_cached == pytest.approx(7.0)
 
     def test_set_exposure_time_sequence(self, imaging_capable):
         events = _record_validity_events(imaging_capable)
@@ -285,23 +285,23 @@ class TestGeometrySetterSequences:
         assert imaging_capable._binning_size == 2
 
     def test_gain_exposure_read_failure_not_cached(self, imaging_capable):
-        prior_gain = imaging_capable.gain_cached
+        prior_gain = imaging_capable.gain_db_cached
         prior_exposure = imaging_capable.exposure_ms_cached
         cam = imaging_capable._driver
-        orig_gain, orig_exp = cam.get_gain, cam.get_exposure_t
-        cam.get_gain = lambda: -1.0
+        orig_gain, orig_exp = cam.get_gain_db, cam.get_exposure_t
+        cam.get_gain_db = lambda: -1.0
         cam.get_exposure_t = lambda: -1.0
         try:
             imaging_capable._populate_camera_cache()
         finally:
-            cam.get_gain, cam.get_exposure_t = orig_gain, orig_exp
+            cam.get_gain_db, cam.get_exposure_t = orig_gain, orig_exp
         # A negative return is the drivers' failed-read sentinel. The old
         # `or 0.0` idiom passed it through (-1.0 is truthy) and latched -1
         # into the UI gain/exposure readout; a failed read must leave the
         # last-known values in place.
-        assert imaging_capable.gain_cached == prior_gain
+        assert imaging_capable.gain_db_cached == prior_gain
         assert imaging_capable.exposure_ms_cached == prior_exposure
-        assert imaging_capable.gain_cached >= 0
+        assert imaging_capable.gain_db_cached >= 0
         assert imaging_capable.exposure_ms_cached >= 0
 
     def test_rejected_binning_write_keeps_prior_factor(self, imaging_capable):
@@ -398,7 +398,7 @@ class TestCameraWriteAuthority:
         )
         # None result counts as applied: force invalidate, then target + cache.
         assert events == [('invalidate', 'gain'), ('set_target', 'gain', 5.0)]
-        assert imaging_capable.gain_cached == pytest.approx(5.0)
+        assert imaging_capable.gain_db_cached == pytest.approx(5.0)
 
     def test_applied_gated_invalidate_skipped_on_false(self, imaging_capable):
         # The applied-only invalidate (not force_invalidate) is suppressed when

@@ -83,11 +83,11 @@ class TestCapResolvers:
         assert camera_max_exposure_for_ui(imaging) == DEFAULT_MAX_EXPOSURE_MS
 
     def test_gain_returns_live_cap_when_present(self):
-        imaging = SimpleNamespace(max_gain_cached=24.0)
+        imaging = SimpleNamespace(max_gain_db_cached=24.0)
         assert camera_max_gain_for_ui(imaging) == 24.0
 
     def test_gain_falls_back_when_no_camera(self):
-        imaging = SimpleNamespace(max_gain_cached=None)
+        imaging = SimpleNamespace(max_gain_db_cached=None)
         assert camera_max_gain_for_ui(imaging) == DEFAULT_MAX_GAIN_DB
 
 

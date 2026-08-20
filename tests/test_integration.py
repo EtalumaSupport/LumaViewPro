@@ -594,7 +594,7 @@ class TestIntegrationAutofocus:
 
         The bug: _iterate() cleared _af_in_progress before the finally
         block in _autofocus_loop() restored camera state. The protocol
-        worker saw AF as done, entered capture(), and set_gain() was a
+        worker saw AF as done, entered capture(), and set_gain_db() was a
         no-op (cache still showed AF scanning gain). Then the finally
         block restored the previous channel's gain, and the frame was
         grabbed with wrong settings.
@@ -612,7 +612,7 @@ class TestIntegrationAutofocus:
 
         # Simulate the multi-channel scenario: camera is at Green settings
         # when BF AF starts with its own explicit targets.
-        scope.imaging.set_gain(20.0)
+        scope.imaging.set_gain_db(20.0)
         scope.imaging.set_exposure_ms(100.0)
 
         # Drive AF through AutofocusThread so the abort_event contract
@@ -643,7 +643,7 @@ class TestIntegrationAutofocus:
         # contract: explicit AF targets (the committed layer/step
         # values, 1.0 dB / 2.0 ms here) are KEPT after AF rather than
         # reverted to the pre-AF snapshot (20.0 / 100.0).
-        actual_gain = scope.imaging.get_gain()
+        actual_gain = scope.imaging.get_gain_db()
         actual_exp = scope.imaging.get_exposure_ms()
         assert abs(actual_gain - 1.0) < 0.1, (
             f'Camera gain should remain at the committed AF target 1.0 '

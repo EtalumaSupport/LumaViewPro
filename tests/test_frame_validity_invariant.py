@@ -4,7 +4,7 @@ must not be suppressed by a stale software cache.
 
 Bug shape (gain axis): a pre-scan live-mode auto-gain cycle drove
 hardware gain to ~10.8 dB while the API-layer ``_camera_cache`` still
-held the per-step ~0 dB. ``set_gain(0)`` hit a cache-equality
+held the per-step ~0 dB. ``set_gain_db(0)`` hit a cache-equality
 short-circuit that returned BEFORE ``frame_validity.invalidate('gain')``,
 so the marker never went RED and a stale-gain (saturated) frame was
 captured as valid. The cache-equality skip is removed: the setter
@@ -51,27 +51,27 @@ class TestSetGainAlwaysInvalidatesDespiteStaleCache:
 
     def test_desynced_cache_still_drives_hardware(self, sim_imaging):
         imaging, cam = sim_imaging
-        imaging.set_gain(0.0)  # cache = 0, hw = 0
+        imaging.set_gain_db(0.0)  # cache = 0, hw = 0
         # Hardware drifts (a live-mode auto-gain cycle drove it) without
         # the cache being updated -- the desynced precondition.
         with cam._lock:
             cam._gain = 10.8
-        imaging.set_gain(0.0)  # request the per-step intended gain
-        assert cam.get_gain() == pytest.approx(0.0, abs=0.001), (
-            'set_gain must drive hardware to the requested value even '
-            f'when the cache already reads it; got {cam.get_gain()}'
+        imaging.set_gain_db(0.0)  # request the per-step intended gain
+        assert cam.get_gain_db() == pytest.approx(0.0, abs=0.001), (
+            'set_gain_db must drive hardware to the requested value even '
+            f'when the cache already reads it; got {cam.get_gain_db()}'
         )
 
     def test_desynced_cache_still_turns_marker_red(self, sim_imaging):
         imaging, cam = sim_imaging
-        imaging.set_gain(0.0)
+        imaging.set_gain_db(0.0)
         imaging.frame_validity.reset()  # GREEN baseline
         assert imaging.frame_validity.is_valid
         with cam._lock:
             cam._gain = 10.8
-        imaging.set_gain(0.0)
+        imaging.set_gain_db(0.0)
         assert not imaging.frame_validity.is_valid, (
-            'set_gain must invalidate frame validity (marker RED) even '
+            'set_gain_db must invalidate frame validity (marker RED) even '
             'when the cache already reads the requested value'
         )
         assert 'gain' in imaging.frame_validity.pending_sources
@@ -113,7 +113,7 @@ class TestAutoGainOnceInvalidates:
 
     def test_auto_gain_once_turns_marker_red(self, sim_imaging):
         imaging, _cam = sim_imaging
-        imaging.set_gain(5.0)
+        imaging.set_gain_db(5.0)
         imaging.frame_validity.reset()
         assert imaging.frame_validity.is_valid
         imaging.auto_gain_once(
@@ -299,13 +299,15 @@ class TestRejectedSettingNotifiesAndKeepsCache:
             'modules.lumascope_api.imaging.notifications.error',
             lambda *a, **kw: captured.append(a),
         )
-        imaging.set_gain(2.0)  # establish a known cache value
+        imaging.set_gain_db(2.0)  # establish a known cache value
         monkeypatch.setattr(cam, 'gain', lambda v: False)
 
-        imaging.set_gain(7.0)
+        imaging.set_gain_db(7.0)
 
         assert captured, 'A confirmed gain rejection must notify the user'
-        assert imaging.gain_cached == 2.0, 'A rejected gain write must not be recorded in the cache'
+        assert imaging.gain_db_cached == 2.0, (
+            'A rejected gain write must not be recorded in the cache'
+        )
 
     def test_rejected_exposure_notifies_and_keeps_cache(self, sim_imaging, monkeypatch):
         imaging, cam = sim_imaging

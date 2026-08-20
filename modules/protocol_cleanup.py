@@ -248,7 +248,7 @@ def run_cleanup(
     # --- Restore camera gain and exposure ---
     # PROTO-CLEAN-1: dispatch the gain/exposure SDK calls through
     # camera_executor (CAMERA_WORKER) instead of running on MainThread.
-    # Pylon's set_gain / set_exposure_ms take noticeable time on real
+    # Pylon's set_gain_db / set_exposure_ms take noticeable time on real
     # hardware -- running on MainThread blocked the UI for the duration
     # of protocol stop. Submit-and-wait so cleanup still serializes:
     # the next steps (return-to-position, executor end) need camera

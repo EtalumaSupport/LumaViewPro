@@ -70,7 +70,7 @@ GETTER_CASES = [
     pytest.param('get_min_frame_size', _induce_min_frame_size, {}, id='get_min_frame_size'),
     pytest.param('get_max_frame_size', _induce_max_frame_size, {}, id='get_max_frame_size'),
     pytest.param('get_binning_size', _induce_binning, -1, id='get_binning_size'),
-    pytest.param('get_gain', _induce_gain, -1, id='get_gain'),
+    pytest.param('get_gain_db', _induce_gain, -1, id='get_gain_db'),
     pytest.param(
         'get_exposure_t',
         _induce_exposure_nodes_unreadable,

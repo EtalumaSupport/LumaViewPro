@@ -2016,7 +2016,7 @@ class TestExecutorEdgeCases:
 
     def test_camera_settings_restored_after_protocol(self, real_executor, scope, tmp_path):
         """Camera gain and exposure are restored after protocol."""
-        original_gain = scope.imaging.get_gain()
+        original_gain = scope.imaging.get_gain_db()
         original_exposure = scope.imaging.get_exposure_ms()
 
         proto = _build_protocol([_make_step(gain=5.0, exposure=50.0)])
@@ -2026,7 +2026,7 @@ class TestExecutorEdgeCases:
 
         time.sleep(0.5)
 
-        restored_gain = scope.imaging.get_gain()
+        restored_gain = scope.imaging.get_gain_db()
         restored_exposure = scope.imaging.get_exposure_ms()
         assert restored_gain == pytest.approx(original_gain, abs=0.1), (
             f'Gain not restored: {restored_gain} vs {original_gain}'
@@ -2416,8 +2416,8 @@ class TestLumascapeAPICamera:
         assert img.ndim == 2  # grayscale
 
     def test_set_gain(self, scope):
-        scope.imaging.set_gain(5.0)
-        assert scope.imaging.get_gain() == pytest.approx(5.0, abs=0.1)
+        scope.imaging.set_gain_db(5.0)
+        assert scope.imaging.get_gain_db() == pytest.approx(5.0, abs=0.1)
 
     def test_set_exposure(self, scope):
         scope.imaging.set_exposure_ms(25.0)

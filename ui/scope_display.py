@@ -1240,7 +1240,7 @@ class ScopeDisplay(Image):
 
     def get_true_gain_exp(self, layer):
         ctx = _app_ctx.ctx
-        actual_gain = ctx.scope.imaging.gain_cached
+        actual_gain = ctx.scope.imaging.gain_db_cached
         actual_exp = ctx.scope.imaging.exposure_ms_cached
         Clock.schedule_once(lambda dt: self.update_auto_gain_ui(layer, actual_gain, actual_exp), 0)
 

@@ -446,7 +446,7 @@ class ImageSettings(BoxLayout):
         was hardcoded 0-48 dB in the kv regardless of camera -- that
         let LS620 users drag past the usable range and black out the
         image. `ctx.max_gain` is populated from
-        Lumascope.max_gain_cached in load_settings (and the same
+        Lumascope.max_gain_db_cached in load_settings (and the same
         default-fallback pattern as exposure).
         """
         ctx = _app_ctx.ctx

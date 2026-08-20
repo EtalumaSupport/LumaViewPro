@@ -465,7 +465,7 @@ class AutofocusRunner:
                 self._scope.imaging.restore_camera_state(restore)
             _af_log.info(
                 f'[AF DIAG] Clearing _af_in_progress -- '
-                f'camera now at gain={self._scope.imaging.get_gain()} '
+                f'camera now at gain={self._scope.imaging.get_gain_db()} '
                 f'exp={self._scope.imaging.get_exposure_ms()}'
             )
             self._af_in_progress.clear()

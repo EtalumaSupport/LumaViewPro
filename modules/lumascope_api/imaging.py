@@ -231,7 +231,7 @@ class ImagingAPI:
 
         # Camera state cache -- the single store every public camera getter
         # answers from. Updated when the camera connects, after every
-        # set_gain/set_exposure/etc. write-through, and by each getter's
+        # set_gain_db/set_exposure/etc. write-through, and by each getter's
         # validated live read. Every entry is either a validated hardware
         # reading or its seed below, and the seeds are the documented
         # camera-absent defaults -- so a driver failure sentinel can never
@@ -339,7 +339,7 @@ class ImagingAPI:
 
         try:
             self.get_binning_size()
-            self.get_gain()
+            self.get_gain_db()
             self.get_exposure_ms()
             self._get_frame_size()
             self._get_pixel_format()
@@ -377,7 +377,7 @@ class ImagingAPI:
         directly without going through this layer's cache, so when the
         auto cycle toggles off the cache may hold a stale pre-auto
         value. Without this refresh, the cache-equality skip at
-        ``set_gain`` / ``set_exposure_ms`` short-circuits subsequent
+        ``set_gain_db`` / ``set_exposure_ms`` short-circuits subsequent
         setter calls and hardware silently stays at the converged auto
         value -- the user-visible failure shape was a protocol's first
         run capturing at an unintended exposure inherited from a
@@ -609,7 +609,7 @@ class ImagingAPI:
         # The driver compares against live hardware and skips a truly redundant
         # SDK write; the cache-equality check here gates only the UI listener +
         # info log, where a missed redundant update is harmless.
-        changed = abs(float(gain_db) - self.gain_cached) >= 0.001
+        changed = abs(float(gain_db) - self.gain_db_cached) >= 0.001
 
         def _write_gain():
             with self._cam_lock:
@@ -635,7 +635,7 @@ class ImagingAPI:
                 'the value is within the camera limits.',
             )
         elif changed:
-            _api_log.info(f'set_gain {gain_db}dB')
+            _api_log.info(f'set_gain_db {gain_db}dB')
             self._fire_camera_listeners('gain', float(gain_db))
 
     def _set_exposure_ms_impl(self, exposure_ms: float) -> None:
@@ -759,7 +759,7 @@ class ImagingAPI:
             raise HardwareCommandRefusedError('exclusive_activity_running', name)
         return fut.result(timeout=timeout_s)
 
-    def set_gain(self, gain_db: float) -> None:
+    def set_gain_db(self, gain_db: float) -> None:
         """Set the camera gain, and wait for it.
 
         See ``_set_gain_impl`` for the value contract and the rejection
@@ -768,7 +768,7 @@ class ImagingAPI:
         """
         return self._dispatch_camera(
             self._set_gain_impl,
-            'set_gain',
+            'set_gain_db',
             args=(gain_db,),
             timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
         )
@@ -1712,7 +1712,7 @@ class ImagingAPI:
 
         For consumers that record what the hardware was at a specific
         moment (saved-image metadata, state snapshots): the value getters
-        (get_gain / get_exposure_ms) deliberately hide read failures
+        (get_gain_db / get_exposure_ms) deliberately hide read failures
         behind the last-known-good cache, which is right for control flow
         but would record a value the frame was not captured at. Here,
         unknown stays unknown.
@@ -1741,7 +1741,7 @@ class ImagingAPI:
             settings['exposure_ms'] = exposure
         return settings
 
-    def get_gain(self) -> float:
+    def get_gain_db(self) -> float:
         """Get the current camera gain.
 
         Returns:
@@ -2257,7 +2257,7 @@ class ImagingAPI:
 
             while True:
                 # Acquire cam_lock for camera grab -- prevents concurrent
-                # set_gain/set_exposure from another thread mid-frame.
+                # set_gain_db/set_exposure from another thread mid-frame.
                 with self._cam_lock:
                     if force_new_capture:
                         grab_status, grab_image_ts = self._driver.grab_new_capture(
@@ -2322,7 +2322,7 @@ class ImagingAPI:
                             )
                             retry_frame = self._driver.get_array()
                     # Saturation walk is outside cam_lock -- no camera state needed,
-                    # and the walk would otherwise block concurrent set_gain/set_exposure.
+                    # and the walk would otherwise block concurrent set_gain_db/set_exposure.
                     if retry_frame is not None and (
                         self._saturated_fraction(retry_frame, self.last_significant_bits)
                         < self._SATURATION_BLOWN_FRACTION
@@ -2675,7 +2675,7 @@ class ImagingAPI:
             return self._camera_cache['active']
 
     @property
-    def gain_cached(self) -> float:
+    def gain_db_cached(self) -> float:
         """Current camera gain in dB (reads cache).
 
         Returns:
@@ -2750,7 +2750,7 @@ class ImagingAPI:
         return float(value)
 
     @property
-    def max_gain_cached(self) -> float | None:
+    def max_gain_db_cached(self) -> float | None:
         """Maximum camera gain in dB, or None if no camera is connected.
 
         Parallel to max_exposure_ms_cached -- lets the UI size the gain
@@ -2798,7 +2798,7 @@ class ImagingAPI:
             dict: Snapshot suitable for passing to ``restore_camera_state``.
         """
         snapshot = {'tag': tag}
-        gain_db = self.get_gain()
+        gain_db = self.get_gain_db()
         if common_utils.is_valid_gain_db(gain_db):
             snapshot['gain_db'] = gain_db
         else:
@@ -2978,7 +2978,7 @@ class ImagingAPI:
         Usage::
 
             with scope.imaging.update_camera_config():
-                scope.imaging.set_gain(5.0)
+                scope.imaging.set_gain_db(5.0)
                 scope.imaging.set_exposure_ms(100)
 
         Returns:
@@ -3243,7 +3243,7 @@ class ImagingAPI:
         It fires from the thread that caused the change, so listeners
         **must** schedule UI work via ``Clock.schedule_once``.
 
-        Note: this fires on set_gain/set_exposure_ms (user actions),
+        Note: this fires on set_gain_db/set_exposure_ms (user actions),
         NOT on every camera frame grab -- zero overhead on display framerate.
 
         Args:

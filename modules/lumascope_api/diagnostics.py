@@ -78,7 +78,7 @@ class DiagnosticsAPI:
         except Exception as e:
             info['resolution'] = f'Error: {e}'
 
-        _try('gain_db', lambda: self._scope.imaging.get_gain())
+        _try('gain_db', lambda: self._scope.imaging.get_gain_db())
         _try('exposure_ms', lambda: self._scope.imaging.get_exposure_ms())
         _try('max_gain_db', lambda: self._scope._camera_driver.get_max_gain())
         _try('max_exposure_ms', lambda: self._scope._camera_driver.get_max_exposure())
@@ -312,10 +312,10 @@ class DiagnosticsAPI:
                     # not to dominate the cycle, large enough that GenICam
                     # node-map writes are real.
                     if i % 2 == 0:
-                        self._scope.imaging.set_gain(1.0)
+                        self._scope.imaging.set_gain_db(1.0)
                         self._scope.imaging.set_exposure_ms(10.0)
                     else:
-                        self._scope.imaging.set_gain(4.0)
+                        self._scope.imaging.set_gain_db(4.0)
                         self._scope.imaging.set_exposure_ms(50.0)
 
                 t1 = time.monotonic()
@@ -351,7 +351,7 @@ class DiagnosticsAPI:
         # Restore caller's gain/exposure so vary_settings doesn't leak state.
         try:
             if vary_settings and original_gain is not None:
-                self._scope.imaging.set_gain(float(original_gain))
+                self._scope.imaging.set_gain_db(float(original_gain))
             if vary_settings and original_exposure is not None:
                 self._scope.imaging.set_exposure_ms(float(original_exposure))
         except Exception as e:
