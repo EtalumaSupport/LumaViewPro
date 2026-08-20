@@ -361,7 +361,12 @@ class CompositeCapture(FloatLayout):
         save_encoding,
         saved_video_false_color=None,
     ):
-        """Inner worker -- actual composite capture logic."""
+        """Inner worker -- actual composite capture logic.
+
+        Runs on a worker_pool executor worker, so hardware calls bind the
+        _impl forms directly: the dispatching members exist to move external
+        callers onto managed threads, and this thread already is one.
+        """
         ctx = _app_ctx.ctx
         settings = ctx.settings
 
@@ -397,32 +402,37 @@ class CompositeCapture(FloatLayout):
 
                 if z_stage_present:
                     focus_pos = layer_settings[trans_layer]['focus']
-                    ctx.scope.motion.move_absolute_sync(
+                    # This worker already runs on a managed executor thread;
+                    # the dispatching member exists to move EXTERNAL callers
+                    # onto one, so on-worker code binds the _impl form.
+                    ctx.scope.motion._move_absolute_position_impl(
                         'Z',
                         focus_pos,
                         wait_until_complete=True,
                     )
 
                 gain = layer_settings[trans_layer]['gain_db']
-                ctx.scope.imaging.set_gain_sync(gain)
+                # On-worker camera writes bind _impl, as with the move above.
+                ctx.scope.imaging._set_gain_impl(gain)
                 exposure = layer_settings[trans_layer]['exp_ms']
-                ctx.scope.imaging.set_exposure_sync(exposure)
+                ctx.scope.imaging._set_exposure_time_impl(exposure)
                 illumination = layer_settings[trans_layer]['ill_ma']
 
                 # Colour string to the seam unmapped: an undrivable colour
                 # fails with the colour named, never a sentinel channel.
-                ctx.scope.illumination.led_on_sync(trans_layer, illumination)
+                # On-worker LED writes bind _impl, as with the move above.
+                ctx.scope.illumination._led_on_impl(trans_layer, illumination)
 
                 # A channel captured with its LED driven must never feed a
                 # black frame into the composite; illumination 0 is dark by
                 # design and exempt (same contract as the protocol writer).
-                transmitted_capture = ctx.scope.imaging.capture_and_wait_sync(
+                transmitted_capture = ctx.scope.imaging._capture_and_wait_impl(
                     force_to_8bit=capture_depth == 8,
                     all_ones_check=True,
                     dark_floor_check=illumination > 0,
-                    grab_timeout_s=1.0,
+                    timeout_s=1.0,
                 )
-                ctx.scope.illumination.leds_off_sync()
+                ctx.scope.illumination._leds_off_impl()
 
                 if transmitted_capture is None:
                     from modules.notification_center import notifications
@@ -443,7 +453,7 @@ class CompositeCapture(FloatLayout):
                 # Can only use one transmitted channel per composite
                 break
 
-        ctx.scope.illumination.leds_off_sync()
+        ctx.scope.illumination._leds_off_impl()
 
         # Capture fluorescence and luminescence channels
         for layer in (
@@ -456,16 +466,18 @@ class CompositeCapture(FloatLayout):
 
                 if z_stage_present:
                     focus_pos = layer_settings[layer]['focus']
-                    ctx.scope.motion.move_absolute_sync(
+                    # On-worker: bind _impl, as above.
+                    ctx.scope.motion._move_absolute_position_impl(
                         'Z',
                         focus_pos,
                         wait_until_complete=True,
                     )
 
                 gain = layer_settings[layer]['gain_db']
-                ctx.scope.imaging.set_gain_sync(gain)
+                # On-worker camera writes bind _impl, as above.
+                ctx.scope.imaging._set_gain_impl(gain)
                 exposure = layer_settings[layer]['exp_ms']
-                ctx.scope.imaging.set_exposure_sync(exposure)
+                ctx.scope.imaging._set_exposure_time_impl(exposure)
                 sum_count = layer_settings[layer]['sum']
                 # Stage B1: see comment above; update_scopedisplay retired.
                 sum_iteration_callback = None
@@ -484,21 +496,22 @@ class CompositeCapture(FloatLayout):
                 # be rejected for coming back dark.
                 led_driven = layer in common_utils.get_layers_with_led() and illumination > 0
                 if led_driven:
-                    ctx.scope.illumination.led_on_sync(layer, illumination)
+                    # On-worker: bind _impl, as above.
+                    ctx.scope.illumination._led_on_impl(layer, illumination)
 
                 # Same black-frame contract as the transmitted grab above;
                 # a failed channel is skipped loudly rather than silently
                 # written into the composite as garbage.
-                img_gray = ctx.scope.imaging.capture_and_wait_sync(
+                img_gray = ctx.scope.imaging._capture_and_wait_impl(
                     force_to_8bit=capture_depth == 8,
                     all_ones_check=True,
                     dark_floor_check=led_driven,
-                    grab_timeout_s=1.0,
+                    timeout_s=1.0,
                     sum_count=sum_count,
                     sum_delay_s=exposure / 1000,
                     sum_iteration_callback=sum_iteration_callback,
                 )
-                ctx.scope.illumination.leds_off_sync()
+                ctx.scope.illumination._leds_off_impl()
 
                 if img_gray is None:
                     from modules.notification_center import notifications
@@ -516,7 +529,7 @@ class CompositeCapture(FloatLayout):
                 else:
                     channel_images[layer] = np.array(img_gray)
 
-            ctx.scope.illumination.leds_off_sync()
+            ctx.scope.illumination._leds_off_impl()
 
             # Unschedule histogram on main thread -- widget access must not happen from worker
             def _unschedule_histo(dt, layer_name=layer):

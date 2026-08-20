@@ -9615,7 +9615,6 @@ class TestTimeoutParamNamesUseSecondSuffix:
         ('modules.lumascope_api.imaging', 'ImagingAPI', 'capture_and_wait_sync'),
         ('modules.lumascope_api.imaging', 'ImagingAPI', 'get_image'),
         ('modules.lumascope_api.diagnostics', 'DiagnosticsAPI', 'enter_led_engineering_mode'),
-        ('modules.scope_session', 'ScopeSession', 'led_on_sync'),
     )
 
     def test_api_methods_use_timeout_s(self):

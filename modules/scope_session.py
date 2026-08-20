@@ -409,8 +409,9 @@ class ScopeSession:
             cb_kwargs=cb_kwargs,
         )
 
-    def led_on_sync(self, channel, mA, timeout_s=5) -> None:
-        self.scope.illumination.led_on_sync(channel, mA, timeout_s=timeout_s)
+    def led_on_sync(self, channel, mA) -> None:
+        """Turn on an LED channel and block until applied."""
+        self.scope.illumination.led_on(channel, mA)
 
     # --- Motion commands ---
 
