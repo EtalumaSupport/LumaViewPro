@@ -8,7 +8,7 @@ Collects what was previously scattered across lumaviewpro.py:
   ``config_helpers.log_system_metrics``.
 - 60 s executor queue depth snapshot + auto-prune of SCOPEDISPLAY
   backlog (was the ``_executor_watchdog`` closure).
-- 4 hr camera temperatures via ``Lumascope.log_camera_temps``.
+- 4 hr camera temperatures via ``Lumascope._log_camera_temps``.
 
 One module, one ``MetricsLogger`` class, three ``tick_*`` methods.
 Every entry point boots LVP through the same ``start(...)`` call so
@@ -78,7 +78,7 @@ class MetricsLogger:
 
         Args:
             scope: ``Lumascope`` API instance -- used by the camera-temp
-                tick (delegates to ``scope.imaging.log_camera_temps``) and any
+                tick (delegates to ``scope.imaging._log_camera_temps``) and any
                 future tick that needs hardware access.
             executor_bundle: ``modules.executor_registry.ExecutorBundle``
                 -- the executor watchdog reads ``.snapshot()`` and prunes

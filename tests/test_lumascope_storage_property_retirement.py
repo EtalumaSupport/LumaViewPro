@@ -25,7 +25,7 @@ the band-aid came back -- callers should reach through `scope.motion.X`
 or be migrated to MotionAPI directly.
 
 Out of scope (intentionally still on Lumascope, retire later):
-- is_homing / is_turreting public @property pair (lines 881-899; Phase 2e/2f)
+- _is_homing / _is_turreting @property pair (now private; motion-internal flags)
 - get_axis_state / _set_axis_state method-name forwarders (kept for now;
   production callers still use them directly on Lumascope).
 (The homing/move method-name forwarders this note once listed were since

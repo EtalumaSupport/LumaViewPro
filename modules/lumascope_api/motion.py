@@ -474,7 +474,7 @@ class MotionAPI:
             self._scope.imaging.frame_validity.invalidate('xy_move')
         if 'T' in present_axes:
             self._scope.imaging.frame_validity.invalidate('turret')
-        self.is_homing = True
+        self._is_homing = True
         try:
             with self._reference_position_logger():
                 result = self._driver.home()
@@ -505,7 +505,7 @@ class MotionAPI:
             )
             return False
         finally:
-            self.is_homing = False
+            self._is_homing = False
             _api_log.info('home DONE')
 
     @contextlib.contextmanager
@@ -513,7 +513,7 @@ class MotionAPI:
         """Context manager that lowers Z to 0 before turret motion and restores after.
 
         Use as ``with scope.motion._safe_turret_move(): ... move turret ...``.
-        Sets ``is_turreting`` for the duration and restores the original
+        Sets ``_is_turreting`` for the duration and restores the original
         Z position even if the body raises.
 
         Args:
@@ -530,15 +530,15 @@ class MotionAPI:
         logger.info('[SCOPE API ] Moving Z to 0', extra={'force_error': True})
         initial_z = self.get_current_position(axis='Z')
         self._move_absolute_impl('Z', position=0, wait_until_complete=True)
-        self.is_turreting = True
+        self._is_turreting = True
         try:
             yield
         finally:
             # Always clear the flag, even if the body raised (e.g. driver
             # HardwareError from the turret home). Without this, a failed turret
-            # home would leave is_turreting=True and the stage stuck at
+            # home would leave _is_turreting=True and the stage stuck at
             # Z=0.
-            self.is_turreting = False
+            self._is_turreting = False
             if restore_z:
                 logger.info(f'[SCOPE API ] Restoring Z to {initial_z}', extra={'force_error': True})
                 self._move_absolute_impl('Z', position=initial_z, wait_until_complete=True)
@@ -746,7 +746,7 @@ class MotionAPI:
             resp[axis] = self.get_limit_switch_status(axis=axis)
         return resp
 
-    def get_overshoot(self) -> bool:
+    def _get_overshoot(self) -> bool:
         """Check if the Z axis is currently in overshoot (backlash compensation) mode.
 
         Returns:
@@ -765,7 +765,7 @@ class MotionAPI:
         """
         if self.is_any_axis_moving():
             return True
-        return bool(self.get_overshoot())
+        return bool(self._get_overshoot())
 
     def set_acceleration_limit(self, val_pct: int) -> None:
         """Set the motor controller acceleration limit (percent of max).
@@ -792,7 +792,7 @@ class MotionAPI:
     # --- CR-2: Thread-safe properties for shared state ---
 
     @property
-    def is_homing(self) -> bool:
+    def _is_homing(self) -> bool:
         """True while the microscope is homing.
 
         Returns:
@@ -800,8 +800,8 @@ class MotionAPI:
         """
         return self._homing_event.is_set()
 
-    @is_homing.setter
-    def is_homing(self, value: bool) -> None:
+    @_is_homing.setter
+    def _is_homing(self, value: bool) -> None:
         """Set the homing-in-progress flag."""
         if value:
             self._homing_event.set()
@@ -809,7 +809,7 @@ class MotionAPI:
             self._homing_event.clear()
 
     @property
-    def is_turreting(self) -> bool:
+    def _is_turreting(self) -> bool:
         """True while the turret is moving.
 
         Returns:
@@ -817,8 +817,8 @@ class MotionAPI:
         """
         return self._turreting_event.is_set()
 
-    @is_turreting.setter
-    def is_turreting(self, value: bool) -> None:
+    @_is_turreting.setter
+    def _is_turreting(self, value: bool) -> None:
         """Set the turret-motion-in-progress flag."""
         if value:
             self._turreting_event.set()

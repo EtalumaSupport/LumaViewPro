@@ -3015,7 +3015,7 @@ class ImagingAPI:
                 self._scale_bar['color'] = color
 
     # --- Camera diagnostics (live in-flight only; data source = DiagnosticsAPI) ---
-    def log_camera_temps(self) -> None:
+    def _log_camera_temps(self) -> None:
         """Emit one INFO line per camera temperature sensor.
 
         No-op when no camera is connected. Called once on startup and
@@ -3055,18 +3055,18 @@ class ImagingAPI:
             self.stop_camera_temp_logging()
 
         self._camera_temp_unschedule_fn = unschedule_fn
-        self.log_camera_temps()  # one immediate sample
+        self._log_camera_temps()  # one immediate sample
 
         def _tick(_dt=0):
             # camera_connected is an instantaneous poll and a False can be
             # transient (a single flaky connectivity query), so the tick
-            # skips the sample (log_camera_temps guards internally) but
+            # skips the sample (_log_camera_temps guards internally) but
             # STAYS SCHEDULED -- self-unscheduling here permanently ended
             # temperature logging for the rest of a multi-day soak on one
             # transient False. Teardown belongs to the explicit owners:
             # stop_camera_temp_logging via the metrics logger stop and the
             # scope-swap path.
-            self.log_camera_temps()
+            self._log_camera_temps()
 
         self._camera_temp_event = schedule_interval_fn(_tick, interval_s)
         logger.info(f'[SCOPE API ] start_camera_temp_logging: interval={interval_s}s')

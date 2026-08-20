@@ -269,13 +269,15 @@ class TestMoveAbsolutePositionValidation:
         from modules.lumascope_api import Lumascope
 
         with pytest.raises(ValueError, match='exceeds safety limit'):
-            sim_scope.motion.move_absolute(axis='Z', position=Lumascope.MOTOR_POSITION_LIMIT + 1)
+            sim_scope.motion.move_absolute(axis='Z', position=Lumascope._MOTOR_POSITION_LIMIT + 1)
 
     def test_rejects_large_negative_position(self, sim_scope):
         from modules.lumascope_api import Lumascope
 
         with pytest.raises(ValueError, match='exceeds safety limit'):
-            sim_scope.motion.move_absolute(axis='Z', position=-(Lumascope.MOTOR_POSITION_LIMIT + 1))
+            sim_scope.motion.move_absolute(
+                axis='Z', position=-(Lumascope._MOTOR_POSITION_LIMIT + 1)
+            )
 
     def test_accepts_valid_input(self, sim_scope):
         sim_scope.motion.move_absolute(axis='Z', position=1000)
@@ -9393,8 +9395,9 @@ class TestImagingTimeoutsAreFloatSeconds:
 class TestImagingGetCameraTempsRetired:
     """Audit Finding #2 -- imaging.get_camera_temps was a duplicate path
     for the diagnostics.get_camera_temperatures_degc probe. Retired pre-freeze.
-    log_camera_temps (the live-in-flight logger) stays on imaging and now
-    routes through diagnostics for the data read."""
+    _log_camera_temps (the live-in-flight logger) stays on imaging -- now
+    private, since the metrics schedule is its only caller -- and routes
+    through diagnostics for the data read."""
 
     def test_imaging_get_camera_temps_is_gone(self):
         from modules.lumascope_api.imaging import ImagingAPI
@@ -9412,7 +9415,10 @@ class TestImagingGetCameraTempsRetired:
     def test_imaging_log_camera_temps_still_exists(self):
         from modules.lumascope_api.imaging import ImagingAPI
 
-        assert callable(getattr(ImagingAPI, 'log_camera_temps', None))
+        assert callable(getattr(ImagingAPI, '_log_camera_temps', None))
+        assert not hasattr(ImagingAPI, 'log_camera_temps'), (
+            'the public spelling must not come back -- the metrics schedule is the only caller'
+        )
 
 
 class TestSaveLiveImageTimeoutIsFloat:

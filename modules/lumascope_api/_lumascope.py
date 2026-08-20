@@ -267,11 +267,11 @@ class Lumascope:
     # SoT with the same value.
     # LED channel set comes from self._led_driver.available_channels() -- varies by
     # Canonical home for these is `_constants.py`; alias on the class so
-    # existing callers (`scope._VALID_AXIS_NAMES`, `Lumascope.MOTOR_POSITION_LIMIT`)
+    # existing callers (`scope._VALID_AXIS_NAMES`, `Lumascope._MOTOR_POSITION_LIMIT`)
     # keep working. Sub-API modules import from `_constants.py` directly
     # to avoid a circular dep with this file.
     _VALID_AXIS_NAMES = _api_constants._VALID_AXIS_NAMES
-    MOTOR_POSITION_LIMIT = _api_constants.MOTOR_POSITION_LIMIT
+    _MOTOR_POSITION_LIMIT = _api_constants.MOTOR_POSITION_LIMIT
 
     def _init_minimal(self, simulated: bool) -> None:
         """Shared init for state slots both __init__ and create_diagnostic need.
