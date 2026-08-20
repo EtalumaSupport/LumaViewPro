@@ -29,7 +29,17 @@ $ErrorActionPreference = "Stop"
 # v2: writes version.txt line 5 (the build ID). A branch whose lvp_logger
 # reads that line cannot be built by v1 -- the exe would come out with no
 # build identity and say so, which is the silent gap v2 exists to close.
-$script_version = 2
+#
+# v3: the build ID moves OUT of version.txt into its own build_id.txt, and
+# the build stops rewriting version.txt at all. v2 rewrote it with
+# `Set-Content -Encoding UTF8`, which on Windows PowerShell 5.1 means
+# UTF-8 WITH a byte-order mark. lvp_logger reads line 1 as the app's own
+# name and uses it for the Documents folder and the TIFF Software tag, so
+# the BOM shipped in 4.0.0-beta29 as a garbled title bar, a fresh data
+# folder that orphaned the user's settings, and `TIFF strings must be
+# 7-bit ASCII` on every save. A diagnostic has no business sharing a file
+# with a path-critical string; v2 must not build this branch.
+$script_version = 3
 
 $repo_url = "https://github.com/EtalumaSupport/LumaViewPro.git"
 $script_dir = Split-Path -Parent $PSCommandPath
@@ -468,7 +478,7 @@ Remove-Item "$clone\.git*" -Recurse -Force -ErrorAction SilentlyContinue
 $ver_raw = (Get-Content "$clone\version.txt" -TotalCount 1).Trim()
 if ($ver_raw -match '^\S+') { $version = $matches[0] } else { Write-Host "ERROR: Can't parse version.txt"; Exit 1 }
 
-# Stamp a real BUILD identity as line 5. Lines 2-4 are written by the
+# Stamp a real BUILD identity. version.txt lines 2-4 are written by the
 # pre-commit hook and identify a COMMIT (line 4's "GUID" is random per
 # commit, not per build), so every rebuild of one SHA produced banners
 # that were byte-identical -- three builds of f17cac2a on 2026-08-17 all
@@ -476,15 +486,36 @@ if ($ver_raw -match '^\S+') { $version = $matches[0] } else { Write-Host "ERROR:
 # install-log timestamp. That is exactly the case that arises when build
 # INPUTS change while source does not, which is when it matters most.
 #
+# It lands in its OWN file. version.txt is authored by exactly one writer
+# -- the pre-commit hook -- because its line 1 is load-bearing far beyond
+# the banner: it names the user's Documents data folder and is stamped
+# into the TIFF Software tag of every saved image. The build ID is a
+# diagnostic. Mixing the two is what let a PowerShell encoding default
+# take out image capture in 4.0.0-beta29; see $script_version v3 above.
+#
+# WriteAllLines, not Set-Content: on Windows PowerShell 5.1
+# `-Encoding UTF8` emits a byte-order mark and `utf8NoBOM` does not exist
+# (PS 6+ only, so it would fail parameter validation on the build host).
+# The .NET default here is UTF-8 without a BOM on every PowerShell.
+#
 # UTC start + build host: deterministic, sorts, no RNG, and it survives
-# into the installed exe because the spec bundles version.txt.
+# into the installed exe because the spec bundles the file.
 # Collision needs two builds started in the same second on one host;
 # a build takes minutes, so that is left unguarded on purpose.
 $build_id = "{0}-{1}" -f (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssZ"), $env:COMPUTERNAME
-$ver_lines = @(Get-Content "$clone\version.txt")
-while ($ver_lines.Count -lt 4) { $ver_lines += "" }
-$ver_lines = $ver_lines[0..3] + @($build_id)
-Set-Content -Path "$clone\version.txt" -Value $ver_lines -Encoding UTF8
+$build_id_file = Join-Path $clone "build_id.txt"
+[System.IO.File]::WriteAllLines($build_id_file, [string[]]@($build_id))
+
+# Fail the BUILD rather than ship an exe that cannot say what it is.
+# beta29 reached a bench because a corrupt build identity was only
+# detectable at first image capture, on the customer's machine.
+$stamped = if (Test-Path $build_id_file) { (Get-Content $build_id_file -TotalCount 1).Trim() } else { "" }
+if ($stamped -cnotmatch '^[\x20-\x7E]+$') {
+    Write-Host ""
+    Write-Host "ERROR: build_id.txt is missing or not 7-bit ASCII ('$stamped')."
+    Write-Host "  Refusing to build rather than ship an exe with a corrupt build identity."
+    Exit 1
+}
 Write-Host "Build ID: $build_id"
 
 $product = "LumaViewPro-$version"

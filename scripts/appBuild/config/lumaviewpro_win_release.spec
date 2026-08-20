@@ -58,6 +58,19 @@ _fx2_dll = _os.environ.get('FX2_LIBUSB_DLL', '').strip()
 if _fx2_dll and _os.path.exists(_fx2_dll):
     binaries.append((_fx2_dll, '.'))
 
+# The build ID lives in its own file, never in version.txt. version.txt
+# line 1 names the user's Documents data folder and is stamped into the
+# TIFF Software tag of every saved image, so a diagnostic writer sharing
+# that file is a path-critical string one encoding default away from
+# breaking capture -- which is what 4.0.0-beta29 shipped.
+#
+# build.ps1 (v3+) writes build_id.txt into the clone before PyInstaller
+# runs, so a real build always has one. Running this spec by hand is not
+# a build event and legitimately has none; the banner already reports
+# "source / dev" for that case, so absence must not fail the spec.
+if _os.path.exists('build_id.txt'):
+    datas.append(('build_id.txt', '.'))
+
 # Every ids_peak* package is collected WHOLESALE, never left to inference:
 # afl/icv are reached only through runtime probes that build the import
 # path from strings (drivers/idscamera.py), so static analysis never sees
