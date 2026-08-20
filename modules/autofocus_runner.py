@@ -321,7 +321,7 @@ class AutofocusRunner:
                 self._scope.motion.set_precision_mode('Z', False)
             except Exception as e:
                 logger.debug(f'[AF] Could not drop precision mode for coarse passes: {e}')
-            self._move_absolute_position(pos=self._params['z_min'])
+            self._move_absolute_position(position=self._params['z_min'])
 
             while (
                 self._af_in_progress.is_set()
@@ -633,12 +633,12 @@ class AutofocusRunner:
                         _af_log.info(
                             f'  EXTEND: peak at edge, extending z_max to {self._params["z_max"]:.1f}'
                         )
-                        self._move_relative_position(pos=resolution)
+                        self._move_relative_position(distance=resolution)
                         return
 
         # Measure next step?
         if next_target <= self._params['z_max']:
-            self._move_relative_position(pos=resolution)
+            self._move_relative_position(distance=resolution)
             return
 
         # Pass is complete
@@ -692,7 +692,9 @@ class AutofocusRunner:
             # Move just below the best position so the final approach
             # is upward; this side of the curve is the one the fine
             # pass measured most densely.
-            self._move_absolute_position(pos=(best_focus_position - self._params['resolution']))
+            self._move_absolute_position(
+                position=(best_focus_position - self._params['resolution'])
+            )
 
             af_elapsed = (time.monotonic() - self._af_start_time) * 1000
             _af_log.info(
@@ -702,7 +704,7 @@ class AutofocusRunner:
                 f'({af_elapsed:.0f}ms) ---'
             )
 
-            self._move_absolute_position(pos=best_focus_position)
+            self._move_absolute_position(position=best_focus_position)
 
             if self.ui_update_func is not None:
                 _schedule_ui(lambda dt: self.ui_update_func(pos=float(best_focus_position)), 0)
@@ -731,7 +733,7 @@ class AutofocusRunner:
         self._params['z_min'] = best_focus_position - prev_resolution
         self._params['z_max'] = best_focus_position + prev_resolution
 
-        self._move_absolute_position(pos=self._params['z_min'])
+        self._move_absolute_position(position=self._params['z_min'])
         self._last_progress_ts = time.monotonic()
 
         if self._params['resolution'] == af_min:
@@ -744,22 +746,22 @@ class AutofocusRunner:
     def best_focus_position(self) -> float | None:
         return self._best_focus_position
 
-    def _move_absolute_position(self, pos):
+    def _move_absolute_position(self, position):
         # Internal-caller contract of the motion API: the public members are
         # dispatchers that serialize EXTERNAL callers onto the io worker,
         # and every internal caller already on a managed thread binds the
         # body directly -- the same contract the AF camera grabs above and
         # the protocol writer follow.
-        self._scope.motion._move_absolute_impl('Z', pos)
+        self._scope.motion._move_absolute_impl('Z', position)
         with self._callbacks_lock:
             cb = self._callbacks.get('move_position')
         if cb is not None:
             _schedule_ui(lambda dt: cb('Z'))
 
-    def _move_relative_position(self, pos):
+    def _move_relative_position(self, distance):
         # Internal-caller contract of the motion API -- see
         # _move_absolute_position above.
-        self._scope.motion._move_relative_impl('Z', pos)
+        self._scope.motion._move_relative_impl('Z', distance)
         with self._callbacks_lock:
             cb = self._callbacks.get('move_position')
         if cb is not None:

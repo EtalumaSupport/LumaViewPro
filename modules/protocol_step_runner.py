@@ -538,7 +538,7 @@ class ProtocolStepRunner:
                 if p._callbacks.move_position:
                     _schedule_ui(lambda dt: p._callbacks.move_position('Z'), 0)
 
-    def _move_axis_through_io(self, axis: str, pos):
+    def _move_axis_through_io(self, axis: str, position):
         """Submit a single-axis move to io_executor and wait for completion.
 
         Used by ``default_move``, which runs on PROTOCOL_WORKER, to keep
@@ -553,7 +553,7 @@ class ProtocolStepRunner:
         p = self._p
         kwargs = {
             'axis': axis,
-            'pos': pos,
+            'position': position,
             'wait_until_complete': False,
             'overshoot_enabled': False,
         }

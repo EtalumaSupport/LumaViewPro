@@ -491,6 +491,6 @@ class ScopeSession:
             self.settings['turret_position'] = turret_position
             move_absolute(
                 axis='T',
-                pos=turret_position,
+                position=turret_position,
                 wait_until_complete=True,
             )

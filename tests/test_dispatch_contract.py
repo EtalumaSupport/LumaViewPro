@@ -65,7 +65,7 @@ FAMILIES = [
         'motion',
         'move_absolute',
         'move_absolute_async',
-        {'axis': 'Z', 'pos': 100.0},
+        {'axis': 'Z', 'position': 100.0},
         'io',
     ),
 ]

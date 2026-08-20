@@ -259,7 +259,7 @@ class MotionAPI:
     def move_absolute_async(
         self,
         axis,
-        pos,
+        position,
         *,
         wait_until_complete=False,
         overshoot_enabled=True,
@@ -270,7 +270,7 @@ class MotionAPI:
 
         Args:
             axis: Axis name ("X", "Y", "Z", "T").
-            pos: Target position in um.
+            position: Target position -- um for X/Y/Z; turret slot (1-4) for T.
             wait_until_complete: If True, the WORKER blocks until the move
                 finishes; this call still returns immediately.
             overshoot_enabled: Allow Z overshoot for backlash compensation.
@@ -282,7 +282,7 @@ class MotionAPI:
             'move_absolute_async',
             kwargs={
                 'axis': axis,
-                'pos': pos,
+                'position': position,
                 'wait_until_complete': wait_until_complete,
                 'overshoot_enabled': overshoot_enabled,
             },
@@ -529,7 +529,7 @@ class MotionAPI:
         # Save off current Z position before moving Z to 0
         logger.info('[SCOPE API ] Moving Z to 0', extra={'force_error': True})
         initial_z = self.get_current_position(axis='Z')
-        self._move_absolute_impl('Z', pos=0, wait_until_complete=True)
+        self._move_absolute_impl('Z', position=0, wait_until_complete=True)
         self.is_turreting = True
         try:
             yield
@@ -541,7 +541,7 @@ class MotionAPI:
             self.is_turreting = False
             if restore_z:
                 logger.info(f'[SCOPE API ] Restoring Z to {initial_z}', extra={'force_error': True})
-                self._move_absolute_impl('Z', pos=initial_z, wait_until_complete=True)
+                self._move_absolute_impl('Z', position=initial_z, wait_until_complete=True)
             else:
                 logger.info(
                     '[SCOPE API ] Skipping Z restore -- caller will overwrite Z next',
@@ -866,7 +866,7 @@ class MotionAPI:
     def move_relative_async(
         self,
         axis,
-        um,
+        distance,
         *,
         wait_until_complete=False,
         overshoot_enabled=True,
@@ -877,7 +877,7 @@ class MotionAPI:
 
         Args:
             axis: Axis name ("X", "Y", "Z", "T").
-            um: Distance to move in um.
+            distance: Distance to move -- um for X/Y/Z; turret slots for T.
             wait_until_complete: If True, block until move finishes.
             overshoot_enabled: Allow Z overshoot for backlash compensation.
             callback: Optional completion callback.
@@ -888,7 +888,7 @@ class MotionAPI:
             'move_relative_async',
             kwargs={
                 'axis': axis,
-                'um': um,
+                'distance': distance,
                 'wait_until_complete': wait_until_complete,
                 'overshoot_enabled': overshoot_enabled,
             },
@@ -1229,7 +1229,7 @@ class MotionAPI:
     def _move_absolute_impl(
         self,
         axis: str,
-        pos: float,
+        position: float,
         wait_until_complete: bool = False,
         overshoot_enabled: bool = True,
         ignore_limits: bool = False,
@@ -1238,21 +1238,21 @@ class MotionAPI:
 
         Args:
             axis (str): Axis name ("X", "Y", "Z", "T").
-            pos (float): Target position in um.
+            position (float): Target position -- um for X/Y/Z; turret slot (1-4) for T.
             wait_until_complete: If True, block until move finishes.
             overshoot_enabled: Allow Z overshoot for backlash compensation.
             ignore_limits: If True, skip software limit checks.
 
         Raises:
-            ValueError: If axis is invalid or pos is not numeric / out of bounds.
+            ValueError: If axis is invalid or position is not numeric / out of bounds.
         """
         if axis not in _VALID_AXIS_NAMES:
             raise ValueError(f'Axis must be one of {_VALID_AXIS_NAMES}, got {axis!r}')
-        if not isinstance(pos, (int, float)):
-            raise ValueError(f'Position must be numeric, got {type(pos).__name__}')
-        if abs(pos) > MOTOR_POSITION_LIMIT:
+        if not isinstance(position, (int, float)):
+            raise ValueError(f'Position must be numeric, got {type(position).__name__}')
+        if abs(position) > MOTOR_POSITION_LIMIT:
             raise ValueError(
-                f'Position {pos} um exceeds safety limit of +/-{MOTOR_POSITION_LIMIT} um'
+                f'Position {position} um exceeds safety limit of +/-{MOTOR_POSITION_LIMIT} um'
             )
 
         # Silently no-op for axes that aren't present on this hardware.
@@ -1290,17 +1290,17 @@ class MotionAPI:
         # motion monitor polls until real arrival.
         try:
             self._driver.move_abs_pos(
-                axis, pos, overshoot_enabled=overshoot_enabled, ignore_limits=ignore_limits
+                axis, position, overshoot_enabled=overshoot_enabled, ignore_limits=ignore_limits
             )
         except Exception:
-            _api_log.error(f'move_abs {axis}={pos:.1f}um FAILED')
+            _api_log.error(f'move_abs {axis}={position:.1f}um FAILED')
             raise
         if ramp:
             with self._move_profile_lock:
                 self._move_profile[axis] = {
                     'start_time': time.monotonic(),
                     'start_pos': start_pos,
-                    'target_pos': float(pos),
+                    'target_pos': float(position),
                     'ramp': ramp,
                 }
         self._set_axis_state(axis, AxisState.MOVING)
@@ -1312,7 +1312,7 @@ class MotionAPI:
         self._scope.imaging.frame_validity.invalidate(
             self._AXIS_VALIDITY_SOURCE.get(axis, 'xy_move')
         )
-        _api_log.info(f'move_abs {axis}={pos:.1f}um{" wait" if wait_until_complete else ""}')
+        _api_log.info(f'move_abs {axis}={position:.1f}um{" wait" if wait_until_complete else ""}')
 
         if wait_until_complete is True:
             self.wait_until_finished_moving()
@@ -1321,7 +1321,7 @@ class MotionAPI:
     def _move_relative_impl(
         self,
         axis: str,
-        um: float,
+        distance: float,
         wait_until_complete: bool = False,
         overshoot_enabled: bool = False,
     ) -> None:
@@ -1329,20 +1329,20 @@ class MotionAPI:
 
         Args:
             axis (str): Axis name ("X", "Y", "Z", "T").
-            um (float): Distance to move in um.
+            distance (float): Distance to move -- um for X/Y/Z; turret slots for T.
             wait_until_complete: If True, block until move finishes.
             overshoot_enabled: Allow Z overshoot for backlash compensation.
 
         Raises:
-            ValueError: If axis is invalid or um is not numeric / out of bounds.
+            ValueError: If axis is invalid or distance is not numeric / out of bounds.
         """
         if axis not in _VALID_AXIS_NAMES:
             raise ValueError(f'Axis must be one of {_VALID_AXIS_NAMES}, got {axis!r}')
-        if not isinstance(um, (int, float)):
-            raise ValueError(f'Distance must be numeric, got {type(um).__name__}')
-        if abs(um) > MOTOR_POSITION_LIMIT:
+        if not isinstance(distance, (int, float)):
+            raise ValueError(f'Distance must be numeric, got {type(distance).__name__}')
+        if abs(distance) > MOTOR_POSITION_LIMIT:
             raise ValueError(
-                f'Distance {um} um exceeds safety limit of +/-{MOTOR_POSITION_LIMIT} um'
+                f'Distance {distance} um exceeds safety limit of +/-{MOTOR_POSITION_LIMIT} um'
             )
 
         # Silently no-op for axes that aren't present on this hardware.
@@ -1372,7 +1372,7 @@ class MotionAPI:
         else:
             with self._pos_cache_lock:
                 start_pos = self._pos_cache.get(axis, 0.0)
-        target_pos = start_pos + float(um)
+        target_pos = start_pos + float(distance)
         try:
             ramp = self._driver.motorconfig.ramp_params(axis)
         except Exception:
@@ -1381,9 +1381,9 @@ class MotionAPI:
         # Write hardware target BEFORE transitioning axis to MOVING --
         # same race fix as move_absolute (#618).
         try:
-            self._driver.move_rel_pos(axis, um, overshoot_enabled=overshoot_enabled)
+            self._driver.move_rel_pos(axis, distance, overshoot_enabled=overshoot_enabled)
         except Exception:
-            _api_log.error(f'move_rel {axis}={um:+.1f}um FAILED')
+            _api_log.error(f'move_rel {axis}={distance:+.1f}um FAILED')
             raise
         if ramp:
             with self._move_profile_lock:
@@ -1402,7 +1402,7 @@ class MotionAPI:
         self._scope.imaging.frame_validity.invalidate(
             self._AXIS_VALIDITY_SOURCE.get(axis, 'xy_move')
         )
-        _api_log.info(f'move_rel {axis}={um:+.1f}um{" wait" if wait_until_complete else ""}')
+        _api_log.info(f'move_rel {axis}={distance:+.1f}um{" wait" if wait_until_complete else ""}')
 
         if wait_until_complete is True:
             self.wait_until_finished_moving()
@@ -1459,14 +1459,14 @@ class MotionAPI:
     def move_absolute(
         self,
         axis: str,
-        pos: float,
+        position: float,
         wait_until_complete: bool = False,
         overshoot_enabled: bool = True,
         ignore_limits: bool = False,
     ) -> None:
-        """Move an axis to an absolute position, and wait for the command.
+        """Move an axis to an absolute position (um for X/Y/Z; turret slot 1-4 for T).
 
-        See ``_move_absolute_impl`` for the argument contract and
+        Waits for the command. See ``_move_absolute_impl`` for the argument contract and
         the errors it raises; this adds only the dispatch described on
         ``_dispatch_motion``. With ``wait_until_complete`` the wait bound
         also covers the physical motion the body waits out.
@@ -1474,7 +1474,7 @@ class MotionAPI:
         return self._dispatch_motion(
             self._move_absolute_impl,
             'move_absolute',
-            args=(axis, pos),
+            args=(axis, position),
             kwargs={
                 'wait_until_complete': wait_until_complete,
                 'overshoot_enabled': overshoot_enabled,
@@ -1487,18 +1487,18 @@ class MotionAPI:
     def move_relative(
         self,
         axis: str,
-        um: float,
+        distance: float,
         wait_until_complete: bool = False,
         overshoot_enabled: bool = False,
     ) -> None:
-        """Move an axis by a relative distance, and wait for the command.
+        """Move an axis by a relative distance (um for X/Y/Z; turret slots for T).
 
-        See ``_move_relative_impl`` for the argument contract.
+        Waits for the command. See ``_move_relative_impl`` for the argument contract.
         """
         return self._dispatch_motion(
             self._move_relative_impl,
             'move_relative',
-            args=(axis, um),
+            args=(axis, distance),
             kwargs={
                 'wait_until_complete': wait_until_complete,
                 'overshoot_enabled': overshoot_enabled,

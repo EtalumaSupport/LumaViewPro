@@ -263,22 +263,22 @@ class TestMoveAbsolutePositionValidation:
 
     def test_rejects_invalid_axis(self, sim_scope):
         with pytest.raises(ValueError, match='Axis'):
-            sim_scope.motion.move_absolute(axis='Q', pos=100)
+            sim_scope.motion.move_absolute(axis='Q', position=100)
 
     def test_rejects_position_above_limit(self, sim_scope):
         from modules.lumascope_api import Lumascope
 
         with pytest.raises(ValueError, match='exceeds safety limit'):
-            sim_scope.motion.move_absolute(axis='Z', pos=Lumascope.MOTOR_POSITION_LIMIT + 1)
+            sim_scope.motion.move_absolute(axis='Z', position=Lumascope.MOTOR_POSITION_LIMIT + 1)
 
     def test_rejects_large_negative_position(self, sim_scope):
         from modules.lumascope_api import Lumascope
 
         with pytest.raises(ValueError, match='exceeds safety limit'):
-            sim_scope.motion.move_absolute(axis='Z', pos=-(Lumascope.MOTOR_POSITION_LIMIT + 1))
+            sim_scope.motion.move_absolute(axis='Z', position=-(Lumascope.MOTOR_POSITION_LIMIT + 1))
 
     def test_accepts_valid_input(self, sim_scope):
-        sim_scope.motion.move_absolute(axis='Z', pos=1000)
+        sim_scope.motion.move_absolute(axis='Z', position=1000)
 
 
 # ===========================================================================

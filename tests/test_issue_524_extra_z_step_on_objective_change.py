@@ -102,7 +102,7 @@ def test_safe_turret_move_gates_z_restore_on_flag():
             if 'restore_z' not in test_src:
                 continue
             body_src = '\n'.join(ast.unparse(s) for s in node.body)
-            if "_move_absolute_impl('Z', pos=initial_z" in body_src:
+            if "_move_absolute_impl('Z', position=initial_z" in body_src:
                 found_guard = True
                 break
     assert found_guard, (

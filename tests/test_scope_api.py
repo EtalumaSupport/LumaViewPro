@@ -526,7 +526,7 @@ class TestLumascopeMotionAPI:
         task = io_ex.submitted[0]
         assert task.action == scope.motion._move_absolute_impl
         assert task.kwargs['axis'] == 'Z'
-        assert task.kwargs['pos'] == 5000.0
+        assert task.kwargs['position'] == 5000.0
 
     def test_move_absolute_async_with_options(self):
         scope, io_ex, _ = _make_real_scope_with_recording_executors()
@@ -551,7 +551,7 @@ class TestLumascopeMotionAPI:
         task = io_ex.submitted[0]
         assert task.action == scope.motion._move_relative_impl
         assert task.kwargs['axis'] == 'Y'
-        assert task.kwargs['um'] == -500.0
+        assert task.kwargs['distance'] == -500.0
 
     def test_move_home_async_z(self):
         scope, io_ex, _ = _make_real_scope_with_recording_executors()

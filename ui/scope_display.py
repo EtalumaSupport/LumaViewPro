@@ -443,8 +443,8 @@ class ScopeDisplay(Image):
                     'SCOPE_CLICK_TO_CENTER',
                     f'dx_um={x_dist_um:.1f} dy_um={y_dist_um:.1f} pixel_um={pixel_size_um:.3f}',
                 )
-                move_relative(axis='X', um=x_dist_um)
-                move_relative(axis='Y', um=y_dist_um)
+                move_relative(axis='X', distance=x_dist_um)
+                move_relative(axis='Y', distance=y_dist_um)
 
     @staticmethod
     def add_crosshairs(image):

@@ -209,7 +209,7 @@ def _user_motion_locked(axis: str) -> bool:
 # protocol_thread, not the worker.
 def move_absolute(
     axis: str,
-    pos: float,
+    position: float,
     wait_until_complete: bool = False,
     overshoot_enabled: bool = True,
     protocol: bool = False,
@@ -227,20 +227,20 @@ def move_absolute(
             ctx.io_executor.put(
                 IOTask(
                     action=ctx.motion_settings.ids['verticalcontrol_id'].turret_select,
-                    kwargs={'selected_position': pos},
+                    kwargs={'selected_position': position},
                     callback=_handle_ui_update_for_axis,
                     cb_kwargs={'axis': axis, 'vertical_control': vertical_control},
                 )
             )
         else:
             ctx.motion_settings.ids['verticalcontrol_id'].turret_select(
-                selected_position=pos, protocol=True, restore_z=restore_z
+                selected_position=position, protocol=True, restore_z=restore_z
             )
     else:
         if not protocol:
             ctx.scope.motion.move_absolute_async(
                 axis,
-                pos,
+                position,
                 wait_until_complete=wait_until_complete,
                 overshoot_enabled=overshoot_enabled,
                 callback=_handle_ui_update_for_axis,
@@ -252,7 +252,7 @@ def move_absolute(
                     action=ctx.scope.motion._move_absolute_impl,
                     kwargs={
                         'axis': axis,
-                        'pos': pos,
+                        'position': position,
                         'wait_until_complete': wait_until_complete,
                         'overshoot_enabled': overshoot_enabled,
                     },
@@ -266,14 +266,14 @@ def move_absolute(
 
 
 def move_relative(
-    axis: str, um: float, wait_until_complete: bool = False, overshoot_enabled: bool = True
+    axis: str, distance: float, wait_until_complete: bool = False, overshoot_enabled: bool = True
 ):
     if _user_motion_locked(axis):
         return
     ctx = _app_ctx.ctx
     ctx.scope.motion.move_relative_async(
         axis,
-        um,
+        distance,
         wait_until_complete=wait_until_complete,
         overshoot_enabled=overshoot_enabled,
         callback=_handle_ui_update_for_axis,

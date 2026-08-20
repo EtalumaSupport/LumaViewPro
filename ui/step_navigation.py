@@ -87,22 +87,22 @@ def go_to_step(
         if ctx.scope.motor_connected:
             if not called_from_protocol:
                 if turret_pos is not None:
-                    move_absolute(axis='T', pos=turret_pos, protocol=False)
+                    move_absolute(axis='T', position=turret_pos, protocol=False)
                     _schedule_ui(
                         lambda dt: ctx.motion_settings.ids['verticalcontrol_id'].update_turret_gui(
                             turret_pos
                         ),
                         0,
                     )
-                move_absolute(axis='X', pos=sx, protocol=False)
-                move_absolute(axis='Y', pos=sy, protocol=False)
-                move_absolute(axis='Z', pos=step['Z'], protocol=False)
+                move_absolute(axis='X', position=sx, protocol=False)
+                move_absolute(axis='Y', position=sy, protocol=False)
+                move_absolute(axis='Z', position=step['Z'], protocol=False)
             else:
                 if turret_pos is not None:
                     # restore_z=False -- the Z move below overwrites Z with
                     # step['Z'] immediately, so safe_turret_move's default
                     # Z-restore-after-T-move would be wasted motion (#524).
-                    move_absolute(axis='T', pos=turret_pos, protocol=True, restore_z=False)
+                    move_absolute(axis='T', position=turret_pos, protocol=True, restore_z=False)
                     _schedule_ui(
                         lambda dt: ctx.motion_settings.ids['verticalcontrol_id'].update_turret_gui(
                             turret_pos
