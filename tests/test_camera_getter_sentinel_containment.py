@@ -172,8 +172,6 @@ def _build_imaging(cam) -> ImagingAPI:
 CONVERTED_GETTERS = [
     ('get_gain', -1.0, 12.5),
     ('get_exposure_time', 0.0, 50.0),
-    ('get_frame_size', None, {'width': 1936, 'height': 1216}),
-    ('get_pixel_format', None, 'Mono12'),
     ('get_width', 0, 1936),
     ('get_height', 0, 1216),
     ('get_max_width', 0, 3840),
@@ -181,7 +179,18 @@ CONVERTED_GETTERS = [
     ('get_binning_size', 1, 2),
 ]
 
-_SWEEP_IDS = [name for name, _, _ in CONVERTED_GETTERS]
+# The frame-size / pixel-format live reads are ImagingAPI-internal (public
+# readers use the *_cached properties), but their bodies still serve the
+# validated last-known-good contract to the cache populate and the internal
+# callers -- the behavior sweep covers them under their private names, while
+# the public-surface classification guard below sees only public getters.
+CONVERTED_PRIVATE_GETTERS = [
+    ('_get_frame_size', None, {'width': 1936, 'height': 1216}),
+    ('_get_pixel_format', None, 'Mono12'),
+]
+
+_SWEEP = CONVERTED_GETTERS + CONVERTED_PRIVATE_GETTERS
+_SWEEP_IDS = [name for name, _, _ in _SWEEP]
 
 
 def _assert_value(actual, expected):
@@ -191,7 +200,7 @@ def _assert_value(actual, expected):
         assert actual == expected
 
 
-@pytest.mark.parametrize(('getter', 'absent', '_lkg'), CONVERTED_GETTERS, ids=_SWEEP_IDS)
+@pytest.mark.parametrize(('getter', 'absent', '_lkg'), _SWEEP, ids=_SWEEP_IDS)
 def test_all_reads_fail_cold_cache_returns_absent_default(getter, absent, _lkg):
     # Active driver, every read raises, nothing ever validly read: the getter
     # must answer the documented camera-absent default and raise nothing.
@@ -201,7 +210,7 @@ def test_all_reads_fail_cold_cache_returns_absent_default(getter, absent, _lkg):
         _assert_value(getattr(imaging, getter)(), absent)
 
 
-@pytest.mark.parametrize(('getter', '_absent', 'lkg'), CONVERTED_GETTERS, ids=_SWEEP_IDS)
+@pytest.mark.parametrize(('getter', '_absent', 'lkg'), _SWEEP, ids=_SWEEP_IDS)
 def test_failing_reads_after_good_populate_return_last_known_good(getter, _absent, lkg):
     # One good round is consumed by the init-time populate; every driver read
     # after that raises. The getter must keep answering the last-known-good
@@ -211,13 +220,13 @@ def test_failing_reads_after_good_populate_return_last_known_good(getter, _absen
         _assert_value(getattr(imaging, getter)(), lkg)
 
 
-@pytest.mark.parametrize(('getter', 'absent', '_lkg'), CONVERTED_GETTERS, ids=_SWEEP_IDS)
+@pytest.mark.parametrize(('getter', 'absent', '_lkg'), _SWEEP, ids=_SWEEP_IDS)
 def test_no_driver_returns_absent_default(getter, absent, _lkg):
     imaging = _build_imaging(None)
     _assert_value(getattr(imaging, getter)(), absent)
 
 
-@pytest.mark.parametrize(('getter', 'absent', '_lkg'), CONVERTED_GETTERS, ids=_SWEEP_IDS)
+@pytest.mark.parametrize(('getter', 'absent', '_lkg'), _SWEEP, ids=_SWEEP_IDS)
 def test_inactive_driver_returns_absent_default(getter, absent, _lkg):
     # Driver object present but inactive: the active gate answers the
     # camera-absent default without touching the (would-be-good) reads.
