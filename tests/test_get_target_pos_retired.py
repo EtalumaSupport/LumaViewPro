@@ -14,7 +14,7 @@ Retired API methods:
 - `MotionAPI.get_target_pos(axis)` (driver-wrapping body)
 
 The underlying `MotorBoard.target_pos(axis)` driver method stays --
-it's used by `Lumascope.refresh_position_cache` to seed the cache
+it's used by `Lumascope._refresh_position_cache` to seed the cache
 from hardware after homing. The driver method has a different
 contract (raises HardwareError on serial failure, returns None on
 no-data) than the retired API wrapper (try/except-swallowing,
@@ -53,12 +53,12 @@ class TestGetTargetPosRetired:
 
     def test_motorboard_target_pos_driver_method_still_exists(self):
         """The driver method that the retired API wrapper called
-        stays -- `refresh_position_cache` uses it to seed the cache
+        stays -- `_refresh_position_cache` uses it to seed the cache
         from hardware after homing."""
         from drivers.motorboard import MotorBoard
 
         assert hasattr(MotorBoard, 'target_pos'), (
-            'MotorBoard.target_pos is used by refresh_position_cache '
+            'MotorBoard.target_pos is used by _refresh_position_cache '
             'to seed the position cache from hardware after homing.'
         )
 

@@ -85,7 +85,7 @@ class MotionAPI:
         # Motion state slots.
         #
         # Locks and events are initialized here; per-axis dicts are
-        # populated by init_axes() called from Lumascope.__init__ after the
+        # populated by _init_axes() called from Lumascope.__init__ after the
         # motion driver is constructed and present_axes is known.
         # ------------------------------------------------------------------
         self._pos_cache_lock = threading.Lock()
@@ -117,17 +117,17 @@ class MotionAPI:
         self._position_listeners_lock = threading.Lock()
         self._position_listeners: list = []
 
-        # Lock for motion profile dict (built by init_axes, after driver init).
+        # Lock for motion profile dict (built by _init_axes, after driver init).
         self._move_profile_lock = threading.Lock()
 
         # Boolean operation flags use threading.Event for wait/signal.
         self._homing_event = threading.Event()  # set => homing in progress
         self._turreting_event = threading.Event()  # set => turret move in progress
 
-        # Motion monitor thread handle -- populated by start_monitor().
+        # Motion monitor thread handle -- populated by _start_monitor().
         # Not started at __init__ because the motion driver and per-axis
-        # dicts aren't ready yet; Lumascope.__init__ calls start_monitor()
-        # after init_axes().
+        # dicts aren't ready yet; Lumascope.__init__ calls _start_monitor()
+        # after _init_axes().
         self._motion_monitor_stop = threading.Event()
         self._motion_monitor_thread: threading.Thread | None = None
         # Per-axis monotonic timestamp first seen disconnected-while-moving;
@@ -135,7 +135,7 @@ class MotionAPI:
         # the board vanishes. Only the monitor thread touches it.
         self._disconnect_since: dict[str, float] = {}
 
-        # Per-axis state dicts -- empty until init_axes() fills them.
+        # Per-axis state dicts -- empty until _init_axes() fills them.
         self._pos_cache: dict = {}
         self._axis_state: dict = {}
         self._arrival_events: dict = {}
@@ -146,7 +146,7 @@ class MotionAPI:
         # so the first tmove() always goes through to the firmware.
         self._last_turret_position: int | None = None
 
-    def init_axes(self, present_axes: list[str]) -> None:
+    def _init_axes(self, present_axes: list[str]) -> None:
         """Populate per-axis state dicts from the list of detected axes.
 
         Called from Lumascope.__init__ (and create_diagnostic) after the
@@ -164,10 +164,10 @@ class MotionAPI:
             ev.set()  # Start as "arrived" (not moving)
         self._move_profile = dict.fromkeys(present_axes)
 
-    def start_monitor(self) -> None:
+    def _start_monitor(self) -> None:
         """Spawn the motion monitor thread.
 
-        Called from Lumascope.__init__ after init_axes() so the thread
+        Called from Lumascope.__init__ after _init_axes() so the thread
         always sees fully populated state dicts. Separate from __init__
         so create_diagnostic can control the spawn sequence.
         """
@@ -179,7 +179,7 @@ class MotionAPI:
         )
         self._motion_monitor_thread.start()
 
-    def disconnect(self) -> None:
+    def _disconnect(self) -> None:
         """Stop the motion monitor and reset axis states.
 
         Called from Lumascope.disconnect() before the motor driver is
@@ -412,10 +412,10 @@ class MotionAPI:
         return self._driver.get_axes_config()
 
     @contextlib.contextmanager
-    def reference_position_logger(self) -> Iterator[None]:
+    def _reference_position_logger(self) -> Iterator[None]:
         """Context manager that logs limit-switch status before and after homing.
 
-        Use as ``with scope.motion.reference_position_logger(): ... home ...``.
+        Use as ``with scope.motion._reference_position_logger(): ... home ...``.
         Emits forced-INFO log lines so the limit-switch state pre/post
         homing is preserved for diagnostics.
         """
@@ -476,7 +476,7 @@ class MotionAPI:
             self._scope.imaging.frame_validity.invalidate('turret')
         self.is_homing = True
         try:
-            with self.reference_position_logger():
+            with self._reference_position_logger():
                 result = self._driver.home()
             if result is False:
                 logger.error('[SCOPE API ] Homing failed')
@@ -488,7 +488,7 @@ class MotionAPI:
                 return False
             for ax in present_axes:
                 self._set_axis_state(ax, AxisState.IDLE)
-            self.refresh_position_cache()
+            self._refresh_position_cache()
             # The firmware homes the turret to position 1, so seed the cache.
             # Without this it stays None and a subsequent tmove(1) -- e.g. the
             # startup select-position-1 -- can't recognize the turret is
@@ -509,10 +509,10 @@ class MotionAPI:
             _api_log.info('home DONE')
 
     @contextlib.contextmanager
-    def safe_turret_move(self, restore_z: bool = True) -> Iterator[None]:
+    def _safe_turret_move(self, restore_z: bool = True) -> Iterator[None]:
         """Context manager that lowers Z to 0 before turret motion and restores after.
 
-        Use as ``with scope.motion.safe_turret_move(): ... move turret ...``.
+        Use as ``with scope.motion._safe_turret_move(): ... move turret ...``.
         Sets ``is_turreting`` for the duration and restores the original
         Z position even if the body raises.
 
@@ -577,10 +577,10 @@ class MotionAPI:
 
         # Move turret -- set HOMING after Z is safe, not before.
         # Setting T to HOMING clears its arrival event, which would block
-        # wait_until_finished_moving() inside safe_turret_move's Z move.
+        # wait_until_finished_moving() inside _safe_turret_move's Z move.
         _api_log.info('T home START')
         try:
-            with self.reference_position_logger(), self.safe_turret_move():
+            with self._reference_position_logger(), self._safe_turret_move():
                 self._set_axis_state('T', AxisState.HOMING)
                 self._scope.imaging.frame_validity.invalidate('turret')
                 result = False
@@ -588,7 +588,7 @@ class MotionAPI:
                     result = self._driver.thome()
                 finally:
                     # Transition T out of HOMING on EVERY exit, including a
-                    # raised driver call, BEFORE safe_turret_move's finally
+                    # raised driver call, BEFORE _safe_turret_move's finally
                     # restores Z via wait_until_complete=True. That restore
                     # calls wait_until_finished_moving, which iterates EVERY
                     # axis arrival event; a still-HOMING T has a cleared event
@@ -604,7 +604,7 @@ class MotionAPI:
                     'Motion', 'Homing Failed', 'Turret homing failed. Position is unknown.'
                 )
                 return False
-            self.refresh_position_cache()
+            self._refresh_position_cache()
             # Turret homes to position 1; seed the cache so a following
             # tmove(1) is a no-op rather than a redundant Z-retract / rotate /
             # restore (see home() for the full rationale).
@@ -646,7 +646,7 @@ class MotionAPI:
         if self._last_turret_position == position:
             return
 
-        with self.safe_turret_move(restore_z=restore_z):
+        with self._safe_turret_move(restore_z=restore_z):
             logger.info(f'[SCOPE API ] Moving T to position {position}')
             self._move_absolute_impl('T', position, wait_until_complete=True)
             self._last_turret_position = position
@@ -1035,7 +1035,7 @@ class MotionAPI:
         self._set_axis_state('Z', AxisState.HOMING)
         self._scope.imaging.frame_validity.invalidate('z_move')
         try:
-            with self.reference_position_logger():
+            with self._reference_position_logger():
                 result = self._driver.zhome()
             if result is False:
                 logger.error('[SCOPE API ] Z homing failed')
@@ -1045,7 +1045,7 @@ class MotionAPI:
                 self._set_axis_state('Z', AxisState.UNKNOWN)
                 return False
             self._set_axis_state('Z', AxisState.IDLE)
-            self.refresh_position_cache()
+            self._refresh_position_cache()
             _api_log.info('Z home DONE')
             return True
         except Exception:
@@ -1065,7 +1065,7 @@ class MotionAPI:
         """
         return self._driver.has_homed()
 
-    def refresh_position_cache(self) -> None:
+    def _refresh_position_cache(self) -> None:
         """Fetch all axis positions from hardware and update the cache.
 
         Called after homing completes to sync the cache with actual hardware

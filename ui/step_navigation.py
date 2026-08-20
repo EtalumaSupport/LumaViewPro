@@ -100,7 +100,7 @@ def go_to_step(
             else:
                 if turret_pos is not None:
                     # restore_z=False -- the Z move below overwrites Z with
-                    # step['Z'] immediately, so safe_turret_move's default
+                    # step['Z'] immediately, so _safe_turret_move's default
                     # Z-restore-after-T-move would be wasted motion (#524).
                     move_absolute(axis='T', position=turret_pos, protocol=True, restore_z=False)
                     _schedule_ui(

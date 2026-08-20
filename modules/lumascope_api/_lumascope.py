@@ -392,16 +392,16 @@ class Lumascope:
 
         # ----- MotionAPI -----
         # Constructed AFTER the motion driver so _driver resolves correctly.
-        # init_axes() sizes per-axis dicts to detect_present_axes(); then
-        # start_monitor() spawns the background poll thread. NullMotionBoard
+        # _init_axes() sizes per-axis dicts to detect_present_axes(); then
+        # _start_monitor() spawns the background poll thread. NullMotionBoard
         # returns [] from detect_present_axes(), so a system with no motor
         # hardware ends up with empty dicts throughout.
         from modules.lumascope_api.motion import MotionAPI  # local-import: avoid cycle
 
         self.motion = MotionAPI(self, self._motion_driver)
         present_axes = self._motion_driver.detect_present_axes()
-        self.motion.init_axes(present_axes)
-        self.motion.start_monitor()
+        self.motion._init_axes(present_axes)
+        self.motion._start_monitor()
 
         # ----- LED Control Board -----
         # Same registry-based selection as motion.
@@ -462,7 +462,7 @@ class Lumascope:
 
         # ----- Sub-API wiring -----
         # motion was already constructed above (it needs earlier
-        # construction so init_axes / start_monitor can run before the
+        # construction so _init_axes / _start_monitor can run before the
         # LED/camera drivers are set up). Remaining sub-APIs:
         from modules.lumascope_api.illumination import IlluminationAPI
         from modules.lumascope_api.imaging import ImagingAPI
@@ -543,7 +543,7 @@ class Lumascope:
         # creating Lumascope (e.g., backlash characterization).
         if self.motor_connected:
             try:
-                self.motion.refresh_position_cache()
+                self.motion._refresh_position_cache()
             except Exception:
                 pass  # OK -- cache stays at 0.0 if firmware unresponsive
 
@@ -874,10 +874,10 @@ class Lumascope:
         # to remember.
         self.motion.stop_motion()
 
-        # Stop the motion monitor and reset axis states -- MotionAPI.disconnect()
+        # Stop the motion monitor and reset axis states -- MotionAPI._disconnect()
         # handles both: signals the monitor thread, waits for it, then resets
         # all axes to UNKNOWN and sets arrival events so waiters unblock.
-        self.motion.disconnect()
+        self.motion._disconnect()
 
         # Each sub-system: only attempt disconnect on a driver that
         # has one. Skips both the canonical no-op states (NullLEDBoard,
@@ -1058,8 +1058,8 @@ class Lumascope:
 
         instance.motion = MotionAPI(instance, instance._motion_driver)
         present_axes = instance._motion_driver.detect_present_axes()
-        instance.motion.init_axes(present_axes)
-        instance.motion.start_monitor()
+        instance.motion._init_axes(present_axes)
+        instance.motion._start_monitor()
 
         instance.camera = None
         instance._frame_buffer = None

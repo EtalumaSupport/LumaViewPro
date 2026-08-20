@@ -884,7 +884,7 @@ class TestPositionCache:
         assert sim_scope.motion.get_current_position('Z') == pytest.approx(7777.0, abs=0.1)
 
     def test_refresh_after_homing(self, sim_scope):
-        """refresh_position_cache syncs cache from hardware (used after homing)."""
+        """_refresh_position_cache syncs cache from hardware (used after homing)."""
         # Directly set the simulated motor's internal position to simulate homing
         # The simulated motor stores positions in microsteps; target_pos() converts.
         # Use move_abs_pos to set a known position, then verify refresh reads it.
@@ -892,7 +892,7 @@ class TestPositionCache:
         # Cache still has old value since we bypassed move_absolute
         assert sim_scope.motion.get_target_position('Z') != 5000.0
         # Now refresh from hardware
-        sim_scope.motion.refresh_position_cache()
+        sim_scope.motion._refresh_position_cache()
         # Should now match what the motor reports
         pos = sim_scope.motion.get_target_position('Z')
         assert abs(pos - 5000.0) < 1.0  # allow microstep rounding
