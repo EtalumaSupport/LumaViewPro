@@ -33,7 +33,7 @@ for _kivy_submod in ('kivy.core', 'kivy.core.window', 'kivy.uix', 'kivy.uix.scro
 
 
 # ---------------------------------------------------------------------------
-# B-1: ui_helpers.move_absolute_position(protocol=True) -- behavioral
+# B-1: ui_helpers.move_absolute(protocol=True) -- behavioral
 # ---------------------------------------------------------------------------
 
 
@@ -53,12 +53,12 @@ def test_protocol_move_routes_through_io_executor(monkeypatch):
     # it a no-op so the test doesn't reach Kivy's Clock.
     monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda *a, **k: None)
 
-    ui_helpers.move_absolute_position('X', 1234.0, protocol=True)
+    ui_helpers.move_absolute('X', 1234.0, protocol=True)
 
     # The move was queued exactly once on the protocol queue.
     ctx.io_executor.protocol_put.assert_called_once()
     task = ctx.io_executor.protocol_put.call_args.args[0]
-    assert task.action is ctx.scope.motion._move_absolute_position_impl, (
+    assert task.action is ctx.scope.motion._move_absolute_impl, (
         'protocol-context move must enqueue the non-dispatching move body as '
         'the IOTask action so it serializes on the io worker'
     )
@@ -67,7 +67,7 @@ def test_protocol_move_routes_through_io_executor(monkeypatch):
     fut.result.assert_called_once()
     # It must NOT have been called directly on the calling thread -- that is
     # the bypass that races leds_off.
-    ctx.scope.motion._move_absolute_position_impl.assert_not_called()
+    ctx.scope.motion._move_absolute_impl.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

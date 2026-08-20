@@ -28,10 +28,10 @@ def go_to_step(
 ):
     from modules.config_ui_getters import get_selected_labware
 
-    # Deferred import: ui/ui_helpers.move_absolute_position wraps the
+    # Deferred import: ui/ui_helpers.move_absolute wraps the
     # API call with UI update callbacks. step_navigation still reaches
     # upward here -- tracked as part of LAYER-H/LV-13 follow-up.
-    from ui.ui_helpers import move_absolute_position
+    from ui.ui_helpers import move_absolute
     from modules.notification_center import notifications
 
     ctx = _app_ctx.ctx
@@ -87,31 +87,31 @@ def go_to_step(
         if ctx.scope.motor_connected:
             if not called_from_protocol:
                 if turret_pos is not None:
-                    move_absolute_position(axis='T', pos=turret_pos, protocol=False)
+                    move_absolute(axis='T', pos=turret_pos, protocol=False)
                     _schedule_ui(
                         lambda dt: ctx.motion_settings.ids['verticalcontrol_id'].update_turret_gui(
                             turret_pos
                         ),
                         0,
                     )
-                move_absolute_position(axis='X', pos=sx, protocol=False)
-                move_absolute_position(axis='Y', pos=sy, protocol=False)
-                move_absolute_position(axis='Z', pos=step['Z'], protocol=False)
+                move_absolute(axis='X', pos=sx, protocol=False)
+                move_absolute(axis='Y', pos=sy, protocol=False)
+                move_absolute(axis='Z', pos=step['Z'], protocol=False)
             else:
                 if turret_pos is not None:
                     # restore_z=False -- the Z move below overwrites Z with
                     # step['Z'] immediately, so safe_turret_move's default
                     # Z-restore-after-T-move would be wasted motion (#524).
-                    move_absolute_position(axis='T', pos=turret_pos, protocol=True, restore_z=False)
+                    move_absolute(axis='T', pos=turret_pos, protocol=True, restore_z=False)
                     _schedule_ui(
                         lambda dt: ctx.motion_settings.ids['verticalcontrol_id'].update_turret_gui(
                             turret_pos
                         ),
                         0,
                     )
-                move_absolute_position('X', sx, protocol=True)
-                move_absolute_position('Y', sy, protocol=True)
-                move_absolute_position('Z', step['Z'], protocol=True, wait_until_complete=True)
+                move_absolute('X', sx, protocol=True)
+                move_absolute('Y', sy, protocol=True)
+                move_absolute('Z', step['Z'], protocol=True, wait_until_complete=True)
         else:
             logger.warning('[LVP Main  ] Motion controller not available.')
 

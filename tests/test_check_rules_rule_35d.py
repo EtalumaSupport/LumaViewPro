@@ -34,11 +34,11 @@ class TestRule35dBlocksBareScopeMethodCalls:
         assert len(violations) == 1
         assert 'set_pixel_format' in violations[0].message
 
-    def test_bare_scope_move_absolute_position_blocks(self):
-        src = 'def sweep(scope, z):\n    scope.move_absolute_position("Z", z)\n'
+    def test_bare_scope_move_absolute_blocks(self):
+        src = 'def sweep(scope, z):\n    scope.move_absolute("Z", z)\n'
         violations = _violations(src, 'etaluma_engineering/camera_characterization.py')
         assert len(violations) == 1
-        assert 'move_absolute_position' in violations[0].message
+        assert 'move_absolute' in violations[0].message
 
     def test_self_scope_get_current_position_blocks(self):
         src = (
@@ -57,8 +57,8 @@ class TestRule35dBlocksBareScopeMethodCalls:
 
 
 class TestRule35dAllowsSubApiAccess:
-    def test_scope_motion_move_absolute_position_passes(self):
-        src = 'def sweep(scope, z):\n    scope.motion.move_absolute_position("Z", z)\n'
+    def test_scope_motion_move_absolute_passes(self):
+        src = 'def sweep(scope, z):\n    scope.motion.move_absolute("Z", z)\n'
         assert _violations(src, 'etaluma_engineering/camera_characterization.py') == []
 
     def test_scope_imaging_set_pixel_format_passes(self):
@@ -77,7 +77,7 @@ class TestRule35dExempts:
     def test_test_file_exempt(self):
         src = (
             'def test_thing(scope):\n'
-            '    scope.move_absolute_position.return_value = None\n'
+            '    scope.move_absolute.return_value = None\n'
             '    scope.set_pixel_format("Mono8")\n'
         )
         # Path under tests/ -- exempt because MagicMock attribute targeting
@@ -85,7 +85,7 @@ class TestRule35dExempts:
         assert _violations(src, 'tests/test_something.py') == []
 
     def test_lumascope_api_module_exempt(self):
-        src = 'def forwarder(scope):\n    return scope.move_absolute_position("Z", 0)\n'
+        src = 'def forwarder(scope):\n    return scope.move_absolute("Z", 0)\n'
         assert _violations(src, 'modules/lumascope_api/_lumascope.py') == []
 
 
@@ -95,8 +95,8 @@ class TestRule35dDoesNotMisfire:
         assert _violations(src, 'modules/foo.py') == []
 
     def test_non_scope_object_with_same_method_name_passes(self):
-        # `motor.move_absolute_position(...)` -- not a scope attribute, no fire.
-        src = 'def fn(motor):\n    motor.move_absolute_position("Z", 0)\n'
+        # `motor.move_absolute(...)` -- not a scope attribute, no fire.
+        src = 'def fn(motor):\n    motor.move_absolute("Z", 0)\n'
         assert _violations(src, 'drivers/motorboard.py') == []
 
     def test_string_literal_passes(self):

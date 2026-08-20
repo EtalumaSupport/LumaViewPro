@@ -40,10 +40,10 @@ def test_tmove_to_one_after_home_is_noop():
     assert scope.capabilities.has_turret
     scope.motion.home()
     moves = []
-    original = scope.motion.move_absolute_position
-    scope.motion.move_absolute_position = lambda *a, **k: moves.append((a, k))
+    original = scope.motion.move_absolute
+    scope.motion.move_absolute = lambda *a, **k: moves.append((a, k))
     try:
         scope.motion.tmove(1)
     finally:
-        scope.motion.move_absolute_position = original
+        scope.motion.move_absolute = original
     assert moves == [], f'tmove(1) after home should be a no-op; issued moves: {moves}'

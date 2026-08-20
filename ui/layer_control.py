@@ -966,12 +966,12 @@ class LayerControl(BoxLayout):
 
     def execute_goto_focus(self):
         # See execute_save_focus comment for the pattern rationale.
-        from ui.ui_helpers import move_absolute_position
+        from ui.ui_helpers import move_absolute
 
         settings = _app_ctx.ctx.settings
         try:
             pos = settings[self.layer]['focus']
-            move_absolute_position('Z', pos)  # set current z height in usteps
+            move_absolute('Z', pos)  # set current z height in usteps
         except KeyError:
             logger.warning(f'[LVP Main  ] goto_focus: no saved focus for layer {self.layer}')
             try:

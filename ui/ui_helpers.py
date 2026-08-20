@@ -207,7 +207,7 @@ def _user_motion_locked(axis: str) -> bool:
 # worker. A direct call would race them and leave the prior step's LED
 # lit through the move. Awaiting is deadlock-free: the caller is
 # protocol_thread, not the worker.
-def move_absolute_position(
+def move_absolute(
     axis: str,
     pos: float,
     wait_until_complete: bool = False,
@@ -249,7 +249,7 @@ def move_absolute_position(
         else:
             fut = ctx.io_executor.protocol_put(
                 IOTask(
-                    action=ctx.scope.motion._move_absolute_position_impl,
+                    action=ctx.scope.motion._move_absolute_impl,
                     kwargs={
                         'axis': axis,
                         'pos': pos,
@@ -265,7 +265,7 @@ def move_absolute_position(
         _schedule_ui(lambda dt: _handle_ui_update_for_axis(axis=axis), 0)
 
 
-def move_relative_position(
+def move_relative(
     axis: str, um: float, wait_until_complete: bool = False, overshoot_enabled: bool = True
 ):
     if _user_motion_locked(axis):

@@ -413,7 +413,7 @@ class ScopeDisplay(Image):
                     get_current_objective_info,
                     get_binning_from_ui,
                 )
-                from ui.ui_helpers import move_relative_position
+                from ui.ui_helpers import move_relative
 
                 _, objective = get_current_objective_info()
                 pixel_size_um = common_utils.get_pixel_size(
@@ -443,8 +443,8 @@ class ScopeDisplay(Image):
                     'SCOPE_CLICK_TO_CENTER',
                     f'dx_um={x_dist_um:.1f} dy_um={y_dist_um:.1f} pixel_um={pixel_size_um:.3f}',
                 )
-                move_relative_position(axis='X', um=x_dist_um)
-                move_relative_position(axis='Y', um=y_dist_um)
+                move_relative(axis='X', um=x_dist_um)
+                move_relative(axis='Y', um=y_dist_um)
 
     @staticmethod
     def add_crosshairs(image):

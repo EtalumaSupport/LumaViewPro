@@ -259,17 +259,17 @@ class TestLedOnValidation:
 
 
 class TestMoveAbsolutePositionValidation:
-    """Verify move_absolute_position() rejects bad inputs."""
+    """Verify move_absolute() rejects bad inputs."""
 
     def test_rejects_invalid_axis(self, sim_scope):
         with pytest.raises(ValueError, match='Axis'):
-            sim_scope.motion.move_absolute_position(axis='Q', pos=100)
+            sim_scope.motion.move_absolute(axis='Q', pos=100)
 
     def test_rejects_position_above_limit(self, sim_scope):
         from modules.lumascope_api import Lumascope
 
         with pytest.raises(ValueError, match='exceeds safety limit'):
-            sim_scope.motion.move_absolute_position(
+            sim_scope.motion.move_absolute(
                 axis='Z', pos=Lumascope.MOTOR_POSITION_LIMIT + 1
             )
 
@@ -277,12 +277,12 @@ class TestMoveAbsolutePositionValidation:
         from modules.lumascope_api import Lumascope
 
         with pytest.raises(ValueError, match='exceeds safety limit'):
-            sim_scope.motion.move_absolute_position(
+            sim_scope.motion.move_absolute(
                 axis='Z', pos=-(Lumascope.MOTOR_POSITION_LIMIT + 1)
             )
 
     def test_accepts_valid_input(self, sim_scope):
-        sim_scope.motion.move_absolute_position(axis='Z', pos=1000)
+        sim_scope.motion.move_absolute(axis='Z', pos=1000)
 
 
 # ===========================================================================
@@ -842,33 +842,33 @@ class TestPositionCache:
         assert sim_scope.motion.get_target_position('Z') == 0.0
 
     def test_move_absolute_updates_cache(self, sim_scope):
-        """move_absolute_position should push the new position into the cache."""
-        sim_scope.motion.move_absolute_position('Z', 5000.0)
+        """move_absolute should push the new position into the cache."""
+        sim_scope.motion.move_absolute('Z', 5000.0)
         assert sim_scope.motion.get_target_position('Z') == 5000.0
 
     def test_move_absolute_only_updates_target_axis(self, sim_scope):
         """Moving Z should not affect X or Y cache."""
-        sim_scope.motion.move_absolute_position('Z', 5000.0)
+        sim_scope.motion.move_absolute('Z', 5000.0)
         assert sim_scope.motion.get_target_position('X') == 0.0
         assert sim_scope.motion.get_target_position('Y') == 0.0
 
     def test_move_relative_updates_cache(self, sim_scope):
-        """move_relative_position should accumulate into the cache."""
-        sim_scope.motion.move_absolute_position('X', 1000.0)
-        sim_scope.motion.move_relative_position('X', 500.0)
+        """move_relative should accumulate into the cache."""
+        sim_scope.motion.move_absolute('X', 1000.0)
+        sim_scope.motion.move_relative('X', 500.0)
         assert sim_scope.motion.get_target_position('X') == 1500.0
 
     def test_move_relative_negative(self, sim_scope):
         """Negative relative moves should subtract from cache."""
-        sim_scope.motion.move_absolute_position('Z', 3000.0)
-        sim_scope.motion.move_relative_position('Z', -1000.0)
+        sim_scope.motion.move_absolute('Z', 3000.0)
+        sim_scope.motion.move_relative('Z', -1000.0)
         assert sim_scope.motion.get_target_position('Z') == 2000.0
 
     def test_get_all_axes(self, sim_scope):
         """get_target_position(None) returns dict of all axes."""
-        sim_scope.motion.move_absolute_position('X', 100.0)
-        sim_scope.motion.move_absolute_position('Y', 200.0)
-        sim_scope.motion.move_absolute_position('Z', 300.0)
+        sim_scope.motion.move_absolute('X', 100.0)
+        sim_scope.motion.move_absolute('Y', 200.0)
+        sim_scope.motion.move_absolute('Z', 300.0)
         result = sim_scope.motion.get_target_position()
         assert isinstance(result, dict)
         assert result['X'] == 100.0
@@ -884,7 +884,7 @@ class TestPositionCache:
         cache contract from 'snap to commanded target on arrival' to
         'reflect motor's polled actual', exposing this quantization
         residual."""
-        sim_scope.motion.move_absolute_position('Z', 7777.0, wait_until_complete=True)
+        sim_scope.motion.move_absolute('Z', 7777.0, wait_until_complete=True)
         assert sim_scope.motion.get_current_position('Z') == pytest.approx(7777.0, abs=0.1)
 
     def test_refresh_after_homing(self, sim_scope):
@@ -893,7 +893,7 @@ class TestPositionCache:
         # The simulated motor stores positions in microsteps; target_pos() converts.
         # Use move_abs_pos to set a known position, then verify refresh reads it.
         sim_scope._motion_driver.move_abs_pos('Z', 5000.0)
-        # Cache still has old value since we bypassed move_absolute_position
+        # Cache still has old value since we bypassed move_absolute
         assert sim_scope.motion.get_target_position('Z') != 5000.0
         # Now refresh from hardware
         sim_scope.motion.refresh_position_cache()
@@ -925,17 +925,17 @@ class TestAxisState:
             assert sim_scope.motion.get_axis_state(ax) == AxisState.UNKNOWN
 
     def test_axis_state_idle_after_move_with_wait(self, sim_scope):
-        """After move_absolute_position with wait_until_complete, axis is IDLE."""
+        """After move_absolute with wait_until_complete, axis is IDLE."""
         from modules.lumascope_api import AxisState
 
-        sim_scope.motion.move_absolute_position('Z', 1000, wait_until_complete=True)
+        sim_scope.motion.move_absolute('Z', 1000, wait_until_complete=True)
         assert sim_scope.motion.get_axis_state('Z') == AxisState.IDLE
 
     def test_axis_state_moving_during_fire_and_forget(self, sim_scope):
         """After fire-and-forget move, axis is initially MOVING then transitions to IDLE."""
         from modules.lumascope_api import AxisState
 
-        sim_scope.motion.move_absolute_position('Z', 500, wait_until_complete=False)
+        sim_scope.motion.move_absolute('Z', 500, wait_until_complete=False)
         state = sim_scope.motion.get_axis_state('Z')
         # Simulated move completes instantly; motion monitor may or may not have
         # polled yet. Both MOVING and IDLE are valid states at this point.
@@ -1016,7 +1016,7 @@ class TestAxisState:
         """Motion monitor thread should detect arrival and set state to IDLE."""
         from modules.lumascope_api import AxisState
 
-        sim_scope.motion.move_absolute_position('Z', 1000, wait_until_complete=False)
+        sim_scope.motion.move_absolute('Z', 1000, wait_until_complete=False)
         # In simulation, the move completes instantly. The motion monitor thread
         # detects arrival at 50Hz and transitions state to IDLE.
         sim_scope.motion.wait_until_finished_moving(timeout_s=2.0)
@@ -1048,10 +1048,10 @@ class TestAxisState:
         assert 'Q' not in sim_scope.capabilities.axes
 
     def test_move_relative_state_tracking(self, sim_scope):
-        """move_relative_position tracks axis state correctly."""
+        """move_relative tracks axis state correctly."""
         from modules.lumascope_api import AxisState
 
-        sim_scope.motion.move_relative_position('Z', 100, wait_until_complete=True)
+        sim_scope.motion.move_relative('Z', 100, wait_until_complete=True)
         assert sim_scope.motion.get_axis_state('Z') == AxisState.IDLE
 
     def test_xy_move_state_tracking(self, sim_scope):
@@ -1064,8 +1064,8 @@ class TestAxisState:
         """
         from modules.lumascope_api import AxisState
 
-        sim_scope.motion.move_absolute_position('X', 500, wait_until_complete=True)
-        sim_scope.motion.move_absolute_position('Y', 500, wait_until_complete=True)
+        sim_scope.motion.move_absolute('X', 500, wait_until_complete=True)
+        sim_scope.motion.move_absolute('Y', 500, wait_until_complete=True)
         assert sim_scope.motion.get_axis_state('X') == AxisState.IDLE
         assert sim_scope.motion.get_axis_state('Y') == AxisState.IDLE
 
@@ -13089,7 +13089,7 @@ class TestGreaseRedistributionGateAlwaysReleased:
         runner = self._make_runner()
         step = ProtocolStepRunner(runner)
         runner._grease_redistribution_event.clear()
-        runner._scope.motion._move_absolute_position_impl.side_effect = RuntimeError(
+        runner._scope.motion._move_absolute_impl.side_effect = RuntimeError(
             'Z move timeout'
         )
 
@@ -13134,7 +13134,7 @@ class TestGreaseRedistributionGateAlwaysReleased:
             step = ProtocolStepRunner(runner)
 
             z_start = 500.0
-            sim_scope.motion._move_absolute_position_impl('Z', z_start, wait_until_complete=True)
+            sim_scope.motion._move_absolute_impl('Z', z_start, wait_until_complete=True)
 
             runner._grease_redistribution_event.clear()
             step.perform_grease_redistribution()

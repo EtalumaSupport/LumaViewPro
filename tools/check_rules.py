@@ -817,8 +817,8 @@ _BROKEN_SCOPE_METHODS = frozenset(
         # New entries get added here when a method moves off Lumascope onto a
         # sub-API. Whitelist: scope.motion.X / scope.imaging.X / scope.illumination.X /
         # scope.diagnostics.X / scope.capabilities.X / scope.io.X / scope.runtime_state.X.
-        'move_absolute_position',
-        'move_relative_position',
+        'move_absolute',
+        'move_relative',
         'get_current_position',
         'get_target_position',
         'get_target_status',

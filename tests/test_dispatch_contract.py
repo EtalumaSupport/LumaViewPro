@@ -53,7 +53,7 @@ IMPL_RESULT = object()
 # (family, member, async member, kwargs, which executor carries it)
 #
 # The async member's name does not always track the base name
-# (move_absolute_position dispatches through move_absolute_async), so it is
+# (move_absolute dispatches through move_absolute_async), so it is
 # carried explicitly rather than derived by suffix. The camera family
 # carries None: its fire-and-forget tier was measured consumerless and
 # deleted rather than collapsed, so the camera capability ends with the
@@ -63,7 +63,7 @@ FAMILIES = [
     ('imaging', 'set_gain', None, {'gain_db': 1.0}, 'camera'),
     (
         'motion',
-        'move_absolute_position',
+        'move_absolute',
         'move_absolute_async',
         {'axis': 'Z', 'pos': 100.0},
         'io',

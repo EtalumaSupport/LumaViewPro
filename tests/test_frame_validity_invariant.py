@@ -174,13 +174,13 @@ class TestMotionValiditySources:
         the settle-check cleared before the turret physically arrived."""
         scope, recorded = self._scope_with_invalidate_recorder()
         try:
-            scope.motion.move_absolute_position(axis, pos, wait_until_complete=True)
+            scope.motion.move_absolute(axis, pos, wait_until_complete=True)
             assert source in recorded, (
-                f'move_absolute_position({axis!r}) must invalidate {source!r}; recorded {recorded}'
+                f'move_absolute({axis!r}) must invalidate {source!r}; recorded {recorded}'
             )
             wrong = {'xy_move', 'z_move', 'turret'} - {source}
             assert not wrong.intersection(recorded), (
-                f'move_absolute_position({axis!r}) invalidated the wrong '
+                f'move_absolute({axis!r}) invalidated the wrong '
                 f'source(s) {wrong.intersection(recorded)}; recorded {recorded}'
             )
         finally:
@@ -193,9 +193,9 @@ class TestMotionValiditySources:
     def test_move_relative_invalidates_axis_source(self, axis, source):
         scope, recorded = self._scope_with_invalidate_recorder()
         try:
-            scope.motion.move_relative_position(axis, 100.0, wait_until_complete=True)
+            scope.motion.move_relative(axis, 100.0, wait_until_complete=True)
             assert source in recorded, (
-                f'move_relative_position({axis!r}) must invalidate {source!r}; recorded {recorded}'
+                f'move_relative({axis!r}) must invalidate {source!r}; recorded {recorded}'
             )
         finally:
             scope.disconnect()

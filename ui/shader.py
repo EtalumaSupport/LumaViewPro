@@ -203,7 +203,7 @@ void main (void) {
 
     def _flush_scroll_z(self, dt):
         """Debounced scroll-to-focus: send one accumulated Z move."""
-        from ui.ui_helpers import move_relative_position
+        from ui.ui_helpers import move_relative
 
         delta = self._scroll_z_pending
         self._scroll_z_pending = 0.0
@@ -211,7 +211,7 @@ void main (void) {
         if delta == 0.0:
             return
 
-        move_relative_position('Z', delta, overshoot_enabled=False)
+        move_relative('Z', delta, overshoot_enabled=False)
 
     def _on_mouse_pos(self, window, pos):
         """Convert window mouse position to image pixel coordinates."""

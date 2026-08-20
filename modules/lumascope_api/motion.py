@@ -6,7 +6,7 @@ _arrival_events, _move_profile, _position_listeners, _motion_wake,
 _motion_monitor_stop, _motion_monitor_thread, _homing_event,
 _turreting_event) and the bodies of all stage / focus / turret
 methods. Lumascope keeps a small set of one-line method-name
-forwarders (zhome, home, thome, move_absolute_position, etc.) for
+forwarders (zhome, home, thome, move_absolute, etc.) for
 production callers; those retire as production migrates.
 
 Constructor signature:
@@ -278,7 +278,7 @@ class MotionAPI:
             cb_kwargs: Optional kwargs passed to the callback.
         """
         self._submit_motion(
-            self._move_absolute_position_impl,
+            self._move_absolute_impl,
             'move_absolute_async',
             kwargs={
                 'axis': axis,
@@ -529,7 +529,7 @@ class MotionAPI:
         # Save off current Z position before moving Z to 0
         logger.info('[SCOPE API ] Moving Z to 0', extra={'force_error': True})
         initial_z = self.get_current_position(axis='Z')
-        self._move_absolute_position_impl('Z', pos=0, wait_until_complete=True)
+        self._move_absolute_impl('Z', pos=0, wait_until_complete=True)
         self.is_turreting = True
         try:
             yield
@@ -541,7 +541,7 @@ class MotionAPI:
             self.is_turreting = False
             if restore_z:
                 logger.info(f'[SCOPE API ] Restoring Z to {initial_z}', extra={'force_error': True})
-                self._move_absolute_position_impl('Z', pos=initial_z, wait_until_complete=True)
+                self._move_absolute_impl('Z', pos=initial_z, wait_until_complete=True)
             else:
                 logger.info(
                     '[SCOPE API ] Skipping Z restore -- caller will overwrite Z next',
@@ -648,7 +648,7 @@ class MotionAPI:
 
         with self.safe_turret_move(restore_z=restore_z):
             logger.info(f'[SCOPE API ] Moving T to position {position}')
-            self._move_absolute_position_impl('T', position, wait_until_complete=True)
+            self._move_absolute_impl('T', position, wait_until_complete=True)
             self._last_turret_position = position
 
     def get_actual_position(self, axis: str) -> float:
@@ -873,7 +873,7 @@ class MotionAPI:
         callback=None,
         cb_kwargs=None,
     ) -> None:
-        """Submit ``move_relative_position`` to the io_executor.
+        """Submit ``move_relative`` to the io_executor.
 
         Args:
             axis: Axis name ("X", "Y", "Z", "T").
@@ -884,7 +884,7 @@ class MotionAPI:
             cb_kwargs: Optional kwargs passed to the callback.
         """
         self._submit_motion(
-            self._move_relative_position_impl,
+            self._move_relative_impl,
             'move_relative_async',
             kwargs={
                 'axis': axis,
@@ -1210,7 +1210,7 @@ class MotionAPI:
         s = max(0.0, min(s, distance))
         return start_pos + direction * s
 
-    def _move_absolute_position_impl(
+    def _move_absolute_impl(
         self,
         axis: str,
         pos: float,
@@ -1302,7 +1302,7 @@ class MotionAPI:
             self.wait_until_finished_moving()
             self._set_axis_state(axis, AxisState.IDLE)
 
-    def _move_relative_position_impl(
+    def _move_relative_impl(
         self,
         axis: str,
         um: float,
@@ -1330,13 +1330,13 @@ class MotionAPI:
             )
 
         # Silently no-op for axes that aren't present on this hardware.
-        # See move_absolute_position for the rationale.
+        # See move_absolute for the rationale.
         if axis not in self._arrival_events:
             _api_log.debug(f'move_rel ignored: {axis} not present on this scope')
             return
 
         # Capture start_pos + ramp before driving. start_time is captured
-        # AFTER the driver call returns -- mirrors move_absolute_position.
+        # AFTER the driver call returns -- mirrors move_absolute.
         # The ~50 ms serial round-trip to write the hardware target precedes
         # any physical motion; capturing start_time before that would make
         # _predicted_position's elapsed-since-arm lead the motor's real
@@ -1363,7 +1363,7 @@ class MotionAPI:
             ramp = None
 
         # Write hardware target BEFORE transitioning axis to MOVING --
-        # same race fix as move_absolute_position (#618).
+        # same race fix as move_absolute (#618).
         try:
             self._driver.move_rel_pos(axis, um, overshoot_enabled=overshoot_enabled)
         except Exception:
@@ -1440,7 +1440,7 @@ class MotionAPI:
             raise HardwareCommandRefusedError('exclusive_activity_running', name)
         return fut.result(timeout=timeout_s)
 
-    def move_absolute_position(
+    def move_absolute(
         self,
         axis: str,
         pos: float,
@@ -1450,14 +1450,14 @@ class MotionAPI:
     ) -> None:
         """Move an axis to an absolute position, and wait for the command.
 
-        See ``_move_absolute_position_impl`` for the argument contract and
+        See ``_move_absolute_impl`` for the argument contract and
         the errors it raises; this adds only the dispatch described on
         ``_dispatch_motion``. With ``wait_until_complete`` the wait bound
         also covers the physical motion the body waits out.
         """
         return self._dispatch_motion(
-            self._move_absolute_position_impl,
-            'move_absolute_position',
+            self._move_absolute_impl,
+            'move_absolute',
             args=(axis, pos),
             kwargs={
                 'wait_until_complete': wait_until_complete,
@@ -1468,7 +1468,7 @@ class MotionAPI:
             + (self._MOTION_SETTLE_TIMEOUT_S if wait_until_complete else 0.0),
         )
 
-    def move_relative_position(
+    def move_relative(
         self,
         axis: str,
         um: float,
@@ -1477,11 +1477,11 @@ class MotionAPI:
     ) -> None:
         """Move an axis by a relative distance, and wait for the command.
 
-        See ``_move_relative_position_impl`` for the argument contract.
+        See ``_move_relative_impl`` for the argument contract.
         """
         return self._dispatch_motion(
-            self._move_relative_position_impl,
-            'move_relative_position',
+            self._move_relative_impl,
+            'move_relative',
             args=(axis, um),
             kwargs={
                 'wait_until_complete': wait_until_complete,

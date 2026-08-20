@@ -506,7 +506,7 @@ class ProtocolStepRunner:
         Each axis move is submitted through ``io_executor.protocol_put``
         and the protocol thread waits on the future, so all motor I/O
         is serialized to one worker. Calling
-        ``scope.motion.move_absolute_position`` directly from PROTOCOL_WORKER
+        ``scope.motion.move_absolute`` directly from PROTOCOL_WORKER
         instead would let motor serial writes from this thread
         interleave with any io_executor-queued motor command (UI
         sliders, manual moves) mid-step.
@@ -558,10 +558,10 @@ class ProtocolStepRunner:
             'overshoot_enabled': False,
         }
         if p._io_executor is None:
-            p._scope.motion._move_absolute_position_impl(**kwargs)
+            p._scope.motion._move_absolute_impl(**kwargs)
             return
         fut = p._io_executor.protocol_put(
-            IOTask(action=p._scope.motion._move_absolute_position_impl, kwargs=kwargs),
+            IOTask(action=p._scope.motion._move_absolute_impl, kwargs=kwargs),
             return_future=True,
         )
         if fut:
@@ -622,14 +622,14 @@ class ProtocolStepRunner:
             # behind the one it is running, so the wait always expired, the
             # queued Z->0 then ran out of band on unwind, and the restore to
             # z_orig never enqueued at all.
-            p._scope.motion._move_absolute_position_impl(
+            p._scope.motion._move_absolute_impl(
                 axis, 0, wait_until_complete=True, overshoot_enabled=True
             )
 
             if p._callbacks.move_position:
                 _schedule_ui(lambda dt, a=axis: p._callbacks.move_position(a))
 
-            p._scope.motion._move_absolute_position_impl(
+            p._scope.motion._move_absolute_impl(
                 axis, z_orig, wait_until_complete=True, overshoot_enabled=True
             )
 

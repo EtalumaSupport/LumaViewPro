@@ -160,13 +160,13 @@ def test_refused_af_acquire_aborts_the_af_run(scope, monkeypatch):
     runner._iterate = lambda: iterations.append(1)
 
     moves = []
-    real_move = scope.motion.move_absolute_position
+    real_move = scope.motion.move_absolute
 
     def _recording_move(axis, pos, *args, **kwargs):
         moves.append((axis, pos))
         return real_move(axis, pos, *args, **kwargs)
 
-    monkeypatch.setattr(scope.motion, 'move_absolute_position', _recording_move)
+    monkeypatch.setattr(scope.motion, 'move_absolute', _recording_move)
 
     pre_z = scope.motion.get_current_position('Z')
     pre_gain = scope.imaging.get_gain()

@@ -594,9 +594,9 @@ class ScopeSession:
         """
         # Local import to avoid circular import at module load -- ui_helpers
         # imports many UI modules but the functions used here (move_home,
-        # move_absolute_position) operate on the scope and don't actually
+        # move_absolute) operate on the scope and don't actually
         # need a GUI surface.
-        from ui.ui_helpers import move_home, move_absolute_position
+        from ui.ui_helpers import move_home, move_absolute
 
         if not disable_homing:
             move_home('ALL')
@@ -617,7 +617,7 @@ class ScopeSession:
                 turret_position = DEFAULT_POSITION
 
             self.settings['turret_position'] = turret_position
-            move_absolute_position(
+            move_absolute(
                 axis='T',
                 pos=turret_position,
                 wait_until_complete=True,

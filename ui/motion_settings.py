@@ -11,7 +11,7 @@ from modules import gui_logger
 from modules.config_ui_getters import get_current_objective_info, get_selected_labware
 from modules.debounce import debounce
 from modules.sequential_io_executor import IOTask
-from ui.ui_helpers import move_absolute_position, move_home, move_relative_position
+from ui.ui_helpers import move_absolute, move_home, move_relative
 from ui.image_settings import AccordionItemXyStageControl
 
 logger = logging.getLogger('LVP.ui.motion_settings')
@@ -439,7 +439,7 @@ class XYStageControl(BoxLayout):
             logger.warning(f'[Motion] {label}: no objective info: {e}')
             return
         step = objective['xy_coarse' if coarse else 'xy_fine']
-        move_relative_position(axis, direction * step)
+        move_relative(axis, direction * step)
 
     @debounce(0.2)
     def fine_left(self):
@@ -497,7 +497,7 @@ class XYStageControl(BoxLayout):
         logger.info(f'[LVP Main  ] X pos {x_pos} Stage X {stage_x}')
 
         # Move to x-position
-        move_absolute_position('X', stage_x)
+        move_absolute('X', stage_x)
 
     def set_yposition(self, y_pos):
         ctx = _app_ctx.ctx
@@ -522,7 +522,7 @@ class XYStageControl(BoxLayout):
         )
 
         # Move to y-position
-        move_absolute_position('Y', stage_y)
+        move_absolute('Y', stage_y)
 
     def set_xbookmark(self):
         gui_logger.button('SET_X_BOOKMARK')
@@ -583,7 +583,7 @@ class XYStageControl(BoxLayout):
         stage_x, _ = coordinate_transformer.plate_to_stage(
             labware=labware, stage_offset=settings['stage_offset'], px=x_pos, py=0
         )
-        move_absolute_position('X', stage_x)
+        move_absolute('X', stage_x)
 
     def goto_ybookmark(self):
         gui_logger.button('GOTO_Y_BOOKMARK')
@@ -601,7 +601,7 @@ class XYStageControl(BoxLayout):
         _, stage_y = coordinate_transformer.plate_to_stage(
             labware=labware, stage_offset=settings['stage_offset'], px=0, py=y_pos
         )
-        move_absolute_position('Y', stage_y)  # set current y position in um
+        move_absolute('Y', stage_y)  # set current y position in um
 
     # def calibrate(self):
     #     logger.info('[LVP Main  ] XYStageControl.calibrate()')

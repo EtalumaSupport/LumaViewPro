@@ -348,11 +348,11 @@ scope.motion.get_target_position('Z')            # target µm
 scope.motion.get_actual_position('Z')            # hardware position via serial (slow; use sparingly)
 
 # Absolute moves (µm)
-scope.motion.move_absolute_position('Z', 5000)
-scope.motion.move_absolute_position('X', 60000, wait_until_complete=True)
+scope.motion.move_absolute('Z', 5000)
+scope.motion.move_absolute('X', 60000, wait_until_complete=True)
 
 # Relative moves (µm)
-scope.motion.move_relative_position('Z', 100)
+scope.motion.move_relative('Z', 100)
 
 # Status
 scope.motion.get_target_status('Z')              # True if target reached
@@ -850,7 +850,7 @@ Important consequences:
 
 - **`camera_max_frame_size` is `(0, 0)` when no camera is connected** -- that is a sentinel meaning "unknown / no camera," not a usable size. Check `scope.camera_connected` (or that the tuple is non-zero / `caps.camera_model` is non-empty) before using it as a `scope.imaging.set_frame_size(w, h)` target; `set_frame_size` returns `None` (no-op) when no camera is active, so a naive `set_frame_size(*caps.camera_max_frame_size)` does nothing rather than erroring. With a live camera it returns the DELIVERED geometry and raises `CameraSettingRejected` if the apply is refused.
 - **LED channel count varies by scope.** LS560/LS620 (FX2 driver) expose 4 channels (`BF`, `Blue`, `Green`, `Red`); RP2040-based scopes expose 6 (`BF`, `PC`, `DF`, `Blue`, `Green`, `Red`). Don't iterate over a hardcoded list — iterate over `caps.led_colors`.
-- **Some scopes have no motor at all.** LS560/LS620 have `caps.axes == ()`. Calling `scope.motion.move_absolute_position('X', …)` against such a scope is a no-op, not an error — but your UI should hide motion controls based on `caps.has_xy_stage` etc.
+- **Some scopes have no motor at all.** LS560/LS620 have `caps.axes == ()`. Calling `scope.motion.move_absolute('X', …)` against such a scope is a no-op, not an error — but your UI should hide motion controls based on `caps.has_xy_stage` etc.
 - **`axis_travel_limits_um` is populated only for present axes.** On a Z-only scope, `'X' in caps.axis_travel_limits_um` is `False`; indexing `caps.axis_travel_limits_um['X']` raises `KeyError`. Check `caps.has_xy_stage` (or `axis in caps.axes`) before reading. The mapping is read-only (`MappingProxyType`); mutation attempts raise `TypeError`.
 
 ---
@@ -1092,9 +1092,9 @@ scope.runtime_state.set_objective('10x Oly')
 scope.imaging.set_exposure_time(50)
 scope.imaging.set_gain(5.0)
 
-scope.motion.move_absolute_position('X', 60000, wait_until_complete=True)
-scope.motion.move_absolute_position('Y', 40000, wait_until_complete=True)
-scope.motion.move_absolute_position('Z', 5000, wait_until_complete=True)
+scope.motion.move_absolute('X', 60000, wait_until_complete=True)
+scope.motion.move_absolute('Y', 40000, wait_until_complete=True)
+scope.motion.move_absolute('Z', 5000, wait_until_complete=True)
 
 from modules.image_save import save_image
 
@@ -1158,7 +1158,7 @@ z_start, z_end, z_step = 4000, 6000, 50    # µm
 scope.illumination.led_on('BF', 100)
 z = z_start
 while z <= z_end:
-    scope.motion.move_absolute_position('Z', z, wait_until_complete=True)
+    scope.motion.move_absolute('Z', z, wait_until_complete=True)
     image = scope.imaging.capture_and_wait(dark_floor_check=True)
     save_image(
         scope,
@@ -1182,8 +1182,8 @@ wells = [('A1', 10.0, 20.0), ('A2', 19.0, 20.0), ('A3', 28.0, 20.0)]
 scope.illumination.led_on('BF', 100)
 for well_name, px, py in wells:
     sx, sy = ct.plate_to_stage(labware=labware_obj, stage_offset=offset, px=px, py=py)
-    scope.motion.move_absolute_position('X', sx, wait_until_complete=True)
-    scope.motion.move_absolute_position('Y', sy, wait_until_complete=True)
+    scope.motion.move_absolute('X', sx, wait_until_complete=True)
+    scope.motion.move_absolute('Y', sy, wait_until_complete=True)
 
     image = scope.imaging.capture_and_wait(dark_floor_check=True)
     save_image(
@@ -1232,7 +1232,7 @@ scope._camera_driver.start_grabbing()   # simulator test setup; see note below
 
 # All API calls work identically:
 scope.illumination.led_on('Blue', 200)
-scope.motion.move_absolute_position('Z', 5000)
+scope.motion.move_absolute('Z', 5000)
 image = scope.imaging.get_image()
 ```
 

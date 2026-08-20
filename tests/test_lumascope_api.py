@@ -711,7 +711,7 @@ class TestPerAxisDictsFromDriver:
 
     def test_move_absolute_on_absent_axis_is_silent_noop_rule_8(self):
         """Rule 8: API silently no-ops for absent axes. An LS820 user
-        calling move_absolute_position('X', 0) gets a silent no-op, not
+        calling move_absolute('X', 0) gets a silent no-op, not
         a ValueError or HardwareError, regardless of whether they thought
         to call has_axis() first."""
         scope = Lumascope(simulate=True)
@@ -724,14 +724,14 @@ class TestPerAxisDictsFromDriver:
             ev.set()
         scope.motion._move_profile = dict.fromkeys(present)
 
-        scope.motion.move_absolute_position('X', 100)
-        scope.motion.move_absolute_position('Y', 100)
-        scope.motion.move_absolute_position('T', 0)
+        scope.motion.move_absolute('X', 100)
+        scope.motion.move_absolute('Y', 100)
+        scope.motion.move_absolute('T', 0)
         assert 'X' not in scope.motion._pos_cache
         assert 'Y' not in scope.motion._pos_cache
         assert 'T' not in scope.motion._pos_cache
 
-        scope.motion.move_relative_position('X', 50)
+        scope.motion.move_relative('X', 50)
         assert 'X' not in scope.motion._pos_cache
 
     def test_move_on_null_motor_is_silent_noop_rule_8(self):
@@ -746,18 +746,18 @@ class TestPerAxisDictsFromDriver:
         scope.motion._arrival_events = {}
         scope.motion._move_profile = {}
 
-        scope.motion.move_absolute_position('Z', 100)
-        scope.motion.move_absolute_position('X', 0)
-        scope.motion.move_relative_position('Z', 10)
+        scope.motion.move_absolute('Z', 100)
+        scope.motion.move_absolute('X', 0)
+        scope.motion.move_relative('Z', 10)
 
     def test_move_with_invalid_axis_name_still_raises(self):
         """Input sanity check still rejects non-axis names. _VALID_AXIS_NAMES
         is the input vocabulary; axes_present() is the capability query."""
         scope = Lumascope(simulate=True)
         with pytest.raises(ValueError, match=r'Axis must be one of'):
-            scope.motion.move_absolute_position('Q', 0)
+            scope.motion.move_absolute('Q', 0)
         with pytest.raises(ValueError, match=r'Axis must be one of'):
-            scope.motion.move_relative_position('Q', 0)
+            scope.motion.move_relative('Q', 0)
 
     def test_no_hardcoded_VALID_AXES_constant(self):
         """The misnamed `VALID_AXES` class constant has been deleted.

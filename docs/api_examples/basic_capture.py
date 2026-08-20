@@ -52,7 +52,7 @@ def main():
     print('LED 0 set to 100 mA')
 
     # Move Z axis to 5000 um and wait for the move to complete
-    scope.motion.move_absolute_position('Z', 5000, wait_until_complete=True)
+    scope.motion.move_absolute('Z', 5000, wait_until_complete=True)
 
     # Read the target Z position (returns um). Zero serial I/O --
     # the API serves this from the push-based position cache.

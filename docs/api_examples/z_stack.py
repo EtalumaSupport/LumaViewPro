@@ -77,7 +77,7 @@ def main():
 
     for i in range(num_slices):
         # Move Z to target position (um) and wait for completion
-        scope.motion.move_absolute_position(
+        scope.motion.move_absolute(
             'Z',
             z_pos_um,
             wait_until_complete=True,

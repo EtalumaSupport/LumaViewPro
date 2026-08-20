@@ -405,7 +405,7 @@ class CompositeCapture(FloatLayout):
                     # This worker already runs on a managed executor thread;
                     # the dispatching member exists to move EXTERNAL callers
                     # onto one, so on-worker code binds the _impl form.
-                    ctx.scope.motion._move_absolute_position_impl(
+                    ctx.scope.motion._move_absolute_impl(
                         'Z',
                         focus_pos,
                         wait_until_complete=True,
@@ -467,7 +467,7 @@ class CompositeCapture(FloatLayout):
                 if z_stage_present:
                     focus_pos = layer_settings[layer]['focus']
                     # On-worker: bind _impl, as above.
-                    ctx.scope.motion._move_absolute_position_impl(
+                    ctx.scope.motion._move_absolute_impl(
                         'Z',
                         focus_pos,
                         wait_until_complete=True,

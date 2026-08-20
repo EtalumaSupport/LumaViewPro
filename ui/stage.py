@@ -13,7 +13,7 @@ from modules import gui_logger
 from modules.config_ui_getters import get_selected_labware
 from modules.sequential_io_executor import IOTask
 from ui.step_navigation import go_to_step
-from ui.ui_helpers import find_nearest_step, move_absolute_position
+from ui.ui_helpers import find_nearest_step, move_absolute
 
 logger = logging.getLogger('LVP.ui.stage')
 
@@ -185,8 +185,8 @@ class Stage(Widget):
                     'STAGE_CLICK',
                     f'left plate=({plate_x:.2f},{plate_y:.2f}) stage=({stage_x:.0f},{stage_y:.0f})',
                 )
-                move_absolute_position('X', stage_x)
-                move_absolute_position('Y', stage_y)
+                move_absolute('X', stage_x)
+                move_absolute('Y', stage_y)
 
             elif touch.button == 'right':
                 try:
@@ -216,8 +216,8 @@ class Stage(Widget):
                     logger.info(f'[Stage   ] Successfully moved to step {step_idx}')
                 except Exception as e:
                     logger.error(f'[Stage   ] Error finding nearest step: {e}')
-            # move_absolute_position('X', stage_x)
-            # move_absolute_position('Y', stage_y)
+            # move_absolute('X', stage_x)
+            # move_absolute('Y', stage_y)
 
     def draw_labware(self, *args, full_redraw: bool = False):
         if self.parent is None:

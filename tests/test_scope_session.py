@@ -23,7 +23,7 @@ tested where that lives.
 
 `start_application_session` is NOT covered, and the reason is a defect
 rather than a choice. It does `from ui.ui_helpers import move_home,
-move_absolute_position` -- a module reaching UP into the UI layer. Its
+move_absolute` -- a module reaching UP into the UI layer. Its
 own comment concedes the functions "operate on the scope and don't
 actually need a GUI surface," which is the admission that they are in
 the wrong layer. Because the test environment mocks Kivy, that import

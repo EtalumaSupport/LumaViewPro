@@ -21,9 +21,9 @@ from ui.ui_helpers import (
     _handle_ui_update_for_axis,
     live_histo_off,
     live_histo_reverse,
-    move_absolute_position,
+    move_absolute,
     move_home,
-    move_relative_position,
+    move_relative,
     publish_protocol_running,
 )
 
@@ -201,7 +201,7 @@ class VerticalControl(BoxLayout):
             logger.warning(f'[Motion] {label}: no objective info: {e}')
             return
         step = objective['z_coarse' if coarse else 'z_fine']
-        move_relative_position('Z', direction * step, overshoot_enabled=overshoot_enabled)
+        move_relative('Z', direction * step, overshoot_enabled=overshoot_enabled)
 
     @debounce(0.2)
     def coarse_up(self, overshoot_enabled: bool = False):
@@ -233,7 +233,7 @@ class VerticalControl(BoxLayout):
         self.queue_slider_position_trigger()
 
     def queue_slider_position(self):
-        move_absolute_position('Z', self._next_pos)
+        move_absolute('Z', self._next_pos)
         self._next_pos = None
 
     def set_bookmark(self):
@@ -276,7 +276,7 @@ class VerticalControl(BoxLayout):
         logger.info('[LVP Main  ] VerticalControl.goto_bookmark()')
         with ctx.settings_lock:
             pos = ctx.settings['bookmark']['z']
-        move_absolute_position('Z', pos)
+        move_absolute('Z', pos)
 
     @debounce(1.0)
     def home(self):

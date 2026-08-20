@@ -88,8 +88,8 @@ def _make_mock_scope(led_available=True):
     scope.illumination.leds_off = MagicMock()
     scope.illumination.led_on = MagicMock()
     scope.illumination.led_off = MagicMock()
-    scope.motion.move_absolute_position = MagicMock()
-    scope.motion.move_relative_position = MagicMock()
+    scope.motion.move_absolute = MagicMock()
+    scope.motion.move_relative = MagicMock()
     scope.motion.zhome = MagicMock()
     scope.motion.home = MagicMock()
     scope.motion.thome = MagicMock()
@@ -526,7 +526,7 @@ class TestLumascopeMotionAPI:
         scope, io_ex, _ = _make_real_scope_with_recording_executors()
         scope.motion.move_absolute_async('Z', 5000.0)
         task = io_ex.submitted[0]
-        assert task.action == scope.motion._move_absolute_position_impl
+        assert task.action == scope.motion._move_absolute_impl
         assert task.kwargs['axis'] == 'Z'
         assert task.kwargs['pos'] == 5000.0
 
@@ -551,7 +551,7 @@ class TestLumascopeMotionAPI:
         scope, io_ex, _ = _make_real_scope_with_recording_executors()
         scope.motion.move_relative_async('Y', -500.0)
         task = io_ex.submitted[0]
-        assert task.action == scope.motion._move_relative_position_impl
+        assert task.action == scope.motion._move_relative_impl
         assert task.kwargs['axis'] == 'Y'
         assert task.kwargs['um'] == -500.0
 

@@ -98,7 +98,7 @@ class TestAFRaceCondition:
     between the two final moves, so the protocol executor stopped processing
     while the second move was still pending. The synchronous AutofocusThread
     contract makes this structurally impossible -- AFE.run() returns to its
-    worker thread only AFTER the inline move_absolute_position calls
+    worker thread only AFTER the inline move_absolute calls
     complete, and the Future resolves AFTER AFE.run() returns. The
     protocol thread polls p._af_future.done(), so it cannot see "done"
     before the final move is finished.
@@ -122,7 +122,7 @@ class TestAFRaceCondition:
         runner, scope = af_runner_and_scope()
         result = drive_af(runner)
         assert result == AF_CENTER_Z, 'the drive must complete with the pinned best focus'
-        moves = scope.motion._move_absolute_position_impl.call_args_list
+        moves = scope.motion._move_absolute_impl.call_args_list
         fine_resolution = runner._params['resolution']
         assert moves[-2:] == [
             call('Z', AF_CENTER_Z - fine_resolution),

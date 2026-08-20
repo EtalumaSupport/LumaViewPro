@@ -370,7 +370,7 @@ class TestGestureMotionFunnel:
         self._locked_app(True)
         # No ctx is wired in this test process: reaching past the guard
         # would raise on ctx access, so returning cleanly IS the proof.
-        ui_helpers.move_relative_position('X', 5.0)
+        ui_helpers.move_relative('X', 5.0)
 
     def test_unlocked_app_reaches_for_the_scope(self):
         from ui import ui_helpers
@@ -388,13 +388,13 @@ class TestGestureMotionFunnel:
 
     def test_all_three_movers_guard(self):
         src = (REPO / 'ui' / 'ui_helpers.py').read_text()
-        for mover in ('move_relative_position', 'move_absolute_position', 'move_home'):
+        for mover in ('move_relative', 'move_absolute', 'move_home'):
             idx = src.find(f'def {mover}(')
             nxt = src.find('\ndef ', idx + 1)
             body = src[idx:nxt]
             assert '_user_motion_locked(' in body, f'{mover} must enforce the lock'
         # The protocol leg stays open: the protocol's own moves are not
         # user gestures.
-        idx = src.find('def move_absolute_position(')
+        idx = src.find('def move_absolute(')
         body = src[idx : src.find('\ndef ', idx + 1)]
         assert 'if not protocol and _user_motion_locked(' in body

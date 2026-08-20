@@ -1549,7 +1549,7 @@ class TestRealPathExecution:
     and simulated MotorBoard. These catch init/config bugs that mocked tests miss.
 
     The axes_config AttributeError (2026-03-27) would have been caught here
-    because _default_move -> scope.move_absolute_position -> motion.move_abs_pos
+    because _default_move -> scope.move_absolute -> motion.move_abs_pos
     accesses self.axes_config, which must be initialized in __init__.
     """
 
@@ -2383,14 +2383,14 @@ class TestLumascapeAPIMotor:
     """Direct tests on Lumascope motor API with simulated hardware."""
 
     def test_move_absolute_z(self, scope):
-        scope.motion.move_absolute_position('Z', 3000.0)
+        scope.motion.move_absolute('Z', 3000.0)
         # Simulated motor moves instantly in fast mode
         pos = scope.motion.get_target_position('Z')
         assert pos == pytest.approx(3000.0, abs=1.0)
 
     def test_get_target_position_from_cache(self, scope):
         """get_target_position uses cache -- zero serial I/O."""
-        scope.motion.move_absolute_position('Z', 5000.0)
+        scope.motion.move_absolute('Z', 5000.0)
         pos = scope.motion.get_target_position('Z')
         assert pos == pytest.approx(5000.0, abs=1.0)
 
