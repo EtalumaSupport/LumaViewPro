@@ -570,8 +570,11 @@ class ProtocolImageWriter:
                 # SDK/firmware combo -- revert this change and add a
                 # `requires_buffer_realloc=True` audit. Per Basler convention
                 # both should be live-changeable.
-                self._scope.imaging.set_gain(step['Gain'])
-                self._scope.imaging.set_exposure_time(step['Exposure'])
+                # The non-dispatching bodies: this runs on the protocol
+                # thread while the run has the camera executor disabled, so
+                # the public dispatchers would refuse every per-step write.
+                self._scope.imaging._set_gain_impl(step['Gain'])
+                self._scope.imaging._set_exposure_time_impl(step['Exposure'])
             else:
                 # Auto_Gain step: scan_iterate already lit the LED and armed AG
                 # against the lit scene; the apply is skipped here to avoid
@@ -740,7 +743,7 @@ class ProtocolImageWriter:
                     # external consumer starving the feed); a step with
                     # illumination 0, or a colour the scope drives no LED
                     # for (luminescence), is dark by design.
-                    captured_image = self._scope.imaging.capture_and_wait(
+                    captured_image = self._scope.imaging._capture_and_wait_impl(
                         force_to_8bit=capture_depth == 8,
                         all_ones_check=True,
                         dark_floor_check=step['Illumination'] > 0

@@ -257,9 +257,9 @@ class AutofocusRunner:
         # Apply the step's camera settings so AF scans with correct gain
         # and exposure rather than inheriting the prior step's values.
         if self._camera_gain is not None:
-            self._scope.imaging.set_gain(self._camera_gain)
+            self._scope.imaging._set_gain_impl(self._camera_gain)
         if self._camera_exposure is not None:
-            self._scope.imaging.set_exposure_time(self._camera_exposure)
+            self._scope.imaging._set_exposure_time_impl(self._camera_exposure)
         last_gc_time = time.monotonic()
         completed_successfully = False
         try:
@@ -545,7 +545,11 @@ class AutofocusRunner:
             # dark_floor_check stays False: AF consumes focus scores, not
             # saved truth, and a hard dark-reject mid-sweep would stall the
             # scan; the mean-intensity retry below handles dark frames.
-            image = self._scope.imaging.capture_and_wait(
+            # The non-dispatching body, not the public capture_and_wait: AF
+            # runs while the camera executor is disabled by the run, so the
+            # dispatcher would refuse every grab; the body must run on this
+            # thread.
+            image = self._scope.imaging._capture_and_wait_impl(
                 dark_floor_check=False, exclude_sources=('z_move',)
             )
             count += 1
@@ -569,7 +573,10 @@ class AutofocusRunner:
         mean_intensity = float(np.mean(image))
         if mean_intensity < 1.0:
             _af_log.warning(f'  DARK FRAME: mean={mean_intensity:.2f}, retrying')
-            retry = self._scope.imaging.capture_and_wait(
+            # Non-dispatching body for the same reason as the grab loop
+            # above: the camera executor is disabled during the run, so the
+            # public dispatcher would refuse this retry.
+            retry = self._scope.imaging._capture_and_wait_impl(
                 dark_floor_check=False, exclude_sources=('z_move',)
             )
             if isinstance(retry, np.ndarray):

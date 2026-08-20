@@ -40,6 +40,7 @@ def _warnings_for(exposure_ms: float, monkeypatch) -> list:
     cam.connect()
     scope = Lumascope.__new__(Lumascope)
     scope._camera_driver = cam
+    scope._camera_executor = None
     imaging = ImagingAPI(scope, cam)
 
     records = []

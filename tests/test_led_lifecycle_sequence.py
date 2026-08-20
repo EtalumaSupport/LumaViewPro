@@ -953,7 +953,7 @@ def test_s11_wedged_writer_aborts_run_and_goes_dark(scope, bounded_runner, tmp_p
         wedge_started.set()
         wedge_release.wait(timeout=60)
 
-    real_capture_and_wait = scope.imaging.capture_and_wait
+    real_capture_and_wait = scope.imaging._capture_and_wait_impl
 
     def _capture_and_wait_with_wedge(*args, **kwargs):
         # Runs on the protocol worker right before the grab -- i.e. before
@@ -971,7 +971,7 @@ def test_s11_wedged_writer_aborts_run_and_goes_dark(scope, bounded_runner, tmp_p
             installed.set()
         return real_capture_and_wait(*args, **kwargs)
 
-    monkeypatch.setattr(scope.imaging, 'capture_and_wait', _capture_and_wait_with_wedge)
+    monkeypatch.setattr(scope.imaging, '_capture_and_wait_impl', _capture_and_wait_with_wedge)
 
     fired = []
     # remove_listener unregisters by identity, so the exact same callable
@@ -1025,7 +1025,7 @@ def test_s12_transient_scan_failure_goes_dark_before_retry(scope, runner, tmp_pa
     sub = LedSubstream()
     ill.add_led_listener(sub)
 
-    real_capture_and_wait = scope.imaging.capture_and_wait
+    real_capture_and_wait = scope.imaging._capture_and_wait_impl
     raised = threading.Event()
 
     def _raise_once_then_real(*args, **kwargs):
@@ -1034,7 +1034,7 @@ def test_s12_transient_scan_failure_goes_dark_before_retry(scope, runner, tmp_pa
             raise RuntimeError('injected transient grab failure')
         return real_capture_and_wait(*args, **kwargs)
 
-    monkeypatch.setattr(scope.imaging, 'capture_and_wait', _raise_once_then_real)
+    monkeypatch.setattr(scope.imaging, '_capture_and_wait_impl', _raise_once_then_real)
 
     completed, _ = _run_protocol(
         runner,

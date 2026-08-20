@@ -37,6 +37,7 @@ def sim_imaging():
     cam.open_and_start()
     scope = Lumascope.__new__(Lumascope)
     scope._camera_driver = cam
+    scope._camera_executor = None
     scope._cam_lock = threading.RLock()
     scope._state_lock = threading.RLock()
     imaging = ImagingAPI(scope, cam)

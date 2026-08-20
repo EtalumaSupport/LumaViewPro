@@ -23,7 +23,7 @@ from lib import profile_trace
 from lvp_logger import logger
 import modules.common_utils as common_utils
 import modules.image_utils as image_utils
-from modules.exceptions import CameraSettingRejected
+from modules.exceptions import CameraSettingRejected, HardwareCommandRefusedError
 from modules.frame_validity import FrameValidity
 from modules.notification_center import notifications
 from modules.sequential_io_executor import IOTask
@@ -593,7 +593,7 @@ class ImagingAPI:
             _api_log.debug(f'camera {key} read failed: {cause}')
 
     # --- Setters ---
-    def set_gain(self, gain_db: float) -> None:
+    def _set_gain_impl(self, gain_db: float) -> None:
         """Set the camera gain.
 
         Args:
@@ -638,7 +638,7 @@ class ImagingAPI:
             _api_log.info(f'set_gain {gain_db}dB')
             self._fire_camera_listeners('gain', float(gain_db))
 
-    def set_exposure_time(self, exposure_ms: float) -> None:
+    def _set_exposure_time_impl(self, exposure_ms: float) -> None:
         """Set the camera exposure time.
 
         Args:
@@ -700,6 +700,85 @@ class ImagingAPI:
         elif changed:
             _api_log.info(f'set_exposure {exposure_ms}ms')
             self._fire_camera_listeners('exposure', float(exposure_ms))
+
+    # --- Public dispatch ---
+    # These three are what an external caller reaches: an SDK script, a REST
+    # handler, the GUI. Every internal caller binds the matching `_impl`
+    # instead, so nothing already running on an executor worker or on the
+    # protocol or autofocus thread ever arrives here.
+
+    # How long a dispatched camera write waits on the camera worker before
+    # giving up. A gain or exposure write is a short SDK call behind at most
+    # a few queued camera commands, so this is a liveness bound rather than
+    # a budget -- if it ever expires, the worker is wedged and the caller
+    # should hear about it instead of blocking forever. Deliberately not a
+    # public parameter: an external caller has no way to know what value
+    # would be right.
+    _CAMERA_WRITE_TIMEOUT_S = 5.0
+
+    # The capture bound is wider: a dispatched capture legitimately spends
+    # time draining stale frames and retrying content gates before it
+    # returns, so its liveness bound has to sit above a slow but healthy
+    # capture, not just above a single SDK call.
+    _CAPTURE_WAIT_TIMEOUT_S = 30.0
+
+    def _dispatch_camera(self, impl, name, args=(), kwargs=None, *, timeout_s):
+        """Run one camera command for an external caller, on the right thread.
+
+        Three outcomes. With no executor registered the body runs on the
+        calling thread -- a bare `Lumascope()` in a script or an example has
+        no executors and still has to drive hardware. With a live executor
+        the body runs on the camera worker, serialized against every other
+        camera-bus operation, and this blocks until it has. With an executor
+        that will not accept work the caller is told so, because the
+        alternative is `put` returning None and the command disappearing
+        with nothing raised and nothing logged.
+
+        The refusal asks only WHETHER work is accepted. A run disables the
+        camera executor outright (io and file are fenced instead), and `put`
+        reports both states the same way, so a branch that asked WHY would
+        need a list of executor states kept in sync with the executor.
+
+        Unlike the LED dispatcher there is no connected pre-check here: the
+        camera slot holds None when no camera is present -- there is no Null
+        camera object -- so each `_impl` opens with a live driver guard and
+        answers correctly on whichever thread it runs.
+        """
+        kwargs = kwargs or {}
+        ex = self._scope._camera_executor
+        if ex is None:
+            return impl(*args, **kwargs)
+        if not ex.accepts_work():
+            raise HardwareCommandRefusedError('exclusive_activity_running', name)
+        fut = ex.put(IOTask(action=impl, args=args, kwargs=kwargs), return_future=True)
+        return fut.result(timeout=timeout_s)
+
+    def set_gain(self, gain_db: float) -> None:
+        """Set the camera gain, and wait for it.
+
+        See ``_set_gain_impl`` for the value contract and the rejection
+        notification; this adds only the dispatch described on
+        ``_dispatch_camera``.
+        """
+        return self._dispatch_camera(
+            self._set_gain_impl,
+            'set_gain',
+            args=(gain_db,),
+            timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
+        )
+
+    def set_exposure_time(self, exposure_ms: float) -> None:
+        """Set the camera exposure time, and wait for it.
+
+        See ``_set_exposure_time_impl`` for the value contract and the
+        unit-confusion warning it carries.
+        """
+        return self._dispatch_camera(
+            self._set_exposure_time_impl,
+            'set_exposure_time',
+            args=(exposure_ms,),
+            timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
+        )
 
     def set_auto_gain(self, state: bool, settings: dict) -> None:
         """Enable or disable automatic gain adjustment.
@@ -1492,67 +1571,55 @@ class ImagingAPI:
             )
             raise
 
-    def set_gain_async(self, gain_db, *, callback=None, cb_kwargs=None) -> None:
-        """Submit ``set_gain`` to the camera_executor; return immediately.
-
-        Args:
-            gain_db: Gain value in dB.
-            callback: Optional completion callback.
-            cb_kwargs: Optional kwargs passed to the callback.
-        """
-        ex = self._scope._require_executor(self._scope._camera_executor, 'set_gain_async')
-        ex.put(
-            IOTask(
-                action=self.set_gain,
-                args=(gain_db,),
-                callback=callback,
-                cb_kwargs=cb_kwargs,
-            )
-        )
+    # --- Transitional blocking tiers ---
+    # The GUI composite-capture path still calls these three; everything
+    # else reaches the dispatching public members above. They bind `_impl`
+    # so a worker running one can never re-enter the dispatcher, and they
+    # keep fence-drop as a warning rather than a raise because their caller
+    # predates the refusal contract.
 
     def set_gain_sync(self, gain_db, *, timeout_s: float = 5.0) -> None:
-        """Run ``set_gain`` through the camera_executor and block until done.
+        """Run the gain write through the camera_executor and block until done.
 
         Args:
             gain_db: Gain value in dB.
             timeout_s: Max seconds to wait for completion.
         """
-        ex = self._scope._require_executor(self._scope._camera_executor, 'set_gain_sync')
-        task = IOTask(action=self.set_gain, args=(gain_db,))
-        fut = ex.put(task, return_future=True)
+        ex = self._scope._camera_executor
+        if ex is None:
+            self._set_gain_impl(gain_db)
+            return
+        fut = ex.put(IOTask(action=self._set_gain_impl, args=(gain_db,)), return_future=True)
         if fut:
             fut.result(timeout=timeout_s)
-
-    def set_exposure_time_async(self, exposure_ms, *, callback=None, cb_kwargs=None) -> None:
-        """Submit ``set_exposure_time`` to the camera_executor; return immediately.
-
-        Args:
-            exposure_ms: Exposure time in milliseconds.
-            callback: Optional completion callback.
-            cb_kwargs: Optional kwargs passed to the callback.
-        """
-        ex = self._scope._require_executor(self._scope._camera_executor, 'set_exposure_time_async')
-        ex.put(
-            IOTask(
-                action=self.set_exposure_time,
-                args=(exposure_ms,),
-                callback=callback,
-                cb_kwargs=cb_kwargs,
+        else:
+            logger.warning(
+                '[SCOPE API ] set_gain_sync dropped: the camera executor is '
+                'not accepting work (disabled, or fenced by a running protocol)'
             )
-        )
 
     def set_exposure_sync(self, exposure_ms, *, timeout_s: float = 5.0) -> None:
-        """Run ``set_exposure_time`` through the camera_executor and block.
+        """Run the exposure write through the camera_executor and block.
 
         Args:
             exposure_ms: Exposure time in milliseconds.
             timeout_s: Max seconds to wait for completion.
         """
-        ex = self._scope._require_executor(self._scope._camera_executor, 'set_exposure_sync')
-        task = IOTask(action=self.set_exposure_time, args=(exposure_ms,))
-        fut = ex.put(task, return_future=True)
+        ex = self._scope._camera_executor
+        if ex is None:
+            self._set_exposure_time_impl(exposure_ms)
+            return
+        fut = ex.put(
+            IOTask(action=self._set_exposure_time_impl, args=(exposure_ms,)),
+            return_future=True,
+        )
         if fut:
             fut.result(timeout=timeout_s)
+        else:
+            logger.warning(
+                '[SCOPE API ] set_exposure_sync dropped: the camera executor '
+                'is not accepting work (disabled, or fenced by a running protocol)'
+            )
 
     def set_max_acquisition_frame_rate(
         self,
@@ -1923,7 +1990,7 @@ class ImagingAPI:
             return default
 
     # --- Capture ---
-    def capture_and_wait(
+    def _capture_and_wait_impl(
         self,
         force_to_8bit: bool = True,
         *,
@@ -2054,13 +2121,11 @@ class ImagingAPI:
             }
         return image
 
-    def capture_and_wait_async(
+    def capture_and_wait(
         self,
-        *,
-        callback=None,
-        cb_kwargs=None,
-        dark_floor_check: bool,
         force_to_8bit: bool = True,
+        *,
+        dark_floor_check: bool,
         exclude_sources: tuple = (),
         all_ones_check: bool = False,
         earliest_image_ts: datetime.datetime | None = None,
@@ -2068,43 +2133,30 @@ class ImagingAPI:
         sum_count: int = 1,
         sum_delay_s: float = 0,
         sum_iteration_callback=None,
-    ) -> None:
-        """Submit ``capture_and_wait`` to the camera_executor; return
-        immediately. The captured image is delivered via ``callback``.
+    ) -> np.ndarray | None:
+        """Capture a frame-valid image on the camera worker, and wait for it.
 
-        Args:
-            callback: Completion callback; receives the captured array
-                (or ``None`` on capture failure) as the first arg.
-            cb_kwargs: Optional kwargs passed to the callback.
-            dark_floor_check: Required -- whether illumination is expected
-                ON for this capture (see capture_and_wait).
-            force_to_8bit: Convert to 8-bit output.
-            exclude_sources: Sources to ignore for validity (e.g. ('z_move',)).
-            all_ones_check: Reject all-max-value frames.
-            earliest_image_ts: Reject frames captured before this timestamp.
-            timeout_s: Timeout (seconds) for the final get_image call.
-            sum_count: Number of frames to sum for noise reduction.
-            sum_delay_s: Delay between summed frames.
-            sum_iteration_callback: Called after each summed frame.
+        See ``_capture_and_wait_impl`` for the argument contract, the
+        frame-drain behaviour, and the None-on-failure sentinel; this adds
+        only the dispatch described on ``_dispatch_camera``. ``timeout_s``
+        stays the content-gate retry budget the body reads; the executor
+        wait is bounded separately and internally.
         """
-        ex = self._scope._require_executor(self._scope._camera_executor, 'capture_and_wait_async')
-        ex.put(
-            IOTask(
-                action=self.capture_and_wait,
-                kwargs={
-                    'dark_floor_check': dark_floor_check,
-                    'force_to_8bit': force_to_8bit,
-                    'exclude_sources': exclude_sources,
-                    'all_ones_check': all_ones_check,
-                    'earliest_image_ts': earliest_image_ts,
-                    'timeout_s': timeout_s,
-                    'sum_count': sum_count,
-                    'sum_delay_s': sum_delay_s,
-                    'sum_iteration_callback': sum_iteration_callback,
-                },
-                callback=callback,
-                cb_kwargs=cb_kwargs,
-            )
+        return self._dispatch_camera(
+            self._capture_and_wait_impl,
+            'capture_and_wait',
+            kwargs={
+                'force_to_8bit': force_to_8bit,
+                'dark_floor_check': dark_floor_check,
+                'exclude_sources': exclude_sources,
+                'all_ones_check': all_ones_check,
+                'earliest_image_ts': earliest_image_ts,
+                'timeout_s': timeout_s,
+                'sum_count': sum_count,
+                'sum_delay_s': sum_delay_s,
+                'sum_iteration_callback': sum_iteration_callback,
+            },
+            timeout_s=self._CAPTURE_WAIT_TIMEOUT_S,
         )
 
     def capture_and_wait_sync(
@@ -2121,19 +2173,21 @@ class ImagingAPI:
         sum_delay_s: float = 0,
         sum_iteration_callback=None,
     ) -> np.ndarray | None:
-        """Run ``capture_and_wait`` through the camera_executor and block.
+        """Run the capture through the camera_executor and block.
+
+        Transitional tier: see the note on ``set_gain_sync``.
 
         Args:
             timeout_s: Max seconds to wait for completion (wraps the executor
-                Future.result wait, not the inner capture_and_wait grab).
+                Future.result wait, not the inner capture grab).
             dark_floor_check: Required -- whether illumination is expected
-                ON for this capture (see capture_and_wait).
-            grab_timeout_s: Retry budget (seconds) for the inner
-                capture_and_wait content gates (saturation, dark floor,
-                chunk verify) -- forwarded as its timeout_s. Distinct from
-                timeout_s above, which only bounds the executor wait; with
-                the default 0.0 a content-gated frame is judged on the
-                first grab with no retry window.
+                ON for this capture (see ``_capture_and_wait_impl``).
+            grab_timeout_s: Retry budget (seconds) for the inner content
+                gates (saturation, dark floor, chunk verify) -- forwarded as
+                the body's timeout_s. Distinct from timeout_s above, which
+                only bounds the executor wait; with the default 0.0 a
+                content-gated frame is judged on the first grab with no
+                retry window.
             force_to_8bit: Convert to 8-bit output.
             exclude_sources: Sources to ignore for validity (e.g. ('z_move',)).
             all_ones_check: Reject all-max-value frames.
@@ -2144,26 +2198,32 @@ class ImagingAPI:
 
         Returns:
             The captured image array, or None on failure (camera-inactive,
-            frame-drain failed, executor absent, or future not delivered).
+            frame-drain failed, or future not delivered).
         """
-        ex = self._scope._require_executor(self._scope._camera_executor, 'capture_and_wait_sync')
-        task = IOTask(
-            action=self.capture_and_wait,
-            kwargs={
-                'dark_floor_check': dark_floor_check,
-                'timeout_s': grab_timeout_s,
-                'force_to_8bit': force_to_8bit,
-                'exclude_sources': exclude_sources,
-                'all_ones_check': all_ones_check,
-                'earliest_image_ts': earliest_image_ts,
-                'sum_count': sum_count,
-                'sum_delay_s': sum_delay_s,
-                'sum_iteration_callback': sum_iteration_callback,
-            },
+        kwargs = {
+            'dark_floor_check': dark_floor_check,
+            'timeout_s': grab_timeout_s,
+            'force_to_8bit': force_to_8bit,
+            'exclude_sources': exclude_sources,
+            'all_ones_check': all_ones_check,
+            'earliest_image_ts': earliest_image_ts,
+            'sum_count': sum_count,
+            'sum_delay_s': sum_delay_s,
+            'sum_iteration_callback': sum_iteration_callback,
+        }
+        ex = self._scope._camera_executor
+        if ex is None:
+            return self._capture_and_wait_impl(**kwargs)
+        fut = ex.put(
+            IOTask(action=self._capture_and_wait_impl, kwargs=kwargs),
+            return_future=True,
         )
-        fut = ex.put(task, return_future=True)
         if fut:
             return fut.result(timeout=timeout_s)
+        logger.warning(
+            '[SCOPE API ] capture_and_wait_sync dropped: the camera executor '
+            'is not accepting work (disabled, or fenced by a running protocol)'
+        )
         return None
 
     # A frame at least this saturated is treated as blown -- a stale-gain
@@ -2912,9 +2972,9 @@ class ImagingAPI:
             f'exp={exposure_ms if exposure_known else "skipped"}'
         )
         if gain_known:
-            self.set_gain(gain_db)
+            self._set_gain_impl(gain_db)
         if exposure_known:
-            self.set_exposure_time(exposure_ms)
+            self._set_exposure_time_impl(exposure_ms)
 
     # --- Camera config orchestration ---
     def apply_layer_camera_settings(
@@ -2939,8 +2999,8 @@ class ImagingAPI:
         if not self._driver or not self._driver.active:
             self._notify_camera_absent('gain / exposure')
             return
-        self.set_gain(gain_db)
-        self.set_exposure_time(exposure_ms)
+        self._set_gain_impl(gain_db)
+        self._set_exposure_time_impl(exposure_ms)
         if auto_gain_settings is not None:
             self.set_auto_gain(auto_gain, settings=auto_gain_settings)
         _api_log.info(

@@ -130,7 +130,7 @@ class TestProtocolWriterWiring:
             protocol=protocol,
             enable_image_saving=True,
         )
-        return scope.imaging.capture_and_wait.call_args.kwargs
+        return scope.imaging._capture_and_wait_impl.call_args.kwargs
 
     def test_lit_step_gates_dark_floor_on(self):
         assert self._run_capture(350.0)['dark_floor_check'] is True

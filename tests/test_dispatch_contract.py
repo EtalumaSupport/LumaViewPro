@@ -54,10 +54,13 @@ IMPL_RESULT = object()
 #
 # The async member's name does not always track the base name
 # (move_absolute_position dispatches through move_absolute_async), so it is
-# carried explicitly rather than derived by suffix.
+# carried explicitly rather than derived by suffix. The camera family
+# carries None: its fire-and-forget tier was measured consumerless and
+# deleted rather than collapsed, so the camera capability ends with the
+# dispatcher as its only public form and has no async member to pin.
 FAMILIES = [
     ('illumination', 'led_on', 'led_on_async', {'channel': 0, 'mA': 10.0}, 'io'),
-    ('imaging', 'set_gain', 'set_gain_async', {'gain_db': 1.0}, 'camera'),
+    ('imaging', 'set_gain', None, {'gain_db': 1.0}, 'camera'),
     (
         'motion',
         'move_absolute_position',
@@ -68,6 +71,9 @@ FAMILIES = [
 ]
 
 FAMILY_IDS = [f'{family}.{member}' for family, member, _, _, _ in FAMILIES]
+
+ASYNC_FAMILIES = [f for f in FAMILIES if f[2] is not None]
+ASYNC_FAMILY_IDS = [f'{family}.{member}' for family, member, _, _, _ in ASYNC_FAMILIES]
 
 
 @pytest.fixture
@@ -196,7 +202,9 @@ def test_live_executor_submits_and_blocks(
 
 
 @pytest.mark.parametrize(
-    ('family', 'member', 'async_member', 'kwargs', 'slot'), FAMILIES, ids=FAMILY_IDS
+    ('family', 'member', 'async_member', 'kwargs', 'slot'),
+    ASYNC_FAMILIES,
+    ids=ASYNC_FAMILY_IDS,
 )
 def test_async_warns_when_the_executor_drops_it(
     sim_scope, executors, family, member, async_member, kwargs, slot

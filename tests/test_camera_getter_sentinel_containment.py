@@ -157,6 +157,7 @@ def _build_imaging(cam) -> ImagingAPI:
     pattern) so the production getter / populate path is exercised."""
     scope = Lumascope.__new__(Lumascope)
     scope._camera_driver = cam
+    scope._camera_executor = None
     scope._cam_lock = threading.RLock()
     scope._state_lock = threading.RLock()
     imaging = ImagingAPI(scope, cam)
@@ -772,8 +773,8 @@ def test_restore_camera_state_trimmed_snapshot_restores_only_present_fields(monk
     warnings = []
     monkeypatch.setattr('modules.lumascope_api.imaging.logger', _recording_logger(warnings))
     calls = []
-    monkeypatch.setattr(imaging, 'set_gain', lambda g: calls.append(('gain', g)))
-    monkeypatch.setattr(imaging, 'set_exposure_time', lambda e: calls.append(('exposure', e)))
+    monkeypatch.setattr(imaging, '_set_gain_impl', lambda g: calls.append(('gain', g)))
+    monkeypatch.setattr(imaging, '_set_exposure_time_impl', lambda e: calls.append(('exposure', e)))
 
     imaging.restore_camera_state({'tag': 't', 'exposure_ms': 50.0})
 
@@ -786,8 +787,8 @@ def test_restore_camera_state_trimmed_snapshot_restores_only_present_fields(monk
 def test_restore_camera_state_empty_snapshot_is_noop(monkeypatch):
     imaging = _build_imaging(steady_good_driver())
     calls = []
-    monkeypatch.setattr(imaging, 'set_gain', lambda g: calls.append(('gain', g)))
-    monkeypatch.setattr(imaging, 'set_exposure_time', lambda e: calls.append(('exposure', e)))
+    monkeypatch.setattr(imaging, '_set_gain_impl', lambda g: calls.append(('gain', g)))
+    monkeypatch.setattr(imaging, '_set_exposure_time_impl', lambda e: calls.append(('exposure', e)))
 
     imaging.restore_camera_state({})
 

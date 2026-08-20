@@ -223,7 +223,7 @@ class TestDarkFloorKeysOnLedDrivability:
             protocol=protocol,
             enable_image_saving=True,
         )
-        return scope.imaging.capture_and_wait.call_args.kwargs, scope, writer
+        return scope.imaging._capture_and_wait_impl.call_args.kwargs, scope, writer
 
     def test_lumi_protocol_step_dark_floor_disabled(self):
         kwargs, _, _ = self._run_capture({'Color': 'Lumi', 'Illumination': 50.0})
@@ -279,7 +279,7 @@ class TestCaptureAbortWording:
         scope.motion.has_turret.return_value = False
         scope.led_connected = led_connected
         scope.illumination.color2ch.return_value = channel
-        scope.imaging.capture_and_wait.return_value = None
+        scope.imaging._capture_and_wait_impl.return_value = None
         writer._consecutive_capture_failures = writer._MAX_CONSECUTIVE_CAPTURE_FAILURES - 1
         protocol = MagicMock()
         protocol.capture_root.return_value = ''

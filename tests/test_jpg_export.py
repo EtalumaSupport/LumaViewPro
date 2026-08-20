@@ -138,7 +138,7 @@ def _scope_with_depth(significant_bits: int = _CAMERA_DEPTH, frame=None):
         significant_bits=significant_bits,
         last_significant_bits=significant_bits,
         _binning_size=1,
-        capture_and_wait=lambda **kwargs: frame,
+        _capture_and_wait_impl=lambda **kwargs: frame,
     )
     # The REAL shared depth rule, bound to this stub -- the tests pin that
     # every save path resolves through one rule, so the stub must not

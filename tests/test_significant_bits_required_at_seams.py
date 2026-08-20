@@ -70,7 +70,7 @@ def test_save_live_image_returns_none_on_capture_failure(monkeypatch, tmp_path):
 
     scope = SimpleNamespace(
         imaging=SimpleNamespace(
-            capture_and_wait=lambda **kw: None,
+            _capture_and_wait_impl=lambda **kw: None,
             capture_frame_depth=lambda array, sum_count=1: 8,
         ),
         illumination=SimpleNamespace(leds_off=lambda: None),

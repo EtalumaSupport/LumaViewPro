@@ -727,7 +727,7 @@ def save_live_image(
     Returns:
         str | None: Path to saved file, or None on failure.
     """
-    array = scope.imaging.capture_and_wait(
+    array = scope.imaging._capture_and_wait_impl(
         force_to_8bit=force_to_8bit,
         dark_floor_check=dark_floor_check,
         earliest_image_ts=earliest_image_ts,

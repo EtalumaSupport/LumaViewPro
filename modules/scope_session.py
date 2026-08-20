@@ -457,87 +457,24 @@ class ScopeSession:
             cb_args=cb_args,
         )
 
-    # --- Imaging commands (symmetric with illumination + motion wrappers:
-    #     _async = queued + immediate return, _sync = queued + blocking on
-    #     result. Both route through camera_executor for serialization with
-    #     other camera-bus work.)
+    # --- Imaging commands (the camera family has ONE public form per
+    #     capability: the dispatching member on scope.imaging, which submits
+    #     to camera_executor and blocks. These forwarders keep the L2 names
+    #     stable until the Session shrink retires them; the fire-and-forget
+    #     variants were measured consumerless and deleted.)
 
-    def set_gain_async(self, gain_db: float, callback=None, cb_kwargs=None) -> None:
-        """Submit ``set_gain`` to camera_executor; return immediately."""
-        self.scope.imaging.set_gain_async(
-            gain_db,
-            callback=callback,
-            cb_kwargs=cb_kwargs,
-        )
+    def set_gain_sync(self, gain_db: float) -> None:
+        """Set the camera gain and block until applied."""
+        self.scope.imaging.set_gain(gain_db)
 
-    def set_gain_sync(self, gain_db: float, timeout_s: float = 5.0) -> None:
-        """Submit ``set_gain`` to camera_executor and block until done."""
-        self.scope.imaging.set_gain_sync(gain_db, timeout_s=timeout_s)
-
-    def set_exposure_time_async(
-        self,
-        exposure_ms: float,
-        callback=None,
-        cb_kwargs=None,
-    ) -> None:
-        """Submit ``set_exposure_time`` to camera_executor; return immediately."""
-        self.scope.imaging.set_exposure_time_async(
-            exposure_ms,
-            callback=callback,
-            cb_kwargs=cb_kwargs,
-        )
-
-    def set_exposure_time_sync(self, exposure_ms: float, timeout_s: float = 5.0) -> None:
-        """Submit ``set_exposure_time`` to camera_executor and block until done."""
-        self.scope.imaging.set_exposure_sync(exposure_ms, timeout_s=timeout_s)
-
-    def capture_and_wait_async(
-        self,
-        *,
-        callback=None,
-        cb_kwargs=None,
-        force_to_8bit: bool = True,
-        exclude_sources: tuple = (),
-        all_ones_check: bool = False,
-        dark_floor_check: bool = False,
-        earliest_image_ts: 'datetime.datetime | None' = None,
-        timeout_s: float = 0.0,
-        sum_count: int = 1,
-        sum_delay_s: float = 0,
-        sum_iteration_callback=None,
-    ) -> None:
-        """Submit ``capture_and_wait`` to camera_executor; image delivered via callback.
-
-        Explicit signature symmetric with set_gain_async / set_exposure_time_async
-        and with the underlying scope.imaging.capture_and_wait_async; L2 SDK
-        autocomplete sees every supported kwarg.
-
-        ``dark_floor_check=True`` rejects frames with essentially no lit
-        pixel (retried until ``timeout_s`` expires, then None); pass it when
-        your capture expects illumination ON. Defaults False at this L2
-        surface so existing scripts are behavior-identical. Unlike the sync
-        forwarder, ``timeout_s`` here IS the content-retry budget -- there
-        is no blocking executor wait to bound.
-        """
-        self.scope.imaging.capture_and_wait_async(
-            callback=callback,
-            cb_kwargs=cb_kwargs,
-            dark_floor_check=dark_floor_check,
-            force_to_8bit=force_to_8bit,
-            exclude_sources=exclude_sources,
-            all_ones_check=all_ones_check,
-            earliest_image_ts=earliest_image_ts,
-            timeout_s=timeout_s,
-            sum_count=sum_count,
-            sum_delay_s=sum_delay_s,
-            sum_iteration_callback=sum_iteration_callback,
-        )
+    def set_exposure_time_sync(self, exposure_ms: float) -> None:
+        """Set the camera exposure time and block until applied."""
+        self.scope.imaging.set_exposure_time(exposure_ms)
 
     def capture_and_wait_sync(
         self,
         *,
-        timeout_s: float = 30.0,
-        grab_timeout_s: float = 0.0,
+        timeout_s: float = 0.0,
         force_to_8bit: bool = True,
         exclude_sources: tuple = (),
         all_ones_check: bool = False,
@@ -547,23 +484,21 @@ class ScopeSession:
         sum_delay_s: float = 0,
         sum_iteration_callback=None,
     ) -> 'np.ndarray | None':
-        """Submit ``capture_and_wait`` to camera_executor and block; return image.
+        """Capture a frame-valid image and block; return the image.
 
-        Explicit signature symmetric with the other Session imaging forwarders.
-        Returns the captured image array, or None on failure (camera-inactive,
-        frame-drain failed, executor absent, or future not delivered).
+        Returns the captured image array, or None on failure (camera-inactive
+        or frame-drain failed).
 
         ``dark_floor_check=True`` rejects frames with essentially no lit
         pixel; pass it when your capture expects illumination ON. Defaults
         False at this L2 surface so existing scripts are behavior-identical.
-        ``grab_timeout_s`` is the retry budget for the content checks (dark
+        ``timeout_s`` is the retry budget for the content checks (dark
         floor, saturation, chunk verify): with the default 0.0 the first
         grab is judged with no retry, so a transient dark frame fails
-        instead of healing. ``timeout_s`` only bounds the executor wait.
+        instead of healing. The executor wait is bounded internally.
         """
-        return self.scope.imaging.capture_and_wait_sync(
+        return self.scope.imaging.capture_and_wait(
             timeout_s=timeout_s,
-            grab_timeout_s=grab_timeout_s,
             dark_floor_check=dark_floor_check,
             force_to_8bit=force_to_8bit,
             exclude_sources=exclude_sources,

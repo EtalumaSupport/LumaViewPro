@@ -151,7 +151,7 @@ class CompositeCapture(FloatLayout):
         # Summing is carried here exactly as save_live_image carries it above:
         # an overlay is a display choice, and switching one on must not
         # silently reduce a summed capture to a single frame.
-        image_orig = ctx.scope.imaging.capture_and_wait(
+        image_orig = ctx.scope.imaging._capture_and_wait_impl(
             force_to_8bit=force_to_8bit_pixel_depth,
             all_ones_check=True,
             dark_floor_check=dark_floor_check,

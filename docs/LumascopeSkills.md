@@ -212,7 +212,7 @@ session.led_off_async('Blue')
 session.leds_off_async()
 ```
 
-All Session wrappers are async-by-default; the `*_async` suffix is explicit so L2 callers don't read `session.led_on(...)` as "blocking" when it actually queues to an executor. Sync counterparts are available where blocking is the right shape (see `session.led_on_sync`); add an issue if you need a sync counterpart for one that doesn't have one.
+The LED and motion Session wrappers are async-by-default; the `*_async` suffix is explicit so L2 callers don't read `session.led_on(...)` as "blocking" when it actually queues to an executor. Sync counterparts are available where blocking is the right shape (see `session.led_on_sync`); add an issue if you need a sync counterpart for one that doesn't have one. The imaging wrappers are the exception: blocking-only (see below).
 
 ### Motion
 
@@ -222,28 +222,26 @@ session.move_absolute_async('Z', 5000, wait_until_complete=True)
 session.move_relative_async('X', 500)
 ```
 
-### Imaging (symmetric with LED + motion forwarders)
+### Imaging (blocking-only)
+
+The camera family has one public form per capability: each call submits to
+the camera executor, blocks until the hardware has it, and raises
+`HardwareCommandRefusedError` while a protocol run owns the executors.
+There are no imaging `*_async` forwarders.
 
 ```python
-# async-by-default (fire and forget, optional completion callback)
-session.set_gain_async(8.0)              # dB
-session.set_exposure_time_async(50.0)    # ms
-session.capture_and_wait_async(callback=lambda img: ..., earliest_image_ts=ts)
+session.set_gain_sync(8.0)               # dB; blocks until applied
+session.set_exposure_time_sync(50.0)     # ms; blocks until applied
+image = session.capture_and_wait_sync()  # returns frame-valid grab
 
-# sync counterparts when blocking is the right shape
-session.set_gain_sync(8.0, timeout_s=5)
-session.set_exposure_time_sync(50.0, timeout_s=5)
-image = session.capture_and_wait_sync(timeout_s=30)   # returns frame-valid grab
-
-# Both capture forwarders accept dark_floor_check (default False at this
+# The capture forwarder accepts dark_floor_check (default False at this
 # surface, so existing scripts are unchanged): pass True when your capture
 # expects illumination ON and a frame with no lit pixel should be rejected
-# (retried, then None) instead of returned as data. grab_timeout_s is the
-# retry budget for the content checks (distinct from timeout_s, which
-# bounds the executor wait); leave it 0.0 to judge the first grab only.
-image = session.capture_and_wait_sync(
-    timeout_s=30, dark_floor_check=True, grab_timeout_s=2.0
-)
+# (retried, then None) instead of returned as data. timeout_s is the retry
+# budget for the content checks (dark floor, saturation, chunk verify);
+# leave it 0.0 to judge the first grab only. The executor wait is bounded
+# internally.
+image = session.capture_and_wait_sync(dark_floor_check=True, timeout_s=2.0)
 ```
 
 ### Capture

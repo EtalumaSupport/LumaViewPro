@@ -1352,7 +1352,7 @@ class TestG3_AutofocusFailureNotification:
         monkeypatch.setattr(notifications, 'error', lambda *a, **k: captured.append(a))
 
         runner, scope = af_runner_and_scope()
-        scope.imaging.capture_and_wait.side_effect = RuntimeError('camera fault')
+        scope.imaging._capture_and_wait_impl.side_effect = RuntimeError('camera fault')
         with pytest.raises(RuntimeError, match='camera fault'):
             drive_af(runner)
         assert captured and captured[0][1] == 'Autofocus Failed', (
@@ -3973,7 +3973,7 @@ class TestFrameValidity_SaveLiveImageDrainsBeforeGrab:
         frame = np.zeros((4, 4), dtype=np.uint8)
         scope = SimpleNamespace(
             imaging=SimpleNamespace(
-                capture_and_wait=lambda **kw: calls.append('capture_and_wait') or frame,
+                _capture_and_wait_impl=lambda **kw: calls.append('capture_and_wait') or frame,
                 get_image=lambda **kw: calls.append('get_image') or frame,
                 capture_frame_depth=lambda array, sum_count=1: 8,
             ),
@@ -4025,8 +4025,8 @@ class TestFrameValidity_AutofocusDrainsBeforeScore:
 
     def test_iterate_calls_capture_and_wait(self, monkeypatch):
         scope, result = self._drive_full_af(monkeypatch)
-        assert scope.imaging.capture_and_wait.called, (
-            'the AF scan loop must grab via capture_and_wait '
+        assert scope.imaging._capture_and_wait_impl.called, (
+            'the AF scan loop must grab via the capture-and-wait body '
             'to drain LED/gain/exposure pending frames before scoring.'
         )
         assert result is not None, 'the drive must complete with a best-focus result'
@@ -4042,7 +4042,7 @@ class TestFrameValidity_AutofocusDrainsBeforeScore:
         """AF excludes z_move because is_moving() already gates motion; the
         drain is for LED/gain/exposure transitions only."""
         scope, _ = self._drive_full_af(monkeypatch)
-        grabs = scope.imaging.capture_and_wait.call_args_list
+        grabs = scope.imaging._capture_and_wait_impl.call_args_list
         assert grabs, 'the drive must reach the camera'
         for grab in grabs:
             assert grab.kwargs.get('exclude_sources') == ('z_move',), (
@@ -4062,10 +4062,11 @@ class TestFrameValidity_CompositeOverlayBranchDrains:
 
         src = (Path(__file__).resolve().parent.parent / 'ui' / 'composite_capture.py').read_text()
         body = _function_source(src, '_live_capture_impl')
-        assert 'ctx.scope.imaging.capture_and_wait(' in body, (
-            'composite_capture._live_capture_impl must call '
-            'ctx.scope.imaging.capture_and_wait(...) for the bullseye/crosshairs '
-            'overlay branch (was bare get_image).'
+        assert 'ctx.scope.imaging._capture_and_wait_impl(' in body, (
+            'composite_capture._live_capture_impl must grab through the '
+            'capture-and-wait body (it runs on the executor worker, so the '
+            'dispatching public form would deadlock) for the '
+            'bullseye/crosshairs overlay branch (was bare get_image).'
         )
 
     def test_live_capture_impl_no_bare_ctx_scope_get_image(self):
@@ -4131,6 +4132,9 @@ def _sim_backed_imaging():
     cam.open_and_start()
     scope = Lumascope.__new__(Lumascope)
     scope._camera_driver = cam
+    # No executor: the public dispatchers run their body on the calling
+    # thread, so these tests exercise the public surface inline.
+    scope._camera_executor = None
     scope.runtime_state = RuntimeState(scope)
     imaging = ImagingAPI(scope, cam)
     scope.imaging = imaging
@@ -10635,7 +10639,7 @@ class TestAutoGainArmedInScanIterate:
         scope = writer._scope
         scope.motion.has_turret.return_value = False
         scope.led_connected = False
-        scope.imaging.capture_and_wait.return_value = np.zeros((4, 4), dtype=np.uint8)
+        scope.imaging._capture_and_wait_impl.return_value = np.zeros((4, 4), dtype=np.uint8)
         protocol = MagicMock()
         protocol.capture_root.return_value = ''
         writer.capture(
@@ -10656,15 +10660,15 @@ class TestAutoGainArmedInScanIterate:
         assert not imaging.apply_layer_camera_settings.called, (
             'AG-step capture must not re-apply layer camera settings'
         )
-        assert not imaging.set_gain.called and not imaging.set_exposure_time.called, (
+        assert not imaging._set_gain_impl.called and not imaging._set_exposure_time_impl.called, (
             'AG-step capture must not drive manual gain/exposure either'
         )
 
     def test_capture_applies_settings_for_manual_step(self):
         """Control: a non-AG step DOES drive the step gain/exposure."""
         imaging = self._drive_capture(auto_gain=False)
-        imaging.set_gain.assert_called_once_with(2.0)
-        imaging.set_exposure_time.assert_called_once_with(10.0)
+        imaging._set_gain_impl.assert_called_once_with(2.0)
+        imaging._set_exposure_time_impl.assert_called_once_with(10.0)
 
     def test_arm_block_returns_after_arming(self, monkeypatch):
         """The arm tick must NOT capture -- the next scan_iterate tick
@@ -13020,7 +13024,7 @@ class TestCaptureFailureAbortNotificationOrdering:
         scope.led_connected = False
         scope.motion.has_turret.return_value = False
         # Force the capture to fail (returns no frame) so the failure branch runs.
-        scope.imaging.capture_and_wait.return_value = None
+        scope.imaging._capture_and_wait_impl.return_value = None
         monkeypatch.setattr(nc.notifications, 'critical', lambda *a, **k: order.append('notify'))
         protocol = MagicMock()
         protocol.capture_root.return_value = ''
