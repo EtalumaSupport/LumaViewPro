@@ -3167,12 +3167,12 @@ class ImagingAPI:
 
         No-op when no camera is connected. Called once on startup and
         periodically by ``start_camera_temp_logging``. Reads temperatures
-        through `scope.diagnostics.get_camera_temperatures` -- the canonical
+        through `scope.diagnostics.get_camera_temperatures_degc` -- the canonical
         camera-temp probe (cold probes live on DiagnosticsAPI).
         """
         if not self._scope.camera_connected:
             return
-        for source, temp in self._scope.diagnostics.get_camera_temperatures().items():
+        for source, temp in self._scope.diagnostics.get_camera_temperatures_degc().items():
             logger.info(f'[CAM Class ] Camera {source} Temperature : {temp:.2f} degC')
 
     def start_camera_temp_logging(

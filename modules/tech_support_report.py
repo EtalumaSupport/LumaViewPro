@@ -1129,7 +1129,7 @@ class FirmwareDiagnostics:
         """
         if not self._scope:
             return None
-        return self._scope.diagnostics.read_motor_fanspeed()
+        return self._scope.diagnostics.read_motor_fan_rpm()
 
     def get_i2c_scan(self):
         return self._cmd(self.led_board, 'I2CSCAN')
@@ -1406,7 +1406,7 @@ class FirmwareDiagnostics:
         # Test 1: Set fan to ~50% duty, read RPM
         self._scope.diagnostics.set_motor_fan_duty(50)
         time.sleep(2.0)
-        rpm_50 = self._scope.diagnostics.read_motor_fanspeed()
+        rpm_50 = self._scope.diagnostics.read_motor_fan_rpm()
 
         has_tach = rpm_50 is not None and rpm_50 > 100
         results['tests'].append(
@@ -1420,7 +1420,7 @@ class FirmwareDiagnostics:
         # Test 2: Fan off, read RPM
         self._scope.diagnostics.set_motor_fan_duty(0)
         time.sleep(3.0)
-        rpm_off = self._scope.diagnostics.read_motor_fanspeed()
+        rpm_off = self._scope.diagnostics.read_motor_fan_rpm()
 
         results['tests'].append(
             {

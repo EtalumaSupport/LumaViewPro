@@ -27,7 +27,7 @@ class DiagnosticsAPI:
         self._scope = scope
 
     # --- Camera probes ---
-    def get_camera_temperatures(self) -> dict:
+    def get_camera_temperatures_degc(self) -> dict:
         """Get all camera temperature sensor readings.
 
         Returns:
@@ -39,7 +39,7 @@ class DiagnosticsAPI:
         try:
             return self._scope._camera_driver.get_all_temperatures()
         except Exception as e:
-            logger.debug(f'[SCOPE API ] get_camera_temperatures failed: {e}')
+            logger.debug(f'[SCOPE API ] get_camera_temperatures_degc failed: {e}')
             return {}
 
     def get_camera_diagnostic_info(self) -> dict:
@@ -90,7 +90,7 @@ class DiagnosticsAPI:
         # when unknown) -- a provenance label, not a control input.
         info['sdk_version'] = self._scope._camera_driver.get_sdk_info().get('version')
 
-        info['temperatures'] = self.get_camera_temperatures()
+        info['temperatures'] = self.get_camera_temperatures_degc()
         return info
 
     def run_camera_bandwidth_test(
@@ -697,7 +697,7 @@ class DiagnosticsAPI:
             return None
         return drv.read_drv_status(axis)
 
-    def read_motor_fanspeed(self) -> int | None:
+    def read_motor_fan_rpm(self) -> int | None:
         """Read motor-board fan tachometer RPM.
 
         Returns RPM as int (0 if no tach wire) or None when firmware

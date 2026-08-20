@@ -681,7 +681,7 @@ def test_temp_logger_survives_transient_disconnect_and_resumes():
 
     probes = []
     imaging._scope.diagnostics = SimpleNamespace(
-        get_camera_temperatures=lambda: probes.append(1) or {'coreboard': 42.0}
+        get_camera_temperatures_degc=lambda: probes.append(1) or {'coreboard': 42.0}
     )
 
     scheduled = {}

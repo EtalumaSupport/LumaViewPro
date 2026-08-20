@@ -9392,7 +9392,7 @@ class TestImagingTimeoutsAreFloatSeconds:
 
 class TestImagingGetCameraTempsRetired:
     """Audit Finding #2 -- imaging.get_camera_temps was a duplicate path
-    for the diagnostics.get_camera_temperatures probe. Retired pre-freeze.
+    for the diagnostics.get_camera_temperatures_degc probe. Retired pre-freeze.
     log_camera_temps (the live-in-flight logger) stays on imaging and now
     routes through diagnostics for the data read."""
 
@@ -9401,12 +9401,12 @@ class TestImagingGetCameraTempsRetired:
 
         assert not hasattr(ImagingAPI, 'get_camera_temps'), (
             'imaging.get_camera_temps must be retired; '
-            'callers route through scope.diagnostics.get_camera_temperatures'
+            'callers route through scope.diagnostics.get_camera_temperatures_degc'
         )
 
     def test_diagnostics_get_camera_temperatures_still_callable(self, sim_scope):
         # Sim drivers may not expose temperatures; method must return a dict.
-        result = sim_scope.diagnostics.get_camera_temperatures()
+        result = sim_scope.diagnostics.get_camera_temperatures_degc()
         assert isinstance(result, dict)
 
     def test_imaging_log_camera_temps_still_exists(self):

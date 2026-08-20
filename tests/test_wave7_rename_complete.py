@@ -467,7 +467,7 @@ def test_no_self_imaging_calls_in_lumascope():
 # MOTION_ONLY_METHODS / ILLUMINATION_ONLY_METHODS.
 DIAGNOSTICS_ONLY_METHODS = frozenset(
     {
-        'get_camera_temperatures',
+        'get_camera_temperatures_degc',
         'get_camera_diagnostic_info',
         'run_camera_bandwidth_test',
         'run_grab_lifecycle_benchmark',

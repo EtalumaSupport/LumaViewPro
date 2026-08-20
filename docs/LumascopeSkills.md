@@ -672,7 +672,7 @@ Each has a matching `remove_*_listener(callback)`. The frame listener additional
 ```python
 scope.camera_connected                             # bool property (mirror of motor_connected / led_connected)
 scope.imaging.active_cached                        # True if grabbing
-scope.diagnostics.get_camera_temperatures()        # temperature sensors (SDK-dependent)
+scope.diagnostics.get_camera_temperatures_degc()        # temperature sensors (SDK-dependent)
 scope.diagnostics.get_camera_info()                # model, serial, firmware
 scope.diagnostics.get_camera_profile_info()        # sensor specs + dynamic ranges; returns:
 # {
@@ -756,7 +756,7 @@ info = scope.diagnostics.get_camera_diagnostic_info()
 
 # Camera temperature sensors. Returns dict {sensor_name: degC} or
 # empty when the camera lacks temperature sensors or is inactive.
-temps = scope.diagnostics.get_camera_temperatures()
+temps = scope.diagnostics.get_camera_temperatures_degc()
 
 # Camera bandwidth + grab-cycle benchmarks. Both write a JSON
 # artifact to data/camera_timing/ keyed on model + SDK + delay so a
@@ -788,7 +788,7 @@ lines = scope.diagnostics.send_diagnostic_command_multiline(
 # DiagnosticsAPI pre-Phase-5; documented here for completeness).
 voltages = scope.diagnostics.read_motor_voltages()         # dict {rail: V} or None
 status = scope.diagnostics.read_motor_drv_status('Z')       # int register or None
-rpm = scope.diagnostics.read_motor_fanspeed()              # RPM or None
+rpm = scope.diagnostics.read_motor_fan_rpm()              # RPM or None
 ok = scope.diagnostics.set_motor_fan_duty(50)              # bool
 
 # LED engineering-mode handshake (FACTORY / Y / Q with post-Q drain).
