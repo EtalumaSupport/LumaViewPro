@@ -561,10 +561,10 @@ class ProtocolStepRunner:
             'overshoot_enabled': overshoot_enabled,
         }
         if p._io_executor is None:
-            p._scope.motion.move_absolute_position(**kwargs)
+            p._scope.motion._move_absolute_position_impl(**kwargs)
             return
         fut = p._io_executor.protocol_put(
-            IOTask(action=p._scope.motion.move_absolute_position, kwargs=kwargs),
+            IOTask(action=p._scope.motion._move_absolute_position_impl, kwargs=kwargs),
             return_future=True,
         )
         if fut:

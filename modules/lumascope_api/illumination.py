@@ -764,6 +764,11 @@ class IlluminationAPI:
         if not ex.accepts_work():
             raise HardwareCommandRefusedError('exclusive_activity_running', name)
         fut = ex.put(IOTask(action=impl, args=args, kwargs=kwargs), return_future=True)
+        if fut is None:
+            # A protocol fence can land between the check above and the
+            # submit; without this the race surfaces as an AttributeError on
+            # the missing future instead of the typed refusal.
+            raise HardwareCommandRefusedError('exclusive_activity_running', name)
         return fut.result(timeout=_LED_WRITE_TIMEOUT_S)
 
     def led_on(
@@ -937,6 +942,10 @@ class IlluminationAPI:
             # back to a direct dispatch when there is no UI dispatcher.
             # Returning None for a return_future caller is correct: those
             # callers wait only `if fut`, and the work is already done.
+            # run() renames the current thread to the task's name (normally
+            # the worker's); an unnamed task would blank the CALLING thread's
+            # name here, so hand it the name it already has.
+            task.set_name(threading.current_thread().name)
             result, exception = task.run()
             task.on_complete(result, exception)
             if exception is not None:

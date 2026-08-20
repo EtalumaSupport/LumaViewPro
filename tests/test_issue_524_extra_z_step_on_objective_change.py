@@ -102,7 +102,7 @@ def test_safe_turret_move_gates_z_restore_on_flag():
             if 'restore_z' not in test_src:
                 continue
             body_src = '\n'.join(ast.unparse(s) for s in node.body)
-            if "move_absolute_position('Z', pos=initial_z" in body_src:
+            if "_move_absolute_position_impl('Z', pos=initial_z" in body_src:
                 found_guard = True
                 break
     assert found_guard, (
@@ -111,10 +111,14 @@ def test_safe_turret_move_gates_z_restore_on_flag():
 
 
 def test_tmove_threads_restore_z():
+    # The public tmove is a dispatcher; the turret motion lives in the
+    # _impl body, so the signature is checked on the public form and the
+    # safe_turret_move threading on the body.
     method = _function_node(_module_tree(MOTION_SRC), 'tmove', class_name='MotionAPI')
     all_names = [a.arg for a in method.args.args] + [a.arg for a in method.args.kwonlyargs]
     assert 'restore_z' in all_names, 'tmove must accept restore_z. (#524)'
-    src = ast.unparse(method)
+    impl = _function_node(_module_tree(MOTION_SRC), '_tmove_impl', class_name='MotionAPI')
+    src = ast.unparse(impl)
     assert 'safe_turret_move(restore_z=restore_z)' in src, (
         'tmove must pass its restore_z through to safe_turret_move. (#524)'
     )

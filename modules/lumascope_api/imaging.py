@@ -752,6 +752,11 @@ class ImagingAPI:
         if not ex.accepts_work():
             raise HardwareCommandRefusedError('exclusive_activity_running', name)
         fut = ex.put(IOTask(action=impl, args=args, kwargs=kwargs), return_future=True)
+        if fut is None:
+            # A protocol fence can land between the check above and the
+            # submit; without this the race surfaces as an AttributeError on
+            # the missing future instead of the typed refusal.
+            raise HardwareCommandRefusedError('exclusive_activity_running', name)
         return fut.result(timeout=timeout_s)
 
     def set_gain(self, gain_db: float) -> None:

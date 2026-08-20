@@ -363,7 +363,6 @@ scope.motion.has_turret()
 scope.motion.tmove(2)                            # turret position 2
 
 # Stage
-scope.motion.xycenter()                          # move to stage center
 scope.motion.get_axis_limits('Z')                # {'min': 0, 'max': 14000}
 scope.motion.get_axes_config()                   # per-axis config dict: limits + ustep-conversion funcs (motion-driver shape)
 ```

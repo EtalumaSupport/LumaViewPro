@@ -580,7 +580,7 @@ class VerticalControl(BoxLayout):
 
         ctx.io_executor.put(
             IOTask(
-                action=ctx.lumaview.scope.motion.thome,
+                action=ctx.lumaview.scope.motion._thome_impl,
                 callback=_on_turret_homed,
             )
         )
@@ -674,14 +674,14 @@ class VerticalControl(BoxLayout):
             settings = ctx.settings
             if not ctx.lumaview.scope.motion.has_thomed():
                 if not protocol:
-                    ctx.io_executor.put(IOTask(ctx.lumaview.scope.motion.thome))
+                    ctx.io_executor.put(IOTask(ctx.lumaview.scope.motion._thome_impl))
                 else:
                     # Protocol context runs on protocol_thread, not the io
                     # worker -- route thome through the protocol queue so it
                     # stays ordered ahead of the subsequent tmove/X/Y/Z and
                     # behind the prior step's leds_off on the single worker.
                     fut = ctx.io_executor.protocol_put(
-                        IOTask(ctx.lumaview.scope.motion.thome), return_future=True
+                        IOTask(ctx.lumaview.scope.motion._thome_impl), return_future=True
                     )
                     if fut:
                         fut.result(timeout=120)
@@ -694,7 +694,10 @@ class VerticalControl(BoxLayout):
 
             if not protocol:
                 ctx.io_executor.put(
-                    IOTask(ctx.lumaview.scope.motion.tmove, kwargs={'position': selected_position})
+                    IOTask(
+                        ctx.lumaview.scope.motion._tmove_impl,
+                        kwargs={'position': selected_position},
+                    )
                 )
             else:
                 # See the thome branch above: route the protocol-context
@@ -703,7 +706,7 @@ class VerticalControl(BoxLayout):
                 # instead of racing them from protocol_thread.
                 fut = ctx.io_executor.protocol_put(
                     IOTask(
-                        ctx.lumaview.scope.motion.tmove,
+                        ctx.lumaview.scope.motion._tmove_impl,
                         kwargs={'position': selected_position, 'restore_z': restore_z},
                     ),
                     return_future=True,

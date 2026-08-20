@@ -407,7 +407,10 @@ class AutofocusRunner:
                 logger.debug('[AF] precision restore in finally failed', exc_info=True)
             if not completed_successfully and self._saved_z_position is not None:
                 try:
-                    self._scope.motion.move_absolute_position('Z', self._saved_z_position)
+                    # The non-dispatching body: AF runs while the executors
+                    # are held by the run, so the public dispatcher would
+                    # refuse this restore.
+                    self._scope.motion._move_absolute_position_impl('Z', self._saved_z_position)
                     _af_log.info(
                         f'[AF DIAG] Non-success exit: restored Z to '
                         f'pre-AF position {self._saved_z_position:.2f}'
@@ -747,14 +750,21 @@ class AutofocusRunner:
         return self._best_focus_position
 
     def _move_absolute_position(self, pos):
-        self._scope.motion.move_absolute_position('Z', pos)
+        # Internal-caller contract of the motion API: the public members are
+        # dispatchers that serialize EXTERNAL callers onto the io worker,
+        # and every internal caller already on a managed thread binds the
+        # body directly -- the same contract the AF camera grabs above and
+        # the protocol writer follow.
+        self._scope.motion._move_absolute_position_impl('Z', pos)
         with self._callbacks_lock:
             cb = self._callbacks.get('move_position')
         if cb is not None:
             _schedule_ui(lambda dt: cb('Z'))
 
     def _move_relative_position(self, pos):
-        self._scope.motion.move_relative_position('Z', pos)
+        # Internal-caller contract of the motion API -- see
+        # _move_absolute_position above.
+        self._scope.motion._move_relative_position_impl('Z', pos)
         with self._callbacks_lock:
             cb = self._callbacks.get('move_position')
         if cb is not None:

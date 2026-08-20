@@ -58,16 +58,16 @@ def test_protocol_move_routes_through_io_executor(monkeypatch):
     # The move was queued exactly once on the protocol queue.
     ctx.io_executor.protocol_put.assert_called_once()
     task = ctx.io_executor.protocol_put.call_args.args[0]
-    assert task.action is ctx.scope.motion.move_absolute_position, (
-        'protocol-context move must enqueue the scope move primitive as the '
-        'IOTask action so it serializes on the io worker'
+    assert task.action is ctx.scope.motion._move_absolute_position_impl, (
+        'protocol-context move must enqueue the non-dispatching move body as '
+        'the IOTask action so it serializes on the io worker'
     )
     # The wrapper waits for completion (preserves the prior synchronous
     # semantics on protocol_thread).
     fut.result.assert_called_once()
     # It must NOT have been called directly on the calling thread -- that is
     # the bypass that races leds_off.
-    ctx.scope.motion.move_absolute_position.assert_not_called()
+    ctx.scope.motion._move_absolute_position_impl.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

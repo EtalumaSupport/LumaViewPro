@@ -249,7 +249,7 @@ def move_absolute_position(
         else:
             fut = ctx.io_executor.protocol_put(
                 IOTask(
-                    action=ctx.scope.motion.move_absolute_position,
+                    action=ctx.scope.motion._move_absolute_position_impl,
                     kwargs={
                         'axis': axis,
                         'pos': pos,

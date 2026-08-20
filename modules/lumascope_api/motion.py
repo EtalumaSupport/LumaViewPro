@@ -37,6 +37,7 @@ from collections.abc import Iterator
 from drivers.exceptions import HardwareError
 from lib import profile_trace
 from lvp_logger import logger
+from modules.exceptions import HardwareCommandRefusedError
 from modules.notification_center import notifications
 
 # Match _lumascope.py's module-level _api_log channel so relocated
@@ -206,6 +207,55 @@ class MotionAPI:
     # Order mirrors _lumascope.py source order.
     # ------------------------------------------------------------------
 
+    def _submit_motion(
+        self,
+        action,
+        name,
+        *,
+        kwargs=None,
+        callback=None,
+        cb_args=None,
+        cb_kwargs=None,
+        slow_task_threshold_sec=None,
+    ) -> None:
+        """Submit one motion body to the io executor, fire-and-forget.
+
+        With no executor registered the task runs on the calling thread --
+        a bare `Lumascope()` in a script has none and still has to drive
+        hardware; one rule for the whole surface. Running the TASK rather
+        than the bare action keeps the callback and error reporting on the
+        production path. A submit the executor drops is recorded rather
+        than vanishing: fire-and-forget callers cannot be handed an
+        exception -- every UI callsite would need a handler for a state it
+        cannot prevent.
+        """
+        from modules.sequential_io_executor import IOTask  # local-import: avoid cycle
+
+        task = IOTask(
+            action=action,
+            kwargs=kwargs,
+            callback=callback,
+            cb_args=cb_args,
+            cb_kwargs=cb_kwargs,
+            slow_task_threshold_sec=slow_task_threshold_sec,
+        )
+        ex = self._scope._io_executor
+        if ex is None:
+            # run() renames the current thread to the task's name (normally
+            # the worker's); an unnamed task would blank the CALLING
+            # thread's name here, so hand it the name it already has.
+            task.set_name(threading.current_thread().name)
+            result, exception = task.run()
+            task.on_complete(result, exception)
+            if exception is not None:
+                raise exception
+            return
+        if ex.put(task, return_future=True) is None:
+            logger.warning(
+                f'[SCOPE API ] {name} dropped: the io executor is not accepting '
+                f'work (disabled, or fenced by a running protocol)'
+            )
+
     def move_absolute_async(
         self,
         axis,
@@ -216,31 +266,28 @@ class MotionAPI:
         callback=None,
         cb_kwargs=None,
     ) -> None:
-        """Submit ``move_absolute_position`` to the io_executor.
+        """Submit the absolute move to the io_executor; return immediately.
 
         Args:
             axis: Axis name ("X", "Y", "Z", "T").
             pos: Target position in um.
-            wait_until_complete: If True, block until move finishes.
+            wait_until_complete: If True, the WORKER blocks until the move
+                finishes; this call still returns immediately.
             overshoot_enabled: Allow Z overshoot for backlash compensation.
             callback: Optional completion callback.
             cb_kwargs: Optional kwargs passed to the callback.
         """
-        from modules.sequential_io_executor import IOTask  # local-import: avoid cycle
-
-        ex = self._scope._require_executor(self._scope._io_executor, 'move_absolute_async')
-        ex.put(
-            IOTask(
-                action=self.move_absolute_position,
-                kwargs={
-                    'axis': axis,
-                    'pos': pos,
-                    'wait_until_complete': wait_until_complete,
-                    'overshoot_enabled': overshoot_enabled,
-                },
-                callback=callback,
-                cb_kwargs=cb_kwargs,
-            )
+        self._submit_motion(
+            self._move_absolute_position_impl,
+            'move_absolute_async',
+            kwargs={
+                'axis': axis,
+                'pos': pos,
+                'wait_until_complete': wait_until_complete,
+                'overshoot_enabled': overshoot_enabled,
+            },
+            callback=callback,
+            cb_kwargs=cb_kwargs,
         )
 
     def stop_motion(self) -> None:
@@ -378,7 +425,7 @@ class MotionAPI:
         after = self.get_limit_switch_status_all_axes()
         logger.info(f'Limit switch status after homing: {after}', extra={'force_error': True})
 
-    def home(self) -> bool:
+    def _home_impl(self) -> bool:
         """Home every axis the motor board has.
 
         This is the unified "home everything" entry point used by
@@ -482,7 +529,7 @@ class MotionAPI:
         # Save off current Z position before moving Z to 0
         logger.info('[SCOPE API ] Moving Z to 0', extra={'force_error': True})
         initial_z = self.get_current_position(axis='Z')
-        self.move_absolute_position('Z', pos=0, wait_until_complete=True)
+        self._move_absolute_position_impl('Z', pos=0, wait_until_complete=True)
         self.is_turreting = True
         try:
             yield
@@ -494,14 +541,14 @@ class MotionAPI:
             self.is_turreting = False
             if restore_z:
                 logger.info(f'[SCOPE API ] Restoring Z to {initial_z}', extra={'force_error': True})
-                self.move_absolute_position('Z', pos=initial_z, wait_until_complete=True)
+                self._move_absolute_position_impl('Z', pos=initial_z, wait_until_complete=True)
             else:
                 logger.info(
                     '[SCOPE API ] Skipping Z restore -- caller will overwrite Z next',
                     extra={'force_error': True},
                 )
 
-    def thome(self) -> bool:
+    def _thome_impl(self) -> bool:
         """Home the turret axis. Moves Z to 0 during turret motion for safety.
 
         Returns:
@@ -581,7 +628,7 @@ class MotionAPI:
         """
         return self._driver.has_thomed()
 
-    def tmove(self, position: int, restore_z: bool = True) -> None:
+    def _tmove_impl(self, position: int, restore_z: bool = True) -> None:
         """Move the turret to a specific position. Skips if already there.
 
         Args:
@@ -601,7 +648,7 @@ class MotionAPI:
 
         with self.safe_turret_move(restore_z=restore_z):
             logger.info(f'[SCOPE API ] Moving T to position {position}')
-            self.move_absolute_position('T', position, wait_until_complete=True)
+            self._move_absolute_position_impl('T', position, wait_until_complete=True)
             self._last_turret_position = position
 
     def has_turret(self) -> bool:
@@ -843,19 +890,30 @@ class MotionAPI:
         """
         from modules.sequential_io_executor import IOTask  # local-import: avoid cycle
 
-        ex = self._scope._require_executor(self._scope._io_executor, 'move_absolute_sync')
-        task = IOTask(
-            action=self.move_absolute_position,
-            kwargs={
-                'axis': axis,
-                'pos': pos,
-                'wait_until_complete': wait_until_complete,
-                'overshoot_enabled': overshoot_enabled,
-            },
+        kwargs = {
+            'axis': axis,
+            'pos': pos,
+            'wait_until_complete': wait_until_complete,
+            'overshoot_enabled': overshoot_enabled,
+        }
+        ex = self._scope._io_executor
+        if ex is None:
+            # Supported configuration, not a defect: a bare Lumascope() has
+            # no executors and the body runs on the calling thread -- the one
+            # rule the whole surface follows.
+            self._move_absolute_position_impl(**kwargs)
+            return
+        fut = ex.put(
+            IOTask(action=self._move_absolute_position_impl, kwargs=kwargs),
+            return_future=True,
         )
-        fut = ex.put(task, return_future=True)
         if fut:
             fut.result(timeout=timeout_s)
+        else:
+            logger.warning(
+                '[SCOPE API ] move_absolute_sync dropped: the io executor is '
+                'not accepting work (disabled, or fenced by a running protocol)'
+            )
 
     def move_relative_async(
         self,
@@ -877,21 +935,17 @@ class MotionAPI:
             callback: Optional completion callback.
             cb_kwargs: Optional kwargs passed to the callback.
         """
-        from modules.sequential_io_executor import IOTask  # local-import: avoid cycle
-
-        ex = self._scope._require_executor(self._scope._io_executor, 'move_relative_async')
-        ex.put(
-            IOTask(
-                action=self.move_relative_position,
-                kwargs={
-                    'axis': axis,
-                    'um': um,
-                    'wait_until_complete': wait_until_complete,
-                    'overshoot_enabled': overshoot_enabled,
-                },
-                callback=callback,
-                cb_kwargs=cb_kwargs,
-            )
+        self._submit_motion(
+            self._move_relative_position_impl,
+            'move_relative_async',
+            kwargs={
+                'axis': axis,
+                'um': um,
+                'wait_until_complete': wait_until_complete,
+                'overshoot_enabled': overshoot_enabled,
+            },
+            callback=callback,
+            cb_kwargs=cb_kwargs,
         )
 
     def move_home_async(self, axis, *, callback=None, cb_args=None) -> None:
@@ -904,44 +958,27 @@ class MotionAPI:
             callback: Optional completion callback.
             cb_args: Optional positional args passed to the callback.
         """
-        from modules.sequential_io_executor import IOTask  # local-import: avoid cycle
-
-        ex = self._scope._require_executor(self._scope._io_executor, 'move_home_async')
         a = axis.upper()
-        # Homing legitimately takes 10-60+ seconds depending on travel
-        # distance and starting position -- well above the 5 sec default
-        # slow-task threshold. Bump to 120s; only a true stall warrants
-        # a warning here.
-        HOME_THRESHOLD = 120.0
         if a == 'Z':
-            ex.put(
-                IOTask(
-                    action=self.zhome,
-                    callback=callback,
-                    cb_args=cb_args,
-                    slow_task_threshold_sec=HOME_THRESHOLD,
-                )
-            )
+            action = self._zhome_impl
         elif a in ('ALL', 'XY'):
-            ex.put(
-                IOTask(
-                    action=self.home,
-                    callback=callback,
-                    cb_args=cb_args,
-                    slow_task_threshold_sec=HOME_THRESHOLD,
-                )
-            )
+            action = self._home_impl
         elif a == 'T':
-            ex.put(
-                IOTask(
-                    action=self.thome,
-                    callback=callback,
-                    cb_args=cb_args,
-                    slow_task_threshold_sec=HOME_THRESHOLD,
-                )
-            )
+            action = self._thome_impl
         else:
             logger.warning(f'[SCOPE API ] Unknown home axis: {axis}')
+            return
+        self._submit_motion(
+            action,
+            'move_home_async',
+            callback=callback,
+            cb_args=cb_args,
+            # Homing legitimately takes 10-60+ seconds depending on travel
+            # distance and starting position -- well above the 5 sec default
+            # slow-task threshold. Only a true stall warrants a slow-task
+            # warning here.
+            slow_task_threshold_sec=self._MOTION_SETTLE_TIMEOUT_S,
+        )
 
     def get_axis_state(self, axis: str) -> str:
         """Get the current state of an axis.
@@ -1021,7 +1058,7 @@ class MotionAPI:
         """
         return self._driver.get_axis_limits(axis=axis)
 
-    def zhome(self) -> bool:
+    def _zhome_impl(self) -> bool:
         """Home the Z axis (focus).
 
         Returns:
@@ -1063,18 +1100,6 @@ class MotionAPI:
             bool: True if home() has succeeded at least once.
         """
         return self._driver.has_homed()
-
-    def xycenter(self) -> None:
-        """Move the XY stage to center position."""
-        self._set_axis_state('X', AxisState.MOVING)
-        self._set_axis_state('Y', AxisState.MOVING)
-        self._driver.xycenter()
-        self._set_axis_state('X', AxisState.IDLE)
-        self._set_axis_state('Y', AxisState.IDLE)
-        # XY field of view changed -- the camera pipeline still holds
-        # frames from the old position; hold capture until they flush.
-        self._scope.imaging.frame_validity.invalidate('xy_move')
-        self.refresh_position_cache()
 
     def refresh_position_cache(self) -> None:
         """Fetch all axis positions from hardware and update the cache.
@@ -1237,7 +1262,7 @@ class MotionAPI:
         s = max(0.0, min(s, distance))
         return start_pos + direction * s
 
-    def move_absolute_position(
+    def _move_absolute_position_impl(
         self,
         axis: str,
         pos: float,
@@ -1329,7 +1354,7 @@ class MotionAPI:
             self.wait_until_finished_moving()
             self._set_axis_state(axis, AxisState.IDLE)
 
-    def move_relative_position(
+    def _move_relative_position_impl(
         self,
         axis: str,
         um: float,
@@ -1419,6 +1444,164 @@ class MotionAPI:
             self.wait_until_finished_moving()
             self._set_axis_state(axis, AxisState.IDLE)
 
+    # --- Public dispatch ---
+    # These six are what an external caller reaches: an SDK script, a REST
+    # handler, the GUI. Every internal caller binds the matching `_impl`
+    # instead, so nothing already running on an executor worker or on the
+    # protocol or autofocus thread ever arrives here.
+
+    # Base liveness margin for a dispatched motion command: queue residence
+    # plus the serial round-trips, with headroom. The per-command wait adds
+    # the body's own declared motion time on top, so a long but correct move
+    # or home is never timed out by its own liveness bound.
+    _MOTION_WAIT_BASE_S = 30.0
+
+    # One physically-waited motion's own bound: what
+    # wait_until_finished_moving allows a single move, and what the homing
+    # routine legitimately takes on long travel.
+    _MOTION_SETTLE_TIMEOUT_S = 120.0
+
+    def _dispatch_motion(self, impl, name, args=(), kwargs=None, *, timeout_s):
+        """Run one motion command for an external caller, on the right thread.
+
+        Three outcomes. With no executor registered the body runs on the
+        calling thread -- a bare `Lumascope()` in a script or an example has
+        no executors and still has to drive hardware. With a live executor
+        the body runs on the io worker, serialized against every other
+        hardware write, and this blocks until it has. With an executor that
+        will not accept work the caller is told so, because the alternative
+        is `put` returning None and the command disappearing with nothing
+        raised and nothing logged.
+
+        The refusal asks only WHETHER work is accepted, and asks twice: once
+        before submitting, and again on `put` returning None -- a protocol
+        fence can land between the check and the submit, and without the
+        second check that race surfaces as an AttributeError on the missing
+        future instead of the typed refusal.
+        """
+        from modules.sequential_io_executor import IOTask  # local-import: avoid cycle
+
+        kwargs = kwargs or {}
+        ex = self._scope._io_executor
+        if ex is None:
+            return impl(*args, **kwargs)
+        if not ex.accepts_work():
+            raise HardwareCommandRefusedError('exclusive_activity_running', name)
+        fut = ex.put(IOTask(action=impl, args=args, kwargs=kwargs), return_future=True)
+        if fut is None:
+            raise HardwareCommandRefusedError('exclusive_activity_running', name)
+        return fut.result(timeout=timeout_s)
+
+    def move_absolute_position(
+        self,
+        axis: str,
+        pos: float,
+        wait_until_complete: bool = False,
+        overshoot_enabled: bool = True,
+        ignore_limits: bool = False,
+    ) -> None:
+        """Move an axis to an absolute position, and wait for the command.
+
+        See ``_move_absolute_position_impl`` for the argument contract and
+        the errors it raises; this adds only the dispatch described on
+        ``_dispatch_motion``. With ``wait_until_complete`` the wait bound
+        also covers the physical motion the body waits out.
+        """
+        return self._dispatch_motion(
+            self._move_absolute_position_impl,
+            'move_absolute_position',
+            args=(axis, pos),
+            kwargs={
+                'wait_until_complete': wait_until_complete,
+                'overshoot_enabled': overshoot_enabled,
+                'ignore_limits': ignore_limits,
+            },
+            timeout_s=self._MOTION_WAIT_BASE_S
+            + (self._MOTION_SETTLE_TIMEOUT_S if wait_until_complete else 0.0),
+        )
+
+    def move_relative_position(
+        self,
+        axis: str,
+        um: float,
+        wait_until_complete: bool = False,
+        overshoot_enabled: bool = False,
+    ) -> None:
+        """Move an axis by a relative distance, and wait for the command.
+
+        See ``_move_relative_position_impl`` for the argument contract.
+        """
+        return self._dispatch_motion(
+            self._move_relative_position_impl,
+            'move_relative_position',
+            args=(axis, um),
+            kwargs={
+                'wait_until_complete': wait_until_complete,
+                'overshoot_enabled': overshoot_enabled,
+            },
+            timeout_s=self._MOTION_WAIT_BASE_S
+            + (self._MOTION_SETTLE_TIMEOUT_S if wait_until_complete else 0.0),
+        )
+
+    def home(self) -> bool:
+        """Home every axis the motor board has, and wait for it.
+
+        See ``_home_impl`` for the notify-on-failure contract.
+
+        Returns:
+            bool: True on full or partial success; False when the motor is
+                not connected, the driver reported failure, or it raised.
+        """
+        return self._dispatch_motion(
+            self._home_impl,
+            'home',
+            timeout_s=self._MOTION_WAIT_BASE_S + self._MOTION_SETTLE_TIMEOUT_S,
+        )
+
+    def zhome(self) -> bool:
+        """Home the Z axis, and wait for it. See ``_zhome_impl``.
+
+        Returns:
+            bool: True on successful Z homing; False when the driver
+                reported failure or raised.
+        """
+        return self._dispatch_motion(
+            self._zhome_impl,
+            'zhome',
+            timeout_s=self._MOTION_WAIT_BASE_S + self._MOTION_SETTLE_TIMEOUT_S,
+        )
+
+    def thome(self) -> bool:
+        """Home the turret, and wait for it. See ``_thome_impl``.
+
+        The wait bound covers three physically-waited motions: the Z park,
+        the turret homing itself, and the Z restore.
+
+        Returns:
+            bool: True on successful turret homing (or when the board has
+                no turret); False when the motor is not connected, the
+                driver reported failure, or it raised.
+        """
+        return self._dispatch_motion(
+            self._thome_impl,
+            'thome',
+            timeout_s=self._MOTION_WAIT_BASE_S + 3 * self._MOTION_SETTLE_TIMEOUT_S,
+        )
+
+    def tmove(self, position: int, restore_z: bool = True) -> None:
+        """Move the turret to a position, and wait for it. See ``_tmove_impl``.
+
+        The wait bound covers three physically-waited motions: the Z park,
+        the turret move itself, and the Z restore.
+        """
+        return self._dispatch_motion(
+            self._tmove_impl,
+            'tmove',
+            args=(position,),
+            kwargs={'restore_z': restore_z},
+            timeout_s=self._MOTION_WAIT_BASE_S + 3 * self._MOTION_SETTLE_TIMEOUT_S,
+        )
+
     def wait_until_finished_moving(self, timeout_s: float = 120.0) -> bool:
         """Block until all axes have reached their target positions.
 
@@ -1461,8 +1644,8 @@ class MotionAPI:
 
         Silently no-ops for axes that are not present on this hardware.
         Per-axis dicts are sized to detect_present_axes() at init, so
-        hardcoded callers like xycenter() (X/Y) and thome() (T)
-        automatically degrade to no-ops on scopes that lack those axes.
+        hardcoded callers like the turret-home path (T) automatically
+        degrade to no-ops on scopes that lack those axes.
         """
         if axis not in self._arrival_events:
             return

@@ -122,7 +122,7 @@ class TestAFRaceCondition:
         runner, scope = af_runner_and_scope()
         result = drive_af(runner)
         assert result == AF_CENTER_Z, 'the drive must complete with the pinned best focus'
-        moves = scope.motion.move_absolute_position.call_args_list
+        moves = scope.motion._move_absolute_position_impl.call_args_list
         fine_resolution = runner._params['resolution']
         assert moves[-2:] == [
             call('Z', AF_CENTER_Z - fine_resolution),
