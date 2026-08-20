@@ -12,7 +12,7 @@ contain all of those at the API boundary via _validated_camera_read:
     last-known-good value;
   - when no valid value was ever read, the documented camera-absent
     default is returned (gain -1.0, exposure 0.0, frame_size None,
-    pixel_format None, width/height 0, max_width/max_height 0, binning 1).
+    pixel_format None, width/height 0, max frame size None, binning 1).
 
 The old behavior passed the driver sentinel straight through, so a single
 flaky USB read de-binned the binning spinner (-1 -> '1x1'), crashed
@@ -174,8 +174,6 @@ CONVERTED_GETTERS = [
     ('get_exposure_ms', 0.0, 50.0),
     ('get_width', 0, 1936),
     ('get_height', 0, 1216),
-    ('get_max_width', 0, 3840),
-    ('get_max_height', 0, 2160),
     ('get_binning_size', 1, 2),
 ]
 
@@ -187,6 +185,7 @@ CONVERTED_GETTERS = [
 CONVERTED_PRIVATE_GETTERS = [
     ('_get_frame_size', None, {'width': 1936, 'height': 1216}),
     ('_get_pixel_format', None, 'Mono12'),
+    ('_get_max_frame_size', None, {'width': 3840, 'height': 2160}),
 ]
 
 _SWEEP = CONVERTED_GETTERS + CONVERTED_PRIVATE_GETTERS
@@ -344,21 +343,20 @@ def test_get_width_returns_last_known_after_transient_failure():
     assert imaging.get_height() == 1216
 
 
-def test_get_max_width_returns_zero_not_keyerror_on_empty_dict_read():
+def test_max_frame_size_returns_none_not_keyerror_on_empty_dict_read():
     # The max/min frame-size drivers answer a failed read with {}. The old
-    # behavior subscripted it -> KeyError. Cold cache: absent default 0.
+    # behavior subscripted it -> KeyError. Cold cache: absent default None.
     driver = steady_good_driver({'get_max_frame_size': [{}]})
     imaging = _build_imaging(driver)
-    assert imaging.get_max_width() == 0
-    assert imaging.get_max_height() == 0
+    assert imaging._get_max_frame_size() is None
 
 
-def test_get_max_width_returns_last_known_after_empty_dict_read():
+def test_max_frame_size_returns_last_known_after_empty_dict_read():
     driver = steady_good_driver({'get_max_frame_size': [{}, {'width': 3840, 'height': 2160}, {}]})
     imaging = _build_imaging(driver)
-    assert imaging.get_max_width() == 3840  # the one good read
-    assert imaging.get_max_width() == 3840  # {} sentinel -> last-known-good
-    assert imaging.get_max_height() == 2160
+    good = {'width': 3840, 'height': 2160}
+    assert imaging._get_max_frame_size() == good  # the one good read
+    assert imaging._get_max_frame_size() == good  # {} sentinel -> last-known-good
 
 
 def test_save_camera_state_snapshot_not_poisoned_by_failing_reads():
@@ -722,7 +720,7 @@ def test_disconnect_tears_down_temp_logging_schedule():
     driver = steady_good_driver()
     imaging = _build_imaging(driver)
     scope = imaging._scope
-    scope.motion = SimpleNamespace(stop_motion=lambda: None, disconnect=lambda: None)
+    scope.motion = SimpleNamespace(stop_motion=lambda: None, _disconnect=lambda: None)
     scope._led_driver = SimpleNamespace(disconnect=lambda: None)
     scope._motion_driver = SimpleNamespace(disconnect=lambda: None)
 

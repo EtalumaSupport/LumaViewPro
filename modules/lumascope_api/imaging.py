@@ -1819,28 +1819,6 @@ class ImagingAPI:
             None,
         )
 
-    def get_max_width(self) -> int:
-        """Get the maximum pixel width of the camera sensor.
-
-        Returns:
-            int: Max width in pixels -- last-known-good when the live read
-                fails. 0 when no camera is active or the value has never
-                been read.
-        """
-        max_frame_size = self._get_max_frame_size()
-        return int(max_frame_size['width']) if max_frame_size else 0
-
-    def get_max_height(self) -> int:
-        """Get the maximum pixel height of the camera sensor.
-
-        Returns:
-            int: Max height in pixels -- last-known-good when the live read
-                fails. 0 when no camera is active or the value has never
-                been read.
-        """
-        max_frame_size = self._get_max_frame_size()
-        return int(max_frame_size['height']) if max_frame_size else 0
-
     def get_width(self) -> int:
         """Get the current frame width setting.
 
