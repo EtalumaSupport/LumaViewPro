@@ -220,13 +220,13 @@ def _video_session_autogain_call(autogain_settings):
 
     scope = MagicMock()
     scope.imaging.frames_until_valid.return_value = 0
-    scope.imaging.camera_active = False  # wait loop exits on its first tick
+    scope.imaging.active_cached = False  # wait loop exits on its first tick
     scope.imaging.camera_identity = {
         'model': 'sim',
         'serial': '0',
         'timestamp_tick_frequency_hz': None,
     }
-    scope.imaging.camera_frame_size = {'width': 8, 'height': 8}
+    scope.imaging.frame_size_cached = {'width': 8, 'height': 8}
     step = {
         'Auto_Gain': True,
         'Exposure': 10.0,

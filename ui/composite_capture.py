@@ -280,7 +280,7 @@ class CompositeCapture(FloatLayout):
 
         live_histo_off()
 
-        if not ctx.scope.imaging.camera_active:
+        if not ctx.scope.imaging.active_cached:
             return
 
         # Resolve the image mode on the main thread (reads UI widgets) and pass

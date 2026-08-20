@@ -309,10 +309,10 @@ def test_pixel_format_none_read_does_not_clobber_known_mono8():
     # 2 bytes/pixel (the not-Mono8 branch).
     driver = steady_good_driver({'get_pixel_format': ['Mono8', None]})
     imaging = _build_imaging(driver)
-    assert imaging.camera_pixel_format == 'Mono8'
+    assert imaging.pixel_format_cached == 'Mono8'
     imaging._populate_camera_cache()
-    assert imaging.camera_pixel_format == 'Mono8'
-    assert common_utils.raw_bytes_per_pixel(imaging.camera_pixel_format) == 1
+    assert imaging.pixel_format_cached == 'Mono8'
+    assert common_utils.raw_bytes_per_pixel(imaging.pixel_format_cached) == 1
 
 
 def test_get_width_returns_zero_not_typeerror_on_cold_cache_read_failure():
@@ -368,9 +368,9 @@ def test_populate_none_frame_size_read_keeps_cached_geometry():
     # behavior stored zero dims over the known-good size.
     driver = steady_good_driver({'get_frame_size': [{'width': 1936, 'height': 1216}, None]})
     imaging = _build_imaging(driver)
-    assert imaging.camera_frame_size == {'width': 1936, 'height': 1216}
+    assert imaging.frame_size_cached == {'width': 1936, 'height': 1216}
     imaging._populate_camera_cache()
-    assert imaging.camera_frame_size == {'width': 1936, 'height': 1216}
+    assert imaging.frame_size_cached == {'width': 1936, 'height': 1216}
 
 
 # --- The live-confirmed surface (get_live_camera_settings) --------------------
@@ -435,7 +435,7 @@ def test_authoritative_write_beats_in_flight_stale_read():
         f'racing getter must answer the newer authoritative write, '
         f'not its stale hardware read; got {result["value"]}'
     )
-    assert imaging.camera_gain == 20.0
+    assert imaging.gain_cached == 20.0
 
 
 # --- Populate resilience --------------------------------------------------------
@@ -448,10 +448,10 @@ def test_populate_survives_raising_key_and_caches_the_rest():
     # read silently dropped every remaining key.
     driver = steady_good_driver({'get_frame_size': [RAISE]})
     imaging = _build_imaging(driver)
-    assert imaging.camera_gain == 12.5
-    assert imaging.camera_exposure_ms == 50.0
-    assert imaging.camera_pixel_format == 'Mono12'
-    assert imaging.camera_frame_size == {'width': 0, 'height': 0}  # seed intact
+    assert imaging.gain_cached == 12.5
+    assert imaging.exposure_ms_cached == 50.0
+    assert imaging.pixel_format_cached == 'Mono12'
+    assert imaging.frame_size_cached == {'width': 0, 'height': 0}  # seed intact
 
 
 # --- Read-failure observability -------------------------------------------------

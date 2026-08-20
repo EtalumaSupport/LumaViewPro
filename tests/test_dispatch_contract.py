@@ -222,7 +222,7 @@ def test_capture_wait_scales_with_the_declared_work(sim_scope, executors):
         )
 
     expected = (
-        imaging._CAPTURE_WAIT_TIMEOUT_S + 5.0 + 10 * (imaging.camera_exposure_ms / 1000.0 + 0.2)
+        imaging._CAPTURE_WAIT_TIMEOUT_S + 5.0 + 10 * (imaging.exposure_ms_cached / 1000.0 + 0.2)
     )
     assert recorded['timeout'] == pytest.approx(expected), (
         f'the executor wait must be base + content budget + summed-frame '

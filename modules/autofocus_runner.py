@@ -60,7 +60,7 @@ class AutofocusRunner:
 
         self._reset_state()
 
-        if not self._scope.imaging.camera_active:
+        if not self._scope.imaging.active_cached:
             return
 
         self._objective_loader = ObjectiveLoader()

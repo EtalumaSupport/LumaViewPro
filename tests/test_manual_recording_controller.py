@@ -36,15 +36,15 @@ def _healthy_disk(monkeypatch):
 
 class _FakeImaging:
     def __init__(self, exposure_ms=100.0, width=32, height=24):
-        self.camera_active = True
-        self.camera_exposure_ms = exposure_ms
+        self.active_cached = True
+        self.exposure_ms_cached = exposure_ms
         self._frame_size = {'width': width, 'height': height}
         self.listener = None
         # Read at recording start to resolve the frames' image scale.
         self._binning_size = 1
 
     @property
-    def camera_frame_size(self):
+    def frame_size_cached(self):
         return dict(self._frame_size)
 
     @property
@@ -178,14 +178,14 @@ def finish(controller, timeout=15.0):
 class TestStartRefusals:
     def test_inactive_camera_refused(self, tmp_path):
         controller, scope, _ = make_controller(tmp_path)
-        scope.imaging.camera_active = False
+        scope.imaging.active_cached = False
         with pytest.raises(RecordingRefusedError) as e:
             controller.start()
         assert e.value.reason == 'camera_inactive'
 
     def test_unknown_exposure_refused(self, tmp_path):
         controller, scope, _ = make_controller(tmp_path)
-        scope.imaging.camera_exposure_ms = 0.0
+        scope.imaging.exposure_ms_cached = 0.0
         with pytest.raises(RecordingRefusedError) as e:
             controller.start()
         assert e.value.reason == 'camera_exposure_unknown'
@@ -201,7 +201,7 @@ class TestStartRefusals:
 
     def test_refusal_commits_nothing(self, tmp_path):
         controller, scope, _ = make_controller(tmp_path)
-        scope.imaging.camera_active = False
+        scope.imaging.active_cached = False
         with pytest.raises(RecordingRefusedError):
             controller.start()
         assert scope.imaging.listener is None
@@ -934,7 +934,7 @@ class TestFeedLossDetection:
     """tick() ends a recording whose camera died -- by event or silently.
 
     The disconnect latch is the fast path; the stall watch catches the
-    feed that stops delivering while camera_active stays True. Either
+    feed that stops delivering while active_cached stays True. Either
     way the user gets one loss notification and kept frames stay.
     """
 
@@ -971,7 +971,7 @@ class TestFeedLossDetection:
         self, tmp_path, monkeypatch
     ):
         controller, scope, clock, notify = self._recording_controller(tmp_path, monkeypatch)
-        scope.imaging.camera_active = False
+        scope.imaging.active_cached = False
         clock.advance(0.2)
         controller.tick()
         assert not controller.is_recording

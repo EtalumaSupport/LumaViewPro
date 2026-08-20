@@ -9,9 +9,9 @@ who changes a property to do real I/O sees a failure rather than
 silently introducing a per-frame / per-tick MainThread blocker.
 
 The properties under test:
-  - Lumascope.camera_frame_size (dict; called per-frame from
+  - Lumascope.frame_size_cached (dict; called per-frame from
     ui/scope_display.py:578-580)
-  - Lumascope.camera_pixel_format (str; called per-frame from
+  - Lumascope.pixel_format_cached (str; called per-frame from
     ui/scope_display.py:578-580)
   - Lumascope.get_target_position(axis) (float/dict; called at 10Hz
     from ui/motion_settings.py:228 update_gui)
@@ -84,28 +84,28 @@ def scope_with_io_traps():
 
 
 class TestCameraPropertiesCacheOnly:
-    """LV-11: camera_frame_size and camera_pixel_format are read per-frame
+    """LV-11: frame_size_cached and pixel_format_cached are read per-frame
     from the scope_display thread; they must be cache reads.
     """
 
     def test_camera_frame_size_no_io(self, scope_with_io_traps):
-        """Reading camera_frame_size must not call any driver-side SDK
+        """Reading frame_size_cached must not call any driver-side SDK
         method. If this fails, scope_display's per-frame readout has
         become a per-frame Pylon SDK call."""
-        result = scope_with_io_traps.imaging.camera_frame_size
+        result = scope_with_io_traps.imaging.frame_size_cached
         assert isinstance(result, dict)
 
     def test_camera_pixel_format_no_io(self, scope_with_io_traps):
-        """Reading camera_pixel_format must not call any driver-side SDK
-        method. Same risk as camera_frame_size."""
-        result = scope_with_io_traps.imaging.camera_pixel_format
+        """Reading pixel_format_cached must not call any driver-side SDK
+        method. Same risk as frame_size_cached."""
+        result = scope_with_io_traps.imaging.pixel_format_cached
         assert isinstance(result, str)
 
     def test_camera_frame_size_repeated_reads(self, scope_with_io_traps):
         """Repeated reads must remain cache-only -- no lazy refresh that
         flips to SDK after first call."""
         for _ in range(5):
-            scope_with_io_traps.imaging.camera_frame_size  # noqa: B018 -- bare attribute access is the test, exercising the getter to assert no driver IO fires
+            scope_with_io_traps.imaging.frame_size_cached  # noqa: B018 -- bare attribute access is the test, exercising the getter to assert no driver IO fires
 
 
 class TestPositionAccessorsCacheOnly:

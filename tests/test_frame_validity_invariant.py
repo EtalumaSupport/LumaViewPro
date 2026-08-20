@@ -305,7 +305,7 @@ class TestRejectedSettingNotifiesAndKeepsCache:
         imaging.set_gain(7.0)
 
         assert captured, 'A confirmed gain rejection must notify the user'
-        assert imaging.camera_gain == 2.0, 'A rejected gain write must not be recorded in the cache'
+        assert imaging.gain_cached == 2.0, 'A rejected gain write must not be recorded in the cache'
 
     def test_rejected_exposure_notifies_and_keeps_cache(self, sim_imaging, monkeypatch):
         imaging, cam = sim_imaging
@@ -320,6 +320,6 @@ class TestRejectedSettingNotifiesAndKeepsCache:
         imaging.set_exposure_time(50.0)
 
         assert captured, 'A confirmed exposure rejection must notify the user'
-        assert imaging.camera_exposure_ms == 20.0, (
+        assert imaging.exposure_ms_cached == 20.0, (
             'A rejected exposure write must not be recorded in the cache'
         )

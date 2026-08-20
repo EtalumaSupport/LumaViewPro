@@ -609,7 +609,7 @@ class ImagingAPI:
         # The driver compares against live hardware and skips a truly redundant
         # SDK write; the cache-equality check here gates only the UI listener +
         # info log, where a missed redundant update is harmless.
-        changed = abs(float(gain_db) - self.camera_gain) >= 0.001
+        changed = abs(float(gain_db) - self.gain_cached) >= 0.001
 
         def _write_gain():
             with self._cam_lock:
@@ -650,7 +650,7 @@ class ImagingAPI:
         # a cache desynced from hardware once short-circuited it, capturing a
         # frame at a stale exposure as valid. Always invalidate + drive the
         # setter; the cache-equality check gates only the UI listener + log.
-        changed = abs(float(exposure_ms) - self.camera_exposure_ms) >= 0.001
+        changed = abs(float(exposure_ms) - self.exposure_ms_cached) >= 0.001
         # Sanity-check threshold: 5 microseconds. Pylon physical
         # ExposureTime minimum across Basler USB3 sensors is 10-35 us;
         # below 5 us is impossible on any sensor we ship with and
@@ -2107,7 +2107,7 @@ class ImagingAPI:
         wait_s = (
             self._CAPTURE_WAIT_TIMEOUT_S
             + timeout_s
-            + sum_count * (self.camera_exposure_ms / 1000.0 + sum_delay_s)
+            + sum_count * (self.exposure_ms_cached / 1000.0 + sum_delay_s)
         )
         return self._dispatch_camera(
             self._capture_and_wait_impl,
@@ -2655,7 +2655,7 @@ class ImagingAPI:
     def is_streaming(self) -> bool:
         """Whether the camera is currently acquiring frames.
 
-        Queries the driver directly (unlike ``camera_active``, which reads
+        Queries the driver directly (unlike ``active_cached``, which reads
         the cached connected-state). False when no camera is attached.
         """
         driver = self._driver
@@ -2665,7 +2665,7 @@ class ImagingAPI:
 
     # --- State / lifecycle properties ---
     @property
-    def camera_active(self) -> bool:
+    def active_cached(self) -> bool:
         """Whether the camera is connected and active (reads cache).
 
         Returns:
@@ -2675,7 +2675,7 @@ class ImagingAPI:
             return self._camera_cache['active']
 
     @property
-    def camera_gain(self) -> float:
+    def gain_cached(self) -> float:
         """Current camera gain in dB (reads cache).
 
         Returns:
@@ -2685,7 +2685,7 @@ class ImagingAPI:
             return self._camera_cache['gain_db']
 
     @property
-    def camera_exposure_ms(self) -> float:
+    def exposure_ms_cached(self) -> float:
         """Current camera exposure time in ms (reads cache).
 
         Returns:
@@ -2695,7 +2695,7 @@ class ImagingAPI:
             return self._camera_cache['exposure_ms']
 
     @property
-    def camera_frame_size(self) -> dict:
+    def frame_size_cached(self) -> dict:
         """Current camera frame size as {'width': int, 'height': int} (reads cache).
 
         Returns:
@@ -2724,7 +2724,7 @@ class ImagingAPI:
         }
 
     @property
-    def camera_min_frame_size(self) -> dict:
+    def min_frame_size_cached(self) -> dict:
         """Minimum camera frame size (reads cache).
 
         Returns:
@@ -2734,7 +2734,7 @@ class ImagingAPI:
             return dict(self._camera_cache['min_frame_size'])
 
     @property
-    def camera_max_exposure(self) -> float | None:
+    def max_exposure_cached(self) -> float | None:
         """Maximum camera exposure time in ms, or None if no camera is connected.
 
         Returns None (not a sentinel 0.0) so callers can distinguish
@@ -2750,10 +2750,10 @@ class ImagingAPI:
         return float(value)
 
     @property
-    def camera_max_gain(self) -> float | None:
+    def max_gain_cached(self) -> float | None:
         """Maximum camera gain in dB, or None if no camera is connected.
 
-        Parallel to camera_max_exposure -- lets the UI size the gain
+        Parallel to max_exposure_cached -- lets the UI size the gain
         slider to the connected camera's profile-declared cap instead
         of a universal hardcoded 48 dB that can drive the image past
         the sensor's usable range (observed on LS620 2026-04-16).
@@ -2768,7 +2768,7 @@ class ImagingAPI:
         return float(value)
 
     @property
-    def camera_pixel_format(self) -> str | None:
+    def pixel_format_cached(self) -> str | None:
         """Current camera pixel format (e.g. 'Mono8', 'Mono12') (reads cache).
 
         Returns:

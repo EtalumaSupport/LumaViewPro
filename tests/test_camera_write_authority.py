@@ -132,7 +132,7 @@ class TestValueSetterSequences:
             ('invalidate', 'gain'),
             ('set_target', 'gain', 7.0),
         ]
-        assert imaging_capable.camera_gain == pytest.approx(7.0)
+        assert imaging_capable.gain_cached == pytest.approx(7.0)
 
     def test_set_exposure_time_sequence(self, imaging_capable):
         events = _record_validity_events(imaging_capable)
@@ -142,7 +142,7 @@ class TestValueSetterSequences:
             ('invalidate', 'exposure'),
             ('set_target', 'exposure', 100.0),
         ]
-        assert imaging_capable.camera_exposure_ms == pytest.approx(0.1)
+        assert imaging_capable.exposure_ms_cached == pytest.approx(0.1)
 
 
 class TestAutoSetterSequences:
@@ -237,14 +237,14 @@ class TestGeometrySetterSequences:
         assert events == [('invalidate', 'frame_size')]
         # The cache holds the DELIVERED size, not the request: the sim snaps
         # 640 -> 624 (48 grid) and 482 -> 480 (4 grid).
-        assert imaging_capable.camera_frame_size == {'width': 624, 'height': 480}
+        assert imaging_capable.frame_size_cached == {'width': 624, 'height': 480}
 
     def test_set_frame_size_caches_delivered_geometry(self, imaging_capable):
         # The sim snaps width to a 48 grid and height to a 4 grid, so the
         # cache must hold the snapped size the driver delivered (via the
         # write's own return value), not the request.
         imaging_capable.set_frame_size(640, 482)
-        assert imaging_capable.camera_frame_size == {'width': 624, 'height': 480}
+        assert imaging_capable.frame_size_cached == {'width': 624, 'height': 480}
 
     def test_set_frame_size_rejected_write_keeps_prior_cache(self, imaging_capable):
         imaging_capable.set_frame_size(624, 480)
@@ -262,7 +262,7 @@ class TestGeometrySetterSequences:
         # A rejected write still expires validity (force-invalidate), but the
         # cache keeps the geometry the hardware still has.
         assert events == [('invalidate', 'frame_size')]
-        assert imaging_capable.camera_frame_size == {'width': 624, 'height': 480}
+        assert imaging_capable.frame_size_cached == {'width': 624, 'height': 480}
 
     def test_set_binning_size_success_sequence(self, imaging_capable):
         events = _record_validity_events(imaging_capable)
@@ -285,8 +285,8 @@ class TestGeometrySetterSequences:
         assert imaging_capable._binning_size == 2
 
     def test_gain_exposure_read_failure_not_cached(self, imaging_capable):
-        prior_gain = imaging_capable.camera_gain
-        prior_exposure = imaging_capable.camera_exposure_ms
+        prior_gain = imaging_capable.gain_cached
+        prior_exposure = imaging_capable.exposure_ms_cached
         cam = imaging_capable._driver
         orig_gain, orig_exp = cam.get_gain, cam.get_exposure_t
         cam.get_gain = lambda: -1.0
@@ -299,10 +299,10 @@ class TestGeometrySetterSequences:
         # `or 0.0` idiom passed it through (-1.0 is truthy) and latched -1
         # into the UI gain/exposure readout; a failed read must leave the
         # last-known values in place.
-        assert imaging_capable.camera_gain == prior_gain
-        assert imaging_capable.camera_exposure_ms == prior_exposure
-        assert imaging_capable.camera_gain >= 0
-        assert imaging_capable.camera_exposure_ms >= 0
+        assert imaging_capable.gain_cached == prior_gain
+        assert imaging_capable.exposure_ms_cached == prior_exposure
+        assert imaging_capable.gain_cached >= 0
+        assert imaging_capable.exposure_ms_cached >= 0
 
     def test_rejected_binning_write_keeps_prior_factor(self, imaging_capable):
         imaging_capable.set_binning_size(2)
@@ -329,8 +329,8 @@ class TestGeometrySetterSequences:
         # and the driver clamps the current frame down to it; both
         # binning-dependent geometry caches must reflect the driver's
         # post-binning reality, not the 1x values.
-        assert imaging_capable.camera_frame_size == {'width': 960, 'height': 600}
-        assert imaging_capable.camera_min_frame_size == (
+        assert imaging_capable.frame_size_cached == {'width': 960, 'height': 600}
+        assert imaging_capable.min_frame_size_cached == (
             imaging_capable._driver.get_min_frame_size()
         )
 
@@ -339,7 +339,7 @@ class TestGeometrySetterSequences:
         result = imaging_capable.set_pixel_format('Mono8')
         assert result is True
         assert events == [('invalidate', 'pixel_format')]
-        assert imaging_capable.camera_pixel_format == 'Mono8'
+        assert imaging_capable.pixel_format_cached == 'Mono8'
 
 
 class TestSdkPerfSetterSequences:
@@ -398,7 +398,7 @@ class TestCameraWriteAuthority:
         )
         # None result counts as applied: force invalidate, then target + cache.
         assert events == [('invalidate', 'gain'), ('set_target', 'gain', 5.0)]
-        assert imaging_capable.camera_gain == pytest.approx(5.0)
+        assert imaging_capable.gain_cached == pytest.approx(5.0)
 
     def test_applied_gated_invalidate_skipped_on_false(self, imaging_capable):
         # The applied-only invalidate (not force_invalidate) is suppressed when

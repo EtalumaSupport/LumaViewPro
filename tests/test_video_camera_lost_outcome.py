@@ -16,16 +16,16 @@ import pytest
 import modules.protocol_recording as protocol_recording
 
 
-def _make_recorder(tmp_path, clock, camera_active=True):
+def _make_recorder(tmp_path, clock, active_cached=True):
     scope = MagicMock()
     scope.imaging.frames_until_valid.return_value = 0
-    scope.imaging.camera_active = camera_active
+    scope.imaging.active_cached = active_cached
     scope.imaging.camera_identity = {
         'model': 'sim',
         'serial': '0',
         'timestamp_tick_frequency_hz': None,
     }
-    scope.imaging.camera_frame_size = {'width': 8, 'height': 8}
+    scope.imaging.frame_size_cached = {'width': 8, 'height': 8}
     return protocol_recording.ProtocolVideoStep(
         scope=scope,
         step={
@@ -56,7 +56,7 @@ def _make_recorder(tmp_path, clock, camera_active=True):
 class TestWaitForRecordingOutcome:
     def test_camera_inactive_returns_camera_lost(self, tmp_path):
         clock = {'t': 1000.0}
-        recorder = _make_recorder(tmp_path, clock, camera_active=False)
+        recorder = _make_recorder(tmp_path, clock, active_cached=False)
         engine = MagicMock(is_recording=True)
         outcome, reason = recorder._wait_for_recording(engine, 10.0, stall_threshold=5.0)
         assert outcome == protocol_recording.CAMERA_LOST
@@ -64,7 +64,7 @@ class TestWaitForRecordingOutcome:
 
     def test_stop_request_beats_camera_loss(self, tmp_path):
         clock = {'t': 1000.0}
-        recorder = _make_recorder(tmp_path, clock, camera_active=False)
+        recorder = _make_recorder(tmp_path, clock, active_cached=False)
         recorder._aborted.set()
         engine = MagicMock(is_recording=True)
         outcome, _ = recorder._wait_for_recording(engine, 10.0, stall_threshold=5.0)
@@ -80,7 +80,7 @@ class TestWaitForRecordingOutcome:
             clock['t'] += 5.5
             return clock['t']
 
-        recorder = _make_recorder(tmp_path, clock, camera_active=True)
+        recorder = _make_recorder(tmp_path, clock, active_cached=True)
         recorder._clock = _advancing
         engine = MagicMock(is_recording=True)
         outcome, _ = recorder._wait_for_recording(engine, 10.0, stall_threshold=1000.0)
@@ -101,7 +101,7 @@ class TestZeroFrameOutcomeMapping:
         from unittest.mock import patch
 
         clock = {'t': 1000.0}
-        recorder = _make_recorder(tmp_path, clock, camera_active=True)
+        recorder = _make_recorder(tmp_path, clock, active_cached=True)
         recorder._video_as_frames = True
         with (
             patch.object(protocol_recording, 'VideoRecordingEngine', MagicMock()),
@@ -144,7 +144,7 @@ class TestStartFailureEndsTheStep:
 
     def test_start_failure_ends_the_step_and_leaves_no_zero_frame_mp4(self, tmp_path):
         clock = {'t': 1000.0}
-        recorder = _make_recorder(tmp_path, clock, camera_active=True)
+        recorder = _make_recorder(tmp_path, clock, active_cached=True)
         # False color ON with a chromatic label is what makes the writer
         # open its container at construction; with it off the encoder init
         # defers and there is no artifact to leave behind, so the unlink
@@ -177,7 +177,7 @@ class TestPrologueFeedDeath:
 
     def _prologue_result(self, tmp_path, *, stop_at_s, frame_arrives):
         clock = {'t': 1000.0}
-        recorder = _make_recorder(tmp_path, clock, camera_active=True)
+        recorder = _make_recorder(tmp_path, clock, active_cached=True)
         start = clock['t']
         recorder._is_run_in_progress = lambda: clock['t'] - start < stop_at_s
 
@@ -212,7 +212,7 @@ class TestPrologueFeedDeath:
 class TestWaitLoopFeedStall:
     """A feed that dies WITHOUT a disconnect event must still end the step.
 
-    camera_active stays True (the latch only flips on events); the stall
+    active_cached stays True (the latch only flips on events); the stall
     watch on the ingest counter is what notices delivery stopped.
     """
 
@@ -223,7 +223,7 @@ class TestWaitLoopFeedStall:
             clock['t'] += step_s
             return clock['t']
 
-        recorder = _make_recorder(tmp_path, clock, camera_active=True)
+        recorder = _make_recorder(tmp_path, clock, active_cached=True)
         recorder._clock = _advancing
         return recorder
 

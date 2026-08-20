@@ -36,7 +36,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
             logger.info('[LVP Main  ] MainDisplay.cam_toggle()')
 
             scope_display = self.ids['viewer_id'].ids['scope_display_id']
-            if not self.scope.imaging.camera_active:
+            if not self.scope.imaging.active_cached:
                 gui_logger.button('CAM_TOGGLE', 'no-op (camera inactive)')
                 return
 
@@ -213,7 +213,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
     def fit_image(self):
         gui_logger.button('FIT_IMAGE')
         logger.info('[LVP Main  ] MainDisplay.fit_image()')
-        if not self.scope.imaging.camera_active:
+        if not self.scope.imaging.active_cached:
             return
         self.ids['viewer_id'].scale = 1
         self.ids['viewer_id'].pos = (0, 0)
@@ -222,7 +222,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         try:
             gui_logger.button('ONE_TO_ONE_IMAGE')
             logger.info('[LVP Main  ] MainDisplay.one2one_image()')
-            if not self.scope.imaging.camera_active:
+            if not self.scope.imaging.active_cached:
                 return
             scope = _app_ctx.ctx.scope
             w = self.width

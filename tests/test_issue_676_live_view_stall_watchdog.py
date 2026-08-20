@@ -23,9 +23,9 @@ from modules.scope_display_thread import (
 )
 
 
-def _ctx(*, camera_active=True, camera_connected=True):
+def _ctx(*, active_cached=True, camera_connected=True):
     scope = types.SimpleNamespace(
-        imaging=types.SimpleNamespace(camera_active=camera_active),
+        imaging=types.SimpleNamespace(active_cached=active_cached),
         camera_connected=camera_connected,
     )
     return types.SimpleNamespace(scope=scope)
@@ -73,7 +73,7 @@ def test_recovery_rearms_the_warning(caplog):
 
 def test_no_warning_when_camera_inactive(caplog):
     thread = ScopeDisplayThread()
-    ctx = _ctx(camera_active=False)
+    ctx = _ctx(active_cached=False)
     t0 = 0.0
 
     with caplog.at_level(logging.WARNING, logger='LVP.modules.scope_display_thread'):

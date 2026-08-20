@@ -803,8 +803,8 @@ class ScopeDisplay(Image):
         # displayed data rate reflects actual camera throughput, not the
         # post-conversion display throughput.
         self._capture_fps_count += 1
-        fs = ctx.scope.imaging.camera_frame_size
-        pixel_format = ctx.scope.imaging.camera_pixel_format
+        fs = ctx.scope.imaging.frame_size_cached
+        pixel_format = ctx.scope.imaging.pixel_format_cached
         bpp = common_utils.raw_bytes_per_pixel(pixel_format, ctx.scope.capabilities.is_color_native)
         self._last_frame_nbytes = fs.get('width', 0) * fs.get('height', 0) * bpp
         now = time.monotonic()
@@ -1240,8 +1240,8 @@ class ScopeDisplay(Image):
 
     def get_true_gain_exp(self, layer):
         ctx = _app_ctx.ctx
-        actual_gain = ctx.scope.imaging.camera_gain
-        actual_exp = ctx.scope.imaging.camera_exposure_ms
+        actual_gain = ctx.scope.imaging.gain_cached
+        actual_exp = ctx.scope.imaging.exposure_ms_cached
         Clock.schedule_once(lambda dt: self.update_auto_gain_ui(layer, actual_gain, actual_exp), 0)
 
     def update_auto_gain_ui(self, layer, actual_gain, actual_exp):

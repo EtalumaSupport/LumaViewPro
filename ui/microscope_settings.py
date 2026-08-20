@@ -1310,7 +1310,7 @@ class MicroscopeSettings(BoxLayout):
         width = int(frame['width'])
         height = int(frame['height'])
         try:
-            min_frame_size = lumaview.scope.imaging.camera_min_frame_size
+            min_frame_size = lumaview.scope.imaging.min_frame_size_cached
             width = max(width, min_frame_size['width'])
             height = max(height, min_frame_size['height'])
         except Exception:

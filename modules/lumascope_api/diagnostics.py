@@ -858,7 +858,7 @@ class DiagnosticsAPI:
                 'gain_max_db': profile.gain.total_max_db,
                 'exposure_min_us': exposure_min_us,
                 'exposure_min_ms': exposure_min_ms,
-                'max_exposure_ms': self._scope.imaging.camera_max_exposure,
+                'max_exposure_ms': self._scope.imaging.max_exposure_cached,
                 'binning_sizes': profile.binning_sizes,
             }
         except Exception as e:

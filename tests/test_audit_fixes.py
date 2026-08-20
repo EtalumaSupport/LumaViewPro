@@ -9938,7 +9938,7 @@ class TestSessionImagingWrappersSymmetric:
         session.start_executors()
         try:
             session.set_gain_sync(5.5)
-            assert session.scope.imaging.camera_gain == 5.5
+            assert session.scope.imaging.gain_cached == 5.5
         finally:
             session.shutdown_executors()
             session.scope.disconnect()
@@ -9950,7 +9950,7 @@ class TestSessionImagingWrappersSymmetric:
         session.start_executors()
         try:
             session.set_exposure_time_sync(42.0)
-            assert session.scope.imaging.camera_exposure_ms == 42.0
+            assert session.scope.imaging.exposure_ms_cached == 42.0
         finally:
             session.shutdown_executors()
             session.scope.disconnect()
@@ -10022,7 +10022,7 @@ class TestLedSentinelReturnsAreNone:
     """Freeze audit Finding #39 -- sentinel return shapes were
     inconsistent across "off / unavailable" methods: get_led_ma
     returned -1 (int) or -1.0 (float); led_illumination forwarded it;
-    get_led_status / camera_max_gain / get_target_position('T')
+    get_led_status / max_gain_cached / get_target_position('T')
     already returned None. Audit chose the pythonic None convention;
     the float | None type is now uniform across the LED query surface."""
 

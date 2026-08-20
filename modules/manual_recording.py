@@ -247,7 +247,7 @@ class ManualRecordingController:
         settings = self._settings
         scope = self._scope
 
-        if not scope.imaging.camera_active:
+        if not scope.imaging.active_cached:
             raise RecordingRefusedError(
                 reason='camera_inactive',
                 title='Camera Not Active',
@@ -255,7 +255,7 @@ class ManualRecordingController:
                 'Check the camera connection and try again.',
             )
 
-        exposure = scope.imaging.camera_exposure_ms
+        exposure = scope.imaging.exposure_ms_cached
         # The exposure cache seeds 0.0 and keeps the prior value when a
         # read fails, so a camera whose exposure was never successfully
         # read reports 0 here; the recording rate derives from it, so
@@ -348,7 +348,7 @@ class ManualRecordingController:
 
         resolved_layer = self._resolve_channel_identity(layer)
 
-        frame_size = scope.imaging.camera_frame_size
+        frame_size = scope.imaging.frame_size_cached
         manifest_extra = {
             # RENDERING, not identity: the video builder reads this back to
             # decide whether to false-color a rebuild, so a mono recording
@@ -534,7 +534,7 @@ class ManualRecordingController:
             if self._clock() - self._start_ts >= self._config.duration_s:
                 self.stop(reason='duration_elapsed')
                 return
-            if not self._scope.imaging.camera_active:
+            if not self._scope.imaging.active_cached:
                 self._stop_for_camera_loss(reason='camera_disconnected')
                 return
             if self._stall_watch is not None and self._stall_watch.stalled(

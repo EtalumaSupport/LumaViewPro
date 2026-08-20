@@ -374,10 +374,10 @@ class ScopeDisplayThread:
         # Only watch while the camera is meant to be streaming. Disconnect
         # is surfaced elsewhere (recovery contract); don't double-warn.
         try:
-            camera_active = ctx.scope.imaging.camera_active
+            active_cached = ctx.scope.imaging.active_cached
         except Exception:
-            camera_active = False
-        if not camera_active:
+            active_cached = False
+        if not active_cached:
             self._last_ok_monotonic = None
             self._stall_warned = False
             return
@@ -402,7 +402,7 @@ class ScopeDisplayThread:
             logger.warning(
                 f'Live-view frames stalled: no new frame for {elapsed:.1f}s '
                 f'(warn threshold {STALL_WARN_SECONDS:.0f}s). '
-                f'camera_connected={connected} camera_active={camera_active} '
+                f'camera_connected={connected} active_cached={active_cached} '
                 f'last_status={status} generation={self._generation} '
                 f'fps_cap={self._fps} delivered_fps=0 paused={self._paused.is_set()}'
             )

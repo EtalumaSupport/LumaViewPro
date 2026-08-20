@@ -294,13 +294,13 @@ class TestProtocolVideoDropNotification:
         listeners = {}
         scope = MagicMock()
         scope.imaging.frames_until_valid.return_value = 0
-        scope.imaging.camera_active = True
+        scope.imaging.active_cached = True
         scope.imaging.camera_identity = {
             'model': 'sim',
             'serial': '0',
             'timestamp_tick_frequency_hz': None,
         }
-        scope.imaging.camera_frame_size = {'width': 8, 'height': 8}
+        scope.imaging.frame_size_cached = {'width': 8, 'height': 8}
         scope.imaging.add_frame_listener = lambda cb, name=None: listeners.update(cb=cb)
 
         clock = {'t': 1000.0}
