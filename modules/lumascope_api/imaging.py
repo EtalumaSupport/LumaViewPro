@@ -341,8 +341,8 @@ class ImagingAPI:
             self.get_binning_size()
             self.get_gain()
             self.get_exposure_time()
-            self.get_frame_size()
-            self.get_pixel_format()
+            self._get_frame_size()
+            self._get_pixel_format()
             self._get_max_frame_size()
             self._live_validated_read(
                 'min_frame_size',
@@ -1018,7 +1018,7 @@ class ImagingAPI:
             common_utils.is_valid_frame_size,
             lambda v: {'width': int(v['width']), 'height': int(v['height'])},
         )
-        self.get_frame_size()
+        self._get_frame_size()
         _api_log.info(f'set_binning {size}x{size} -> True')
         return True
 
@@ -1773,7 +1773,7 @@ class ImagingAPI:
             0.0,
         )
 
-    def get_frame_size(self) -> dict | None:
+    def _get_frame_size(self) -> dict | None:
         """Get the current camera frame size.
 
         Returns:
@@ -1791,7 +1791,7 @@ class ImagingAPI:
         )
         return dict(frame_size) if frame_size is not None else None
 
-    def get_pixel_format(self) -> str | None:
+    def _get_pixel_format(self) -> str | None:
         """Get the current camera pixel format.
 
         Returns:
@@ -1849,7 +1849,7 @@ class ImagingAPI:
                 read fails. 0 when no camera is active or the size has
                 never been read.
         """
-        frame_size = self.get_frame_size()
+        frame_size = self._get_frame_size()
         return int(frame_size['width']) if frame_size else 0
 
     def get_height(self) -> int:
@@ -1860,7 +1860,7 @@ class ImagingAPI:
                 read fails. 0 when no camera is active or the size has
                 never been read.
         """
-        frame_size = self.get_frame_size()
+        frame_size = self._get_frame_size()
         return int(frame_size['height']) if frame_size else 0
 
     def get_binning_size(self) -> int:
@@ -2575,7 +2575,7 @@ class ImagingAPI:
         driver = self._driver
         if driver is None:
             return 16
-        return driver.significant_bits_for_format(self.get_pixel_format())
+        return driver.significant_bits_for_format(self._get_pixel_format())
 
     @property
     def last_significant_bits(self) -> int:

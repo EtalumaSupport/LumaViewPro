@@ -869,9 +869,9 @@ class TestRestAPIPrep:
     """Verify REST API prep methods (P-1 through P-8)."""
 
     def test_get_pixel_format(self):
-        """get_pixel_format() should return format string from simulated camera."""
+        """_get_pixel_format() should return format string from simulated camera."""
         session = ScopeSession.create_headless()
-        fmt = session.scope.imaging.get_pixel_format()
+        fmt = session.scope.imaging._get_pixel_format()
         assert isinstance(fmt, str)
         assert fmt in ('Mono8', 'Mono10', 'Mono12')
 
@@ -880,7 +880,7 @@ class TestRestAPIPrep:
         session = ScopeSession.create_headless()
         result = session.scope.imaging.set_pixel_format('Mono12')
         assert result is True
-        assert session.scope.imaging.get_pixel_format() == 'Mono12'
+        assert session.scope.imaging._get_pixel_format() == 'Mono12'
 
     def test_set_pixel_format_invalid(self):
         """set_pixel_format() with an unsupported format raises the typed
@@ -904,7 +904,7 @@ class TestRestAPIPrep:
         """Pixel format methods should handle inactive camera gracefully."""
         session = ScopeSession.create_headless()
         session.scope._camera_driver = None
-        assert session.scope.imaging.get_pixel_format() is None
+        assert session.scope.imaging._get_pixel_format() is None
         assert session.scope.imaging.set_pixel_format('Mono8') is False
         assert session.scope.imaging.get_supported_pixel_formats() == ()
 
