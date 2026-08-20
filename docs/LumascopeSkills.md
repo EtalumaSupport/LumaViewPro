@@ -147,11 +147,10 @@ scope.disconnect()
 
 ### Objective management
 
-Objective / labware / turret-config / stage-offset are runtime-mutable microscope configuration (not live hardware), so they live on the `scope.runtime_state` sub-API (Wave 7 split them off the composition root). The Session layer exposes a thin `set_objective(id)` forwarder so L2 SDK callers can drive objective selection without reaching across into `scope`.
+Objective / labware / turret-config / stage-offset are runtime-mutable microscope configuration (not live hardware), so they live on the `scope.runtime_state` sub-API (Wave 7 split them off the composition root). L2 callers reach it through the composition root the Session exposes: `session.scope.runtime_state.*`.
 
 ```python
-session.set_objective('10x Oly')                       # L2-canonical setter (thin Session forwarder)
-scope.runtime_state.set_objective('10x Oly')           # equivalent; sub-API surface
+scope.runtime_state.set_objective('10x Oly')           # the one public setter (session.scope.runtime_state from L2)
 
 scope.runtime_state.get_current_objective_id()
 scope.runtime_state.get_objective_info('10x Oly')      # {focal_length, magnification, NA, ...}
@@ -205,45 +204,39 @@ session.start_application_session(disable_homing=True)  # skip homing, still pos
 
 `start_application_session()` is the single source of truth for the standard startup orchestration the GUI runs on launch: it queues an all-axis `move_home` on the io_executor (firmware homes Z/T/X/Y in one routine; Z-only boards home what they have), then, when the scope has a turret, moves the T-axis to the position matching `settings['objective_id']` (falling back to position 1). Headless / REST callers should use this rather than open-coding the home + turret sequence. `disable_homing=True` skips the home step (matches the App's `--no-home` flag) but still positions the turret.
 
-### LED control
+### Hardware commands from L2
+
+The Session carries no hardware-command forwarders: every command has
+exactly one public spelling, on the sub-APIs of the composition root the
+Session exposes as `session.scope`. The dispatch contract (blocking form
+submits and blocks; refusal raises `HardwareCommandRefusedError` while a
+protocol run owns the executors; `*_async` drops with a logged warning)
+is documented once in the contract section above.
 
 ```python
-session.led_on_async('Blue', 200)        # non-blocking; returns immediately
-session.led_on_sync('Blue', 200)         # blocks until the write has landed
-session.led_off_async('Blue')
-session.leds_off_async()
-```
+# LED
+session.scope.illumination.led_on('Blue', 200)      # blocks until the write has landed
+session.scope.illumination.led_on_async('Blue', 200)  # fire-and-forget
+session.scope.illumination.led_off_async('Blue')
+session.scope.illumination.leds_off_async()
 
-The LED and motion Session wrappers are async-by-default; the `*_async` suffix is explicit so L2 callers don't read `session.led_on(...)` as "blocking" when it actually queues to an executor. Sync counterparts are available where blocking is the right shape (see `session.led_on_sync`); add an issue if you need a sync counterpart for one that doesn't have one. The imaging wrappers are the exception: blocking-only (see below).
+# Motion
+session.scope.motion.move_home_async('ALL')
+session.scope.motion.move_absolute_async('Z', 5000, wait_until_complete=True)
+session.scope.motion.move_relative_async('X', 500)
 
-### Motion
+# Imaging (blocking-only -- no imaging *_async forms)
+session.scope.imaging.set_gain(8.0)                 # dB; blocks until applied
+session.scope.imaging.set_exposure_time(50.0)       # ms; blocks until applied
+image = session.scope.imaging.capture_and_wait()    # returns frame-valid grab
 
-```python
-session.move_home_async('ALL')
-session.move_absolute_async('Z', 5000, wait_until_complete=True)
-session.move_relative_async('X', 500)
-```
-
-### Imaging (blocking-only)
-
-The camera family has one public form per capability: each call submits to
-the camera executor, blocks until the hardware has it, and raises
-`HardwareCommandRefusedError` while a protocol run owns the executors.
-There are no imaging `*_async` forwarders.
-
-```python
-session.set_gain_sync(8.0)               # dB; blocks until applied
-session.set_exposure_time_sync(50.0)     # ms; blocks until applied
-image = session.capture_and_wait_sync()  # returns frame-valid grab
-
-# The capture forwarder accepts dark_floor_check (default False at this
-# surface, so existing scripts are unchanged): pass True when your capture
-# expects illumination ON and a frame with no lit pixel should be rejected
-# (retried, then None) instead of returned as data. timeout_s is the retry
-# budget for the content checks (dark floor, saturation, chunk verify);
-# leave it 0.0 to judge the first grab only. The executor wait is bounded
-# internally.
-image = session.capture_and_wait_sync(dark_floor_check=True, timeout_s=2.0)
+# capture_and_wait accepts dark_floor_check (default False): pass True when
+# your capture expects illumination ON and a frame with no lit pixel should
+# be rejected (retried, then None) instead of returned as data. timeout_s is
+# the retry budget for the content checks (dark floor, saturation, chunk
+# verify); leave it 0.0 to judge the first grab only. The executor wait is
+# bounded internally.
+image = session.scope.imaging.capture_and_wait(dark_floor_check=True, timeout_s=2.0)
 ```
 
 ### Capture

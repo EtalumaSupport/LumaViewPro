@@ -16,7 +16,6 @@ Usage
     session = ScopeSession.create_headless(settings=settings)
 """
 
-import datetime
 import threading
 from typing import TYPE_CHECKING
 
@@ -24,12 +23,10 @@ from lvp_logger import logger
 from modules.activity_claim import ActivityClaim
 from modules.manual_recording import ManualRecordingController
 
-# numpy and ProtocolRunner are referenced only in return annotations;
-# ProtocolRunner is imported function-locally to avoid a circular import.
-# Declare both here for the annotations without a runtime import.
+# ProtocolRunner is referenced only in a return annotation; it is
+# imported function-locally to avoid a circular import. Declare it here
+# for the annotation without a runtime import.
 if TYPE_CHECKING:
-    import numpy as np
-
     from modules.protocol_runner import ProtocolRunner
 
 
@@ -364,19 +361,6 @@ class ScopeSession:
 
         return config_helpers.get_current_objective_info(self.settings, self.objective_helper)
 
-    def set_objective(self, objective_id: str) -> None:
-        """Set the active objective by ID.
-
-        Thin Session-layer forwarder so L2 callers (REST / SDK /
-        MATLAB / micromanager) can drive objective selection without
-        reaching across to the composition root. Pairs with
-        ``get_current_objective_info()``.
-
-        Args:
-            objective_id: Objective identifier (e.g. "10x Oly").
-        """
-        self.scope.runtime_state.set_objective(objective_id)
-
     def get_current_plate_position(self) -> 'dict | None':
         import modules.config_helpers as config_helpers
 
@@ -387,128 +371,16 @@ class ScopeSession:
             self.wellplate_loader,
         )
 
-    # --- LED commands (thin shims around Lumascope's executor-backed API) ---
-    # All async-by-default; *_sync counterparts call the matching
-    # scope.illumination.*_sync method.
-
-    def leds_off_async(self, callback=None) -> None:
-        self.scope.illumination.leds_off_async(callback=callback)
-
-    def led_on_async(self, channel, mA, callback=None, cb_kwargs=None) -> None:
-        self.scope.illumination.led_on_async(
-            channel,
-            mA,
-            callback=callback,
-            cb_kwargs=cb_kwargs,
-        )
-
-    def led_off_async(self, channel, callback=None, cb_kwargs=None) -> None:
-        self.scope.illumination.led_off_async(
-            channel,
-            callback=callback,
-            cb_kwargs=cb_kwargs,
-        )
-
-    def led_on_sync(self, channel, mA) -> None:
-        """Turn on an LED channel and block until applied."""
-        self.scope.illumination.led_on(channel, mA)
-
-    # --- Motion commands ---
-
-    def move_absolute_async(
-        self,
-        axis,
-        pos,
-        wait_until_complete=False,
-        overshoot_enabled=True,
-        callback=None,
-        cb_kwargs=None,
-    ) -> None:
-        self.scope.motion.move_absolute_async(
-            axis,
-            pos,
-            wait_until_complete=wait_until_complete,
-            overshoot_enabled=overshoot_enabled,
-            callback=callback,
-            cb_kwargs=cb_kwargs,
-        )
-
-    def move_relative_async(
-        self,
-        axis,
-        um,
-        wait_until_complete=False,
-        overshoot_enabled=True,
-        callback=None,
-        cb_kwargs=None,
-    ) -> None:
-        self.scope.motion.move_relative_async(
-            axis,
-            um,
-            wait_until_complete=wait_until_complete,
-            overshoot_enabled=overshoot_enabled,
-            callback=callback,
-            cb_kwargs=cb_kwargs,
-        )
-
-    def move_home_async(self, axis, callback=None, cb_args=None) -> None:
-        self.scope.motion.move_home_async(
-            axis,
-            callback=callback,
-            cb_args=cb_args,
-        )
-
-    # --- Imaging commands (the camera family has ONE public form per
-    #     capability: the dispatching member on scope.imaging, which submits
-    #     to camera_executor and blocks. These forwarders keep the L2 names
-    #     stable until the Session shrink retires them; the fire-and-forget
-    #     variants were measured consumerless and deleted.)
-
-    def set_gain_sync(self, gain_db: float) -> None:
-        """Set the camera gain and block until applied."""
-        self.scope.imaging.set_gain(gain_db)
-
-    def set_exposure_time_sync(self, exposure_ms: float) -> None:
-        """Set the camera exposure time and block until applied."""
-        self.scope.imaging.set_exposure_time(exposure_ms)
-
-    def capture_and_wait_sync(
-        self,
-        *,
-        timeout_s: float = 0.0,
-        force_to_8bit: bool = True,
-        exclude_sources: tuple = (),
-        all_ones_check: bool = False,
-        dark_floor_check: bool = False,
-        earliest_image_ts: 'datetime.datetime | None' = None,
-        sum_count: int = 1,
-        sum_delay_s: float = 0,
-        sum_iteration_callback=None,
-    ) -> 'np.ndarray | None':
-        """Capture a frame-valid image and block; return the image.
-
-        Returns the captured image array, or None on failure (camera-inactive
-        or frame-drain failed).
-
-        ``dark_floor_check=True`` rejects frames with essentially no lit
-        pixel; pass it when your capture expects illumination ON. Defaults
-        False at this L2 surface so existing scripts are behavior-identical.
-        ``timeout_s`` is the retry budget for the content checks (dark
-        floor, saturation, chunk verify): with the default 0.0 the first
-        grab is judged with no retry, so a transient dark frame fails
-        instead of healing. The executor wait is bounded internally.
-        """
-        return self.scope.imaging.capture_and_wait(
-            timeout_s=timeout_s,
-            dark_floor_check=dark_floor_check,
-            force_to_8bit=force_to_8bit,
-            exclude_sources=exclude_sources,
-            all_ones_check=all_ones_check,
-            earliest_image_ts=earliest_image_ts,
-            sum_count=sum_count,
-            sum_delay_s=sum_delay_s,
-            sum_iteration_callback=sum_iteration_callback,
-        )
+    # --- Hardware commands: NOT forwarded ---
+    # The Session surface deliberately carries no hardware-command
+    # forwarders. L2 callers reach hardware through the composition
+    # root the Session exposes -- session.scope.illumination.*,
+    # session.scope.motion.*, session.scope.imaging.*,
+    # session.scope.runtime_state.* -- so every command has exactly one
+    # public spelling and the Session owns only what is session-scoped:
+    # lifecycle (create / start_executors / shutdown /
+    # start_application_session), the protocol runner, run-state
+    # queries, and the settings-composition getters above.
 
     # ------------------------------------------------------------------
     # Protocol runner

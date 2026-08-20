@@ -668,24 +668,6 @@ class TestScopeSession:
         assert 'max_duration' in result
         assert isinstance(result['max_duration'], datetime.timedelta)
 
-    def test_capture_sync_forwards_grab_timeout(self):
-        """The sync capture forwarder must pass the content-retry budget
-        through to the imaging layer. Without the passthrough, a caller
-        opting into dark_floor_check gets first-grab judgment with a 0 s
-        retry window -- the transient-dark-frame heal the check promises
-        can never run from this surface."""
-        from unittest.mock import MagicMock
-
-        session = self._make_session()
-        # The imaging sync tier dissolved into capture_and_wait, and the two
-        # timeouts merged: what a caller used to pass as grab_timeout_s is
-        # now the one timeout_s the merged member carries.
-        session.scope.imaging.capture_and_wait = MagicMock(return_value=None)
-        session.capture_and_wait_sync(dark_floor_check=True, timeout_s=2.5)
-        kwargs = session.scope.imaging.capture_and_wait.call_args.kwargs
-        assert kwargs['timeout_s'] == 2.5
-        assert kwargs['dark_floor_check'] is True
-
     def test_get_current_objective_info_delegates(self):
         helper = MagicMock()
         helper.get_objective_info.return_value = {'magnification': 10}
@@ -693,48 +675,6 @@ class TestScopeSession:
         obj_id, obj = session.get_current_objective_info()
         assert obj_id == '4x'
         assert obj['magnification'] == 10
-
-    def test_leds_off_delegates(self):
-        session = self._make_session()
-        session.leds_off_async()
-        assert len(session.io_executor.submitted) == 1
-
-    def test_led_on_delegates(self):
-        session = self._make_session()
-        session.led_on_async(channel=2, mA=100)
-        assert len(session.io_executor.submitted) == 1
-
-    def test_led_off_delegates(self):
-        session = self._make_session()
-        session.led_off_async(channel=1)
-        assert len(session.io_executor.submitted) == 1
-
-    def test_move_absolute_delegates(self):
-        session = self._make_session()
-        session.move_absolute_async('Z', 3000)
-        assert len(session.io_executor.submitted) == 1
-        task = session.io_executor.submitted[0]
-        assert task.kwargs['axis'] == 'Z'
-        assert task.kwargs['pos'] == 3000
-
-    def test_move_relative_delegates(self):
-        session = self._make_session()
-        session.move_relative_async('X', 100)
-        assert len(session.io_executor.submitted) == 1
-
-    def test_move_home_delegates(self):
-        session = self._make_session()
-        session.move_home_async('Z')
-        assert len(session.io_executor.submitted) == 1
-        task = session.io_executor.submitted[0]
-        assert task.action == session.scope.motion._zhome_impl
-
-    def test_no_led_skips_commands(self):
-        session = self._make_session(scope=_make_mock_scope(led_available=False))
-        session.leds_off_async()
-        session.led_on_async(0, 50)
-        session.led_off_async(0)
-        assert session.io_executor.submitted == []
 
     def test_protocol_running_event(self):
         session = self._make_session()

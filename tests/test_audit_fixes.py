@@ -9311,26 +9311,10 @@ class TestProtocolIOTimeoutsAreNotShort:
 
 
 class TestSessionLedOnArgNameIsMa:
-    """Audit Finding #33 -- ScopeSession.led_on_async / led_on_sync use `mA`,
-    matching the canonical Lumascope.illumination.led_on(channel, mA, ...)
-    name. The old `illumination=` keyword is retired. (Method renamed
-    from `led_on` -> `led_on_async` per Finding #6 async-naming sweep.)"""
-
-    def test_led_on_signature_uses_mA(self):
-        import inspect
-        from modules.scope_session import ScopeSession
-
-        params = inspect.signature(ScopeSession.led_on_async).parameters
-        assert 'mA' in params, 'ScopeSession.led_on_async must accept mA kwarg'
-        assert 'illumination' not in params, 'old `illumination` kwarg must be retired'
-
-    def test_led_on_sync_signature_uses_mA(self):
-        import inspect
-        from modules.scope_session import ScopeSession
-
-        params = inspect.signature(ScopeSession.led_on_sync).parameters
-        assert 'mA' in params
-        assert 'illumination' not in params
+    """The illumination surface names the LED current `mA`, not the
+    ambiguous `illumination=`. (The Session-forwarder signature pins this
+    class once carried died with the forwarders -- the Session carries no
+    hardware members, see TestSessionCarriesNoHardwareForwarders.)"""
 
     def test_illumination_api_led_on_signatures_use_mA(self, sim_scope):
         """The illumination surface names the LED current `mA`, not the
@@ -9649,25 +9633,12 @@ class TestLedMaxMaCanonicalHomeIsCapabilities:
             sim_scope.illumination.led_on(channel=0, mA=51)
 
 
-class TestSessionSetObjectiveForwarder:
-    """Freeze audit Finding #47 -- LumascopeSkills.md said
-    `scope.set_objective('10x Oly')` but the Session layer is the L2
-    entry point per design-doc 6.6; `session.set_objective` did not
-    exist, so the doc led L2 callers across to the composition root.
-    Fix: thin forwarder on ScopeSession plus doc note that both
-    surfaces work."""
+class TestRuntimeStateSetObjective:
+    """The Session hardware forwarders are retired; the one public
+    objective-selection path is the runtime_state member on the
+    composition root the Session exposes. This pins its round trip."""
 
-    def test_session_has_set_objective_method(self):
-        from modules.scope_session import ScopeSession
-
-        assert callable(getattr(ScopeSession, 'set_objective', None)), (
-            'ScopeSession.set_objective forwarder must exist per audit #47'
-        )
-
-    def test_session_set_objective_forwards_to_scope(self):
-        """Calling the Session forwarder updates the composition root's
-        objective state -- same path as scope.runtime_state.set_objective()
-        directly."""
+    def test_set_objective_round_trip(self):
         from modules.scope_session import ScopeSession
 
         session = ScopeSession.create_headless()
@@ -9676,7 +9647,7 @@ class TestSessionSetObjectiveForwarder:
             return  # no objectives loaded in this sim profile
         target = available[0] if isinstance(available, list) else next(iter(available))
 
-        session.set_objective(target)
+        session.scope.runtime_state.set_objective(target)
         assert session.scope.runtime_state.get_current_objective_id() == target
 
 
@@ -9897,41 +9868,6 @@ class TestFrameValidityIsL2Stable:
         )
 
 
-class TestSessionImagingWrappersSymmetric:
-    """Freeze audit Finding #32 originally added bare `set_gain` /
-    `set_exposure_time` / `capture_and_wait` forwarders on ScopeSession
-    to match the LED + motion wrapper pattern. Audit F6/F7 (LVP
-    abc2a39) then retired the bare unsuffixed forwarders in favor of
-    explicit `_async` / `_sync` variants so the `_sync` suffix has
-    consistent meaning across sub-APIs. The remaining tests verify
-    that the surviving `_sync` forwarders still route through
-    ImagingAPI correctly."""
-
-    def test_session_set_gain_forwards_to_imaging(self):
-        from modules.scope_session import ScopeSession
-
-        session = ScopeSession.create_headless()
-        session.start_executors()
-        try:
-            session.set_gain_sync(5.5)
-            assert session.scope.imaging.gain_cached == 5.5
-        finally:
-            session.shutdown_executors()
-            session.scope.disconnect()
-
-    def test_session_set_exposure_time_forwards_to_imaging(self):
-        from modules.scope_session import ScopeSession
-
-        session = ScopeSession.create_headless()
-        session.start_executors()
-        try:
-            session.set_exposure_time_sync(42.0)
-            assert session.scope.imaging.exposure_ms_cached == 42.0
-        finally:
-            session.shutdown_executors()
-            session.scope.disconnect()
-
-
 class TestCreateDiagnosticSharesInitMinimal:
     """Freeze audit Finding #35 -- create_diagnostic bypassed __init__
     via cls.__new__(cls) and open-coded a subset of __init__'s state
@@ -10146,53 +10082,41 @@ class TestCameraMaxFrameSizeOnCapabilities:
         assert caps.camera_max_frame_size == (0, 0)
 
 
-class TestSessionAsyncRename:
-    """Freeze audit Finding #6 -- session.led_on / move_absolute /
-    move_relative / move_home / leds_off were async-by-default
-    forwarders to scope.X_async, but the bare name suggested sync.
-    Renamed to *_async so L2 callers read the contract directly.
-    Sync counterparts (led_on_sync) keep their existing names."""
+class TestSessionCarriesNoHardwareForwarders:
+    """The Session surface carries NO hardware-command members: every
+    command has exactly one public spelling, on the sub-APIs of the
+    composition root the Session exposes (session.scope.*). A forwarder
+    reintroduced here is a second spelling for the same capability and
+    fails this pin."""
 
-    EXPECTED_ASYNC_NAMES = (
-        'leds_off_async',
-        'led_on_async',
-        'led_off_async',
-        'move_absolute_async',
-        'move_relative_async',
-        'move_home_async',
-    )
-
-    EXPECTED_RETIRED_NAMES = (
+    RETIRED_FORWARDER_NAMES = (
         'leds_off',
+        'leds_off_async',
         'led_on',
+        'led_on_async',
+        'led_on_sync',
         'led_off',
+        'led_off_async',
         'move_absolute',
+        'move_absolute_async',
         'move_relative',
+        'move_relative_async',
         'move_home',
+        'move_home_async',
+        'set_gain_sync',
+        'set_exposure_time_sync',
+        'capture_and_wait_sync',
+        'set_objective',
     )
 
-    def test_async_methods_exist(self):
+    def test_no_hardware_forwarders_on_session(self):
         from modules.scope_session import ScopeSession
 
-        for name in self.EXPECTED_ASYNC_NAMES:
-            assert callable(getattr(ScopeSession, name, None)), (
-                f'ScopeSession.{name} must exist per audit #6.'
-            )
-
-    def test_bare_names_are_retired(self):
-        from modules.scope_session import ScopeSession
-
-        for name in self.EXPECTED_RETIRED_NAMES:
-            assert not hasattr(ScopeSession, name), (
-                f'ScopeSession.{name} must be retired per audit #6; use {name}_async instead.'
-            )
-
-    def test_led_on_sync_still_exists(self):
-        """The sync counterpart keeps its name; only the bare-async
-        forwarders gained the explicit _async suffix."""
-        from modules.scope_session import ScopeSession
-
-        assert callable(getattr(ScopeSession, 'led_on_sync', None))
+        present = [n for n in self.RETIRED_FORWARDER_NAMES if hasattr(ScopeSession, n)]
+        assert not present, (
+            f'ScopeSession must not carry hardware-command forwarders; found {present}. '
+            'Hardware commands have one public spelling: session.scope.<subapi>.<member>.'
+        )
 
 
 class TestLumascopeSkillsRetiredOpticalMethods:
@@ -10255,8 +10179,7 @@ class TestLumascopeSkillsApiPluginDocBatch:
         doc = self._doc()
         assert 'scope.set_objective(' not in doc, (
             'LumascopeSkills.md must not cite `scope.set_objective(...)` -- '
-            'it moved to `scope.runtime_state.set_objective` / '
-            '`session.set_objective`.'
+            'it moved to `scope.runtime_state.set_objective`.'
         )
         assert 'scope.runtime_state.set_objective' in doc
         assert 'scope.runtime_state.get_current_objective_id' in doc
