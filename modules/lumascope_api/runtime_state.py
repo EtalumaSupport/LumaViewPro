@@ -176,7 +176,7 @@ class RuntimeState:
             Exception: Re-raises any error encountered reading target
                 position; logged before re-raise.
         """
-        labware = self._labware
+        labware = self.get_labware()
 
         try:
             x_target = self._scope.motion.get_target_position('X')
@@ -186,7 +186,7 @@ class RuntimeState:
             raise
 
         x_target, y_target = self._coordinate_transformer.stage_to_plate(
-            labware=labware, stage_offset=self._stage_offset, sx=x_target, sy=y_target
+            labware=labware, stage_offset=self.get_stage_offset(), sx=x_target, sy=y_target
         )
 
         return labware.get_well_label(x=x_target, y=y_target)
