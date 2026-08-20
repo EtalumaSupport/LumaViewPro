@@ -1057,22 +1057,6 @@ class IlluminationAPI:
         with self._led_owner_lock:
             return self._led_state.get(color) is not None
 
-    @property
-    def led_states(self) -> dict:
-        """Snapshot of all LED states {color: {enabled, illumination}}.
-
-        Returns:
-            Mapping of color -> {'enabled': bool, 'illumination_ma': float}.
-            Empty if no LED board is connected.
-        """
-        if not self._driver:
-            return {}
-        with self._led_owner_lock:
-            return {
-                color: {'enabled': True, 'illumination_ma': entry['illumination_ma']}
-                for color, entry in self._led_state.items()
-            }
-
     def get_led_state(self, color: str) -> dict:
         """Get the on/off state, illumination, and owner for an LED channel.
 
@@ -1433,7 +1417,12 @@ class IlluminationAPI:
         consistent with this primitive.
         """
         target_channels = {ch for ch, _ in target}
-        for color in self.led_states:
+        # Snapshot under the lock, then release before emitting: the off/on
+        # primitives re-acquire _led_owner_lock (not reentrant) and _led_off_impl
+        # pops from _led_state as it clears each channel.
+        with self._led_owner_lock:
+            lit_colors = list(self._led_state)
+        for color in lit_colors:
             ch = self.color2ch(color)
             if ch is not None and ch not in target_channels:
                 self._led_off_impl(channel=ch, _lease_owner=owner)
