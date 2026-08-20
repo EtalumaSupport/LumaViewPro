@@ -1016,36 +1016,6 @@ class IlluminationAPI:
             cb_kwargs=cb_kwargs,
         )
 
-    def led_on_sync(self, channel, mA, *, timeout_s=5, owner: str = '') -> None:
-        """Run ``led_on`` through the io_executor and block until done.
-
-        Args:
-            channel: Channel number or color name.
-            mA: LED current in milliamps.
-            timeout_s: Max seconds to wait for completion.
-            owner: Optional ownership tag for the LED state.
-        """
-        kwargs = {'owner': owner} if owner else None
-        fut = self._submit_io(
-            self._led_on_impl,
-            'led_on_sync',
-            args=(channel, mA),
-            kwargs=kwargs,
-            return_future=True,
-        )
-        if fut:
-            fut.result(timeout=timeout_s)
-
-    def leds_off_sync(self, *, timeout_s=5) -> None:
-        """Run ``leds_off`` through the io_executor and block until done.
-
-        Args:
-            timeout_s: Max seconds to wait for completion.
-        """
-        fut = self._submit_io(self._leds_off_impl, 'leds_off_sync', return_future=True)
-        if fut:
-            fut.result(timeout=timeout_s)
-
     # --- State ---
     def get_led_ma(self, color: str) -> float | None:
         """Get the current illumination level for an LED channel.

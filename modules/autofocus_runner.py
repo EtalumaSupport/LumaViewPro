@@ -129,11 +129,6 @@ class AutofocusRunner:
             'exposure': exposure,
         }
 
-    def _led_off(self):
-        """Turn off only the LED(s) that AF owns (not all LEDs)."""
-        if self._led_color is not None and self._scope.led_connected:
-            self._scope.illumination.leds_off_owned('autofocus')
-
     def run(
         self,
         objective_id: str,

@@ -1577,56 +1577,6 @@ class ImagingAPI:
             )
             raise
 
-    # --- Transitional blocking tiers ---
-    # The GUI composite-capture path still calls these three; everything
-    # else reaches the dispatching public members above. They bind `_impl`
-    # so a worker running one can never re-enter the dispatcher, and they
-    # keep fence-drop as a warning rather than a raise because their caller
-    # predates the refusal contract.
-
-    def set_gain_sync(self, gain_db, *, timeout_s: float = 5.0) -> None:
-        """Run the gain write through the camera_executor and block until done.
-
-        Args:
-            gain_db: Gain value in dB.
-            timeout_s: Max seconds to wait for completion.
-        """
-        ex = self._scope._camera_executor
-        if ex is None:
-            self._set_gain_impl(gain_db)
-            return
-        fut = ex.put(IOTask(action=self._set_gain_impl, args=(gain_db,)), return_future=True)
-        if fut:
-            fut.result(timeout=timeout_s)
-        else:
-            logger.warning(
-                '[SCOPE API ] set_gain_sync dropped: the camera executor is '
-                'not accepting work (disabled, or fenced by a running protocol)'
-            )
-
-    def set_exposure_sync(self, exposure_ms, *, timeout_s: float = 5.0) -> None:
-        """Run the exposure write through the camera_executor and block.
-
-        Args:
-            exposure_ms: Exposure time in milliseconds.
-            timeout_s: Max seconds to wait for completion.
-        """
-        ex = self._scope._camera_executor
-        if ex is None:
-            self._set_exposure_time_impl(exposure_ms)
-            return
-        fut = ex.put(
-            IOTask(action=self._set_exposure_time_impl, args=(exposure_ms,)),
-            return_future=True,
-        )
-        if fut:
-            fut.result(timeout=timeout_s)
-        else:
-            logger.warning(
-                '[SCOPE API ] set_exposure_sync dropped: the camera executor '
-                'is not accepting work (disabled, or fenced by a running protocol)'
-            )
-
     def set_max_acquisition_frame_rate(
         self,
         enabled: bool,
@@ -2175,73 +2125,6 @@ class ImagingAPI:
             },
             timeout_s=wait_s,
         )
-
-    def capture_and_wait_sync(
-        self,
-        *,
-        timeout_s: float = 30.0,
-        dark_floor_check: bool,
-        grab_timeout_s: float = 0.0,
-        force_to_8bit: bool = True,
-        exclude_sources: tuple = (),
-        all_ones_check: bool = False,
-        earliest_image_ts: datetime.datetime | None = None,
-        sum_count: int = 1,
-        sum_delay_s: float = 0,
-        sum_iteration_callback=None,
-    ) -> np.ndarray | None:
-        """Run the capture through the camera_executor and block.
-
-        Transitional tier: see the note on ``set_gain_sync``.
-
-        Args:
-            timeout_s: Max seconds to wait for completion (wraps the executor
-                Future.result wait, not the inner capture grab).
-            dark_floor_check: Required -- whether illumination is expected
-                ON for this capture (see ``_capture_and_wait_impl``).
-            grab_timeout_s: Retry budget (seconds) for the inner content
-                gates (saturation, dark floor, chunk verify) -- forwarded as
-                the body's timeout_s. Distinct from timeout_s above, which
-                only bounds the executor wait; with the default 0.0 a
-                content-gated frame is judged on the first grab with no
-                retry window.
-            force_to_8bit: Convert to 8-bit output.
-            exclude_sources: Sources to ignore for validity (e.g. ('z_move',)).
-            all_ones_check: Reject all-max-value frames.
-            earliest_image_ts: Reject frames captured before this timestamp.
-            sum_count: Number of frames to sum for noise reduction.
-            sum_delay_s: Delay between summed frames.
-            sum_iteration_callback: Called after each summed frame.
-
-        Returns:
-            The captured image array, or None on failure (camera-inactive,
-            frame-drain failed, or future not delivered).
-        """
-        kwargs = {
-            'dark_floor_check': dark_floor_check,
-            'timeout_s': grab_timeout_s,
-            'force_to_8bit': force_to_8bit,
-            'exclude_sources': exclude_sources,
-            'all_ones_check': all_ones_check,
-            'earliest_image_ts': earliest_image_ts,
-            'sum_count': sum_count,
-            'sum_delay_s': sum_delay_s,
-            'sum_iteration_callback': sum_iteration_callback,
-        }
-        ex = self._scope._camera_executor
-        if ex is None:
-            return self._capture_and_wait_impl(**kwargs)
-        fut = ex.put(
-            IOTask(action=self._capture_and_wait_impl, kwargs=kwargs),
-            return_future=True,
-        )
-        if fut:
-            return fut.result(timeout=timeout_s)
-        logger.warning(
-            '[SCOPE API ] capture_and_wait_sync dropped: the camera executor '
-            'is not accepting work (disabled, or fenced by a running protocol)'
-        )
-        return None
 
     # A frame at least this saturated is treated as blown -- a stale-gain
     # or over-exposure symptom. Set high so a legitimately bright field

@@ -1111,9 +1111,8 @@ class TestIssue602_AFExecutorLED:
         )
         # AF illuminates its own channel at scan start through the LED
         # authority (the AF_ENTER transition, which drives led_on under the
-        # hood); _led_off still releases AF's channel.
+        # hood).
         assert hasattr(scope.illumination, 'led_on')
-        assert hasattr(af, '_led_off')
         # Verify _reset_state initializes LED fields
         af._reset_state()
         assert af._led_color is None
@@ -1210,7 +1209,6 @@ class TestAFPrecisionModeRestoresOn:
         abort_event.set()  # pre-set so AFE.run() unwinds via abort
         with (
             patch.object(scope.motion, 'set_precision_mode') as mock_set,
-            patch.object(af, '_led_off'),
             patch.object(af, '_move_absolute_position'),
             patch.object(scope.illumination, 'save_led_state', return_value={}),
             patch.object(scope.imaging, 'save_camera_state', return_value={}),
@@ -9384,12 +9382,7 @@ class TestImagingTimeoutsAreFloatSeconds:
     docstring) but the value flowed unchanged into the driver
     `grab_new_capture(timeout: float)` which is seconds."""
 
-    _METHODS_AND_TIMEOUTS = (
-        ('set_gain_sync', 'timeout_s', 5.0),
-        ('set_exposure_sync', 'timeout_s', 5.0),
-        ('capture_and_wait', 'timeout_s', 0.0),
-        ('capture_and_wait_sync', 'timeout_s', 30.0),
-    )
+    _METHODS_AND_TIMEOUTS = (('capture_and_wait', 'timeout_s', 0.0),)
 
     def test_timeout_default_is_float(self):
         import inspect
@@ -9535,8 +9528,6 @@ class TestImagingParamNamesUseUnitSuffix:
         # (method, expected_param_name_set, banned_param_name_set)
         ('set_gain', frozenset({'gain_db'}), frozenset({'gain'})),
         ('set_exposure_time', frozenset({'exposure_ms'}), frozenset({'t', 'exposure'})),
-        ('set_gain_sync', frozenset({'gain_db'}), frozenset({'gain'})),
-        ('set_exposure_sync', frozenset({'exposure_ms'}), frozenset({'exposure', 't'})),
         ('apply_layer_camera_settings', frozenset({'gain_db', 'exposure_ms'}), frozenset({'gain'})),
         (
             'auto_gain_once',
@@ -9606,13 +9597,7 @@ class TestTimeoutParamNamesUseSecondSuffix:
     _SECONDS_TIMEOUT_METHODS = (
         # (module-path, class-or-fn, method_name_or_None)
         ('modules.lumascope_api.motion', 'MotionAPI', 'wait_until_finished_moving'),
-        ('modules.lumascope_api.motion', 'MotionAPI', 'move_absolute_sync'),
-        ('modules.lumascope_api.illumination', 'IlluminationAPI', 'led_on_sync'),
-        ('modules.lumascope_api.illumination', 'IlluminationAPI', 'leds_off_sync'),
-        ('modules.lumascope_api.imaging', 'ImagingAPI', 'set_gain_sync'),
-        ('modules.lumascope_api.imaging', 'ImagingAPI', 'set_exposure_sync'),
         ('modules.lumascope_api.imaging', 'ImagingAPI', 'capture_and_wait'),
-        ('modules.lumascope_api.imaging', 'ImagingAPI', 'capture_and_wait_sync'),
         ('modules.lumascope_api.imaging', 'ImagingAPI', 'get_image'),
         ('modules.lumascope_api.diagnostics', 'DiagnosticsAPI', 'enter_led_engineering_mode'),
     )

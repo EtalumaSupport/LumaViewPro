@@ -873,48 +873,6 @@ class MotionAPI:
         else:
             self._turreting_event.clear()
 
-    def move_absolute_sync(
-        self, axis, pos, *, wait_until_complete=True, overshoot_enabled=True, timeout_s=30
-    ) -> None:
-        """Run ``move_absolute_position`` through the io_executor and block.
-
-        Blocks until both the IOTask completes and (when
-        ``wait_until_complete``) the stage has physically arrived.
-
-        Args:
-            axis: Axis name ("X", "Y", "Z", "T").
-            pos: Target position in um.
-            wait_until_complete: If True, block until move finishes.
-            overshoot_enabled: Allow Z overshoot for backlash compensation.
-            timeout_s: Max seconds to wait for completion.
-        """
-        from modules.sequential_io_executor import IOTask  # local-import: avoid cycle
-
-        kwargs = {
-            'axis': axis,
-            'pos': pos,
-            'wait_until_complete': wait_until_complete,
-            'overshoot_enabled': overshoot_enabled,
-        }
-        ex = self._scope._io_executor
-        if ex is None:
-            # Supported configuration, not a defect: a bare Lumascope() has
-            # no executors and the body runs on the calling thread -- the one
-            # rule the whole surface follows.
-            self._move_absolute_position_impl(**kwargs)
-            return
-        fut = ex.put(
-            IOTask(action=self._move_absolute_position_impl, kwargs=kwargs),
-            return_future=True,
-        )
-        if fut:
-            fut.result(timeout=timeout_s)
-        else:
-            logger.warning(
-                '[SCOPE API ] move_absolute_sync dropped: the io executor is '
-                'not accepting work (disabled, or fenced by a running protocol)'
-            )
-
     def move_relative_async(
         self,
         axis,
