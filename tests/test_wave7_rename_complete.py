@@ -212,20 +212,16 @@ ILLUMINATION_ONLY_METHODS = frozenset(
         'get_led_state',
         'get_led_states',
         'led_enabled',
-        'led_illumination',
         'led_off',
         'led_off_async',
         'led_on',
         'led_on_async',
-        'leds_disable',
-        'leds_enable',
         'leds_off',
         'leds_off_async',
         'leds_off_owned',
         'remove_led_listener',
         'restore_led_state',
         'save_led_state',
-        'wait_until_led_on',
     }
 )
 
@@ -357,8 +353,6 @@ IMAGING_ONLY_METHODS = frozenset(
         'get_height',
         'get_image',
         'get_image_from_buffer',
-        'get_max_height',
-        'get_max_width',
         'get_supported_pixel_formats',
         'get_width',
         'is_focusing',
@@ -368,20 +362,12 @@ IMAGING_ONLY_METHODS = frozenset(
         'restore_camera_state',
         'save_camera_state',
         'scale_bar_config',
-        'scale_bar_enabled',
-        'set_acquisition_stop_mode',
         'set_auto_exposure_time',
         'set_auto_gain',
-        'set_bandwidth_reserve_mode',
         'set_binning_size',
-        'set_device_link_throughput_limit',
         'set_exposure_ms',
         'set_frame_size',
         'set_gain_db',
-        'set_gev_inter_packet_delay',
-        'set_gev_packet_size',
-        'set_max_transfer_size',
-        'set_num_max_queued_urbs',
         'set_pixel_format',
         'set_scale_bar',
         'start_camera_temp_logging',
@@ -879,4 +865,102 @@ def test_no_self_runtime_state_calls_in_lumascope():
     assert not failures, (
         'Lumascope reached settings-host methods via bare self -- '
         'migrate to self.runtime_state per Phase 8d:\n  ' + '\n  '.join(failures)
+    )
+
+
+# --- The guards' own guard ---
+#
+# Every frozenset above is a LAYERING guard: it names members that must be
+# reached through their sub-API rather than off a bare scope. None of them is
+# an existence pin, so a name whose member has since been deleted or
+# privatized stops guarding anything and nothing notices. That is not
+# hypothetical -- four commits (54068158, 862c33e8, 5a6b8ba3, 33f9311b) each
+# retired members and left their names behind, and the residue was only found
+# by going looking for it. These two tests make the next one fail loudly:
+# every listed name must still resolve to a member, and every frozenset in
+# this module must be classified so a new one cannot quietly go unchecked.
+#
+# Resolution is pure-AST for the same reason the sets are hardcoded: this
+# module must not import the API or instantiate a simulator at collection.
+
+_API_ROOT = _REPO_ROOT / 'modules' / 'lumascope_api'
+
+# frozenset name -> the module whose members it names.
+PRESENCE_SETS = {
+    'MOTION_ONLY_METHODS': _API_ROOT / 'motion.py',
+    'ILLUMINATION_ONLY_METHODS': _API_ROOT / 'illumination.py',
+    'IMAGING_ONLY_METHODS': _API_ROOT / 'imaging.py',
+    'DIAGNOSTICS_ONLY_METHODS': _API_ROOT / 'diagnostics.py',
+    'RUNTIME_STATE_ONLY_METHODS': _API_ROOT / 'runtime_state.py',
+    # Phase 7 finished the migration these six were staged for; they live on
+    # DiagnosticsAPI now, not on Lumascope.
+    'DIAGNOSTIC_FACADE_GETTERS': _API_ROOT / 'diagnostics.py',
+    'IMAGE_SAVE_METHODS': _REPO_ROOT / 'modules' / 'image_save.py',
+}
+
+# Sets whose names must NOT resolve -- these pin retirements, so the
+# presence check would invert their meaning.
+ABSENCE_SETS = frozenset({'COMPUTE_FOCUS_SCORE_RETIRED', 'IMAGE_SAVE_STATIC_METHODS'})
+
+# Sets that hold something other than member names.
+NON_MEMBER_SETS = frozenset({'BANNED_ATTRS'})
+
+
+def _defined_names(path: pathlib.Path) -> set[str]:
+    """Class-body and module-level definitions in a production module."""
+    tree = ast.parse(path.read_text(encoding='utf-8'), filename=str(path))
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        for item in node.body:
+            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                names.add(item.name)
+            elif isinstance(item, ast.Assign):
+                names.update(t.id for t in item.targets if isinstance(t, ast.Name))
+    for item in tree.body:
+        if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            names.add(item.name)
+    return names
+
+
+def test_layering_guard_sets_name_only_live_members():
+    """A guard entry whose member is gone guards nothing -- fail on it."""
+    failures = []
+    for setname, module_path in PRESENCE_SETS.items():
+        listed = globals()[setname]
+        stale = sorted(listed - _defined_names(module_path))
+        failures.extend(
+            f'{setname}: {name!r} has no member in {module_path.name} -- '
+            f'it was deleted or privatized; drop it from the set'
+            for name in stale
+        )
+    assert not failures, 'Layering guards name members that no longer exist:\n  ' + '\n  '.join(
+        failures
+    )
+
+
+def test_every_guard_set_is_classified():
+    """A new frozenset must be declared presence, absence, or non-member.
+
+    Without this, adding a set and forgetting to register it reproduces the
+    exact silent gap the presence check exists to close, one level up.
+    """
+    known = set(PRESENCE_SETS) | ABSENCE_SETS | NON_MEMBER_SETS
+    declared = {'PRESENCE_SETS', 'ABSENCE_SETS', 'NON_MEMBER_SETS'}
+    found = {
+        name
+        for name, value in globals().items()
+        if isinstance(value, frozenset) and name.isupper() and name not in declared
+    }
+    unclassified = sorted(found - known)
+    assert not unclassified, (
+        'Guard frozensets are not classified -- add each to PRESENCE_SETS '
+        '(with the module owning its members), ABSENCE_SETS, or '
+        f'NON_MEMBER_SETS:\n  {chr(10).join("  " + n for n in unclassified)}'
+    )
+    missing = sorted(known - found - {'PRESENCE_SETS', 'ABSENCE_SETS', 'NON_MEMBER_SETS'})
+    assert not missing, (
+        'Classified names that are no longer frozensets in this module -- '
+        f'the classification is stale:\n  {chr(10).join("  " + n for n in missing)}'
     )
