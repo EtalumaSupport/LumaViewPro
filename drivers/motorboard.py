@@ -1391,25 +1391,6 @@ class MotorBoard(SerialBoard):
             results.append(entry)
         return results
 
-    def get_voltage(self) -> dict:
-        """Send VOLTAGE and return parsed voltage rail info.
-
-        Returns:
-            dict: ``raw`` plus per-rail keys (``24V``, ``5V``, ``3V3``,
-                ``1V2``) when matched. Empty dict on failure.
-        """
-        resp = self.exchange_command('VOLTAGE', timeout=5)
-        if resp is None:
-            return {}
-        result = {'raw': resp}
-        import re as _re
-
-        for key in ('24V', '5V', '3V3', '1V2'):
-            m = _re.search(rf'{key}[=:]\s*([\d.]+|HIGH|LOW|OK)', resp)
-            if m:
-                result[key] = m.group(1)
-        return result
-
     def wait_for_position(self, axis: str, timeout: float = 5.0) -> bool:
         """Wait until an axis reaches its target position.
 
@@ -1548,43 +1529,6 @@ class MotorBoard(SerialBoard):
             )
             return None
         return resp
-
-    def read_voltages(self) -> dict[str, float | None] | None:
-        """Read power-rail voltage tolerance diagnostic.
-
-        Returns a dict mapping rail label ('5V', '3.3V', '1.2V', '24V')
-        to the measured voltage in volts, or None for any rail whose
-        firmware reading was non-numeric (e.g. 'OK', 'N/A', 'MISSING').
-        Returns None for the whole call when the firmware does not
-        support the VOLTAGE command (legacy firmware predating
-        diagnostic queries). Callers should distinguish:
-            None              -> INCONCLUSIVE: firmware does not support
-            {rail: None, ...} -> INCONCLUSIVE: per-rail unparseable
-            {rail: float}     -> measurement available
-        """
-        raw = self._diagnostic_query('VOLTAGE')
-        if raw is None:
-            return None
-        # Firmware response shape: '24V=OK 5V=5.18 3V3=3.31 1V2=1.24'
-        # (or 'N/A' / 'MISSING' / 'ERROR' in the value slot).
-        # Normalize '3V3' -> '3.3V' and '1V2' -> '1.2V' so caller
-        # comparison against VOLTAGE_NOMINAL keys lines up.
-        rail_rename = {'3V3': '3.3V', '1V2': '1.2V'}
-        non_numeric = {'OK', 'N/A', 'MISSING', 'ERROR'}
-        rails: dict[str, float | None] = {}
-        for token in raw.split():
-            if '=' not in token:
-                continue
-            key, _, value = token.partition('=')
-            label = rail_rename.get(key, key)
-            if value in non_numeric:
-                rails[label] = None
-                continue
-            try:
-                rails[label] = float(value.rstrip('V'))
-            except ValueError:
-                rails[label] = None
-        return rails
 
     def read_drv_status(self, axis: str) -> int | None:
         """Read TMC5072 DRV_STATUS register for an axis.

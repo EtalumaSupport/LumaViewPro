@@ -5,7 +5,7 @@ Per Eric's bench report on SN12062 (LS850 with EL-0940-05 running legacy
 2024-09-10 firmware), three classes of bugs in the tech-support report
 violated the principle of least astonishment:
 
-1. Driver capability gating was absent -- the TSR sent raw VOLTAGE /
+1. Driver capability gating was absent -- the TSR sent raw
    DRVSTAT_<axis> / FANSPEED / FAN:<duty> commands and forwarded the
    firmware's raw "ERROR: command 'X' not found:" responses up to the
    user. Per Eric: "shouldn't the TSR be using the driver, and the
@@ -18,10 +18,11 @@ violated the principle of least astonishment:
    `.found` attribute. Same shape as #648's `hasattr(self, 'camera')`
    regression.
 
-3. The voltage check writer reported "Overall: PASS" with three rails
-   showing UNKNOWN readings -- words on screen contradicted what the
-   user could see on the same page. Per
-   `feedback_least_astonishment`.
+3. A hardware-check writer reported "Overall: PASS" over readings it
+   had not actually measured -- words on screen contradicted what the
+   user could see on the same page. (The check that surfaced this,
+   the power-rail voltage tolerance report, was later removed
+   entirely as not useful.)
 
 These tests assert the structural fix: parsed driver methods that
 return None for unsupported firmware, capability-aware TSR steps
@@ -68,7 +69,6 @@ def _make_motor_with_responses(response_map):
     # Bind the diagnostic methods we care about
     for name in (
         '_diagnostic_query',
-        'read_voltages',
         'read_drv_status',
         'read_fanspeed',
         'set_fan_duty',
@@ -80,41 +80,6 @@ def _make_motor_with_responses(response_map):
 
 class TestMotorDriverDiagnosticGating:
     """Driver methods return None on legacy FW, parsed values on new FW."""
-
-    def test_read_voltages_unsupported_firmware_returns_none(self):
-        motor = _make_motor_with_responses(
-            {
-                'VOLTAGE': "ERROR: command 'VOLTAGE' not found:",
-            }
-        )
-        assert motor.read_voltages() is None
-
-    def test_read_voltages_supported_firmware_parses_dict(self):
-        motor = _make_motor_with_responses(
-            {
-                'VOLTAGE': '24V=OK 5V=5.18 3V3=3.31 1V2=1.24',
-            }
-        )
-        result = motor.read_voltages()
-        assert result is not None
-        assert result['5V'] == pytest.approx(5.18)
-        assert result['3.3V'] == pytest.approx(3.31)
-        assert result['1.2V'] == pytest.approx(1.24)
-        # 24V uses 'OK' sentinel (non-numeric) -> None per rail
-        assert result['24V'] is None
-
-    def test_read_voltages_per_rail_unparseable(self):
-        # Firmware accepted VOLTAGE but every rail came back N/A --
-        # this is the "supported but no readings" path the writer
-        # must render as INCONCLUSIVE.
-        motor = _make_motor_with_responses(
-            {
-                'VOLTAGE': '24V=OK 5V=N/A 3V3=N/A 1V2=N/A',
-            }
-        )
-        result = motor.read_voltages()
-        assert result is not None
-        assert all(v is None for v in result.values())
 
     def test_read_drv_status_returns_int(self):
         motor = _make_motor_with_responses(
@@ -175,87 +140,12 @@ class TestMotorDriverDiagnosticGating:
 class TestDiagnosticsApiDelegation:
     """The sub-API delegates to driver; returns sentinel when driver absent."""
 
-    def test_read_motor_voltages_no_driver_returns_none(self):
-        from modules.lumascope_api.diagnostics import DiagnosticsAPI
-
-        scope = MagicMock(spec=[])  # no _motion_driver attribute
-        api = DiagnosticsAPI(scope)
-        assert api.read_motor_voltages() is None
-
     def test_set_motor_fan_duty_no_driver_returns_false(self):
         from modules.lumascope_api.diagnostics import DiagnosticsAPI
 
         scope = MagicMock(spec=[])
         api = DiagnosticsAPI(scope)
         assert api.set_motor_fan_duty(50) is False
-
-    def test_read_motor_voltages_forwards_to_driver(self):
-        from modules.lumascope_api.diagnostics import DiagnosticsAPI
-
-        scope = MagicMock()
-        scope._motion_driver.read_voltages.return_value = {'5V': 5.0}
-        api = DiagnosticsAPI(scope)
-        assert api.read_motor_voltages() == {'5V': 5.0}
-
-
-# ---------------------------------------------------------------------------
-# TSR check_voltage_tolerance -- tri-state passed (True / False / None).
-# ---------------------------------------------------------------------------
-
-
-class TestVoltageToleranceTriState:
-    """Voltage check returns None for INCONCLUSIVE, not True for PASS."""
-
-    def _make_diag(self, motor_connected, voltage_dict):
-        from modules.tech_support_report import FirmwareDiagnostics
-
-        scope = MagicMock()
-        scope.motor_connected = motor_connected
-        scope.diagnostics.read_motor_voltages.return_value = voltage_dict
-        # _motor_ok() also probes _motion_driver as fallback.
-        scope._motion_driver.found = motor_connected
-        return FirmwareDiagnostics(scope=scope)
-
-    def test_unsupported_firmware_yields_passed_none(self):
-        diag = self._make_diag(motor_connected=True, voltage_dict=None)
-        result = diag.check_voltage_tolerance()
-        assert result['passed'] is None
-        assert result['supported'] is False
-        assert 'firmware' in result['message'].lower()
-
-    def test_all_rails_unparseable_yields_passed_none(self):
-        diag = self._make_diag(
-            motor_connected=True,
-            voltage_dict={'24V': None, '5V': None, '3.3V': None, '1.2V': None},
-        )
-        result = diag.check_voltage_tolerance()
-        assert result['passed'] is None
-        assert result['supported'] is True
-        # Every rail UNKNOWN -> INCONCLUSIVE, not PASS.
-        for rail_data in result['rails'].values():
-            assert rail_data['status'] == 'UNKNOWN'
-
-    def test_within_tolerance_yields_passed_true(self):
-        diag = self._make_diag(
-            motor_connected=True,
-            voltage_dict={'24V': None, '5V': 5.02, '3.3V': 3.31, '1.2V': 1.20},
-        )
-        result = diag.check_voltage_tolerance()
-        assert result['passed'] is True
-
-    def test_out_of_tolerance_yields_passed_false(self):
-        diag = self._make_diag(
-            motor_connected=True,
-            voltage_dict={'24V': None, '5V': 6.0, '3.3V': 3.31, '1.2V': 1.20},
-        )
-        result = diag.check_voltage_tolerance()
-        assert result['passed'] is False
-
-    def test_motor_disconnected_does_not_say_passed_true(self):
-        diag = self._make_diag(motor_connected=False, voltage_dict=None)
-        result = diag.check_voltage_tolerance()
-        assert result['passed'] is None
-        assert result['supported'] is False
 
 
 # ---------------------------------------------------------------------------
@@ -336,10 +226,6 @@ class TestTsrUsesDriverMethods:
     """After the cluster fix, TSR's diagnostic primitives go through the
     DiagnosticsAPI sub-API, not raw `_cmd(motor_board, 'VOLTAGE')` style
     sends. The raw paths violated Rule 22 (use production code paths)."""
-
-    def test_no_raw_voltage_command_send(self):
-        src = (REPO_ROOT / 'modules' / 'tech_support_report.py').read_text()
-        assert "self._cmd(self.motor_board, 'VOLTAGE')" not in src
 
     def test_no_raw_drvstat_command_send(self):
         src = (REPO_ROOT / 'modules' / 'tech_support_report.py').read_text()

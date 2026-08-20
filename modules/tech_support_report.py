@@ -86,11 +86,6 @@ BANDWIDTH_TEST_TIMEOUT_S = 300  # 5 min -- generous for slow cameras
 DISK_SPEED_TEST_MB = 256  # Write this many MB
 DISK_SPEED_WARN_MBPS = 100  # Warn below this (video recording will lag)
 
-# Voltage tolerance thresholds
-VOLTAGE_NOMINAL = {'5V': 5.0, '3.3V': 3.3, '1.2V': 1.2}
-VOLTAGE_WARN_PCT = 5.0  # +/-5% = warning
-VOLTAGE_FAIL_PCT = 10.0  # +/-10% = fail
-
 # LED leakage threshold (mA with all LEDs off)
 LED_LEAKAGE_WARN_MA = 0.5
 
@@ -1088,19 +1083,6 @@ class FirmwareDiagnostics:
             end_markers=['LED7 LED_K', 'AIN1)', 'ERROR'],
         )
 
-    def get_voltages(self):
-        """Read parsed power-rail dict via the diagnostics sub-API.
-
-        Returns ``{rail_label: float | None}`` or ``None`` when the
-        firmware does not support the VOLTAGE diagnostic (legacy
-        firmware predating diagnostic queries). Driver-side parsing
-        -- the firmware response shape lives on MotorBoard.read_voltages,
-        not here.
-        """
-        if not self._scope:
-            return None
-        return self._scope.diagnostics.read_motor_voltages()
-
     def get_driver_status_all(self):
         """DRVSTAT for all 4 axes (raw 32-bit register values).
 
@@ -1237,90 +1219,6 @@ class FirmwareDiagnostics:
                 resp = self._cmd(self.motor_board, cmd)
                 chip[reg_name] = resp
             results[chip_label] = chip
-        return results
-
-    def check_voltage_tolerance(self):
-        """Compare power-rail readings against nominal +/- tolerance.
-
-        Returns a dict with three distinct outcome states for ``passed``:
-            True       -> all parseable rails within tolerance (PASS)
-            False      -> at least one rail out of tolerance (FAIL/WARN)
-            None       -> INCONCLUSIVE -- no rail could be measured
-                          (firmware does not support the VOLTAGE
-                          diagnostic, or every rail returned a
-                          non-numeric sentinel like N/A / OK)
-        ``supported`` is False when the firmware itself rejected the
-        VOLTAGE query (legacy 2024-09-10 firmware). Distinguished from
-        "supported but unparseable" so the report writer can render
-        an actionable hint instead of "PASS" over an empty table.
-        """
-        if not self._motor_ok():
-            return {
-                'supported': False,
-                'passed': None,
-                'rails': {},
-                'message': 'Motor board not connected',
-            }
-
-        rails_dict = self.get_voltages()
-        if rails_dict is None:
-            return {
-                'supported': False,
-                'passed': None,
-                'rails': {},
-                'message': (
-                    'Firmware does not support the VOLTAGE diagnostic. '
-                    'Upgrade motor firmware to v3.1+ to enable this '
-                    'check.'
-                ),
-            }
-
-        results = {
-            'supported': True,
-            'passed': True,
-            'rails': {},
-        }
-        any_parsed = False
-        for rail_name, nominal in VOLTAGE_NOMINAL.items():
-            reading = rails_dict.get(rail_name)
-            if reading is None:
-                results['rails'][rail_name] = {
-                    'nominal': nominal,
-                    'reading': None,
-                    'status': 'UNKNOWN',
-                    'deviation_pct': None,
-                }
-                continue
-
-            any_parsed = True
-            deviation_pct = abs(reading - nominal) / nominal * 100
-            if deviation_pct > VOLTAGE_FAIL_PCT:
-                status = 'FAIL'
-                results['passed'] = False
-            elif deviation_pct > VOLTAGE_WARN_PCT:
-                status = 'WARN'
-            else:
-                status = 'PASS'
-
-            results['rails'][rail_name] = {
-                'nominal': nominal,
-                'reading': round(reading, 3),
-                'deviation_pct': round(deviation_pct, 2),
-                'status': status,
-            }
-
-        if not any_parsed:
-            # Firmware accepted VOLTAGE but every nominal rail came
-            # back non-numeric (e.g. all rails reported N/A on a board
-            # without populated sense lines). Distinguished from
-            # firmware-not-supported but rendered the same way for
-            # the user: INCONCLUSIVE, not PASS.
-            results['passed'] = None
-            results['message'] = (
-                'Firmware accepted VOLTAGE but no rail returned a '
-                'numeric reading (all rails reported N/A or similar).'
-            )
-
         return results
 
     def check_led_leakage(self):
@@ -1644,9 +1542,9 @@ class TechSupportReport:
             self._step_firmware_tests(tmp)
             self._check_cancel()
 
-            # 4. Voltage tolerance + LED leakage checks  (15-18%)
-            cb(16, 'Checking voltages and LED leakage...')
-            self._step_voltage_and_led_checks(tmp)
+            # 4. LED leakage check  (15-18%)
+            cb(16, 'Checking LED leakage...')
+            self._step_led_checks(tmp)
             self._check_cancel()
 
             # 5. TMC5072 register dump  (18-20%)
@@ -1758,10 +1656,6 @@ class TechSupportReport:
             f.write(f'Motor Board FULLINFO:\n{fullinfo}\n\n')
             f.write(f'Serial Number: {sn}\n')
 
-        voltages = self.diag.get_voltages()
-        with open(d / 'voltages.txt', 'w') as f:
-            f.write(f'Power Rail Voltages:\n{voltages}\n')
-
         positions = self.diag.get_motor_positions_all()
         drvstat = self.diag.get_driver_status_all()
         with open(d / 'motor_status.txt', 'w') as f:
@@ -1841,38 +1735,10 @@ class TechSupportReport:
         with open(d / 'led_selftest.txt', 'w') as f:
             f.write(f'LED SELFTEST:\n\n{selftest}\n')
 
-    def _step_voltage_and_led_checks(self, tmp):
-        """Check voltage rails against tolerance and LED leakage."""
+    def _step_led_checks(self, tmp):
+        """Check LED leakage with all LEDs off."""
         d = tmp / 'hardware_checks'
         d.mkdir()
-
-        # Voltage tolerance. `passed` is tri-state:
-        #   True  -> PASS, False -> FAIL/WARN, None -> INCONCLUSIVE
-        # (firmware does not implement VOLTAGE, or every rail came back
-        # non-numeric). Per feedback_least_astonishment the writer must
-        # not say "PASS" when no rail was actually measured.
-        vtol = self.diag.check_voltage_tolerance()
-        with open(d / 'voltage_tolerance.txt', 'w') as f:
-            f.write('Power Rail Voltage Tolerance Check\n' + '=' * 45 + '\n\n')
-            if vtol.get('passed') is None:
-                msg = vtol.get('message', 'No voltage readings available.')
-                f.write(f'Overall: INCONCLUSIVE\n  {msg}\n')
-            else:
-                for rail, data in vtol.get('rails', {}).items():
-                    r = data.get('reading')
-                    n = data.get('nominal')
-                    d_pct = data.get('deviation_pct')
-                    st = data.get('status', '?')
-                    if r is not None:
-                        f.write(
-                            f'  {rail:6s}  nominal={n}V  actual={r}V  deviation={d_pct}%  [{st}]\n'
-                        )
-                    else:
-                        f.write(f'  {rail:6s}  could not parse reading  [{st}]\n')
-                f.write(f'\nOverall: {"PASS" if vtol.get("passed") else "FAIL/WARN"}\n')
-                f.write(f'(Warn >{VOLTAGE_WARN_PCT}%, Fail >{VOLTAGE_FAIL_PCT}%)\n')
-        with open(d / 'voltage_tolerance.json', 'w') as f:
-            json.dump(vtol, f, indent=2, default=str)
 
         # LED leakage
         leakage = self.diag.check_led_leakage()

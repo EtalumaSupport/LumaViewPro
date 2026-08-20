@@ -666,25 +666,13 @@ class DiagnosticsAPI:
             )
             return f'Error: {e}'
 
-    # --- Motor power / driver / fan diagnostics ---
+    # --- Motor driver / fan diagnostics ---
     # Each returns parsed values or None when the firmware does not
     # support the command (legacy 2024-09-10 firmware did not include
-    # VOLTAGE / DRVSTAT_<axis> / FANSPEED / FAN). Per Eric: the driver
+    # DRVSTAT_<axis> / FANSPEED / FAN). Per Eric: the driver
     # owns firmware-version gating; callers (TSR, future REST
     # diagnostic endpoint) read None as "INCONCLUSIVE -- firmware
     # does not support this probe."
-
-    def read_motor_voltages(self) -> dict | None:
-        """Read motor-board power rail tolerance diagnostic.
-
-        Returns a dict mapping rail label to volts (or None per rail
-        if unparseable), or None when the firmware does not implement
-        the VOLTAGE command. See MotorBoard.read_voltages.
-        """
-        drv = getattr(self._scope, '_motion_driver', None)
-        if drv is None or not hasattr(drv, 'read_voltages'):
-            return None
-        return drv.read_voltages()
 
     def read_motor_drv_status(self, axis: str) -> int | None:
         """Read TMC5072 DRV_STATUS register for an axis.

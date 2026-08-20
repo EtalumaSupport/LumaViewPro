@@ -414,7 +414,7 @@ class SimulatedMotorBoard:
             return '30000'
 
         # Tech-support diagnostic commands. The Python-level helpers
-        # (get_voltage / get_current / get_motordetect / read_status)
+        # (get_current / get_motordetect / read_status)
         # already return realistic shapes -- but tech_support_report
         # talks to the board via raw exchange_command (LV-24 layer), so
         # the raw-text branches need to mirror the same content.
@@ -1235,18 +1235,6 @@ class SimulatedMotorBoard:
             }
             for a in ['X', 'Y', 'Z', 'T']
         ]
-
-    def get_voltage(self) -> dict:
-        """Simulated VOLTAGE.
-
-        Returns:
-            dict: ``{'raw': str, '24V': 'OK'}``.
-        """
-        return {'raw': '24V=OK 5V=N/A 3V3=N/A 1V2=N/A', '24V': 'OK'}
-
-    def read_voltages(self) -> dict[str, float | None] | None:
-        """Simulated power-rail voltage diagnostic -- returns nominal values."""
-        return {'5V': 5.0, '3.3V': 3.3, '1.2V': 1.2, '24V': 24.0}
 
     def read_drv_status(self, axis: str) -> int | None:
         """Simulated TMC5072 DRV_STATUS register -- returns 0 (no fault flags)."""
