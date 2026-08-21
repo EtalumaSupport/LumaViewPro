@@ -134,6 +134,14 @@ class MotionAPI:
         # used by the monitor to bound how long an axis stays MOVING after
         # the board vanishes. Only the monitor thread touches it.
         self._disconnect_since: dict[str, float] = {}
+        # Per-axis monotonic timestamp the current move was first observed
+        # MOVING with the board connected; bounds a connected-but-stalled
+        # axis the same way _disconnect_since bounds a vanished board.
+        # Without it, a move whose position_reached never fires wedges
+        # every state-reader -- capture settle-checks, is_moving pollers --
+        # forever, while only explicit waiters carry their own timeout.
+        # Only the monitor thread touches it.
+        self._moving_since: dict[str, float] = {}
 
         # Per-axis state dicts -- empty until _init_axes() fills them.
         self._pos_cache: dict = {}
@@ -1632,6 +1640,13 @@ class MotionAPI:
                         ax for ax, st in self._axis_state.items() if st == AxisState.MOVING
                     ]
 
+                # A stall clock left over from a finished move would fault
+                # the axis's NEXT move at whatever time the old entry says,
+                # so the clock tracks only axes moving RIGHT NOW.
+                for ax in list(self._moving_since):
+                    if ax not in moving_axes:
+                        self._moving_since.pop(ax, None)
+
                 if not moving_axes:
                     # Also check overshoot -- if overshoot is active,
                     # the monitor should keep running
@@ -1704,9 +1719,41 @@ class MotionAPI:
                         try:
                             if self.get_target_status(ax):
                                 self._set_axis_state(ax, AxisState.IDLE)
+                                # Cleared here, not only by the prune above: a
+                                # back-to-back move landing within one poll
+                                # interval must start its own stall clock, not
+                                # inherit the finished move's.
+                                self._moving_since.pop(ax, None)
                             else:
-                                # Still moving -- propagate the refreshed
-                                # cache value to UI listeners.
+                                # Still moving per firmware. A connected axis
+                                # that stays not-arrived past the published
+                                # motion bound is stalled: position_reached
+                                # will never fire, so nothing else can ever
+                                # clear it. Fault it to UNKNOWN (terminal;
+                                # fires the arrival event so waiters and
+                                # state-readers unblock, and the settle-check
+                                # treats UNKNOWN as settled) and tell the user
+                                # once -- the same shape as the disconnect
+                                # fault. The clock lives HERE, after the
+                                # arrival check, so an arriving report always
+                                # wins over the stall verdict.
+                                moving_first = self._moving_since.setdefault(ax, time.monotonic())
+                                if time.monotonic() - moving_first > self._MOTION_SETTLE_TIMEOUT_S:
+                                    self._set_axis_state(ax, AxisState.UNKNOWN)
+                                    self._moving_since.pop(ax, None)
+                                    notifications.error(
+                                        'Motion',
+                                        'Motor axis stalled',
+                                        f'Axis {ax} did not reach its target '
+                                        f'within '
+                                        f'{self._MOTION_SETTLE_TIMEOUT_S:.0f}s; '
+                                        f'the move was abandoned. Check for an '
+                                        f'obstruction, then home the axis and '
+                                        f'retry.',
+                                    )
+                                    continue
+                                # Propagate the refreshed cache value to UI
+                                # listeners.
                                 self._fire_position_listeners(ax)
                         except Exception as e:
                             logger.warning(
