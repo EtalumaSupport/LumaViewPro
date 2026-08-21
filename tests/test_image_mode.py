@@ -371,16 +371,20 @@ def test_save_encoding_scaled_is_msb_aligned_and_recoverable(tmp_path):
     )
 
 
-def test_record_memmap_must_be_right_aligned_for_video_frame(tmp_path):
-    """Real-path lock for the manual-record Frames path: the memmap feeds
-    image_save.write_video_frame, which is the SOLE depth encoder. The memmap
-    must therefore hold the camera's right-aligned payload (0..4095 for 12-bit),
-    not a left-justified one. A right-aligned frame round-trips to its true
-    value; the left-justified frame the record path produced before the depth
-    fix does NOT -- the save edge stamps significant_bits=12 over already-shifted
-    pixels, so a reader recovers ~16x the value. The earlier matrix missed this
-    by feeding the helper right-aligned input the old production path never
-    delivered."""
+def test_record_frame_must_be_right_aligned_for_video_frame(tmp_path):
+    """Real-path lock for the manual-record Frames path: whatever the record
+    path hands to image_save.write_video_frame -- the SOLE depth encoder --
+    must be the camera's right-aligned payload (0..4095 for 12-bit), not a
+    left-justified one. A right-aligned frame round-trips to its true value;
+    the left-justified frame the record path produced before the depth fix
+    does NOT -- the save edge stamps significant_bits=12 over already-shifted
+    pixels, so a reader recovers ~16x the value. The earlier matrix missed
+    this by feeding the helper right-aligned input the old production path
+    never delivered.
+
+    The alignment contract is a property of what reaches the encoder, not of
+    the carrier that delivers it: this named the memmap when a memmap fed the
+    encoder, and holds unchanged now that the recording engine does."""
     import modules.image_utils as image_utils
     from modules.image_save import write_video_frame
 
@@ -388,7 +392,7 @@ def test_record_memmap_must_be_right_aligned_for_video_frame(tmp_path):
     raw[0, 0] = 4095  # full-scale, right-aligned 12-bit
     raw[1, 1] = 2048
 
-    # Post-fix memmap content: the camera payload, verbatim.
+    # Post-fix record-path content: the camera payload, verbatim.
     correct = tmp_path / 'right_aligned.tiff'
     write_video_frame(
         frame=raw.copy(),
@@ -400,14 +404,14 @@ def test_record_memmap_must_be_right_aligned_for_video_frame(tmp_path):
         capture_depth=12,
     )
     arr = tf.imread(str(correct))
-    assert arr[0, 0] == 4095, 'right-aligned memmap must round-trip the raw 12-bit value'
+    assert arr[0, 0] == 4095, 'right-aligned frame must round-trip the raw 12-bit value'
     assert arr[1, 1] == 2048
     assert image_utils.read_tiff_significant_bits(correct) == 12
 
-    # Pre-fix memmap content: left-justified by 4 bits (12-bit payload shifted
+    # Pre-fix record-path content: left-justified by 4 bits (12-bit payload shifted
     # to fill the 16-bit container). The save edge tags significant_bits=12 over
     # already-shifted pixels, so the recovered value is corrupted (65520, not
-    # 4095). Locks WHY the memmap must stay right-aligned.
+    # 4095). Locks WHY the frame must stay right-aligned.
     left_justified = raw << 4
     corrupt = tmp_path / 'left_justified.tiff'
     write_video_frame(
@@ -420,7 +424,7 @@ def test_record_memmap_must_be_right_aligned_for_video_frame(tmp_path):
         capture_depth=12,
     )
     arr_bug = tf.imread(str(corrupt))
-    assert arr_bug[0, 0] == 65520, 'left-justified memmap corrupts the saved value (4095 -> 65520)'
+    assert arr_bug[0, 0] == 65520, 'left-justified frame corrupts the saved value (4095 -> 65520)'
     assert arr_bug[0, 0] != 4095
 
 
@@ -500,8 +504,8 @@ def test_save_encoding_rgb_keeps_transmitted_mono(tmp_path):
 
 
 def test_mp4_writers_pass_layer_color():
-    """Both MP4 writers pass color= to VideoWriter. The memmap (manual record) and
-    the queue (protocol video) now hold MONO frames -- the inline RGB bakes were
+    """Both MP4 writers pass color= to VideoWriter. The manual-record path and
+    the queue (protocol video) now carry MONO frames -- the inline RGB bakes were
     removed in favor of one colorization site per output -- so without color= at
     the encoder every false-colored MP4 would silently gray-encode. Both call
     sites need a live scope to exercise end to end, so assert on source."""
