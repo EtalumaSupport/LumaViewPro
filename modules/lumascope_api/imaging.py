@@ -1961,7 +1961,13 @@ class ImagingAPI:
         whose invalidate has not yet landed when the grab returns; that
         residual is microseconds wide and accepted.
         """
+        # Every exit -- including these not-ready sentinels -- records
+        # last_capture_info, so a consumer relaying the failure cause is
+        # always reading THIS attempt, never a stale dict from the
+        # previous capture.
         if not self._driver or not self._driver.active:
+            with self._state_lock:
+                self._last_capture_info = {'not_ready': True}
             return None
 
         # active (connected) is necessary but not sufficient to deliver a
@@ -1975,6 +1981,8 @@ class ImagingAPI:
                 '[SCOPE API ] capture_and_wait: no active grab (streaming not '
                 'started or stopped) -- returning None until the feed is running.'
             )
+            with self._state_lock:
+                self._last_capture_info = {'not_ready': True}
             return None
 
         hold_start = time.monotonic()

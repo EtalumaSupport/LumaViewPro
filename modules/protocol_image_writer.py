@@ -754,6 +754,18 @@ class ProtocolImageWriter:
                     )
 
                     if captured_image is None:
+                        # The cause relays what the capture actually recorded:
+                        # a deadline expiry (state changes outran the budget)
+                        # reads very differently in a support bundle than a
+                        # camera that delivered nothing, and a hardcoded cause
+                        # here once mislabeled every failure as the latter.
+                        info = self._scope.imaging.last_capture_info or {}
+                        if info.get('deadline_expired'):
+                            cause = 'capture deadline expired -- invalidation outran the budget'
+                        elif info.get('drain_failed'):
+                            cause = 'frame drain failed -- camera delivered no frame'
+                        else:
+                            cause = 'camera inactive or not grabbing'
                         self._note_capture_failure(
                             step=step,
                             curr_step=curr_step,
@@ -761,7 +773,7 @@ class ProtocolImageWriter:
                             name=name,
                             enable_image_saving=enable_image_saving,
                             separate_folder_per_channel=separate_folder_per_channel,
-                            cause='camera inactive or frame drain failed',
+                            cause=cause,
                         )
                         _proto_outcome = 'capture_failed'
                         return False
