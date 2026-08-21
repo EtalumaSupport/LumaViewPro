@@ -593,29 +593,6 @@ class SequentialIOExecutor:
         self.queue.put(task)
         return fut
 
-    def admit_live_frame(self) -> bool:
-        """Backpressure gate for frame producers that have a side effect (e.g.
-        a reserved memmap slot) and so must decide to drop BEFORE producing.
-
-        Returns True if a frame may be enqueued (in-flight under the cap) or
-        False if the single worker is behind -- in which case the drop is
-        counted + throttled-logged here so the producer just returns without
-        reserving. The in-flight increment itself happens at put() for the
-        droppable_live task. Mirrors the F-2 protocol_queue drop accounting.
-        """
-        with self._live_lock:
-            if self._live_inflight < _LIVE_FRAME_MAXSIZE:
-                return True
-            self._live_dropped_count += 1
-            n = self._live_dropped_count
-        if n == 1 or n % 30 == 0:
-            logger.warning(
-                f'[{self.executor_name}] LIVE FRAME backlog at cap '
-                f'({_LIVE_FRAME_MAXSIZE}) -- dropping frame before enqueue; '
-                f'total drops this run: {n}'
-            )
-        return False
-
     def _claim_protocol_future(self, task: IOTask, return_future: bool):
         """Register a per-thread reusable waiter for a protocol enqueue; see
         _claim_waiter for the rationale (kernel-handle allocation pressure

@@ -9,11 +9,14 @@ ONLY frame-carrying tasks (tagged droppable_live), latest-wins, with drop
 accounting; must-execute tasks (config / motor / save) are never dropped.
 
 These tests lock in:
-  * admit_live_frame() gates at the cap (the producer-side drop-before-reserve
-    used by the record path so a dropped frame never leaves an unwritten slot),
   * put() drops droppable_live tasks over the cap (the backstop) and never
     drops must-execute tasks,
   * the worker frees an in-flight slot when it dequeues a droppable task.
+
+The producer-side drop-before-reserve gate that once sat in front of put()
+is gone with the caller that needed it: it existed so a producer holding a
+reserved slot could decide to drop BEFORE producing, and the only such
+producer was the memmap record path the engine replaced.
 """
 
 import threading
@@ -32,15 +35,6 @@ def _ex():
     # observable. _disable defaults False and protocol_running is clear, so
     # put() enqueues.
     return SequentialIOExecutor(name='TEST')
-
-
-def test_admit_live_frame_gates_at_cap():
-    ex = _ex()
-    ex._live_inflight = _LIVE_FRAME_MAXSIZE - 1
-    assert ex.admit_live_frame() is True  # room -> producer may reserve + put
-    ex._live_inflight = _LIVE_FRAME_MAXSIZE
-    assert ex.admit_live_frame() is False  # at cap -> drop before reserving
-    assert ex._live_dropped_count == 1
 
 
 def test_put_bounds_droppable_live_frames():
