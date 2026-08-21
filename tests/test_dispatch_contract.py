@@ -204,10 +204,15 @@ def test_live_executor_submits_and_blocks(
 def test_capture_wait_scales_with_the_declared_work(sim_scope, executors):
     """The capture dispatcher's executor wait is a liveness bound, so it
     must sit ABOVE the work the caller declared: base + the content-gate
-    retry budget + the summed-frame time. A flat bound times out a healthy
-    long capture (large sum_count at long exposure -- luminescence) while
-    the worker is still legitimately grinding, which is a wedged-worker
-    verdict on a working capture."""
+    retry budget + the summed-frame time + the settle work already
+    pending at submit. A flat bound times out a healthy long capture
+    (large sum_count at long exposure -- luminescence) while the worker
+    is still legitimately grinding, which is a wedged-worker verdict on a
+    working capture. Each frame is costed at no less than the camera's
+    conservative frame-period floor -- frames cannot arrive faster than
+    readout -- and the wait must dominate the body's own
+    drain-and-recheck deadline, or a deep legitimate drain surfaces as an
+    executor TimeoutError instead of the body's loud None."""
     imaging = sim_scope.imaging
     recorded = {}
 
@@ -219,12 +224,21 @@ def test_capture_wait_scales_with_the_declared_work(sim_scope, executors):
     with patch.object(executors['camera'], 'put', return_value=_RecordingFuture()):
         imaging.capture_and_wait(timeout_s=5.0, sum_count=10, sum_delay_s=0.2)
 
+    frame_cost = max(
+        imaging.exposure_ms_cached / 1000.0,
+        imaging._CAPTURE_DEADLINE_MIN_FRAME_PERIOD_S,
+    )
     expected = (
-        imaging._CAPTURE_WAIT_TIMEOUT_S + 5.0 + 10 * (imaging.exposure_ms_cached / 1000.0 + 0.2)
+        imaging._CAPTURE_WAIT_TIMEOUT_S
+        + 5.0
+        + 10 * (frame_cost + 0.2)
+        + imaging.frame_validity.frames_until_valid()
+        * frame_cost
+        * imaging._CAPTURE_DEADLINE_MARGIN
     )
     assert recorded['timeout'] == pytest.approx(expected), (
         f'the executor wait must be base + content budget + summed-frame '
-        f'time; got {recorded["timeout"]}, expected {expected}'
+        f'time + pending settle work; got {recorded["timeout"]}, expected {expected}'
     )
 
 
