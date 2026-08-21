@@ -24,6 +24,7 @@ import modules.common_utils as common_utils
 import modules.image_utils as image_utils
 from modules.exceptions import CameraSettingRejected, HardwareCommandRefusedError
 from modules.frame_validity import FrameValidity
+from modules.lumascope_api.illumination import live_lit_pairs
 from modules.notification_center import notifications
 from modules.sequential_io_executor import IOTask
 
@@ -1879,7 +1880,7 @@ class ImagingAPI:
         self,
         force_to_8bit: bool = True,
         *,
-        dark_floor_check: bool,
+        accept_dark: bool = False,
         exclude_sources: tuple = (),
         all_ones_check: bool = False,
         earliest_image_ts: datetime.datetime | None = None,
@@ -1903,13 +1904,16 @@ class ImagingAPI:
             exclude_sources: Sources to ignore for validity (e.g. ('z_move',)
                 for autofocus where Z motion doesn't need to fully settle).
             all_ones_check: Reject all-max-value frames (camera hardware issue).
-            dark_floor_check: Required -- the caller must state whether
-                illumination is expected ON for this capture. True rejects
-                frames with essentially no lit pixel (see get_image);
-                False accepts dark frames (by-design-dark captures:
-                brightfield at illumination 0, luminescence, focus-score
-                grabs). Required rather than defaulted so a new capture
-                site cannot silently skip the decision.
+            accept_dark: Caller-intent override for the derived dark-floor
+                expectation. The capture derives whether illumination is
+                commanded ON from the illumination API itself (a channel
+                counts as lit only at strictly positive current, so an
+                enabled 0 mA channel is dark by design); when a channel is
+                lit, a frame with essentially no lit pixel is retried then
+                rejected loudly. accept_dark=True admits the dark frame
+                anyway -- for callers whose dark frames are legitimate
+                while lit: autofocus sweeps (an out-of-focus fluorescence
+                plane can carry no signal) and benchmark probes.
             earliest_image_ts: Reject frames captured before this timestamp.
                 Forwarded to the final get_image call; complements the
                 frame-validity drain for callers that also want a wall-clock
@@ -1979,11 +1983,17 @@ class ImagingAPI:
                 # counter -- on exactly this stalled-feed failure mode.
                 return None
 
-        image = self.get_image(
+        # The dark-floor expectation is the API's own fact, read as late
+        # as possible so the drain above has already settled any LED
+        # change. Derived here -- never posted by callers -- so the value
+        # cannot drift from commanded state.
+        expected_lit = bool(live_lit_pairs(self._scope.illumination))
+
+        image = self._get_image_impl(
             force_to_8bit=force_to_8bit,
             earliest_image_ts=earliest_image_ts,
             all_ones_check=all_ones_check,
-            dark_floor_check=dark_floor_check,
+            dark_floor_check=expected_lit and not accept_dark,
             timeout_s=timeout_s,
             sum_count=sum_count,
             sum_delay_s=sum_delay_s,
@@ -2010,7 +2020,7 @@ class ImagingAPI:
         self,
         force_to_8bit: bool = True,
         *,
-        dark_floor_check: bool,
+        accept_dark: bool = False,
         exclude_sources: tuple = (),
         all_ones_check: bool = False,
         earliest_image_ts: datetime.datetime | None = None,
@@ -2043,7 +2053,7 @@ class ImagingAPI:
             'capture_and_wait',
             kwargs={
                 'force_to_8bit': force_to_8bit,
-                'dark_floor_check': dark_floor_check,
+                'accept_dark': accept_dark,
                 'exclude_sources': exclude_sources,
                 'all_ones_check': all_ones_check,
                 'earliest_image_ts': earliest_image_ts,
@@ -2100,7 +2110,7 @@ class ImagingAPI:
         floor = full_scale * ImagingAPI._DARK_FLOOR_FRACTION
         return float(np.count_nonzero(arr > floor)) / arr.size
 
-    def get_image(
+    def _get_image_impl(
         self,
         force_to_8bit: bool = True,
         earliest_image_ts: datetime.datetime | None = None,
@@ -2133,10 +2143,10 @@ class ImagingAPI:
             all_ones_check: Reject saturated (all-max-value) frames.
             dark_floor_check: Reject frames with essentially no pixel above
                 the dark floor, retrying until a lit frame arrives or
-                timeout_s expires. Pass True only when the caller KNOWS
-                illumination is expected ON -- a brightfield step captured
-                with the LED intentionally off is dark by design and must
-                keep this False.
+                timeout_s expires. Internal transport of the value
+                capture_and_wait derives from commanded LED state; the
+                public get_image never sets it (probes and diagnostics
+                must see what the camera sees, dark or not).
             sum_count: Number of frames to sum for noise reduction.
             sum_delay_s: Delay in seconds between summed frames.
             sum_iteration_callback: Called after each summed frame.
@@ -2411,6 +2421,46 @@ class ImagingAPI:
             image = image_utils.convert_to_8bit(image, significant_bits)
 
         return image
+
+    def get_image(
+        self,
+        force_to_8bit: bool = True,
+        earliest_image_ts: datetime.datetime | None = None,
+        timeout_s: float = 5.0,
+        all_ones_check: bool = False,
+        sum_count: int = 1,
+        sum_delay_s: float = 0,
+        sum_iteration_callback=None,
+        force_new_capture: bool = False,
+        new_capture_timeout_s: float = 5.0,
+        verify_chunk_targets: bool = False,
+    ) -> np.ndarray | None:
+        """Grab and return an image from the camera -- the UNGATED primitive.
+
+        Never dark-rejects: liveness probes and diagnostics must see what
+        the camera sees, dark or not. For any frame you will SAVE or
+        MEASURE as truth, call capture_and_wait, which drains the camera
+        pipeline until the validity marker is GREEN and derives the
+        dark-floor expectation from commanded LED state.
+
+        Explicit parameters, never a **kwargs forward: the signature is a
+        pinned contract (introspected by tests), and a silent kwarg
+        pass-through would re-open the door this split closed.
+
+        See ``_get_image_impl`` for the full argument contract.
+        """
+        return self._get_image_impl(
+            force_to_8bit=force_to_8bit,
+            earliest_image_ts=earliest_image_ts,
+            timeout_s=timeout_s,
+            all_ones_check=all_ones_check,
+            sum_count=sum_count,
+            sum_delay_s=sum_delay_s,
+            sum_iteration_callback=sum_iteration_callback,
+            force_new_capture=force_new_capture,
+            new_capture_timeout_s=new_capture_timeout_s,
+            verify_chunk_targets=verify_chunk_targets,
+        )
 
     def get_image_from_buffer(
         self, force_to_8bit: bool = True, out_8bit: np.ndarray | None = None

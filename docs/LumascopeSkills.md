@@ -230,13 +230,16 @@ session.scope.imaging.set_gain_db(8.0)                 # dB; blocks until applie
 session.scope.imaging.set_exposure_ms(50.0)       # ms; blocks until applied
 image = session.scope.imaging.capture_and_wait()    # returns frame-valid grab
 
-# capture_and_wait accepts dark_floor_check (default False): pass True when
-# your capture expects illumination ON and a frame with no lit pixel should
-# be rejected (retried, then None) instead of returned as data. timeout_s is
-# the retry budget for the content checks (dark floor, saturation, chunk
-# verify); leave it 0.0 to judge the first grab only. The executor wait is
-# bounded internally.
-image = session.scope.imaging.capture_and_wait(dark_floor_check=True, timeout_s=2.0)
+# The dark-floor expectation is DERIVED from commanded LED state: with a
+# channel lit (strictly positive current), a frame with no lit pixel is
+# rejected (retried, then None) instead of returned as data; with nothing
+# commanded -- or a channel at 0 mA -- a dark frame is by-design and
+# accepted. accept_dark=True overrides a lit rejection for callers whose
+# dark frames are legitimate (custom focus sweeps, benchmark probes).
+# timeout_s is the retry budget for the content checks (dark floor,
+# saturation, chunk verify); leave it 0.0 to judge the first grab only.
+# The executor wait is bounded internally.
+image = session.scope.imaging.capture_and_wait(timeout_s=2.0)
 ```
 
 ### Capture
@@ -244,9 +247,9 @@ image = session.scope.imaging.capture_and_wait(dark_floor_check=True, timeout_s=
 ```python
 from modules.image_save import save_image
 
-# Direct scope.imaging calls require the dark_floor_check decision
-# (keyword-only): True when illumination is expected ON.
-image = session.scope.imaging.capture_and_wait(dark_floor_check=True)
+# The capture derives the dark-floor expectation itself from commanded
+# LED state -- there is no illumination fact to pass.
+image = session.scope.imaging.capture_and_wait()
 save_image(
     session.scope,
     array=image, save_folder='./output',
@@ -530,15 +533,20 @@ image = scope.imaging.get_image(force_to_8bit=False)   # keep native 12/16-bit
 # Frame-validity capture — PREFERRED for all real captures.
 # Waits for all pending changes (LED, gain, exposure, motion) to settle,
 # drains stale frames, returns a valid frame. Returns None on failure.
-# dark_floor_check is REQUIRED (keyword-only): state whether illumination
-# is expected ON. True rejects frames with essentially no lit pixel
-# (retrying until timeout_s, then None) so a stale pre-LED or starved
-# black frame is never returned as data; False accepts dark frames
-# (brightfield at illumination 0, luminescence, focus-score grabs).
-image = scope.imaging.capture_and_wait(dark_floor_check=True)
+# The dark-floor expectation is DERIVED from commanded LED state: a
+# channel counts as lit only at strictly positive current, so a channel
+# commanded at 0 mA is dark by design, as are luminescence captures and
+# any capture with nothing commanded. With a channel lit, a frame with
+# essentially no lit pixel is rejected (retrying until timeout_s, then
+# None) so a stale pre-LED or starved black frame is never returned as
+# data. accept_dark=True (keyword-only, default False) overrides a lit
+# rejection for the callers whose dark frames are legitimate: custom
+# focus sweeps (an out-of-focus fluorescence plane can carry no signal)
+# and benchmark probes.
+image = scope.imaging.capture_and_wait()
 image = scope.imaging.capture_and_wait(
     force_to_8bit=True,
-    dark_floor_check=True,                 # REQUIRED: illumination expected ON?
+    accept_dark=False,                     # True admits a dark frame while lit
     all_ones_check=True,                   # detect saturated frames
     sum_count=4,                           # average 4 frames
     sum_delay_s=0.05,                      # delay between sum frames
@@ -1075,7 +1083,7 @@ scope.motion.move_absolute('Z', 5000, wait_until_complete=True)
 from modules.image_save import save_image
 
 scope.illumination.led_on('BF', 100)
-image = scope.imaging.capture_and_wait(dark_floor_check=True)
+image = scope.imaging.capture_and_wait()
 scope.illumination.leds_off()
 
 save_image(
@@ -1102,14 +1110,14 @@ for color, mA, exp_ms, gain_db in [
     scope.imaging.set_exposure_ms(exp_ms)
     scope.imaging.set_gain_db(gain_db)
     scope.illumination.led_on(color, mA)
-    channel_images[color] = scope.imaging.capture_and_wait(dark_floor_check=True)
+    channel_images[color] = scope.imaging.capture_and_wait()
     scope.illumination.led_off(color)
 
 # Transmitted (brightfield) base image
 scope.imaging.set_exposure_ms(2.0)
 scope.imaging.set_gain_db(1.0)
 scope.illumination.led_on('BF', 100)
-bf_image = scope.imaging.capture_and_wait(dark_floor_check=True)
+bf_image = scope.imaging.capture_and_wait()
 scope.illumination.leds_off()
 
 composite = build_composite(
@@ -1135,7 +1143,7 @@ scope.illumination.led_on('BF', 100)
 z = z_start
 while z <= z_end:
     scope.motion.move_absolute('Z', z, wait_until_complete=True)
-    image = scope.imaging.capture_and_wait(dark_floor_check=True)
+    image = scope.imaging.capture_and_wait()
     save_image(
         scope,
         array=image, save_folder='./zstack',
@@ -1161,7 +1169,7 @@ for well_name, px, py in wells:
     scope.motion.move_absolute('X', sx, wait_until_complete=True)
     scope.motion.move_absolute('Y', sy, wait_until_complete=True)
 
-    image = scope.imaging.capture_and_wait(dark_floor_check=True)
+    image = scope.imaging.capture_and_wait()
     save_image(
         scope,
         array=image, save_folder='./scan',

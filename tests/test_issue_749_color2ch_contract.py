@@ -225,15 +225,16 @@ class TestDarkFloorKeysOnLedDrivability:
         )
         return scope.imaging._capture_and_wait_impl.call_args.kwargs, scope, writer
 
-    def test_lumi_protocol_step_dark_floor_disabled(self):
+    def test_lumi_protocol_step_posts_no_dark_floor_fact(self):
+        # The capture path derives dark-by-design from commanded state (a
+        # luminescence step commands no LED); the writer posting the fact
+        # back would recreate the mirror the fold retired.
         kwargs, _, _ = self._run_capture({'Color': 'Lumi', 'Illumination': 50.0})
-        assert kwargs['dark_floor_check'] is False, (
-            'a luminescence step is dark by design even at nonzero illumination'
-        )
+        assert 'dark_floor_check' not in kwargs
 
-    def test_led_layer_step_dark_floor_enabled(self):
+    def test_led_layer_step_posts_no_dark_floor_fact(self):
         kwargs, _, _ = self._run_capture({'Color': 'BF', 'Illumination': 50.0})
-        assert kwargs['dark_floor_check'] is True
+        assert 'dark_floor_check' not in kwargs
 
     def test_composite_loop_gates_led_and_dark_floor_together(self):
         # Source pins (reformat-tolerant single-line fragments): the
@@ -242,18 +243,24 @@ class TestDarkFloorKeysOnLedDrivability:
         assert 'led_driven = layer in common_utils.get_layers_with_led() and illumination > 0' in (
             src
         ), 'composite loop must compute LED drivability once'
-        assert 'dark_floor_check=led_driven' in src, (
-            'composite grab must expect a dark frame exactly when no LED was driven'
+        assert 'dark_floor_check' not in src, (
+            'the composite must not post the dark-floor fact; the capture '
+            'derives it from commanded LED state'
         )
         assert 'if layer not in common_utils.get_transmitted_layers():' not in src, (
             'the vacuously-true not-transmitted guard must not gate led_on'
         )
 
-    def test_live_capture_predicate(self):
+    def test_live_capture_reads_no_settings_predicate(self):
+        # The manual live capture used to derive the dark-floor expectation
+        # from the SETTINGS store; the capture path now judges the frame
+        # against commanded state (a configured-but-unlit layer is a
+        # deliberate dark capture). The old predicate returning would
+        # recreate the settings/commanded divergence.
         src = ' '.join((REPO / 'ui' / 'composite_capture.py').read_text().split())
         assert (
             "layer in common_utils.get_layers_with_led() and layer_configs[layer]['illumination_ma'] > 0"
-        ) in src, 'manual live capture must exempt LED-less channels from dark-floor rejection'
+        ) not in src, 'the settings-store dark-floor predicate must stay retired'
 
 
 class TestCaptureAbortWording:

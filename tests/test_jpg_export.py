@@ -169,6 +169,5 @@ def test_save_live_log_reports_captured_depth(monkeypatch):
         color='BF',
         tail_id_mode=None,
         save_encoding='8bit',
-        dark_floor_check=False,
     )
     assert any(f'significant_bits={_CAMERA_DEPTH}' in m for m in messages), messages

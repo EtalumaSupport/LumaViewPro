@@ -379,6 +379,19 @@ def _lit_channel_pairs(
     return frozenset(pairs)
 
 
+def live_lit_pairs(illumination) -> frozenset[tuple[int, float]]:
+    """The (channel, mA) set of channels commanded lit RIGHT NOW.
+
+    The live-state counterpart of snapshot_lit_pairs: reads the
+    illumination API's own state and channel mapping so no caller
+    composes the color-to-channel direction by hand. Handing the inverse
+    mapping in produces an always-empty set with no error -- the channel
+    lookup misses silently on every color name -- which is why this
+    composition lives here once instead of at each consumer.
+    """
+    return snapshot_lit_pairs(illumination.get_led_states(), illumination.color2ch)
+
+
 def snapshot_lit_pairs(led_states: dict, color2ch) -> frozenset[tuple[int, float]]:
     """Convert a saved LED-state mapping to the authority's lit (channel, mA) set.
 

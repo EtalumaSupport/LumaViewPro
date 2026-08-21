@@ -68,9 +68,9 @@ def main():
         print(f'  Exposure: {ch["exposure_ms"]} ms')
 
         # Capture a frame valid for the current LED + exposure state.
-        # dark_floor_check is required: True because this channel's LED
-        # is driven, so a frame with no lit pixel is a capture fault.
-        image = scope.imaging.capture_and_wait(force_to_8bit=True, dark_floor_check=True)
+        # This channel's LED is driven, so a frame with no lit pixel is
+        # rejected as a capture fault -- derived from commanded state.
+        image = scope.imaging.capture_and_wait(force_to_8bit=True)
         if image is None:
             print(f'  ERROR: Failed to capture {color} channel')
             continue

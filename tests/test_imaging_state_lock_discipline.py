@@ -118,7 +118,9 @@ def test_state_lock_attributes_are_never_touched_unguarded():
 def test_scale_bar_readers_use_a_single_snapshot():
     """The capture paths must not re-read the config for each field."""
     cls = _imaging_class()
-    for method_name in ('get_image', 'get_image_from_buffer'):
+    # The capture body is _get_image_impl (public get_image is a thin
+    # ungated forwarder with no config reads of its own).
+    for method_name in ('_get_image_impl', 'get_image_from_buffer'):
         method = next(
             (
                 n

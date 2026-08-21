@@ -3963,9 +3963,7 @@ class TestFrameValidity_SaveLiveImageDrainsBeforeGrab:
                 saved.update(array=array) or str(tmp_path / 'live.tiff')
             ),
         )
-        out = image_save.save_live_image(
-            scope, save_folder=str(tmp_path), save_encoding='8bit', dark_floor_check=False
-        )
+        out = image_save.save_live_image(scope, save_folder=str(tmp_path), save_encoding='8bit')
         assert out is not None
         assert calls == ['capture_and_wait'], (
             f'save_live_image must drain via capture_and_wait only; saw {calls}'
@@ -4112,6 +4110,12 @@ def _sim_backed_imaging():
     # thread, so these tests exercise the public surface inline.
     scope._camera_executor = None
     scope.runtime_state = RuntimeState(scope)
+    # The capture path derives the dark-floor expectation from commanded
+    # LED state; these stubs command nothing, so an empty state map reads
+    # as dark-by-design (the same result the retired explicit False gave).
+    from types import SimpleNamespace
+
+    scope.illumination = SimpleNamespace(get_led_states=lambda: {}, color2ch=lambda c: None)
     imaging = ImagingAPI(scope, cam)
     scope.imaging = imaging
     return imaging, cam
@@ -4142,9 +4146,11 @@ class TestCaptureAndWaitPassesChunksToValidity:
 
         imaging.frame_validity.count_frame = recording_count_frame
         # The drain loop is the contract under test; the final grab is not.
-        imaging.get_image = lambda **kwargs: np.zeros((2, 2), dtype=np.uint8)
+        # Patch the internal grab: public get_image is no longer on the
+        # capture path (capture_and_wait forwards to _get_image_impl).
+        imaging._get_image_impl = lambda **kwargs: np.zeros((2, 2), dtype=np.uint8)
 
-        image = imaging.capture_and_wait(dark_floor_check=False)
+        image = imaging.capture_and_wait()
         assert image is not None, 'drain must settle and return the frame'
         assert recorded, 'drain loop must call count_frame at least once'
         assert all(call.get('chunk_data') == chunk for call in recorded), (
@@ -9467,7 +9473,6 @@ class TestSaveLiveImageTimeoutIsFloat:
             sim_scope.imaging.capture_and_wait(
                 force_to_8bit=True,
                 all_ones_check=False,
-                dark_floor_check=False,
                 timeout_s=timeout_default,
                 sum_count=1,
                 sum_delay_s=0,

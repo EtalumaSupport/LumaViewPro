@@ -25,7 +25,7 @@ def test_capture_and_wait_returns_none_and_names_cause_when_not_grabbing(sim_sco
     # The module logger is mocked in the test env, so assert on the warning
     # call rather than a captured record.
     with patch.object(imaging_module, 'logger') as mock_logger:
-        result = sim_scope.imaging.capture_and_wait(dark_floor_check=False, timeout_s=1.0)
+        result = sim_scope.imaging.capture_and_wait(timeout_s=1.0)
 
     assert result is None
     warned = ' '.join(str(c).lower() for c in mock_logger.warning.call_args_list)
@@ -38,7 +38,7 @@ def test_capture_and_wait_succeeds_while_streaming(sim_scope):
     # The precondition guard must not block the normal grabbing path: a
     # streaming sim camera still delivers a frame.
     assert sim_scope.imaging.is_streaming()
-    result = sim_scope.imaging.capture_and_wait(dark_floor_check=False, timeout_s=2.0)
+    result = sim_scope.imaging.capture_and_wait(timeout_s=2.0)
     assert result is not None
 
 
@@ -54,6 +54,6 @@ def test_capture_and_wait_returns_none_when_drain_stalls(sim_scope):
         patch.object(sim_scope.imaging._driver, 'grab_new_capture', return_value=(False, None)),
         patch.object(imaging_module, 'logger'),
     ):
-        result = sim_scope.imaging.capture_and_wait(dark_floor_check=False, timeout_s=1.0)
+        result = sim_scope.imaging.capture_and_wait(timeout_s=1.0)
 
     assert result is None, 'stalled-feed drain failure must return the None sentinel'

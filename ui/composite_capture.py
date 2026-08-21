@@ -112,15 +112,11 @@ class CompositeCapture(FloatLayout):
         sum_delay_s = layer_configs[layer]['exposure_ms'] / 1000
         sum_count = layer_configs[layer]['sum']
 
-        # A manual capture with its channel LED driven must never save a
-        # black frame; a channel at illumination 0, or one the scope drives
-        # no LED for (luminescence), is dark by design and stays exempt
-        # (same contract as the protocol writer).
-        dark_floor_check = (
-            layer in common_utils.get_layers_with_led()
-            and layer_configs[layer]['illumination_ma'] > 0
-        )
-
+        # The dark-floor expectation is derived inside the capture from
+        # commanded LED state: a live capture judges the frame against what
+        # is actually lit right now, not against the settings store -- a
+        # layer configured at 200 mA with its LED off is a deliberate dark
+        # capture, and a black frame under a lit channel fails loudly.
         # Whether an overlay is active is the only question a capture has to
         # ask. The operator can switch crosshairs or the bullseye on at any
         # time, so gating the overlaid copy on a build mode meant the screen
@@ -145,7 +141,6 @@ class CompositeCapture(FloatLayout):
                 turn_off_all_leds_after=False,
                 jpeg_quality=settings.get('jpg_quality', 90),
                 save_encoding=save_encoding,
-                dark_floor_check=dark_floor_check,
             )
 
         # Summing is carried here exactly as save_live_image carries it above:
@@ -154,7 +149,6 @@ class CompositeCapture(FloatLayout):
         image_orig = ctx.scope.imaging._capture_and_wait_impl(
             force_to_8bit=force_to_8bit_pixel_depth,
             all_ones_check=True,
-            dark_floor_check=dark_floor_check,
             timeout_s=1.0,
             sum_count=sum_count,
             sum_delay_s=sum_delay_s,
@@ -424,12 +418,12 @@ class CompositeCapture(FloatLayout):
                 ctx.scope.illumination._led_on_impl(trans_layer, illumination)
 
                 # A channel captured with its LED driven must never feed a
-                # black frame into the composite; illumination 0 is dark by
-                # design and exempt (same contract as the protocol writer).
+                # black frame into the composite; the capture derives that
+                # from commanded state itself (illumination 0 commands a
+                # channel that counts as dark by design).
                 transmitted_capture = ctx.scope.imaging._capture_and_wait_impl(
                     force_to_8bit=capture_depth == 8,
                     all_ones_check=True,
-                    dark_floor_check=illumination > 0,
                     timeout_s=1.0,
                 )
                 ctx.scope.illumination._leds_off_impl()
@@ -505,7 +499,6 @@ class CompositeCapture(FloatLayout):
                 img_gray = ctx.scope.imaging._capture_and_wait_impl(
                     force_to_8bit=capture_depth == 8,
                     all_ones_check=True,
-                    dark_floor_check=led_driven,
                     timeout_s=1.0,
                     sum_count=sum_count,
                     sum_delay_s=exposure / 1000,

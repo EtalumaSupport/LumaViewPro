@@ -2426,7 +2426,7 @@ class TestLumascapeAPICamera:
     def test_capture_and_wait(self, scope):
         import numpy as np
 
-        result = scope.imaging.capture_and_wait(dark_floor_check=False)
+        result = scope.imaging.capture_and_wait()
         assert isinstance(result, np.ndarray), f'capture_and_wait returned {type(result)}'
 
 

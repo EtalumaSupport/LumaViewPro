@@ -217,9 +217,7 @@ def test_capture_wait_scales_with_the_declared_work(sim_scope, executors):
             return None
 
     with patch.object(executors['camera'], 'put', return_value=_RecordingFuture()):
-        imaging.capture_and_wait(
-            dark_floor_check=False, timeout_s=5.0, sum_count=10, sum_delay_s=0.2
-        )
+        imaging.capture_and_wait(timeout_s=5.0, sum_count=10, sum_delay_s=0.2)
 
     expected = (
         imaging._CAPTURE_WAIT_TIMEOUT_S + 5.0 + 10 * (imaging.exposure_ms_cached / 1000.0 + 0.2)

@@ -2,12 +2,19 @@
 """Regression tests for issues #671 (defect B) and #721: dark-floor frame
 rejection, symmetric with the saturation guard.
 
-Bug shape: frame acceptance in ImagingAPI.get_image judged content on one
+Bug shape: frame acceptance in the capture path judged content on one
 tail only -- a near-saturated frame was rejected, but a near-black frame
 (stale pre-LED integration, or an external camera consumer starving the
-feed) was accepted and silently saved. The dark floor closes the gap:
-with ``dark_floor_check=True`` a frame with essentially no pixel above
-the floor is retried until timeout, then rejected loudly (None + warning).
+feed) was accepted and silently saved. The dark floor closes the gap.
+
+The expectation is DERIVED, not declared: capture_and_wait reads the
+illumination API's own commanded-lit state (a channel counts as lit only
+at strictly positive current), so a lit capture that delivers a black
+frame is retried until timeout then rejected loudly (None + warning),
+while a nothing-commanded capture accepts its dark frame as by-design.
+``accept_dark=True`` is the one caller-intent override (autofocus sweeps,
+benchmark probes). Public ``get_image`` is the ungated primitive and
+never dark-rejects.
 
 The metric is lit-pixel COUNT against the frame's payload depth -- sparse
 fluorescence (a few bright cells on a black background) must pass, and
@@ -18,26 +25,29 @@ measures against 4095, not 65535).
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+import pytest
 
 import modules.lumascope_api.imaging as imaging_module
-from drivers.simulated_camera import SimulatedCamera
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.imaging import ImagingAPI
-from modules.lumascope_api.runtime_state import RuntimeState
 
 
-def _sim_backed_imaging():
-    """ImagingAPI on a connected SimulatedCamera with a minimal scope stub
-    (same idiom as the saturation-guard tests)."""
-    cam = SimulatedCamera()
-    cam.connect()
-    cam.open_and_start()
-    scope = Lumascope.__new__(Lumascope)
-    scope._camera_driver = cam
-    scope.runtime_state = RuntimeState(scope)
-    imaging = ImagingAPI(scope, cam)
-    scope.imaging = imaging
-    return imaging, cam
+@pytest.fixture
+def dark_scope():
+    """A full simulated scope: real IlluminationAPI over SimulatedLEDBoard,
+    streaming camera. The derivation must be exercised against live LED
+    state -- an illumination stub would let an always-False derivation
+    pass every test here (the defect shape that killed two plan drafts).
+    """
+    scope = Lumascope(simulate=True)
+    scope._led_driver.set_timing_mode('fast')
+    scope._motion_driver.set_timing_mode('fast')
+    scope._camera_driver.set_timing_mode('fast')
+    scope._camera_driver.load_cycle_images()
+    scope.imaging.start_streaming()
+    yield scope
+    scope.imaging.stop_streaming()
+    scope.disconnect()
 
 
 _DARK = np.full((8, 8), 6, dtype=np.uint8)  # max 2.4% of full scale -- no signal
@@ -45,54 +55,103 @@ _LIT = np.full((8, 8), 120, dtype=np.uint8)
 
 
 class TestDarkFloorRejection:
-    def test_stale_dark_frame_healed_by_retry(self, monkeypatch):
+    def test_stale_dark_frame_healed_by_retry(self, dark_scope, monkeypatch):
         """The #671-B symptom: the first frame integrated before the LED
         lit; the very next frame is good. Retry must heal the capture."""
-        imaging, cam = _sim_backed_imaging()
         frames = [_DARK, _LIT, _LIT]
-        monkeypatch.setattr(cam, 'get_array', lambda: frames.pop(0))
+        monkeypatch.setattr(dark_scope._camera_driver, 'get_array', lambda: frames.pop(0))
 
-        out = imaging.get_image(dark_floor_check=True, timeout_s=2.0)
+        out = dark_scope.imaging._get_image_impl(dark_floor_check=True, timeout_s=2.0)
         assert out is not None, 'retry must heal a transient dark frame'
         assert out.max() >= 120, 'the LIT retry frame must be returned, not the dark one'
 
-    def test_persistent_dark_frames_rejected_loudly(self, monkeypatch):
-        """The #721 symptom: the camera keeps delivering black frames.
-        The capture must fail as None with a warning naming the dark
-        rejection -- never a silently saved black file."""
-        imaging, cam = _sim_backed_imaging()
-        monkeypatch.setattr(cam, 'get_array', lambda: _DARK)
+    def test_persistent_dark_frames_rejected_loudly(self, dark_scope, monkeypatch):
+        """The #721 symptom under the derived contract: a channel is
+        commanded lit at real current, the camera keeps delivering black
+        frames. The capture must fail as None with a warning naming the
+        dark rejection -- never a silently saved black file. Illumination
+        is REAL here: the derivation reads commanded state end to end."""
+        dark_scope.illumination.led_on('BF', 100)
+        monkeypatch.setattr(dark_scope._camera_driver, 'get_array', lambda: _DARK)
 
         with patch.object(imaging_module, 'logger') as mock_logger:
-            out = imaging.get_image(dark_floor_check=True, timeout_s=0.3)
+            out = dark_scope.imaging._capture_and_wait_impl(timeout_s=0.3)
 
-        assert out is None, 'a persistently dark frame must be rejected'
+        assert out is None, 'a persistently dark frame under a lit channel must be rejected'
         warned = ' '.join(str(c).lower() for c in mock_logger.warning.call_args_list)
         assert 'dark' in warned and 'rejected' in warned, (
             f'rejection must be named in a warning; saw: {warned!r}'
         )
 
-    def test_sparse_fluorescence_accepted(self, monkeypatch):
+    def test_sparse_fluorescence_accepted(self, dark_scope, monkeypatch):
         """False-positive guard: a sparse fluorescence field (a handful of
         bright pixels on a black background) carries real signal and must
-        pass -- the metric is lit-pixel count, not mean."""
+        pass under the derived check while lit -- the metric is lit-pixel
+        count, not mean, and this floor must not move."""
         sparse = np.zeros((100, 100), dtype=np.uint8)
         sparse.flat[:4] = 200  # 4e-4 lit fraction, just above the minimum
-        imaging, cam = _sim_backed_imaging()
-        monkeypatch.setattr(cam, 'get_array', lambda: sparse)
+        dark_scope.illumination.led_on('Blue', 100)
+        monkeypatch.setattr(dark_scope._camera_driver, 'get_array', lambda: sparse)
 
-        out = imaging.get_image(dark_floor_check=True, timeout_s=0.5)
+        out = dark_scope.imaging._capture_and_wait_impl(timeout_s=0.5)
         assert out is not None, 'sparse fluorescence must not be rejected as dark'
 
-    def test_dark_by_design_exempt_when_check_off(self, monkeypatch):
-        """A by-design-dark capture (brightfield at illumination 0) passes
-        dark_floor_check=False and must be accepted unchanged."""
-        imaging, cam = _sim_backed_imaging()
-        monkeypatch.setattr(cam, 'get_array', lambda: _DARK)
+    def test_dark_by_design_accepted_when_nothing_commanded(self, dark_scope, monkeypatch):
+        """Nothing commanded -> the derivation reads not-lit and a dark
+        frame is what the caller asked for: accepted unchanged."""
+        monkeypatch.setattr(dark_scope._camera_driver, 'get_array', lambda: _DARK)
 
-        out = imaging.get_image(dark_floor_check=False, timeout_s=0.5)
+        out = dark_scope.imaging._capture_and_wait_impl(timeout_s=0.5)
         assert out is not None
         assert out.max() == 6, 'the dark frame itself must be returned untouched'
+
+    def test_zero_current_channel_is_dark_by_design(self, dark_scope, monkeypatch):
+        """A channel commanded ON at 0 mA lights nothing: the derivation
+        must read it as dark, not lit. An enabled-flag derivation reads it
+        as lit and rejects the by-design black frame -- the defect that
+        killed the first draft of this fold."""
+        dark_scope.illumination.led_on('BF', 0)
+        monkeypatch.setattr(dark_scope._camera_driver, 'get_array', lambda: _DARK)
+
+        out = dark_scope.imaging._capture_and_wait_impl(timeout_s=0.5)
+        assert out is not None, 'a 0 mA channel must derive as dark by design'
+
+    def test_accept_dark_overrides_a_lit_rejection(self, dark_scope, monkeypatch):
+        """The one caller-intent override: an autofocus sweep runs with
+        LEDs ON yet must accept a dark frame (an out-of-focus fluorescence
+        plane can carry no signal). Same state without the override must
+        reject -- proving the override, not a broken derivation, is what
+        accepted the frame."""
+        dark_scope.illumination.led_on('Blue', 100)
+        monkeypatch.setattr(dark_scope._camera_driver, 'get_array', lambda: _DARK)
+
+        rejected = dark_scope.imaging._capture_and_wait_impl(timeout_s=0.3)
+        assert rejected is None, 'without the override a lit-black frame must reject'
+
+        out = dark_scope.imaging._capture_and_wait_impl(timeout_s=0.5, accept_dark=True)
+        assert out is not None, 'accept_dark must admit the dark frame while lit'
+
+    def test_lit_peer_rejects_dark_luminescence_capture(self, dark_scope, monkeypatch):
+        """A luminescence capture taken while a peer channel is lit is
+        rejected when the frame is black: the lit peer contaminates the
+        capture, so the loud failure is the correct outcome (a deliberate
+        product decision, not an accident of the derivation)."""
+        dark_scope.illumination.led_on('Red', 150)
+        monkeypatch.setattr(dark_scope._camera_driver, 'get_array', lambda: _DARK)
+
+        out = dark_scope.imaging._capture_and_wait_impl(timeout_s=0.3)
+        assert out is None, 'a lit peer must make a black frame a loud failure'
+
+    def test_public_get_image_never_dark_rejects(self, dark_scope, monkeypatch):
+        """Public get_image is the ungated primitive: liveness probes and
+        diagnostics must see what the camera sees, dark or not, even while
+        a channel is lit. (The recording prologue counts arrivals through
+        it; a dark-rejection there reads as feed-dead.)"""
+        dark_scope.illumination.led_on('BF', 100)
+        monkeypatch.setattr(dark_scope._camera_driver, 'get_array', lambda: _DARK)
+
+        out = dark_scope.imaging.get_image(timeout_s=0.5)
+        assert out is not None, 'the ungated primitive must return the dark frame'
 
 
 class TestLitFractionDepthRule:
@@ -110,9 +169,10 @@ class TestLitFractionDepthRule:
 
 
 class TestProtocolWriterWiring:
-    """The protocol writer owns the illumination knowledge: a step driving
-    its LED gates the dark floor ON; an illumination-0 step (BF dark by
-    design) gates it OFF."""
+    """The protocol writer no longer owns illumination knowledge: it
+    commands the LED per step and the capture path derives the dark-floor
+    expectation itself. A writer that re-derives and posts the fact back
+    is a mirror needing manual sync -- the shape this fold retired."""
 
     def _run_capture(self, illumination_ma):
         from tests.test_audit_fixes import _bare_protocol_writer, _protocol_step
@@ -132,11 +192,13 @@ class TestProtocolWriterWiring:
         )
         return scope.imaging._capture_and_wait_impl.call_args.kwargs
 
-    def test_lit_step_gates_dark_floor_on(self):
-        assert self._run_capture(350.0)['dark_floor_check'] is True
-
-    def test_illumination_zero_step_gates_dark_floor_off(self):
-        assert self._run_capture(0.0)['dark_floor_check'] is False
+    def test_writer_posts_no_dark_floor_fact(self):
+        for illumination_ma in (350.0, 0.0):
+            kwargs = self._run_capture(illumination_ma)
+            assert 'dark_floor_check' not in kwargs, (
+                'the writer must not re-derive the dark-floor expectation; '
+                f'it posted one at Illumination={illumination_ma}'
+            )
 
 
 class TestLiveCaptureConfigSeam:

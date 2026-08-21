@@ -737,17 +737,16 @@ class ProtocolImageWriter:
                     return False
 
                 else:
-                    # Frame validity drains stale frames, then grabs a valid one.
-                    # dark_floor_check: a step that drives its LED must never
-                    # save a black frame (stale pre-LED integration, or an
-                    # external consumer starving the feed); a step with
-                    # illumination 0, or a colour the scope drives no LED
-                    # for (luminescence), is dark by design.
+                    # Frame validity drains stale frames, then grabs a valid
+                    # one. The dark-floor expectation is derived inside the
+                    # capture from commanded LED state -- the writer commands
+                    # the step's LED and posts nothing back, so a lit step
+                    # that delivers a black frame fails loudly while an
+                    # illumination-0 or luminescence step stays dark by
+                    # design.
                     captured_image = self._scope.imaging._capture_and_wait_impl(
                         force_to_8bit=capture_depth == 8,
                         all_ones_check=True,
-                        dark_floor_check=step['Illumination'] > 0
-                        and step['Color'] in common_utils.get_layers_with_led(),
                         timeout_s=1.0,
                         sum_count=sum_count,
                         sum_delay_s=step['Exposure'] / 1000,
