@@ -599,7 +599,7 @@ kv = Builder.load_string(
                     height: '30dp'
                     Label:
                         text: 'Video Time Limit (s)'
-                        tooltip_text: 'Global maximum video length, in seconds.\\nManual recording auto-stops at this limit (press Record\\nagain to stop sooner); a protocol video Step longer than\\nthis is flagged. Memmap is sized for max_fps * limit frames.'
+                        tooltip_text: 'Global maximum video length, in seconds.\\nManual recording auto-stops at this limit (press Record\\nagain to stop sooner); a protocol video Step longer than\\nthis is flagged.'
                         halign: 'left'
                         valign: 'middle'
                         text_size: self.size
