@@ -727,11 +727,17 @@ class MotionAPI:
     def get_limit_switch_status(self, axis: str) -> tuple[int, int]:
         """Get the limit switch status for an axis.
 
+        Tells a caller WHY a move stopped short: an axis that reached a limit
+        reports it here rather than raising, so the difference between "the
+        move finished" and "the stage ran out of travel" is only visible by
+        asking.
+
         Args:
             axis: Axis name ("X", "Y", "Z", "T").
 
         Returns:
-            Limit switch state for the specified axis (driver-defined).
+            tuple[int, int]: ``(left, right)``, each 1 when that switch is
+            engaged, 0 when clear, and -1 when the state could not be read.
         """
         return self._driver.limit_switch_status(axis=axis)
 
@@ -739,7 +745,9 @@ class MotionAPI:
         """Get limit switch status for all axes.
 
         Returns:
-            dict: Mapping of axis name to limit switch state.
+            dict: Axis name -> the ``(left, right)`` pair described on
+            ``get_limit_switch_status``. Covers only the axes the board
+            reports, so a scope without a turret has no "T" key.
         """
         resp = {}
         for axis in self._scope.capabilities.axes:

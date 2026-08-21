@@ -354,6 +354,12 @@ scope.motion.get_target_status('Z')              # True if target reached
 scope.motion.is_moving()                         # any axis moving?
 scope.motion.wait_until_finished_moving()        # block until all idle
 
+# Limit switches -- why a move stopped short. Reaching a limit is reported,
+# not raised, so a move that ran out of travel and one that arrived look the
+# same until you ask.
+scope.motion.get_limit_switch_status('X')        # (left, right); 1 engaged, 0 clear, -1 unreadable
+scope.motion.get_limit_switch_status_all_axes()  # dict of axis -> that pair, for the axes the board has
+
 # Turret
 scope.capabilities.has_turret                    # turret presence probe
 scope.motion.tmove(2)                            # turret position 2
@@ -553,13 +559,7 @@ scope.imaging.get_live_camera_settings()           # {} | {'gain_db': ..., 'expo
 
 # `set_exposure_ms` warns + logs a stack trace at < 0.005 ms (the
 # common L1 failure is typing 0.05 thinking microseconds and getting
-# a black image). Internal sweep callers that walk that range
-# deliberately wrap their loop in `suppress_value_warnings()`:
-with scope.imaging.suppress_value_warnings():
-    for exp_ms in (0.05, 0.1, 0.5, 5.0, 50.0):
-        scope.imaging.set_exposure_ms(exp_ms)
-        # ... grab + measure ...
-# Flag is restored on context exit (incl. exception).
+# a black image).
 
 # Batched settings (gain + exposure + auto-gain in one call)
 scope.imaging.apply_layer_camera_settings(
@@ -748,14 +748,6 @@ info = scope.diagnostics.get_camera_diagnostic_info()
 # Camera temperature sensors. Returns dict {sensor_name: degC} or
 # empty when the camera lacks temperature sensors or is inactive.
 temps = scope.diagnostics.get_camera_temperatures_degc()
-
-# Camera bandwidth + grab-cycle benchmarks. Both write a JSON
-# artifact to data/camera_timing/ keyed on model + SDK + delay so a
-# sweep across delays / num_cycles produces one file per data point.
-bw = scope.diagnostics.run_camera_bandwidth_test(num_frames=1000)
-gc = scope.diagnostics.run_grab_lifecycle_benchmark(
-    num_cycles=100, inter_cycle_delay_ms=200, vary_settings=False,
-)
 
 # Cross-host / cross-camera / cross-firmware diagnostic probe.
 # Captures camera identity, current config, temperatures, and stream
