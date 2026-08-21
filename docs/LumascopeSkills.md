@@ -533,6 +533,18 @@ image = scope.imaging.get_image(force_to_8bit=False)   # keep native 12/16-bit
 # Frame-validity capture — PREFERRED for all real captures.
 # Waits for all pending changes (LED, gain, exposure, motion) to settle,
 # drains stale frames, returns a valid frame. Returns None on failure.
+# The capture honors invalidation across its WHOLE window: a state change
+# landing after the drain — during the grab itself — is detected, and the
+# capture re-drains, re-derives its expectations, and grabs again, so the
+# returned frame always reflects the state you last commanded. A capture
+# contended by state changes is therefore slower than an uncontended one.
+# The settle-and-recheck work is bounded by a deadline sized from the
+# pending work at entry (frames to settle, exposure, sum window): if
+# invalidation keeps arriving faster than frames can settle it, the
+# capture returns None in bounded seconds with "DEADLINE EXPIRED" named
+# in the log, instead of holding indefinitely. The deadline suspends
+# while commanded stage motion is still physically settling — a capture
+# issued during a long move waits for the move, as it should.
 # The dark-floor expectation is DERIVED from commanded LED state: a
 # channel counts as lit only at strictly positive current, so a channel
 # commanded at 0 mA is dark by design, as are luminescence captures and
@@ -689,7 +701,7 @@ scope.diagnostics.get_camera_profile_info()        # sensor specs + dynamic rang
 
 ### Frame validity
 
-Frame validity is the single source of truth for "is the next frame still what I asked for?" Every hardware state change invalidates pending frames. `capture_and_wait()` drains stale frames until all sources settle, then verifies the returned frame's own chunk metadata (exposure / gain) against the requested values on cameras with chunk support -- the saved frame proves its own settings.
+Frame validity is the single source of truth for "is the next frame still what I asked for?" Every hardware state change invalidates pending frames. `capture_and_wait()` drains stale frames until all sources settle, detects any invalidation that lands mid-grab (re-draining and re-grabbing so the result reflects the newest commanded state), bounds the whole settle-and-recheck loop with a deadline (loud None when invalidation outruns it), and verifies the returned frame's own chunk metadata (exposure / gain) against the requested values on cameras with chunk support -- the saved frame proves its own settings.
 
 ```python
 scope.imaging.frame_is_valid                       # True if next frame is valid
@@ -708,6 +720,10 @@ fv.is_valid_for(exclude_sources=('z_move',))  # bool -- valid if you don't care 
 fv.frames_until_valid()                    # int -- drains remaining
 fv.frames_until_valid(exclude_sources=('z_move',))
 fv.pending_sources                         # dict {source: target_frame_counter} (snapshot)
+fv.invalidation_counts                     # dict {source: total invalidate() calls} — monotone
+                                           # history frames can never erase; snapshot before a
+                                           # grab and compare (!=) after to detect a mid-window
+                                           # invalidation even when frames already settled it
 fv.invalidate('led')                       # mark a source dirty (usually called by API setters)
 fv.count_frame(chunk_data=None, frame_ts=None)  # mark a frame as drained (capture_and_wait does this)
                                            # pass the grab timestamp as frame_ts so the same

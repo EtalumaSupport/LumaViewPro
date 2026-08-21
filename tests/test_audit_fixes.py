@@ -9846,6 +9846,7 @@ class TestFrameValidityIsL2Stable:
         'is_valid_for',
         'frames_until_valid',
         'pending_sources',
+        'invalidation_counts',
         'invalidate',
         'count_frame',
     )

@@ -720,6 +720,22 @@ class ImagingAPI:
     # long capture is never timed out by its own liveness bound.
     _CAPTURE_WAIT_TIMEOUT_S = 30.0
 
+    # Budget for the capture drain-and-recheck deadline. The deadline bounds
+    # how long a capture keeps draining and re-grabbing while invalidations
+    # arrive; it is frozen at capture entry so a sustained invalidation
+    # stream extends the WORK but never the BUDGET -- recomputing it from
+    # the live validity counter is exactly the unbounded-drain failure the
+    # deadline exists to end. The floor absorbs one full grab timeout
+    # (>= 1.0 s) plus one re-check cycle at the deepest camera-source skip
+    # count (3 frames); the frame-period floor is conservative against the
+    # slowest observed sim frame period (~0.126 s) -- overestimating only
+    # widens the budget, never re-admits a live-lock, because the frame
+    # count is frozen; the margin covers frame-period jitter on top of that
+    # conservative floor.
+    _CAPTURE_DEADLINE_FLOOR_S = 3.0
+    _CAPTURE_DEADLINE_MIN_FRAME_PERIOD_S = 0.15
+    _CAPTURE_DEADLINE_MARGIN = 1.5
+
     def _dispatch_camera(self, impl, name, args=(), kwargs=None, *, timeout_s):
         """Run one camera command for an external caller, on the right thread.
 
@@ -1925,8 +1941,25 @@ class ImagingAPI:
 
         Returns:
             numpy.ndarray | None: Captured image array on success, None
-                on camera-inactive or frame-drain failure. Per the
-                Sentinel-return contract: `if image is None: ...`.
+                on camera-inactive, frame-drain failure, or deadline
+                expiry. Per the Sentinel-return contract:
+                `if image is None: ...`.
+
+        The capture honors invalidation across its whole window: hardware
+        state changing between the drain's settle and the grab's return is
+        detected via the invalidation counters, and the capture re-drains,
+        re-derives its expectations (dark floor included), and re-grabs.
+        The drain-and-recheck deadline bounds that loop -- a sustained
+        invalidation stream produces a loud, distinctly-logged None in
+        bounded time instead of an open-ended hold. The deadline clock
+        suspends while commanded motion is still physically settling
+        (motion has its own authoritative completion signal, and a frame
+        budget must not out-vote it), and it governs only the drain and
+        re-check loops: the interior of one grab is bounded by
+        ``timeout_s`` and, for summed captures, the sum window itself.
+        The one state change no polling design can see is a driver write
+        whose invalidate has not yet landed when the grab returns; that
+        residual is microseconds wide and accepted.
         """
         if not self._driver or not self._driver.active:
             return None
@@ -1948,72 +1981,176 @@ class ImagingAPI:
         exposure_s = self.get_exposure_ms() / 1000
         grab_timeout_s = max(exposure_s * 3, 1.0)
 
-        # Drain stale frames until all pending state changes have settled.
-        # Per-frame chunk metadata flows into count_frame so chunks short-
-        # circuit skip-frames for chunk-validatable sources (gain, exposure).
-        # Cameras without chunks return None and fall back to the existing
-        # skip-frames + settle-check path. Each drained grab passes its frame
-        # timestamp so a frame concurrently counted by the preview poller is
-        # not counted twice.
-        drain_iterations = 0
-        while self.frame_validity.frames_until_valid(exclude_sources=exclude_sources) > 0:
-            status, drain_frame_ts = self._driver.grab_new_capture(timeout_s=grab_timeout_s)
-            if status:
-                self.frame_validity.count_frame(
-                    chunk_data=self._get_latest_chunks(), frame_ts=drain_frame_ts
-                )
-                drain_iterations += 1
-            else:
-                remaining = self.frame_validity.frames_until_valid(exclude_sources=exclude_sources)
-                device_removed = (
-                    self._driver.is_device_removed()
-                    if self._driver and hasattr(self._driver, 'is_device_removed')
-                    else None
-                )
-                logger.warning(
-                    f'[SCOPE API ] capture_and_wait: frame drain failed -- '
-                    f'grab_new_capture returned status=False after '
-                    f'{grab_timeout_s:.1f}s timeout '
-                    f'(drained={drain_iterations}, frames_until_valid={remaining}, '
-                    f'device_removed={device_removed})'
-                )
-                # None is the contract's failure sentinel. A bool here
-                # slips every `is None` caller check: the stills leg
-                # skipped its capture strike -- and reset the accumulated
-                # counter -- on exactly this stalled-feed failure mode.
-                return None
-
-        # The dark-floor expectation is the API's own fact, read as late
-        # as possible so the drain above has already settled any LED
-        # change. Derived here -- never posted by callers -- so the value
-        # cannot drift from commanded state.
-        expected_lit = bool(live_lit_pairs(self._scope.illumination))
-
-        image = self._get_image_impl(
-            force_to_8bit=force_to_8bit,
-            earliest_image_ts=earliest_image_ts,
-            all_ones_check=all_ones_check,
-            dark_floor_check=expected_lit and not accept_dark,
-            timeout_s=timeout_s,
-            sum_count=sum_count,
-            sum_delay_s=sum_delay_s,
-            sum_iteration_callback=sum_iteration_callback,
-            force_new_capture=True,
-            new_capture_timeout_s=grab_timeout_s,
-            verify_chunk_targets=True,
+        # The deadline is frozen at entry: the pending frame count and the
+        # exposure are read once and never re-raised, so invalidations
+        # arriving after entry extend the work but not the budget. The sum
+        # term mirrors the public dispatcher's liveness wait -- a long
+        # summed capture legitimately grinds for its whole sum window, and
+        # a re-grab repeats that window. Each frame is costed at the larger
+        # of the exposure and the conservative frame-period floor: a camera
+        # cannot deliver frames faster than its readout, whatever the
+        # exposure says.
+        n_entry = self.frame_validity.frames_until_valid(exclude_sources=exclude_sources)
+        frame_cost_s = max(exposure_s, self._CAPTURE_DEADLINE_MIN_FRAME_PERIOD_S)
+        deadline_s = (
+            self._CAPTURE_DEADLINE_FLOOR_S
+            + n_entry * frame_cost_s * self._CAPTURE_DEADLINE_MARGIN
+            + sum_count * (frame_cost_s + sum_delay_s)
         )
+        # Pause-and-resume accounting: an interval is charged to the budget
+        # only when no commanded motion was still settling at the check.
+        # Charging suspended intervals would expire the budget across one
+        # legitimate long stage move and fail a capture that motion's own
+        # completion signal is about to release.
+        _clock = {'last': hold_start, 'active': 0.0}
+
+        def _deadline_expired() -> bool:
+            now = time.monotonic()
+            if not self.frame_validity.unsettled_motion_sources(exclude_sources=exclude_sources):
+                _clock['active'] += now - _clock['last']
+            _clock['last'] = now
+            return _clock['active'] > deadline_s
+
+        def _record_capture_info(**extra) -> None:
+            with self._state_lock:
+                self._last_capture_info = {
+                    'hold_ms': (time.monotonic() - hold_start) * 1000.0,
+                    'drained': drain_iterations,
+                    'rechecks': recheck_cycles,
+                    'deadline_s': deadline_s,
+                    'n_entry': n_entry,
+                    'active_s': _clock['active'],
+                    **extra,
+                }
+
+        def _deadline_none(where: str):
+            logger.warning(
+                f'[SCOPE API ] capture_and_wait: capture DEADLINE EXPIRED '
+                f'({where}) -- active={_clock["active"]:.3f}s > '
+                f'deadline_s={deadline_s:.3f}s (n_entry={n_entry}, '
+                f'rechecks={recheck_cycles}, '
+                f'wall={time.monotonic() - hold_start:.3f}s); invalidation '
+                f'outran the capture budget. Distinct from grab failure.'
+            )
+            _record_capture_info(deadline_expired=True)
+            return None
+
+        # `drained` accumulates across every drain re-entry; `rechecks`
+        # counts how many times the window was dirtied and re-run.
+        drain_iterations = 0
+        recheck_cycles = 0
+        while True:
+            if _deadline_expired():
+                return _deadline_none('recheck-top')
+            # Grab plumbing is re-derived each cycle so a mid-window
+            # exposure change sizes the NEXT drain and grab for the state
+            # that now holds -- a grab timeout sized to a stale short
+            # exposure fails healthy long-exposure frames and reports the
+            # staleness as a drain failure. Plumbing only: the budget
+            # above stays frozen.
+            exposure_s = self.get_exposure_ms() / 1000
+            grab_timeout_s = max(exposure_s * 3, 1.0)
+
+            # Snapshot the invalidation counters BEFORE the drain: any
+            # invalidation landing after this line -- during the drain,
+            # the derivation, or the grab itself -- differs at the compare
+            # below, so no gap exists in which a change can hide. The
+            # counters are immune to frames settling the pending state
+            # (that erasure is exactly why pending-state snapshots cannot
+            # do this job).
+            counts_before = {
+                s: c
+                for s, c in self.frame_validity.invalidation_counts.items()
+                if s not in exclude_sources
+            }
+
+            # Drain stale frames until all pending state changes have
+            # settled. Per-frame chunk metadata flows into count_frame so
+            # chunks short-circuit skip-frames for chunk-validatable
+            # sources (gain, exposure). Cameras without chunks return None
+            # and fall back to the existing skip-frames + settle-check
+            # path. Each drained grab passes its frame timestamp so a
+            # frame concurrently counted by the preview poller is not
+            # counted twice.
+            while self.frame_validity.frames_until_valid(exclude_sources=exclude_sources) > 0:
+                if _deadline_expired():
+                    return _deadline_none('drain-loop')
+                status, drain_frame_ts = self._driver.grab_new_capture(timeout_s=grab_timeout_s)
+                if status:
+                    self.frame_validity.count_frame(
+                        chunk_data=self._get_latest_chunks(), frame_ts=drain_frame_ts
+                    )
+                    drain_iterations += 1
+                else:
+                    remaining = self.frame_validity.frames_until_valid(
+                        exclude_sources=exclude_sources
+                    )
+                    device_removed = (
+                        self._driver.is_device_removed()
+                        if self._driver and hasattr(self._driver, 'is_device_removed')
+                        else None
+                    )
+                    logger.warning(
+                        f'[SCOPE API ] capture_and_wait: frame drain failed -- '
+                        f'grab_new_capture returned status=False after '
+                        f'{grab_timeout_s:.1f}s timeout '
+                        f'(drained={drain_iterations}, frames_until_valid={remaining}, '
+                        f'device_removed={device_removed})'
+                    )
+                    # None is the contract's failure sentinel. A bool here
+                    # slips every `is None` caller check: the stills leg
+                    # skipped its capture strike -- and reset the accumulated
+                    # counter -- on exactly this stalled-feed failure mode.
+                    _record_capture_info(drain_failed=True)
+                    return None
+
+            # The dark-floor expectation is the API's own fact, derived
+            # after the drain settles -- never posted by callers -- so the
+            # value cannot drift from commanded state. A re-run of this
+            # loop re-derives it, because the state change that dirtied
+            # the window is exactly what makes the old derivation stale.
+            expected_lit = bool(live_lit_pairs(self._scope.illumination))
+
+            image = self._get_image_impl(
+                force_to_8bit=force_to_8bit,
+                earliest_image_ts=earliest_image_ts,
+                all_ones_check=all_ones_check,
+                dark_floor_check=expected_lit and not accept_dark,
+                timeout_s=timeout_s,
+                sum_count=sum_count,
+                sum_delay_s=sum_delay_s,
+                sum_iteration_callback=sum_iteration_callback,
+                force_new_capture=True,
+                new_capture_timeout_s=grab_timeout_s,
+                verify_chunk_targets=True,
+            )
+
+            # Post-grab compare: a changed counter means the window was
+            # dirtied and the frame (or failure) predates the state the
+            # caller commanded. The compare runs BEFORE any None
+            # propagates: a dirtied-window failure is recoverable -- it
+            # was caused by the very change this loop exists to honor --
+            # so only a clean-window None falls through as a genuine grab
+            # failure. Compare spans both key sets: a source's first-ever
+            # invalidation adds a key the snapshot lacks.
+            counts_after = {
+                s: c
+                for s, c in self.frame_validity.invalidation_counts.items()
+                if s not in exclude_sources
+            }
+            if counts_after != counts_before:
+                recheck_cycles += 1
+                continue
+            break
 
         # Record per-capture evidence for the caller's log line (protocol
         # captures log brightness + the chunk-verified settings per frame so
         # a support bundle shows what each saved frame was exposed with).
         chunks = self._get_latest_chunks() or {}
-        with self._state_lock:
-            self._last_capture_info = {
-                'hold_ms': (time.monotonic() - hold_start) * 1000.0,
-                'drained': drain_iterations,
-                'chunk_exposure_us': chunks.get('ExposureTime'),
-                'chunk_gain_db': chunks.get('Gain'),
-            }
+        _record_capture_info(
+            chunk_exposure_us=chunks.get('ExposureTime'),
+            chunk_gain_db=chunks.get('Gain'),
+        )
         return image
 
     def capture_and_wait(
@@ -2042,11 +2179,23 @@ class ImagingAPI:
         # runs inside the body, and each summed frame costs an exposure plus
         # the configured inter-frame delay. A flat bound times out a healthy
         # long capture (large sum_count at long exposure -- luminescence)
-        # while the worker is still legitimately grinding.
+        # while the worker is still legitimately grinding. It also scales
+        # with the settle work already pending at submit, and must dominate
+        # the body's own drain-and-recheck deadline -- otherwise a deep
+        # legitimate drain (a 20-frame auto-gain settle at the luminescence
+        # exposure ceiling) surfaces to the caller as an executor
+        # TimeoutError instead of the body's loud, distinctly-logged None.
+        frame_cost_s = max(
+            self.exposure_ms_cached / 1000.0,
+            self._CAPTURE_DEADLINE_MIN_FRAME_PERIOD_S,
+        )
         wait_s = (
             self._CAPTURE_WAIT_TIMEOUT_S
             + timeout_s
-            + sum_count * (self.exposure_ms_cached / 1000.0 + sum_delay_s)
+            + sum_count * (frame_cost_s + sum_delay_s)
+            + self.frame_validity.frames_until_valid(exclude_sources=exclude_sources)
+            * frame_cost_s
+            * self._CAPTURE_DEADLINE_MARGIN
         )
         return self._dispatch_camera(
             self._capture_and_wait_impl,
