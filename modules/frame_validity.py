@@ -116,6 +116,15 @@ class FrameValidity:
         self._settle_check_fn = None  # Optional: (source) -> bool
         self._target_values = {}  # source -> requested value (for chunk-match)
         self._last_counted_frame_ts = None  # identity of the last counted frame
+        # Monotone per-source invalidation history. Unlike _pending, entries
+        # are never consumed by frames -- count_frame and reset() leave this
+        # map untouched -- so a capture can snapshot it before its grab and
+        # compare after to detect an invalidation that frames have already
+        # settled. Pending-state snapshots cannot do that: a poller frame
+        # plus the capture's own final grab can consume a 2-skip source's
+        # entry exactly, leaving pending/frames_until_valid bit-identical
+        # around a real mid-window invalidation.
+        self._invalidation_counts = {}  # source -> total invalidate() calls
 
     def set_settle_check(self, fn):
         """Register a callback that checks if a source has physically settled.
@@ -143,6 +152,7 @@ class FrameValidity:
         skip = self.SKIP_FRAMES.get(source, self.DEFAULT_SKIP_FRAMES)
         with self._lock:
             self._pending[source] = self._frame_counter + skip
+            self._invalidation_counts[source] = self._invalidation_counts.get(source, 0) + 1
             counter = self._frame_counter
         if profile_trace.ENABLE_PROFILE_TRACE:
             profile_trace.trace(
@@ -352,6 +362,39 @@ class FrameValidity:
         with self._lock:
             return self._frame_counter
 
+    @property
+    def invalidation_counts(self) -> dict:
+        """Per-source count of every invalidate() call, monotone for the
+        instance's lifetime.
+
+        Snapshot before a grab and compare (!=) after it to detect a
+        mid-window invalidation regardless of whether frames have since
+        settled it. Compare full dicts, not shared keys only: a source's
+        first-ever invalidation adds a key the snapshot lacks.
+        """
+        with self._lock:
+            return dict(self._invalidation_counts)
+
+    def unsettled_motion_sources(self, exclude_sources: tuple = ()) -> tuple:
+        """Pending motion sources whose settle-check says still moving.
+
+        The capture deadline suspends while this is non-empty: motion has
+        an authoritative completion signal, and a frame-budget clock must
+        not out-vote it. Calling the settle-check under the lock follows
+        the ordering frames_until_valid already established (validity lock,
+        then the axis-state lock inside the callback).
+        """
+        with self._lock:
+            if self._settle_check_fn is None:
+                return ()
+            return tuple(
+                s
+                for s in self._pending
+                if s in self.MOTION_SOURCES
+                and s not in exclude_sources
+                and not self._settle_check_fn(s)
+            )
+
     def load_camera_timing(self, config: dict):
         """Override SKIP_FRAMES from measured per-camera timing config.
 
@@ -369,7 +412,15 @@ class FrameValidity:
                 self.SKIP_FRAMES[source] = count
 
     def reset(self):
-        """Clear all pending invalidations and reset frame counter."""
+        """Clear all pending invalidations and reset frame counter.
+
+        Deliberately leaves invalidation_counts untouched: the counts are
+        a monotone history, not pending state, and a capture comparing
+        snapshots across a reset must still see any invalidation the reset
+        would otherwise erase. Clearing them here would let an
+        invalidate-then-reset sequence hide a real state change from an
+        in-flight capture.
+        """
         with self._lock:
             self._pending.clear()
             self._frame_counter = 0

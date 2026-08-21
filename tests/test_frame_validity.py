@@ -925,3 +925,117 @@ class TestCaptureTimeChunkVerification:
         image = imaging.get_image(force_new_capture=True, timeout_s=1.0)
         assert image is not None
         assert driver.grabs == 1
+
+
+class TestInvalidationCounts:
+    """The monotone per-source invalidation history a capture compares across
+    its grab window.
+
+    Pending-state snapshots provably cannot detect a mid-window
+    invalidation that frames have already settled (a poller frame plus the
+    capture's own grab consume a 2-skip entry exactly); the counts exist
+    so the capture has erasure-proof evidence. These pins guard the three
+    properties that proof rests on: monotone growth, frame-immunity, and
+    reset-survival.
+    """
+
+    def test_counts_start_empty(self):
+        fv = FrameValidity()
+        assert fv.invalidation_counts == {}
+
+    def test_each_invalidate_increments_its_source(self):
+        fv = FrameValidity()
+        fv.invalidate('led')
+        fv.invalidate('led')
+        fv.invalidate('gain')
+        assert fv.invalidation_counts == {'led': 2, 'gain': 1}
+
+    def test_counting_frames_never_touches_counts(self):
+        """Frames settle pending state; they must not erase the history."""
+        fv = FrameValidity()
+        fv.invalidate('led')
+        before = fv.invalidation_counts
+        for _ in range(5):
+            fv.count_frame()
+        assert fv.frames_until_valid() == 0  # pending fully settled
+        assert fv.invalidation_counts == before  # history intact
+
+    def test_settled_invalidation_still_visible_in_compare(self):
+        """The seam the counts exist to close: invalidate, let exactly the
+        skip count of frames settle it, and the pending snapshot is
+        bit-identical while the counts compare still differs."""
+        fv = FrameValidity()
+        pending_snap = fv.pending_sources
+        counts_snap = fv.invalidation_counts
+
+        fv.invalidate('led')  # skip = 2
+        fv.count_frame()
+        fv.count_frame()
+
+        assert fv.pending_sources == pending_snap  # old API: blind
+        assert fv.frames_until_valid() == 0
+        assert fv.invalidation_counts != counts_snap  # counts: caught
+
+    def test_first_invalidation_adds_a_key_the_snapshot_lacks(self):
+        """The compare spans both key sets, not shared keys only."""
+        fv = FrameValidity()
+        snap = fv.invalidation_counts
+        fv.invalidate('turret')
+        assert 'turret' not in snap
+        assert fv.invalidation_counts != snap
+
+    def test_counts_survive_reset(self):
+        """reset() clears pending state, never the history: clearing would
+        let invalidate-then-reset hide a real change from an in-flight
+        capture whose snapshot was empty."""
+        fv = FrameValidity()
+        snap = fv.invalidation_counts
+        fv.invalidate('led')
+        fv.reset()
+        assert fv.invalidation_counts == {'led': 1}
+        assert fv.invalidation_counts != snap  # reset cannot hide it
+
+    def test_property_returns_a_copy(self):
+        fv = FrameValidity()
+        fv.invalidate('led')
+        held = fv.invalidation_counts
+        fv.invalidate('led')
+        assert held == {'led': 1}
+        assert fv.invalidation_counts == {'led': 2}
+
+
+class TestUnsettledMotionSources:
+    """The capture deadline's suspension predicate: pending motion sources
+    whose settle-check still reports movement."""
+
+    def test_empty_without_callback(self):
+        fv = FrameValidity()
+        fv.invalidate('z_move')
+        assert fv.unsettled_motion_sources() == ()
+
+    def test_reports_pending_unsettled_motion(self):
+        fv = FrameValidity()
+        fv.set_settle_check(lambda source: False)
+        fv.invalidate('z_move')
+        assert fv.unsettled_motion_sources() == ('z_move',)
+
+    def test_settled_motion_not_reported(self):
+        fv = FrameValidity()
+        fv.set_settle_check(lambda source: True)
+        fv.invalidate('z_move')
+        assert fv.unsettled_motion_sources() == ()
+
+    def test_non_motion_sources_never_reported(self):
+        fv = FrameValidity()
+        fv.set_settle_check(lambda source: False)
+        fv.invalidate('led')
+        assert fv.unsettled_motion_sources() == ()
+
+    def test_exclude_sources_honored(self):
+        """Autofocus excludes z_move from validity; the suspension predicate
+        must honor the same exclusion or an AF capture would suspend its own
+        deadline on the sweep it is running."""
+        fv = FrameValidity()
+        fv.set_settle_check(lambda source: False)
+        fv.invalidate('z_move')
+        assert fv.unsettled_motion_sources(exclude_sources=('z_move',)) == ()
