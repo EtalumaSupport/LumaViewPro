@@ -491,6 +491,9 @@ class SequentialIOExecutor:
         self.protocol_complete_callback = None
         self.protocol_complete_cb_args = ()
         self.protocol_complete_cb_kwargs = {}
+        # Persistent protocol-mode-exit listeners (the one-shot callback
+        # above is consume-once and owned by run cleanup).
+        self._protocol_idle_listeners = []
 
         # UI dispatcher -- executors don't import GUI frameworks.
         # GUI layer passes Clock.schedule_once; tests/headless use default.
@@ -846,6 +849,7 @@ class SequentialIOExecutor:
         self.protocol_complete_cb_kwargs = {}
         if was_running:
             logger.info(f'{self.name} Protocol Ended')
+            self._fire_protocol_idle_listeners()
 
     def wait_for_idle(self, timeout: float = 1.0) -> bool:
         """Block until the worker is between tasks (running_task is
@@ -908,6 +912,29 @@ class SequentialIOExecutor:
             self.protocol_complete_callback = callback
             self.protocol_complete_cb_args = cb_args if cb_args is not None else ()
             self.protocol_complete_cb_kwargs = cb_kwargs if cb_kwargs is not None else {}
+
+    def add_protocol_idle_listener(self, listener) -> None:
+        """Register a PERSISTENT level-change listener for protocol-mode exits.
+
+        The one-shot ``protocol_complete_callback`` slot is consume-once
+        and already owned by the run-cleanup chain; a second consumer
+        registering there would clobber it or be clobbered. Listeners
+        added here survive across runs and fire (with no payload, on
+        the transitioning thread -- the worker on the drain path) every
+        time this executor leaves protocol mode, so they must re-read
+        whatever level they care about rather than trust edge context.
+        """
+        with self._callback_lock:
+            self._protocol_idle_listeners.append(listener)
+
+    def _fire_protocol_idle_listeners(self) -> None:
+        with self._callback_lock:
+            listeners = list(self._protocol_idle_listeners)
+        for listener in listeners:
+            try:
+                listener()
+            except Exception:
+                logger.exception(f'{self.name} protocol-idle listener failed')
 
     def is_protocol_queue_active(self) -> bool:
         """Returns True if protocol queue has pending tasks or a protocol task is running.
@@ -989,6 +1016,10 @@ class SequentialIOExecutor:
                     and not self.protocol_queue.empty()
                 ):
                     self.protocol_queue.queue.clear()
+                    # Late enqueues discarded outside protocol mode flip
+                    # is_protocol_queue_active back to False; level
+                    # listeners re-read it.
+                    self._fire_protocol_idle_listeners()
                 if self.pending_shutdown:
                     return
 

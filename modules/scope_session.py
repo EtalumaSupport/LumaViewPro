@@ -44,6 +44,7 @@ class ScopeSession:
         objective_helper=None,
         source_path: str = '.',
         executor_bundle=None,
+        file_io_executor=None,
     ):
         self.settings = settings
         self.scope = scope
@@ -61,18 +62,28 @@ class ScopeSession:
         # The canonical file-IO executor lives on the bundle; expose it here
         # alongside io_executor / camera_executor so callers (e.g. ProtocolRunner)
         # source the one shared FILE executor instead of constructing a
-        # duplicate. None when no bundle was built (the GUI host owns its bundle).
-        self.file_io_executor = executor_bundle.file_io_executor if executor_bundle else None
+        # duplicate. A bundle-less host (the GUI) passes its handle in --
+        # the session cannot read the file-drain fact without it.
+        self.file_io_executor = file_io_executor or (
+            executor_bundle.file_io_executor if executor_bundle else None
+        )
 
         self.protocol_running = threading.Event()
         self.focus_round = 0
+        # Run-state listeners: zero-argument callables notified on every
+        # run-state transition edge (claim grant/release, file-drain
+        # exit, scope rebind). They fire on the TRANSITIONING thread,
+        # possibly under engine locks, so a listener must only schedule
+        # or re-read the level-derivation properties below -- never
+        # acquire engine locks or trust edge context.
+        self._run_state_listeners: list = []
         # The single arbitration point for exclusive activities: a
         # protocol run and a video recording each claim here before
         # committing, so the two can never run concurrently. Enforcement
         # lives with the claimants (the sequenced-capture runner's
         # refusal gate and the recording engine's start), which take
         # this handle by injection.
-        self.activity_claim = ActivityClaim()
+        self.activity_claim = ActivityClaim(on_transition=self.notify_run_state)
         # Manual video recording, composed with the session claim so a
         # recording and a protocol run are mutually exclusive for every
         # caller tier (GUI, L2, REST).
@@ -81,6 +92,13 @@ class ScopeSession:
             settings=settings,
             activity_claim=self.activity_claim,
         )
+        # Whether the running configuration declares an XY stage. Written
+        # by the scope-config apply path; motion_enabled derives from it.
+        # Defaults True so bundle-less and headless hosts keep motion
+        # until a config says otherwise.
+        self.xystage_configured = True
+        if self.file_io_executor is not None:
+            self.file_io_executor.add_protocol_idle_listener(self.notify_run_state)
 
     def set_scope(self, scope) -> None:
         """Rewire this session onto a NEW scope after a reconnect.
@@ -103,6 +121,9 @@ class ScopeSession:
             )
         self.scope = scope
         self.manual_recording.set_scope(scope)
+        # Level republish: listeners registered before the swap re-read
+        # the derivations against the new scope's world.
+        self.notify_run_state()
 
     @property
     def is_protocol_running(self) -> bool:
@@ -112,6 +133,78 @@ class ScopeSession:
         session handle, so they need not reach into the underlying Event.
         """
         return self.protocol_running.is_set()
+
+    # ------------------------------------------------------------------
+    # Run-state facts and derivations
+    #
+    # Each FACT has exactly one owner (the claim, the recording engine,
+    # the file writer, the scope config); everything a consumer needs is
+    # a synchronous DERIVATION over them. All reads are lock-free
+    # attribute/queue reads, so these properties are safe from any
+    # thread, including inside a transition listener.
+    # ------------------------------------------------------------------
+
+    @property
+    def exclusive_activity(self) -> 'str | None':
+        """The current exclusive-activity owner: None, 'protocol', or
+        'recording'."""
+        return self.activity_claim.owner
+
+    @property
+    def recording_capturing(self) -> bool:
+        """True while a manual recording is live (not its drain)."""
+        return self.manual_recording.is_recording
+
+    @property
+    def protocol_files_draining(self) -> bool:
+        """True while a run's file writer still holds pending work."""
+        file_io_executor = self.file_io_executor
+        return bool(file_io_executor is not None and file_io_executor.is_protocol_queue_active())
+
+    @property
+    def run_lockout(self) -> bool:
+        """True while a run OR its post-run file drain owns the scope.
+
+        The drain term encodes a deliberate asymmetry: a finished
+        protocol frees its claim while its files drain, but the control
+        surface stays locked until the queue empties.
+        """
+        return self.activity_claim.owner == 'protocol' or self.protocol_files_draining
+
+    @property
+    def controls_locked(self) -> bool:
+        """True while the full control surface locks: any run lockout,
+        or a LIVE manual recording (a draining recording frees the
+        controls while its claim still refuses new runs)."""
+        return self.run_lockout or (
+            self.activity_claim.owner == 'recording' and self.recording_capturing
+        )
+
+    @property
+    def motion_enabled(self) -> bool:
+        """True when user stage motion is allowed: the configuration
+        declares an XY stage and no run lockout holds. Evaluated at
+        read -- there is no cached copy to mis-restore."""
+        return self.xystage_configured and not self.run_lockout
+
+    def add_run_state_listener(self, listener) -> None:
+        """Register a run-state transition listener and level-sync it.
+
+        The immediate call is the level republish: transitions are
+        edges, and a listener registered after a grant would otherwise
+        never see it.
+        """
+        self._run_state_listeners.append(listener)
+        listener()
+
+    def notify_run_state(self) -> None:
+        """Notify every run-state listener (level semantics: listeners
+        re-read the derivations; an extra notification is harmless)."""
+        for listener in list(self._run_state_listeners):
+            try:
+                listener()
+            except Exception:
+                logger.exception('[ScopeSession] run-state listener failed')
 
     # ------------------------------------------------------------------
     # Factory helpers

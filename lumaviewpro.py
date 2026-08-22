@@ -870,6 +870,10 @@ class LumaViewProApp(TooltipMixin, App):
             coordinate_transformer=coordinate_transformer,
             objective_helper=objective_helper,
             source_path=source_path,
+            # The session's run-state derivations need the file-drain
+            # fact; without the handle a post-run drain would read as
+            # already unlocked.
+            file_io_executor=file_io_executor,
         )
         scope_session.protocol_running = protocol_running_global
 
