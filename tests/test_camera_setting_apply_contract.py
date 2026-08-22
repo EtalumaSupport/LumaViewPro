@@ -271,18 +271,20 @@ def _drive_initialize(config, monkeypatch, *, no_camera: bool = False, prepare=N
     scope = Lumascope(simulate=True)
     saved_driver = scope._camera_driver
     try:
+        # initialize is bring-up and binds the impl seams (it runs before
+        # executor registration by design), so the spies sit there.
         applied_binnings = []
-        real_set_binning = scope.imaging.set_binning_size
+        real_set_binning = scope.imaging._set_binning_size_impl
         monkeypatch.setattr(
             scope.imaging,
-            'set_binning_size',
+            '_set_binning_size_impl',
             lambda size: applied_binnings.append(size) or real_set_binning(size),
         )
         applied_frames = []
-        real_set_frame = scope.imaging.set_frame_size
+        real_set_frame = scope.imaging._set_frame_size_impl
         monkeypatch.setattr(
             scope.imaging,
-            'set_frame_size',
+            '_set_frame_size_impl',
             lambda w, h: applied_frames.append((w, h)) or real_set_frame(w, h),
         )
         reached_end = []

@@ -393,7 +393,9 @@ class TestFrameSizeMirrorChain:
             return set_frame_size(w, h)
 
         scope = (
-            SimpleNamespace(imaging=SimpleNamespace(set_frame_size=_recording_set_frame_size))
+            # _push_frame_size runs on the camera worker, so production
+            # binds the impl seam -- the fake mirrors that name.
+            SimpleNamespace(imaging=SimpleNamespace(_set_frame_size_impl=_recording_set_frame_size))
             if scope_present
             else None
         )

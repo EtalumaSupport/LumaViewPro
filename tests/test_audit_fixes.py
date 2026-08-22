@@ -1782,9 +1782,12 @@ class TestSetBinningSizeReturnsBool:
         import pathlib
 
         # pin-justified: the Returns: docstring section is the documented
-        # contract (doc convention guard, not an implementation pin).
+        # contract (doc convention guard, not an implementation pin). The
+        # contract text lives on the impl -- the public is a thin
+        # dispatcher whose docstring points here, the same shape as the
+        # other dispatched setters.
         source = pathlib.Path('modules/lumascope_api/imaging.py').read_text()
-        idx = source.find('def set_binning_size(self, size: int) -> bool:')
+        idx = source.find('def _set_binning_size_impl(self, size: int) -> bool:')
         next_def = source.find('\n    def ', idx + 1)
         body = source[idx:next_def] if next_def != -1 else source[idx : idx + 2000]
         assert 'Returns:' in body, (
@@ -10423,7 +10426,7 @@ class TestAutoGainArmedInScanIterate:
         return [
             c.args[0]
             for c in runner._io_executor.protocol_put.call_args_list
-            if c.args[0].action is runner._scope.imaging.apply_layer_camera_settings
+            if c.args[0].action is runner._scope.imaging._apply_layer_camera_settings_impl
         ]
 
     def test_run_loop_resets_armed_step_per_scan(self, monkeypatch):
@@ -10496,9 +10499,10 @@ class TestAutoGainArmedInScanIterate:
         scene; a re-apply here would restart AG mid-grab and discard the
         settling the capture_and_wait drain produced."""
         imaging = self._drive_capture(auto_gain=True)
-        assert not imaging.apply_layer_camera_settings.called, (
-            'AG-step capture must not re-apply layer camera settings'
-        )
+        assert (
+            not imaging.apply_layer_camera_settings.called
+            and not imaging._apply_layer_camera_settings_impl.called
+        ), 'AG-step capture must not re-apply layer camera settings'
         assert not imaging._set_gain_db_impl.called and not imaging._set_exposure_ms_impl.called, (
             'AG-step capture must not drive manual gain/exposure either'
         )
