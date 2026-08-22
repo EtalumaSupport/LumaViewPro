@@ -116,6 +116,12 @@ FAMILIES = [
         {'gain_db': 1.0, 'exposure_ms': 10.0},
         'camera',
     ),
+    # The LED-tier sibling of the camera cluster: an ownership-scoped off
+    # that drove the LED board and frame validity inline on the caller's
+    # thread. Its one internal caller (lease release) binds the _impl --
+    # teardown runs while a protocol fence is up, where the dispatcher
+    # rightly refuses external work.
+    ('illumination', 'leds_off_owned', None, {'owner': 'testowner'}, 'io'),
 ]
 
 FAMILY_IDS = [f'{family}.{member}' for family, member, _, _, _ in FAMILIES]

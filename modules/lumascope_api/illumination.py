@@ -1198,10 +1198,21 @@ class IlluminationAPI:
     def leds_off_owned(self, owner: str) -> None:
         """Turn off only the LED channels owned by *owner*.
 
-        Channels owned by other subsystems are left alone.
+        Channels owned by other subsystems are left alone. See
+        ``_leds_off_owned_impl`` for the body; this adds only the dispatch
+        described on ``_dispatch_led``.
 
         Args:
             owner: The owner tag whose channels should be turned off.
+        """
+        return self._dispatch_led(self._leds_off_owned_impl, 'leds_off_owned', args=(owner,))
+
+    def _leds_off_owned_impl(self, owner: str) -> None:
+        """Turn off only the LED channels owned by *owner*.
+
+        Lease release binds this directly rather than the dispatcher:
+        teardown runs while a protocol fence is up, where the dispatcher
+        rightly refuses external work.
         """
         if not self._driver or not owner:
             return
@@ -1357,7 +1368,9 @@ class IlluminationAPI:
             del self._led_lease_stack[idx:]
             owner_name = lease.owner_name
         if not leave_on:
-            self.leds_off_owned(owner_name)
+            # The impl, not the dispatcher: release runs in fenced run-teardown
+            # contexts where the dispatcher rightly refuses external work.
+            self._leds_off_owned_impl(owner_name)
         _api_log.info('LED lease released by %r%s', owner_name, ' (leave_on)' if leave_on else '')
 
     def _reclaim_lease(self, lease: LedLease) -> None:
