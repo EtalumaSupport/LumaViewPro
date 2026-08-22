@@ -737,7 +737,7 @@ class Lumascope:
     # to pass an executor on every call (parallel-paths anti-pattern).
 
     def register_executors(
-        self, *, camera_executor=None, io_executor=None, file_io_executor=None
+        self, *, camera_executor=None, io_executor=None, file_io_executor=None, replace=False
     ) -> None:
         """Register the executor handles used by the X_async / X_sync command methods.
 
@@ -749,7 +749,32 @@ class Lumascope:
             camera_executor: Executor for camera-bound IOTasks.
             io_executor: Executor for general IO/motion IOTasks.
             file_io_executor: Executor for file-IO IOTasks.
+            replace: Allow replacing already-registered, different
+                handles. Without it a second registration against a live
+                scope raises instead of silently swapping the executors
+                out from under in-flight dispatch -- a swap that would
+                produce no symptom until a protocol fence is bypassed.
+                Re-registering the SAME handles is idempotent and always
+                allowed.
+
+        Raises:
+            RuntimeError: A different executor is already registered for
+                one of the slots and ``replace`` is False.
         """
+        if not replace:
+            for slot_name, existing, new in (
+                ('camera_executor', self._camera_executor, camera_executor),
+                ('io_executor', self._io_executor, io_executor),
+                ('file_io_executor', self._file_io_executor, file_io_executor),
+            ):
+                if existing is not None and existing is not new:
+                    raise RuntimeError(
+                        f'Lumascope.register_executors: {slot_name} is already '
+                        f'registered with a different executor. A silent swap '
+                        f'would strand in-flight dispatch on the old handle; '
+                        f'pass replace=True only when deliberately rewiring a '
+                        f'live scope.'
+                    )
         self._camera_executor = camera_executor
         self._io_executor = io_executor
         self._file_io_executor = file_io_executor
