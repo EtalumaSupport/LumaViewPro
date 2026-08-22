@@ -13,8 +13,6 @@ from modules.config_ui_getters import (
     get_auto_gain_settings,
     get_binning_from_ui,
     get_current_frame_dimensions,
-    get_current_objective_info,
-    get_current_plate_position,
     get_image_capture_config_from_ui,
     get_selected_labware,
 )
@@ -148,7 +146,7 @@ class VerticalControl(BoxLayout):
         gui_logger.button(label)
         logger.info(f'[LVP Main  ] VerticalControl._z_jog({label})')
         try:
-            _, objective = get_current_objective_info()
+            _, objective = ctx.session.get_current_objective_info()
         except Exception as e:
             logger.warning(f'[Motion] {label}: no objective info: {e}')
             return
@@ -285,7 +283,7 @@ class VerticalControl(BoxLayout):
                     )
 
             # Update objective stored in settings
-            objective = ctx.objective_helper.get_objective_info(objective_id=objective_id)
+            objective = ctx.session.get_objective_info(objective_id=objective_id)
             with ctx.settings_lock:
                 settings['objective_id'] = objective_id
 
@@ -478,12 +476,12 @@ class VerticalControl(BoxLayout):
             # degenerate-plan recipe as the z-stack starter, so the
             # standalone button and a protocol AF step share one engine.
             labware_id, _ = get_selected_labware()
-            objective_id, _ = get_current_objective_info()
+            objective_id, _ = ctx.session.get_current_objective_info()
             active_layer, active_layer_config = get_active_layer_config()
             active_layer_config['acquire'] = 'image'
             active_layer_config['autofocus'] = True
 
-            curr_position = get_current_plate_position()
+            curr_position = ctx.session.get_current_plate_position()
             curr_position.update({'name': 'Autofocus'})
 
             tiling_config = TilingConfig(
@@ -589,9 +587,9 @@ class VerticalControl(BoxLayout):
 
             # Find magnification of the selected objective
             desired_objective_id = self.ids['objective_spinner2'].text
-            magnification = ctx.objective_helper.get_objective_info(
-                objective_id=desired_objective_id
-            )['magnification']
+            magnification = ctx.session.get_objective_info(objective_id=desired_objective_id)[
+                'magnification'
+            ]
 
             # Change turret text
             selected_turret_id.text = f'{magnification}x'

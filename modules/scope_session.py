@@ -548,10 +548,19 @@ class ScopeSession:
 
         return config_helpers.get_auto_gain_settings(self.settings)
 
-    def get_current_objective_info(self) -> dict:
+    def get_current_objective_info(self) -> 'tuple[str, dict]':
         import modules.config_helpers as config_helpers
 
         return config_helpers.get_current_objective_info(self.settings, self.objective_helper)
+
+    def get_objective_info(self, objective_id: str) -> dict:
+        """Objective metadata for an EXPLICIT id.
+
+        Candidate lookups (turret assignment, settings load, FOV
+        refresh) read objectives the current selection does not name,
+        so a current-only getter cannot serve them.
+        """
+        return self.objective_helper.get_objective_info(objective_id=objective_id)
 
     def get_current_plate_position(self) -> 'dict | None':
         import modules.config_helpers as config_helpers

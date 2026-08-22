@@ -409,13 +409,10 @@ class ScopeDisplay(Image):
                 # would under-move the stage by the downscale factor.
                 frame_width, frame_height = self.full_resolution_frame_size()
 
-                from modules.config_ui_getters import (
-                    get_current_objective_info,
-                    get_binning_from_ui,
-                )
+                from modules.config_ui_getters import get_binning_from_ui
                 from ui.ui_helpers import move_relative
 
-                _, objective = get_current_objective_info()
+                _, objective = _app_ctx.ctx.session.get_current_objective_info()
                 pixel_size_um = common_utils.get_pixel_size(
                     focal_length=objective['focal_length'],
                     binning_size=get_binning_from_ui(),

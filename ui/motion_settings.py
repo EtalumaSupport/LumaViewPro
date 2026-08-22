@@ -8,7 +8,7 @@ from kivy.uix.boxlayout import BoxLayout
 
 import modules.app_context as _app_ctx
 from modules import gui_logger
-from modules.config_ui_getters import get_current_objective_info, get_selected_labware
+from modules.config_ui_getters import get_selected_labware
 from modules.debounce import debounce
 from modules.sequential_io_executor import IOTask
 from ui.ui_helpers import move_absolute, move_home, move_relative
@@ -434,7 +434,7 @@ class XYStageControl(BoxLayout):
         gui_logger.button(label)
         logger.info(f'[LVP Main  ] XYStageControl._xy_jog({label})')
         try:
-            _, objective = get_current_objective_info()
+            _, objective = ctx.session.get_current_objective_info()
         except Exception as e:
             logger.warning(f'[Motion] {label}: no objective info: {e}')
             return

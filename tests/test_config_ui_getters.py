@@ -34,14 +34,19 @@ def _patch_ctx(monkeypatch, *, spinner_text: str, settings: dict, loader):
 class TestGetSelectedLabware:
     """UI variant -- always returns a valid (labware_id, plate) tuple."""
 
-    def test_spinner_has_valid_labware(self, monkeypatch):
+    def test_settings_is_the_single_store(self, monkeypatch):
+        # Settings owns the selection: the spinner writes through on
+        # every user pick, so a stale spinner text (a settings write
+        # that bypassed it, e.g. a protocol load) must NOT shadow the
+        # stored value -- the divergence the spinner-first read used to
+        # open between the GUI and headless paths.
         loader = MagicMock()
         plate = MagicMock()
         loader.get_plate.return_value = plate
         _patch_ctx(
             monkeypatch,
-            spinner_text='96 well microplate',
-            settings={'protocol': {'labware': 'unused-fallback'}},
+            spinner_text='stale spinner text',
+            settings={'protocol': {'labware': '96 well microplate'}},
             loader=loader,
         )
 
@@ -68,12 +73,10 @@ class TestGetSelectedLabware:
         assert labware_id == '96 well microplate'
         assert obj is plate
 
-    def test_spinner_has_stale_default_falls_back_to_default(self, monkeypatch):
-        # Issue #634 regression: KV file used to ship `text: 'New'` as the
-        # spinner default. On first run, the spinner read 'New' before
-        # settings synced to UI -- and 'New' isn't a valid labware key.
-        # Per Eric's 2026-04-25 directive, the function now falls back
-        # cleanly to DEFAULT_LABWARE_ID rather than returning None.
+    def test_invalid_stored_labware_falls_back_to_default(self, monkeypatch):
+        # Issue #634's class: an invalid stored labware key ('New' was
+        # the old KV spinner default that leaked into settings) falls
+        # back cleanly to DEFAULT_LABWARE_ID rather than returning None.
         loader = MagicMock()
         default_plate = MagicMock()
 

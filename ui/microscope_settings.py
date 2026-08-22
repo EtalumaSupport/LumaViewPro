@@ -459,8 +459,7 @@ class MicroscopeSettings(BoxLayout):
             v_control_objective_spinner = vertical_control_id.ids['objective_spinner2']
             v_control_objective_spinner.text = objective_id
 
-            objective_helper = ctx.objective_helper
-            objective = objective_helper.get_objective_info(objective_id=objective_id)
+            objective = ctx.session.get_objective_info(objective_id=objective_id)
 
             # The objective already in place at launch never passes through
             # the selection handler, so without this a session that changed
@@ -488,7 +487,7 @@ class MicroscopeSettings(BoxLayout):
                 if objective_id is None:
                     button_text = f'{turret_pos}'
                 else:
-                    magnification = objective_helper.get_objective_info(objective_id=objective_id)[
+                    magnification = ctx.session.get_objective_info(objective_id=objective_id)[
                         'magnification'
                     ]
                     button_text = f'{magnification}x'
@@ -1407,7 +1406,7 @@ class MicroscopeSettings(BoxLayout):
         frame settings and the UI binning."""
         ctx = _app_ctx.ctx
         settings = ctx.settings
-        objective = ctx.objective_helper.get_objective_info(objective_id=settings['objective_id'])
+        objective = ctx.session.get_objective_info(objective_id=settings['objective_id'])
         fov_size = common_utils.get_field_of_view(
             focal_length=objective['focal_length'],
             frame_size=settings['frame'],

@@ -123,8 +123,6 @@ void main (void) {
 
     def on_touch_down(self, touch, *args):
         logger.debug('[LVP Main  ] ShaderViewer.on_touch_down()')
-        from modules.config_ui_getters import get_current_objective_info
-
         ctx = _app_ctx.ctx
 
         ZOOM_BLOCKERS = [ctx.image_settings, ctx.motion_settings]
@@ -149,7 +147,7 @@ void main (void) {
                     return
 
                 try:
-                    _, objective = get_current_objective_info()
+                    _, objective = ctx.session.get_current_objective_info()
                 except Exception:
                     logger.debug('[LVP Main  ] Scroll-to-focus: objective info unavailable')
                     return
@@ -276,12 +274,11 @@ void main (void) {
                     title += f'   |   Pixel: ({self._mouse_pixel_x}, {self._mouse_pixel_y})'
                     try:
                         from modules.config_ui_getters import (
-                            get_current_objective_info,
                             get_binning_from_ui,
                             get_selected_labware,
                         )
 
-                        _, objective = get_current_objective_info()
+                        _, objective = _app_ctx.ctx.session.get_current_objective_info()
                         pixel_size_um = common_utils.get_pixel_size(
                             focal_length=objective['focal_length'],
                             binning_size=get_binning_from_ui(),

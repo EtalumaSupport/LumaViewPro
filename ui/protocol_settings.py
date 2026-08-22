@@ -24,8 +24,6 @@ from modules.config_ui_getters import (
     get_auto_gain_settings,
     get_binning_from_ui,
     get_current_frame_dimensions,
-    get_current_objective_info,
-    get_current_plate_position,
     get_image_capture_config_from_ui,
     get_layer_configs,
     get_protocol_time_params,
@@ -372,7 +370,11 @@ class ProtocolSettings(FloatLayout):
             spinner = self.ids['labware_spinner']
             spinner.values = wellplate_loader.get_plate_list()
             gui_logger.select('LABWARE', spinner.text)
-            settings['protocol']['labware'] = spinner.text
+            # Settings is the single labware store; an empty spinner
+            # (not yet populated at startup) is not a selection and must
+            # not clobber the stored choice.
+            if spinner.text:
+                settings['protocol']['labware'] = spinner.text
         else:
             center_plate_str = 'Center Plate'
             spinner = self.ids['labware_spinner']
@@ -1175,8 +1177,8 @@ class ProtocolSettings(FloatLayout):
                 active_layer = true_step_layer
                 active_layer_config = get_layer_configs()[active_layer]
 
-            plate_position = get_current_plate_position()
-            objective_id, _ = get_current_objective_info()
+            plate_position = ctx.session.get_current_plate_position()
+            objective_id, _ = ctx.session.get_current_objective_info()
 
             # logger.error(f"CURRENT Z POSITION IN UM {plate_position['z']}")
 
@@ -1264,8 +1266,8 @@ class ProtocolSettings(FloatLayout):
             ctx = _app_ctx.ctx
             from ui.notification_popup import show_notification_popup
 
-            plate_position = get_current_plate_position()
-            objective_id, _ = get_current_objective_info()
+            plate_position = ctx.session.get_current_plate_position()
+            objective_id, _ = ctx.session.get_current_objective_info()
 
             if (ctx.lumaview.scope.capabilities.has_turret) and (
                 not ctx.lumaview.scope.motion.is_current_turret_position_objective_set()
