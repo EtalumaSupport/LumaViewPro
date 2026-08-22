@@ -161,6 +161,11 @@ scope.runtime_state.get_current_objective()
 scope.runtime_state.set_turret_config({1: '4x Oly', 2: '10x Oly', 3: '20x Oly', 4: '40x w/collar'})
 scope.runtime_state.get_turret_config()
 scope.motion.get_turret_position_for_objective_id('10x Oly')   # returns 2 (turret position is motion state)
+
+# Stage µm → plate mm using the registered labware + stage offset
+# (the bound form of CoordinateTransformer.stage_to_plate; raises
+# NoLabwareSelectedError when no labware is registered)
+px, py = scope.runtime_state.stage_to_plate(sx=60000, sy=40000)
 ```
 
 ---

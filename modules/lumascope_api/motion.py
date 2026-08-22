@@ -378,16 +378,14 @@ class MotionAPI:
         Returns:
             int | None: Turret position (1-4), or None if not found.
         """
-        if (
-            persisted_position is not None
-            and self._scope.runtime_state._turret_config.get(persisted_position) == objective_id
-        ):
+        turret_config = self._scope.runtime_state.get_turret_config()
+        if persisted_position is not None and turret_config.get(persisted_position) == objective_id:
             return persisted_position
 
         if prefer_current:
             try:
                 current_pos = self.get_current_position(axis='T')
-                if self._scope.runtime_state._turret_config.get(current_pos) == objective_id:
+                if turret_config.get(current_pos) == objective_id:
                     return current_pos
             except Exception:
                 pass
@@ -395,7 +393,7 @@ class MotionAPI:
         for (
             turret_position,
             turret_objective_id,
-        ) in self._scope.runtime_state._turret_config.items():
+        ) in turret_config.items():
             if objective_id == turret_objective_id:
                 return turret_position
 
@@ -409,7 +407,7 @@ class MotionAPI:
                 objective ID; False if the slot is unconfigured.
         """
         position = self.get_current_position(axis='T')
-        return self._scope.runtime_state._turret_config[position] is not None
+        return self._scope.runtime_state.get_turret_config()[position] is not None
 
     def get_axes_config(self) -> dict:
         """Get the axis configuration from the motion board.

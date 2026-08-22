@@ -259,16 +259,18 @@ def generate_image_metadata(scope: Lumascope, color, x, y, z) -> dict:
     Raises:
         ConfigError: If objective, labware, or stage offset are not set.
     """
-    if scope.runtime_state._objective is None:
+    objective = scope.runtime_state.get_current_objective()
+    if objective is None:
         raise ConfigError('[SCOPE API ] Objective not set')
 
-    if 'focal_length' not in scope.runtime_state._objective:
+    if 'focal_length' not in objective:
         raise ConfigError('[SCOPE API ] Objective focal length not provided')
 
-    if scope.runtime_state._labware is None:
+    labware = scope.runtime_state.get_labware()
+    if labware is None:
         raise ConfigError('[SCOPE API ] Labware not set')
 
-    if scope.runtime_state._stage_offset is None:
+    if scope.runtime_state.get_stage_offset() is None:
         raise ConfigError('[SCOPE API ] Stage offset not set')
 
     if x is None:
@@ -278,12 +280,7 @@ def generate_image_metadata(scope: Lumascope, color, x, y, z) -> dict:
     if z is None:
         z = 0
 
-    px, py = scope.runtime_state._coordinate_transformer.stage_to_plate(
-        labware=scope.runtime_state._labware,
-        stage_offset=scope.runtime_state._stage_offset,
-        sx=x,
-        sy=y,
-    )
+    px, py = scope.runtime_state.stage_to_plate(sx=x, sy=y)
     well_label = scope.runtime_state.get_well_label()
 
     px = round(px, common_utils.max_decimal_precision('x'))
@@ -291,7 +288,7 @@ def generate_image_metadata(scope: Lumascope, color, x, y, z) -> dict:
     z = round(z, common_utils.max_decimal_precision('z'))
 
     pixel_size_um = common_utils.get_pixel_size(
-        focal_length=scope.runtime_state._objective['focal_length'],
+        focal_length=objective['focal_length'],
         binning_size=scope.imaging._binning_size,
     )
     # A scope with no known pixel size writes no scale rather than an invented
@@ -318,7 +315,7 @@ def generate_image_metadata(scope: Lumascope, color, x, y, z) -> dict:
         camera_info = scope.diagnostics.get_camera_info()
     except Exception:
         camera_info = {'model': None}
-    plate_config = getattr(scope.runtime_state._labware, 'config', None) or {}
+    plate_config = getattr(labware, 'config', None) or {}
 
     # Per-frame camera chunk metadata, captured at grab-time for THIS frame
     # (Pylon ace 2 / dart M / dart R carry ExposureTime + Gain + FrameID +
@@ -387,8 +384,8 @@ def generate_image_metadata(scope: Lumascope, color, x, y, z) -> dict:
         'channel': color,
         'datetime': now_host.strftime('%Y:%m:%d %H:%M:%S'),
         'sub_sec_time': f'{now_host.microsecond // 1000:03d}',
-        'objective': scope.runtime_state._objective,
-        'focal_length': scope.runtime_state._objective['focal_length'],
+        'objective': objective,
+        'focal_length': objective['focal_length'],
         'plate_pos_mm': {'x': px, 'y': py},
         'x_pos': px,
         'y_pos': py,

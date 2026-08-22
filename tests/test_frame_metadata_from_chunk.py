@@ -34,11 +34,12 @@ def _metadata_scope(chunks, chunk_reads=None):
             chunk_reads.append(1)
         return chunks
 
+    labware = SimpleNamespace(config={'rows': 8, 'columns': 12, 'standard': 'SBS'})
     runtime_state = SimpleNamespace(
-        _objective={'focal_length': 9.0},
-        _labware=SimpleNamespace(config={'rows': 8, 'columns': 12, 'standard': 'SBS'}),
-        _stage_offset={'x': 0, 'y': 0},
-        _coordinate_transformer=SimpleNamespace(stage_to_plate=lambda **kwargs: (1.0, 2.0)),
+        get_current_objective=lambda: {'focal_length': 9.0},
+        get_labware=lambda: labware,
+        get_stage_offset=lambda: {'x': 0, 'y': 0},
+        stage_to_plate=lambda **kwargs: (1.0, 2.0),
         get_well_label=lambda: 'A1',
     )
     return SimpleNamespace(

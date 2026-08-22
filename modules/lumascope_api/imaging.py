@@ -2655,8 +2655,9 @@ class ImagingAPI:
         # One snapshot for the whole overlay decision: enabled and color must
         # come from the same configuration even if the GUI toggles mid-frame.
         scale_bar = self.scale_bar_config
+        objective = self._scope.runtime_state.get_current_objective()
         use_scale_bar = scale_bar['enabled']
-        if self._scope.runtime_state._objective is None:
+        if objective is None:
             use_scale_bar = False
 
         need_8bit = force_to_8bit and image.dtype != np.uint8
@@ -2674,7 +2675,7 @@ class ImagingAPI:
         if use_scale_bar:
             image = image_utils.add_scale_bar(
                 image=image,
-                objective=self._scope.runtime_state._objective,
+                objective=objective,
                 binning_size=self._binning_size,
                 color=scale_bar.get('color'),
                 significant_bits=significant_bits,
@@ -2777,14 +2778,15 @@ class ImagingAPI:
 
         # Snapshot both fields together; see get_image for why.
         scale_bar = self.scale_bar_config
+        objective = self._scope.runtime_state.get_current_objective()
         use_scale_bar = scale_bar['enabled']
-        if self._scope.runtime_state._objective is None:
+        if objective is None:
             use_scale_bar = False
 
         if use_scale_bar:
             tmp = image_utils.add_scale_bar(
                 image=tmp,
-                objective=self._scope.runtime_state._objective,
+                objective=objective,
                 binning_size=self._binning_size,
                 color=scale_bar.get('color'),
                 significant_bits=frame_significant_bits,
