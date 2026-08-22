@@ -648,7 +648,7 @@ class TestScopeSession:
         assert session.camera_executor is cam
         assert session.source_path == '/test'
         assert session.focus_round == 0
-        assert not session.protocol_running.is_set()
+        assert session.is_protocol_running is False
 
     def test_get_layer_configs_delegates(self):
         session = self._make_session()
@@ -676,13 +676,13 @@ class TestScopeSession:
         assert obj_id == '4x'
         assert obj['magnification'] == 10
 
-    def test_protocol_running_event(self):
+    def test_protocol_running_derives_from_the_claim(self):
         session = self._make_session()
-        assert not session.protocol_running.is_set()
-        session.protocol_running.set()
-        assert session.protocol_running.is_set()
-        session.protocol_running.clear()
-        assert not session.protocol_running.is_set()
+        assert session.is_protocol_running is False
+        assert session.activity_claim.try_claim('protocol')
+        assert session.is_protocol_running is True
+        session.activity_claim.release('protocol')
+        assert session.is_protocol_running is False
 
     def test_start_executors(self):
         io = MagicMock()

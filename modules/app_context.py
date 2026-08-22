@@ -94,7 +94,6 @@ class AppContext:
 
     # State
     protocol: object = None  # Protocol instance (canonical owner, not UI)
-    protocol_running: object = None  # threading.Event
     engineering_mode: bool = False
     no_engineering: bool = (
         False  # --no-engineering CLI flag; suppresses engineering plugin auto-enable

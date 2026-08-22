@@ -262,7 +262,6 @@ if __name__ == '__main__':
     from kivy.input.motionevent import MotionEvent
     from kivy.metrics import dp
     from kivy.properties import (
-        AliasProperty,
         BooleanProperty,
         ListProperty,
         ObjectProperty,
@@ -433,29 +432,38 @@ class LumaViewProApp(TooltipMixin, App):
 
     kv_file = 'ui/lumaviewpro.kv'
 
-    # UI mirror of ctx.protocol_running (a worker-thread Event) so kv
-    # `disabled:` bindings can react to it -- a threading.Event cannot be
-    # bound in kv. The Event stays authoritative for worker-thread reads;
-    # this property is written only on the Kivy main thread when a run
-    # starts and stops, so widgets grey out for the duration of a scan.
+    # kv mirrors of the session's run-state derivations, published by
+    # the ONE run-state listener below (worker-side truth lives on the
+    # session; a kv binding cannot read it directly). protocol_running
+    # carries the run lockout (a run or its post-run file drain);
+    # recording_active carries a LIVE manual recording; controls_locked
+    # is the full-surface lock. Never add a second per-site flag --
+    # bind to these.
     protocol_running = BooleanProperty(False)
-
-    # UI mirror of the manual-recording controller's selection-open
-    # state, written only on the Kivy main thread (the session claim
-    # stays authoritative for worker-thread arbitration).
     recording_active = BooleanProperty(False)
+    controls_locked = BooleanProperty(False)
 
-    def _get_controls_locked(self):
-        return self.protocol_running or self.recording_active
+    def publish_run_state(self, dt=0):
+        """Write the three kv mirrors from the session derivations.
 
-    # THE one derived lock every full-lockout kv binding reads: an
-    # exclusive activity (protocol run OR live recording) locks the
-    # control surface; only the record/stop toggle stays actionable
-    # during a recording. Never add a second per-site flag -- bind to
-    # this.
-    controls_locked = AliasProperty(
-        _get_controls_locked, None, bind=['protocol_running', 'recording_active']
-    )
+        One closure writes all three, in fail-safe order: Kivy
+        dispatches bindings synchronously inside each setattr, so a
+        handler observing a torn pair must see OVER-locked, never
+        under-locked -- the tightening property writes first on lock,
+        last on unlock.
+        """
+        session = ctx.session
+        run_lockout = session.run_lockout
+        recording = session.exclusive_activity == 'recording' and session.recording_capturing
+        locked = session.controls_locked
+        if locked:
+            self.controls_locked = True
+            self.protocol_running = run_lockout
+            self.recording_active = recording
+        else:
+            self.protocol_running = run_lockout
+            self.recording_active = recording
+            self.controls_locked = False
 
     def on_start(self) -> None:
         """Kivy lifecycle hook: fires after build() and before the main loop runs."""
@@ -473,6 +481,15 @@ class LumaViewProApp(TooltipMixin, App):
             ui_dispatcher=Clock.schedule_once,
         )
         ctx.ui_listener_bridge.register_all()
+
+        # The ONE run-state listener: session transitions (claim
+        # grant/release, file-drain exit, scope rebind) schedule a
+        # single main-thread closure that re-reads the derivations at
+        # fire time and writes the three kv mirrors. Level-read at
+        # fire time means out-of-order delivery degrades to bounded
+        # staleness, never a permanently wrong publish; registration
+        # itself level-syncs the mirrors to current truth.
+        ctx.session.add_run_state_listener(lambda: Clock.schedule_once(self.publish_run_state, 0))
 
         # Slow idle refresh (1Hz) for display elements that may change without motion
         # (e.g., labware selection, stage offset changes)
@@ -858,9 +875,8 @@ class LumaViewProApp(TooltipMixin, App):
 
         sweep_recording_scratch(settings['live_folder'])
 
-        # GUI-independent scope session; persisted to ctx.session and
-        # ctx.protocol_running so other methods read off ctx.
-        protocol_running_global = threading.Event()
+        # GUI-independent scope session; persisted to ctx.session so
+        # other methods read off ctx.
         scope_session = ScopeSession(
             settings=settings,
             scope=lumaview.scope,
@@ -875,8 +891,6 @@ class LumaViewProApp(TooltipMixin, App):
             # already unlocked.
             file_io_executor=file_io_executor,
         )
-        scope_session.protocol_running = protocol_running_global
-
         # Register executors so scope.X_async / scope.X_sync methods can
         # dispatch without callers passing executor handles.
         lumaview.scope.register_executors(
@@ -945,7 +959,6 @@ class LumaViewProApp(TooltipMixin, App):
             stage=stage,
             cell_count_content=cell_count_content,
             graphing_controls=graphing_controls,
-            protocol_running=protocol_running_global,
             engineering_mode=ENGINEERING_MODE,
             no_engineering=no_engineering,
             show_tooltips=show_tooltips,

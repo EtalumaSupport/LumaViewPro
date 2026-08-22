@@ -30,7 +30,7 @@ import typing
 
 import modules.common_utils as common_utils
 import modules.image_mode as image_mode_module
-from modules.exceptions import ConfigError
+from modules.exceptions import ConfigError, ProtocolRunRefusedError
 from modules.protocol import Protocol
 from modules.sequenced_capture_runner import SequencedCaptureRunner, SequencedCaptureRunMode
 from modules.sequential_io_executor import SequentialIOExecutor
@@ -281,7 +281,6 @@ class ProtocolRunner:
             if user_complete:
                 user_complete(**kwargs)
             self._completion_event.set()
-            self.session.protocol_running.clear()
 
         merged_callbacks['run_complete'] = _on_complete
 
@@ -316,18 +315,24 @@ class ProtocolRunner:
             **config_helpers.get_sequenced_run_settings(self.session.settings),
         )
 
-        # Commit caller-side running state only between a successful
-        # prepare and start: a refusal above raises before anything here
-        # is set, so there is no refusal-rollback path and
-        # wait_for_completion() can never wait on a run that was refused.
+        # Run-state truth is the session claim, committed inside
+        # start()'s gate-and-commit -- a refusal means no state changed.
+        # The completion event is caller convenience, re-armed here and
+        # restored on a start()-stage refusal: for the already-running
+        # race the prior state was cleared (a live rival run resolves it
+        # when its run_complete fires -- every _run wires the same
+        # shared event), and for a claim refusal (e.g. a recording
+        # holds the scope) the prior state was set, so restoring it lets
+        # wait_for_completion return immediately instead of hanging on a
+        # run that never started.
+        completion_was_set = self._completion_event.is_set()
         self._completion_event.clear()
-        self.session.protocol_running.set()
-        # No rollback on a start()-race refusal: the refusal means another
-        # run is LIVE, so protocol_running=True stays truthful, and the
-        # completion event resolves when that live run's run_complete fires
-        # (each _run wires the same shared event). Clearing here would
-        # falsely signal the live run's completion to its own waiters.
-        self._executor.start(plan)
+        try:
+            self._executor.start(plan)
+        except ProtocolRunRefusedError:
+            if completion_was_set:
+                self._completion_event.set()
+            raise
 
     # ------------------------------------------------------------------
     # Status
@@ -344,7 +349,6 @@ class ProtocolRunner:
         self._protocol_thread.abort()
         self._executor.reset()
         self._completion_event.set()
-        self.session.protocol_running.clear()
 
     def wait_for_completion(self, timeout: float | None = None) -> bool:
         """Block until the run completes. Returns True if completed, False on timeout."""

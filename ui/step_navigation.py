@@ -174,11 +174,11 @@ def go_to_step(
         # Capture called_from_protocol in the closure so the UI-thread
         # callback knows whether this is a protocol-cycle invocation
         # (skip accordion-open) or a manual-navigation one (do it).
-        # Reading ctx.protocol_running.is_set() inside the UI callback
-        # races at protocol-end: the last step's scheduled callback can
-        # fire AFTER cleanup clears protocol_running, see the cleared
-        # flag, and open the last-step's accordion (Red on a 4-channel
-        # protocol). Closure-capture is race-free.
+        # Reading the run-lockout state inside the UI callback races
+        # at protocol-end: the last step's scheduled callback can fire
+        # AFTER cleanup releases the lockout, see it clear, and open
+        # the last-step's accordion (Red on a 4-channel protocol).
+        # Closure-capture is race-free.
         _schedule_ui(
             lambda dt: go_to_step_update_ui(step, called_from_protocol=called_from_protocol),
             0,
@@ -263,7 +263,7 @@ def go_to_step_update_ui(step, called_from_protocol: bool = False):
     # visually expanded without this call. Protocol-cycle invocations
     # skip the call entirely (the in-protocol guard inside
     # set_expanded_layer has a race at protocol-end: the last step's
-    # UI-scheduled callback runs after protocol_running clears,
+    # UI-scheduled callback runs after the run lockout releases,
     # leaving the accordion stuck on the last step's color).
     if not called_from_protocol:
         ctx.image_settings.set_expanded_layer(layer=color)
@@ -286,8 +286,8 @@ def go_to_step_update_ui(step, called_from_protocol: bool = False):
     # executor. Outside a run the listener bridge is the sole button writer,
     # reflecting driver truth -- a forced 'down' here would go stale and any
     # later apply_settings(update_led=True) would re-light the channel.
-    # "During protocol" is the RUNNER's truth, not ctx.protocol_running: that
-    # lockout flag deliberately stays set through the post-run writing-files
+    # "During protocol" is the RUNNER's truth, not the run lockout: the
+    # lockout deliberately holds through the post-run writing-files
     # window, when stepping is manual and no LED event will ever correct a
     # forced 'down' left here.
     if ctx.sequenced_capture_runner.run_in_progress():

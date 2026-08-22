@@ -1227,7 +1227,12 @@ class MicroscopeSettings(BoxLayout):
             protocol_settings.select_labware(labware='Center Plate')
             ctx.motion_settings.ids['post_processing_id'].hide_stitch()
 
-        ctx.stage.set_motion_capability(enabled=selected_scope_config['XYStage'])
+        # The one writer of the XY-stage configuration fact; user stage
+        # motion derives from it (session.motion_enabled), so there is
+        # no per-run capability write to mis-restore on a stage-less
+        # scope. Republish so the derivation's consumers see the edge.
+        ctx.session.xystage_configured = selected_scope_config['XYStage']
+        ctx.session.notify_run_state()
         ctx.stage.set_xy_stage_capability(enabled=selected_scope_config['XYStage'])
 
         # Size the protocol-tab stage holder to its width-based aspect for

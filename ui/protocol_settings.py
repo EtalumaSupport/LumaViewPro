@@ -48,11 +48,9 @@ from ui.ui_helpers import (
     _update_step_number_callback,
     live_histo_off,
     live_histo_reverse,
-    publish_protocol_running,
     reset_acquire_ui,
     reset_stim_ui,
     reset_title,
-    run_committed_start,
     run_with_refusal_boundary,
     set_last_save_folder,
     set_recording_title,
@@ -1408,61 +1406,35 @@ class ProtocolSettings(FloatLayout):
 
         return self._protocol.step(idx=self.curr_step)
 
-    @staticmethod
-    def _publish_protocol_running(running: bool) -> None:
-        """Delegate to the one canonical publisher in ui_helpers (other
-        widgets need it too); kept as a method so the many local call
-        sites and their pins stay stable."""
-        publish_protocol_running(running)
-
     def _reset_run_autofocus_scan_button(self, **kwargs):
-        ctx = _app_ctx.ctx
-        protocol_running_global = ctx.protocol_running
-        protocol_running_global.clear()
-        self._publish_protocol_running(False)
-
         self.ids['run_autofocus_btn'].state = 'normal'
         self.ids['run_autofocus_btn'].text = 'Autofocus All Steps'
         self.ids['run_autofocus_btn'].disabled = False
-        ctx.stage.set_motion_capability(True)
 
     def _reset_run_scan_button(self, **kwargs):
-        ctx = _app_ctx.ctx
-        protocol_running_global = ctx.protocol_running
-        protocol_running_global.clear()
-        self._publish_protocol_running(False)
         self.ids['run_scan_btn'].state = 'normal'
         self.ids['run_scan_btn'].text = 'Run One Scan'
         self.ids['run_scan_btn'].disabled = False
-        ctx.stage.set_motion_capability(True)
 
     def _reset_run_protocol_button(self, **kwargs):
-        ctx = _app_ctx.ctx
-        protocol_running_global = ctx.protocol_running
-        protocol_running_global.clear()
-        self._publish_protocol_running(False)
         self.ids['run_protocol_btn'].state = 'normal'
         self.ids['run_protocol_btn'].text = 'Run Full Protocol'
         self.ids['run_protocol_btn'].disabled = False
         self.ids[
             'run_protocol_btn'
         ].background_down = 'atlas://data/images/defaulttheme/button_pressed'
-        ctx.stage.set_motion_capability(True)
 
     def _commit_running_ui_state(
         self, button_id: str, text: str, background_down: str | None = None
     ):
-        """Commit the shared "a run is now underway" UI state.
+        """Commit the shared "a run is now underway" BUTTON state.
 
-        Runs between the runner's prepare and start, so running-state
-        commits only once the run can no longer be refused -- a refusal
-        never leaves the event set or motion locked. One implementation
-        for every starter so the commit set cannot drift between them.
+        Run-state truth is the session claim, committed inside start()
+        and mirrored to kv by the session's run-state listener; what
+        remains caller-side is the starter button's cosmetics. Runs
+        between prepare and start so a refusal never leaves a button
+        mid-run.
         """
-        ctx = _app_ctx.ctx
-        ctx.protocol_running.set()
-        self._publish_protocol_running(True)
-        ctx.stage.set_motion_capability(False)
         self.ids[button_id].text = text
         if background_down is not None:
             self.ids[button_id].background_down = background_down
@@ -1472,10 +1444,10 @@ class ProtocolSettings(FloatLayout):
     ):
         """Undo a starter's pre-gate button cosmetics after a run did NOT start.
 
-        Deliberately does NOT touch protocol_running or motion capability:
-        a refused start never committed them, and when the refusal is due
-        to a rival LIVE run, that run still owns them -- the full reset
-        primitives above would unlock stage motion under a running scan.
+        Cosmetics only: run-state truth is the session claim, which a
+        refused start never touched, and the kv lockout mirrors follow
+        the session's run-state listener -- there is nothing else for a
+        refusal to undo.
         """
         self.ids[button_id].state = 'normal'
         self.ids[button_id].text = text
@@ -1662,10 +1634,8 @@ class ProtocolSettings(FloatLayout):
 
             live_histo_off()
 
-            # Not-started paths undo cosmetics only: no running-state was
-            # committed, and a rival live run may own protocol_running /
-            # motion capability -- the full reset would unlock the stage
-            # under that run's scan.
+            # Not-started paths undo cosmetics only: run-state truth is
+            # the session claim, which a refusal never touched.
             def run_refused_func():
                 self._reset_run_button_cosmetics('run_autofocus_btn', 'Autofocus All Steps')
                 live_histo_reverse()
@@ -1697,16 +1667,9 @@ class ProtocolSettings(FloatLayout):
                 return
 
             def commit_ui_state():
-                # Runs between the runner's prepare and start (inside the
-                # restoring boundary, so a start()-stage refusal unwinds
-                # it). The AF scan engages the FULL guard set including the
-                # Event: worker-thread guards (turret home, motion, file
-                # dialogs) key on the Event, not the kv mirror, and an AF
-                # scan owns the stage exactly like any run. Its reset
-                # already clears the Event -- set and clear are symmetric.
-                ctx.protocol_running.set()
-                ctx.stage.set_motion_capability(False)
-                self._publish_protocol_running(True)
+                # Button cosmetics only: the run-state commit is the
+                # session claim inside start(), and the kv mirrors
+                # follow from the session's run-state listener.
                 self.ids['run_autofocus_btn'].text = 'Running Autofocus Scan'
 
             settings = _app_ctx.ctx.settings
@@ -1767,7 +1730,8 @@ class ProtocolSettings(FloatLayout):
                     leds_state_at_end='off',
                     video_as_frames=settings['video_as_frames'],
                 )
-                run_committed_start(commit_ui_state, lambda: sequenced_capture_runner.start(plan))
+                commit_ui_state()
+                sequenced_capture_runner.start(plan)
 
             run_with_refusal_boundary(prepare_and_start, on_refused=run_refused_func)
         except Exception as e:
@@ -1785,12 +1749,9 @@ class ProtocolSettings(FloatLayout):
         # all-dark restore emits no LED events to correct it.
         ctx.ui_listener_bridge.reconcile_led_buttons()
 
-        # Don't reset protocol_running_global yet - keep it True until files complete
-
         # Reset completion event for this scan (thread-safe)
         self._scan_files_completed_event.clear()
 
-        protocol_running_global = ctx.protocol_running
         file_io_executor = ctx.file_io_executor
 
         # Check if files are still being written
@@ -1815,12 +1776,10 @@ class ProtocolSettings(FloatLayout):
             set_title_event_text('Writing protocol scan files to disk...')
         else:
             # No files pending - proceed with normal reset
-            protocol_running_global.clear()
             self._reset_run_scan_button()
             live_histo_reverse()
             reset_acquire_ui()
             self.reset_autofocus_ui()
-            ctx.stage.set_motion_capability(True)
 
     def _update_file_write_status(self, dt):
         """Update UI to show file writing progress."""
@@ -1839,8 +1798,6 @@ class ProtocolSettings(FloatLayout):
 
     def _scan_files_complete(self, **kwargs):
         """Called when ALL files are written to disk (deferred callback)."""
-        ctx = _app_ctx.ctx
-
         # Guard against multiple calls using thread-safe event
         if self._scan_files_completed_event.is_set():
             return
@@ -1850,9 +1807,6 @@ class ProtocolSettings(FloatLayout):
         if hasattr(self, '_file_write_status_event') and self._file_write_status_event:
             Clock.unschedule(self._file_write_status_event)
             self._file_write_status_event = None
-
-        protocol_running_global = ctx.protocol_running
-        protocol_running_global.clear()
 
         # Now actually reset the button
         self._reset_run_scan_button()
@@ -1865,7 +1819,6 @@ class ProtocolSettings(FloatLayout):
         live_histo_reverse()
         reset_acquire_ui()
         self.reset_autofocus_ui()
-        ctx.stage.set_motion_capability(True)
         reset_title()
 
     _scan_starting = False  # Re-entry guard for double-click prevention
@@ -1887,10 +1840,8 @@ class ProtocolSettings(FloatLayout):
         run_complete_func = self._scan_run_complete
         run_not_started_func = self._reset_run_scan_button
 
-        # Not-started paths undo cosmetics only: no running-state was
-        # committed, and a rival live run may own protocol_running /
-        # motion capability -- the full reset would unlock the stage
-        # under that run's scan.
+        # Not-started paths undo cosmetics only: run-state truth is
+        # the session claim, which a refusal never touched.
         def run_refused_func():
             self._reset_run_button_cosmetics('run_scan_btn', 'Run One Scan')
 
@@ -1973,12 +1924,9 @@ class ProtocolSettings(FloatLayout):
         # now that the run's LED restore has settled.
         ctx.ui_listener_bridge.reconcile_led_buttons()
 
-        # Don't reset protocol_running_global yet - keep it True until files complete
-
         # Reset completion event for this run (thread-safe)
         self._scan_files_completed_event.clear()
 
-        protocol_running_global = ctx.protocol_running
         file_io_executor = ctx.file_io_executor
 
         # Check if files are still being written
@@ -2003,12 +1951,10 @@ class ProtocolSettings(FloatLayout):
             set_title_event_text('Writing protocol scan files to disk...')
         else:
             # No files pending - proceed with normal reset
-            protocol_running_global.clear()
             self._reset_run_protocol_button()
             live_histo_reverse()
             reset_acquire_ui()
             self.reset_autofocus_ui()
-            ctx.stage.set_motion_capability(True)
             # Auto-run opted-in post_processing plugins. Mirrors the
             # files-pending path's call from _protocol_files_complete.
             self._dispatch_post_processing_auto_run(ctx, **kwargs)
@@ -2042,9 +1988,6 @@ class ProtocolSettings(FloatLayout):
             Clock.unschedule(self._file_write_status_event)
             self._file_write_status_event = None
 
-        protocol_running_global = ctx.protocol_running
-        protocol_running_global.clear()
-
         # Reset the protocol button
         self._reset_run_protocol_button()
 
@@ -2056,7 +1999,6 @@ class ProtocolSettings(FloatLayout):
         live_histo_reverse()
         reset_acquire_ui()
         self.reset_autofocus_ui()
-        ctx.stage.set_motion_capability(True)
         reset_title()
 
         # Auto-run post_processing plugins that opted in.
@@ -2113,10 +2055,8 @@ class ProtocolSettings(FloatLayout):
             ctx = _app_ctx.ctx
             sequenced_capture_runner = ctx.sequenced_capture_runner
 
-            # Not-started paths undo cosmetics only: no running-state was
-            # committed, and a rival live run may own protocol_running /
-            # motion capability -- the full reset would unlock the stage
-            # under that run's scan.
+            # Not-started paths undo cosmetics only: run-state truth is
+            # the session claim, which a refusal never touched.
             def run_refused_func():
                 self._reset_run_button_cosmetics(
                     'run_protocol_btn',
@@ -2359,9 +2299,8 @@ class ProtocolSettings(FloatLayout):
             **config_helpers.get_sequenced_run_settings(settings),
         )
         if commit_ui_state is not None:
-            run_committed_start(commit_ui_state, lambda: sequenced_capture_runner.start(plan))
-        else:
-            sequenced_capture_runner.start(plan)
+            commit_ui_state()
+        sequenced_capture_runner.start(plan)
 
         # A start() that failed during setup unwound as a failed run: it
         # nulled run_dir (set_last_save_folder no-ops on None) and cleared
@@ -2415,7 +2354,6 @@ class ProtocolSettings(FloatLayout):
                 self._reset_run_protocol_button()
                 self._reset_run_scan_button()
                 self._reset_run_autofocus_scan_button()
-                ctx.stage.set_motion_capability(True)
 
             # LED observer handles UI button sync after protocol -- no manual refresh needed
 

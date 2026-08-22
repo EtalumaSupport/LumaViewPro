@@ -635,7 +635,7 @@ class ImageSettings(BoxLayout):
         # Live-mode accordion switches whenever the user had previously
         # enabled Protocol LEDs On. Live-mode users then saw a
         # previously-enabled channel's LED stay lit until they enabled
-        # the new channel (issue #659). Gating on protocol_running.is_set
+        # the new channel (issue #659). Gating on the run lockout
         # collapses both checks and matches the original intent.
         # set_expanded_layer() already bails for programmatic paths; this
         # covers the user-click path so a mid-capture click doesn't kill

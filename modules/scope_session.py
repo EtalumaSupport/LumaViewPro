@@ -16,7 +16,6 @@ Usage
     session = ScopeSession.create_headless(settings=settings)
 """
 
-import threading
 from typing import TYPE_CHECKING
 
 from lvp_logger import logger
@@ -68,7 +67,6 @@ class ScopeSession:
             executor_bundle.file_io_executor if executor_bundle else None
         )
 
-        self.protocol_running = threading.Event()
         self.focus_round = 0
         # Run-state listeners: zero-argument callables notified on every
         # run-state transition edge (claim grant/release, file-drain
@@ -127,12 +125,14 @@ class ScopeSession:
 
     @property
     def is_protocol_running(self) -> bool:
-        """True while a protocol or scan is running.
+        """True while a protocol-class run holds the exclusive claim.
 
-        Canonical read of the protocol-running state for callers holding a
-        session handle, so they need not reach into the underlying Event.
+        Scans, full protocols, zstacks, and autofocus runs all hold the
+        'protocol' claim, so all read True here. The claim releases at
+        run-cleanup end; the post-run file drain is visible on
+        run_lockout / protocol_files_draining, not here.
         """
-        return self.protocol_running.is_set()
+        return self.activity_claim.owner == 'protocol'
 
     # ------------------------------------------------------------------
     # Run-state facts and derivations

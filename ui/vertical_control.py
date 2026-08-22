@@ -31,8 +31,6 @@ from ui.ui_helpers import (
     move_absolute,
     move_home,
     move_relative,
-    publish_protocol_running,
-    run_committed_start,
     run_with_refusal_boundary,
 )
 
@@ -422,18 +420,6 @@ class VerticalControl(BoxLayout):
         except Exception:
             logger.debug('[AF] defensive AF-thread abort at completion failed', exc_info=True)
 
-    def _autofocus_files_complete(self, **kwargs):
-        # The run's lockout release. It rides files-complete, not
-        # run-complete: an engineering-mode AF-data write drains on the
-        # protocol file queue after the run ends, and the guard set
-        # holds until the queue empties, exactly like every run. On a
-        # data-less run the two fire back to back. Idempotent, so the
-        # abort path re-firing it is harmless.
-        ctx = _app_ctx.ctx
-        ctx.protocol_running.clear()
-        publish_protocol_running(False)
-        ctx.stage.set_motion_capability(True)
-
     def run_autofocus_from_ui(self):
         try:
             gui_logger.button('AUTOFOCUS')
@@ -524,19 +510,9 @@ class VerticalControl(BoxLayout):
             )
             af_sequence = ctx.scope.protocols.create_protocol(input_config=config)
 
-            def commit_ui_state():
-                # Runs between prepare and start (inside the restoring
-                # boundary, so a start()-stage refusal unwinds it). The
-                # standalone scan engages the full guard set -- Event,
-                # kv mirror, stage motion -- exactly like every run.
-                ctx.protocol_running.set()
-                ctx.stage.set_motion_capability(False)
-                publish_protocol_running(True)
-
             callbacks = {
                 'move_position': _handle_ui_update_for_axis,
                 'run_complete': self._autofocus_run_complete,
-                'files_complete': self._autofocus_files_complete,
             }
 
             def prepare_and_start():
@@ -562,7 +538,7 @@ class VerticalControl(BoxLayout):
                     leds_state_at_end='off',
                     video_as_frames=settings['video_as_frames'],
                 )
-                run_committed_start(commit_ui_state, lambda: runner.start(plan))
+                runner.start(plan)
 
             run_with_refusal_boundary(prepare_and_start, on_refused=run_refused_func)
         except Exception as e:

@@ -56,9 +56,9 @@ class UIListenerBridge:
             scope: ``Lumascope`` API instance -- listener-add methods
                 are called on this.
             ctx: ``AppContext`` -- UI widget lookups (motion_settings,
-                image_settings) and runtime flags (ready, settings,
-                protocol_running) read from here so a widget rebuild
-                doesn't strand the bridge.
+                image_settings) and runtime state (ready, settings,
+                session) read from here so a widget rebuild doesn't
+                strand the bridge.
             stage: Stage widget -- the position listener calls
                 ``stage.draw_labware()`` on XY motion.
             ui_dispatcher: Callable matching

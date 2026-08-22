@@ -43,14 +43,14 @@ class Stage(Widget):
         logger.debug('[LVP Main  ] Stage.__init__()')
         self.ROI_min = [0, 0]
         self.ROI_max = [0, 0]
-        # Two independent flags, deliberately separate:
-        #   _motion_enabled -- transient interaction lock; cleared while a
-        #     protocol/scan runs so stage clicks are blocked mid-run.
-        #   _has_xy_stage -- static scope capability. The crosshair indicates a
-        #     live XY position, so it is meaningless (and hidden) only on scopes
-        #     with no XY stage. It must NOT track the run lock, or the crosshair
-        #     vanishes whenever a protocol runs on a scope that has a stage.
-        self._motion_enabled = True
+        # _has_xy_stage -- static scope capability. The crosshair
+        # indicates a live XY position, so it is meaningless (and
+        # hidden) only on scopes with no XY stage. It must NOT track
+        # the run lock, or the crosshair vanishes whenever a protocol
+        # runs on a scope that has a stage. The interaction lock itself
+        # is not stored here: motion_capability() derives from the
+        # session (config declares a stage AND no run lockout), so
+        # there is no per-run write to strand or mis-restore.
         self._has_xy_stage = True
         self.ROIs = []
 
@@ -134,11 +134,9 @@ class Stage(Widget):
         self.ROI_max = [x_max, y_max]
         self.ROIs.append([self.ROI_min, self.ROI_max])
 
-    def set_motion_capability(self, enabled: bool):
-        self._motion_enabled = enabled
-
     def motion_capability(self) -> bool:
-        return self._motion_enabled
+        session = getattr(_app_ctx.ctx, 'session', None)
+        return session.motion_enabled if session is not None else True
 
     def set_xy_stage_capability(self, enabled: bool):
         self._has_xy_stage = enabled
@@ -146,7 +144,7 @@ class Stage(Widget):
     def on_touch_down(self, touch):
         logger.debug('[LVP Main  ] Stage.on_touch_down()')
 
-        if not self._motion_enabled:
+        if not self.motion_capability():
             return
 
         if self.collide_point(*touch.pos) and (touch.button == 'left' or touch.button == 'right'):
@@ -807,7 +805,7 @@ class Stage(Widget):
 
             #  Red Crosshairs
             # ------------------
-            if self._motion_enabled:
+            if self.motion_capability():
                 io_executor.put(
                     IOTask(
                         action=self.motion_enabled_io,
