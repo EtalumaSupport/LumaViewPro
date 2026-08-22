@@ -1,4 +1,3 @@
 4.0.0-beta30
-2026-08-22 15:10
-mariam-enhance-image-folder-labels-fix
-d25b4601
+2026-08-22 15:26
+4.0.0-beta
