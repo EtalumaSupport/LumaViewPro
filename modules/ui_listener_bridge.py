@@ -177,7 +177,7 @@ class UIListenerBridge:
         def _update_camera_ui(dt, p=param, v=value):
             if not ctx.ready:
                 return
-            if ctx.protocol_running.is_set():
+            if ctx.session.is_protocol_running:
                 return
             opened_layer = common_utils.get_opened_layer(ctx.image_settings)
             if not opened_layer:

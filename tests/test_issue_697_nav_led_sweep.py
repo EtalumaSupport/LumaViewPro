@@ -180,6 +180,7 @@ def _reconcile_harness(guard_set):
     ctx = SimpleNamespace(
         initializing=False,
         protocol_running=threading.Event(),
+        session=SimpleNamespace(run_lockout=False),
         scope=SimpleNamespace(illumination=MagicMock()),
     )
     # 'Green' collapsed with its LED enabled (the channel the reconcile

@@ -299,8 +299,7 @@ class LayerControl(BoxLayout):
 
     def ill_slider(self):
         settings = _app_ctx.ctx.settings
-        protocol_running_global = _app_ctx.ctx.protocol_running
-        if protocol_running_global.is_set():
+        if _app_ctx.ctx.session.run_lockout:
             return
         # Early return on programmatic updates (#617): when another code
         # path sets ill_slider.value directly (load_settings, ill_text,
@@ -525,8 +524,7 @@ class LayerControl(BoxLayout):
 
     def gain_slider(self):
         settings = _app_ctx.ctx.settings
-        protocol_running_global = _app_ctx.ctx.protocol_running
-        if protocol_running_global.is_set():
+        if _app_ctx.ctx.session.run_lockout:
             return
         # See ill_slider -- programmatic updates must not re-enter (#617).
         if self._initializing:
@@ -565,8 +563,7 @@ class LayerControl(BoxLayout):
 
     def exp_slider(self):
         settings = _app_ctx.ctx.settings
-        protocol_running_global = _app_ctx.ctx.protocol_running
-        if protocol_running_global.is_set():
+        if _app_ctx.ctx.session.run_lockout:
             return
         # See ill_slider -- programmatic updates must not re-enter (#617).
         if self._initializing:
@@ -1220,7 +1217,6 @@ class LayerControl(BoxLayout):
             return
 
         settings = ctx.settings
-        protocol_running_global = ctx.protocol_running
         camera_executor = ctx.camera_executor
         from ui.image_settings import set_histogram_layer
 
@@ -1247,7 +1243,7 @@ class LayerControl(BoxLayout):
                 # the bus only for a layer that is actually on -- no cycle on
                 # a plain slider move, and this layer's own LED is never
                 # disturbed (its current is owned by update_led_state).
-                if not protocol_running_global.is_set():
+                if not ctx.session.run_lockout:
                     for layer in common_utils.get_layers():
                         if layer == self.layer:
                             continue
@@ -1278,7 +1274,7 @@ class LayerControl(BoxLayout):
                 finally:
                     LayerControl._suppressing_led_log = False
 
-        if protocol_running_global.is_set():
+        if ctx.session.run_lockout:
             # Protocol actively running -- capture() handles camera settings
             # per-step. Don't apply here to avoid duplicate commands (#587/#588).
             logger.debug(
@@ -1310,7 +1306,7 @@ class LayerControl(BoxLayout):
             set_histogram_layer(active_layer=self.layer)
 
         # Queue IO task and update UI after completing IO
-        if update_led and not protocol_running_global.is_set():
+        if update_led and not ctx.session.run_lockout:
             self.update_led_state(apply_settings=False)
 
         disable_leds_for_other_layers()
@@ -1321,7 +1317,7 @@ class LayerControl(BoxLayout):
         exposure = settings[self.layer]['exp_ms']
         gain = settings[self.layer]['gain_db']
 
-        if not protocol_running_global.is_set():
+        if not ctx.session.run_lockout:
             # Effective enable = saved preference gated by camera capability
             # (effective_auto_gain): on a camera without hardware AG/AE the
             # control is hidden, so a stored True must read as off here -- else

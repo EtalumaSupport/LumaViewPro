@@ -2225,9 +2225,11 @@ class ProtocolSettings(FloatLayout):
         self,
         **kwargs,
     ):
-        protocol_running_global = _app_ctx.ctx.protocol_running
-
-        if not protocol_running_global.is_set():
+        # The session's protocol truth drops BOTH stale-callback shapes:
+        # a callback landing after the run ended, and one landing in the
+        # post-run drain window (owner already freed) that would clobber
+        # the "Writing Files..." text.
+        if not _app_ctx.ctx.session.is_protocol_running:
             return
 
         remaining_scans = kwargs['remaining_scans']

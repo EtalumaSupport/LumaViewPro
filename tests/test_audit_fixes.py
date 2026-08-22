@@ -1240,9 +1240,9 @@ class TestIssue605_AccordionLEDProtocol:
         idx = source.find('def _do_accordion_collapse')
         assert idx != -1
         body = source[idx : idx + 2500]
-        assert 'protocol_running.is_set()' in body, (
-            'accordion_collapse must skip LED cleanup when a protocol is '
-            'running so the step LED stays on (#605)'
+        assert 'session.run_lockout' in body, (
+            'accordion_collapse must skip LED cleanup while a run owns the '
+            'LEDs so the step LED stays on (#605)'
         )
 
 
@@ -2280,8 +2280,8 @@ class TestF7_ProtocolHomingInterlock:
         idx = source.find('def home(self):')
         assert idx != -1
         method_body = source[idx : idx + 300]
-        assert 'protocol_running.is_set()' in method_body, (
-            'Z home() must check protocol_running before homing (F7)'
+        assert 'session.controls_locked' in method_body, (
+            'Z home() must check the exclusive-activity lock before homing (F7)'
         )
 
     def test_goto_bookmark_checks_protocol_running(self):
@@ -2292,8 +2292,8 @@ class TestF7_ProtocolHomingInterlock:
         idx = source.find('def goto_bookmark(self):')
         assert idx != -1
         method_body = source[idx : idx + 300]
-        assert 'protocol_running.is_set()' in method_body, (
-            'goto_bookmark() must check protocol_running (F7)'
+        assert 'session.controls_locked' in method_body, (
+            'goto_bookmark() must check the exclusive-activity lock (F7)'
         )
 
     def test_turret_home_checks_protocol_running(self):
@@ -2304,8 +2304,8 @@ class TestF7_ProtocolHomingInterlock:
         idx = source.find('def turret_home(self):')
         assert idx != -1
         method_body = source[idx : idx + 300]
-        assert 'protocol_running.is_set()' in method_body, (
-            'turret_home() must check protocol_running (F7)'
+        assert 'session.controls_locked' in method_body, (
+            'turret_home() must check the exclusive-activity lock (F7)'
         )
 
     def test_xy_home_checks_protocol_running(self):
@@ -2317,8 +2317,8 @@ class TestF7_ProtocolHomingInterlock:
         idx = source.find('def home(self):')
         assert idx != -1
         method_body = source[idx : idx + 300]
-        assert 'protocol_running.is_set()' in method_body, (
-            'XY home() must check protocol_running before homing (F7)'
+        assert 'session.controls_locked' in method_body, (
+            'XY home() must check the exclusive-activity lock before homing (F7)'
         )
 
 

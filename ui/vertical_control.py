@@ -144,7 +144,7 @@ class VerticalControl(BoxLayout):
             overshoot_enabled: Enable backlash compensation overshoot.
         """
         ctx = _app_ctx.ctx
-        if ctx.protocol_running.is_set():
+        if ctx.session.controls_locked:
             return
         label = f'Z_{"COARSE" if coarse else "FINE"}_{"UP" if direction > 0 else "DOWN"}'
         gui_logger.button(label)
@@ -175,7 +175,7 @@ class VerticalControl(BoxLayout):
 
     def set_position(self, pos):
         ctx = _app_ctx.ctx
-        if ctx.protocol_running.is_set():
+        if ctx.session.controls_locked:
             return
 
         logger.info('[LVP Main  ] VerticalControl.set_position()')
@@ -225,7 +225,7 @@ class VerticalControl(BoxLayout):
     def goto_bookmark(self):
         gui_logger.button('GOTO_Z_BOOKMARK')
         ctx = _app_ctx.ctx
-        if ctx.protocol_running.is_set():
+        if ctx.session.controls_locked:
             return
         logger.info('[LVP Main  ] VerticalControl.goto_bookmark()')
         with ctx.settings_lock:
@@ -237,7 +237,7 @@ class VerticalControl(BoxLayout):
         try:
             gui_logger.button('HOME_Z')
             ctx = _app_ctx.ctx
-            if ctx.protocol_running.is_set():
+            if ctx.session.controls_locked:
                 return
             logger.info('[LVP Main  ] VerticalControl.home()')
             move_home(axis='Z')
@@ -266,7 +266,7 @@ class VerticalControl(BoxLayout):
                 return
 
             # Only log objective changes from user interaction, not protocol
-            if not ctx.protocol_running or not ctx.protocol_running.is_set():
+            if not ctx.session.is_protocol_running:
                 gui_logger.select('OBJECTIVE', objective_id)
             logger.info('[LVP Main  ] VerticalControl.select_objective()')
 
@@ -575,7 +575,7 @@ class VerticalControl(BoxLayout):
     def turret_home(self):
         gui_logger.button('HOME_TURRET')
         ctx = _app_ctx.ctx
-        if ctx.protocol_running.is_set():
+        if ctx.session.controls_locked:
             return
 
         def _on_turret_homed():

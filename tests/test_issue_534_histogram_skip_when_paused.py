@@ -60,8 +60,8 @@ def test_histogram_skips_when_preview_paused():
 def test_histogram_skips_during_protocol():
     method = _histogram_method()
     src = ast.unparse(method)
-    assert 'protocol_running' in src and 'is_set' in src, (
-        'Histogram.histogram must check ctx.protocol_running.is_set() '
+    assert 'run_lockout' in src, (
+        'Histogram.histogram must check session.run_lockout '
         'to skip the histogram work during a protocol acquisition. (#534)'
     )
 
@@ -89,7 +89,7 @@ def test_guards_run_before_camera_read():
     for i, unparsed in body_indices:
         if play_guard_idx == -1 and 'scope_display' in unparsed and '.play' in unparsed:
             play_guard_idx = i
-        if protocol_guard_idx == -1 and 'protocol_running' in unparsed and 'is_set' in unparsed:
+        if protocol_guard_idx == -1 and 'run_lockout' in unparsed:
             protocol_guard_idx = i
         if camera_read_idx == -1 and 'get_image_from_buffer' in unparsed:
             camera_read_idx = i
@@ -124,10 +124,10 @@ def test_guards_are_early_returns():
         return any(isinstance(inner, ast.Return) and inner.value is None for inner in stmt.body)
 
     play_ok = any(is_if_with_bare_return(s, ('scope_display', '.play')) for s in method.body)
-    proto_ok = any(is_if_with_bare_return(s, ('protocol_running', 'is_set')) for s in method.body)
+    proto_ok = any(is_if_with_bare_return(s, ('run_lockout',)) for s in method.body)
 
     assert play_ok, (
         'scope_display.play guard must be `if ...: return` (early-return '
         'shape), not a conditional that falls through. (#534)'
     )
-    assert proto_ok, 'protocol_running guard must be `if ...: return` (early-return shape). (#534)'
+    assert proto_ok, 'run-lockout guard must be `if ...: return` (early-return shape). (#534)'

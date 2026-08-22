@@ -140,7 +140,7 @@ def test_postprocessing_funnel_blocks_during_protocol():
     body = _method_in_class(src, 'FolderChooseBTN', 'on_selection_function')
     assert body is not None, 'FolderChooseBTN.on_selection_function missing'
     assert '_POST_PROCESSING_CONTEXTS' in body
-    assert 'protocol_running.is_set' in body.replace(' ', '')
+    assert 'session.run_lockout' in body.replace(' ', '')
     assert 'notifications.warning' in body
     guard_idx = body.find('_POST_PROCESSING_CONTEXTS')
     dispatch_idx = body.find('apply_composite_gen_to_folder')
@@ -162,11 +162,11 @@ def test_quick_enhance_image_funnel_blocks_during_protocol():
     src = _read('ui/file_dialogs.py')
     body = _method_in_class(src, 'FileChooseBTN', 'on_selection_function')
     assert body is not None, 'FileChooseBTN.on_selection_function missing'
-    assert 'protocol_running.is_set' in body.replace(' ', ''), (
-        'the file-choose funnel must refuse post-processing selections mid-protocol'
+    assert 'session.run_lockout' in body.replace(' ', ''), (
+        'the file-choose funnel must refuse post-processing selections mid-run-lockout'
     )
     assert 'notifications.warning' in body
-    guard_idx = body.replace(' ', '').find('protocol_running.is_set')
+    guard_idx = body.replace(' ', '').find('session.run_lockout')
     dispatch_idx = body.replace(' ', '').find('set_source_file')
     assert guard_idx != -1 and dispatch_idx != -1 and guard_idx < dispatch_idx, (
         'the protocol-running guard must run before the quick-enhance dispatch'

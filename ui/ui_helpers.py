@@ -137,7 +137,7 @@ def find_nearest_step(x, y, protocol):
 def scope_leds_off(no_callback: bool = False):
     """Turn off all LEDs. UI sync is handled by the LED observer."""
     ctx = _app_ctx.ctx
-    if ctx.protocol_running.is_set():
+    if ctx.session.run_lockout:
         return
 
     # LED observer handles UI button sync -- no manual callback needed.

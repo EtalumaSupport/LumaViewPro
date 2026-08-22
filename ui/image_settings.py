@@ -147,7 +147,7 @@ class ImageSettings(BoxLayout):
         """
 
         # Skip accordion toggling during protocol execution to prevent memory leaks
-        if _app_ctx.ctx.protocol_running.is_set():
+        if _app_ctx.ctx.session.run_lockout:
             return
 
         gui_logger.select('IMAGE_LAYER', layer)
@@ -546,7 +546,7 @@ class ImageSettings(BoxLayout):
 
     # Hide (and unhide) main settings
     def toggle_settings(self):
-        if not _app_ctx.ctx.protocol_running.is_set():
+        if not _app_ctx.ctx.session.run_lockout:
             self.update_transmitted()
         # State after toggle reflects target visibility -- 'normal' = settings
         # tab going invisible (panel collapsing to side), 'down' = expanding.
@@ -640,7 +640,7 @@ class ImageSettings(BoxLayout):
         # set_expanded_layer() already bails for programmatic paths; this
         # covers the user-click path so a mid-capture click doesn't kill
         # the running-step LED or apply a different layer's settings.
-        if ctx.protocol_running.is_set():
+        if ctx.session.run_lockout:
             return
 
         # Issue #637: opening/closing the drawer must not send anything to

@@ -145,7 +145,7 @@ void main (void) {
             # event, so there is nothing to go stale.
             if 'ctrl' in Window.modifiers:
                 # Focus control -- accumulate scroll ticks, debounce into single move
-                if ctx.protocol_running.is_set():
+                if ctx.session.controls_locked:
                     return
 
                 try:

@@ -1142,7 +1142,7 @@ class LumaViewProApp(TooltipMixin, App):
         Returns:
             True to prevent window close (popup shown); False to allow close.
         """
-        protocol_running = ctx.protocol_running.is_set()
+        protocol_running = ctx.session.run_lockout
         # Crash-forensics: log the close request to BOTH the main log
         # (so post-mortem can correlate against the shutdown sequence)
         # and the GUI interactions log (so the gui-log timeline names

@@ -49,7 +49,7 @@ def test_enhance_picker_routes_files_and_folders_after_the_protocol_guard():
     body = _class_method_source(
         'ui/file_dialogs.py', 'FileOrFolderChooseBTN', 'on_selection_function'
     )
-    guard_idx = body.find('protocol_running.is_set')
+    guard_idx = body.find('session.run_lockout')
     folder_idx = body.find('path.is_dir')
     file_idx = body.find('path.is_file')
     assert guard_idx != -1 and guard_idx < folder_idx < file_idx

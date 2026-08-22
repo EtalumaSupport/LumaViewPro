@@ -41,7 +41,7 @@ class TestAccordionCollapseLedOffInLiveMode:
     """Lock the fix shape for #659.
 
     The standalone ``protocol_led_on`` early-return guard is gone; only
-    ``protocol_running.is_set()`` gates the leds_off skip. Otherwise
+    ``session.run_lockout`` gates the leds_off skip. Otherwise
     Live-mode accordion-switching incorrectly preserves the previous
     channel's LED whenever the user had enabled Protocol LEDs On in a
     prior session.
@@ -50,7 +50,7 @@ class TestAccordionCollapseLedOffInLiveMode:
     def test_no_standalone_protocol_led_on_guard(self):
         body = _do_accordion_collapse_source()
         # The buggy shape was: if ctx.settings.get('protocol_led_on', False): return
-        # The fixed shape is: only the protocol_running.is_set() guard remains.
+        # The fixed shape is: only the run-lockout guard remains.
         # Detect the buggy shape via AST so the test fails if it returns.
         tree = ast.parse(body)
         for node in ast.walk(tree):
@@ -79,7 +79,7 @@ class TestAccordionCollapseLedOffInLiveMode:
                         'This skips LED cleanup in Live mode whenever '
                         'the user had previously enabled Protocol LEDs '
                         'On, causing #659 (LED stuck after accordion '
-                        'switch). Gate on ctx.protocol_running.is_set() '
+                        'switch). Gate on ctx.session.run_lockout '
                         'instead.'
                     )
 
@@ -88,9 +88,9 @@ class TestAccordionCollapseLedOffInLiveMode:
         # The protocol-active guard must remain so step_navigation's
         # LED-on for the current step survives accordion-collapse events
         # fired during the step transition.
-        assert 'protocol_running.is_set()' in body, (
-            '_do_accordion_collapse must still skip LED cleanup when a '
-            "protocol is actively running. Without this, step_navigation's "
+        assert 'session.run_lockout' in body, (
+            '_do_accordion_collapse must still skip LED cleanup while a '
+            "run owns the LEDs. Without this, step_navigation's "
             'LED-on for the current step would be killed by the accordion-'
             'collapse event that fires when set_expanded_layer opens the '
             "step's channel (#605)."

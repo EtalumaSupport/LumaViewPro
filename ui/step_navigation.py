@@ -143,7 +143,7 @@ def go_to_step(
             f'step_auto_gain={step["Auto_Gain"]!r} '
             f'camera_gain={_curr_gain} camera_exp={_curr_exp} '
             f'called_from_protocol={called_from_protocol} '
-            f'protocol_running={ctx.protocol_running.is_set()}'
+            f'protocol_running={ctx.session.is_protocol_running}'
         )
 
         if not called_from_protocol:
