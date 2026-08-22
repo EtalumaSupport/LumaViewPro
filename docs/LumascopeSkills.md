@@ -204,6 +204,26 @@ session.start_application_session(disable_homing=True)  # skip homing, still pos
 
 `start_application_session()` is the single source of truth for the standard startup orchestration the GUI runs on launch: it queues an all-axis `move_home` on the io_executor (firmware homes Z/T/X/Y in one routine; Z-only boards home what they have), then, when the scope has a turret, moves the T-axis to the position matching `settings['objective_id']` (falling back to position 1). Headless / REST callers should use this rather than open-coding the home + turret sequence. `disable_homing=True` skips the home step (matches the App's `--no-home` flag) but still positions the turret.
 
+### Periodic metrics logging (optional)
+
+```python
+session.start_metrics()   # start periodic runtime-health logging
+session.stop_metrics()    # stop it (idempotent; shutdown() calls this too)
+```
+
+The session owns the metrics-logger lifecycle. Metrics start only when the
+host injected a scheduler at construction (`ScopeSession(...,
+metrics_scheduler=ThreadingTimerScheduler())` for REST / headless hosts;
+the GUI injects a Kivy-clock scheduler) — with no scheduler,
+`start_metrics()` is a no-op, so factory-built sessions keep metrics off
+unless the host opts in. `settings['profiling']['metrics_interval_s']`
+overrides the default hourly cadence. `start_metrics()` raises
+`RuntimeError` if metrics are already running; `stop_metrics()` is
+idempotent. After a scope rebind (`set_scope`), running metrics move to
+the new scope automatically — same scheduler, same cadence. These members
+are host-serialized: call them from one thread (the GUI uses its main
+thread only).
+
 ### Hardware commands from L2
 
 The Session carries no hardware-command forwarders: every command has

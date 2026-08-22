@@ -49,9 +49,22 @@ class ScopeSession:
         autofocus_thread=None,
         z_ui_update_func=None,
         owns_executors: bool = False,
+        metrics_scheduler=None,
     ):
         self.settings = settings
         self.scope = scope
+        # The MetricsLogger lives on the scope, but its scheduler is a
+        # host choice (Kivy Clock vs threading timers), so the host
+        # injects it here and the session owns start/stop/restart --
+        # including moving running metrics onto a new scope at
+        # set_scope. None (the factory default) means metrics never
+        # start: the pre-existing headless contract.
+        self._metrics_scheduler = metrics_scheduler
+        # The one store for "metrics are running"; start_metrics /
+        # stop_metrics are its only writers. Host-serialized (main
+        # thread in the GUI): a threaded host must serialize
+        # start_metrics / stop_metrics / set_scope itself.
+        self._metrics_started = False
         self.io_executor = io_executor
         self.camera_executor = camera_executor
         self.wellplate_loader = wellplate_loader
@@ -200,12 +213,25 @@ class ScopeSession:
                 f'{busy_with} owns the hardware; stop it and let it finish '
                 f'before reconnecting'
             )
+        # Capture the OLD logger before the scope handle is reassigned:
+        # after the swap, self.scope.metrics_logger is the NEW one, and
+        # stopping that instead would leave the old ticks running
+        # beside the restarted logger (double-ticking).
+        old_metrics_logger = self.scope.metrics_logger if self._metrics_started else None
         self._register_scope_services(scope)
         self.scope = scope
         self.manual_recording.set_scope(scope)
         self.sequenced_capture_runner.set_scope(scope)
         if self.autofocus_runner is not None:
             self.autofocus_runner.set_scope(scope)
+        if old_metrics_logger is not None:
+            # Metrics were running: move them to the new scope with the
+            # same scheduler and cadence. The old logger's system and
+            # watchdog ticks survive a disconnect (they read
+            # host-lifetime objects), so they must be stopped here.
+            self._metrics_started = False
+            old_metrics_logger.stop()
+            self.start_metrics()
         # Level republish: listeners registered before the swap re-read
         # the derivations against the new scope's world.
         self.notify_run_state()
@@ -602,8 +628,9 @@ class ScopeSession:
     # session.scope.runtime_state.* -- so every command has exactly one
     # public spelling and the Session owns only what is session-scoped:
     # lifecycle (create / start_executors / shutdown /
-    # start_application_session), the protocol runner, run-state
-    # queries, and the settings-composition getters above.
+    # start_application_session / start_metrics / stop_metrics), the
+    # protocol runner, run-state queries, and the settings-composition
+    # getters above.
 
     # ------------------------------------------------------------------
     # Protocol runner
@@ -634,6 +661,59 @@ class ScopeSession:
         self.io_executor.start()
         self.camera_executor.start()
 
+    def start_metrics(self) -> None:
+        """Start the scope's periodic metrics logging.
+
+        Uses the scheduler the host injected at construction (no
+        scheduler: no-op -- headless sessions never start metrics) and
+        the ``settings.profiling.metrics_interval_s`` cadence override
+        when present. A scope whose MetricsLogger failed to construct
+        (that failure is logged as a warning at construction) is
+        tolerated as a no-op: metrics are observability, not a reason
+        to fail the session lifecycle.
+
+        Raises:
+            RuntimeError: Metrics are already running. A second
+                ``MetricsLogger.start`` silently overwrites its
+                schedule handles and orphans the first set as
+                untracked, forever-ticking events -- so a double start
+                refuses loudly instead.
+        """
+        if self._metrics_scheduler is None:
+            return
+        if self._metrics_started:
+            raise RuntimeError(
+                'ScopeSession.start_metrics: metrics are already running; '
+                'a second start would orphan the existing schedule handles'
+            )
+        metrics_logger = self.scope.metrics_logger
+        if metrics_logger is None:
+            logger.warning(
+                '[ScopeSession] start_metrics: the scope has no MetricsLogger; '
+                'periodic metrics stay off'
+            )
+            return
+        start_kwargs = {}
+        interval_s = self.settings.get('profiling', {}).get('metrics_interval_s')
+        if interval_s is not None:
+            start_kwargs['system_metrics_interval_s'] = float(interval_s)
+        metrics_logger.start(self._metrics_scheduler, **start_kwargs)
+        self._metrics_started = True
+
+    def stop_metrics(self) -> None:
+        """Stop the scope's periodic metrics logging. Idempotent.
+
+        Never shuts the scheduler itself down -- a shut scheduler
+        refuses all future schedules, and set_scope must be able to
+        restart metrics on the next scope with the same instance.
+        """
+        if not self._metrics_started:
+            return
+        self._metrics_started = False
+        metrics_logger = self.scope.metrics_logger
+        if metrics_logger is not None:
+            metrics_logger.stop()
+
     def shutdown_executors(self) -> None:
         """Shut down the IO and camera executors."""
         self.io_executor.shutdown()
@@ -653,8 +733,10 @@ class ScopeSession:
         drives io + camera + file lanes). A non-owning session still
         stops the handles the caller passed in (io, camera, and the AF
         thread) -- not-owner is not a no-op -- but never the host's
-        bundle.
+        bundle. Running metrics stop first, or their ticks would
+        outlive the executors they snapshot.
         """
+        self.stop_metrics()
         if self.autofocus_thread is not None:
             self.autofocus_thread.stop(timeout=2.0)
         if not self._owns_executors:

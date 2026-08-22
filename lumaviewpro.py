@@ -650,25 +650,14 @@ class LumaViewProApp(TooltipMixin, App):
         # the noise of repeating those facts every tick.
         config_helpers.log_environment_once()
 
-        # Lumascope.__init__ constructs the MetricsLogger so REST and headless
-        # callers share the same surface; the session registered the executor
-        # bundle on the scope at construction. Here we start the logger with a
-        # KivyClockScheduler; REST entry points wire a ThreadingTimerScheduler
-        # instead.
-        from modules.scheduler import KivyClockScheduler
-
-        ctx.metrics_logger = lumaview.scope.metrics_logger
-        if ctx.metrics_logger is not None:
-            # settings.profiling.metrics_interval_s overrides the default
-            # 3600 s cadence. Set to 30-60 s for short-soak leak hunts
-            # (gen2_depth + handle/thread counts are usable signals at
-            # sub-minute granularity; hourly is fine for production).
-            _prof = ctx.settings.get('profiling', {})
-            _metrics_interval = _prof.get('metrics_interval_s', None)
-            _start_kwargs = {}
-            if _metrics_interval is not None:
-                _start_kwargs['system_metrics_interval_s'] = float(_metrics_interval)
-            ctx.metrics_logger.start(KivyClockScheduler(Clock), **_start_kwargs)
+        # The session owns the metrics lifecycle (it holds the injected
+        # KivyClockScheduler and restarts metrics on the new scope at
+        # every reconnect); settings.profiling.metrics_interval_s
+        # overrides the default 3600 s cadence -- set 30-60 s for
+        # short-soak leak hunts (gen2_depth + handle/thread counts are
+        # usable signals at sub-minute granularity; hourly is fine for
+        # production).
+        ctx.session.start_metrics()
 
         # The atexit emergency-shutdown hook is registered in Lumascope.__init__
         # so every Lumascope user gets the same safety net automatically.
@@ -849,6 +838,8 @@ class LumaViewProApp(TooltipMixin, App):
         # callbacks to the Kivy main thread without importing Kivy themselves.
         from kivy.clock import Clock
 
+        from modules.scheduler import KivyClockScheduler
+
         _ui = Clock.schedule_once
 
         # Also set the global dispatcher for kivy_utils.schedule_ui()
@@ -916,6 +907,7 @@ class LumaViewProApp(TooltipMixin, App):
             autofocus_runner=autofocus_runner,
             autofocus_thread=autofocus_thread,
             z_ui_update_func=_handle_autofocus_ui,
+            metrics_scheduler=KivyClockScheduler(Clock),
         )
         sequenced_capture_runner = scope_session.sequenced_capture_runner
 
@@ -1265,10 +1257,9 @@ class LumaViewProApp(TooltipMixin, App):
         # the camera-temp tick don't survive into shutdown and try to
         # log against torn-down hardware.
         try:
-            if ctx.metrics_logger is not None:
-                ctx.metrics_logger.stop()
+            ctx.session.stop_metrics()
         except Exception as e:  # grain: ignore NAKED_EXCEPT
-            logger.warning(f'[LVP Main  ] metrics_logger stop failed during shutdown: {e}')
+            logger.warning(f'[LVP Main  ] metrics stop failed during shutdown: {e}')
 
         ctx.motion_settings.ids['protocol_settings_id'].cancel_all_protocols()
         # The abort above only signals; the hardware teardown (LED off,
