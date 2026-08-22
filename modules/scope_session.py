@@ -129,6 +129,8 @@ class ScopeSession:
             autofocus_runner=autofocus_runner,
             z_ui_update_func=z_ui_update_func,
             activity_claim=self.activity_claim,
+            coordinate_transformer=coordinate_transformer,
+            wellplate_loader=wellplate_loader,
         )
         self._protocol_runner = None
 

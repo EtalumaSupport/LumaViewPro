@@ -431,7 +431,7 @@ def test_session_recover_file_writer_passthrough():
 
     from modules.scope_session import ScopeSession
 
-    bundle = SimpleNamespace(file_io_executor=MagicMock())
+    bundle = SimpleNamespace(file_io_executor=MagicMock(), protocol_thread=MagicMock())
     session = ScopeSession(
         settings={},
         scope=MagicMock(),

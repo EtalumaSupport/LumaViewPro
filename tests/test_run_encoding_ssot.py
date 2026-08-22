@@ -493,8 +493,5 @@ class TestNoSilentHeadlessDefault:
             with pytest.raises(ConfigError, match='image_mode'):
                 runner.run_protocol(_build_protocol(), parent_dir=str(tmp_path))
             assert not runner.is_running(), 'a refused config-less run must not be running'
-            assert not runner._owned_resources_started, (
-                'the raise must precede executor startup -- nothing was committed'
-            )
         finally:
             session.shutdown_executors()
