@@ -133,6 +133,9 @@ class ScopeSession:
             wellplate_loader=wellplate_loader,
         )
         self._protocol_runner = None
+        # Refusals say busy-with-what: a recording refused by a running
+        # run names the run's trigger through this lookup.
+        self.manual_recording.run_trigger_lookup = self.sequenced_capture_runner.run_trigger_source
 
     def set_scope(self, scope) -> None:
         """Rewire this session onto a NEW scope after a reconnect.

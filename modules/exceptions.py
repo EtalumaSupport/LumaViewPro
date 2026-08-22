@@ -38,13 +38,29 @@ class ProtocolRunRefusedError(ProtocolError):
             refusals to responses (REST status codes, UI branches).
         title: The notification title already shown to the user.
         message: The notification body already shown to the user.
+        holder: The exclusive-activity claim owner at refusal time
+            ('protocol' or 'recording'), or None when the refusal is
+            not claim-shaped (validation, hardware, file drain).
+        holder_trigger: Busy-with-what for run-shaped holders: the
+            holding (or, for a file-drain refusal, the just-finished)
+            run's run_trigger_source. None when the holder is not a
+            run -- a recording has no trigger; its kind IS the holder.
     """
 
-    def __init__(self, reason: str, title: str, message: str):
+    def __init__(
+        self,
+        reason: str,
+        title: str,
+        message: str,
+        holder: 'str | None' = None,
+        holder_trigger: 'str | None' = None,
+    ):
         super().__init__(f'{reason}: {message}')
         self.reason = reason
         self.title = title
         self.message = message
+        self.holder = holder
+        self.holder_trigger = holder_trigger
 
 
 class RecordingRefusedError(CaptureError):
@@ -64,13 +80,26 @@ class RecordingRefusedError(CaptureError):
             refusals to responses (REST status codes, UI branches).
         title: Short user-facing refusal title.
         message: One-sentence user-facing refusal body.
+        holder: The exclusive-activity claim owner at refusal time, or
+            None when the refusal is not claim-shaped.
+        holder_trigger: The holding run's run_trigger_source when the
+            holder is 'protocol'; a recording holder has no trigger.
     """
 
-    def __init__(self, reason: str, title: str, message: str):
+    def __init__(
+        self,
+        reason: str,
+        title: str,
+        message: str,
+        holder: 'str | None' = None,
+        holder_trigger: 'str | None' = None,
+    ):
         super().__init__(f'{reason}: {message}')
         self.reason = reason
         self.title = title
         self.message = message
+        self.holder = holder
+        self.holder_trigger = holder_trigger
 
 
 class HardwareCommandRefusedError(Exception):

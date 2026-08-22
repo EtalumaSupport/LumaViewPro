@@ -161,6 +161,11 @@ class TestClaimRefusalLeavesNoState:
                     image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
                 )
             assert excinfo.value.reason == 'exclusive_activity_running'
+            # The refusal says busy-with-what: the holder's KIND rides
+            # the payload (a recording has no trigger; its kind is the
+            # whole answer).
+            assert excinfo.value.holder == 'recording'
+            assert excinfo.value.holder_trigger is None
 
             assert not runner.is_running()
             assert not session.is_protocol_running, (

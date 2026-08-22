@@ -563,7 +563,13 @@ class SequencedCaptureRunner:
         return lease
 
     def _refuse(
-        self, reason: str, title: str, message: str, severity: str = 'warning'
+        self,
+        reason: str,
+        title: str,
+        message: str,
+        severity: str = 'warning',
+        holder: 'str | None' = None,
+        holder_trigger: 'str | None' = None,
     ) -> typing.NoReturn:
         """Log, notify once, and raise the typed refusal.
 
@@ -576,7 +582,13 @@ class SequencedCaptureRunner:
 
         notify = notifications.error if severity == 'error' else notifications.warning
         notify('Protocol', title, message)
-        raise ProtocolRunRefusedError(reason=reason, title=title, message=message)
+        raise ProtocolRunRefusedError(
+            reason=reason,
+            title=title,
+            message=message,
+            holder=holder,
+            holder_trigger=holder_trigger,
+        )
 
     def prepare(
         self,
@@ -628,6 +640,8 @@ class SequencedCaptureRunner:
                     reason='already_running',
                     title='Already Running',
                     message='A protocol run is already in progress.',
+                    holder='protocol',
+                    holder_trigger=self._run_trigger_source,
                 )
 
         if self.file_io_executor.is_protocol_queue_active():
@@ -636,6 +650,7 @@ class SequencedCaptureRunner:
             # itself lives with the UI gate helper and the Session method.
             if self.file_io_executor.protocol_drain_stalled(WRITE_STALL_FATAL_S):
                 self._refuse(
+                    holder_trigger=self._run_trigger_source,
                     reason='files_writing_stalled',
                     title='File Writer Stalled',
                     message=(
@@ -649,8 +664,13 @@ class SequencedCaptureRunner:
                 reason='files_writing',
                 title='Files Still Writing',
                 message="Previous run's files are still being written. Please wait.",
+                holder_trigger=self._run_trigger_source,
             )
 
+        # Nearly vestigial now that a standalone autofocus is itself a
+        # run (already_running fires first) -- kept deliberately for the
+        # abort-tail window where the AF thread is still winding down
+        # after the run flag clears.
         # A live interactive autofocus owns the Z axis and the LED lease;
         # starting a run under it would contest Z motion and steal
         # illumination mid-sweep (dark AF frames, garbage focus). An AF
@@ -849,6 +869,8 @@ class SequencedCaptureRunner:
                     reason='already_running',
                     title='Already Running',
                     message='A protocol run is already in progress.',
+                    holder='protocol',
+                    holder_trigger=self._run_trigger_source,
                 )
 
             if not self._activity_claim.try_claim('protocol'):
@@ -869,6 +891,8 @@ class SequencedCaptureRunner:
                     reason='exclusive_activity_running',
                     title=title,
                     message=message,
+                    holder=holder,
+                    holder_trigger=(self._run_trigger_source if holder == 'protocol' else None),
                 )
             self._activity_claim_held = True
 

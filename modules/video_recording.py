@@ -208,11 +208,16 @@ class VideoRecordingEngine:
         claim: ExclusivityClaim,
         clock: Callable[[], float],
         notify: Any = None,
+        run_trigger_lookup: 'Callable[[], str | None] | None' = None,
     ):
         self._write_frame = write_frame
         self._claim = claim
         self._clock = clock
         self._notify = notify
+        # Busy-with-what for the claim refusal below: when a run holds
+        # the claim, the refusal names the run's trigger. Kind stays the
+        # runner's job -- the claim carries only the owner.
+        self._run_trigger_lookup = run_trigger_lookup
         # One lock covers selection state and counters. ingest_frame runs
         # on the camera ingest thread, stop()/start() on callers' threads,
         # and the writer lane decrements the pending count -- all under
@@ -288,6 +293,10 @@ class VideoRecordingEngine:
                     message='A recording is already in progress. Stop it, then record again.',
                 )
             if not self._claim.try_claim('recording'):
+                holder = self._claim.owner
+                holder_trigger = None
+                if holder == 'protocol' and self._run_trigger_lookup is not None:
+                    holder_trigger = self._run_trigger_lookup()
                 raise RecordingRefusedError(
                     reason='exclusive_activity_running',
                     title='Another Activity Running',
@@ -295,6 +304,8 @@ class VideoRecordingEngine:
                         'Another exclusive activity is using the microscope. '
                         'Let it finish, then start the recording.'
                     ),
+                    holder=holder,
+                    holder_trigger=holder_trigger,
                 )
             self._claim_owner = 'recording'
             try:
