@@ -234,14 +234,15 @@ class TestCommittedStartRestore:
 
 
 class TestStandaloneAfLockout:
-    """The standalone Autofocus button engages the full protocol guard
-    set for its duration (D16 ruling). Ownership is a generation token:
-    the exits (completion callback, abort cleanup, safety timer) may all
-    fire, in any order, possibly after a NEWER AF acquired -- only the
-    release carrying the current generation acts, exactly once, and it
-    restores the pre-acquire snapshot rather than clearing."""
+    """The standalone Autofocus button is a RUN: it engages the full
+    protocol guard set through the same commit shape as every starter
+    (commit between prepare and start, inside the restoring boundary),
+    and the run's own lifecycle releases it (files-complete, so the
+    engineering AF-data drain holds the guard set like every run). The
+    old generation-token wrapper died when the button became a run --
+    the claim + refusal gates make a rival-overlap unrepresentable."""
 
-    def _ctx(self, event_preset=False, motion=True):
+    def _ctx(self):
         import threading
         import types
 
@@ -253,8 +254,6 @@ class TestStandaloneAfLockout:
         ctx = _app_ctx.ctx
         self._saved = (getattr(ctx, 'protocol_running', None), getattr(ctx, 'stage', None))
         ctx.protocol_running = threading.Event()
-        if event_preset:
-            ctx.protocol_running.set()
 
         class _Stage:
             def __init__(self, enabled):
@@ -266,7 +265,7 @@ class TestStandaloneAfLockout:
             def set_motion_capability(self, enabled):
                 self._enabled = enabled
 
-        ctx.stage = _Stage(motion)
+        ctx.stage = _Stage(True)
         return ctx
 
     def _unctx(self):
@@ -278,69 +277,100 @@ class TestStandaloneAfLockout:
         ctx = _app_ctx.ctx
         ctx.protocol_running, ctx.stage = self._saved
 
-    def test_acquire_engages_release_restores(self):
-        from ui import vertical_control as vc
+    def test_files_complete_releases_the_guard_set(self):
+        from ui.vertical_control import VerticalControl
 
         ctx = self._ctx()
+        ctx.protocol_running.set()
+        ctx.stage.set_motion_capability(False)
         try:
-            gen = vc._acquire_af_lockout()
-            assert ctx.protocol_running.is_set()
-            assert ctx.stage.motion_capability() is False
-            vc._release_af_lockout(gen)
+            VerticalControl._autofocus_files_complete(mock.Mock())
             assert not ctx.protocol_running.is_set()
             assert ctx.stage.motion_capability() is True
         finally:
             self._unctx()
 
-    def test_stale_release_cannot_unlock_a_newer_af(self):
-        from ui import vertical_control as vc
+    @staticmethod
+    def _starter_def():
+        import ast
 
-        ctx = self._ctx()
-        try:
-            gen1 = vc._acquire_af_lockout()
-            vc._release_af_lockout(gen1)
-            gen2 = vc._acquire_af_lockout()
-            vc._release_af_lockout(gen1)  # stale exit from AF #1
-            assert ctx.protocol_running.is_set(), 'stale release must not unlock AF #2'
-            vc._release_af_lockout(gen2)
-            assert not ctx.protocol_running.is_set()
-        finally:
-            self._unctx()
+        import tests.ast_seams as ast_seams
 
-    def test_double_release_is_single_shot(self):
-        from ui import vertical_control as vc
+        node = ast_seams.find_def(
+            'ui/vertical_control.py', 'run_autofocus_from_ui', class_name='VerticalControl'
+        )
+        assert node is not None, 'run_autofocus_from_ui not found'
+        return ast, node
 
-        ctx = self._ctx()
-        try:
-            gen = vc._acquire_af_lockout()
-            vc._release_af_lockout(gen)
-            ctx.protocol_running.set()  # a rival acquires between the two exits
-            vc._release_af_lockout(gen)
-            assert ctx.protocol_running.is_set(), 'second release must no-op'
-        finally:
-            self._unctx()
+    def test_commit_ordered_after_every_refusal_gate(self):
+        ast, node = self._starter_def()
+        first_line: dict[str, int] = {}
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Call):
+                name = (
+                    sub.func.attr
+                    if isinstance(sub.func, ast.Attribute)
+                    else getattr(sub.func, 'id', '')
+                )
+                if name in ('run_in_progress', 'require_file_writes_idle', 'run_committed_start'):
+                    first_line.setdefault(name, sub.lineno)
+            elif isinstance(sub, ast.FunctionDef) and sub.name == 'commit_ui_state':
+                first_line.setdefault('commit_ui_state', sub.lineno)
+        assert (
+            0
+            < first_line.get('run_in_progress', 0)
+            < first_line.get('require_file_writes_idle', 0)
+            < first_line.get('commit_ui_state', 0)
+        ), (
+            'running-state commit must be defined only after the '
+            'rival-run and files-idle gates; a commit before a refusal '
+            'strands it'
+        )
+        assert 'run_committed_start' in first_line, (
+            'the standalone AF start must commit through the restoring '
+            'boundary so a start()-stage refusal unwinds the guard set'
+        )
 
-    def test_release_restores_a_rival_held_event(self):
-        from ui import vertical_control as vc
+    def test_standalone_af_commit_sets_the_event(self):
+        ast, node = self._starter_def()
+        commit_def = next(
+            (
+                sub
+                for sub in ast.walk(node)
+                if isinstance(sub, ast.FunctionDef) and sub.name == 'commit_ui_state'
+            ),
+            None,
+        )
+        assert commit_def is not None
+        sets_event = any(
+            isinstance(sub, ast.Call) and ast.unparse(sub.func) == 'ctx.protocol_running.set'
+            for sub in ast.walk(commit_def)
+        )
+        assert sets_event, (
+            'the standalone AF commit must engage the worker-thread '
+            'guard set, not only the kv mirror'
+        )
 
-        ctx = self._ctx(event_preset=True, motion=False)
-        try:
-            gen = vc._acquire_af_lockout()
-            vc._release_af_lockout(gen)
-            assert ctx.protocol_running.is_set(), 'restore must keep a rival-held Event held'
-            assert ctx.stage.motion_capability() is False
-        finally:
-            self._unctx()
-
-    def test_acquire_ordered_after_every_refusal_gate(self):
-        src = (REPO / 'ui' / 'vertical_control.py').read_text()
-        body = src[src.find('def run_autofocus_from_ui') :]
-        gates = body.find('run_in_progress()')
-        drain = body.find('require_file_writes_idle(')
-        acquire = body.find('_acquire_af_lockout()')
-        assert 0 < gates < drain < acquire, (
-            'the lockout must be acquired only after the protocol-running '
-            'and files-idle gates; an acquire before a refusal strands it'
+    def test_standalone_af_runs_through_the_engine(self):
+        ast, node = self._starter_def()
+        uses_run_mode = any(
+            isinstance(sub, ast.Attribute) and sub.attr == 'SINGLE_AUTOFOCUS_SCAN'
+            for sub in ast.walk(node)
+        )
+        assert uses_run_mode, (
+            'the standalone button must start a sequenced-capture run; '
+            'a direct AutofocusThread dispatch bypasses the claim, the '
+            'executor fencing, and the file queue the engineering '
+            'AF-data save rides on'
+        )
+        direct_dispatch = any(
+            isinstance(sub, ast.Call)
+            and isinstance(sub.func, ast.Attribute)
+            and sub.func.attr == 'run_autofocus'
+            for sub in ast.walk(node)
+        )
+        assert not direct_dispatch, (
+            'no direct AutofocusThread.run_autofocus dispatch from the standalone starter'
         )
 
     def test_af_scan_commit_sets_the_event(self):
