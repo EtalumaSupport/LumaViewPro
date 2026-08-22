@@ -44,6 +44,10 @@ class ScopeSession:
         source_path: str = '.',
         executor_bundle=None,
         file_io_executor=None,
+        protocol_thread=None,
+        autofocus_runner=None,
+        autofocus_thread=None,
+        z_ui_update_func=None,
     ):
         self.settings = settings
         self.scope = scope
@@ -98,6 +102,36 @@ class ScopeSession:
         if self.file_io_executor is not None:
             self.file_io_executor.add_protocol_idle_listener(self.notify_run_state)
 
+        # The run engine and its autofocus pair are SESSION-composed:
+        # one SequencedCaptureRunner per session, shared by the GUI,
+        # ProtocolRunner, and (later) REST -- a second engine instance
+        # would duplicate run state beside the shared claim. Hosts
+        # inject their own AF pair / protocol thread; bundle-building
+        # factories construct real ones; a bare session composes an
+        # engine with what it has (an AF-bearing run then refuses or
+        # fails loudly at the producer site).
+        self.protocol_thread = protocol_thread or (
+            executor_bundle.protocol_thread if executor_bundle else None
+        )
+        self.autofocus_runner = autofocus_runner
+        self.autofocus_thread = autofocus_thread
+        self.z_ui_update_func = z_ui_update_func
+        from modules.sequenced_capture_runner import SequencedCaptureRunner
+
+        self.sequenced_capture_runner = SequencedCaptureRunner(
+            scope=scope,
+            stage_offset=settings.get('stage_offset', {}),
+            io_executor=io_executor,
+            protocol_thread=self.protocol_thread,
+            file_io_executor=self.file_io_executor,
+            camera_executor=camera_executor,
+            autofocus_thread=autofocus_thread,
+            autofocus_runner=autofocus_runner,
+            z_ui_update_func=z_ui_update_func,
+            activity_claim=self.activity_claim,
+        )
+        self._protocol_runner = None
+
     def set_scope(self, scope) -> None:
         """Rewire this session onto a NEW scope after a reconnect.
 
@@ -119,6 +153,9 @@ class ScopeSession:
             )
         self.scope = scope
         self.manual_recording.set_scope(scope)
+        self.sequenced_capture_runner.set_scope(scope)
+        if self.autofocus_runner is not None:
+            self.autofocus_runner.set_scope(scope)
         # Level republish: listeners registered before the swap re-read
         # the derivations against the new scope's world.
         self.notify_run_state()
@@ -343,6 +380,13 @@ class ScopeSession:
                 'Check that data/objectives.json exists and is valid.',
             )
 
+        autofocus_runner, autofocus_thread = cls._build_autofocus_pair(
+            scope=scope,
+            camera_executor=camera_executor,
+            io_executor=io_executor,
+            file_io_executor=executor_bundle.file_io_executor if executor_bundle else None,
+        )
+
         return cls(
             settings=settings,
             scope=scope,
@@ -353,6 +397,8 @@ class ScopeSession:
             objective_helper=objective_helper,
             source_path=source_path,
             executor_bundle=executor_bundle,
+            autofocus_runner=autofocus_runner,
+            autofocus_thread=autofocus_thread,
         )
 
     @classmethod
@@ -417,6 +463,13 @@ class ScopeSession:
         # Register source_path (defaults to "." in headless).
         scope.protocols.register_source_path(source_path)
 
+        autofocus_runner, autofocus_thread = cls._build_autofocus_pair(
+            scope=scope,
+            camera_executor=executor_bundle.camera_executor,
+            io_executor=executor_bundle.io_executor,
+            file_io_executor=executor_bundle.file_io_executor,
+        )
+
         return cls(
             settings=settings,
             scope=scope,
@@ -424,7 +477,26 @@ class ScopeSession:
             camera_executor=executor_bundle.camera_executor,
             source_path=source_path,
             executor_bundle=executor_bundle,
+            autofocus_runner=autofocus_runner,
+            autofocus_thread=autofocus_thread,
         )
+
+    @staticmethod
+    def _build_autofocus_pair(*, scope, camera_executor, io_executor, file_io_executor):
+        """Real AF runner + started AF thread for a factory-built session,
+        so headless AF-bearing runs get the same wiring the GUI composes."""
+        from modules.autofocus_runner import AutofocusRunner
+        from modules.autofocus_thread import AutofocusThread
+
+        autofocus_runner = AutofocusRunner(
+            scope=scope,
+            camera_executor=camera_executor,
+            io_executor=io_executor,
+            file_io_executor=file_io_executor,
+        )
+        autofocus_thread = AutofocusThread(afe=autofocus_runner)
+        autofocus_thread.start()
+        return autofocus_runner, autofocus_thread
 
     # ------------------------------------------------------------------
     # Convenience wrappers (delegate to config_helpers / scope_commands)
@@ -501,15 +573,21 @@ class ScopeSession:
     # Protocol runner
     # ------------------------------------------------------------------
 
-    def create_protocol_runner(self, **kwargs) -> 'ProtocolRunner':
-        """Create a ProtocolRunner bound to this session.
+    def create_protocol_runner(self) -> 'ProtocolRunner':
+        """The session's one ProtocolRunner (memoized).
 
-        Returns a ProtocolRunner that can run scans and protocols
-        using this session's scope, settings, and executors.
+        Wraps the session-composed sequenced-capture engine; repeated
+        calls return the same instance. The accessor takes no
+        arguments: every dependency (engine, executors, autofocus
+        pair) is session composition, so there is nothing per-call to
+        configure -- and nothing for a second caller's differing
+        configuration to silently lose.
         """
         from modules.protocol_runner import ProtocolRunner
 
-        return ProtocolRunner(session=self, **kwargs)
+        if self._protocol_runner is None:
+            self._protocol_runner = ProtocolRunner(session=self)
+        return self._protocol_runner
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -538,6 +616,8 @@ class ScopeSession:
         caller's executors, only the handles the caller passed in are
         stopped; the caller owns the rest of its topology.
         """
+        if self.autofocus_thread is not None:
+            self.autofocus_thread.stop(timeout=2.0)
         bundle = self.executor_bundle
         if bundle is None:
             self.shutdown_executors()

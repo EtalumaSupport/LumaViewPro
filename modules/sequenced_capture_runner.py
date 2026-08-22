@@ -177,18 +177,10 @@ class SequencedCaptureRunner:
         self._grease_redistribution_event = threading.Event()
         self._grease_redistribution_event.set()
 
-        if autofocus_runner is None:
-            # Headless / test fallback. Caller may construct a private
-            # AFE that bypasses the AutofocusThread for unit tests that
-            # only need the protocol state machine.
-            self._autofocus_runner = AutofocusRunner(
-                scope=scope,
-                camera_executor=camera_executor,
-                io_executor=io_executor,
-                file_io_executor=file_io_executor,
-            )
-        else:
-            self._autofocus_runner = autofocus_runner
+        # May be None on a bare session: an AF-bearing step then fails
+        # loudly at its producer site rather than running against a
+        # half-wired private AFE nobody composed.
+        self._autofocus_runner = autofocus_runner
 
         self._scope = scope
         self._run_trigger_source = None
@@ -492,7 +484,10 @@ class SequencedCaptureRunner:
             writer.discard_video_pending()
 
     def protocol_interval(self):
-        return self._protocol.period()
+        # None before the first run: a status poller may ask before any
+        # protocol is loaded, and an AttributeError from a getter is a
+        # crash in a UI handler, not an answer.
+        return self._protocol.period() if self._protocol is not None else None
 
     def get_initial_autofocus_states(self, layer_configs: dict | None = None):
         states = {}

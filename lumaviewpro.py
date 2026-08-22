@@ -122,7 +122,6 @@ if __name__ == '__main__':
     from modules.autofocus_runner import AutofocusRunner
     from modules.autofocus_thread import AutofocusThread
     from modules.scope_session import ScopeSession
-    from modules.sequenced_capture_runner import SequencedCaptureRunner
 
     global profiling_helper
     profiling_helper = None
@@ -875,33 +874,6 @@ class LumaViewProApp(TooltipMixin, App):
 
         sweep_recording_scratch(settings['live_folder'])
 
-        # GUI-independent scope session; persisted to ctx.session so
-        # other methods read off ctx.
-        scope_session = ScopeSession(
-            settings=settings,
-            scope=lumaview.scope,
-            io_executor=io_executor,
-            camera_executor=camera_executor,
-            wellplate_loader=wellplate_loader,
-            coordinate_transformer=coordinate_transformer,
-            objective_helper=objective_helper,
-            source_path=source_path,
-            # The session's run-state derivations need the file-drain
-            # fact; without the handle a post-run drain would read as
-            # already unlocked.
-            file_io_executor=file_io_executor,
-        )
-        # Register executors so scope.X_async / scope.X_sync methods can
-        # dispatch without callers passing executor handles.
-        lumaview.scope.register_executors(
-            camera_executor=camera_executor,
-            io_executor=io_executor,
-            file_io_executor=file_io_executor,
-        )
-        # Register source_path so the protocol constructors can resolve
-        # data/tiling.json without callers passing the path.
-        lumaview.scope.protocols.register_source_path(source_path)
-
         autofocus_runner = AutofocusRunner(
             scope=lumaview.scope,
             camera_executor=camera_executor,
@@ -920,21 +892,39 @@ class LumaViewProApp(TooltipMixin, App):
         )
         autofocus_thread.start()
 
-        sequenced_capture_runner = SequencedCaptureRunner(
+        # GUI-independent scope session; persisted to ctx.session so
+        # other methods read off ctx. The session composes the ONE
+        # sequenced-capture engine from the injected executors, AF
+        # pair, and protocol thread -- and its run-state derivations
+        # need the file-drain fact, so the FILE executor handle rides
+        # the injection list too.
+        scope_session = ScopeSession(
+            settings=settings,
             scope=lumaview.scope,
-            stage_offset=settings['stage_offset'],
-            autofocus_runner=autofocus_runner,
             io_executor=io_executor,
-            protocol_thread=protocol_thread,
-            file_io_executor=file_io_executor,
             camera_executor=camera_executor,
+            wellplate_loader=wellplate_loader,
+            coordinate_transformer=coordinate_transformer,
+            objective_helper=objective_helper,
+            source_path=source_path,
+            file_io_executor=file_io_executor,
+            protocol_thread=protocol_thread,
+            autofocus_runner=autofocus_runner,
             autofocus_thread=autofocus_thread,
             z_ui_update_func=_handle_autofocus_ui,
-            # The session's compare-and-claim is the one arbitration point
-            # for protocol-XOR-recording exclusivity; a runner left on its
-            # private fallback claim would refuse nothing app-wide.
-            activity_claim=scope_session.activity_claim,
         )
+        sequenced_capture_runner = scope_session.sequenced_capture_runner
+
+        # Register executors so scope.X_async / scope.X_sync methods can
+        # dispatch without callers passing executor handles.
+        lumaview.scope.register_executors(
+            camera_executor=camera_executor,
+            io_executor=io_executor,
+            file_io_executor=file_io_executor,
+        )
+        # Register source_path so the protocol constructors can resolve
+        # data/tiling.json without callers passing the path.
+        lumaview.scope.protocols.register_source_path(source_path)
 
         # Create AppContext -- central service registry
         ctx = AppContext(
