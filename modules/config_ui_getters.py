@@ -30,10 +30,11 @@ logger = logging.getLogger('LVP.modules.config_ui_getters')
 def _live_capabilities():
     """The capability surface of the LIVE scope, or None if not built yet.
 
-    Reads ``ctx.lumaview.scope`` -- the reference ``reconnect()`` rebuilds on a
-    scope change -- NOT the ``ctx.scope`` registry field, which is a build-time
-    reference reconnect never refreshes. Every capability gate must resolve
-    through here so a reconnect is reflected and the gates can't drift apart.
+    Reads ``ctx.lumaview.scope`` -- the reference ``reconnect()`` rebuilds
+    first on a scope change (the ``ctx.scope`` registry field is a copy,
+    refreshed later in the same handler). Every capability gate must
+    resolve through here so a reconnect is reflected and the gates can't
+    drift apart.
     """
     lumaview = getattr(_app_ctx.ctx, 'lumaview', None)
     scope = getattr(lumaview, 'scope', None)

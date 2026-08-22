@@ -230,3 +230,23 @@ class UIListenerBridge:
         self._scope.illumination.add_led_listener(self._on_led_state_changed)
         self._scope.imaging.add_camera_listener(self._on_camera_setting_changed)
         logger.info('[UIListenerBridge] registered position + LED + camera listeners')
+
+    def rebind(self, scope) -> None:
+        """Move every listener registration onto a NEW scope.
+
+        A reconnect discards the old Lumascope and builds a fresh one;
+        listeners left registered on the discarded scope never fire
+        again (stage redraw, LED buttons, and gain/exposure text all go
+        silent until app restart), and they pin the dead scope in
+        memory. Unregister from the old scope first so a later reuse of
+        it cannot double-fire.
+        """
+        old = self._scope
+        old.motion.remove_position_listener(self._on_position_change)
+        old.illumination.remove_led_listener(self._on_led_state_changed)
+        old.imaging.remove_camera_listener(self._on_camera_setting_changed)
+        self._scope = scope
+        scope.motion.add_position_listener(self._on_position_change)
+        scope.illumination.add_led_listener(self._on_led_state_changed)
+        scope.imaging.add_camera_listener(self._on_camera_setting_changed)
+        logger.info('[UIListenerBridge] rebound position + LED + camera listeners to new scope')

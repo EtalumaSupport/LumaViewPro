@@ -129,6 +129,16 @@ class ManualRecordingController:
         self._on_complete: Callable[[], None] | None = None
         self._finish_thread: threading.Thread | None = None
 
+    def set_scope(self, scope: Any) -> None:
+        """Rewire onto a NEW scope after a reconnect.
+
+        Callers must not swap the scope while a recording is active --
+        the frame listener and camera identity of a live recording
+        belong to the scope it started on. The session's set_scope
+        guards that; this method only carries the handle swap.
+        """
+        self._scope = scope
+
     # ------------------------------------------------------------------
     # Status surface (GUI polls these; all None-safe)
     # ------------------------------------------------------------------

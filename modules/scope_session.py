@@ -82,6 +82,28 @@ class ScopeSession:
             activity_claim=self.activity_claim,
         )
 
+    def set_scope(self, scope) -> None:
+        """Rewire this session onto a NEW scope after a reconnect.
+
+        The session and its recording controller each hold the scope by
+        reference; left unrewired after a reconnect they keep driving
+        the discarded, disconnected scope (start_application_session
+        homes it; a recording captures from it).
+
+        Raises:
+            RuntimeError: A recording is live, draining, or finishing.
+                Its frame listener and writer belong to the old scope;
+                swapping underneath it would capture from one camera
+                and finish against another.
+        """
+        if self.manual_recording.is_busy:
+            raise RuntimeError(
+                'ScopeSession.set_scope: a recording is still active; '
+                'stop it and let it finish before reconnecting the scope'
+            )
+        self.scope = scope
+        self.manual_recording.set_scope(scope)
+
     @property
     def is_protocol_running(self) -> bool:
         """True while a protocol or scan is running.

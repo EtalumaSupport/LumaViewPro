@@ -223,6 +223,16 @@ class MicroscopeSettings(BoxLayout):
 
         ctx.sequenced_capture_runner.set_scope(lumaview.scope)
         ctx.autofocus_runner.set_scope(lumaview.scope)
+        # The stranded-reference cluster: every object holding the scope
+        # by reference must be rewired here, or it keeps driving the
+        # discarded scope -- the session (start_application_session
+        # below reads it), the recording controller, the push-listener
+        # bridge (a bridge left on the old scope means stage redraw /
+        # LED buttons / gain text never update again), and the ctx
+        # registry field the display path renders from.
+        ctx.session.set_scope(lumaview.scope)
+        ctx.ui_listener_bridge.rebind(lumaview.scope)
+        ctx.scope = lumaview.scope
 
         # Restart display
 
