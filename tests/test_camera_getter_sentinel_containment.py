@@ -385,7 +385,12 @@ def test_populate_none_frame_size_read_keeps_cached_geometry():
 
 def test_get_live_camera_settings_reports_live_confirmed_values():
     imaging = _build_imaging(steady_good_driver())
-    assert imaging.get_live_camera_settings() == {'gain_db': 12.5, 'exposure_ms': 50.0}
+    assert imaging.get_live_camera_settings() == {
+        'gain_db': 12.5,
+        'exposure_ms': 50.0,
+        'frame_size': {'width': 1936, 'height': 1216},
+        'pixel_format': 'Mono12',
+    }
 
 
 def test_get_live_camera_settings_omits_failed_gain_while_getter_answers_lkg():
@@ -396,7 +401,11 @@ def test_get_live_camera_settings_omits_failed_gain_while_getter_answers_lkg():
     driver = steady_good_driver({'get_gain': [12.5, RAISE]})
     imaging = _build_imaging(driver)  # populate consumes the one good gain read
     settings = imaging.get_live_camera_settings()
-    assert settings == {'exposure_ms': 50.0}
+    assert settings == {
+        'exposure_ms': 50.0,
+        'frame_size': {'width': 1936, 'height': 1216},
+        'pixel_format': 'Mono12',
+    }
     assert 'gain_db' not in settings
     assert imaging.get_gain_db() == 12.5
 

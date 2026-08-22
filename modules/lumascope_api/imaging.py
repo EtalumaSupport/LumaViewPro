@@ -1781,7 +1781,7 @@ class ImagingAPI:
         return cached if is_valid(cached) else absent
 
     def get_live_camera_settings(self) -> dict:
-        """Live-confirmed gain and exposure, omitting any field whose read
+        """Live-confirmed camera settings, omitting any field whose read
         did not just succeed.
 
         For consumers that record what the hardware was at a specific
@@ -1792,7 +1792,8 @@ class ImagingAPI:
         unknown stays unknown.
 
         Returns:
-            dict: Zero, one, or both of 'gain_db' and 'exposure_ms' --
+            dict: Any of 'gain_db', 'exposure_ms', 'frame_size'
+                (``{'width': int, 'height': int}``), and 'pixel_format' --
                 only fields whose live driver read succeeded and
                 validated. Empty when no camera is active.
         """
@@ -1813,6 +1814,22 @@ class ImagingAPI:
         )
         if exposure is not None:
             settings['exposure_ms'] = exposure
+        frame_size = self._live_validated_read(
+            'frame_size',
+            lambda driver: driver.get_frame_size(),
+            common_utils.is_valid_frame_size,
+            lambda v: {'width': int(v['width']), 'height': int(v['height'])},
+        )
+        if frame_size is not None:
+            settings['frame_size'] = dict(frame_size)
+        pixel_format = self._live_validated_read(
+            'pixel_format',
+            lambda driver: driver.get_pixel_format(),
+            common_utils.is_valid_pixel_format,
+            str,
+        )
+        if pixel_format is not None:
+            settings['pixel_format'] = pixel_format
         return settings
 
     def get_gain_db(self) -> float:
@@ -1961,9 +1978,10 @@ class ImagingAPI:
         """Return the sensor's physical unbinned resolution.
 
         This is the static per-model ceiling for the native (unbinned) ROI,
-        independent of the current binning factor (unlike get_max_width/height,
-        which reflect the max settable at the current binning). Empty dict if
-        no camera or the profile does not declare it.
+        independent of the current binning factor. For the sensor max as the
+        driver reports it at boot, see
+        ``scope.capabilities.camera_max_frame_size``. Empty dict if no
+        camera or the profile does not declare it.
 
         Returns:
             dict: ``{'width': int, 'height': int}`` or ``{}`` if unknown.
@@ -2968,14 +2986,22 @@ class ImagingAPI:
         }
 
     @property
-    def min_frame_size_cached(self) -> dict:
-        """Minimum camera frame size (reads cache).
+    def min_frame_size_cached(self) -> dict | None:
+        """Minimum camera frame size, or None if no camera is connected.
+
+        Returns None (not a zero-sized dict) so callers can distinguish
+        "camera missing" from a real driver value -- the same contract as
+        its siblings max_exposure_ms_cached and max_gain_db_cached.
 
         Returns:
-            dict: Copy of the cached min frame size dict.
+            dict | None: Copy of the cached min frame size dict, or None
+                if unavailable.
         """
         with self._camera_cache_lock:
-            return dict(self._camera_cache['min_frame_size'])
+            value = dict(self._camera_cache['min_frame_size'])
+        if value.get('width', 0) <= 0 or value.get('height', 0) <= 0:
+            return None
+        return value
 
     @property
     def max_exposure_ms_cached(self) -> float | None:

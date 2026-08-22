@@ -219,9 +219,11 @@ class ScopeCapabilities:
     camera_max_frame_size: tuple[int, int]
     """Maximum camera frame size as ``(width, height)`` in pixels.
     Per-camera-immutable: sourced from the camera driver's
-    get_max_frame_size() at boot. (0, 0) when no camera driver is
-    connected. Use ``scope.imaging.set_frame_size`` to request a
-    smaller-than-max region; this field gives the upper bound."""
+    get_max_frame_size() at boot. (0, 0) means UNKNOWN -- no camera
+    driver connected, or the boot probe hit a hardware fault (logged at
+    warning); distinguish via ``scope.camera_connected``. Use
+    ``scope.imaging.set_frame_size`` to request a smaller-than-max
+    region; this field gives the upper bound."""
 
     is_color_native: bool = False
     """True if the camera natively produces 3-channel color frames
