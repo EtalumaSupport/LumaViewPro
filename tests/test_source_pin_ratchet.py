@@ -64,7 +64,16 @@ from tests.ast_seams import iter_package_modules
 #      real module under an alias was rejected because it installs a
 #      global sys.excepthook at import, which has already polluted one
 #      bench log. One read site serves all four assertions.
-_READ_TEXT_SITE_BUDGET = 365
+# pin-justified: 365 -> 366 for the Enhance image/folder label guard
+# (test_enhance_file_or_folder.py), one site. What it asserts is the button
+# LABEL TEXT inside a function body ('Image' / 'Folder'), which has no AST
+# seam to assert instead -- ast_seams carries the def, not the literals in it.
+# MERGE NOTE: r2-api-optimize independently raises this same constant to 366
+# for test_api_doc_guard.py, so the comment block conflicts on merge. R2's
+# measured count is 365, not 366 -- it retired two sites while adding two.
+# Resolve by collapsing to ONE entry stating the merged actual (366), not by
+# keeping both lines, which would read as 367 against a real count of 366.
+_READ_TEXT_SITE_BUDGET = 366
 
 # Files containing at least one, recorded for the same reason.
 # pin-justified: raised 115 -> 122 by the same merge.
