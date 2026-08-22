@@ -48,6 +48,7 @@ class ScopeSession:
         autofocus_runner=None,
         autofocus_thread=None,
         z_ui_update_func=None,
+        owns_executors: bool = False,
     ):
         self.settings = settings
         self.scope = scope
@@ -57,19 +58,28 @@ class ScopeSession:
         self.coordinate_transformer = coordinate_transformer
         self.objective_helper = objective_helper
         self.source_path = source_path
-        # When ScopeSession.create* built the executors itself, the bundle
-        # is held here so headless callers can shut down protocol_thread /
-        # scope_display_thread cleanly. When lumaviewpro.py is the host,
-        # this is None -- the host owns the bundle on ctx.executor_bundle.
+        # Every host hands its bundle in (the session re-registers it on
+        # the scope at every rebind), so bundle-presence says nothing
+        # about who owns the executor topology's teardown -- that fact is
+        # owns_executors, passed True only by the factories that BUILT
+        # the topology. Deriving ownership from the bundle would let a
+        # host-composed session tear down its host's executors.
         self.executor_bundle = executor_bundle
+        self._owns_executors = owns_executors
         # The canonical file-IO executor lives on the bundle; expose it here
         # alongside io_executor / camera_executor so callers (e.g. ProtocolRunner)
         # source the one shared FILE executor instead of constructing a
-        # duplicate. A bundle-less host (the GUI) passes its handle in --
-        # the session cannot read the file-drain fact without it.
+        # duplicate. A bundle-less host passes its handle in -- the session
+        # cannot read the file-drain fact without it.
         self.file_io_executor = file_io_executor or (
             executor_bundle.file_io_executor if executor_bundle else None
         )
+        # Service the scope NOW, after the handle derivations above and
+        # before any collaborator is composed: a session-composed scope
+        # must never exist un-serviced, or its dispatch falls back to
+        # inline execution on the calling thread (unserialized, and a
+        # protocol fence cannot reach an inline task).
+        self._register_scope_services(scope)
 
         self.focus_round = 0
         # Run-state listeners: zero-argument callables notified on every
@@ -137,25 +147,60 @@ class ScopeSession:
         # run names the run's trigger through this lookup.
         self.manual_recording.run_trigger_lookup = self.sequenced_capture_runner.run_trigger_source
 
+    def _register_scope_services(self, scope) -> None:
+        """Register the session's services on a scope (the one bring-up).
+
+        Executors, the executor bundle, and the protocol source path all
+        live on the scope but belong to the session's composition; a
+        scope missing them dispatches inline (unserialized, unfenceable)
+        and its protocol constructors cannot resolve their data files.
+        Construction and set_scope both come through here so no scope
+        the session drives can be left un-serviced -- the bring-up steps
+        are spelled out exactly once.
+
+        The bundle is registered only when held: register_executor_bundle
+        overwrites the metrics logger's bundle unconditionally, so a
+        None-bundle call would blank a pre-wired scope's metrics wiring.
+        """
+        scope.register_executors(
+            camera_executor=self.camera_executor,
+            io_executor=self.io_executor,
+            file_io_executor=self.file_io_executor,
+        )
+        if self.executor_bundle is not None:
+            scope.register_executor_bundle(self.executor_bundle, settings=self.settings)
+        scope.protocols.register_source_path(self.source_path)
+
     def set_scope(self, scope) -> None:
         """Rewire this session onto a NEW scope after a reconnect.
 
         The session and its recording controller each hold the scope by
         reference; left unrewired after a reconnect they keep driving
         the discarded, disconnected scope (start_application_session
-        homes it; a recording captures from it).
+        homes it; a recording captures from it). The new scope is
+        serviced FIRST (executors, bundle, source path), before any
+        holder is rewired onto it, so nothing can dispatch against a
+        rewired-but-unserviced scope.
 
         Raises:
-            RuntimeError: A recording is live, draining, or finishing.
-                Its frame listener and writer belong to the old scope;
-                swapping underneath it would capture from one camera
-                and finish against another.
+            RuntimeError: An exclusive activity still owns the hardware.
+                Both facts are checked -- the activity claim (a run mid
+                flight would mix two hardware identities in one run) AND
+                the recording controller's busy state, which outlives
+                the claim: the recording engine releases its claim
+                before the post-drain finish thread completes, and that
+                finish still touches the scope. The claim alone would
+                un-guard the drain window.
         """
-        if self.manual_recording.is_busy:
+        holder = self.activity_claim.owner
+        if self.manual_recording.is_busy or holder is not None:
+            busy_with = holder if holder is not None else 'a finishing recording'
             raise RuntimeError(
-                'ScopeSession.set_scope: a recording is still active; '
-                'stop it and let it finish before reconnecting the scope'
+                f'ScopeSession.set_scope: refusing to swap the scope while '
+                f'{busy_with} owns the hardware; stop it and let it finish '
+                f'before reconnecting'
             )
+        self._register_scope_services(scope)
         self.scope = scope
         self.manual_recording.set_scope(scope)
         self.sequenced_capture_runner.set_scope(scope)
@@ -305,22 +350,8 @@ class ScopeSession:
             if camera_executor is None:
                 camera_executor = SequentialIOExecutor(name='CAMERA')
 
-        # LAYER-A': register executors on the scope so scope.X_async /
-        # scope.X_sync can dispatch without callers passing executor handles.
-        # When the bundle was built, register file_io_executor too so
-        # protocol_image_writer + IOTask file-IO paths land on the dedicated
-        # queue instead of falling back to inline execution.
-        scope.register_executors(
-            camera_executor=camera_executor,
-            io_executor=io_executor,
-            file_io_executor=executor_bundle.file_io_executor if executor_bundle else None,
-        )
-        if executor_bundle is not None:
-            scope.register_executor_bundle(executor_bundle, settings=settings)
-        # Register source_path for the protocol constructors -- falls back
-        # to current working dir for the rare ScopeSession path that
-        # doesn't pass source_path.
-        scope.protocols.register_source_path(source_path)
+        # Service registration (executors, bundle, source path) happens in
+        # __init__ for every session-composed scope -- nothing here.
 
         # Optional helpers -- import and construct if available.
         # Every silent helper-init failure has a downstream AttributeError
@@ -404,6 +435,7 @@ class ScopeSession:
             executor_bundle=executor_bundle,
             autofocus_runner=autofocus_runner,
             autofocus_thread=autofocus_thread,
+            owns_executors=executor_bundle is not None,
         )
 
     @classmethod
@@ -454,19 +486,8 @@ class ScopeSession:
 
         executor_bundle = create_default(ui_dispatcher=None)
 
-        # LAYER-A': register all three executor handles on the scope so
-        # scope.X_async / scope.X_sync + protocol_image_writer file-IO
-        # paths land on the proper queues.
-        scope.register_executors(
-            camera_executor=executor_bundle.camera_executor,
-            io_executor=executor_bundle.io_executor,
-            file_io_executor=executor_bundle.file_io_executor,
-        )
-        # LVP-A-13: wire the bundle so metrics_logger.snapshot() reports
-        # all 4 executor queue depths instead of a degraded subset.
-        scope.register_executor_bundle(executor_bundle, settings=settings)
-        # Register source_path (defaults to "." in headless).
-        scope.protocols.register_source_path(source_path)
+        # Service registration (executors, bundle, source path) happens in
+        # __init__ for every session-composed scope -- nothing here.
 
         autofocus_runner, autofocus_thread = cls._build_autofocus_pair(
             scope=scope,
@@ -484,6 +505,7 @@ class ScopeSession:
             executor_bundle=executor_bundle,
             autofocus_runner=autofocus_runner,
             autofocus_thread=autofocus_thread,
+            owns_executors=True,
         )
 
     @staticmethod
@@ -620,22 +642,25 @@ class ScopeSession:
     def shutdown(self) -> None:
         """Tear down everything this session constructed.
 
-        For a session that built its own executor bundle (create /
-        create_headless with no caller-supplied executors), stops the
-        long-lived consumer threads BEFORE the executor lanes they
-        consume -- a consumer mid-iteration that finds its lane already
-        shut down can hang on a dispatch that never fires.
-        scope_display_thread consumes camera_executor; protocol_thread
-        drives io + camera + file lanes. For a session running on a
-        caller's executors, only the handles the caller passed in are
-        stopped; the caller owns the rest of its topology.
+        Teardown scope follows the explicit ownership fact, never
+        bundle-presence: every host hands its bundle in for scope
+        servicing, so "holds a bundle" no longer means "built the
+        topology". A session that OWNS its executors (the factories)
+        stops the long-lived consumer threads BEFORE the executor lanes
+        they consume -- a consumer mid-iteration that finds its lane
+        already shut down can hang on a dispatch that never fires
+        (scope_display_thread consumes camera_executor; protocol_thread
+        drives io + camera + file lanes). A non-owning session still
+        stops the handles the caller passed in (io, camera, and the AF
+        thread) -- not-owner is not a no-op -- but never the host's
+        bundle.
         """
         if self.autofocus_thread is not None:
             self.autofocus_thread.stop(timeout=2.0)
-        bundle = self.executor_bundle
-        if bundle is None:
+        if not self._owns_executors:
             self.shutdown_executors()
             return
+        bundle = self.executor_bundle
         bundle.scope_display_thread.stop()
         bundle.protocol_thread.stop(timeout=2.0)
         bundle.io_executor.shutdown(wait=False)

@@ -684,18 +684,37 @@ class TestScopeSession:
         session.activity_claim.release('protocol')
         assert session.is_protocol_running is False
 
+    # These two assert only start/shutdown forwarding onto the mocks, so
+    # they build on a fresh spec scope: constructing a session registers
+    # its executors on the scope, and registering mock handles over the
+    # rig's live pre-registered ones is exactly the silent-swap state
+    # register_executors refuses.
     def test_start_executors(self):
+        from tests.scope_fakes import spec_scope
+
         io = MagicMock()
         cam = MagicMock()
-        session = self._make_session(io_executor=io, camera_executor=cam)
+        session = ScopeSession(
+            settings=_make_settings(),
+            scope=spec_scope(),
+            io_executor=io,
+            camera_executor=cam,
+        )
         session.start_executors()
         io.start.assert_called_once()
         cam.start.assert_called_once()
 
     def test_shutdown_executors(self):
+        from tests.scope_fakes import spec_scope
+
         io = MagicMock()
         cam = MagicMock()
-        session = self._make_session(io_executor=io, camera_executor=cam)
+        session = ScopeSession(
+            settings=_make_settings(),
+            scope=spec_scope(),
+            io_executor=io,
+            camera_executor=cam,
+        )
         session.shutdown_executors()
         io.shutdown.assert_called_once()
         cam.shutdown.assert_called_once()

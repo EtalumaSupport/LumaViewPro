@@ -558,8 +558,9 @@ class Lumascope:
         # for periodic work they don't want.
         #
         # metrics_logger + _executor_bundle slots defaulted to None in
-        # _init_minimal. The host calls register_executor_bundle() after
-        # the bundle exists, before calling metrics_logger.start.
+        # _init_minimal. The composing session calls
+        # register_executor_bundle() when it services the scope, before
+        # anything calls metrics_logger.start.
         if register_metrics:
             try:
                 from modules.metrics_logger import MetricsLogger
@@ -780,12 +781,13 @@ class Lumascope:
         self._file_io_executor = file_io_executor
 
     def register_executor_bundle(self, executor_bundle, settings=None) -> None:
-        """LVP-A-13: register the ExecutorBundle + settings dict for MetricsLogger.
+        """Register the ExecutorBundle + settings dict for MetricsLogger.
 
         Lumascope construction (__init__) creates a MetricsLogger but
-        cannot fill in the bundle yet -- the bundle is created later by
-        ExecutorRegistry.create_default in the host's startup path.
-        Call this once after the bundle exists, BEFORE calling
+        cannot fill in the bundle yet -- the bundle exists only once the
+        executor topology is built. The composing ScopeSession calls
+        this while servicing the scope (construction and every
+        set_scope rebind), BEFORE anything calls
         ``self.metrics_logger.start(scheduler)``. Settings dict is
         optional; defaults to ``{}`` if MetricsLogger was created with
         a placeholder.

@@ -192,6 +192,25 @@ class MicroscopeSettings(BoxLayout):
         ctx = _app_ctx.ctx
 
         gui_logger.button('RECONNECT_MICROSCOPE')
+
+        # Refuse BEFORE any teardown: the session's set_scope guard also
+        # refuses, but it fires only after disconnect() has already torn
+        # the camera down under whatever was using it -- too late to
+        # protect a live run or a recording still finishing its drain.
+        holder = ctx.session.exclusive_activity
+        if holder is not None or ctx.session.manual_recording.is_busy:
+            busy_with = holder if holder is not None else 'a finishing recording'
+            logger.warning(f'[LVP Main  ] Reconnect refused: {busy_with} owns the hardware')
+            from modules.notification_center import notifications
+
+            notifications.warning(
+                'Hardware',
+                'Reconnect refused',
+                f'The microscope is busy ({busy_with}). Stop it and let it '
+                'finish before reconnecting.',
+            )
+            return
+
         logger.info('[LVP Main  ] Reconnecting to microscope...')
 
         lumaview = ctx.lumaview

@@ -424,8 +424,9 @@ def test_prepare_refusal_names_stalled_writer(tmp_path):
 
 
 def test_session_recover_file_writer_passthrough():
-    """L2 parity: a Session that owns the executor bundle can recover a
-    wedged writer; a GUI-hosted session (no bundle) reports False."""
+    """L2 parity: a Session holding an executor bundle can recover a
+    wedged writer; a session with neither bundle nor file-io handle
+    reports False."""
     from types import SimpleNamespace
     from unittest.mock import MagicMock
 

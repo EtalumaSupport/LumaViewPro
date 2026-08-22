@@ -135,6 +135,44 @@ class TestReconnectWiring:
                 calls.add('.'.join(reversed(parts)))
         return calls
 
+    def _attribute_chains_in(self, rel_path, func_name, class_name):
+        """Every dotted attribute chain in the method, with its line."""
+        import ast
+
+        node = ast_seams.find_def(rel_path, func_name, class_name=class_name)
+        assert node is not None, f'{rel_path}: {class_name}.{func_name} not found'
+        chains = []
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Attribute):
+                parts = []
+                cur = sub
+                while isinstance(cur, ast.Attribute):
+                    parts.append(cur.attr)
+                    cur = cur.value
+                if isinstance(cur, ast.Name):
+                    parts.append(cur.id)
+                chains.append(('.'.join(reversed(parts)), sub.lineno))
+        return chains
+
+    def _call_linenos_in(self, rel_path, func_name, class_name):
+        import ast
+
+        node = ast_seams.find_def(rel_path, func_name, class_name=class_name)
+        assert node is not None
+        linenos = {}
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute):
+                parts = []
+                cur = sub.func
+                while isinstance(cur, ast.Attribute):
+                    parts.append(cur.attr)
+                    cur = cur.value
+                if isinstance(cur, ast.Name):
+                    parts.append(cur.id)
+                name = '.'.join(reversed(parts))
+                linenos.setdefault(name, sub.lineno)
+        return linenos
+
     def test_reconnect_rebinds_bridge_and_session(self):
         calls = self._method_calls_in(
             'ui/microscope_settings.py', 'reconnect', 'MicroscopeSettings'
@@ -148,6 +186,46 @@ class TestReconnectWiring:
             'reconnect() must hand the new scope to the session; without it '
             'session.scope (read by start_application_session in this very '
             'method) and the recording controller drive the discarded scope'
+        )
+
+    def test_reconnect_services_the_scope_before_homing(self):
+        """set_scope carries the whole scope bring-up (executor
+        registration included); start_application_session dispatches
+        ALL-axis homing through those executors. Reordered, the homing
+        would hit an unserviced scope and run inline on the Kivy
+        thread -- the exact harm the bring-up move fixed."""
+        linenos = self._call_linenos_in(
+            'ui/microscope_settings.py', 'reconnect', 'MicroscopeSettings'
+        )
+        assert 'ctx.session.set_scope' in linenos
+        assert 'ctx.session.start_application_session' in linenos
+        assert (
+            linenos['ctx.session.set_scope'] < linenos['ctx.session.start_application_session']
+        ), 'reconnect() must call set_scope BEFORE start_application_session'
+
+    def test_reconnect_checks_activity_before_teardown(self):
+        """The set_scope guard fires only AFTER disconnect() has already
+        torn the camera down under a live activity -- too late to
+        protect it. reconnect() must read the activity facts
+        (exclusive_activity / manual_recording.is_busy) before the
+        first disconnect call."""
+        chains = self._attribute_chains_in(
+            'ui/microscope_settings.py', 'reconnect', 'MicroscopeSettings'
+        )
+        linenos = self._call_linenos_in(
+            'ui/microscope_settings.py', 'reconnect', 'MicroscopeSettings'
+        )
+        disconnect_line = min(
+            line for name, line in linenos.items() if name.endswith('.disconnect')
+        )
+        guard_reads = [
+            line
+            for name, line in chains
+            if name.endswith('.exclusive_activity') or name.endswith('.is_busy')
+        ]
+        assert guard_reads and min(guard_reads) < disconnect_line, (
+            'reconnect() must refuse (read exclusive_activity / '
+            'manual_recording.is_busy) BEFORE tearing down the old scope'
         )
 
     def test_reconnect_refreshes_ctx_scope_registry_field(self):

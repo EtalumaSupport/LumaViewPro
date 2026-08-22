@@ -374,7 +374,15 @@ class ProtocolRunner:
         return self._executor.wait_for_run_idle(timeout_s)
 
     def set_scope(self, scope) -> None:
-        """Rewire onto a new scope via the session (whole-cluster rewire)."""
+        """Rewire onto a new scope via the session's one bring-up seam.
+
+        The session services the new scope (executor registration,
+        bundle, source path) and rewires every holder; a pre-serviced
+        foreign scope carrying DIFFERENT executors is refused there --
+        a session and its scope must share one executor topology.
+        Refuses while an exclusive activity (run, recording incl. its
+        drain) owns the hardware.
+        """
         self.session.set_scope(scope)
 
     def abort(self):

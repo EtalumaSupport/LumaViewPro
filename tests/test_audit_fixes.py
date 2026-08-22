@@ -12482,9 +12482,10 @@ class TestExecutorHandlesSingleSourceOnCtx:
     """The 7 executor handles were stored in module globals AND on ctx AND on
     the bundle, read divergently (shutdown_threads read the globals; the rest
     of the app reads ctx.X). They now live only on ctx: build() uses locals and
-    everything else, including shutdown, reads ctx.<name>. executor_bundle stays
-    a module global -- it is the single build()->on_start() handoff, not a live
-    executor read path. This pins that the redundant globals are gone.
+    everything else, including shutdown, reads ctx.<name>. The bundle itself
+    rides into the session at construction (which registers it on the scope),
+    so no module-global handoff exists at all. This pins that the redundant
+    globals are gone.
     """
 
     EXECUTORS = (

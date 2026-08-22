@@ -313,10 +313,9 @@ if __name__ == '__main__':
 
     # The executor handles are the single-source-of-truth on ctx: they are
     # locals in build() and read everywhere else (including shutdown) as
-    # ctx.<name>. executor_bundle is the one build()->on_start() handoff that
-    # is not a live executor read path -- created in build(), read once in
-    # on_start() to register the whole bundle -- so it stays a module global.
-    executor_bundle = None
+    # ctx.<name>. The bundle itself rides into the session at construction
+    # (which registers it on the scope), so no build()->on_start() handoff
+    # global exists anymore.
     ctx = None
 
 else:
@@ -652,12 +651,12 @@ class LumaViewProApp(TooltipMixin, App):
         config_helpers.log_environment_once()
 
         # Lumascope.__init__ constructs the MetricsLogger so REST and headless
-        # callers share the same surface. Here we register the executor bundle and
-        # start the logger with a KivyClockScheduler; REST entry points wire a
-        # ThreadingTimerScheduler instead.
+        # callers share the same surface; the session registered the executor
+        # bundle on the scope at construction. Here we start the logger with a
+        # KivyClockScheduler; REST entry points wire a ThreadingTimerScheduler
+        # instead.
         from modules.scheduler import KivyClockScheduler
 
-        lumaview.scope.register_executor_bundle(executor_bundle, settings)
         ctx.metrics_logger = lumaview.scope.metrics_logger
         if ctx.metrics_logger is not None:
             # settings.profiling.metrics_interval_s overrides the default
@@ -846,7 +845,6 @@ class LumaViewProApp(TooltipMixin, App):
         # lanes (plus stage and turret aliases) and the protocol_thread, then
         # starts them; every entry point shares this topology so the watchdog
         # snapshot and engineering plugin see one truth.
-        global executor_bundle
         # Clock.schedule_once is passed as the UI dispatcher so executors can post
         # callbacks to the Kivy main thread without importing Kivy themselves.
         from kivy.clock import Clock
@@ -897,7 +895,12 @@ class LumaViewProApp(TooltipMixin, App):
         # sequenced-capture engine from the injected executors, AF
         # pair, and protocol thread -- and its run-state derivations
         # need the file-drain fact, so the FILE executor handle rides
-        # the injection list too.
+        # the injection list too. Constructing the session also services
+        # the scope (executor registration, bundle, source path) -- the
+        # session owns scope bring-up so a reconnect-built scope gets
+        # the identical servicing through set_scope. The bundle is
+        # handed over for that servicing only; this host keeps teardown
+        # (shutdown_threads), which is why owns_executors stays False.
         scope_session = ScopeSession(
             settings=settings,
             scope=lumaview.scope,
@@ -907,6 +910,7 @@ class LumaViewProApp(TooltipMixin, App):
             coordinate_transformer=coordinate_transformer,
             objective_helper=objective_helper,
             source_path=source_path,
+            executor_bundle=executor_bundle,
             file_io_executor=file_io_executor,
             protocol_thread=protocol_thread,
             autofocus_runner=autofocus_runner,
@@ -914,17 +918,6 @@ class LumaViewProApp(TooltipMixin, App):
             z_ui_update_func=_handle_autofocus_ui,
         )
         sequenced_capture_runner = scope_session.sequenced_capture_runner
-
-        # Register executors so scope.X_async / scope.X_sync methods can
-        # dispatch without callers passing executor handles.
-        lumaview.scope.register_executors(
-            camera_executor=camera_executor,
-            io_executor=io_executor,
-            file_io_executor=file_io_executor,
-        )
-        # Register source_path so the protocol constructors can resolve
-        # data/tiling.json without callers passing the path.
-        lumaview.scope.protocols.register_source_path(source_path)
 
         # Create AppContext -- central service registry
         ctx = AppContext(
