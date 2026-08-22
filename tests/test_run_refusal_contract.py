@@ -504,7 +504,10 @@ class TestStartCannotSilentlyHalfStart:
 
         completions = []
         with monkeypatch.context() as mp:
-            mp.setattr(scope.imaging, 'update_auto_gain_target_brightness', _boom)
+            # The runner's commit-step write binds the impl (run-internal
+            # machinery never goes through the external dispatcher), so
+            # the fault is injected at the seam the runner actually calls.
+            mp.setattr(scope.imaging, '_update_auto_gain_target_brightness_impl', _boom)
             plan = _prepare(
                 executor,
                 _make_single_step_protocol(),

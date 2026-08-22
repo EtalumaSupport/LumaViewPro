@@ -713,6 +713,17 @@ class ImagingAPI:
     # would be right.
     _CAMERA_WRITE_TIMEOUT_S = 5.0
 
+    # The geometry class (frame size, pixel format, binning) is slower
+    # than a value write: a large-frame resize on a Pylon body has been
+    # measured near 11 s, and the dispatcher's wait bounds QUEUE TIME
+    # plus execution -- a geometry write queued behind another one must
+    # not time out while both are healthy. The bound stays a liveness
+    # verdict, not a budget: `fut.result` ABANDONS on timeout without
+    # cancelling, so a timed-out write still lands later and the caller's
+    # view of the camera diverges -- which is why this must be sized so a
+    # healthy write can never hit it.
+    _CAMERA_GEOMETRY_TIMEOUT_S = 30.0
+
     # The capture bound is wider, and it is a BASE: a dispatched capture
     # legitimately spends time draining stale frames before it returns, and
     # the dispatcher adds the caller's declared work on top -- the
@@ -800,6 +811,19 @@ class ImagingAPI:
         )
 
     def set_auto_gain(self, state: bool, settings: dict) -> None:
+        """Enable or disable automatic gain adjustment, and wait for it.
+
+        See ``_set_auto_gain_impl`` for the value contract; this adds
+        only the dispatch described on ``_dispatch_camera``.
+        """
+        return self._dispatch_camera(
+            self._set_auto_gain_impl,
+            'set_auto_gain',
+            args=(state, settings),
+            timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
+        )
+
+    def _set_auto_gain_impl(self, state: bool, settings: dict) -> None:
         """Enable or disable automatic gain adjustment.
 
         Args:
@@ -842,6 +866,19 @@ class ImagingAPI:
             self._refresh_cache_from_hardware_after_auto()
 
     def set_auto_exposure_time(self, state: bool = True) -> None:
+        """Enable or disable automatic exposure adjustment, and wait for it.
+
+        See ``_set_auto_exposure_time_impl`` for the value contract; this
+        adds only the dispatch described on ``_dispatch_camera``.
+        """
+        return self._dispatch_camera(
+            self._set_auto_exposure_time_impl,
+            'set_auto_exposure_time',
+            args=(state,),
+            timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
+        )
+
+    def _set_auto_exposure_time_impl(self, state: bool = True) -> None:
         """Enable or disable automatic exposure adjustment.
 
         Args:
@@ -879,6 +916,21 @@ class ImagingAPI:
         return CameraSettingRejected(setting, requested)
 
     def set_frame_size(self, w: int, h: int) -> dict | None:
+        """Set the camera frame size in pixels, and wait for it.
+
+        See ``_set_frame_size_impl`` for the delivered-geometry contract
+        and the rejection semantics; this adds only the dispatch
+        described on ``_dispatch_camera``, on the geometry timeout (a
+        large-frame resize is a slow write).
+        """
+        return self._dispatch_camera(
+            self._set_frame_size_impl,
+            'set_frame_size',
+            args=(w, h),
+            timeout_s=self._CAMERA_GEOMETRY_TIMEOUT_S,
+        )
+
+    def _set_frame_size_impl(self, w: int, h: int) -> dict | None:
         """Set the camera frame size in pixels.
 
         Success is observed by receiving the DELIVERED geometry; rejection
@@ -959,6 +1011,20 @@ class ImagingAPI:
         )
 
     def set_binning_size(self, size: int) -> bool:
+        """Set camera pixel binning size, and wait for it.
+
+        See ``_set_binning_size_impl`` for the apply/rejection contract;
+        this adds only the dispatch described on ``_dispatch_camera``,
+        on the geometry timeout (binning reallocates buffers).
+        """
+        return self._dispatch_camera(
+            self._set_binning_size_impl,
+            'set_binning_size',
+            args=(size,),
+            timeout_s=self._CAMERA_GEOMETRY_TIMEOUT_S,
+        )
+
+    def _set_binning_size_impl(self, size: int) -> bool:
         """Set camera pixel binning size.
 
         Args:
@@ -1036,6 +1102,20 @@ class ImagingAPI:
         return True
 
     def set_pixel_format(self, pixel_format: str) -> bool:
+        """Set the camera pixel format, and wait for it.
+
+        See ``_set_pixel_format_impl`` for the apply/rejection contract;
+        this adds only the dispatch described on ``_dispatch_camera``,
+        on the geometry timeout (a format change reallocates geometry).
+        """
+        return self._dispatch_camera(
+            self._set_pixel_format_impl,
+            'set_pixel_format',
+            args=(pixel_format,),
+            timeout_s=self._CAMERA_GEOMETRY_TIMEOUT_S,
+        )
+
+    def _set_pixel_format_impl(self, pixel_format: str) -> bool:
         """Set the camera pixel format.
 
         Args:
@@ -1087,6 +1167,19 @@ class ImagingAPI:
         return True
 
     def set_conversion_gain_mode(self, mode: str) -> bool:
+        """Set the camera sensor conversion gain mode, and wait for it.
+
+        See ``_set_conversion_gain_mode_impl`` for the mode contract;
+        this adds only the dispatch described on ``_dispatch_camera``.
+        """
+        return self._dispatch_camera(
+            self._set_conversion_gain_mode_impl,
+            'set_conversion_gain_mode',
+            args=(mode,),
+            timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
+        )
+
+    def _set_conversion_gain_mode_impl(self, mode: str) -> bool:
         """Set the camera sensor conversion gain mode.
 
         High conversion gain lowers the sensor read-noise floor (better
@@ -1130,6 +1223,19 @@ class ImagingAPI:
         return result
 
     def set_line_noise_reduction(self, enabled: bool) -> bool:
+        """Enable or disable the line-noise filter, and wait for it.
+
+        See ``_set_line_noise_reduction_impl`` for the contract; this
+        adds only the dispatch described on ``_dispatch_camera``.
+        """
+        return self._dispatch_camera(
+            self._set_line_noise_reduction_impl,
+            'set_line_noise_reduction',
+            args=(enabled,),
+            timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
+        )
+
+    def _set_line_noise_reduction_impl(self, enabled: bool) -> bool:
         """Enable or disable the camera line-noise reduction filter.
 
         A camera-side filter that smooths horizontal stripe artifacts in
@@ -3020,6 +3126,28 @@ class ImagingAPI:
         auto_gain: bool = False,
         auto_gain_settings: dict | None = None,
     ) -> None:
+        """Apply per-layer camera settings in one batched call, and wait.
+
+        See ``_apply_layer_camera_settings_impl`` for the contract; this
+        adds only the dispatch described on ``_dispatch_camera``. The
+        batch is one dispatched task, so the three writes stay atomic on
+        the camera lane.
+        """
+        return self._dispatch_camera(
+            self._apply_layer_camera_settings_impl,
+            'apply_layer_camera_settings',
+            args=(gain_db, exposure_ms),
+            kwargs={'auto_gain': auto_gain, 'auto_gain_settings': auto_gain_settings},
+            timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
+        )
+
+    def _apply_layer_camera_settings_impl(
+        self,
+        gain_db: float,
+        exposure_ms: float,
+        auto_gain: bool = False,
+        auto_gain_settings: dict | None = None,
+    ) -> None:
         """Apply per-layer camera settings in a single batched call.
 
         Sets gain, exposure, and auto-gain state. Replaces 3 separate
@@ -3038,12 +3166,26 @@ class ImagingAPI:
         self._set_gain_db_impl(gain_db)
         self._set_exposure_ms_impl(exposure_ms)
         if auto_gain_settings is not None:
-            self.set_auto_gain(auto_gain, settings=auto_gain_settings)
+            self._set_auto_gain_impl(auto_gain, settings=auto_gain_settings)
         _api_log.info(
             f'apply_layer_camera_settings gain={gain_db}dB exp={exposure_ms}ms auto_gain={auto_gain}'
         )
 
     def update_auto_gain_target_brightness(self, target_brightness: float) -> None:
+        """Set the auto-gain target brightness, and wait for it.
+
+        See ``_update_auto_gain_target_brightness_impl`` for the settle
+        contract; this adds only the dispatch described on
+        ``_dispatch_camera``.
+        """
+        return self._dispatch_camera(
+            self._update_auto_gain_target_brightness_impl,
+            'update_auto_gain_target_brightness',
+            args=(target_brightness,),
+            timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
+        )
+
+    def _update_auto_gain_target_brightness_impl(self, target_brightness: float) -> None:
         """Set the auto-gain target brightness on the camera.
 
         Args:
@@ -3066,6 +3208,27 @@ class ImagingAPI:
         )
 
     def auto_gain_once(
+        self,
+        state: bool,
+        target_brightness: float,
+        min_gain_db: float,
+        max_gain_db: float,
+        ae_max_exposure_ms: float | None = None,
+    ) -> None:
+        """Run one-shot auto-gain, and wait for it.
+
+        See ``_auto_gain_once_impl`` for the settle contract; this adds
+        only the dispatch described on ``_dispatch_camera``.
+        """
+        return self._dispatch_camera(
+            self._auto_gain_once_impl,
+            'auto_gain_once',
+            args=(state, target_brightness, min_gain_db, max_gain_db),
+            kwargs={'ae_max_exposure_ms': ae_max_exposure_ms},
+            timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
+        )
+
+    def _auto_gain_once_impl(
         self,
         state: bool,
         target_brightness: float,

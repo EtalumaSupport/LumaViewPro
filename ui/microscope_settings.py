@@ -797,7 +797,9 @@ class MicroscopeSettings(BoxLayout):
             # The absent-camera False propagates to the callback so the
             # mode commit is reverted -- a format that never reached the
             # hardware must not stay recorded as the capture depth.
-            return imaging.set_pixel_format(target)
+            # This closure runs ON the camera worker: bind the impl, or
+            # the public dispatcher stalls against its own lane.
+            return imaging._set_pixel_format_impl(target)
 
         ctx.camera_executor.put(
             IOTask(
@@ -1401,7 +1403,9 @@ class MicroscopeSettings(BoxLayout):
         scope = getattr(_app_ctx.ctx.lumaview, 'scope', None)
         if scope is None:
             return None
-        delivered = scope.imaging.set_frame_size(*wh)
+        # Runs on the camera worker (apply_pending is camera-lane work):
+        # bind the impl, never the dispatcher.
+        delivered = scope.imaging._set_frame_size_impl(*wh)
         if not delivered:
             return None
         Clock.schedule_once(lambda dt: self._on_frame_size_applied(delivered), 0)

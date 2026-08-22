@@ -137,7 +137,10 @@ class AdvancedSettings(Popup):
         mode = 'High' if state else 'Low'
 
         def _set_conversion_gain():
-            ctx.lumaview.scope.imaging.set_conversion_gain_mode(mode)
+            # Already on the camera worker: bind the impl -- the public
+            # dispatcher would re-enter this same lane and stall on its
+            # own queue slot.
+            ctx.lumaview.scope.imaging._set_conversion_gain_mode_impl(mode)
 
         ctx.camera_executor.put(IOTask(action=_set_conversion_gain))
 
@@ -149,7 +152,9 @@ class AdvancedSettings(Popup):
         settings.setdefault('camera', {})['line_noise_reduction'] = state
 
         def _set_line_noise():
-            ctx.lumaview.scope.imaging.set_line_noise_reduction(state)
+            # On the camera worker: bind the impl, never the dispatcher
+            # (self-dispatch on the single lane).
+            ctx.lumaview.scope.imaging._set_line_noise_reduction_impl(state)
 
         ctx.camera_executor.put(IOTask(action=_set_line_noise))
 

@@ -1018,8 +1018,10 @@ class SequencedCaptureRunner:
             self.camera_executor.disable()
             self._io_executor.protocol_start()
             self.file_io_executor.protocol_start()
-            # Not IO
-            self._scope.imaging.update_auto_gain_target_brightness(
+            # Not IO. The impl, not the dispatcher: the camera lane was
+            # disabled two lines up, so the public form would refuse the
+            # run's own bring-up write.
+            self._scope.imaging._update_auto_gain_target_brightness_impl(
                 self._autogain_settings['target_brightness']
             )
 

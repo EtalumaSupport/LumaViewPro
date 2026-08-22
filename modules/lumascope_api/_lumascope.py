@@ -662,9 +662,17 @@ class Lumascope:
         # rejection is already logged AND notified at the API layer, and
         # every downstream consumer reads delivered geometry, never these
         # requests, so nothing is left believing a rejected value.
+        # Bring-up binds the impls: initialize runs before (or without)
+        # executor registration -- at reconnect, before set_scope services
+        # the new scope -- and these writes are the scope's own
+        # composition, not external commands, so they stay direct on the
+        # calling thread by design.
         for label, apply_fn in (
-            ('binning', lambda: self.imaging.set_binning_size(binning_size)),
-            ('frame size', lambda: self.imaging.set_frame_size(frame_width, frame_height)),
+            ('binning', lambda: self.imaging._set_binning_size_impl(binning_size)),
+            (
+                'frame size',
+                lambda: self.imaging._set_frame_size_impl(frame_width, frame_height),
+            ),
         ):
             try:
                 apply_fn()
@@ -685,7 +693,7 @@ class Lumascope:
         )
         if pixel_format is not None:
             try:
-                self.imaging.set_pixel_format(pixel_format)
+                self.imaging._set_pixel_format_impl(pixel_format)
             except CameraSettingRejected as ex:
                 logger.error(
                     f'[SCOPE API ] initialize: pixel format apply rejected by '
@@ -693,9 +701,11 @@ class Lumascope:
                     f'camera-held format'
                 )
         if self.capabilities.camera_supports_conversion_gain_mode:
-            self.imaging.set_conversion_gain_mode('High' if config.high_conversion_gain else 'Low')
+            self.imaging._set_conversion_gain_mode_impl(
+                'High' if config.high_conversion_gain else 'Low'
+            )
         if self.capabilities.camera_supports_line_noise_reduction:
-            self.imaging.set_line_noise_reduction(config.line_noise_reduction)
+            self.imaging._set_line_noise_reduction_impl(config.line_noise_reduction)
         self.runtime_state.set_stage_offset(config.stage_offset)
         self.imaging.set_scale_bar(enabled=config.scale_bar_enabled)
         self.motion.set_acceleration_limit(val_pct=config.acceleration_pct)

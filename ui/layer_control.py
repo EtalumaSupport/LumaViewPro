@@ -1350,7 +1350,10 @@ class LayerControl(BoxLayout):
                 autogain_settings['max_exposure_ms'] = get_ag_ae_max_exposure_ms(self.layer)
             camera_executor.put(
                 IOTask(
-                    action=lumaview.scope.imaging.apply_layer_camera_settings,
+                    # The task runs ON the camera worker: bind the impl --
+                    # the public dispatcher would self-dispatch on this
+                    # same lane and stall against its own queue slot.
+                    action=lumaview.scope.imaging._apply_layer_camera_settings_impl,
                     kwargs={
                         'gain_db': gain,
                         'exposure_ms': exposure,

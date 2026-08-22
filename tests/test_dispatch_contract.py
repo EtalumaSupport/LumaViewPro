@@ -68,6 +68,54 @@ FAMILIES = [
         {'axis': 'Z', 'position': 100.0},
         'io',
     ),
+    # The camera-settings cluster: every public camera-state writer is a
+    # dispatcher over its _impl, same three-branch contract. These were
+    # the inline-invalidator family -- public bodies that wrote the
+    # camera bus and frame validity on the caller's thread, unfenceable
+    # by a running protocol -- and this table is what keeps them (and
+    # any future sibling) on the dispatcher.
+    (
+        'imaging',
+        'set_auto_gain',
+        None,
+        {
+            'state': True,
+            'settings': {'target_brightness': 0.3, 'min_gain_db': 0.0, 'max_gain_db': 20.0},
+        },
+        'camera',
+    ),
+    ('imaging', 'set_auto_exposure_time', None, {'state': True}, 'camera'),
+    ('imaging', 'set_frame_size', None, {'w': 640, 'h': 480}, 'camera'),
+    ('imaging', 'set_binning_size', None, {'size': 1}, 'camera'),
+    ('imaging', 'set_pixel_format', None, {'pixel_format': 'Mono8'}, 'camera'),
+    ('imaging', 'set_conversion_gain_mode', None, {'mode': 'High'}, 'camera'),
+    ('imaging', 'set_line_noise_reduction', None, {'enabled': True}, 'camera'),
+    (
+        'imaging',
+        'update_auto_gain_target_brightness',
+        None,
+        {'target_brightness': 0.5},
+        'camera',
+    ),
+    (
+        'imaging',
+        'auto_gain_once',
+        None,
+        {
+            'state': True,
+            'target_brightness': 0.3,
+            'min_gain_db': 0.0,
+            'max_gain_db': 20.0,
+        },
+        'camera',
+    ),
+    (
+        'imaging',
+        'apply_layer_camera_settings',
+        None,
+        {'gain_db': 1.0, 'exposure_ms': 10.0},
+        'camera',
+    ),
 ]
 
 FAMILY_IDS = [f'{family}.{member}' for family, member, _, _, _ in FAMILIES]
@@ -266,4 +314,53 @@ def test_async_warns_when_the_executor_drops_it(
     assert async_member in warned, (
         f'{family}.{async_member} was dropped by the executor without a '
         f'warning naming it; warnings seen: {warned!r}'
+    )
+
+
+def test_no_public_imaging_member_writes_the_camera_inline():
+    """Shape tripwire for the whole member class, not a spelling grep.
+
+    A public ImagingAPI method that reaches ``_camera_write`` or frame
+    invalidation in its own body executes camera-state writes on the
+    caller's thread -- unserialized against the camera lane and
+    invisible to the protocol fence (an inline body never meets the
+    executor's refusal). The dispatch shape puts every such write in a
+    ``_impl`` behind ``_dispatch_camera``, so this walks the class and
+    fails on any public def whose body touches the write/invalidate
+    seams directly. A literal grep for the invalidation spellings
+    missed a member of this class once (a public method reaching the
+    seams through ``_impl`` calls it hosted inline); the AST walk is
+    over the public def's OWN body, so a public that merely dispatches
+    stays clean and a future sibling cannot hide.
+    """
+    import ast
+
+    import tests.ast_seams as ast_seams
+
+    tree = ast_seams.parse_module('modules/lumascope_api/imaging.py')
+    cls = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ClassDef) and node.name == 'ImagingAPI'
+    )
+    WRITE_SEAMS = {'_camera_write', 'invalidate', 'force_invalidate'}
+    offenders = []
+    for node in cls.body:
+        if not isinstance(node, ast.FunctionDef) or node.name.startswith('_'):
+            continue
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Call):
+                callee = sub.func
+                name = (
+                    callee.attr
+                    if isinstance(callee, ast.Attribute)
+                    else callee.id
+                    if isinstance(callee, ast.Name)
+                    else None
+                )
+                if name in WRITE_SEAMS:
+                    offenders.append(f'{node.name}:{sub.lineno}')
+    assert not offenders, (
+        'public ImagingAPI members must dispatch camera-state writes, never '
+        f'execute them inline in their own body; inline writers found: {offenders}'
     )

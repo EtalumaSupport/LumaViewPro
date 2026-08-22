@@ -603,6 +603,12 @@ scope.imaging.get_live_camera_settings()           # {} | {'gain_db': ..., 'expo
 # common L1 failure is typing 0.05 thinking microseconds and getting
 # a black image).
 
+# Every camera-settings setter in this section dispatches to the camera
+# lane and BLOCKS until applied (returns the body's own result). While a
+# protocol run or recording owns the hardware, these raise
+# HardwareCommandRefusedError instead of interleaving with the run --
+# same refusal contract as the motion and LED commands.
+
 # Batched settings (gain + exposure + auto-gain in one call)
 scope.imaging.apply_layer_camera_settings(
     gain_db=5.0, exposure_ms=50,

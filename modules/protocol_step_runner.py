@@ -294,7 +294,12 @@ class ProtocolStepRunner:
             )
             fut = p._io_executor.protocol_put(
                 IOTask(
-                    action=p._scope.imaging.apply_layer_camera_settings,
+                    # Run-internal machinery binds the impl per the
+                    # dispatch contract: the public member is the
+                    # external-caller surface (SDK/REST), and internal
+                    # callers already inside the run's serialization
+                    # use the body directly.
+                    action=p._scope.imaging._apply_layer_camera_settings_impl,
                     kwargs={
                         'gain_db': step['Gain'],
                         'exposure_ms': step['Exposure'],
