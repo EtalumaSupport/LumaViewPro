@@ -499,7 +499,7 @@ class TestFrameSizeMirrorChain:
         objective = {'focal_length': 9.0}
         ctx = SimpleNamespace(
             settings=settings,
-            objective_helper=SimpleNamespace(
+            session=SimpleNamespace(
                 get_objective_info=lambda objective_id: objective,
             ),
         )
