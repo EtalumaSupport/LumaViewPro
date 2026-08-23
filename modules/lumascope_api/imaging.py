@@ -165,6 +165,11 @@ class ImagingAPI:
         self._state_lock = threading.Lock()
         self._cam_lock = profile_trace.TimedLock(threading.RLock(), name='imaging._cam_lock')
 
+        # Once-per-episode latch for the enabled-but-no-objective scale-bar
+        # skip log; the gates run per displayed frame, so an unlatched
+        # warning would flood the log at display rate.
+        self._scale_bar_objective_skip_logged = False
+
         # Camera change listeners -- push-based UI update mechanism.
         # Each listener is called with (param: str, value: float) whenever
         # camera gain or exposure changes. param is 'gain' or 'exposure'.
@@ -2674,9 +2679,7 @@ class ImagingAPI:
         # come from the same configuration even if the GUI toggles mid-frame.
         scale_bar = self.scale_bar_config
         objective = self._scope.runtime_state.get_current_objective()
-        use_scale_bar = scale_bar['enabled']
-        if objective is None:
-            use_scale_bar = False
+        use_scale_bar = self._resolve_use_scale_bar(scale_bar['enabled'], objective)
 
         need_8bit = force_to_8bit and image.dtype != np.uint8
 
@@ -2797,9 +2800,7 @@ class ImagingAPI:
         # Snapshot both fields together; see get_image for why.
         scale_bar = self.scale_bar_config
         objective = self._scope.runtime_state.get_current_objective()
-        use_scale_bar = scale_bar['enabled']
-        if objective is None:
-            use_scale_bar = False
+        use_scale_bar = self._resolve_use_scale_bar(scale_bar['enabled'], objective)
 
         if use_scale_bar:
             tmp = image_utils.add_scale_bar(
@@ -3327,6 +3328,10 @@ class ImagingAPI:
     def is_focusing(self) -> bool:
         """True while the microscope is running autofocus.
 
+        Internal coordination flag -- set and read by the autofocus
+        machinery and not part of the L2 API surface (clients read the
+        session's run-state derivations).
+
         Returns:
             bool: True if an autofocus run is in progress.
         """
@@ -3334,7 +3339,12 @@ class ImagingAPI:
 
     @is_focusing.setter
     def is_focusing(self, value: bool) -> None:
-        """Set the autofocus-in-progress flag."""
+        """Set the autofocus-in-progress flag.
+
+        Internal coordination flag -- set and read by the autofocus
+        machinery and not part of the L2 API surface (clients read the
+        session's run-state derivations).
+        """
         if value:
             self._focusing_event.set()
         else:
@@ -3372,6 +3382,9 @@ class ImagingAPI:
     def last_capture_info(self) -> dict | None:
         """Evidence about the most recent capture_and_wait on this scope.
 
+        Internal evidence record -- consumed by the protocol file writer
+        and not part of the L2 API surface.
+
         Returns:
             dict | None: ``{'hold_ms', 'drained', 'chunk_exposure_us',
                 'chunk_gain_db'}`` for the latest capture, or None before
@@ -3382,6 +3395,26 @@ class ImagingAPI:
             return dict(self._last_capture_info) if self._last_capture_info else None
 
     # --- Scale bar ---
+    def _resolve_use_scale_bar(self, enabled: bool, objective) -> bool:
+        """Whether to draw the scale bar, loud once when it cannot be drawn.
+
+        The no-objective skip is by design -- without an objective there is
+        no pixel size, and a bar of invented length is a false measurement
+        claim -- but a user who ENABLED the bar deserves one log line saying
+        why it is not appearing. Latched once per no-objective episode
+        because the callers run per displayed frame.
+        """
+        if objective is not None:
+            self._scale_bar_objective_skip_logged = False
+            return enabled
+        if enabled and not self._scale_bar_objective_skip_logged:
+            self._scale_bar_objective_skip_logged = True
+            logger.warning(
+                '[SCOPE API ] Scale bar is enabled but no objective is '
+                'selected; skipping the bar until an objective is set.'
+            )
+        return False
+
     @property
     def scale_bar_config(self) -> dict:
         """Return a snapshot of scale bar settings.
@@ -3431,6 +3464,10 @@ class ImagingAPI:
     ) -> None:
         """Own the periodic camera-temp logging schedule.
 
+        Internal metrics scheduling -- not part of the L2 API surface
+        (clients read ``get_camera_temperatures_degc`` and schedule their
+        own logging).
+
         Was previously a Clock.schedule_interval registered by the App
         and stored as a fresh attribute on the MainDisplay widget -- if
         MainDisplay was ever recreated (LS850/LS620 scope swap), the
@@ -3471,6 +3508,9 @@ class ImagingAPI:
 
     def stop_camera_temp_logging(self, unschedule_fn=None) -> None:
         """Cancel the periodic camera-temp logger if active.
+
+        Internal metrics scheduling -- pair of
+        ``start_camera_temp_logging``; not part of the L2 API surface.
 
         Idempotent -- safe to call when no logger is running. The
         unschedule_fn arg is optional; falls back to the function passed

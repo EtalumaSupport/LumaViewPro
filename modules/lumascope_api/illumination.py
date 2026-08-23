@@ -206,6 +206,8 @@ class LedLease:
     ) -> LedLease | None:
         """Take a nested lease under this one.
 
+        Internal lease mechanics -- not part of the L2 API surface.
+
         The one nesting case is autofocus running inside a protocol step:
         the step holds the lease and lets autofocus drive the LED through a
         child it must outlive. Returns None if this lease is no longer held.
@@ -218,7 +220,10 @@ class LedLease:
 
     @property
     def held(self) -> bool:
-        """True until this lease (or an ancestor) has been released."""
+        """True until this lease (or an ancestor) has been released.
+
+        Internal lease mechanics -- not part of the L2 API surface.
+        """
         return not self._released
 
     def __enter__(self) -> LedLease:
@@ -232,6 +237,8 @@ class LedLease:
         transition: LedTransition, ctx: LedTransitionCtx
     ) -> frozenset[tuple[int, float]]:
         """The single LED decision: which channels should be lit after a transition.
+
+        Internal lease mechanics -- not part of the L2 API surface.
 
         Pure function of the transition and its context -- it reads no hardware
         and holds no state, so the policy is testable in isolation and identical
@@ -820,6 +827,9 @@ class IlluminationAPI:
     ) -> None:
         """Drive an unleased LED transition through the authority, and wait.
 
+        Internal LED-transition entry -- not part of the L2 API surface
+        (clients use ``led_on``/``led_off``).
+
         See ``_apply_transition_impl`` for what a transition is and when it
         is refused for lease reasons, which is separate from the dispatch
         refusal here.
@@ -1257,6 +1267,10 @@ class IlluminationAPI:
     ) -> LedLease | None:
         """Acquire the exclusive LED-ownership lease.
 
+        Internal run-exclusivity machinery -- not part of the L2 API
+        surface (clients drive ``led_on``/``led_off``; a refusal names the
+        holder).
+
         While a lease is held, only its owner may drive the LEDs.
         Contention is arbitrated HERE, on the resource, not at call
         sites: a holder whose owner is provably dead (its liveness probe
@@ -1417,7 +1431,11 @@ class IlluminationAPI:
 
     @property
     def led_lease_owner(self) -> str | None:
-        """The active LED-lease owner name, or None if the LEDs are unleased."""
+        """The active LED-lease owner name, or None if the LEDs are unleased.
+
+        Internal lease introspection -- not part of the L2 API surface
+        (refusals carry the holder).
+        """
         with self._led_lease_lock:
             return self._led_lease_stack[-1].owner_name if self._led_lease_stack else None
 
@@ -1493,6 +1511,9 @@ class IlluminationAPI:
     ) -> None:
         """Submit ``apply_transition`` to the io_executor.
 
+        Internal -- the GUI's non-blocking submission of
+        ``apply_transition``; not part of the L2 API surface.
+
         Manual step navigation runs the LED transition here so it serializes on
         the same io_executor as the stage moves (no move racing the LEDs) and
         does not block the UI thread.
@@ -1509,6 +1530,9 @@ class IlluminationAPI:
 
     def force_off(self) -> None:
         """Turn off all LEDs unconditionally, bypassing any held lease.
+
+        Internal lease-bypassing safety off for the writer path -- not
+        part of the L2 API surface (clients use ``leds_off``).
 
         The unblockable safety path for emergency / error / shutdown
         callers: an idempotent off must never be refused because another

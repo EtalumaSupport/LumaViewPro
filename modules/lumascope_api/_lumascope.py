@@ -752,6 +752,9 @@ class Lumascope:
     ) -> None:
         """Register the executor handles used by the X_async / X_sync command methods.
 
+        Internal session-composition wiring -- called by ScopeSession at
+        construction and not part of the L2 API surface.
+
         Call once at startup after the executors are constructed. Tests
         that don't drive the executor-backed API can skip this -- those
         methods raise RuntimeError if invoked without executors registered.
@@ -792,6 +795,9 @@ class Lumascope:
 
     def register_executor_bundle(self, executor_bundle, settings=None) -> None:
         """Register the ExecutorBundle + settings dict for MetricsLogger.
+
+        Internal session-composition wiring -- called by ScopeSession at
+        construction and not part of the L2 API surface.
 
         Lumascope construction (__init__) creates a MetricsLogger but
         cannot fill in the bundle yet -- the bundle exists only once the
@@ -1068,6 +1074,9 @@ class Lumascope:
     @classmethod
     def create_diagnostic(cls) -> 'Lumascope':
         """Create a minimal Lumascope for diagnostics (no camera init).
+
+        Internal degraded-mode constructor for support reports -- not
+        part of the L2 API surface.
 
         Connects to LED and motor boards only. For use by tools like
         the tech support report that need board access without the full

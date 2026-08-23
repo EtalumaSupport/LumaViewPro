@@ -15,6 +15,8 @@ import re
 
 import numpy as np
 
+from lvp_logger import logger
+
 import modules.common_utils as common_utils
 import modules.image_utils as image_utils
 
@@ -180,6 +182,10 @@ def resolve_recording_pixel_size(scope) -> float | None:
     # die because the scope cannot yet say how big a pixel is.
     objective = scope.runtime_state.get_current_objective()
     if objective is None:
+        logger.warning(
+            'Recording is starting with no objective selected; its frames '
+            'will carry no um/pixel scale claim.'
+        )
         return None
     pixel_size_um = common_utils.get_pixel_size(
         focal_length=objective['focal_length'],
