@@ -1,10 +1,14 @@
 # LumaViewPro — API & Integration Reference
 
-**What is public.** This document defines the public API. If a method or
-property is not documented here, it is not public API: it may be renamed,
-moved, or removed in any release without notice, and code that calls it is
-unsupported. Bench-characterization and tech-support surfaces exist on the
-same objects and are deliberately not listed here.
+**What is public.** The public surface is defined in code: a member is
+public unless its docstring marks it internal ("not part of the L2 API
+surface") or an engineering ruling places it on the bench/tech-support
+surface. This document is the reference for that surface, and the test
+suite holds the two in lockstep both ways -- every call form here must
+resolve on the live API, and every public member must appear here. A
+member absent from this document is internal or engineering surface:
+it may be renamed, moved, or removed in any release without notice,
+and code that calls it is unsupported.
 
 ## PRE-RELEASE API
 
@@ -161,6 +165,14 @@ scope.runtime_state.get_current_objective()
 scope.runtime_state.set_turret_config({1: '4x Oly', 2: '10x Oly', 3: '20x Oly', 4: '40x w/collar'})
 scope.runtime_state.get_turret_config()
 scope.motion.get_turret_position_for_objective_id('10x Oly')   # returns 2 (turret position is motion state)
+scope.motion.is_current_turret_position_objective_set()        # False when the CURRENT turret slot has no configured objective
+
+# Labware + stage offset -- the plate-coordinate inputs
+scope.runtime_state.set_labware(labware_obj)           # LabWare object (see Coordinate transformations)
+scope.runtime_state.get_labware()
+scope.runtime_state.set_stage_offset({'x': 0.0, 'y': 0.0})
+scope.runtime_state.get_stage_offset()
+scope.runtime_state.get_well_label()                   # 'A1' for the current stage XY; '' when the labware has no wells
 
 # Stage µm → plate mm using the registered labware + stage offset
 # (the bound form of CoordinateTransformer.stage_to_plate; raises
@@ -181,11 +193,15 @@ GUI-free session container. All hardware commands route through executor threads
 For **real hardware** with settings loaded from disk:
 
 ```python
-from modules.settings_init import load_lvp_settings
+import modules.settings_init as settings_init
+from lvp_logger import logger
 from modules.scope_session import ScopeSession
 
-settings = load_lvp_settings('./data/current.json')
-session = ScopeSession.create(settings=settings, source_path='.')
+# Takes a logger and the appdata DIRECTORY; reads data/current.json
+# itself (settings.json is the corrupt-file fallback + defaults-merge
+# source) and populates the module-global settings dict.
+settings_init.load_lvp_settings(logger, '.')
+session = ScopeSession.create(settings=settings_init.settings, source_path='.')
 session.start_executors()
 ```
 
@@ -280,6 +296,14 @@ save_image(
     array=image, save_folder='./output',
     file_root='capture', append='_BF', color='BF',
 )
+
+# Live-view tap: the latest buffered frame, no new exposure forced
+# (the capture calls above always force one). (None, None) when unavailable.
+frame, timestamp = session.scope.imaging.get_image_from_buffer()
+
+# Payload bit depth (8 / 12 / 16) of a frame this scope just produced --
+# needed to interpret or rescale full-depth payloads before saving.
+session.scope.imaging.capture_frame_depth(image)
 ```
 
 ### Running protocols
@@ -334,6 +358,24 @@ Both refusal errors say busy-with-what: `holder` carries the exclusive-activity 
 
 **Run-state semantics:** `session.is_protocol_running` (a property, not a call) reports True while a run holds the session's exclusive-activity claim -- protocol runs, single scans, z-stacks, autofocus scans, and the standalone Autofocus button's run included. It releases at run-cleanup end; the short post-run file-drain window (files still writing after the run finished) reads False here and True on `session.run_lockout` / `session.protocol_files_draining`, so a poller that must wait for the disk to settle checks those. A live video recording is not a run: it reads False here and is visible on `session.exclusive_activity == 'recording'`.
 
+### Run state and locks
+
+The session derives all run and lock state from its activity claim.
+These are the members a GUI-quality client binds its widget state to --
+the same derivations LVP's own GUI mirrors into kv properties
+(alongside the run predicates shown under Running protocols):
+
+```python
+session.controls_locked          # full control-surface lock (any run lockout, or a live recording)
+session.motion_enabled           # user stage motion allowed right now
+session.recording_capturing      # a manual recording is LIVE (not its file drain)
+
+def on_run_state():              # called on EVERY run-state transition;
+    print(session.run_lockout)   # re-read the derivations (level semantics, no payload)
+session.add_run_state_listener(on_run_state)
+session.notify_run_state()       # force a level-sync of all listeners
+```
+
 ### Configuration queries
 
 ```python
@@ -341,6 +383,8 @@ session.get_layer_configs()              # all layer settings
 session.get_current_objective_info()     # active objective
 session.get_current_plate_position()     # current XY in plate coords
 session.get_auto_gain_settings()         # auto-gain config
+session.get_stim_configs()               # stim settings per layer
+session.get_enabled_stim_configs()       # only the enabled ones
 ```
 
 ### Cleanup
@@ -371,6 +415,10 @@ scope.motion.get_current_position('Z')           # predicted position during mot
 scope.motion.get_current_position()              # dict of all axes
 scope.motion.get_target_position('Z')            # target µm
 scope.motion.get_actual_position('Z')            # hardware position via serial (slow; use sparingly)
+
+# Stop + tuning
+scope.motion.stop_motion()                       # stop all in-flight moves (the app-level abort for the move_* family)
+scope.motion.set_acceleration_limit(50)          # motor acceleration cap, percent of max
 
 # Absolute moves (µm)
 scope.motion.move_absolute('Z', 5000)
@@ -622,6 +670,16 @@ scope.imaging.apply_layer_camera_settings(
     auto_gain=False, auto_gain_settings=None,
 )
 
+# Auto-gain: the continuous toggle, the one-shot settle, and the setpoint
+scope.imaging.set_auto_gain(True, settings={'target_brightness': 0.3, 'min_gain_db': 0.0, 'max_gain_db': 20.0})
+scope.imaging.auto_gain_once(True, target_brightness=0.3, min_gain_db=0.0, max_gain_db=20.0)
+scope.imaging.update_auto_gain_target_brightness(0.5)   # live setpoint tweak while auto-gain runs
+
+# Camera-model-specific tuning knobs. Probe support first:
+# scope.capabilities.camera_supports_conversion_gain_mode / _line_noise_reduction.
+scope.imaging.set_conversion_gain_mode('High')     # True when applied; False when unsupported / no camera
+scope.imaging.set_line_noise_reduction(True)       # same contract
+
 # Frame size (getters answer last-known-good on a transient read
 # failure; None / 0 only when no camera is active or never read)
 delivered = scope.imaging.set_frame_size(2048, 2048)
@@ -645,9 +703,15 @@ scope.imaging.set_binning_size(2)
 # record a rejected apply.
 scope.imaging.get_binning_size()                   # always >= 1 (last-known-good on failed read)
 scope.imaging.get_available_binning_sizes()        # e.g. [1, 2, 4]
+scope.imaging.get_supported_pixel_formats()        # e.g. ('Mono8', 'Mono12') -- the enumeration for set_pixel_format
+
+# Scale bar overlay (burned into frames the imaging paths return when enabled;
+# skipped -- with one warning logged -- while no objective is selected)
+scope.imaging.set_scale_bar(True, color='red')
+scope.imaging.scale_bar_config                     # snapshot dict: {'enabled', 'color', ...}
 ```
 
-The acquisition frame-rate cap lives on the camera driver and clamps frame production regardless of sensor-readout capability. Used by the manual-record path to match user-requested video FPS, and by characterization tools to bound capture rate during long-running probes. No-op on drivers that do not implement the underlying setter (warning logged). Distinct from `set_exposure_ms` (per-frame integration time) and from any host-side throttling.
+The acquisition frame-rate cap lives on the camera driver and clamps frame production regardless of sensor-readout capability. It is a driver-level control with no public API member -- described here only to explain the behavior. Used by the manual-record path to match user-requested video FPS, and by characterization tools to bound capture rate during long-running probes. No-op on drivers that do not implement the underlying setter (warning logged). Distinct from `set_exposure_ms` (per-frame integration time) and from any host-side throttling.
 
 ### Dynamic camera capabilities
 
@@ -723,6 +787,7 @@ scope.camera_connected                             # bool property (mirror of mo
 scope.imaging.active_cached                        # True if grabbing
 scope.diagnostics.get_camera_temperatures_degc()        # temperature sensors (SDK-dependent)
 scope.diagnostics.get_camera_info()                # model, serial, firmware
+scope.imaging.camera_identity                      # {'model','serial','timestamp_tick_frequency_hz'} for provenance records; all None camera-absent
 scope.diagnostics.get_camera_profile_info()        # sensor specs + dynamic ranges; returns:
 # {
 #   'model': 'MT9P031-LS620', 'sensor': 'Aptina MT9P031',
@@ -1080,7 +1145,7 @@ A worked plugin example ships in `etaluma-engineering/`; see its `pyproject.toml
 
 ## REST surface reference
 
-> **Status (2026-04):** In development on `4.1.0-dev`. When it ships it will be **disabled by default** — customers enable per-deployment via a feature flag. Treat the example below as design preview, not yet-callable code.
+> **Status (2026-08):** Not yet in the tree. REST lands as its own phase after the 4.0 API-surface work completes; when it ships it will be **disabled by default** — customers enable per-deployment via a feature flag. Treat the sketch below as design preview, not yet-callable code.
 
 HTTP endpoints wrap the Python API. Control the microscope from any language — MATLAB, LabVIEW, JavaScript, curl.
 
