@@ -78,7 +78,11 @@ _READ_TEXT_SITE_BUDGET = 366
 # pin-justified: 122 -> 123 for test_build_dependency_and_identity.py.
 # pin-justified: 123 -> 124 for test_api_doc_guard.py, same reason as the
 # site bump above.
-_READ_TEXT_FILE_BUDGET = 124
+# pin-justified: 124 -> 125 for test_api_surface_polarity2.py -- the
+# other polarity of the same guard: its subject is ALSO the text of
+# LumascopeSkills.md (does every live public member appear in a checked
+# fence), so there is no AST seam to assert instead.
+_READ_TEXT_FILE_BUDGET = 125
 
 
 def _nodes_inside_iteration(tree):
