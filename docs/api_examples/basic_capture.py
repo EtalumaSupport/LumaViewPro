@@ -11,30 +11,15 @@ Demonstrates:
 
 import sys
 import pathlib
-from unittest.mock import MagicMock
 
-# Add parent directory to path so we can import lumascope_api
+# Make the repo root importable when run standalone
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 
-# Mock modules not needed for headless simulate mode
-_mock_logger = MagicMock()
-_mock_lvp_logger = MagicMock()
-_mock_lvp_logger.logger = _mock_logger
-_mock_lvp_logger.is_thread_paused = MagicMock(return_value=False)
-_mock_lvp_logger.unpause_thread = MagicMock()
-_mock_lvp_logger.pause_thread = MagicMock()
-
-sys.modules.setdefault('lvp_logger', _mock_lvp_logger)
-sys.modules.setdefault('platformdirs', MagicMock())
-sys.modules.setdefault('requests', MagicMock())
-sys.modules.setdefault('requests.structures', MagicMock())
-sys.modules.setdefault('pypylon', MagicMock())
-sys.modules.setdefault('pypylon.pylon', MagicMock())
-sys.modules.setdefault('pypylon.genicam', MagicMock())
-sys.modules.setdefault('ids_peak', MagicMock())
-sys.modules.setdefault('ids_peak.ids_peak', MagicMock())
-sys.modules.setdefault('ids_peak.ids_peak_ipl_extension', MagicMock())
-sys.modules.setdefault('ids_peak_ipl', MagicMock())
+# This example runs the SAME code path two ways:
+#   standalone: python3 docs/api_examples/basic_capture.py  (the real installed deps)
+#   in-suite:   tests/test_api_examples.py runs main() under the heavy-dep
+#               mocks the test conftest installs before collection
+# The sys.path line serves the standalone form; in-suite it is a no-op.
 
 from modules.lumascope_api import Lumascope
 

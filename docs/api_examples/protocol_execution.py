@@ -14,36 +14,18 @@ then executes it through the ProtocolRunner API.
 import sys
 import pathlib
 import datetime
-from unittest.mock import MagicMock
 
-# Add parent directory to path so we can import project modules
+# Make the repo root importable when run standalone
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 
-# Mock modules not needed for headless simulate mode
-_mock_logger = MagicMock()
-_mock_lvp_logger = MagicMock()
-_mock_lvp_logger.logger = _mock_logger
-_mock_lvp_logger.version = 'example'
-_mock_lvp_logger.is_thread_paused = MagicMock(return_value=False)
-_mock_lvp_logger.unpause_thread = MagicMock()
-_mock_lvp_logger.pause_thread = MagicMock()
-
-sys.modules.setdefault('lvp_logger', _mock_lvp_logger)
-sys.modules.setdefault('platformdirs', MagicMock())
-sys.modules.setdefault('requests', MagicMock())
-sys.modules.setdefault('requests.structures', MagicMock())
-sys.modules.setdefault('pypylon', MagicMock())
-sys.modules.setdefault('pypylon.pylon', MagicMock())
-sys.modules.setdefault('pypylon.genicam', MagicMock())
-sys.modules.setdefault('ids_peak', MagicMock())
-sys.modules.setdefault('ids_peak.ids_peak', MagicMock())
-sys.modules.setdefault('ids_peak.ids_peak_ipl_extension', MagicMock())
-sys.modules.setdefault('ids_peak_ipl', MagicMock())
+# This example runs the SAME code path two ways:
+#   standalone: python3 docs/api_examples/protocol_execution.py  (the real installed deps)
+#   in-suite:   tests/test_api_examples.py runs main() under the heavy-dep
+#               mocks the test conftest installs before collection
+# The sys.path line serves the standalone form; in-suite it is a no-op.
 
 from modules.lumascope_api import Lumascope
 from modules.scope_session import ScopeSession
-from modules.protocol_runner import ProtocolRunner
-from modules.protocol import Protocol
 
 
 def build_protocol_config():
@@ -122,7 +104,7 @@ def main():
 
     # Build the protocol configuration
     config = build_protocol_config()
-    print(f'\nProtocol config:')
+    print('\nProtocol config:')
     print(f'  Positions: {len(config["positions"])}')
     print(f'  Channels: {list(config["layer_configs"].keys())}')
     print(f'  Period: {config["period"]}')
@@ -135,6 +117,7 @@ def main():
     #
     # In a real application with the full LumaViewPro installation:
     #
+    #   from modules.protocol import Protocol
     #   tiling_file = pathlib.Path("data/tiling.json")
     #   protocol = Protocol.from_config(config, tiling_configs_file_loc=tiling_file)
     #

@@ -7,38 +7,24 @@ Demonstrates:
 - Capturing an image at each Z slice via scope.imaging.capture_and_wait
 - Building a Z-stack for 3D analysis or extended depth of focus
 
-Note: The Lumascope API also provides a built-in autofocus method
-(scope.autofocus()) that sweeps Z and finds the best focus plane
-automatically. This example shows manual Z stepping for cases where
-you want full control over the Z-stack.
+Note: autofocus runs as a RUN through the session's protocol runner
+(see LumascopeSkills.md, Running protocols) -- it sweeps Z and settles
+on the best focus plane under the run-exclusivity claim. This example
+shows manual Z stepping for cases where you want full control over
+the Z-stack.
 """
 
 import sys
 import pathlib
-from unittest.mock import MagicMock
 
-# Add parent directory to path so we can import lumascope_api
+# Make the repo root importable when run standalone
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 
-# Mock modules not needed for headless simulate mode
-_mock_logger = MagicMock()
-_mock_lvp_logger = MagicMock()
-_mock_lvp_logger.logger = _mock_logger
-_mock_lvp_logger.is_thread_paused = MagicMock(return_value=False)
-_mock_lvp_logger.unpause_thread = MagicMock()
-_mock_lvp_logger.pause_thread = MagicMock()
-
-sys.modules.setdefault('lvp_logger', _mock_lvp_logger)
-sys.modules.setdefault('platformdirs', MagicMock())
-sys.modules.setdefault('requests', MagicMock())
-sys.modules.setdefault('requests.structures', MagicMock())
-sys.modules.setdefault('pypylon', MagicMock())
-sys.modules.setdefault('pypylon.pylon', MagicMock())
-sys.modules.setdefault('pypylon.genicam', MagicMock())
-sys.modules.setdefault('ids_peak', MagicMock())
-sys.modules.setdefault('ids_peak.ids_peak', MagicMock())
-sys.modules.setdefault('ids_peak.ids_peak_ipl_extension', MagicMock())
-sys.modules.setdefault('ids_peak_ipl', MagicMock())
+# This example runs the SAME code path two ways:
+#   standalone: python3 docs/api_examples/z_stack.py  (the real installed deps)
+#   in-suite:   tests/test_api_examples.py runs main() under the heavy-dep
+#               mocks the test conftest installs before collection
+# The sys.path line serves the standalone form; in-suite it is a no-op.
 
 from modules.lumascope_api import Lumascope
 
@@ -108,9 +94,8 @@ def main():
     #              append=f'_Z{i:03d}', ...)
     # This requires setting objective, labware, and stage offset first.
 
-    # NOTE: For autofocus, you can use the built-in method:
-    #   scope.autofocus(AF_min=10, AF_max=100, AF_range=500)
-    # This automatically sweeps Z and moves to the best focus position.
+    # NOTE: for automatic focusing, run autofocus as a run through the
+    # session's protocol runner (LumascopeSkills.md, Running protocols).
 
     # Clean up
     scope.illumination.leds_off()
