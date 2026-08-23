@@ -432,12 +432,12 @@ class LumaViewProApp(TooltipMixin, App):
 
     # kv mirrors of the session's run-state derivations, published by
     # the ONE run-state listener below (worker-side truth lives on the
-    # session; a kv binding cannot read it directly). protocol_running
-    # carries the run lockout (a run or its post-run file drain);
-    # recording_active carries a LIVE manual recording; controls_locked
-    # is the full-surface lock. Never add a second per-site flag --
-    # bind to these.
-    protocol_running = BooleanProperty(False)
+    # session; a kv binding cannot read it directly). run_lockout
+    # carries the session derivation of the same name (a run or its
+    # post-run file drain); recording_active carries a LIVE manual
+    # recording; controls_locked is the full-surface lock. Never add a
+    # second per-site flag -- bind to these.
+    run_lockout = BooleanProperty(False)
     recording_active = BooleanProperty(False)
     controls_locked = BooleanProperty(False)
 
@@ -456,10 +456,10 @@ class LumaViewProApp(TooltipMixin, App):
         locked = session.controls_locked
         if locked:
             self.controls_locked = True
-            self.protocol_running = run_lockout
+            self.run_lockout = run_lockout
             self.recording_active = recording
         else:
-            self.protocol_running = run_lockout
+            self.run_lockout = run_lockout
             self.recording_active = recording
             self.controls_locked = False
 

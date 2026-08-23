@@ -82,10 +82,10 @@ class TestDerivedLockProperty:
         body = body[: body.index('def on_start')]
         lock_branch = body[body.index('if locked:') : body.index('else:')]
         unlock_branch = body[body.index('else:') :]
-        assert lock_branch.index('controls_locked') < lock_branch.index('protocol_running'), (
+        assert lock_branch.index('controls_locked') < lock_branch.index('run_lockout'), (
             'locking must write controls_locked first'
         )
-        assert unlock_branch.index('protocol_running') < unlock_branch.index(
+        assert unlock_branch.index('run_lockout') < unlock_branch.index(
             'controls_locked = False'
         ), 'unlocking must write controls_locked last'
 
@@ -145,7 +145,7 @@ class TestKvBindingTopology:
         idx = KV_SRC.find('id: record_btn')
         assert idx > 0
         snippet = KV_SRC[idx : idx + 120]
-        assert 'disabled: app.protocol_running' in snippet
+        assert 'disabled: app.run_lockout' in snippet
         assert 'controls_locked' not in snippet
 
 

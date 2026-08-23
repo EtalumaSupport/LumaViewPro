@@ -1,7 +1,7 @@
 """Regression tests for the protocol-running UI lockout (issue #166, #704).
 
-A `protocol_running` BooleanProperty on the App mirrors the
-ctx.protocol_running Event so kv `disabled:` bindings grey out interactive
+A `run_lockout` BooleanProperty on the App mirrors the session's
+`run_lockout` derivation so kv `disabled:` bindings grey out interactive
 controls during a scan. The property must be published True at every run
 start and False at every run-reset (the abort-safe convergence point), or
 controls would either never lock or stay stuck disabled after a scan. These
@@ -41,7 +41,7 @@ def _method_in_class(src, class_name, method_name):
     return None
 
 
-def test_app_defines_protocol_running_boolean_property():
+def test_app_defines_run_lockout_boolean_property():
     src = _read('lumaviewpro.py')
     tree = ast.parse(src)
     cls = next(
@@ -49,11 +49,11 @@ def test_app_defines_protocol_running_boolean_property():
     )
     found = any(
         isinstance(node, ast.Assign)
-        and any(isinstance(t, ast.Name) and t.id == 'protocol_running' for t in node.targets)
+        and any(isinstance(t, ast.Name) and t.id == 'run_lockout' for t in node.targets)
         and 'BooleanProperty' in ast.unparse(node.value)
         for node in cls.body
     )
-    assert found, 'LumaViewProApp must define protocol_running = BooleanProperty(...)'
+    assert found, 'LumaViewProApp must define run_lockout = BooleanProperty(...)'
 
 
 def test_mirror_is_listener_published_not_caller_pushed():
