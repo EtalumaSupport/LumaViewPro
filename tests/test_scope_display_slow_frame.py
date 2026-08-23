@@ -17,6 +17,11 @@ stutter. The contract these tests lock:
     so a uniformly slow stream (median rises to match) does not fire.
   * A fast->slow transition is rate-limited so it does not log every frame
     until the median catches up.
+  * Intended non-render time (protocol/derived-image holds, user pause) is
+    passed as held_ms and subtracted before judging AND before feeding the
+    median window: a deliberately held frame is not a stutter, and a hold
+    chain must not inflate the baseline. A genuine residue past the hold
+    still fires, with held= reported on the line.
 
 The real ScopeDisplay is a Kivy widget needing a GL context; the logic touches
 only a handful of instance attributes + module constants, so a minimal stand-in
@@ -180,3 +185,58 @@ def test_rate_limit_caps_a_fast_to_slow_burst(caplog):
     # Once the min gap has elapsed, a distinct later stutter logs again.
     later = 1000.500 + FRAME_SPIKE_LOG_MIN_GAP_S + 0.300
     assert len(_feed(stand, later, caplog)) == 1
+
+
+def _feed_held(stand, cycle_start, caplog, held_ms, *, grab=1.0, proc=3.0, eng=0.0):
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger='LVP.ui.scope_display'):
+        stand._check_slow_frame(
+            cycle_start, grab_ms=grab, proc_ms=proc, eng_ms=eng, held_ms=held_ms
+        )
+    return [r.getMessage() for r in caplog.records if '[SLOW FRAME]' in r.getMessage()]
+
+
+def test_intentional_hold_fully_accounting_for_excess_is_silent(caplog):
+    # A protocol hold chains a saved frame on screen: the 550ms wall-clock span
+    # is 517ms of deliberate hold + a normal 33ms frame. Not a stutter.
+    stand = _primed(33.0)
+    assert _feed_held(stand, 1000.550, caplog, 517.0) == []
+    # The median window got the ADJUSTED interval, so a hold chain does not
+    # inflate the baseline and mask real stutters afterwards.
+    assert abs(stand._spike_interval_window[-1] - 33.0) < 0.001
+
+
+def test_hold_with_genuine_residue_fires_and_reports_held(caplog):
+    # 750ms span = 500ms hold + 250ms real gap: the residue is a genuine spike
+    # and must still fire, with the hold reported so the line accounts for the
+    # full wall-clock span.
+    stand = _primed(33.0)
+    records = _feed_held(stand, 1000.750, caplog, 500.0)
+    assert len(records) == 1
+    msg = records[0]
+    assert 'interval=250ms' in msg
+    assert 'held=500ms' in msg
+    # gap arithmetic stays on the judged interval: 250 - (2+8+51) = 189ms.
+    assert 'gap=189ms' in msg
+
+
+def test_no_hold_line_has_no_held_note(caplog):
+    records = _feed(_primed(33.0), 1000.250, caplog)
+    assert len(records) == 1
+    assert 'held=' not in records[0]
+
+
+def test_record_frame_interval_excludes_intentional_wait():
+    # The rolling p50/p95/p99 histogram is the other consumer of iteration
+    # intervals; a hold must not inflate its max either.
+    stand = _Stand()
+    stand._frame_interval_history = deque(maxlen=10)
+    stand._last_frame_pull_time = None
+    record = ScopeDisplay._record_frame_interval
+    record(stand, 1000.0, 0.0)  # seeds; no interval yet
+    assert list(stand._frame_interval_history) == []
+    record(stand, 1000.038, 0.0)  # normal 38ms iteration
+    record(stand, 1000.576, 500.0)  # 538ms span, 500ms of it a hold
+    intervals = list(stand._frame_interval_history)
+    assert abs(intervals[0] - 38.0) < 0.001
+    assert abs(intervals[1] - 38.0) < 0.001

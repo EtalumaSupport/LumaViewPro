@@ -174,6 +174,11 @@ class ScopeDisplay(Image):
         self._spike_median_cache = None
         self._spike_median_refresh = 0.0
         self._slow_frame_last_log = 0.0
+        # Intended non-render time (holds, pause) accumulated across loop
+        # iterations since the last displayed frame; the spike instrument
+        # subtracts it so a deliberately held frame is not reported as a
+        # stutter. Reset each time an OK frame is judged.
+        self._wait_since_last_ok_ms = 0.0
 
         # Engineering stats timing (2x per second)
         self._eng_stats_last_time = 0.0
@@ -527,6 +532,18 @@ class ScopeDisplay(Image):
         np.take(ScopeDisplay._bullseye_lut, image, axis=0, out=self._bullseye_rgb_buf)
         return self._bullseye_rgb_buf
 
+    def _record_frame_interval(self, cycle_start, intentional_wait_ms):
+        """Append one loop-iteration interval to the rolling histogram.
+
+        Time the loop deliberately spent not rendering (holds, pause) is
+        excluded so p50/p95/p99/max read as delivery latency -- a frame held
+        on screen on purpose is not a consumer stall.
+        """
+        if self._last_frame_pull_time is not None:
+            interval_ms = (cycle_start - self._last_frame_pull_time) * 1000.0 - intentional_wait_ms
+            self._frame_interval_history.append(interval_ms)
+        self._last_frame_pull_time = cycle_start
+
     def frame_interval_percentiles_ms(self):
         """Return P50/P95/P99 frame interval in ms over the rolling history.
 
@@ -546,7 +563,7 @@ class ScopeDisplay(Image):
             'n': n,
         }
 
-    def _check_slow_frame(self, cycle_start, *, grab_ms, proc_ms, eng_ms):
+    def _check_slow_frame(self, cycle_start, *, grab_ms, proc_ms, eng_ms, held_ms=0.0):
         """Emit one WARN when the gap to the previous displayed frame spikes.
 
         The "uneven video" instrument. Called only on STATUS_OK, so cycle_start
@@ -557,6 +574,15 @@ class ScopeDisplay(Image):
         (whose median rises to match; capture_fps owns that). Unconditional WARN
         so it reaches a normal bench bundle whether or not debug_mode/[PERF] is
         on; the floor+ratio+rate-limit gate keeps it to genuine spikes.
+
+        held_ms is time the loop deliberately spent not rendering during the
+        raw span (protocol / derived-image holds chain a saved frame on screen
+        at capture cadence; the pause button freezes the view for as long as
+        the user likes). It is subtracted before judging AND before feeding the
+        median window -- an intended freeze is not a stutter, and a protocol's
+        hold chain must not inflate the baseline. When a genuine spike remains
+        after subtraction the WARN still fires, with held= reported so the
+        line accounts for the full wall-clock span.
 
         Attribution: the grab/proc/eng reported are the PREVIOUS frame's --
         the display-path work that actually ran DURING this interval (this
@@ -572,7 +598,7 @@ class ScopeDisplay(Image):
         self._last_ok_compute = (grab_ms, proc_ms, eng_ms)
         if prev_time is None:
             return
-        interval_ms = (cycle_start - prev_time) * 1000.0
+        interval_ms = (cycle_start - prev_time) * 1000.0 - held_ms
         window = self._spike_interval_window
         window.append(interval_ms)
         if len(window) < FRAME_SPIKE_MIN_SAMPLES:
@@ -586,10 +612,11 @@ class ScopeDisplay(Image):
         self._slow_frame_last_log = cycle_start
         p_grab, p_proc, p_eng = prev_compute if prev_compute else (0.0, 0.0, 0.0)
         prev_total = p_grab + p_proc + p_eng
+        held_note = f' held={held_ms:.0f}ms' if held_ms > 0 else ''
         logger.warning(
             f'[SLOW FRAME] interval={interval_ms:.0f}ms (median={median_ms:.0f}ms) | '
             f'prev-frame grab={p_grab:.1f}ms proc={p_proc:.1f}ms eng={p_eng:.1f}ms '
-            f'(={prev_total:.1f}ms) gap={interval_ms - prev_total:.0f}ms'
+            f'(={prev_total:.1f}ms) gap={interval_ms - prev_total:.0f}ms{held_note}'
         )
 
     def _spike_median(self, now):
@@ -703,7 +730,14 @@ class ScopeDisplay(Image):
             self._debug_counter = 0
 
     def _render_one_frame(
-        self, *, active_layer, active_layer_config, open_layer, dispatch_time=0, generation=0
+        self,
+        *,
+        active_layer,
+        active_layer_config,
+        open_layer,
+        dispatch_time=0,
+        generation=0,
+        intentional_wait_ms=0.0,
     ):
         """Render one display frame. Called by ScopeDisplayThread per iteration.
 
@@ -712,6 +746,11 @@ class ScopeDisplay(Image):
         the status to decide whether to fan out to frame listeners and how
         to pace the next iteration. Self-rearming via Clock.schedule_once
         is RETIRED -- the loop owns pacing now.
+
+        intentional_wait_ms is the time the loop deliberately spent not
+        rendering before this call (protocol / derived-image holds, user
+        pause); the timing instruments exclude it so intended freezes are
+        not reported as latency.
         """
         from modules.scope_display_thread import (
             STATUS_OK,
@@ -719,6 +758,11 @@ class ScopeDisplay(Image):
             STATUS_DUPLICATE,
             STATUS_NOT_READY,
         )
+
+        # Accumulate intended waits toward the next displayed frame BEFORE any
+        # early return, so a hold followed by an empty/not-ready iteration is
+        # still excluded when the next OK frame is judged.
+        self._wait_since_last_ok_ms += intentional_wait_ms
 
         ctx = _app_ctx.ctx
 
@@ -730,10 +774,7 @@ class ScopeDisplay(Image):
 
         # Frame-interval recording (was on _pull_next_frame; now per-iteration here).
         cycle_start = dispatch_time or time.monotonic()
-        if self._last_frame_pull_time is not None:
-            interval_ms = (cycle_start - self._last_frame_pull_time) * 1000.0
-            self._frame_interval_history.append(interval_ms)
-        self._last_frame_pull_time = cycle_start
+        self._record_frame_interval(cycle_start, intentional_wait_ms)
 
         t_queue_wait = 0  # No queue under B1; preserve var for downstream perf code.
 
@@ -974,7 +1015,9 @@ class ScopeDisplay(Image):
             grab_ms=(t_grab_end - t_grab_start) * 1000.0,
             proc_ms=proc_ms,
             eng_ms=t_eng_stats * 1000.0,
+            held_ms=self._wait_since_last_ok_ms,
         )
+        self._wait_since_last_ok_ms = 0.0
 
         return STATUS_OK
 

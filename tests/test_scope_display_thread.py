@@ -41,7 +41,14 @@ class _FakeWidget:
         self._frame_interval_history = deque(maxlen=200)
 
     def _render_one_frame(
-        self, *, active_layer, active_layer_config, open_layer, dispatch_time, generation
+        self,
+        *,
+        active_layer,
+        active_layer_config,
+        open_layer,
+        dispatch_time,
+        generation,
+        intentional_wait_ms=0.0,
     ):
         self.calls.append(
             {
@@ -50,6 +57,7 @@ class _FakeWidget:
                 'open_layer': open_layer,
                 'dispatch_time': dispatch_time,
                 'generation': generation,
+                'intentional_wait_ms': intentional_wait_ms,
             }
         )
         if self._status_index < len(self.status_sequence):
@@ -169,6 +177,33 @@ def test_bump_protocol_hold_pauses_rendering():
     # Hold expired; calls resumed.
     assert len(widget.calls) - calls_before_hold > 2
     t.stop()
+
+
+def test_hold_wait_is_handed_to_next_render_as_intentional():
+    """A protocol hold's wait time reaches the widget as intentional_wait_ms
+    on the first post-hold render call, so the timing instruments can exclude
+    it -- a deliberately held frame must not read as display latency. The
+    accumulator drains on hand-off: later calls report ~0 again."""
+    t, _, widget = _make_thread()
+    t.start(fps=60)
+    time.sleep(0.05)
+    calls_before_hold = len(widget.calls)
+    t.bump_protocol_hold(0.3)
+    # Wait past the hold plus a few post-hold ticks.
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        if len(widget.calls) >= calls_before_hold + 3:
+            break
+        time.sleep(0.01)
+    t.stop()
+    post_hold = widget.calls[calls_before_hold:]
+    assert len(post_hold) >= 3, 'loop did not resume after the hold'
+    # The first post-hold call carries the measured wait (~300ms; generous
+    # bounds absorb scheduler jitter and an in-flight pre-hold iteration).
+    first_wait = max(c['intentional_wait_ms'] for c in post_hold[:2])
+    assert 200.0 <= first_wait <= 1000.0, f'hold wait not handed over: {first_wait}'
+    # Drained after hand-off: subsequent calls report near-zero.
+    assert post_hold[-1]['intentional_wait_ms'] < 50.0
 
 
 def test_stop_during_long_hold_returns_within_timeout():
