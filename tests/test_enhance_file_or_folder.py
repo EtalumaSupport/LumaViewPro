@@ -40,9 +40,25 @@ def test_non_macos_enhance_picker_offers_both_native_target_kinds():
         and node.name == '_platform_native_choose_file_or_folder'
     )
     body = ast.get_source_segment(source, method)
-    assert 'askyesnocancel' in body
+    assert 'Toplevel' in body
     assert 'askopenfilename' in body
     assert 'askdirectory' in body
+
+
+def test_non_macos_enhance_picker_uses_image_and_folder_labels():
+    source = (REPO / 'ui' / 'file_dialogs.py').read_text(encoding='utf-8')
+    tree = ast.parse(source)
+    method = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == '_platform_native_choose_file_or_folder'
+    )
+    body = ast.get_source_segment(source, method)
+
+    assert 'Choose image or folder' in body
+    assert "text='Image'" in body
+    assert "text='Folder'" in body
 
 
 def test_enhance_picker_routes_files_and_folders_after_the_protocol_guard():

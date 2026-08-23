@@ -99,18 +99,6 @@ NOT_IDS_INSTALLERS = [
 ]
 
 
-# A version.txt as the build script leaves it (line 5 stamped) and as the
-# pre-commit hook leaves it (four lines, no build event).
-FIVE_LINE_VERSION_TXT = (
-    '4.0.0-test',
-    '2026-08-17 15:25',
-    '4.0.0-beta',
-    'e2925d2a',
-    '20260817T163625Z-HOST',
-)
-FOUR_LINE_VERSION_TXT = FIVE_LINE_VERSION_TXT[:4]
-
-
 @pytest.mark.parametrize('filename', VENDOR_IDS_INSTALLERS)
 def test_ids_selector_accepts_real_vendor_filenames(filename):
     """The selector must match the INNER installer -- the driveable one."""
@@ -187,25 +175,32 @@ def test_near_miss_guard_exists_and_can_fail_the_build():
     )
 
 
-def test_build_script_version_gate_bumped_for_the_build_id_line():
-    """A branch whose logger reads line 5 must refuse a builder that never writes it.
+def test_build_script_version_gate_bumped_for_the_build_id_file():
+    """A branch whose logger reads build_id.txt must refuse a builder that never writes it.
 
-    The gate already exists; this pins that it was actually used. An older
-    build.ps1 would produce an installed exe with no build identity --
-    the same silent gap the line was added to close.
+    The gate already exists; this pins that it was actually used. A v2
+    build.ps1 rewrites version.txt with ``Set-Content -Encoding UTF8``,
+    which under Windows PowerShell 5.1 means UTF-8 WITH BOM -- that is
+    what shipped in 4.0.0-beta29 and made the version string
+    ``LumaViewPro <BOM>4.0.0-beta29``: garbled title bar, a fresh
+    Documents folder that orphaned the user's settings, and a TIFF
+    Software tag that failed ``TIFF strings must be 7-bit ASCII`` on
+    every single save. A v2 copy must not be allowed to build this
+    branch.
     """
     text = _build_ps1_text()
     m = re.search(r'\$script_version\s*=\s*(\d+)', text)
     assert m, 'build.ps1 declares no $script_version'
     script_version = int(m.group(1))
     min_version = int(MIN_VERSION_FILE.read_text().strip())
-    assert script_version >= 2, (
-        'build.ps1 writes version.txt line 5, which is a load-bearing change; '
-        '$script_version must be bumped so older copies are refused.'
+    assert script_version >= 3, (
+        'build.ps1 no longer rewrites version.txt, which is a load-bearing '
+        'change; $script_version must be bumped so older copies are refused.'
     )
-    assert min_version >= 2, (
+    assert min_version >= 3, (
         f'MIN_BUILD_SCRIPT_VERSION is {min_version}; this branch requires a '
-        f'builder that stamps the build ID, so it must be >= 2.'
+        f'builder that leaves version.txt alone and writes build_id.txt, so '
+        f'it must be >= 3.'
     )
     assert script_version >= min_version, (
         f'build.ps1 is v{script_version} but the branch requires '
@@ -213,12 +208,40 @@ def test_build_script_version_gate_bumped_for_the_build_id_line():
     )
 
 
-def test_build_ps1_stamps_a_build_id_into_version_txt():
-    """The build must write line 5; nothing else in the chain does."""
+def test_build_ps1_writes_the_build_id_to_its_own_file():
+    """The build must write build_id.txt; nothing else in the chain does."""
     text = _build_ps1_text()
     assert '$build_id' in text, 'build.ps1 computes no build ID'
-    assert 'version.txt' in text and 'Set-Content' in text, (
-        'build.ps1 never writes version.txt, so the build ID cannot reach the exe'
+    assert 'build_id.txt' in text, (
+        'build.ps1 never writes build_id.txt, so the build ID cannot reach the exe'
+    )
+
+
+def test_build_ps1_never_writes_version_txt():
+    """version.txt has ONE author: the pre-commit hook.
+
+    This is the 4.0.0-beta29 regression, pinned at its structural root.
+    The build ID is a DIAGNOSTIC; version.txt line 1 is LOAD-BEARING --
+    it names the user's Documents folder and is stamped into the TIFF
+    Software tag of every saved image. Writing the diagnostic into the
+    load-bearing file is what let a PowerShell encoding default (5.1
+    ``-Encoding UTF8`` emits a BOM) take out image capture entirely.
+
+    Reads are fine; the assertion is that no WRITE targets version.txt.
+    """
+    text = _build_ps1_text()
+    writers = [
+        line.strip()
+        for line in text.splitlines()
+        if not line.lstrip().startswith('#')  # prose may discuss the old writer
+        and 'version.txt' in line
+        and re.search(r'Set-Content|Out-File|WriteAllLines|WriteAllText|>\s*"', line)
+    ]
+    assert not writers, (
+        'build.ps1 writes version.txt: '
+        + ' | '.join(writers)
+        + ' -- the build must not author the file that names the data folder '
+        'and the TIFF Software tag. Write build_id.txt instead.'
     )
 
 
@@ -260,8 +283,8 @@ class TestBannerIdentityContract:
             'the banner emits no BuildID line, so two builds of one commit stay '
             'indistinguishable -- the defect this line exists to fix'
         )
-        assert re.search(r'len\(_lines\)\s*>=\s*5', text), (
-            'version.txt line 5 is never read, so a stamped build ID is dropped on the floor'
+        assert 'build_id.txt' in text, (
+            'build_id.txt is never read, so a stamped build ID is dropped on the floor'
         )
 
     def test_absent_build_id_distinguishes_installed_exe_from_source_run(self):

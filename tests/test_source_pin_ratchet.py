@@ -64,14 +64,14 @@ from tests.ast_seams import iter_package_modules
 #      real module under an alias was rejected because it installs a
 #      global sys.excepthook at import, which has already polluted one
 #      bench log. One read site serves all four assertions.
-# pin-justified: 365 -> 366 for the API doc guard
-# (test_api_doc_guard.py), one site. The guard's SUBJECT is the text of
-# LumascopeSkills.md -- it extracts the call forms an L2 reader would copy
-# and resolves each one against the live API object. The thing asserted is
-# the document, so there is no production seam to assert instead; this is
-# the doc-example case named above. One module-scoped read serves both
-# checks in the file.
-_READ_TEXT_SITE_BUDGET = 366
+# pin-justified: 365 -> 367 for two independently-added sites that met at
+# the beta merge: the API doc guard (test_api_doc_guard.py) -- the guard's
+# SUBJECT is the text of LumascopeSkills.md, so there is no production seam
+# to assert instead (the doc-example case named above) -- and the Enhance
+# image/folder label guard (test_enhance_file_or_folder.py), which asserts
+# button LABEL TEXT inside a function body, where ast_seams carries the def
+# but not the literals in it. One site each; measured on the merged tree.
+_READ_TEXT_SITE_BUDGET = 367
 
 # Files containing at least one, recorded for the same reason.
 # pin-justified: raised 115 -> 122 by the same merge.

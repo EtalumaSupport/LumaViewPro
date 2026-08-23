@@ -45,10 +45,18 @@ script_path = abspath[: -len(basename)]
 # version.txt format:
 #   Line 1: version string (e.g., "4.0.0-beta2") - used in folder names, must be path-safe
 #   Line 2: build timestamp (e.g., "2026-03-27 18:52") - displayed in title bar only
+#
+# utf-8-sig, not the default: a byte-order mark is NOT whitespace, so
+# .strip() leaves it on line 1 and it becomes part of the version string.
+# That string is not cosmetic -- it names the Documents data folder below
+# and is stamped into the TIFF Software tag of every saved image, where a
+# non-ASCII byte raises "TIFF strings must be 7-bit ASCII" and no image
+# can be saved at all. utf-8-sig strips a BOM if present and is a no-op
+# if absent, so the app survives any writer that leaves one.
 version = ''
 build_timestamp = ''
 try:
-    with open(os.path.join(script_path, 'version.txt')) as f:
+    with open(os.path.join(script_path, 'version.txt'), encoding='utf-8-sig') as f:
         lines = f.readlines()
         version = lines[0].strip() if len(lines) > 0 else ''
         build_timestamp = lines[1].strip() if len(lines) > 1 else ''
@@ -621,7 +629,7 @@ def log_environment_banner(install_path: str, version_str: str, camera_sdk_lines
     """Emit the standard launch-time environment fingerprint.
 
     ``install_path`` is the directory the executable runs from -- where
-    version.txt and .git_archival.txt ship. On an installed build this is
+    version.txt, build_id.txt and .git_archival.txt ship. On an installed build this is
     the install root, NOT the per-user data directory; on a source/dev run
     the two coincide.
 
@@ -654,7 +662,14 @@ def log_environment_banner(install_path: str, version_str: str, camera_sdk_lines
     # timestamp. That collision happens precisely when build INPUTS change
     # while source does not -- a bundled driver, a dependency version.
     #
-    # Line 5 is the real build identity, stamped by the build script.
+    # build_id.txt is the real build identity, written by the build script
+    # into its OWN file. It shared version.txt until a build-time rewrite
+    # left a byte-order mark on line 1, and line 1 is not a diagnostic --
+    # it names the Documents data folder and reaches every image's TIFF
+    # Software tag, so the mark shipped as a garbled title bar, a fresh
+    # data folder that orphaned the user's settings, and a failed save on
+    # every capture. A diagnostic writer does not share a file with a
+    # path-critical string.
     # Triage chains:
     #   - `git log -S "<guid>" -- version.txt` finds the exact commit
     #     by GUID (works in any distribution).
@@ -665,7 +680,7 @@ def log_environment_banner(install_path: str, version_str: str, camera_sdk_lines
     _commit_guid = ''
     _build_id = ''
     try:
-        with open(os.path.join(install_path, 'version.txt')) as _vf:
+        with open(os.path.join(install_path, 'version.txt'), encoding='utf-8-sig') as _vf:
             _lines = _vf.read().splitlines()
             if len(_lines) >= 2:
                 _built = _lines[1].strip()
@@ -673,10 +688,16 @@ def log_environment_banner(install_path: str, version_str: str, camera_sdk_lines
                 _branch = _lines[2].strip()
             if len(_lines) >= 4:
                 _commit_guid = _lines[3].strip()
-            if len(_lines) >= 5:
-                _build_id = _lines[4].strip()
     except Exception as _e:
         logger.debug(f'[LVP Main  ] version.txt not read from {install_path}: {_e}')
+
+    try:
+        with open(os.path.join(install_path, 'build_id.txt'), encoding='utf-8-sig') as _bf:
+            _build_id = _bf.read().strip()
+    except FileNotFoundError:
+        pass  # No build event: a source run, or a builder that predates the file.
+    except Exception as _e:
+        logger.debug(f'[LVP Main  ] build_id.txt not read from {install_path}: {_e}')
     logger.info(f'[LVP Main  ] Built:     {_built or "unknown"}')
     logger.info(f'[LVP Main  ] Branch:    {_branch or "unknown"}')
     logger.info(f'[LVP Main  ] CommitGUID: {_commit_guid or "unknown"}')
@@ -687,7 +708,7 @@ def log_environment_banner(install_path: str, version_str: str, camera_sdk_lines
     if _build_id:
         _build_id_str = _build_id
     elif lvp_installed:
-        _build_id_str = 'unknown (built by build script < v2)'
+        _build_id_str = 'unknown (built by build script < v3)'
     else:
         _build_id_str = 'source / dev (no build event)'
     logger.info(f'[LVP Main  ] BuildID:   {_build_id_str}')

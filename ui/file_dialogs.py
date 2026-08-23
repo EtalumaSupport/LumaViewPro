@@ -243,21 +243,38 @@ def _platform_native_choose_file_or_folder(initial_dir, filetypes):
     """Return one user-chosen file or folder on every supported platform.
 
     Cocoa has a single native panel for both target kinds. Tk does not, so
-    Windows/Linux present one native yes/no/cancel choice followed by the
-    matching native picker. The LVP panel remains a single visible action.
+    Windows/Linux present one modal image/folder/cancel choice followed by
+    the matching native picker. The LVP panel remains a single visible action.
     """
     if sys.platform == 'darwin':
         return _macos_choose_file_or_folder(initial_dir=initial_dir)
 
-    from tkinter import filedialog, messagebox
+    from tkinter import Button as TkButton
+    from tkinter import Frame, Label, Toplevel, filedialog
 
     root = _foregrounded_tk_root()
     try:
-        choose_file = messagebox.askyesnocancel(
-            parent=root,
-            title='Enhance',
-            message='Choose an image file?\nSelect No to choose a folder.',
-        )
+        choice = {'value': None}
+
+        def select(value):
+            choice['value'] = value
+            dialog.destroy()
+
+        dialog = Toplevel(root)
+        dialog.title('Enhance')
+        dialog.transient(root)
+        dialog.resizable(False, False)
+        dialog.protocol('WM_DELETE_WINDOW', lambda: select(None))
+        Label(dialog, text='Choose image or folder').pack(padx=24, pady=(20, 12))
+        buttons = Frame(dialog)
+        TkButton(buttons, text='Image', command=lambda: select(True)).pack(side='left', padx=4)
+        TkButton(buttons, text='Folder', command=lambda: select(False)).pack(side='left', padx=4)
+        TkButton(buttons, text='Cancel', command=lambda: select(None)).pack(side='left', padx=4)
+        buttons.pack(padx=16, pady=(0, 16))
+        dialog.wait_visibility()
+        dialog.grab_set()
+        dialog.wait_window()
+        choose_file = choice['value']
         if choose_file is True:
             path = filedialog.askopenfilename(
                 parent=root,
