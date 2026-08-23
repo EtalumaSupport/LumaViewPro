@@ -1,4 +1,5 @@
 %% Well Plate Scan — Capture BF across a 96-well plate row
+% DEFERRED: targets a REST API (/api/v1) that does not exist yet; rewrite rides REST Phase 1 against the real endpoints. Kept for the endpoint-sketch ideas it carries.
 %
 % Scans wells A1-A12, capturing BF at each position.
 % Well positions are in plate coordinates (mm from top-left corner).

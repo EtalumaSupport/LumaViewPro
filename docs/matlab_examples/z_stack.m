@@ -1,4 +1,5 @@
 %% Z-Stack — Capture images at multiple Z heights
+% DEFERRED: targets a REST API (/api/v1) that does not exist yet; rewrite rides REST Phase 1 against the real endpoints. Kept for the endpoint-sketch ideas it carries.
 %
 % Captures a stack of BF images at regular Z intervals for 3D analysis.
 

@@ -1,4 +1,5 @@
 %% Multi-Channel Capture — BF + Fluorescence composite
+% DEFERRED: targets a REST API (/api/v1) that does not exist yet; rewrite rides REST Phase 1 against the real endpoints. Kept for the endpoint-sketch ideas it carries.
 %
 % Captures BF and multiple fluorescence channels at the same position,
 % then builds a composite overlay.

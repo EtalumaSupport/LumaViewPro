@@ -1,4 +1,5 @@
 %% Timelapse — Repeated captures at a fixed interval
+% DEFERRED: targets a REST API (/api/v1) that does not exist yet; rewrite rides REST Phase 1 against the real endpoints. Kept for the endpoint-sketch ideas it carries.
 %
 % Captures BF images every N seconds for a total duration.
 % Useful for monitoring cell growth, drug response, etc.
