@@ -311,6 +311,8 @@ session.scope.imaging.capture_frame_depth(image)
 ```python
 runner = session.create_protocol_runner()
 protocol = session.scope.protocols.load_protocol('my_protocol.tsv')
+# or build one in-memory (config= | input_config= | empty_config=):
+protocol = session.scope.protocols.create_protocol(input_config=config)
 
 # image_capture_config is REQUIRED: the caller states the run's image mode
 # (bit depth + on-disk encoding) explicitly -- there is no silent default.
@@ -366,9 +368,13 @@ the same derivations LVP's own GUI mirrors into kv properties
 (alongside the run predicates shown under Running protocols):
 
 ```python
+session.run_lockout              # True during a run OR its post-run file drain
+session.is_protocol_running      # True while a protocol-class run holds the claim
+session.protocol_files_draining  # run files still writing after a run finished
+session.exclusive_activity       # None | 'protocol' | 'recording'
 session.controls_locked          # full control-surface lock (any run lockout, or a live recording)
 session.motion_enabled           # user stage motion allowed right now
-session.recording_capturing      # a manual recording is LIVE (not its file drain)
+session.recording_capturing     # a manual recording is LIVE (not its file drain)
 
 def on_run_state():              # called on EVERY run-state transition;
     print(session.run_lockout)   # re-read the derivations (level semantics, no payload)
@@ -387,9 +393,19 @@ session.get_stim_configs()               # stim settings per layer
 session.get_enabled_stim_configs()       # only the enabled ones
 ```
 
+### Reconnect
+
+```python
+# After a hardware reconnect, rewire the SAME session onto the new scope --
+# executors, metrics, and the run machinery follow automatically:
+session.set_scope(new_scope)
+```
+
 ### Cleanup
 
 ```python
+session.shutdown()               # full teardown of everything the session constructed
+# or piecewise:
 session.shutdown_executors()
 session.scope.disconnect()
 ```
@@ -703,7 +719,18 @@ scope.imaging.set_binning_size(2)
 # record a rejected apply.
 scope.imaging.get_binning_size()                   # always >= 1 (last-known-good on failed read)
 scope.imaging.get_available_binning_sizes()        # e.g. [1, 2, 4]
+scope.imaging.set_pixel_format('Mono12')           # True when applied; raises CameraSettingRejected on refusal
 scope.imaging.get_supported_pixel_formats()        # e.g. ('Mono8', 'Mono12') -- the enumeration for set_pixel_format
+
+# Geometry value getters (last-known-good on a transient failed read; 0 camera-absent)
+scope.imaging.get_width()
+scope.imaging.get_height()
+
+# Cache reads, no driver I/O (the *_cached family)
+scope.imaging.gain_db_cached
+scope.imaging.exposure_ms_cached
+scope.imaging.pixel_format_cached
+scope.imaging.min_frame_size_cached                # dict, or None when no camera is connected
 
 # Scale bar overlay (burned into frames the imaging paths return when enabled;
 # skipped -- with one warning logged -- while no objective is selected)
@@ -924,6 +951,7 @@ caps.axis_travel_limits_um      # {'X': 120000.0, 'Y': 80000.0, 'Z': 14000.0} --
 caps.led_channels               # e.g. (0, 1, 2, 3) for FX2 scopes; (0..5) for RP2040
 caps.led_colors                 # e.g. ('BF', 'Blue', 'Green', 'Red') — what THIS scope can do
 caps.led_max_ma                 # per-channel current cap
+caps.has_firmware_stim          # firmware-timed stim support on the LED board
 
 # Optics -- resolved from the first real source, never a hardcoded default:
 #   motorconfig.json Optics (LS820/850/850T) -> scopes.json Optics (Classic)
@@ -940,6 +968,8 @@ caps.is_color_native            # True for color-native sensors; False for mono-
 caps.native_bit_depth           # 8 (e.g. IDS) or 16 (uint16 container; holds 12/16-bit native)
 caps.camera_supports_auto_gain
 caps.camera_supports_auto_exposure
+caps.camera_supports_conversion_gain_mode
+caps.camera_supports_line_noise_reduction
 caps.camera_pixel_formats       # e.g. ('Mono8',) or ('Mono8', 'Mono12')
 caps.camera_binning_sizes       # e.g. (1, 2, 4)
 caps.camera_max_frame_size      # (width, height) tuple in pixels; (0, 0) if no camera

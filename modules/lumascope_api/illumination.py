@@ -195,6 +195,8 @@ class LedLease:
     def release(self, *, leave_on: bool = False) -> None:
         """Release the lease (idempotent).
 
+        Internal lease mechanics -- not part of the L2 API surface.
+
         Args:
             leave_on: Keep the owner's LEDs lit instead of turning them off.
                 Used when a run's declared end-state keeps illumination on.
@@ -303,6 +305,8 @@ class LedLease:
 
     def apply(self, transition: LedTransition, ctx: LedTransitionCtx) -> None:
         """Drive the LEDs to the transition's target set.
+
+        Internal lease mechanics -- not part of the L2 API surface.
 
         Diffs the target against the cached state -- the single source of truth
         for LED state -- and emits only the channels that changed. A channel
