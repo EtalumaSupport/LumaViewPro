@@ -1,4 +1,4 @@
 4.0.0-beta29
-2026-08-23 11:43
-r2-api-optimize
-e84500be
+2026-08-23 23:05
+motion-state-gate
+1eec6959

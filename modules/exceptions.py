@@ -132,6 +132,35 @@ class HardwareCommandRefusedError(Exception):
         self.member = member
 
 
+class AxisStateUnknownError(Exception):
+    """A move was commanded on an axis whose position is not known.
+
+    Raised by the motion pre-drive gate when the target axis is UNKNOWN:
+    a home failed, the board vanished mid-move, or a move stalled out.
+    An absolute move against an unknown reference frame is never a valid
+    request -- there is no frame for it to be absolute in -- so refusing
+    it discards nothing legitimate and makes the failure loud instead of
+    letting the stage travel somewhere nobody asked for.
+
+    The recovery paths that must move a still-unknown axis (lowering Z
+    for turret safety, a deliberate re-home jog) pass ``force=True``
+    rather than pre-checking state, so the gate can never deadlock the
+    operation that would clear the state it guards.
+
+    Attributes:
+        axis: The axis that was refused, for callers that map refusals
+            to responses (REST status codes, SDK branches) and for the
+            user-facing message.
+    """
+
+    def __init__(self, axis: str):
+        super().__init__(
+            f'{axis} position is unknown -- home the scope before moving it, '
+            f'or pass force=True to move anyway'
+        )
+        self.axis = axis
+
+
 class AutofocusAborted(Exception):  # noqa: N818 -- cancellation/abort signal, not an error; non-Error suffix is intentional
     """Autofocus run aborted by caller (e.g. user cancelled, protocol
     aborted, or app teardown)."""
