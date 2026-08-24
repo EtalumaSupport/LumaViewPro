@@ -595,7 +595,13 @@ class MotionAPI:
         # Save off current Z position before moving Z to 0
         logger.info('[SCOPE API ] Moving Z to 0', extra={'force_error': True})
         initial_z = self.get_current_position(axis='Z')
-        self._move_absolute_impl('Z', position=0, wait_until_complete=True)
+        # force: this retract is the turret-safety move, and it is also
+        # the first motion of the turret-home recovery -- the case where
+        # Z is legitimately still unknown because the home that would
+        # have established it is the operation being recovered. Refusing
+        # here would mean an UNKNOWN Z could never be re-homed without
+        # restarting the application.
+        self._move_absolute_impl('Z', position=0, wait_until_complete=True, force=True)
         self._is_turreting = True
         try:
             yield
@@ -607,7 +613,12 @@ class MotionAPI:
             self._is_turreting = False
             if restore_z:
                 logger.info(f'[SCOPE API ] Restoring Z to {initial_z}', extra={'force_error': True})
-                self._move_absolute_impl('Z', position=initial_z, wait_until_complete=True)
+                # force for the same reason as the retract: this is the
+                # other half of one recovery, and refusing it would park
+                # the stage at Z=0 with no way back.
+                self._move_absolute_impl(
+                    'Z', position=initial_z, wait_until_complete=True, force=True
+                )
             else:
                 logger.info(
                     '[SCOPE API ] Skipping Z restore -- caller will overwrite Z next',
@@ -717,7 +728,21 @@ class MotionAPI:
                 value (e.g. protocol step navigation moves T then Z to
                 the new step's target -- restoring Z first is wasted
                 motion).
+
+        Raises:
+            AxisStateUnknownError: The turret position is unknown.
         """
+        # Refuse BEFORE the safety Z-retract below, not inside it. The
+        # retract is real motion; gating only the inner turret move would
+        # drop Z to 0 against an unknown reference and refuse afterwards.
+        #
+        # This also precedes the same-position short-circuit: once the
+        # turret reference is gone, the cache saying "already at 3" is a
+        # claim about a physical position nothing can still vouch for,
+        # and honoring it would report success for a turret that may be
+        # anywhere.
+        self._pre_drive('T')
+
         # Commanding a move of the T axis is slow, even if the move is to the current position.
         # Use caching to determine if T is requested to move to it's current position, and bypass the
         # move altogether if it is.
@@ -1297,6 +1322,7 @@ class MotionAPI:
         wait_until_complete: bool = False,
         overshoot_enabled: bool = True,
         ignore_limits: bool = False,
+        force: bool = False,
     ) -> None:
         """Move an axis to an absolute position.
 
@@ -1306,9 +1332,13 @@ class MotionAPI:
             wait_until_complete: If True, block until move finishes.
             overshoot_enabled: Allow Z overshoot for backlash compensation.
             ignore_limits: If True, skip software limit checks.
+            force: Drive even when the axis position is unknown. For the
+                recovery paths only -- see ``_pre_drive``.
 
         Raises:
             ValueError: If axis is invalid or position is not numeric / out of bounds.
+            AxisStateUnknownError: The axis position is unknown and
+                ``force`` is False.
         """
         if axis not in _VALID_AXIS_NAMES:
             raise ValueError(f'Axis must be one of {_VALID_AXIS_NAMES}, got {axis!r}')
@@ -1325,6 +1355,8 @@ class MotionAPI:
         if axis not in self._arrival_events:
             _api_log.debug(f'move_abs ignored: {axis} not present on this scope')
             return
+
+        self._pre_drive(axis, force=force)
 
         # Capture start_pos + ramp before driving. start_time is captured
         # AFTER the driver call returns -- the serial round-trip to write
@@ -1399,6 +1431,13 @@ class MotionAPI:
 
         Raises:
             ValueError: If axis is invalid or distance is not numeric / out of bounds.
+            AxisStateUnknownError: The axis position is unknown.
+
+        There is deliberately no ``force`` hatch here. Every caller is a
+        user jog or an autofocus sweep, and none of them is a recovery
+        path -- the recovery that must move an unknown axis is the
+        turret-safety Z-park, which is an absolute move. A hatch with no
+        caller is just an opt-out waiting to be reached for.
         """
         if axis not in _VALID_AXIS_NAMES:
             raise ValueError(f'Axis must be one of {_VALID_AXIS_NAMES}, got {axis!r}')
@@ -1414,6 +1453,10 @@ class MotionAPI:
         if axis not in self._arrival_events:
             _api_log.debug(f'move_rel ignored: {axis} not present on this scope')
             return
+
+        # This path does NOT route through the absolute one -- it calls
+        # move_rel_pos directly -- so it needs the gate of its own.
+        self._pre_drive(axis)
 
         # Capture start_pos + ramp before driving. start_time is captured
         # AFTER the driver call returns -- mirrors move_absolute.

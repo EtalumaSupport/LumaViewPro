@@ -44,6 +44,7 @@ sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
 from modules.image_mode import ImageCaptureConfig
 from modules.lumascope_api import Lumascope
+from tests.scope_fakes import home_sim_scope
 from modules.sequential_io_executor import SequentialIOExecutor
 from modules.sequenced_capture_runner import SequencedCaptureRunner
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
@@ -256,6 +257,7 @@ def scope():
     s._camera_driver.set_timing_mode('fast')
     # Camera must be grabbing for get_image to work
     s.imaging.start_streaming()
+    home_sim_scope(s)
     yield s
     s.imaging.stop_streaming()
     s.disconnect()
@@ -1095,6 +1097,8 @@ class TestRestAPIPrep:
         session = ScopeSession.create_headless()
         session.start_executors()
         session.scope.imaging.start_streaming()
+        # Autofocus drives Z; a headless session has not homed.
+        home_sim_scope(session.scope)
         try:
             runner = session.create_protocol_runner()
             af = runner.sequenced_capture_runner._autofocus_runner
@@ -1121,6 +1125,8 @@ class TestRestAPIPrep:
         session = ScopeSession.create_headless()
         session.start_executors()
         session.scope.imaging.start_streaming()
+        # Autofocus drives Z; a headless session has not homed.
+        home_sim_scope(session.scope)
         try:
             runner = session.create_protocol_runner()
             af = runner.sequenced_capture_runner._autofocus_runner

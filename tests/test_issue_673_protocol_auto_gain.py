@@ -50,6 +50,7 @@ sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
 from modules.image_mode import ImageCaptureConfig
 from modules.lumascope_api import Lumascope
+from tests.scope_fakes import home_sim_scope
 from modules.protocol import Protocol
 from modules.sequenced_capture_runner import (
     SequencedCaptureRunner,
@@ -115,7 +116,7 @@ def _build_single_step_ag_protocol(color='BF', auto_gain=True):
 
 @pytest.fixture
 def scope():
-    s = Lumascope(simulate=True)
+    s = home_sim_scope(Lumascope(simulate=True))
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')

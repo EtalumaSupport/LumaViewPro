@@ -243,9 +243,6 @@ def _startup_session(scope, monkeypatch):
     import ui.ui_helpers
     from modules.scope_session import ScopeSession
 
-    # No io executor is registered on the scope, so _submit_motion runs
-    # the home on the calling thread -- the orchestration under test is
-    # then fully ordered and needs no waiting.
     session = ScopeSession(
         settings={},
         scope=scope,
@@ -254,9 +251,15 @@ def _startup_session(scope, monkeypatch):
     )
     attempts = []
 
+    # Both substitutes call the production body directly rather than the
+    # async wrapper. The wrapper would hand the task to this session's
+    # mock executor, which accepts it and never runs it -- a home that
+    # silently never happens, which is exactly the failure this file
+    # exists to catch. Running the body inline keeps the sequence ordered
+    # and the home's real result observable.
     def _move_home(axis):
         attempts.append(('home', axis))
-        scope.motion.move_home_async(axis)
+        return scope.motion._home_impl()
 
     def _move_absolute(axis, position, **kwargs):
         attempts.append(('move', axis, position))

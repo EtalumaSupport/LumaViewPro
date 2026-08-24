@@ -58,6 +58,7 @@ sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
 from modules.image_mode import ImageCaptureConfig
 from modules.lumascope_api import Lumascope
+from tests.scope_fakes import home_sim_scope
 from modules.lumascope_api.illumination import LedTransition, LedTransitionCtx
 from modules.protocol import Protocol
 from modules.sequenced_capture_runner import (
@@ -237,6 +238,7 @@ def scope():
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
     s._camera_driver.start_grabbing()
+    home_sim_scope(s)
     yield s
     s._camera_driver.stop_grabbing()
     s.disconnect()

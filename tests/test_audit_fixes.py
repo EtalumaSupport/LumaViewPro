@@ -228,10 +228,12 @@ class TestDomainExceptions:
 
 @pytest.fixture
 def sim_scope(_mock_heavy_deps):
-    """Create a Lumascope in simulate mode (no hardware needed)."""
+    """Create a homed Lumascope in simulate mode (no hardware needed)."""
     from modules.lumascope_api import Lumascope
 
-    scope = Lumascope(simulate=True)
+    from tests.scope_fakes import home_sim_scope
+
+    scope = home_sim_scope(Lumascope(simulate=True))
     yield scope
     scope.disconnect()
 
@@ -915,12 +917,23 @@ class TestPositionCache:
 class TestAxisState:
     """Verify axis state transitions in the Lumascope API."""
 
-    def test_initial_state_is_unknown(self, sim_scope):
-        """All axes start in UNKNOWN state before homing."""
-        from modules.lumascope_api import AxisState
+    def test_initial_state_is_unknown(self):
+        """All axes start in UNKNOWN state before homing.
 
-        for ax in ('X', 'Y', 'Z', 'T'):
-            assert sim_scope.motion.get_axis_state(ax) == AxisState.UNKNOWN
+        Builds its own scope rather than taking the shared fixture: that
+        fixture is homed, because the motion gate refuses to drive an
+        unknown axis and the tests around this one command moves. This
+        one is about the state BEFORE any of that, so it needs the
+        untouched construction.
+        """
+        from modules.lumascope_api import AxisState, Lumascope
+
+        scope = Lumascope(simulate=True)
+        try:
+            for ax in ('X', 'Y', 'Z', 'T'):
+                assert scope.motion.get_axis_state(ax) == AxisState.UNKNOWN
+        finally:
+            scope.disconnect()
 
     def test_axis_state_idle_after_move_with_wait(self, sim_scope):
         """After move_absolute with wait_until_complete, axis is IDLE."""

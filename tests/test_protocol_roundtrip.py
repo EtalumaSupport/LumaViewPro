@@ -31,6 +31,7 @@ from modules.protocol import Protocol
 from modules.sequenced_capture_runner import SequencedCaptureRunner, SequencedCaptureRunMode
 from modules.sequential_io_executor import SequentialIOExecutor
 from modules.lumascope_api import Lumascope
+from tests.scope_fakes import home_sim_scope
 from unittest.mock import MagicMock
 
 
@@ -192,7 +193,7 @@ def _save_and_reload(protocol, tmp_path):
 
 @pytest.fixture
 def scope():
-    s = Lumascope(simulate=True)
+    s = home_sim_scope(Lumascope(simulate=True))
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
