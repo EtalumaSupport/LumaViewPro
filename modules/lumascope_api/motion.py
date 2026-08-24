@@ -230,6 +230,29 @@ class MotionAPI:
         """
         return state in (AxisState.IDLE, AxisState.MOVING)
 
+    def _fault_axis(self, axis: str) -> None:
+        """Record that a commanded move failed at the driver.
+
+        The axis keeps whatever state it held before the attempt unless
+        something says otherwise -- commonly IDLE, which reads as
+        "arrived" to every consumer, for a move that never happened. The
+        driver call precedes the MOVING transition deliberately (a
+        previously-observed arrival bit could otherwise be mistaken for
+        this move's), so on a raise control never reaches that write and
+        this is where the state has to be corrected. Nothing about the
+        ordering needs to change.
+
+        Notifies once. The user asked for motion and did not get it;
+        without a word, the stage simply appears to ignore them.
+        """
+        self._set_axis_state(axis, AxisState.UNKNOWN)
+        notifications.error(
+            'Motion',
+            'Move Failed',
+            f'The {axis} move did not complete. That axis position is now '
+            f'unknown -- home the scope before moving it again.',
+        )
+
     def _pre_drive(self, axis: str, force: bool = False) -> None:
         """Refuse to drive an axis whose position is not known.
 
@@ -1458,6 +1481,7 @@ class MotionAPI:
             )
         except Exception:
             _api_log.error(f'move_abs {axis}={position:.1f}um FAILED')
+            self._fault_axis(axis)
             raise
         if ramp:
             with self._move_profile_lock:
@@ -1559,6 +1583,7 @@ class MotionAPI:
             self._driver.move_rel_pos(axis, distance, overshoot_enabled=overshoot_enabled)
         except Exception:
             _api_log.error(f'move_rel {axis}={distance:+.1f}um FAILED')
+            self._fault_axis(axis)
             raise
         if ramp:
             with self._move_profile_lock:

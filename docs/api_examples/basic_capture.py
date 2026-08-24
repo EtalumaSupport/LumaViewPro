@@ -32,6 +32,14 @@ def main():
     # Begin the live camera feed (required before capture on every backend).
     scope.imaging.start_streaming()
 
+    # Home before commanding any move. Until an axis has been homed its
+    # position is unknown, and a move against an unknown reference frame
+    # is refused with AxisStateUnknownError rather than driven blind.
+    if not scope.motion.move_home_and_wait('ALL'):
+        print('Homing failed -- cannot move safely')
+        scope.disconnect()
+        return
+
     # Set LED channel 0 (BF) to 100 mA
     scope.illumination.led_on(channel=0, mA=100)
     print('LED 0 set to 100 mA')

@@ -422,9 +422,24 @@ scope.motion.home()                              # home everything the board has
 scope.motion.home(axis='Z')                      # Z only
 scope.motion.home(axis='T')                      # turret only (parks Z at 0, homes T, restores Z)
 # Unknown axis raises ValueError; the async twin move_home_async(axis)
-# shares the same 'Z' | 'T' | 'ALL' vocabulary.
-scope.motion.has_homed()                         # True if home() has ever succeeded
+# and move_home_and_wait(axis) share the same 'Z' | 'T' | 'ALL' vocabulary.
+scope.motion.move_home_and_wait('ALL')           # blocks; True only if the home ran AND succeeded
+scope.motion.has_homed()                         # True if the stage/focus axes know where they are
 scope.motion.has_thomed()                        # turret-specific
+
+# Homing is REQUIRED, not advisory. A commanded move on an axis whose
+# position is unknown raises AxisStateUnknownError instead of driving --
+# there is no reference frame for it to be absolute in. An axis is
+# unknown before its first successful home, and again after a home
+# fails, the board disconnects mid-move, or a move stalls out. So a
+# headless or REST caller homes first and checks the result:
+#
+#   if not scope.motion.move_home_and_wait('ALL'):
+#       ...  # do not command moves; the reference frame is not established
+#
+# has_homed() / has_thomed() answer from that same live state, so they
+# report False after a fault revokes a reference that was previously
+# good -- not merely "a home once succeeded".
 
 # Position queries (µm for XYZ, 1–4 for turret). Read cache, no serial I/O.
 scope.motion.get_current_position('Z')           # predicted position during motion, confirmed when idle

@@ -883,6 +883,8 @@ class MotorBoard(SerialBoard):
         Raises:
             ValueError: ``axis`` is invalid or ``steps`` exceeds the
                 32-bit range.
+            HardwareError: The board did not answer the target write, so
+                the move did not happen.
         """
         if axis not in ('X', 'Y', 'Z', 'T'):
             raise ValueError(f'Invalid axis {axis!r}')
@@ -892,7 +894,15 @@ class MotorBoard(SerialBoard):
             raise ValueError(f'Steps {steps} exceeds 32-bit range for axis {axis}')
         response = self.exchange_command('TARGET_W' + axis + str(steps))
         if response is None:
-            logger.warning(f'[XYZ Class ] move({axis}, {steps}) got no response')
+            # An unanswered target write means the move did not happen.
+            # Returning quietly made that indistinguishable from a move
+            # that did, so every layer above recorded an arrival that
+            # never occurred -- the axis stayed at its last known state
+            # while the stage was somewhere else entirely.
+            raise HardwareError(
+                f'move({axis}, {steps}): no response to the target write '
+                f'(timeout or disconnect); the move did not happen'
+            )
 
         # while int(target_pos) != desired_target:
         #     self.exchange_command('TARGET_W' + axis + str(steps))
@@ -1029,8 +1039,7 @@ class MotorBoard(SerialBoard):
         """Move an axis by a relative offset in user units.
 
         Reads the current target, adds ``um``, and dispatches an
-        absolute move. Logs a warning and skips when the target read
-        fails.
+        absolute move.
 
         Args:
             axis: Axis letter ('X', 'Y', 'Z', 'T').
@@ -1038,15 +1047,22 @@ class MotorBoard(SerialBoard):
                 offset for T.
             overshoot_enabled: When True, apply Z backlash compensation
                 during the underlying absolute move.
+
+        Raises:
+            HardwareError: The current target could not be read, so
+                there is no basis to move relative to.
         """
 
         # Read target position in um
         pos = self.target_pos(axis)
         if pos is None:
-            logger.warning(
-                f'[XYZ Class ] move_rel_pos({axis}): cannot read position, skipping move'
+            # A relative move is defined against the current target; if
+            # that cannot be read there is nothing to add to. Skipping
+            # quietly reported success for a jog that never moved.
+            raise HardwareError(
+                f'move_rel_pos({axis}): cannot read the current target '
+                f'position; the move did not happen'
             )
-            return
         self.move_abs_pos(axis, pos + um, overshoot_enabled=overshoot_enabled)
 
     # ----------------------------------------------------------

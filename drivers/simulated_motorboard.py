@@ -776,15 +776,28 @@ class SimulatedMotorBoard:
     def move(self, axis: str, steps: int) -> None:
         """Move an axis to an absolute microstep position.
 
+        Mirrors the production ``MotorBoard.move`` contract, including
+        the raise on an unanswered target write -- without it a test that
+        injects a dead board would watch the simulator report a move that
+        never happened, which is the exact defect the production raise
+        exists to surface.
+
         Args:
             axis: Axis letter ('X', 'Y', 'Z', 'T').
             steps: Target absolute microstep position. Negative values
                 are wrapped to two's-complement so the simulated firmware
                 accepts them as unsigned 32-bit integers.
+
+        Raises:
+            HardwareError: Simulated no-response to the target write.
         """
         if steps < 0:
             steps += 0x100000000
-        self.exchange_command(f'TARGET_W{axis}{steps}')
+        if self.exchange_command(f'TARGET_W{axis}{steps}') is None:
+            raise HardwareError(
+                f'move({axis}, {steps}): no response to the target write '
+                f'(timeout or disconnect); the move did not happen'
+            )
 
     def target_pos(self, axis: str) -> float | int:
         """Get the target position of an axis in user units.
