@@ -37,7 +37,7 @@ from collections.abc import Iterator
 from drivers.exceptions import HardwareError
 from lib import profile_trace
 from lvp_logger import logger
-from modules.exceptions import HardwareCommandRefusedError
+from modules.exceptions import AxisStateUnknownError, HardwareCommandRefusedError
 from modules.notification_center import notifications
 
 # Match _lumascope.py's module-level _api_log channel so relocated
@@ -208,6 +208,66 @@ class MotionAPI:
     @property
     def _driver(self) -> MotorBoardProtocol:
         return self._scope._motion_driver
+
+    # ------------------------------------------------------------------
+    # Position-knowledge authority.
+    #
+    # _axis_state is the ONE store for "is this axis position known."
+    # Three producers write UNKNOWN into it -- a failed home, the
+    # disconnect fault, the stall fault -- and everything that asks the
+    # question reads it here, so a new producer is automatically honored
+    # by every consumer.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _position_known(state: str) -> bool:
+        """Whether an axis in ``state`` has a valid reference position.
+
+        IDLE and MOVING both have one: a move in flight knows what frame
+        it is moving in, it just does not know the instantaneous
+        position. HOMING does not have one yet -- the reference is being
+        established -- and UNKNOWN has lost it.
+        """
+        return state in (AxisState.IDLE, AxisState.MOVING)
+
+    def _pre_drive(self, axis: str, force: bool = False) -> None:
+        """Refuse to drive an axis whose position is not known.
+
+        Every commanded move passes through here before it reaches the
+        driver, so the refusal cannot be reintroduced by a new move
+        caller that forgets to check -- there is no per-call-site check
+        to forget.
+
+        Only UNKNOWN refuses. HOMING is not a refusal: the home itself
+        has to be able to drive the axis it is establishing.
+
+        This raises without notifying. The failure that made the axis
+        UNKNOWN already notified when it happened (a failed home pops
+        its own error), and the caller that provoked THIS refusal owns
+        the response -- a REST client needs a status code, the GUI
+        surfaces the executor's task failure. Notifying here would
+        double the popup on the startup path.
+
+        Args:
+            axis: Axis the caller is about to drive.
+            force: Skip the check. The recovery paths pass True: the
+                turret-safety Z-retract and a deliberate re-home jog
+                must move an axis that is legitimately still unknown,
+                and a gate that blocked them would deadlock the only
+                operations that can clear the state it guards.
+
+        Raises:
+            AxisStateUnknownError: The axis position is unknown and the
+                caller did not pass ``force=True``.
+        """
+        if force:
+            return
+        with self._axis_state_lock:
+            state = self._axis_state.get(axis)
+        # An axis the board does not have has no state to be unknown;
+        # the move paths already no-op it further down.
+        if state == AxisState.UNKNOWN:
+            raise AxisStateUnknownError(axis)
 
     # ------------------------------------------------------------------
     # Stateless method bodies.
@@ -627,12 +687,24 @@ class MotionAPI:
             return False
 
     def has_thomed(self) -> bool:
-        """Check if the turret has been homed since startup.
+        """Whether the turret has a known reference position.
+
+        Answers from the axis state rather than the driver's homing
+        latch. The latch records only that a THOME once succeeded and
+        clears only on physical disconnect, so a stall or a mid-move
+        board dropout leaves it True while the turret's real reference
+        is gone -- and the caller that asks this question asks it to
+        decide whether driving the turret is safe.
 
         Returns:
-            bool: True if turret homing has been performed.
+            bool: True if the turret position is known. On a board with
+                no turret there is nothing to home, so this follows the
+                stage answer, matching what the driver latch reported.
         """
-        return self._driver.has_thomed()
+        if 'T' not in self._axis_state:
+            return self.has_homed()
+        with self._axis_state_lock:
+            return self._position_known(self._axis_state['T'])
 
     def _tmove_impl(self, position: int, restore_z: bool = True) -> None:
         """Move the turret to a specific position. Skips if already there.
@@ -1034,12 +1106,28 @@ class MotionAPI:
             return False
 
     def has_homed(self) -> bool:
-        """Check if the scope has been homed since startup.
+        """Whether the stage / focus axes have a known reference position.
+
+        Answers from the axis state rather than the driver's homing
+        latch, for the same reason as ``has_thomed``: the latch survives
+        every fault short of a physical disconnect, so it keeps
+        reporting "homed" after a stall or a dropout has already
+        invalidated the reference frame.
+
+        The turret is excluded -- it has its own reference and its own
+        question. A scope whose turret faulted has not lost its stage
+        coordinates.
 
         Returns:
-            bool: True if home() has succeeded at least once.
+            bool: True if every non-turret axis the board has knows its
+                position. False on a board with no such axes, which is
+                what the driver latch reported for the no-motor case.
         """
-        return self._driver.has_homed()
+        with self._axis_state_lock:
+            stage_states = [state for axis, state in self._axis_state.items() if axis != 'T']
+        if not stage_states:
+            return False
+        return all(self._position_known(state) for state in stage_states)
 
     def _refresh_position_cache(self) -> None:
         """Fetch all axis positions from hardware and update the cache.
