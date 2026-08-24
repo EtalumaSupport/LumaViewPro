@@ -257,7 +257,7 @@ def _startup_session(scope, monkeypatch):
     # silently never happens, which is exactly the failure this file
     # exists to catch. Running the body inline keeps the sequence ordered
     # and the home's real result observable.
-    def _move_home(axis):
+    def _move_home(axis, wait=False):
         attempts.append(('home', axis))
         return scope.motion._home_impl()
 

@@ -21,6 +21,12 @@ from modules.sequential_io_executor import IOTask
 
 logger = logging.getLogger('LVP.modules.ui_helpers')
 
+# A turret move can carry a turret home in front of it (the widget homes
+# first when the turret reference is unknown), then a Z-retract, the
+# rotation, and a Z-restore. Sized for that whole chain rather than the
+# rotation alone, so a waiting caller does not give up mid-sequence.
+_TURRET_MOVE_TIMEOUT_S = 180.0
+
 
 def run_with_refusal_boundary(
     start_fn: typing.Callable[[], None],
@@ -175,14 +181,21 @@ def move_absolute(
     if axis == 'T':
         # Turret moves go through the GUI widget which manages homing and objective settings
         if not protocol:
-            ctx.io_executor.put(
+            # wait_until_complete has to be honored here, not just accepted.
+            # Startup asks for it so the turret is in position before the
+            # first capture; submitting fire-and-forget returned control
+            # immediately and let the caller proceed mid-rotation.
+            waiter = ctx.io_executor.put(
                 IOTask(
                     action=ctx.motion_settings.ids['verticalcontrol_id'].turret_select,
                     kwargs={'selected_position': position},
                     callback=_handle_ui_update_for_axis,
                     cb_kwargs={'axis': axis, 'vertical_control': vertical_control},
-                )
+                ),
+                return_future=wait_until_complete,
             )
+            if wait_until_complete and waiter is not None:
+                waiter.result(timeout=_TURRET_MOVE_TIMEOUT_S)
         else:
             ctx.motion_settings.ids['verticalcontrol_id'].turret_select(
                 selected_position=position, protocol=True, restore_z=restore_z
@@ -232,13 +245,26 @@ def move_relative(
     )
 
 
-def move_home(axis: str):
+def move_home(axis: str, wait: bool = False):
+    """Home an axis. Returns whether it succeeded when ``wait`` is set.
+
+    The UI buttons leave ``wait`` off: they run on the UI thread, and
+    blocking it for the length of a home would freeze the window. The
+    startup orchestration passes it, because it has to know whether the
+    reference frame is good before it drives anything else.
+    """
     if _user_motion_locked(axis):
-        return
+        return False
     ctx = _app_ctx.ctx
     axis = axis.upper()
     set_title_event_text('Homing, please wait...')
-    ctx.scope.motion.move_home_async(axis, callback=move_home_cb, cb_args=(axis))
+    if not wait:
+        ctx.scope.motion.move_home_async(axis, callback=move_home_cb, cb_args=(axis))
+        return None
+    try:
+        return ctx.scope.motion.move_home_and_wait(axis)
+    finally:
+        move_home_cb(axis)
 
 
 # ============================================================================

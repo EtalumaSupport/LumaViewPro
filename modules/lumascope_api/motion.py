@@ -285,8 +285,9 @@ class MotionAPI:
         cb_args=None,
         cb_kwargs=None,
         slow_task_threshold_sec=None,
-    ) -> None:
-        """Submit one motion body to the io executor, fire-and-forget.
+        wait_timeout=None,
+    ):
+        """Submit one motion body to the io executor.
 
         With no executor registered the task runs on the calling thread --
         a bare `Lumascope()` in a script has none and still has to drive
@@ -296,6 +297,22 @@ class MotionAPI:
         than vanishing: fire-and-forget callers cannot be handed an
         exception -- every UI callsite would need a handler for a state it
         cannot prevent.
+
+        Args:
+            wait_timeout: None (the default) submits fire-and-forget and
+                returns None. A number blocks for up to that many seconds
+                and returns what the body returned, so a caller that must
+                branch on the outcome -- startup deciding whether the
+                reference frame is good enough to keep going -- can. The
+                waiter is the one this already claims; only discarding it
+                was the difference. Never pass this from the io worker
+                itself: it would wait on the thread that has to run the
+                work.
+
+        Returns:
+            The body's return value when ``wait_timeout`` is set,
+            otherwise None. Also None when the executor declined the
+            task, which a waiting caller must read as "did not run".
         """
         from modules.sequential_io_executor import IOTask  # local-import: avoid cycle
 
@@ -317,12 +334,17 @@ class MotionAPI:
             task.on_complete(result, exception)
             if exception is not None:
                 raise exception
-            return
-        if ex.put(task, return_future=True) is None:
+            return result
+        waiter = ex.put(task, return_future=True)
+        if waiter is None:
             logger.warning(
                 f'[SCOPE API ] {name} dropped: the io executor is not accepting '
                 f'work (disabled, or fenced by a running protocol)'
             )
+            return None
+        if wait_timeout is None:
+            return None
+        return waiter.result(timeout=wait_timeout)
 
     def move_absolute_async(
         self,
@@ -969,6 +991,59 @@ class MotionAPI:
             cb_kwargs=cb_kwargs,
         )
 
+    def _home_action_for(self, axis):
+        """Resolve the home body an axis selector names, or None.
+
+        Shared by the async and waiting entry points so the selector
+        vocabulary ('Z', 'T', 'ALL', legacy 'XY') has one definition.
+        """
+        a = axis.upper()
+        if a == 'Z':
+            return self._zhome_impl
+        if a in ('ALL', 'XY'):
+            return self._home_impl
+        if a == 'T':
+            return self._thome_impl
+        logger.warning(f'[SCOPE API ] Unknown home axis: {axis}')
+        return None
+
+    def move_home_and_wait(self, axis, *, timeout=None) -> bool:
+        """Home an axis (or the whole scope) and report whether it worked.
+
+        The async form has no return channel, so a caller that must know
+        -- startup deciding whether to keep driving the stage -- had no
+        way to ask. Without this the failure is discarded and the next
+        commanded move runs against a reference frame the home just
+        failed to establish.
+
+        Must not be called from the io worker: it waits on the thread
+        that would run the work.
+
+        Args:
+            axis: Same vocabulary as ``move_home_async``.
+            timeout: Seconds to wait. Defaults to the published motion
+                settle bound.
+
+        Returns:
+            bool: True only if the home actually ran and succeeded. An
+                unknown axis selector, a refused submit, and a failed
+                home are all False -- the caller's question is "can I
+                trust the reference frame", and the answer to all three
+                is no.
+        """
+        action = self._home_action_for(axis)
+        if action is None:
+            return False
+        return (
+            self._submit_motion(
+                action,
+                'move_home_and_wait',
+                slow_task_threshold_sec=self._MOTION_SETTLE_TIMEOUT_S,
+                wait_timeout=self._MOTION_SETTLE_TIMEOUT_S if timeout is None else timeout,
+            )
+            is True
+        )
+
     def move_home_async(self, axis, *, callback=None, cb_args=None) -> None:
         """Home an axis (or the whole scope) via the io_executor.
 
@@ -979,15 +1054,8 @@ class MotionAPI:
             callback: Optional completion callback.
             cb_args: Optional positional args passed to the callback.
         """
-        a = axis.upper()
-        if a == 'Z':
-            action = self._zhome_impl
-        elif a in ('ALL', 'XY'):
-            action = self._home_impl
-        elif a == 'T':
-            action = self._thome_impl
-        else:
-            logger.warning(f'[SCOPE API ] Unknown home axis: {axis}')
+        action = self._home_action_for(axis)
+        if action is None:
             return
         self._submit_motion(
             action,

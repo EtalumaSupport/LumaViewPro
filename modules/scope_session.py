@@ -786,8 +786,18 @@ class ScopeSession:
         # need a GUI surface.
         from ui.ui_helpers import move_home, move_absolute
 
-        if not disable_homing:
-            move_home('ALL')
+        # Wait for the home's result and honor it. Turret positioning is
+        # an absolute move against the reference frame the home was
+        # supposed to establish; running it after a failed home is the
+        # secondary cascade users report -- a second error on top of the
+        # home's own, for motion that could never have been correct. The
+        # home already notified, so this stays a log.
+        if not disable_homing and not move_home('ALL', wait=True):
+            logger.error(
+                'Homing did not succeed -- skipping startup turret '
+                'positioning; the stage reference is unknown'
+            )
+            return
 
         if self.scope.capabilities.has_turret:
             objective_id = self.settings.get('objective_id')
