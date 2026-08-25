@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING
 from lib import profile_trace
 from lvp_logger import logger
 from modules.exceptions import ConfigError, HardwareCommandRefusedError
-from modules.sequential_io_executor import IOTask
+from modules.sequential_io_executor import ENQUEUED, IOTask
 
 if TYPE_CHECKING:
     from modules.lumascope_api._lumascope import Lumascope
@@ -927,18 +927,17 @@ class IlluminationAPI:
         kwargs=None,
         callback=None,
         cb_kwargs=None,
-        return_future=False,
     ):
         """Guard LED connectivity, then queue an IOTask on the io_executor.
 
         The shared connectivity-guard + executor-resolve + enqueue path behind
-        both the async LED wrappers and the blocking ``*_sync`` wrappers, so a
-        disconnected board no-ops identically everywhere instead of each wrapper
-        re-deriving the guard. Returns False (warning logged) when the
-        controller is absent so callers can no-op uniformly; otherwise True for
-        a fire-and-forget submit, or the task waiter when ``return_future`` is
-        set (the ``*_sync`` wrappers block on it; it can be None when the
-        executor declines the task, e.g. a protocol is running).
+        the async LED wrappers, so a disconnected board no-ops identically
+        everywhere instead of each wrapper re-deriving the guard.
+
+        Returns True when the task was enqueued (or ran inline, when there is
+        no executor), False when it did not: the controller is absent, or the
+        executor refused the task. Every False is logged, so a caller that
+        cannot act on the result still leaves a trace.
 
         Args:
             action: The bound method the IOTask runs.
@@ -947,7 +946,6 @@ class IlluminationAPI:
             kwargs: Keyword args for ``action``.
             callback: Optional completion callback.
             cb_kwargs: Optional kwargs passed to the callback.
-            return_future: When True, return the executor waiter to block on.
         """
         if not self._scope.led_connected:
             logger.warning('[SCOPE API ] LED controller not available.')
@@ -967,8 +965,6 @@ class IlluminationAPI:
             # task rather than the bare action keeps the callback and the
             # error reporting on the production path; IOTask already falls
             # back to a direct dispatch when there is no UI dispatcher.
-            # Returning None for a return_future caller is correct: those
-            # callers wait only `if fut`, and the work is already done.
             # run() renames the current thread to the task's name (normally
             # the worker's); an unnamed task would blank the CALLING thread's
             # name here, so hand it the name it already has.
@@ -977,19 +973,21 @@ class IlluminationAPI:
             task.on_complete(result, exception)
             if exception is not None:
                 raise exception
-            return None if return_future else True
-        result = ex.put(task, return_future=return_future)
-        if result is None:
-            # put() drops silently when the executor is disabled or fenced.
+            return True
+        # Success is the ENQUEUED identity rather than "not None": put() has
+        # more than one way to decline a task, and the other one
+        # (LIVE_FRAME_DROPPED) is truthy, so a negative test would eventually
+        # read a refusal as a success.
+        if ex.put(task) is not ENQUEUED:
             # Fire-and-forget callers cannot be handed an exception -- every
             # UI callsite would need a handler for a state it cannot prevent --
-            # so the drop is recorded instead of vanishing.
+            # so the refusal is recorded instead of vanishing.
             logger.warning(
                 f'[SCOPE API ] {name} dropped: the io executor is not accepting '
                 f'work (disabled, or fenced by a running protocol)'
             )
-            return None if return_future else False
-        return result if return_future else True
+            return False
+        return True
 
     def leds_off_async(self, *, callback=None) -> None:
         """Submit ``leds_off`` to the io_executor.

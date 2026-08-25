@@ -20,6 +20,7 @@ import pytest
 
 from modules.sequential_io_executor import (
     ENQUEUED,
+    LIVE_FRAME_DROPPED,
     IOTask,
     SequentialIOExecutor,
 )
@@ -88,4 +89,24 @@ def test_submit_io_does_not_report_a_successful_led_submit_as_dropped(sim_scope,
         warned = ' '.join(str(c) for c in mock_logger.warning.call_args_list)
     assert 'dropped' not in warned, (
         f'a successful leds_off_async submit was reported as dropped: {warned!r}'
+    )
+
+
+def test_submit_io_treats_a_truthy_refusal_as_a_refusal(sim_scope, led_executors):
+    """Success is an ENQUEUED identity check, not `is not None`.
+
+    put() has two refusal values and only one of them is falsy: a task refused
+    by the live-frame cap comes back as LIVE_FRAME_DROPPED, which is truthy.
+    A consumer testing the negative would report that refusal as a success.
+    """
+    sub = sim_scope.illumination
+    module = type(sub).__module__
+    with (
+        patch.object(led_executors['io'], 'put', return_value=LIVE_FRAME_DROPPED),
+        patch(f'{module}.logger') as mock_logger,
+    ):
+        sub.leds_off_async()
+        warned = ' '.join(str(c) for c in mock_logger.warning.call_args_list)
+    assert 'dropped' in warned, (
+        f'a refused submit was reported as delivered; warnings seen: {warned!r}'
     )
