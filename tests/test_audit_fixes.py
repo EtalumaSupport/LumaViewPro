@@ -3188,7 +3188,9 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
         monkeypatch.setattr(
             'modules.image_utils.write_tiff', lambda **kwargs: recorded.update(kwargs)
         )
-        monkeypatch.setattr(image_save, 'generate_image_metadata', lambda scope, color, x, y, z: {})
+        monkeypatch.setattr(
+            image_save, 'generate_image_metadata', lambda scope, channel, x, y, z: {}
+        )
         image_save.save_image(
             SimpleNamespace(
                 imaging=SimpleNamespace(capture_frame_depth=lambda array, sum_count=1: 8)
@@ -3197,7 +3199,8 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
             save_folder=str(tmp_path),
             file_root='fc_',
             append='BF',
-            color='BF',
+            channel='BF',
+            false_color_on=False,
             tail_id_mode=None,
             save_encoding='rgb',
             significant_bits=8,
@@ -3232,7 +3235,6 @@ class TestPIW3_FalseColor16bitCachedAtRunStart:
             step=_protocol_step(),
             name='stepA_BF',
             save_folder=str(tmp_path),
-            use_color='BF',
             output_format='TIFF',
         )
         assert recorded, 'write_capture must reach save_image'
@@ -3453,7 +3455,6 @@ class TestPIW2_DisksUsageDeduped:
             step=_protocol_step(),
             name='stepA_BF',
             save_folder=str(tmp_path),
-            use_color='BF',
             output_format='TIFF',
         )
         assert aborts == [1], 'low disk must abort the protocol'
@@ -3979,7 +3980,13 @@ class TestFrameValidity_SaveLiveImageDrainsBeforeGrab:
                 saved.update(array=array) or str(tmp_path / 'live.tiff')
             ),
         )
-        out = image_save.save_live_image(scope, save_folder=str(tmp_path), save_encoding='8bit')
+        out = image_save.save_live_image(
+            scope,
+            save_folder=str(tmp_path),
+            save_encoding='8bit',
+            channel='BF',
+            false_color_on=False,
+        )
         assert out is not None
         assert calls == ['capture_and_wait'], (
             f'save_live_image must drain via capture_and_wait only; saw {calls}'

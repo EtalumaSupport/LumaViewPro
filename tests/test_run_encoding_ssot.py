@@ -300,7 +300,7 @@ class TestOneRunOneEncoding:
 
         from modules.protocol_image_writer import CapturedFrame
 
-        step = {'Name': 'A1_BF', 'Color': 'BF', 'X': 0.0, 'Y': 0.0, 'Z': 0.0}
+        step = {'Name': 'A1_BF', 'Color': 'BF', 'False_Color': False, 'X': 0.0, 'Y': 0.0, 'Z': 0.0}
         writer.write_capture(
             enable_image_saving=True,
             captured_image=CapturedFrame(
@@ -309,7 +309,6 @@ class TestOneRunOneEncoding:
             step=step,
             name='A1_BF',
             save_folder=str(tmp_path),
-            use_color='BF',
             output_format='TIFF',
         )
         assert still_saves, 'the still leg must reach save_image'

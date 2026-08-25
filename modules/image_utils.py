@@ -2108,14 +2108,11 @@ def generate_tiff_data(
 
     axes = 'YX'
 
-    modality = ''
     if is_color_image(data):
         photometric = tf.PHOTOMETRIC.RGB
-        modality = 'RGB'
         axes = 'YXS'  # 3rd dimension is samples (RGB channels)
     elif color in common_utils.get_transmitted_layers():
         photometric = tf.PHOTOMETRIC.MINISBLACK
-        modality = color
     elif color in common_utils.get_image_layers():
         # 8-bit: PALETTE with colormap -- works in Windows Preview and ImageJ.
         # 16-bit: MINISBLACK -- Windows Preview can't handle PALETTE with uint16.
@@ -2125,7 +2122,6 @@ def generate_tiff_data(
             photometric = tf.PHOTOMETRIC.PALETTE
         else:
             photometric = tf.PHOTOMETRIC.MINISBLACK
-        modality = 'MIF'
     else:
         raise ValueError(f'Unexpected color value ({color}) for tiff data generation')
 
@@ -2292,6 +2288,24 @@ def generate_tiff_data(
     # ImageJ adds unit, channel modality, LUT, and document block
     if image_type == 'imagej':
         tiff_metadata['unit'] = 'um'
+        # Modality states WHAT was imaged, so it is derived from the acquiring
+        # channel -- the same value Channel.Name carries. Deriving it from the
+        # render color instead made a false-color-off fluorescence frame record
+        # itself as brightfield, contradicting its own Channel.Name in the same
+        # file and tracking a viewer checkbox into permanent metadata.
+        identity_channel = metadata['channel']
+        if identity_channel in common_utils.get_transmitted_layers():
+            modality = identity_channel
+        elif identity_channel in common_utils.get_image_layers():
+            modality = 'MIF'
+        elif identity_channel == 'Unknown':
+            # A derived output whose source channel could not be determined
+            # says so here too, rather than borrowing a modality it cannot
+            # support. Only post-processing produces this; a capture always
+            # knows the channel it was acquired on.
+            modality = 'Unknown'
+        else:
+            raise ValueError(f'Unexpected channel ({identity_channel}) for tiff modality')
         tiff_metadata['Channel']['Modality'] = [modality]
         tiff_metadata['Document'] = {
             'Manufacturer': metadata.get('camera_make', ''),

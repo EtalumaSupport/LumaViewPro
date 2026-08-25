@@ -24,7 +24,7 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 SCAN_DIRS = ('modules', 'drivers', 'ui')
 
 DEPTH_PARAMS = frozenset({'significant_bits'})
-COLOR_PARAMS = frozenset({'color', 'is_color', 'save_encoding', 'true_color', 'use_color'})
+COLOR_PARAMS = frozenset({'color', 'is_color', 'save_encoding', 'channel'})
 
 # Terminal serializer / renderer sinks where the depth and the color/encoding
 # signal genuinely arrive together to write or draw the frame. Keyed by
@@ -45,6 +45,10 @@ ALLOWLISTED_SINKS = frozenset(
         # Terminal serializer for stitched output: forwards depth+color
         # straight into the allowlisted write_tiff to write the TIFF.
         ('modules/stitching_core.py', '_write_output'),
+        # Terminal metadata builder for post-processing outputs: the channel
+        # and the depth of the pixels it was handed arrive together to describe
+        # one derived file, and both are already required arguments.
+        ('modules/image_utils.py', 'build_postproc_output_metadata'),
     }
 )
 

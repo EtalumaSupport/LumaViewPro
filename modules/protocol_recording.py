@@ -522,7 +522,7 @@ class ProtocolVideoStep:
                 frame=image,
                 file_loc=file_loc,
                 metadata=metadata,
-                layer_color=step['Color'],
+                channel=step['Color'],
                 false_color_on=bool(step['False_Color']),
                 save_encoding=self._capture_config.save_encoding,
                 capture_depth=self._capture_config.capture_depth,

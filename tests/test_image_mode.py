@@ -398,7 +398,7 @@ def test_record_frame_must_be_right_aligned_for_video_frame(tmp_path):
         frame=raw.copy(),
         file_loc=correct,
         metadata=_metadata(correct, channel='BF'),
-        layer_color='BF',
+        channel='BF',
         false_color_on=False,
         save_encoding='right_aligned',
         capture_depth=12,
@@ -418,7 +418,7 @@ def test_record_frame_must_be_right_aligned_for_video_frame(tmp_path):
         frame=left_justified,
         file_loc=corrupt,
         metadata=_metadata(corrupt, channel='BF'),
-        layer_color='BF',
+        channel='BF',
         false_color_on=False,
         save_encoding='right_aligned',
         capture_depth=12,
@@ -614,7 +614,7 @@ def test_write_video_frame_matrix(
         frame=data,
         file_loc=out_path,
         metadata=_metadata(out_path, channel=layer),
-        layer_color=layer,
+        channel=layer,
         false_color_on=fc_on,
         save_encoding=save_encoding,
         capture_depth=capture_depth,
@@ -636,7 +636,7 @@ def test_write_video_frame_12bit_falsecolor_off_stays_mono(tmp_path):
         frame=data,
         file_loc=out_path,
         metadata=_metadata(out_path, channel='Green'),
-        layer_color='Green',
+        channel='Green',
         false_color_on=False,
         save_encoding='rgb',
         capture_depth=12,
@@ -656,7 +656,7 @@ def test_write_video_frame_8bit_falsecolor_bakes_rgb(tmp_path):
         frame=data,
         file_loc=out_path,
         metadata=_metadata(out_path, channel='Green'),
-        layer_color='Green',
+        channel='Green',
         false_color_on=True,
         save_encoding='8bit',
         capture_depth=8,
@@ -679,7 +679,7 @@ def test_write_video_frame_stamps_significant_bits_for_scaled(tmp_path):
         frame=data,
         file_loc=out_path,
         metadata=_metadata(out_path, channel='BF'),
-        layer_color='BF',
+        channel='BF',
         false_color_on=False,
         save_encoding='msb_aligned',
         capture_depth=12,
@@ -704,7 +704,7 @@ def test_write_video_frame_rejects_unknown_save_encoding(tmp_path):
             frame=data,
             file_loc=out_path,
             metadata=_metadata(out_path, channel='BF'),
-            layer_color='BF',
+            channel='BF',
             false_color_on=False,
             save_encoding='not_a_real_encoding',
             capture_depth=12,
@@ -910,9 +910,13 @@ def test_derived_fluorescence_widens_to_rgb_under_false_color_mode(tmp_path):
 
 
 def test_composite_capture_live_path_passes_save_encoding():
-    """Structural lock on the Bug-B site: every save_live_image / save_image
-    call in the manual live-capture path forwards save_encoding. A refactor that
-    drops it from the non-engineering branch (the original defect) fails here."""
+    """Structural lock: every save_live_image / save_image call in the manual
+    live-capture path forwards both the image mode and the acquiring channel.
+
+    A refactor that drops save_encoding from the non-engineering branch was the
+    original defect. Channel is locked the same way and for the same reason:
+    omitting it is what stamped every manual capture brightfield, and a default
+    answering for it makes the omission invisible at the call site."""
     import ast
 
     src = pathlib.Path(__file__).resolve().parents[1] / 'ui' / 'composite_capture.py'
@@ -930,4 +934,12 @@ def test_composite_capture_live_path_passes_save_encoding():
         assert any(kw.arg == 'save_encoding' for kw in call.keywords), (
             f'a {call.func.id} call at line {call.lineno} omits save_encoding -- '
             'the manual live-capture path must forward the image mode'
+        )
+        assert any(kw.arg == 'channel' for kw in call.keywords), (
+            f'a {call.func.id} call at line {call.lineno} omits channel -- '
+            'the manual live-capture path must state what it imaged'
+        )
+        assert not any(kw.arg in ('color', 'true_color') for kw in call.keywords), (
+            f'a {call.func.id} call at line {call.lineno} still passes a '
+            'retired color argument alongside the channel'
         )

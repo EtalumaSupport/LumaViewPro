@@ -614,7 +614,7 @@ class ManualRecordingController:
             frame=image,
             file_loc=file_loc,
             metadata=metadata,
-            layer_color=plan.layer,
+            channel=plan.layer,
             false_color_on=plan.false_color_on,
             save_encoding=plan.save_encoding,
             capture_depth=plan.capture_depth,

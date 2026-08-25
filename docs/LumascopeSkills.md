@@ -294,7 +294,10 @@ image = session.scope.imaging.capture_and_wait()
 save_image(
     session.scope,
     array=image, save_folder='./output',
-    file_root='capture', append='_BF', color='BF',
+    file_root='capture', append='_BF',
+    channel='BF', false_color_on=False,
+    save_encoding='right_aligned',
+    significant_bits=session.scope.imaging.capture_frame_depth(image),
 )
 
 # Live-view tap: the latest buffered frame, no new exposure forced
@@ -1048,9 +1051,12 @@ save_image(
     save_folder='/path/to/output',
     file_root='experiment1',
     append='_BF_A1',
-    color='BF',
+    channel='BF',                          # what was imaged -- recorded as identity
+    false_color_on=False,                  # how it is displayed -- never recorded as identity
     tail_id_mode='increment',              # auto-number files
     output_format='TIFF',                  # 'TIFF' or 'OME-TIFF'
+    save_encoding='right_aligned',         # from the image-mode config layer
+    significant_bits=scope.imaging.capture_frame_depth(image),
     x=60000, y=40000, z=5000,              # stage position metadata (µm)
 )
 ```
@@ -1062,7 +1068,7 @@ The full set of free functions in `modules.image_save`:
 | `save_image(scope, array, ...)` | Save a numpy array to TIFF / OME-TIFF with metadata. |
 | `save_live_image(scope, save_folder, ...)` | Grab the current live frame from the camera and save (composes `capture_and_wait` + `save_image`). |
 | `prepare_image_for_saving(scope, array, ...)` | Flip / bit-convert / build metadata + path; returns `{'image', 'metadata'}`. |
-| `generate_image_metadata(scope, color, x, y, z)` | Build the TIFF metadata dict for the current capture settings + position. |
+| `generate_image_metadata(scope, channel, x, y, z)` | Build the TIFF metadata dict for the current capture settings + position. |
 | `generate_image_save_path(scope, save_folder, ...)` | Generate the next unused file path under `tail_id_mode`. |
 | `get_next_save_path(scope, path)` | Increment the trailing numeric ID on an existing path. |
 
@@ -1250,7 +1256,10 @@ scope.illumination.leds_off()
 save_image(
     scope,
     array=image, save_folder='./output',
-    file_root='capture', append='_BF', color='BF',
+    file_root='capture', append='_BF',
+    channel='BF', false_color_on=False,
+    save_encoding='right_aligned',
+    significant_bits=scope.imaging.capture_frame_depth(image),
     output_format='TIFF', x=60000, y=40000, z=5000,
 )
 scope.disconnect()
@@ -1288,7 +1297,8 @@ composite = build_composite(
 )
 
 save_image(scope, array=composite, save_folder='./output',
-           file_root='composite', color=None, output_format='TIFF')
+           file_root='composite', channel='Composite', false_color_on=False,
+           save_encoding='8bit', significant_bits=8, output_format='TIFF')
 ```
 
 `build_composite` accepts fluorescence keys `'Red'`, `'Green'`, `'Blue'`, `'Lumi'`.
@@ -1308,7 +1318,10 @@ while z <= z_end:
     save_image(
         scope,
         array=image, save_folder='./zstack',
-        file_root='z', append=f'_{int(z)}', color='BF',
+        file_root='z', append=f'_{int(z)}',
+        channel='BF', false_color_on=False,
+        save_encoding='right_aligned',
+        significant_bits=scope.imaging.capture_frame_depth(image),
         output_format='TIFF', z=z,
     )
     z += z_step
@@ -1334,7 +1347,10 @@ for well_name, px, py in wells:
     save_image(
         scope,
         array=image, save_folder='./scan',
-        file_root=f'{well_name}_BF', color='BF',
+        file_root=f'{well_name}_BF',
+        channel='BF', false_color_on=False,
+        save_encoding='right_aligned',
+        significant_bits=scope.imaging.capture_frame_depth(image),
         output_format='TIFF', x=sx, y=sy,
     )
 scope.illumination.leds_off()
