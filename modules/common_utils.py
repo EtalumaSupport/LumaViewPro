@@ -1297,7 +1297,7 @@ def system_metrics(path='/', *, collect_open_files):
     enumeration came to run unconditionally in the first place.
 
     Long-run leak detection: GDI/handle/thread/GC counts should plateau
-    in steady state. A steady upward trend across hourly snapshots
+    in steady state. A steady upward trend across successive snapshots
     indicates a leak. See `docs/LOG_ANALYSIS_GUIDE.md` "Resource Health"
     section for healthy/unhealthy patterns.
     """
@@ -1378,9 +1378,11 @@ def system_metrics(path='/', *, collect_open_files):
     # --- Process I/O bytes (cumulative + rates, per-process) ---
     # Distinguishes "we wrote 50 GB this hour" from "Windows Defender did".
     # Both bytes counters reset only when the process restarts.
-    # Rates added 2026-04-30 (TEMPORARY) -- at 60 s sampling interval, the
-    # rate gives MB/sec of TIFF writes; cross-reference with Defender IO
-    # read rate to confirm "Defender mmaps every TIFF" hypothesis.
+    # The rates are averages over the gap since the previous tick, so they
+    # mean different things at different cadences: at the 60 s engineering
+    # interval they read as MB/sec of TIFF writes and can be cross-referenced
+    # against the Defender IO read rate; at the hourly production interval
+    # they are hour-averages and will flatten any burst.
     try:
         io = proc.io_counters()
         metrics['io_read_mb'] = io.read_bytes / 1e6
@@ -1398,6 +1400,9 @@ def system_metrics(path='/', *, collect_open_files):
     # working set in/out). Useful as a sanity signal -- if pf/sec stays low
     # while standby grows, the slowdown is allocator/standby-cache, not
     # real paging. If pf/sec spikes during slow state, real paging.
+    # That threshold only means anything at the sub-minute engineering
+    # cadence: averaged over an hour, a paging storm lasting minutes
+    # disappears into the mean.
     try:
         mem = proc.memory_info()
         pf = getattr(mem, 'pfaults', None) or getattr(mem, 'num_page_faults', None)
@@ -1450,8 +1455,11 @@ def system_metrics(path='/', *, collect_open_files):
 
     # --- Python GC (catches reference-cycle / closure-capture leaks) ---
     # `gc.get_objects()` is somewhat expensive (iterates all tracked
-    # objects) -- fine at hourly cadence. Steady linear growth indicates
-    # accumulation, typically from observers/callbacks holding refs.
+    # objects), which the hourly production cadence absorbs; the 60 s
+    # engineering cadence pays it sixty times as often, deliberately.
+    # Steady linear growth indicates accumulation, typically from
+    # observers/callbacks holding refs; the growth-rate thresholds are
+    # the gc_objects_growth_per_hr row in PERFORMANCE_BUDGETS.md.
     try:
         metrics['gc_objects'] = len(gc.get_objects())
         gc_stats = gc.get_stats()

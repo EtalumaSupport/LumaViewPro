@@ -652,11 +652,10 @@ class LumaViewProApp(TooltipMixin, App):
 
         # The session owns the metrics lifecycle (it holds the injected
         # KivyClockScheduler and restarts metrics on the new scope at
-        # every reconnect); settings.profiling.metrics_interval_s
-        # overrides the default 3600 s cadence -- set 30-60 s for
-        # short-soak leak hunts (gen2_depth + handle/thread counts are
-        # usable signals at sub-minute granularity; hourly is fine for
-        # production).
+        # every reconnect). Cadence is hourly in production and 60 s in
+        # engineering mode; settings.profiling.metrics_interval_s
+        # overrides both (gen2_depth + handle/thread counts are the
+        # signals worth sub-minute granularity on a short leak hunt).
         ctx.session.start_metrics()
 
         # The atexit emergency-shutdown hook is registered in Lumascope.__init__

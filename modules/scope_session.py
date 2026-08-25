@@ -18,9 +18,11 @@ Usage
 
 from typing import TYPE_CHECKING
 
+import modules.app_context as _app_ctx
 from lvp_logger import logger
 from modules.activity_claim import ActivityClaim
 from modules.manual_recording import ManualRecordingController
+from modules.metrics_logger import ENGINEERING_METRICS_INTERVAL_S
 
 # ProtocolRunner is referenced only in a return annotation; it is
 # imported function-locally to avoid a circular import. Declare it here
@@ -693,10 +695,24 @@ class ScopeSession:
                 'periodic metrics stay off'
             )
             return
+        # Cadence resolution, in precedence order: an explicit setting wins
+        # everywhere (a bench operator asking for a specific interval must be
+        # honoured even on an engineering machine); otherwise engineering mode
+        # takes the sub-minute bench cadence; otherwise nothing is passed and
+        # the logger's own hourly default applies.
+        #
+        # The engineering flag is read off the app context, not
+        # settings['mode']: the engineering plugin can flip it during plugin
+        # load, so the settings file and the live flag disagree on exactly the
+        # machines that care. Plugin load completes before metrics start, and
+        # an unset context (headless, REST, tests) reads as False -- production
+        # cadence, which is the safe direction.
         start_kwargs = {}
         interval_s = self.settings.get('profiling', {}).get('metrics_interval_s')
         if interval_s is not None:
             start_kwargs['system_metrics_interval_s'] = float(interval_s)
+        elif getattr(_app_ctx.ctx, 'engineering_mode', False):
+            start_kwargs['system_metrics_interval_s'] = ENGINEERING_METRICS_INTERVAL_S
         metrics_logger.start(self._metrics_scheduler, **start_kwargs)
         self._metrics_started = True
 
