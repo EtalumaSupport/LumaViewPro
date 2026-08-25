@@ -163,6 +163,44 @@ def load_settings(logger, filename, lvp_appdata):
         raise
 
 
+def _check_container_shape(current, template, path=''):
+    """Compare a loaded config against the shipped one, shape only.
+
+    settings.json already describes the structure the rest of the app
+    assumes -- 149 places index into these dicts without checking -- so it
+    serves as the schema and cannot drift from itself the way a
+    hand-maintained one would.
+
+    Only container KIND is compared: a dict where the template has a dict,
+    a list where it has a list. Scalars are never inspected, because int
+    and float are interchangeable across this file (four per-layer fields
+    are declared as either) and null is a legitimate "unset". Rejecting on
+    scalar type would throw away configurations that work today, and the
+    cost of a false rejection is a user being offered a reset.
+
+    Keys absent from the config are fine -- the default merge fills them,
+    and an install predating a migration legitimately lacks whole blocks.
+    Keys absent from the TEMPLATE are fine too: users and plugins may hold
+    extra ones.
+
+    Returns the list of mismatches, deepest key path first.
+    """
+    problems = []
+    for key, template_value in template.items():
+        if key not in current:
+            continue
+        value = current[key]
+        where = f'{path}.{key}' if path else key
+        for kind in (dict, list):
+            if isinstance(template_value, kind) and not isinstance(value, kind):
+                problems.append(f'{where}: expected {kind.__name__}, got {type(value).__name__}')
+                break
+        else:
+            if isinstance(template_value, dict):
+                problems.extend(_check_container_shape(value, template_value, where))
+    return problems
+
+
 def _deep_merge_defaults(current: dict, defaults: dict, path: str = '', logger=None) -> list[str]:
     """Recursively merge missing keys from defaults into current.
 
@@ -244,6 +282,37 @@ def _migrate_video_settings(logger) -> None:
 rejected_current_json = None
 
 
+def _reject_if_misshapen(logger, loaded, template_path, current_path):
+    """Refuse a config whose shape the app cannot survive.
+
+    Runs before the migrations and the default merge, which is the only
+    position that works: the caller's except routes the rejection to the
+    shipped template, and that except covers nothing further down. The
+    merge would not repair a mismatch anyway -- it only recurses where both
+    sides are already dicts.
+
+    A template that will not parse is NOT allowed to condemn a healthy
+    config. Without that, a settings.json truncated by a bad upgrade would
+    raise here, be reported as "current.json could not be used", and send
+    the user to delete the one file that was still good.
+    """
+    try:
+        template = read_settings_json(template_path, logger)
+    except (FileNotFoundError, SettingsFileError) as e:
+        logger.warning(
+            f'[Settings ] {template_path} unreadable ({e}); skipping the shape '
+            f'check on {current_path}'
+        )
+        return
+
+    problems = _check_container_shape(loaded, template)
+    if problems:
+        raise SettingsFileError(
+            f'{current_path}: structure does not match {os.path.basename(template_path)} '
+            f'-- {"; ".join(problems)}'
+        )
+
+
 def load_lvp_settings(logger, lvp_appdata):
     global settings, rejected_current_json
 
@@ -257,6 +326,7 @@ def load_lvp_settings(logger, lvp_appdata):
     if os.path.exists(current_path):
         try:
             load_settings(logger, current_path, lvp_appdata)
+            _reject_if_misshapen(logger, settings, settings_path, current_path)
         except (json.JSONDecodeError, ValueError) as e:
             # current.json is unusable. Come up on the shipped template so the
             # user gets a working app and a chance to decide -- but do NOT

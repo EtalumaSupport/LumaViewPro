@@ -166,3 +166,98 @@ class TestTheSaveGuard:
         # A caller writing somewhere else is not writing the user's live
         # configuration and must not be blocked.
         assert not settings_init.targets_current_json(path)
+
+
+class TestShapeValidation:
+    """settings.json is the schema, because it cannot drift from itself.
+
+    149 places in the app index into these dicts without checking. That
+    structure has to be true by the time any of them runs, which makes it
+    a load-time concern rather than 149 guards.
+    """
+
+    def _load(self, appdata):
+        settings_init.load_lvp_settings(__import__('logging').getLogger('t'), str(appdata))
+
+    def _write_current(self, appdata, mutate):
+        current = appdata / 'data' / 'current.json'
+        with open(current) as f:
+            loaded = json.load(f)
+        mutate(loaded)
+        with open(current, 'w') as f:
+            json.dump(loaded, f)
+        return current
+
+    def test_a_block_replaced_by_a_scalar_is_rejected(self, appdata):
+        def _break(s):
+            s['profiling'] = 'off'
+
+        current = self._write_current(appdata, _break)
+        with open(current, 'rb') as f:
+            before = f.read()
+        self._load(appdata)
+        assert settings_init.settings_are_provisional()
+        with open(current, 'rb') as f:
+            assert f.read() == before
+
+    def test_a_nested_block_replaced_by_a_scalar_is_rejected(self, appdata):
+        # The walk has to descend, not just check the top level.
+        def _break(s):
+            s['profiling']['handle_trace_enabled'] = {'unexpectedly': 'a dict'}
+            s['frame'] = 12
+
+        self._write_current(appdata, _break)
+        self._load(appdata)
+        assert settings_init.settings_are_provisional()
+
+    def test_a_missing_key_is_accepted(self, appdata):
+        # An install predating a migration legitimately lacks whole blocks;
+        # the default merge is what fills them in.
+        def _drop(s):
+            s.pop('profiling', None)
+
+        self._write_current(appdata, _drop)
+        self._load(appdata)
+        assert not settings_init.settings_are_provisional()
+
+    def test_an_extra_key_is_accepted(self, appdata):
+        # Users and plugins may hold keys the template never heard of.
+        def _add(s):
+            s['a_plugin_put_this_here'] = {'nested': [1, 2, 3]}
+
+        self._write_current(appdata, _add)
+        self._load(appdata)
+        assert not settings_init.settings_are_provisional()
+
+    def test_scalar_types_are_never_inspected(self, appdata):
+        # int/float are interchangeable across this file and null is a
+        # legitimate unset. Rejecting on scalar type would discard configs
+        # that work today.
+        def _retype(s):
+            s['profiling']['metrics_interval_s'] = 60  # template ships null
+            s['profiling']['enabled'] = 1  # template ships false
+            for layer in ('BF', 'Blue'):
+                if layer in s and isinstance(s[layer], dict):
+                    s[layer]['gain_db'] = 3  # template ships a float
+
+        self._write_current(appdata, _retype)
+        self._load(appdata)
+        assert not settings_init.settings_are_provisional()
+
+    def test_an_unreadable_template_does_not_condemn_a_good_config(self, appdata):
+        # A settings.json truncated by a bad upgrade must not be reported as
+        # "current.json could not be used", sending the user to delete the
+        # one file that was still readable.
+        with open(appdata / 'data' / 'settings.json', 'w') as f:
+            f.write('{"truncated": ')
+
+        self._load(appdata)
+
+        assert not settings_init.settings_are_provisional()
+        assert settings_init.settings['live_folder'] == '/tmp/the-users-own-folder'
+
+    def test_the_healthy_shipped_template_validates_against_itself(self, appdata):
+        # If the rule rejects the app's own shipped config, the rule is wrong.
+        with open(appdata / 'data' / 'settings.json') as f:
+            template = json.load(f)
+        assert settings_init._check_container_shape(template, template) == []
