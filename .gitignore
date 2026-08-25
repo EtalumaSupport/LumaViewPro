@@ -38,3 +38,13 @@ generated_tiles_current_10x10/
 results_current_10x10/
 actual_tile_data/
 recent_issue/
+
+# Local-only internal documentation and stitching benchmarks.
+# These remain available in this working copy but are not shared from this repository.
+docs/CODEX_PROJECT_CONTEXT.md
+docs/CONTRIBUTORS.md
+docs/LIVE_PROCESSING_TUTORIAL.md
+docs/QUICK_ENHANCE.md
+docs/STITCHING.md
+docs/testing/
+stitching_benchmarking/
