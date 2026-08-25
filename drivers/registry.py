@@ -161,6 +161,18 @@ class DriverRegistry:
                 or if 'auto' finds no candidates at all.
         """
         if name != 'auto':
+            # Selecting by NAME skips every liveness check the auto path
+            # runs below -- no `found` test, no `is_connected()` test, no
+            # null fallback. A driver whose constructor succeeds while its
+            # hardware never opened is handed straight back, and nothing
+            # raises, so the caller's except-clause never fires and a dead
+            # board reaches the API layer indistinguishable from a live one.
+            #
+            # Nothing production passes a name today: startup asks for
+            # 'auto'. The trap is for whoever changes that -- wire a caller
+            # that passes a name (the reconnect path is the one waiting to
+            # happen) and it inherits this hole. Give both branches the
+            # same validation before adding such a caller.
             cls = self.get(name)
             return cls(**kwargs)
 
