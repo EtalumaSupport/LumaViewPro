@@ -89,15 +89,17 @@ def stepnav_env(monkeypatch):
             toggle_settings=MagicMock(),
         ),
         scope=SimpleNamespace(
-            motion=SimpleNamespace(has_turret=MagicMock(return_value=False)),
+            motion=SimpleNamespace(),
+            capabilities=SimpleNamespace(has_turret=False),
             motor_connected=False,
-            imaging=SimpleNamespace(camera_active=False),
+            imaging=SimpleNamespace(active_cached=False),
             illumination=SimpleNamespace(
                 color2ch=MagicMock(return_value=3),
                 apply_transition_async=MagicMock(),
             ),
         ),
         protocol_running=SimpleNamespace(is_set=MagicMock(return_value=False)),
+        session=SimpleNamespace(is_protocol_running=False, run_lockout=False),
         sequenced_capture_runner=SimpleNamespace(run_in_progress=lambda: False),
         stage=SimpleNamespace(draw_labware=MagicMock()),
     )

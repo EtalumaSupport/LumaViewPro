@@ -123,7 +123,9 @@ def build_session_manifest(
         tick_freq_hz: camera-side timestamp tick rate (1 GHz on Basler
             USB3; from GevTimestampTickFrequency on GigE; None when
             unknown).
-        captured_frames: count of frames stored in the memmap.
+        captured_frames: count of frames actually recorded -- only the
+            first captured_frames slots of the record buffers hold real
+            frames.
         video_duration: wall-clock seconds from record_init to
             record_complete.
         camera_model: e.g. 'a2A3536-31umBAS' or None.

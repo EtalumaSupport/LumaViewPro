@@ -1,4 +1,5 @@
 classdef lvp_connect < handle
+% DEFERRED: targets a REST API (/api/v1) that does not exist yet; rewrite rides REST Phase 1 against the real endpoints. Kept for the endpoint-sketch ideas it carries.
     % LVP_CONNECT  MATLAB interface to LumaViewPro REST API
     %
     %   scope = lvp_connect();                    % localhost:8000

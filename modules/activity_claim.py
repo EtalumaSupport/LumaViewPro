@@ -15,9 +15,18 @@ class ActivityClaim:
     stack claims.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, on_transition=None) -> None:
+        """Args:
+        on_transition: Optional zero-argument callable invoked after
+            every successful claim or release. It fires OUTSIDE this
+            claim's lock but ON the transitioning thread, which may
+            hold engine locks of its own -- so it must only schedule
+            or notify (level-read listeners re-read state when they
+            run); it must not acquire engine locks or block.
+        """
         self._lock = threading.Lock()
         self._owner: str | None = None
+        self._on_transition = on_transition
 
     @property
     def owner(self) -> str | None:
@@ -30,7 +39,9 @@ class ActivityClaim:
             if self._owner is not None:
                 return False
             self._owner = owner
-            return True
+        if self._on_transition is not None:
+            self._on_transition()
+        return True
 
     def release(self, owner: str) -> None:
         """Release ``owner``'s claim.
@@ -46,3 +57,5 @@ class ActivityClaim:
                     f'ActivityClaim.release({owner!r}): claim is held by {self._owner!r}'
                 )
             self._owner = None
+        if self._on_transition is not None:
+            self._on_transition()

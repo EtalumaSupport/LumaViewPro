@@ -2,16 +2,15 @@
 """Regression test: MotorBoard._diagnostic_query suppresses
 FIRMWARE ERROR warnings on legacy firmware.
 
-VOLTAGE / DRVSTAT_<axis> / FANSPEED / FAN:<duty> are diagnostic
-commands added to motor firmware revisions after 2024-09-10. On
-the legacy firmware still in the field, each of these returns
+DRVSTAT_<axis> / FANSPEED / FAN:<duty> are diagnostic commands
+added to motor firmware revisions after 2024-09-10. On the legacy
+firmware still in the field, each of these returns
 ``ERROR: command 'X' not found``, and pre-fix the WARNING
-"FIRMWARE ERROR: VOLTAGE -> ERROR..." fired from
-``serialboard.exchange_command`` BEFORE ``_diagnostic_query``
-caught the response and returned None. The TSR was hitting all
-six commands during its diagnostic phase, surfacing six WARNINGs
-to the user-visible log on every TSR generation against legacy
-firmware.
+"FIRMWARE ERROR: ..." fired from ``serialboard.exchange_command``
+BEFORE ``_diagnostic_query`` caught the response and returned
+None. The TSR was hitting these commands during its diagnostic
+phase, surfacing a WARNING to the user-visible log per command on
+every TSR generation against legacy firmware.
 
 Fix: ``_diagnostic_query`` passes ``expect_unsupported=True`` to
 ``exchange_command``, so the WARNING is suppressed for these
@@ -34,18 +33,6 @@ class TestDiagnosticQueryCapabilityProbe:
         board = MotorBoard.__new__(MotorBoard)
         board.exchange_command = MagicMock(return_value=response)
         return board
-
-    def test_voltage_probe_passes_expect_unsupported_flag(self):
-        board = self._make_board(response='24V=OK 5V=5.18 3V3=3.31 1V2=1.24')
-        board.read_voltages()
-        assert board.exchange_command.call_count == 1
-        args, kwargs = board.exchange_command.call_args
-        assert args[0] == 'VOLTAGE'
-        assert kwargs.get('expect_unsupported') is True, (
-            'read_voltages must route through _diagnostic_query which '
-            'passes expect_unsupported=True so the FIRMWARE ERROR '
-            'warning is suppressed on legacy firmware.'
-        )
 
     def test_drvstat_probe_passes_expect_unsupported_flag(self):
         board = self._make_board(response="ERROR: command 'DRVSTAT_Z' not found:")

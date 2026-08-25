@@ -1,5 +1,15 @@
 # LumaViewPro — API & Integration Reference
 
+**What is public.** The public surface is defined in code: a member is
+public unless its docstring marks it internal ("not part of the L2 API
+surface") or an engineering ruling places it on the bench/tech-support
+surface. This document is the reference for that surface, and the test
+suite holds the two in lockstep both ways -- every call form here must
+resolve on the live API, and every public member must appear here. A
+member absent from this document is internal or engineering surface:
+it may be renamed, moved, or removed in any release without notice,
+and code that calls it is unsupported.
+
 ## PRE-RELEASE API
 
 The Lumascope SDK API documented in this file is **subject to breaking changes** in 4.1 / 4.1.5 / 4.2. Specifically:
@@ -75,9 +85,11 @@ The remainder of this document is organized as the sub-API reference (one sectio
 
 Methods on the L2 surface follow one of two contracts; if a method's docstring has a `Raises:` section it follows the raise contract, otherwise the sentinel contract.
 
-- **Hardware-state queries** (capability probes, status reads, getters like `get_led_ma`, `get_target_position`, `get_led_status`, `camera_max_gain`, `read_motor_voltages`) return a sentinel value -- `None`, `False`, or an empty container -- when the value cannot be read (no hardware, channel not set, firmware does not implement the probe). No exception is raised. The caller branches on the sentinel.
-- **Camera value getters** (`get_gain`, `get_exposure_time`, `get_frame_size`, `get_width`/`get_height`, `get_max_width`/`get_max_height`, `get_binning_size`, `get_pixel_format`) are a stricter subclass of the sentinel contract: a **transient read failure is invisible** -- the getter answers with the validated last-known-good value, so a momentary USB/SDK glitch can never hand you a failure code where a physical value belongs (no `-1` gain into arithmetic, no `None` frame size into a subscript). The documented camera-absent defaults (`get_gain` -1.0, `get_exposure_time` 0.0, `get_frame_size`/`get_pixel_format` `None`, width/height getters 0, `get_binning_size` 1) occur **only** when no camera is active or the value has never been successfully read -- stable states you can see coming via `camera_connected`, not something a transient failure produces mid-session. Callers that must record what the hardware was at a specific moment (file metadata, logs of record) use `get_live_camera_settings()` instead: it returns only fields whose driver read succeeded right now (`gain_db`, `exposure_ms`) and omits the rest -- there, unknown stays unknown by design.
-- **State-changing operations** (setters like `set_gain`, `move_absolute`, `led_on`, etc.) typically return `True` on success and `False` for "couldn't do it" (no driver, mode invalid, driver does not implement, etc.). A `Raises:` section in the docstring documents the typed exception (`HardwareError`, `CaptureError`, `ConfigError` from `modules.exceptions`) that propagates when the underlying SDK call itself fails. The API layer logs (`logger.error`) and fires a user-facing notification (`notifications.error`) before re-raising at the driver boundary; the typed exception is what L2 callers should catch.
+- **Hardware-state queries** (capability probes, status reads, getters like `get_led_ma`, `get_target_position`, `get_led_states`, `max_gain_db_cached`, `read_motor_fan_rpm`) return a sentinel value -- `None`, `False`, or an empty container -- when the value cannot be read (no hardware, channel not set, firmware does not implement the probe). No exception is raised. The caller branches on the sentinel.
+- **Camera value getters** (`get_gain_db`, `get_exposure_ms`, `get_width`/`get_height`, `get_binning_size`) are a stricter subclass of the sentinel contract: a **transient read failure is invisible** -- the getter answers with the validated last-known-good value, so a momentary USB/SDK glitch can never hand you a failure code where a physical value belongs (no `-1` gain into arithmetic, no `None` frame size into a subscript). The documented camera-absent defaults (`get_gain_db` -1.0, `get_exposure_ms` 0.0, width/height getters 0, `get_binning_size` 1) occur **only** when no camera is active or the value has never been successfully read -- stable states you can see coming via `camera_connected`, not something a transient failure produces mid-session. Callers that must record what the hardware was at a specific moment (file metadata, logs of record) use `get_live_camera_settings()` instead: it returns only fields whose driver read succeeded right now (`gain_db`, `exposure_ms`, `frame_size`, `pixel_format`) and omits the rest -- there, unknown stays unknown by design.
+- **Naming convention -- `*_cached` vs `get_*`**: a property ending in `_cached` (`gain_db_cached`, `exposure_ms_cached`, `frame_size_cached`, `pixel_format_cached`, `active_cached`, `min_frame_size_cached`, `max_exposure_ms_cached`, `max_gain_db_cached`) reads the host-side camera cache and performs **no driver I/O** -- safe to read at any frequency from any thread. A `get_*` method is a **live driver read** under the last-known-good contract above. The name carries the contract, so a call site's I/O behavior is visible without opening the implementation.
+- **State-changing operations** (setters like `set_gain_db`, `move_absolute`, `led_on`, etc.) typically return `True` on success and `False` for "couldn't do it" (no driver, mode invalid, driver does not implement, etc.). A `Raises:` section in the docstring documents the typed exception (`HardwareError`, `CaptureError`, `ConfigError` from `modules.exceptions`) that propagates when the underlying SDK call itself fails. The API layer logs (`logger.error`) and fires a user-facing notification (`notifications.error`) before re-raising at the driver boundary; the typed exception is what L2 callers should catch.
+- **Hardware-command dispatch** (LED, motion, and camera commands): each command submits to its executor and blocks until the hardware has it. While a protocol run owns the executors (or an executor is disabled), the blocking form raises `HardwareCommandRefusedError` (`modules.exceptions`), carrying the machine-readable `reason` (`exclusive_activity_running`) and the refused member; the `*_async` forms drop the command with a logged warning instead of raising. With no executors registered at all (a bare `Lumascope()` in a script), every command -- blocking and `*_async` alike -- runs directly on the calling thread.
 - **Sentinel-return methods log** at `logger.warning` or `logger.info` per Rule 5; they do **not** fire user notifications (no actionable failure occurred -- the value is just unknown).
 - **`camera_connected` is an instantaneous, non-latching poll.** A `False` can be transient (a single flaky connectivity query on an otherwise healthy camera). Consumers may skip work on `False` and re-poll on their next cycle; they must never latch, self-cancel, or tear anything down on it -- one transient `False` on a multi-day run should cost one skipped cycle, not the rest of the session.
 
@@ -139,11 +151,10 @@ scope.disconnect()
 
 ### Objective management
 
-Objective / labware / turret-config / stage-offset are runtime-mutable microscope configuration (not live hardware), so they live on the `scope.runtime_state` sub-API (Wave 7 split them off the composition root). The Session layer exposes a thin `set_objective(id)` forwarder so L2 SDK callers can drive objective selection without reaching across into `scope`.
+Objective / labware / turret-config / stage-offset are runtime-mutable microscope configuration (not live hardware), so they live on the `scope.runtime_state` sub-API (Wave 7 split them off the composition root). L2 callers reach it through the composition root the Session exposes: `session.scope.runtime_state.*`.
 
 ```python
-session.set_objective('10x Oly')                       # L2-canonical setter (thin Session forwarder)
-scope.runtime_state.set_objective('10x Oly')           # equivalent; sub-API surface
+scope.runtime_state.set_objective('10x Oly')           # the one public setter (session.scope.runtime_state from L2)
 
 scope.runtime_state.get_current_objective_id()
 scope.runtime_state.get_objective_info('10x Oly')      # {focal_length, magnification, NA, ...}
@@ -154,6 +165,19 @@ scope.runtime_state.get_current_objective()
 scope.runtime_state.set_turret_config({1: '4x Oly', 2: '10x Oly', 3: '20x Oly', 4: '40x w/collar'})
 scope.runtime_state.get_turret_config()
 scope.motion.get_turret_position_for_objective_id('10x Oly')   # returns 2 (turret position is motion state)
+scope.motion.is_current_turret_position_objective_set()        # False when the CURRENT turret slot has no configured objective
+
+# Labware + stage offset -- the plate-coordinate inputs
+scope.runtime_state.set_labware(labware_obj)           # LabWare object (see Coordinate transformations)
+scope.runtime_state.get_labware()
+scope.runtime_state.set_stage_offset({'x': 0.0, 'y': 0.0})
+scope.runtime_state.get_stage_offset()
+scope.runtime_state.get_well_label()                   # 'A1' for the current stage XY; '' when the labware has no wells
+
+# Stage µm → plate mm using the registered labware + stage offset
+# (the bound form of CoordinateTransformer.stage_to_plate; raises
+# NoLabwareSelectedError when no labware is registered)
+px, py = scope.runtime_state.stage_to_plate(sx=60000, sy=40000)
 ```
 
 ---
@@ -169,11 +193,15 @@ GUI-free session container. All hardware commands route through executor threads
 For **real hardware** with settings loaded from disk:
 
 ```python
-from modules.settings_init import load_lvp_settings
+import modules.settings_init as settings_init
+from lvp_logger import logger
 from modules.scope_session import ScopeSession
 
-settings = load_lvp_settings('./data/current.json')
-session = ScopeSession.create(settings=settings, source_path='.')
+# Takes a logger and the appdata DIRECTORY; reads data/current.json
+# itself (settings.json is the corrupt-file fallback + defaults-merge
+# source) and populates the module-global settings dict.
+settings_init.load_lvp_settings(logger, '.')
+session = ScopeSession.create(settings=settings_init.settings, source_path='.')
 session.start_executors()
 ```
 
@@ -197,47 +225,62 @@ session.start_application_session(disable_homing=True)  # skip homing, still pos
 
 `start_application_session()` is the single source of truth for the standard startup orchestration the GUI runs on launch: it queues an all-axis `move_home` on the io_executor (firmware homes Z/T/X/Y in one routine; Z-only boards home what they have), then, when the scope has a turret, moves the T-axis to the position matching `settings['objective_id']` (falling back to position 1). Headless / REST callers should use this rather than open-coding the home + turret sequence. `disable_homing=True` skips the home step (matches the App's `--no-home` flag) but still positions the turret.
 
-### LED control
+### Periodic metrics logging (optional)
 
 ```python
-session.led_on_async('Blue', 200)        # non-blocking; returns immediately
-session.led_on_sync('Blue', 200)         # blocks until firmware confirms
-session.led_off_async('Blue')
-session.leds_off_async()
+session.start_metrics()   # start periodic runtime-health logging
+session.stop_metrics()    # stop it (idempotent; shutdown() calls this too)
 ```
 
-All Session wrappers are async-by-default; the `*_async` suffix is explicit so L2 callers don't read `session.led_on(...)` as "blocking" when it actually queues to an executor. Sync counterparts are available where blocking is the right shape (see `session.led_on_sync`); add an issue if you need a sync counterpart for one that doesn't have one.
+The session owns the metrics-logger lifecycle. Metrics start only when the
+host injected a scheduler at construction (`ScopeSession(...,
+metrics_scheduler=ThreadingTimerScheduler())` for REST / headless hosts;
+the GUI injects a Kivy-clock scheduler) — with no scheduler,
+`start_metrics()` is a no-op, so factory-built sessions keep metrics off
+unless the host opts in. `settings['profiling']['metrics_interval_s']`
+overrides the default hourly cadence. `start_metrics()` raises
+`RuntimeError` if metrics are already running; `stop_metrics()` is
+idempotent. After a scope rebind (`set_scope`), running metrics move to
+the new scope automatically — same scheduler, same cadence. These members
+are host-serialized: call them from one thread (the GUI uses its main
+thread only).
 
-### Motion
+### Hardware commands from L2
+
+The Session carries no hardware-command forwarders: every command has
+exactly one public spelling, on the sub-APIs of the composition root the
+Session exposes as `session.scope`. The dispatch contract (blocking form
+submits and blocks; refusal raises `HardwareCommandRefusedError` while a
+protocol run owns the executors; `*_async` drops with a logged warning)
+is documented once in the contract section above.
 
 ```python
-session.move_home_async('ALL')
-session.move_absolute_async('Z', 5000, wait_until_complete=True)
-session.move_relative_async('X', 500)
-```
+# LED
+session.scope.illumination.led_on('Blue', 200)      # blocks until the write has landed
+session.scope.illumination.led_on_async('Blue', 200)  # fire-and-forget
+session.scope.illumination.led_off_async('Blue')
+session.scope.illumination.leds_off_async()
 
-### Imaging (symmetric with LED + motion forwarders)
+# Motion
+session.scope.motion.move_home_async('ALL')
+session.scope.motion.move_absolute_async('Z', 5000, wait_until_complete=True)
+session.scope.motion.move_relative_async('X', 500)
 
-```python
-# async-by-default (fire and forget, optional completion callback)
-session.set_gain_async(8.0)              # dB
-session.set_exposure_time_async(50.0)    # ms
-session.capture_and_wait_async(callback=lambda img: ..., earliest_image_ts=ts)
+# Imaging (blocking-only -- no imaging *_async forms)
+session.scope.imaging.set_gain_db(8.0)                 # dB; blocks until applied
+session.scope.imaging.set_exposure_ms(50.0)       # ms; blocks until applied
+image = session.scope.imaging.capture_and_wait()    # returns frame-valid grab
 
-# sync counterparts when blocking is the right shape
-session.set_gain_sync(8.0, timeout_s=5)
-session.set_exposure_time_sync(50.0, timeout_s=5)
-image = session.capture_and_wait_sync(timeout_s=30)   # returns frame-valid grab
-
-# Both capture forwarders accept dark_floor_check (default False at this
-# surface, so existing scripts are unchanged): pass True when your capture
-# expects illumination ON and a frame with no lit pixel should be rejected
-# (retried, then None) instead of returned as data. grab_timeout_s is the
-# retry budget for the content checks (distinct from timeout_s, which
-# bounds the executor wait); leave it 0.0 to judge the first grab only.
-image = session.capture_and_wait_sync(
-    timeout_s=30, dark_floor_check=True, grab_timeout_s=2.0
-)
+# The dark-floor expectation is DERIVED from commanded LED state: with a
+# channel lit (strictly positive current), a frame with no lit pixel is
+# rejected (retried, then None) instead of returned as data; with nothing
+# commanded -- or a channel at 0 mA -- a dark frame is by-design and
+# accepted. accept_dark=True overrides a lit rejection for callers whose
+# dark frames are legitimate (custom focus sweeps, benchmark probes).
+# timeout_s is the retry budget for the content checks (dark floor,
+# saturation, chunk verify); leave it 0.0 to judge the first grab only.
+# The executor wait is bounded internally.
+image = session.scope.imaging.capture_and_wait(timeout_s=2.0)
 ```
 
 ### Capture
@@ -245,14 +288,22 @@ image = session.capture_and_wait_sync(
 ```python
 from modules.image_save import save_image
 
-# Direct scope.imaging calls require the dark_floor_check decision
-# (keyword-only): True when illumination is expected ON.
-image = session.scope.imaging.capture_and_wait(dark_floor_check=True)
+# The capture derives the dark-floor expectation itself from commanded
+# LED state -- there is no illumination fact to pass.
+image = session.scope.imaging.capture_and_wait()
 save_image(
     session.scope,
     array=image, save_folder='./output',
     file_root='capture', append='_BF', color='BF',
 )
+
+# Live-view tap: the latest buffered frame, no new exposure forced
+# (the capture calls above always force one). (None, None) when unavailable.
+frame, timestamp = session.scope.imaging.get_image_from_buffer()
+
+# Payload bit depth (8 / 12 / 16) of a frame this scope just produced --
+# needed to interpret or rescale full-depth payloads before saving.
+session.scope.imaging.capture_frame_depth(image)
 ```
 
 ### Running protocols
@@ -260,6 +311,8 @@ save_image(
 ```python
 runner = session.create_protocol_runner()
 protocol = session.scope.protocols.load_protocol('my_protocol.tsv')
+# or build one in-memory (config= | input_config= | empty_config=):
+protocol = session.scope.protocols.create_protocol(input_config=config)
 
 # image_capture_config is REQUIRED: the caller states the run's image mode
 # (bit depth + on-disk encoding) explicitly -- there is no silent default.
@@ -301,9 +354,33 @@ Rate and duration come from the run's settings snapshot at start: `video.max_fps
 
 Recording starts are guarded like protocol starts: `RecordingRefusedError` (`modules.exceptions`) mirrors the `ProtocolRunRefusedError` shape, with machine-readable `reason` codes `recording_active` (another recording is live) and `exclusive_activity_running` (a protocol run or other exclusive activity holds the session's activity claim).
 
+Both refusal errors say busy-with-what: `holder` carries the exclusive-activity owner at refusal time (`'protocol'` or `'recording'`, None for refusals that are not claim-shaped), and `holder_trigger` carries the holding run's `run_trigger_source` when the holder is a run (`'protocol'`, `'autofocus_scan'`, `'zstack'`, `'autofocus'`, `'api_scan'`, ...). A recording holder has no trigger -- its kind is the whole answer. File-drain refusals (`files_writing*`) carry the just-finished run's trigger so a poller can report whose files are draining.
+
 **Opening hyperstacks in Fiji:** the container is OME-TIFF; channel color travels as OME `Channel.Color`. Open via `Plugins > Bio-Formats > Importer` with **Color mode = Composite** (the choice persists per user through that dialog). A plain `File > Open` renders ImageJ's default LUTs, not the file's channel colors.
 
-**Run-state semantics:** `session.is_protocol_running()` reports True while any exclusive GUI-side activity holds the run lockout -- protocol runs, autofocus scans, and the standalone Autofocus button's scan included. An L2 poller should treat it as "the instrument is busy with an exclusive activity", not strictly "a protocol is executing".
+**Run-state semantics:** `session.is_protocol_running` (a property, not a call) reports True while a run holds the session's exclusive-activity claim -- protocol runs, single scans, z-stacks, autofocus scans, and the standalone Autofocus button's run included. It releases at run-cleanup end; the short post-run file-drain window (files still writing after the run finished) reads False here and True on `session.run_lockout` / `session.protocol_files_draining`, so a poller that must wait for the disk to settle checks those. A live video recording is not a run: it reads False here and is visible on `session.exclusive_activity == 'recording'`.
+
+### Run state and locks
+
+The session derives all run and lock state from its activity claim.
+These are the members a GUI-quality client binds its widget state to --
+the same derivations LVP's own GUI mirrors into kv properties
+(alongside the run predicates shown under Running protocols):
+
+```python
+session.run_lockout              # True during a run OR its post-run file drain
+session.is_protocol_running      # True while a protocol-class run holds the claim
+session.protocol_files_draining  # run files still writing after a run finished
+session.exclusive_activity       # None | 'protocol' | 'recording'
+session.controls_locked          # full control-surface lock (any run lockout, or a live recording)
+session.motion_enabled           # user stage motion allowed right now
+session.recording_capturing     # a manual recording is LIVE (not its file drain)
+
+def on_run_state():              # called on EVERY run-state transition;
+    print(session.run_lockout)   # re-read the derivations (level semantics, no payload)
+session.add_run_state_listener(on_run_state)
+session.notify_run_state()       # force a level-sync of all listeners
+```
 
 ### Configuration queries
 
@@ -312,11 +389,23 @@ session.get_layer_configs()              # all layer settings
 session.get_current_objective_info()     # active objective
 session.get_current_plate_position()     # current XY in plate coords
 session.get_auto_gain_settings()         # auto-gain config
+session.get_stim_configs()               # stim settings per layer
+session.get_enabled_stim_configs()       # only the enabled ones
+```
+
+### Reconnect
+
+```python
+# After a hardware reconnect, rewire the SAME session onto the new scope --
+# executors, metrics, and the run machinery follow automatically:
+session.set_scope(new_scope)
 ```
 
 ### Cleanup
 
 ```python
+session.shutdown()               # full teardown of everything the session constructed
+# or piecewise:
 session.shutdown_executors()
 session.scope.disconnect()
 ```
@@ -329,11 +418,28 @@ Axes available depend on the scope — always check `scope.capabilities.axes`.
 
 ```python
 # Homing (required before movement)
-scope.motion.home()                              # home everything the board has
-scope.motion.zhome()                             # Z only
-scope.motion.thome()                             # turret only
-scope.motion.has_homed()                         # True if home() has ever succeeded
+scope.motion.home()                              # home everything the board has (axis='ALL' default)
+scope.motion.home(axis='Z')                      # Z only
+scope.motion.home(axis='T')                      # turret only (parks Z at 0, homes T, restores Z)
+# Unknown axis raises ValueError; the async twin move_home_async(axis)
+# and move_home_and_wait(axis) share the same 'Z' | 'T' | 'ALL' vocabulary.
+scope.motion.move_home_and_wait('ALL')           # blocks; True only if the home ran AND succeeded
+scope.motion.has_homed()                         # True if the stage/focus axes know where they are
 scope.motion.has_thomed()                        # turret-specific
+
+# Homing is REQUIRED, not advisory. A commanded move on an axis whose
+# position is unknown raises AxisStateUnknownError instead of driving --
+# there is no reference frame for it to be absolute in. An axis is
+# unknown before its first successful home, and again after a home
+# fails, the board disconnects mid-move, or a move stalls out. So a
+# headless or REST caller homes first and checks the result:
+#
+#   if not scope.motion.move_home_and_wait('ALL'):
+#       ...  # do not command moves; the reference frame is not established
+#
+# has_homed() / has_thomed() answer from that same live state, so they
+# report False after a fault revokes a reference that was previously
+# good -- not merely "a home once succeeded".
 
 # Position queries (µm for XYZ, 1–4 for turret). Read cache, no serial I/O.
 scope.motion.get_current_position('Z')           # predicted position during motion, confirmed when idle
@@ -341,29 +447,35 @@ scope.motion.get_current_position()              # dict of all axes
 scope.motion.get_target_position('Z')            # target µm
 scope.motion.get_actual_position('Z')            # hardware position via serial (slow; use sparingly)
 
+# Stop + tuning
+scope.motion.stop_motion()                       # stop all in-flight moves (the app-level abort for the move_* family)
+scope.motion.set_acceleration_limit(50)          # motor acceleration cap, percent of max
+
 # Absolute moves (µm)
-scope.motion.move_absolute_position('Z', 5000)
-scope.motion.move_absolute_position('X', 60000, wait_until_complete=True)
+scope.motion.move_absolute('Z', 5000)
+scope.motion.move_absolute('X', 60000, wait_until_complete=True)
 
 # Relative moves (µm)
-scope.motion.move_relative_position('Z', 100)
+scope.motion.move_relative('Z', 100)
 
 # Status
 scope.motion.get_target_status('Z')              # True if target reached
 scope.motion.is_moving()                         # any axis moving?
 scope.motion.wait_until_finished_moving()        # block until all idle
-scope.motion.get_overshoot()                     # Z overshoot in progress?
+
+# Limit switches -- why a move stopped short. Reaching a limit is reported,
+# not raised, so a move that ran out of travel and one that arrived look the
+# same until you ask.
+scope.motion.get_limit_switch_status('X')        # (left, right); 1 engaged, 0 clear, -1 unreadable
+scope.motion.get_limit_switch_status_all_axes()  # dict of axis -> that pair, for the axes the board has
 
 # Turret
-scope.motion.has_turret()
+scope.capabilities.has_turret                    # turret presence probe
 scope.motion.tmove(2)                            # turret position 2
 
 # Stage
-scope.motion.xycenter()                          # move to stage center
 scope.motion.get_axis_limits('Z')                # {'min': 0, 'max': 14000}
 scope.motion.get_axes_config()                   # per-axis config dict: limits + ustep-conversion funcs (motion-driver shape)
-scope.motion.axes_present()                      # e.g. ['X', 'Y', 'Z', 'T']
-scope.motion.has_axis('T')
 ```
 
 **Axes: two different questions, two different surfaces.** Asking *what
@@ -407,36 +519,34 @@ Channels available depend on the scope — always check `scope.capabilities.led_
 **Luminescence** (`Lumi`): not an LED channel. In luminescence mode, all LEDs must be off — the image captures emitted light only.
 
 ```python
-scope.illumination.leds_enable()
 scope.illumination.led_on('Blue', 200)                 # Blue LED at 200 mA
 scope.illumination.led_on(0, 200)                      # same, by channel number
 scope.illumination.led_on('Blue', 200, block=True)     # wait for firmware confirmation
 scope.illumination.led_off('Blue')
 scope.illumination.leds_off()                          # turn off all LEDs
-scope.illumination.leds_disable()
 
-# Fast path (no response wait — timing-critical code only)
-scope.illumination.led_on_fast('Red', 100)
-scope.illumination.led_off_fast('Red')
-scope.illumination.leds_off_fast()
+# Fire-and-forget: returns immediately, the write lands on the io worker.
+# Dropped with a logged warning (never an exception) while a protocol run
+# owns the executors -- see "Hardware-command dispatch" above.
+scope.illumination.led_on_async('Red', 100)
+scope.illumination.led_off_async('Red')
+scope.illumination.leds_off_async()
 
 # Channel mapping
 scope.illumination.color2ch('Blue')                    # 0  (or None if the scope doesn't have this color)
 scope.illumination.ch2color(0)                         # 'Blue'
 
-# Wait for firmware confirmation (mirrors motion.wait_until_finished_moving)
-scope.illumination.wait_until_led_on(timeout_s=5.0)    # True if confirmed on, False on timeout
 ```
 
 **Safety limits** (enforced by firmware on RP2040 boards): per-channel max 1000 mA, board total max 3000 mA. FX2 boards have their own per-channel cap declared in the camera profile.
 
 ### State queries — read from the API, never the driver
 
-Lumascope holds the authoritative LED state in an internal cache. The API layer's `get_led_state()` / `led_enabled()` / `led_illumination()` read from that cache. **Never call the driver's state methods directly** — for FX2 scopes the driver is a pure command translator and its state queries return sentinels.
+Lumascope holds the authoritative LED state in an internal cache. The API layer's `get_led_state()` / `led_enabled()` / `get_led_ma()` read from that cache. **Never call the driver's state methods directly** — for FX2 scopes the driver is a pure command translator and its state queries return sentinels.
 
 ```python
 scope.illumination.led_enabled('Blue')                 # True / False
-scope.illumination.led_illumination('Blue')            # current mA, or None if off / no LED board
+scope.illumination.get_led_ma('Blue')                  # current mA, or None if off / no LED board
 scope.illumination.get_led_state('Blue')               # {'enabled': True, 'illumination_ma': 200, 'owner': '…'} when on; {'enabled': False, 'illumination_ma': None, 'owner': ''} when off
 scope.illumination.get_led_states()                    # all channels, same per-channel shape as get_led_state
 ```
@@ -529,15 +639,32 @@ image = scope.imaging.get_image(force_to_8bit=False)   # keep native 12/16-bit
 # Frame-validity capture — PREFERRED for all real captures.
 # Waits for all pending changes (LED, gain, exposure, motion) to settle,
 # drains stale frames, returns a valid frame. Returns None on failure.
-# dark_floor_check is REQUIRED (keyword-only): state whether illumination
-# is expected ON. True rejects frames with essentially no lit pixel
-# (retrying until timeout_s, then None) so a stale pre-LED or starved
-# black frame is never returned as data; False accepts dark frames
-# (brightfield at illumination 0, luminescence, focus-score grabs).
-image = scope.imaging.capture_and_wait(dark_floor_check=True)
+# The capture honors invalidation across its WHOLE window: a state change
+# landing after the drain — during the grab itself — is detected, and the
+# capture re-drains, re-derives its expectations, and grabs again, so the
+# returned frame always reflects the state you last commanded. A capture
+# contended by state changes is therefore slower than an uncontended one.
+# The settle-and-recheck work is bounded by a deadline sized from the
+# pending work at entry (frames to settle, exposure, sum window): if
+# invalidation keeps arriving faster than frames can settle it, the
+# capture returns None in bounded seconds with "DEADLINE EXPIRED" named
+# in the log, instead of holding indefinitely. The deadline suspends
+# while commanded stage motion is still physically settling — a capture
+# issued during a long move waits for the move, as it should.
+# The dark-floor expectation is DERIVED from commanded LED state: a
+# channel counts as lit only at strictly positive current, so a channel
+# commanded at 0 mA is dark by design, as are luminescence captures and
+# any capture with nothing commanded. With a channel lit, a frame with
+# essentially no lit pixel is rejected (retrying until timeout_s, then
+# None) so a stale pre-LED or starved black frame is never returned as
+# data. accept_dark=True (keyword-only, default False) overrides a lit
+# rejection for the callers whose dark frames are legitimate: custom
+# focus sweeps (an out-of-focus fluorescence plane can carry no signal)
+# and benchmark probes.
+image = scope.imaging.capture_and_wait()
 image = scope.imaging.capture_and_wait(
     force_to_8bit=True,
-    dark_floor_check=True,                 # REQUIRED: illumination expected ON?
+    accept_dark=False,                     # True admits a dark frame while lit
     all_ones_check=True,                   # detect saturated frames
     sum_count=4,                           # average 4 frames
     sum_delay_s=0.05,                      # delay between sum frames
@@ -546,31 +673,43 @@ image = scope.imaging.capture_and_wait(
 )
 
 # Exposure (milliseconds) + gain (dB)
-scope.imaging.set_exposure_time(exposure_ms=50)
-scope.imaging.get_exposure_time()                  # last-known-good on transient read failure; 0.0 camera-absent
-scope.imaging.set_gain(gain_db=10.0)
-scope.imaging.get_gain()                           # last-known-good on transient read failure; -1.0 camera-absent
+scope.imaging.set_exposure_ms(exposure_ms=50)
+scope.imaging.get_exposure_ms()                  # last-known-good on transient read failure; 0.0 camera-absent
+scope.imaging.set_gain_db(gain_db=10.0)
+scope.imaging.get_gain_db()                           # last-known-good on transient read failure; -1.0 camera-absent
 
 # Live-confirmed readings for metadata / records: only fields whose
 # driver read succeeded RIGHT NOW; a field whose read failed is omitted
 # (the value getters above would answer last-known-good instead).
-scope.imaging.get_live_camera_settings()           # {} | {'gain_db': ..., 'exposure_ms': ...}
+scope.imaging.get_live_camera_settings()           # any of: gain_db, exposure_ms,
+                                                   #   frame_size {'width','height'}, pixel_format;
+                                                   #   {} when no camera is active
 
-# `set_exposure_time` warns + logs a stack trace at < 0.005 ms (the
+# `set_exposure_ms` warns + logs a stack trace at < 0.005 ms (the
 # common L1 failure is typing 0.05 thinking microseconds and getting
-# a black image). Internal sweep callers that walk that range
-# deliberately wrap their loop in `suppress_value_warnings()`:
-with scope.imaging.suppress_value_warnings():
-    for exp_ms in (0.05, 0.1, 0.5, 5.0, 50.0):
-        scope.imaging.set_exposure_time(exp_ms)
-        # ... grab + measure ...
-# Flag is restored on context exit (incl. exception).
+# a black image).
+
+# Every camera-settings setter in this section dispatches to the camera
+# lane and BLOCKS until applied (returns the body's own result). While a
+# protocol run or recording owns the hardware, these raise
+# HardwareCommandRefusedError instead of interleaving with the run --
+# same refusal contract as the motion and LED commands.
 
 # Batched settings (gain + exposure + auto-gain in one call)
 scope.imaging.apply_layer_camera_settings(
     gain_db=5.0, exposure_ms=50,
     auto_gain=False, auto_gain_settings=None,
 )
+
+# Auto-gain: the continuous toggle, the one-shot settle, and the setpoint
+scope.imaging.set_auto_gain(True, settings={'target_brightness': 0.3, 'min_gain_db': 0.0, 'max_gain_db': 20.0})
+scope.imaging.auto_gain_once(True, target_brightness=0.3, min_gain_db=0.0, max_gain_db=20.0)
+scope.imaging.update_auto_gain_target_brightness(0.5)   # live setpoint tweak while auto-gain runs
+
+# Camera-model-specific tuning knobs. Probe support first:
+# scope.capabilities.camera_supports_conversion_gain_mode / _line_noise_reduction.
+scope.imaging.set_conversion_gain_mode('High')     # True when applied; False when unsupported / no camera
+scope.imaging.set_line_noise_reduction(True)       # same contract
 
 # Frame size (getters answer last-known-good on a transient read
 # failure; None / 0 only when no camera is active or never read)
@@ -581,9 +720,8 @@ delivered = scope.imaging.set_frame_size(2048, 2048)
 # Raises CameraSettingRejected (modules.exceptions) when a live camera
 # refuses the apply; returns None (no-op) when no camera is active.
 # Base geometry code on the returned dict, never on the request.
-scope.imaging.get_frame_size()                     # {'width': ..., 'height': ...} | None
-scope.imaging.get_max_width()                      # max at the current binning
-scope.imaging.get_max_height()
+scope.imaging.frame_size_cached                    # {'width': ..., 'height': ...} -- cache read, no driver I/O
+scope.capabilities.camera_max_frame_size           # (width, height) sensor ceiling -- static structure
 scope.imaging.get_native_resolution()              # {'width','height'} unbinned sensor ceiling
 scope.imaging.get_pixel_alignment()                # {'width','height'} deliverable frame-size granularity (even on IDS; camera grid on floor-only drivers)
 
@@ -596,21 +734,34 @@ scope.imaging.set_binning_size(2)
 # record a rejected apply.
 scope.imaging.get_binning_size()                   # always >= 1 (last-known-good on failed read)
 scope.imaging.get_available_binning_sizes()        # e.g. [1, 2, 4]
+scope.imaging.set_pixel_format('Mono12')           # True when applied; raises CameraSettingRejected on refusal
+scope.imaging.get_supported_pixel_formats()        # e.g. ('Mono8', 'Mono12') -- the enumeration for set_pixel_format
 
-# Acquisition frame-rate cap (camera-side; clamps sensor-readout pace)
-scope.imaging.set_max_acquisition_frame_rate(enabled=True, fps=10.0)
-scope.imaging.set_max_acquisition_frame_rate(enabled=False)   # remove cap
+# Geometry value getters (last-known-good on a transient failed read; 0 camera-absent)
+scope.imaging.get_width()
+scope.imaging.get_height()
+
+# Cache reads, no driver I/O (the *_cached family)
+scope.imaging.gain_db_cached
+scope.imaging.exposure_ms_cached
+scope.imaging.pixel_format_cached
+scope.imaging.min_frame_size_cached                # dict, or None when no camera is connected
+
+# Scale bar overlay (burned into frames the imaging paths return when enabled;
+# skipped -- with one warning logged -- while no objective is selected)
+scope.imaging.set_scale_bar(True, color='red')
+scope.imaging.scale_bar_config                     # snapshot dict: {'enabled', 'color', ...}
 ```
 
-The acquisition frame-rate cap lives on the camera driver and clamps frame production regardless of sensor-readout capability. Used by the manual-record path to match user-requested video FPS, and by characterization tools to bound capture rate during long-running probes. No-op on drivers that do not implement the underlying setter (warning logged). Distinct from `set_exposure_time` (per-frame integration time) and from any host-side throttling.
+The acquisition frame-rate cap lives on the camera driver and clamps frame production regardless of sensor-readout capability. It is a driver-level control with no public API member -- described here only to explain the behavior. Used by the manual-record path to match user-requested video FPS, and by characterization tools to bound capture rate during long-running probes. No-op on drivers that do not implement the underlying setter (warning logged). Distinct from `set_exposure_ms` (per-frame integration time) and from any host-side throttling.
 
 ### Dynamic camera capabilities
 
 Cameras advertise their real limits at connect time. Use these to size UI sliders and clamp auto-exposure / auto-gain:
 
 ```python
-scope.imaging.camera_max_exposure                  # ms, None if no camera connected
-scope.imaging.camera_max_gain                      # dB, None if no camera connected
+scope.imaging.max_exposure_ms_cached                  # ms, None if no camera connected
+scope.imaging.max_gain_db_cached                      # dB, None if no camera connected
 ```
 
 These are derived from the camera's profile, which is populated at connect via `_query_dynamic_capabilities()` — live SDK queries for Pylon / IDS, hardcoded-from-datasheet for FX2. Per-camera values observed in practice: LS620 FX2 = 42.1 dB gain / 178 ms exposure cap; Pylon/IDS ranges are driver-reported.
@@ -633,7 +784,7 @@ The snapshot is **omit-if-unknown**: it always carries `tag`, and carries `gain_
 def on_camera(param: str, value: float):
     print(f"Camera {param} = {value}")
 
-scope.imaging.add_camera_listener(on_camera)       # fires on set_gain / set_exposure
+scope.imaging.add_camera_listener(on_camera)       # fires on set_gain_db / set_exposure
 scope.imaging.remove_camera_listener(on_camera)
 ```
 
@@ -675,9 +826,10 @@ Each has a matching `remove_*_listener(callback)`. The frame listener additional
 
 ```python
 scope.camera_connected                             # bool property (mirror of motor_connected / led_connected)
-scope.imaging.camera_active                        # True if grabbing
-scope.diagnostics.get_camera_temperatures()        # temperature sensors (SDK-dependent)
+scope.imaging.active_cached                        # True if grabbing
+scope.diagnostics.get_camera_temperatures_degc()        # temperature sensors (SDK-dependent)
 scope.diagnostics.get_camera_info()                # model, serial, firmware
+scope.imaging.camera_identity                      # {'model','serial','timestamp_tick_frequency_hz'} for provenance records; all None camera-absent
 scope.diagnostics.get_camera_profile_info()        # sensor specs + dynamic ranges; returns:
 # {
 #   'model': 'MT9P031-LS620', 'sensor': 'Aptina MT9P031',
@@ -691,16 +843,13 @@ scope.diagnostics.get_camera_profile_info()        # sensor specs + dynamic rang
 
 ### Frame validity
 
-Frame validity is the single source of truth for "is the next frame still what I asked for?" Every hardware state change invalidates pending frames. `capture_and_wait()` drains stale frames until all sources settle, then verifies the returned frame's own chunk metadata (exposure / gain) against the requested values on cameras with chunk support -- the saved frame proves its own settings.
+Frame validity is the single source of truth for "is the next frame still what I asked for?" Every hardware state change invalidates pending frames. `capture_and_wait()` drains stale frames until all sources settle, detects any invalidation that lands mid-grab (re-draining and re-grabbing so the result reflects the newest commanded state), bounds the whole settle-and-recheck loop with a deadline (loud None when invalidation outruns it), and verifies the returned frame's own chunk metadata (exposure / gain) against the requested values on cameras with chunk support -- the saved frame proves its own settings.
 
 ```python
 scope.imaging.frame_is_valid                       # True if next frame is valid
 scope.imaging.frames_until_valid()                 # 0 = ready, >0 = keep draining
-scope.imaging.count_frame()                        # record that you grabbed a frame
-                                           # (advances the drain count;
-                                           # only callers who run their own
-                                           # grab loop need this; capture_and_wait
-                                           # handles it internally)
+# To record a frame you grabbed yourself, call the frame_validity instance
+# directly (see below) -- capture_and_wait handles it internally.
 ```
 
 For deeper introspection (diagnostic tooling, plugin authors writing custom capture loops, advanced timing analysis), the underlying `FrameValidity` instance is available as `scope.imaging.frame_validity` and is part of the L2-stable surface:
@@ -713,6 +862,10 @@ fv.is_valid_for(exclude_sources=('z_move',))  # bool -- valid if you don't care 
 fv.frames_until_valid()                    # int -- drains remaining
 fv.frames_until_valid(exclude_sources=('z_move',))
 fv.pending_sources                         # dict {source: target_frame_counter} (snapshot)
+fv.invalidation_counts                     # dict {source: total invalidate() calls} — monotone
+                                           # history frames can never erase; snapshot before a
+                                           # grab and compare (!=) after to detect a mid-window
+                                           # invalidation even when frames already settled it
 fv.invalidate('led')                       # mark a source dirty (usually called by API setters)
 fv.count_frame(chunk_data=None, frame_ts=None)  # mark a frame as drained (capture_and_wait does this)
                                            # pass the grab timestamp as frame_ts so the same
@@ -760,15 +913,7 @@ info = scope.diagnostics.get_camera_diagnostic_info()
 
 # Camera temperature sensors. Returns dict {sensor_name: degC} or
 # empty when the camera lacks temperature sensors or is inactive.
-temps = scope.diagnostics.get_camera_temperatures()
-
-# Camera bandwidth + grab-cycle benchmarks. Both write a JSON
-# artifact to data/camera_timing/ keyed on model + SDK + delay so a
-# sweep across delays / num_cycles produces one file per data point.
-bw = scope.diagnostics.run_camera_bandwidth_test(num_frames=1000)
-gc = scope.diagnostics.run_grab_lifecycle_benchmark(
-    num_cycles=100, inter_cycle_delay_ms=200, vary_settings=False,
-)
+temps = scope.diagnostics.get_camera_temperatures_degc()
 
 # Cross-host / cross-camera / cross-firmware diagnostic probe.
 # Captures camera identity, current config, temperatures, and stream
@@ -788,11 +933,10 @@ lines = scope.diagnostics.send_diagnostic_command_multiline(
     'led', 'SELFTEST', timeout_s=60,
 )
 
-# Motor-board power / driver / fan diagnostics (already on
+# Motor-board driver / fan diagnostics (already on
 # DiagnosticsAPI pre-Phase-5; documented here for completeness).
-voltages = scope.diagnostics.read_motor_voltages()         # dict {rail: V} or None
 status = scope.diagnostics.read_motor_drv_status('Z')       # int register or None
-rpm = scope.diagnostics.read_motor_fanspeed()              # RPM or None
+rpm = scope.diagnostics.read_motor_fan_rpm()              # RPM or None
 ok = scope.diagnostics.set_motor_fan_duty(50)              # bool
 
 # LED engineering-mode handshake (FACTORY / Y / Q with post-Q drain).
@@ -822,6 +966,7 @@ caps.axis_travel_limits_um      # {'X': 120000.0, 'Y': 80000.0, 'Z': 14000.0} --
 caps.led_channels               # e.g. (0, 1, 2, 3) for FX2 scopes; (0..5) for RP2040
 caps.led_colors                 # e.g. ('BF', 'Blue', 'Green', 'Red') — what THIS scope can do
 caps.led_max_ma                 # per-channel current cap
+caps.has_firmware_stim          # firmware-timed stim support on the LED board
 
 # Optics -- resolved from the first real source, never a hardcoded default:
 #   motorconfig.json Optics (LS820/850/850T) -> scopes.json Optics (Classic)
@@ -829,9 +974,8 @@ caps.led_max_ma                 # per-channel current cap
 caps.pixel_size_um              # um/pixel, or None if the scope cannot report it
 caps.lens_focal_length_mm       # tube lens focal length mm, or None if unavailable
 
-# Hardware features (cross-cutting capability tokens)
-caps.hardware_features          # frozenset({'trigger_in', 'cooled_sensor', ...}); empty default
-caps.supports('trigger_in')     # also searches has_X / camera_supports_X / hardware_features
+# Feature probe (cross-surface, by token)
+caps.supports('turret')         # searches has_X and camera_supports_X fields; unknown tokens -> False
 
 # Camera
 caps.camera_model               # 'MT9P031-LS620', 'acA2500-60um', etc.
@@ -839,17 +983,19 @@ caps.is_color_native            # True for color-native sensors; False for mono-
 caps.native_bit_depth           # 8 (e.g. IDS) or 16 (uint16 container; holds 12/16-bit native)
 caps.camera_supports_auto_gain
 caps.camera_supports_auto_exposure
+caps.camera_supports_conversion_gain_mode
+caps.camera_supports_line_noise_reduction
 caps.camera_pixel_formats       # e.g. ('Mono8',) or ('Mono8', 'Mono12')
 caps.camera_binning_sizes       # e.g. (1, 2, 4)
-caps.camera_max_exposure_ms     # per-camera exposure ceiling (e.g. 178 ms on FX2)
 caps.camera_max_frame_size      # (width, height) tuple in pixels; (0, 0) if no camera
+# Exposure ceiling: scope.imaging.max_exposure_ms_cached (ms; None if no camera) -- see scope.imaging
 ```
 
 Important consequences:
 
 - **`camera_max_frame_size` is `(0, 0)` when no camera is connected** -- that is a sentinel meaning "unknown / no camera," not a usable size. Check `scope.camera_connected` (or that the tuple is non-zero / `caps.camera_model` is non-empty) before using it as a `scope.imaging.set_frame_size(w, h)` target; `set_frame_size` returns `None` (no-op) when no camera is active, so a naive `set_frame_size(*caps.camera_max_frame_size)` does nothing rather than erroring. With a live camera it returns the DELIVERED geometry and raises `CameraSettingRejected` if the apply is refused.
 - **LED channel count varies by scope.** LS560/LS620 (FX2 driver) expose 4 channels (`BF`, `Blue`, `Green`, `Red`); RP2040-based scopes expose 6 (`BF`, `PC`, `DF`, `Blue`, `Green`, `Red`). Don't iterate over a hardcoded list — iterate over `caps.led_colors`.
-- **Some scopes have no motor at all.** LS560/LS620 have `caps.axes == ()`. Calling `scope.motion.move_absolute_position('X', …)` against such a scope is a no-op, not an error — but your UI should hide motion controls based on `caps.has_xy_stage` etc.
+- **Some scopes have no motor at all.** LS560/LS620 have `caps.axes == ()`. Calling `scope.motion.move_absolute('X', …)` against such a scope is a no-op, not an error — but your UI should hide motion controls based on `caps.has_xy_stage` etc.
 - **`axis_travel_limits_um` is populated only for present axes.** On a Z-only scope, `'X' in caps.axis_travel_limits_um` is `False`; indexing `caps.axis_travel_limits_um['X']` raises `KeyError`. Check `caps.has_xy_stage` (or `axis in caps.axes`) before reading. The mapping is read-only (`MappingProxyType`); mutation attempts raise `TypeError`.
 
 ---
@@ -858,7 +1004,7 @@ Important consequences:
 
 **Reserved.** Not populated in LumaViewPro 4.0.x.
 
-The `scope.io` sub-API is named in the locked sub-API decomposition per `docs/PLUGIN_API_DESIGN_2026-05-09.md` §6.6. It will document future I/O surfaces (trigger devices, USB-to-IO trigger boards, external sync) once those surfaces ship. See `caps.hardware_features` for the hardware-capability tokens that gate trigger-device features today.
+The `scope.io` sub-API is named in the locked sub-API decomposition per `docs/PLUGIN_API_DESIGN_2026-05-09.md` §6.6. It will document future I/O surfaces (trigger devices, USB-to-IO trigger boards, external sync) once those surfaces ship; the feature flags that gate them will ride `scope.runtime_state` when they exist.
 
 ---
 
@@ -875,7 +1021,7 @@ scope.runtime_state.firmware_features       # dict[str, frozenset[str]]
 
 **Status in 4.0.x: empty placeholder.** Both fields ship as empty dicts. Real content lands when FW4.0 populates `INFO.features` (firmware_features) and when reconnect-aware versioning hooks are added to the driver layer (firmware_versions). Callers treat empty as "feature unknown" per the Rule 8 capability-probe contract — `scope.runtime_state.firmware_features.get('motor', frozenset())` returns the empty set today, never `KeyError`.
 
-Until the real content ships, query firmware version via `scope.diagnostics.get_motor_info()['version']` / `scope.diagnostics.get_led_info()['version']`. The diagnostic-getter path is the live query; `runtime_state` will become the cached snapshot once reflash hooks fire it.
+Until the real content ships, query firmware version via `scope.diagnostics.get_motor_info()['firmware_version']` / `scope.diagnostics.get_led_info()['firmware_version']`. The diagnostic-getter path is the live query; `runtime_state` will become the cached snapshot once reflash hooks fire it.
 
 ---
 
@@ -1044,7 +1190,7 @@ A worked plugin example ships in `etaluma-engineering/`; see its `pyproject.toml
 
 ## REST surface reference
 
-> **Status (2026-04):** In development on `4.1.0-dev`. When it ships it will be **disabled by default** — customers enable per-deployment via a feature flag. Treat the example below as design preview, not yet-callable code.
+> **Status (2026-08):** Not yet in the tree. REST lands as its own phase after the 4.0 API-surface work completes; when it ships it will be **disabled by default** — customers enable per-deployment via a feature flag. Treat the sketch below as design preview, not yet-callable code.
 
 HTTP endpoints wrap the Python API. Control the microscope from any language — MATLAB, LabVIEW, JavaScript, curl.
 
@@ -1088,17 +1234,17 @@ scope.motion.home()
 scope.motion.wait_until_finished_moving()
 
 scope.runtime_state.set_objective('10x Oly')
-scope.imaging.set_exposure_time(50)
-scope.imaging.set_gain(5.0)
+scope.imaging.set_exposure_ms(50)
+scope.imaging.set_gain_db(5.0)
 
-scope.motion.move_absolute_position('X', 60000, wait_until_complete=True)
-scope.motion.move_absolute_position('Y', 40000, wait_until_complete=True)
-scope.motion.move_absolute_position('Z', 5000, wait_until_complete=True)
+scope.motion.move_absolute('X', 60000, wait_until_complete=True)
+scope.motion.move_absolute('Y', 40000, wait_until_complete=True)
+scope.motion.move_absolute('Z', 5000, wait_until_complete=True)
 
 from modules.image_save import save_image
 
 scope.illumination.led_on('BF', 100)
-image = scope.imaging.capture_and_wait(dark_floor_check=True)
+image = scope.imaging.capture_and_wait()
 scope.illumination.leds_off()
 
 save_image(
@@ -1122,17 +1268,17 @@ for color, mA, exp_ms, gain_db in [
     ('Green', 150,  80, 12),
     ('Red',   180,  90, 10),
 ]:
-    scope.imaging.set_exposure_time(exp_ms)
-    scope.imaging.set_gain(gain_db)
+    scope.imaging.set_exposure_ms(exp_ms)
+    scope.imaging.set_gain_db(gain_db)
     scope.illumination.led_on(color, mA)
-    channel_images[color] = scope.imaging.capture_and_wait(dark_floor_check=True)
+    channel_images[color] = scope.imaging.capture_and_wait()
     scope.illumination.led_off(color)
 
 # Transmitted (brightfield) base image
-scope.imaging.set_exposure_time(2.0)
-scope.imaging.set_gain(1.0)
+scope.imaging.set_exposure_ms(2.0)
+scope.imaging.set_gain_db(1.0)
 scope.illumination.led_on('BF', 100)
-bf_image = scope.imaging.capture_and_wait(dark_floor_check=True)
+bf_image = scope.imaging.capture_and_wait()
 scope.illumination.leds_off()
 
 composite = build_composite(
@@ -1157,8 +1303,8 @@ z_start, z_end, z_step = 4000, 6000, 50    # µm
 scope.illumination.led_on('BF', 100)
 z = z_start
 while z <= z_end:
-    scope.motion.move_absolute_position('Z', z, wait_until_complete=True)
-    image = scope.imaging.capture_and_wait(dark_floor_check=True)
+    scope.motion.move_absolute('Z', z, wait_until_complete=True)
+    image = scope.imaging.capture_and_wait()
     save_image(
         scope,
         array=image, save_folder='./zstack',
@@ -1181,10 +1327,10 @@ wells = [('A1', 10.0, 20.0), ('A2', 19.0, 20.0), ('A3', 28.0, 20.0)]
 scope.illumination.led_on('BF', 100)
 for well_name, px, py in wells:
     sx, sy = ct.plate_to_stage(labware=labware_obj, stage_offset=offset, px=px, py=py)
-    scope.motion.move_absolute_position('X', sx, wait_until_complete=True)
-    scope.motion.move_absolute_position('Y', sy, wait_until_complete=True)
+    scope.motion.move_absolute('X', sx, wait_until_complete=True)
+    scope.motion.move_absolute('Y', sy, wait_until_complete=True)
 
-    image = scope.imaging.capture_and_wait(dark_floor_check=True)
+    image = scope.imaging.capture_and_wait()
     save_image(
         scope,
         array=image, save_folder='./scan',
@@ -1231,7 +1377,7 @@ scope._camera_driver.start_grabbing()   # simulator test setup; see note below
 
 # All API calls work identically:
 scope.illumination.led_on('Blue', 200)
-scope.motion.move_absolute_position('Z', 5000)
+scope.motion.move_absolute('Z', 5000)
 image = scope.imaging.get_image()
 ```
 

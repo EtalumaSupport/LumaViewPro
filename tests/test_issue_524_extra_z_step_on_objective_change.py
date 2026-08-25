@@ -5,25 +5,25 @@ Bug
 ---
 Every protocol step that crosses an objective went:
   step_navigation.go_to_step:118
-    -> ui_helpers.move_absolute_position('T', protocol=True)
+    -> ui_helpers.move_absolute('T', protocol=True)
     -> vertical_control.turret_select(protocol=True)
     -> motion.tmove(position=...)
-    -> motion.safe_turret_move() (context manager)
+    -> motion._safe_turret_move() (context manager)
         -> Z to 0
         -> T move
         -> Z restore to pre-turret-move value
   step_navigation.go_to_step:127
-    -> move_absolute_position('Z', step['Z']) [overwrites the just-restored Z]
+    -> move_absolute('Z', step['Z']) [overwrites the just-restored Z]
 
-The Z-restore inside safe_turret_move was wasted motion -- the next
+The Z-restore inside _safe_turret_move was wasted motion -- the next
 line overwrote Z with the new step's target. ~visible extra Z step.
 
 Fix
 ---
 Option A (chosen): thread restore_z=False from go_to_step through
-the call chain so safe_turret_move skips the wasted restore. The
+the call chain so _safe_turret_move skips the wasted restore. The
 default in each function is restore_z=True so standalone callers
-(thome, UI turret button) preserve their existing contract.
+(_thome_impl, UI turret button) preserve their existing contract.
 
 Test approach
 -------------
@@ -79,20 +79,20 @@ def _default_for(method: ast.FunctionDef, arg_name: str):
 
 
 def test_safe_turret_move_accepts_restore_z_default_true():
-    method = _function_node(_module_tree(MOTION_SRC), 'safe_turret_move', class_name='MotionAPI')
+    method = _function_node(_module_tree(MOTION_SRC), '_safe_turret_move', class_name='MotionAPI')
     args = method.args
     all_names = [a.arg for a in args.args] + [a.arg for a in args.kwonlyargs]
-    assert 'restore_z' in all_names, 'safe_turret_move must accept restore_z parameter. (#524)'
+    assert 'restore_z' in all_names, '_safe_turret_move must accept restore_z parameter. (#524)'
     default = _default_for(method, 'restore_z')
     assert default is not None, 'restore_z must have a default value. (#524)'
     assert isinstance(default, ast.Constant) and default.value is True, (
-        'restore_z default must be True so standalone callers (thome, '
+        'restore_z default must be True so standalone callers (_thome_impl, '
         'UI turret button) preserve their pre-fix behavior. (#524)'
     )
 
 
 def test_safe_turret_move_gates_z_restore_on_flag():
-    method = _function_node(_module_tree(MOTION_SRC), 'safe_turret_move', class_name='MotionAPI')
+    method = _function_node(_module_tree(MOTION_SRC), '_safe_turret_move', class_name='MotionAPI')
     # Find an If gating on self.restore_z OR restore_z (function parameter
     # captured in the contextmanager closure).
     found_guard = False
@@ -102,21 +102,25 @@ def test_safe_turret_move_gates_z_restore_on_flag():
             if 'restore_z' not in test_src:
                 continue
             body_src = '\n'.join(ast.unparse(s) for s in node.body)
-            if "move_absolute_position('Z', pos=initial_z" in body_src:
+            if "_move_absolute_impl('Z', position=initial_z" in body_src:
                 found_guard = True
                 break
     assert found_guard, (
-        'safe_turret_move must gate the Z-restore call on restore_z (skip when False). (#524)'
+        '_safe_turret_move must gate the Z-restore call on restore_z (skip when False). (#524)'
     )
 
 
 def test_tmove_threads_restore_z():
+    # The public tmove is a dispatcher; the turret motion lives in the
+    # _impl body, so the signature is checked on the public form and the
+    # _safe_turret_move threading on the body.
     method = _function_node(_module_tree(MOTION_SRC), 'tmove', class_name='MotionAPI')
     all_names = [a.arg for a in method.args.args] + [a.arg for a in method.args.kwonlyargs]
     assert 'restore_z' in all_names, 'tmove must accept restore_z. (#524)'
-    src = ast.unparse(method)
-    assert 'safe_turret_move(restore_z=restore_z)' in src, (
-        'tmove must pass its restore_z through to safe_turret_move. (#524)'
+    impl = _function_node(_module_tree(MOTION_SRC), '_tmove_impl', class_name='MotionAPI')
+    src = ast.unparse(impl)
+    assert '_safe_turret_move(restore_z=restore_z)' in src, (
+        'tmove must pass its restore_z through to _safe_turret_move. (#524)'
     )
 
 
@@ -137,28 +141,26 @@ def test_turret_select_threads_restore_z():
     )
 
 
-def test_move_absolute_position_threads_restore_z_for_T():
-    method = _function_node(_module_tree(UIHELPERS_SRC), 'move_absolute_position')
+def test_move_absolute_threads_restore_z_for_T():
+    method = _function_node(_module_tree(UIHELPERS_SRC), 'move_absolute')
     all_names = [a.arg for a in method.args.args] + [a.arg for a in method.args.kwonlyargs]
-    assert 'restore_z' in all_names, (
-        'ui_helpers.move_absolute_position must accept restore_z. (#524)'
-    )
+    assert 'restore_z' in all_names, 'ui_helpers.move_absolute must accept restore_z. (#524)'
     src = ast.unparse(method)
     # The T-axis branch must thread restore_z to turret_select. The
     # non-T-axis branch does not need it.
     assert 'restore_z=restore_z' in src, (
-        'ui_helpers.move_absolute_position must thread restore_z to '
+        'ui_helpers.move_absolute must thread restore_z to '
         'turret_select on the T-axis branch. (#524)'
     )
 
 
 def test_go_to_step_passes_restore_z_false_on_T_move():
     tree = _module_tree(STEPNAV_SRC)
-    # Find the call to move_absolute_position with axis='T' inside go_to_step.
+    # Find the call to move_absolute with axis='T' inside go_to_step.
     found = False
     for node in ast.walk(tree):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-            if node.func.id != 'move_absolute_position':
+            if node.func.id != 'move_absolute':
                 continue
             kw_map = {k.arg: k.value for k in node.keywords}
             # The T-axis call uses keyword args (axis= and pos=).
@@ -172,8 +174,8 @@ def test_go_to_step_passes_restore_z_false_on_T_move():
                 found = True
                 break
     assert found, (
-        'step_navigation.go_to_step must call move_absolute_position with '
-        'axis="T" + restore_z=False so safe_turret_move skips the Z '
+        'step_navigation.go_to_step must call move_absolute with '
+        'axis="T" + restore_z=False so _safe_turret_move skips the Z '
         'restore that would be wasted by the immediately-following Z '
         'move to step["Z"]. (#524)'
     )

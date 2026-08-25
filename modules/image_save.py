@@ -259,16 +259,18 @@ def generate_image_metadata(scope: Lumascope, color, x, y, z) -> dict:
     Raises:
         ConfigError: If objective, labware, or stage offset are not set.
     """
-    if scope.runtime_state._objective is None:
+    objective = scope.runtime_state.get_current_objective()
+    if objective is None:
         raise ConfigError('[SCOPE API ] Objective not set')
 
-    if 'focal_length' not in scope.runtime_state._objective:
+    if 'focal_length' not in objective:
         raise ConfigError('[SCOPE API ] Objective focal length not provided')
 
-    if scope.runtime_state._labware is None:
+    labware = scope.runtime_state.get_labware()
+    if labware is None:
         raise ConfigError('[SCOPE API ] Labware not set')
 
-    if scope.runtime_state._stage_offset is None:
+    if scope.runtime_state.get_stage_offset() is None:
         raise ConfigError('[SCOPE API ] Stage offset not set')
 
     if x is None:
@@ -278,12 +280,7 @@ def generate_image_metadata(scope: Lumascope, color, x, y, z) -> dict:
     if z is None:
         z = 0
 
-    px, py = scope.runtime_state._coordinate_transformer.stage_to_plate(
-        labware=scope.runtime_state._labware,
-        stage_offset=scope.runtime_state._stage_offset,
-        sx=x,
-        sy=y,
-    )
+    px, py = scope.runtime_state.stage_to_plate(sx=x, sy=y)
     well_label = scope.runtime_state.get_well_label()
 
     px = round(px, common_utils.max_decimal_precision('x'))
@@ -291,7 +288,7 @@ def generate_image_metadata(scope: Lumascope, color, x, y, z) -> dict:
     z = round(z, common_utils.max_decimal_precision('z'))
 
     pixel_size_um = common_utils.get_pixel_size(
-        focal_length=scope.runtime_state._objective['focal_length'],
+        focal_length=objective['focal_length'],
         binning_size=scope.imaging._binning_size,
     )
     # A scope with no known pixel size writes no scale rather than an invented
@@ -318,14 +315,14 @@ def generate_image_metadata(scope: Lumascope, color, x, y, z) -> dict:
         camera_info = scope.diagnostics.get_camera_info()
     except Exception:
         camera_info = {'model': None}
-    plate_config = getattr(scope.runtime_state._labware, 'config', None) or {}
+    plate_config = getattr(labware, 'config', None) or {}
 
     # Per-frame camera chunk metadata, captured at grab-time for THIS frame
     # (Pylon ace 2 / dart M / dart R carry ExposureTime + Gain + FrameID +
     # Timestamp every frame). These are the same chunk values frame_validity
     # checks the camera settled to, so they are the authoritative, race-free
     # source for the frame's gain/exposure metadata. The live
-    # get_exposure_time / get_gain calls are the fallback for cameras /
+    # get_exposure_ms / get_gain_db calls are the fallback for cameras /
     # frames without chunk data (IDS stores frames without chunks; also
     # simulator and legacy). Both sources report what the hardware is
     # ACTUALLY set to, never the requested value -- so even if a settings
@@ -339,7 +336,7 @@ def generate_image_metadata(scope: Lumascope, color, x, y, z) -> dict:
 
     _chunk_exp_us = chunks.get('ExposureTime')
     _chunk_gain_db = chunks.get('Gain')
-    # The live-confirmed surface, not get_gain()/get_exposure_time(): the
+    # The live-confirmed surface, not get_gain_db()/get_exposure_ms(): the
     # value getters answer last-known-good on a failed read, which is
     # right for control flow but would record a gain/exposure this frame
     # was not captured at. get_live_camera_settings omits a field whose
@@ -387,8 +384,8 @@ def generate_image_metadata(scope: Lumascope, color, x, y, z) -> dict:
         'channel': color,
         'datetime': now_host.strftime('%Y:%m:%d %H:%M:%S'),
         'sub_sec_time': f'{now_host.microsecond // 1000:03d}',
-        'objective': scope.runtime_state._objective,
-        'focal_length': scope.runtime_state._objective['focal_length'],
+        'objective': objective,
+        'focal_length': objective['focal_length'],
         'plate_pos_mm': {'x': px, 'y': py},
         'x_pos': px,
         'y_pos': py,
@@ -689,7 +686,6 @@ def save_live_image(
     jpeg_quality: int = 90,
     *,
     save_encoding: str,
-    dark_floor_check: bool,
 ) -> str | None:
     """Grab the current live image from the camera and save to a TIFF file.
 
@@ -719,17 +715,11 @@ def save_live_image(
         save_encoding: The derived on-disk encoding from the image_mode
             config layer; required and keyword-only, forwarded to save_image
             so the live-capture path cannot drop the image mode.
-        dark_floor_check: Whether illumination is expected ON for this
-            capture; required and keyword-only (same contract shape as
-            save_encoding), forwarded to capture_and_wait so a save-for-truth
-            caller cannot skip the decision.
-
     Returns:
         str | None: Path to saved file, or None on failure.
     """
-    array = scope.imaging.capture_and_wait(
+    array = scope.imaging._capture_and_wait_impl(
         force_to_8bit=force_to_8bit,
-        dark_floor_check=dark_floor_check,
         earliest_image_ts=earliest_image_ts,
         timeout_s=timeout_s,
         all_ones_check=all_ones_check,
@@ -739,7 +729,7 @@ def save_live_image(
     )
 
     if turn_off_all_leds_after:
-        scope.illumination.leds_off()
+        scope.illumination._leds_off_impl()
 
     if array is None:
         return None

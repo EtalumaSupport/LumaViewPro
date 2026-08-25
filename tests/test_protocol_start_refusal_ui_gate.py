@@ -14,13 +14,15 @@ start sequence in two:
 - start(plan) is the commitment point; it can only be reached with a
   plan a successful prepare() produced.
 
-Because a refusal raises before start(), UI callers commit their
-"a run is now underway" state (ctx.protocol_running, the published
-app property, motion lock, button text) BETWEEN prepare and start --
-never before. Every UI starter routes its prepare/start sequence
-through ui_helpers.run_with_refusal_boundary, the single catch site
-for the typed refusal, whose on_refused callback undoes only the
-pre-gate button cosmetics.
+Because a refusal raises before start(), UI callers set their run
+button cosmetics BETWEEN prepare and start -- never before. Run-state
+truth itself is the session claim, committed inside start() and
+mirrored to kv by the session's run-state listener, so no starter may
+write running-state (Event, mirror, motion lock) at all. Every UI
+starter routes its prepare/start sequence through
+ui_helpers.run_with_refusal_boundary, the single catch site for the
+typed refusal, whose on_refused callback undoes only the pre-gate
+button cosmetics.
 
 Test approach
 -------------
@@ -49,11 +51,16 @@ UI_STARTERS = (
     ('ui/zstack.py', 'ZStack', 'run_zstack_acquire_from_ui'),
 )
 
-# Statements that commit "a run is now underway" state in the UI.
-COMMIT_MARKERS = (
+# Statements that would commit "a run is now underway" state in the
+# UI -- all retired: the claim inside start() is the one commit, and
+# the kv mirrors follow the session listener. Any reappearance is a
+# second run-state store.
+FORBIDDEN_COMMIT_MARKERS = (
     'protocol_running.set()',
     '_publish_protocol_running(True)',
     'set_motion_capability(False)',
+    'publish_protocol_running(',
+    'run_committed_start(',
 )
 
 
@@ -99,11 +106,10 @@ def test_run_sequenced_capture_orders_prepare_commit_start():
 
     src = ast.unparse(method)
     prepare_pos = src.index('.prepare(')
-    # The commit rides the restoring boundary: run_committed_start
-    # snapshots, commits, starts, and restores the snapshot if start()
-    # still refuses -- so a post-commit refusal cannot strand the
-    # committed lockout either.
-    commit_pos = src.index('run_committed_start(commit_ui_state')
+    # Cosmetics-only commit between prepare and start: a refusal from
+    # prepare never shows a mid-run button, and start() itself owns the
+    # run-state commit (the claim).
+    commit_pos = src.index('commit_ui_state()')
     start_pos = src.index('.start(')
     assert prepare_pos < commit_pos < start_pos, (
         'the commit_ui_state() invocation must sit BETWEEN prepare() and '
@@ -153,92 +159,20 @@ def test_every_ui_starter_routes_through_refusal_boundary():
             )
 
 
-def _commit_marker_sites(method: ast.FunctionDef) -> list[tuple[str, bool]]:
-    """(marker, deferred) for every commit-marker call in the method.
-
-    'deferred' means the call sits inside a nested commit_ui_state
-    closure or inside a lambda -- either way it does not execute at
-    starter entry, so it cannot commit running-state before the
-    refusal gates run."""
-    sites: list[tuple[str, bool]] = []
-
-    def visit(node: ast.AST, inside: bool) -> None:
-        for child in ast.iter_child_nodes(node):
-            child_inside = (
-                inside
-                or (isinstance(child, ast.FunctionDef) and child.name == 'commit_ui_state')
-                or isinstance(child, ast.Lambda)
-            )
-            if isinstance(child, ast.Call):
-                snippet = ast.unparse(child)
-                for marker in COMMIT_MARKERS:
-                    if marker in snippet:
-                        sites.append((marker, child_inside))
-            visit(child, child_inside)
-
-    visit(method, False)
-    return sites
-
-
-def test_ui_commit_blocks_live_inside_commit_closures():
-    """The running-state commits (protocol_running.set,
-    _publish_protocol_running(True), set_motion_capability(False)) in
-    the scan/protocol/autofocus starters must not execute at the
-    starter's top level, where they would run before the refusal
-    gates: they live either in a nested commit_ui_state closure (the
-    autofocus starter keeps its own set) or in the shared
-    _commit_running_ui_state method handed to run_sequenced_capture
-    as the commit_ui_state lambda."""
+def test_no_starter_writes_running_state():
+    """No UI starter may write running-state: the claim inside start()
+    is the one commit, and the kv mirrors follow the session's
+    run-state listener. A starter-side write re-creates the second
+    store whose strand/mis-restore family this migration retired."""
     for rel_path, class_name, method_name in UI_STARTERS:
         method = _method_node(REPO / rel_path, class_name, method_name)
-        sites = _commit_marker_sites(method)
-        for marker, inside in sites:
-            assert inside, (
-                f'{class_name}.{method_name}: "{marker}" sits outside the '
-                'commit_ui_state closure, where it would commit '
-                'running-state before the refusal gates'
+        src_text = ast.unparse(method)
+        for marker in FORBIDDEN_COMMIT_MARKERS:
+            assert marker not in src_text, (
+                f'{class_name}.{method_name} contains "{marker}" -- '
+                'run-state truth lives on the session claim; starters '
+                'own button cosmetics only'
             )
-        # A starter that references the shared commit method may only do
-        # so inside a deferred lambda, never as an inline top-level call.
-        for node in ast.walk(method):
-            if (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Attribute)
-                and node.func.attr == '_commit_running_ui_state'
-            ):
-                parents = [
-                    n
-                    for n in ast.walk(method)
-                    if isinstance(n, (ast.Lambda, ast.FunctionDef))
-                    and any(c is node for c in ast.walk(n))
-                    and n is not method
-                ]
-                assert parents, (
-                    f'{class_name}.{method_name} calls _commit_running_ui_state '
-                    'inline at starter top level -- it must be deferred via '
-                    'the commit_ui_state lambda'
-                )
-    # The check is not vacuous: the shared commit method holds the full
-    # running-state commit set, and the scan + protocol starters hand it
-    # to run_sequenced_capture.
-    commit_method = _method_node(
-        REPO / 'ui' / 'protocol_settings.py', 'ProtocolSettings', '_commit_running_ui_state'
-    )
-    commit_src = ast.unparse(commit_method)
-    for marker in COMMIT_MARKERS:
-        assert marker in commit_src, (
-            f'_commit_running_ui_state is missing the "{marker}" commit; '
-            'the commit-closure gate is scanning the wrong method'
-        )
-    for method_name in ('_run_scan_from_ui_inner', '_run_protocol_from_ui_inner'):
-        starter = _method_node(
-            REPO / 'ui' / 'protocol_settings.py', 'ProtocolSettings', method_name
-        )
-        starter_src = ast.unparse(starter)
-        assert '_commit_running_ui_state' in starter_src, (
-            f'{method_name} must hand _commit_running_ui_state to '
-            'run_sequenced_capture as its commit_ui_state'
-        )
 
 
 # ---------------------------------------------------------------------------

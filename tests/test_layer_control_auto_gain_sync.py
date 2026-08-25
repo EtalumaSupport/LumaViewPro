@@ -132,13 +132,13 @@ class TestApplySettingsSyncsAutoGainCheckbox:
         during a protocol-driven layer switch would be incorrect."""
         body = _method_body('LayerControl', 'apply_settings')
         # Find the guard line and the sync line; assert sync comes after the guard.
-        guard_idx = body.find('if not protocol_running_global.is_set():')
+        guard_idx = body.find('if not ctx.session.run_lockout:')
         sync_idx = body.find("self.ids['auto_gain'].active = auto_gain_enabled")
         assert guard_idx >= 0, 'protocol_running guard not found (precondition)'
         assert sync_idx >= 0, 'sync line not found (precondition)'
         assert guard_idx < sync_idx, (
             'auto_gain CheckBox sync must be INSIDE the '
-            '`if not protocol_running_global.is_set():` block, not '
+            '`if not ctx.session.run_lockout:` block, not '
             'outside it. Syncing during a protocol-driven layer change '
             "would fight protocol_step_runner's AG management."
         )

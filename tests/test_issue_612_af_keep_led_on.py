@@ -11,7 +11,8 @@ extra mechanical cycle wasted per AF-every-N step.
 Fix
 ---
 AutofocusRunner.run gains a `keep_led_on: bool = False` parameter.
-When True, the finally clause skips _led_off() + restore_led_state.
+When True, the finally clause holds the AF channel instead of
+restoring the pre-AF LED state.
 ProtocolStepRunner.scan_iterate sets keep_led_on=True when invoking
 AF -- AF + capture in protocol context always share color +
 illumination (the BF-AF-for-fluor branch retires AF entirely earlier
@@ -24,8 +25,8 @@ Test approach
 -------------
 1. AST guard on AutofocusRunner.run signature: keep_led_on present
    with default False.
-2. AST guard on the finally clause: a conditional path on
-   self._keep_led_on that skips _led_off + restore_led_state.
+2. AST guard on the finally clause: the keep-led-on hold is gated
+   on self._keep_led_on AND completed_successfully.
 3. AST guard on protocol_step_runner.run_autofocus invocation:
    keep_led_on=True is passed.
 

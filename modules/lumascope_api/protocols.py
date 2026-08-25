@@ -42,6 +42,9 @@ class ProtocolsAPI:
     def register_source_path(self, source_path) -> None:
         """Register the LVP source/data path the constructors resolve against.
 
+        Internal session-composition wiring -- called by ScopeSession at
+        construction and not part of the L2 API surface.
+
         Called once at startup, after the scope is constructed. Tests that
         don't drive the protocol API can skip it.
 

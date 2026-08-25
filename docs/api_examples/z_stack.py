@@ -7,38 +7,24 @@ Demonstrates:
 - Capturing an image at each Z slice via scope.imaging.capture_and_wait
 - Building a Z-stack for 3D analysis or extended depth of focus
 
-Note: The Lumascope API also provides a built-in autofocus method
-(scope.autofocus()) that sweeps Z and finds the best focus plane
-automatically. This example shows manual Z stepping for cases where
-you want full control over the Z-stack.
+Note: autofocus runs as a RUN through the session's protocol runner
+(see LumascopeSkills.md, Running protocols) -- it sweeps Z and settles
+on the best focus plane under the run-exclusivity claim. This example
+shows manual Z stepping for cases where you want full control over
+the Z-stack.
 """
 
 import sys
 import pathlib
-from unittest.mock import MagicMock
 
-# Add parent directory to path so we can import lumascope_api
+# Make the repo root importable when run standalone
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 
-# Mock modules not needed for headless simulate mode
-_mock_logger = MagicMock()
-_mock_lvp_logger = MagicMock()
-_mock_lvp_logger.logger = _mock_logger
-_mock_lvp_logger.is_thread_paused = MagicMock(return_value=False)
-_mock_lvp_logger.unpause_thread = MagicMock()
-_mock_lvp_logger.pause_thread = MagicMock()
-
-sys.modules.setdefault('lvp_logger', _mock_lvp_logger)
-sys.modules.setdefault('platformdirs', MagicMock())
-sys.modules.setdefault('requests', MagicMock())
-sys.modules.setdefault('requests.structures', MagicMock())
-sys.modules.setdefault('pypylon', MagicMock())
-sys.modules.setdefault('pypylon.pylon', MagicMock())
-sys.modules.setdefault('pypylon.genicam', MagicMock())
-sys.modules.setdefault('ids_peak', MagicMock())
-sys.modules.setdefault('ids_peak.ids_peak', MagicMock())
-sys.modules.setdefault('ids_peak.ids_peak_ipl_extension', MagicMock())
-sys.modules.setdefault('ids_peak_ipl', MagicMock())
+# This example runs the SAME code path two ways:
+#   standalone: python3 docs/api_examples/z_stack.py  (the real installed deps)
+#   in-suite:   tests/test_api_examples.py runs main() under the heavy-dep
+#               mocks the test conftest installs before collection
+# The sys.path line serves the standalone form; in-suite it is a no-op.
 
 from modules.lumascope_api import Lumascope
 
@@ -62,9 +48,17 @@ def main():
     # Begin the live camera feed (required before capture on every backend).
     scope.imaging.start_streaming()
 
+    # Home before commanding any move. Until an axis has been homed its
+    # position is unknown, and a move against an unknown reference frame
+    # is refused with AxisStateUnknownError rather than driven blind.
+    if not scope.motion.move_home_and_wait('ALL'):
+        print('Homing failed -- cannot move safely')
+        scope.disconnect()
+        return
+
     # Configure illumination
     scope.illumination.led_on(channel=LED_COLOR, mA=LED_MA)
-    scope.imaging.set_exposure_time(EXPOSURE_MS)
+    scope.imaging.set_exposure_ms(EXPOSURE_MS)
     print(f'LED: {LED_COLOR} at {LED_MA} mA, exposure: {EXPOSURE_MS} ms')
 
     # Calculate the number of slices
@@ -77,7 +71,7 @@ def main():
 
     for i in range(num_slices):
         # Move Z to target position (um) and wait for completion
-        scope.motion.move_absolute_position(
+        scope.motion.move_absolute(
             'Z',
             z_pos_um,
             wait_until_complete=True,
@@ -87,8 +81,7 @@ def main():
         actual_z_um = scope.motion.get_current_position('Z')
 
         # Capture a frame valid for the current Z + LED + exposure state.
-        # dark_floor_check is required: True because the LED is on.
-        image = scope.imaging.capture_and_wait(force_to_8bit=True, dark_floor_check=True)
+        image = scope.imaging.capture_and_wait(force_to_8bit=True)
         if image is None:
             print(f'  Slice {i:3d}: FAILED at Z={z_pos_um:.1f} um')
             z_pos_um += Z_STEP_UM
@@ -109,9 +102,8 @@ def main():
     #              append=f'_Z{i:03d}', ...)
     # This requires setting objective, labware, and stage offset first.
 
-    # NOTE: For autofocus, you can use the built-in method:
-    #   scope.autofocus(AF_min=10, AF_max=100, AF_range=500)
-    # This automatically sweeps Z and moves to the best focus position.
+    # NOTE: for automatic focusing, run autofocus as a run through the
+    # session's protocol runner (LumascopeSkills.md, Running protocols).
 
     # Clean up
     scope.illumination.leds_off()

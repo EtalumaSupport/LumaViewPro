@@ -165,7 +165,10 @@ def test_api_set_auto_gain_forwards_cap_from_settings_dict():
         return orig_auto_gain(state, **kwargs)
 
     cam.auto_gain = recording_auto_gain
-    imaging.set_auto_gain(
+    # The impl seam: this harness builds a bare ImagingAPI with no scope
+    # composition, and the forwarding contract under test lives in the
+    # body, not the dispatcher.
+    imaging._set_auto_gain_impl(
         True,
         {
             'target_brightness': 0.5,
@@ -202,7 +205,7 @@ def test_protocol_caller_injects_per_class_cap(monkeypatch):
     applies = [
         c.args[0]
         for c in runner._io_executor.protocol_put.call_args_list
-        if c.args[0].action is runner._scope.imaging.apply_layer_camera_settings
+        if c.args[0].action is runner._scope.imaging._apply_layer_camera_settings_impl
     ]
     assert applies, 'the AG step must queue the apply on the io executor'
     assert applies[0].kwargs['auto_gain_settings']['max_exposure_ms'] == 456.0, (
@@ -220,13 +223,13 @@ def _video_session_autogain_call(autogain_settings):
 
     scope = MagicMock()
     scope.imaging.frames_until_valid.return_value = 0
-    scope.imaging.camera_active = False  # wait loop exits on its first tick
+    scope.imaging.active_cached = False  # wait loop exits on its first tick
     scope.imaging.camera_identity = {
         'model': 'sim',
         'serial': '0',
         'timestamp_tick_frequency_hz': None,
     }
-    scope.imaging.camera_frame_size = {'width': 8, 'height': 8}
+    scope.imaging.frame_size_cached = {'width': 8, 'height': 8}
     step = {
         'Auto_Gain': True,
         'Exposure': 10.0,
@@ -259,8 +262,8 @@ def _video_session_autogain_call(autogain_settings):
     with patch.object(protocol_recording, 'check_disk_space_ok', lambda *a, **k: (True, 999999)):
         outcome = recorder.run_blocking()
     assert outcome == protocol_recording.NO_FRAMES
-    assert scope.imaging.auto_gain_once.called, 'the first-frame AG re-arm must fire'
-    return scope.imaging.auto_gain_once.call_args.kwargs
+    assert scope.imaging._auto_gain_once_impl.called, 'the first-frame AG re-arm must fire'
+    return scope.imaging._auto_gain_once_impl.call_args.kwargs
 
 
 def test_video_capture_rearm_forwards_cap():

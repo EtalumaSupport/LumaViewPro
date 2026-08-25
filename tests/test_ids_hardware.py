@@ -239,7 +239,7 @@ class TestIDS(unittest.TestCase):
         LVP's gain model is dB (shared with the Pylon driver); the IDS driver
         assumes the camera's Gain node is a LINEAR multiplier and converts
         dB = 20*log10(factor) (idscamera _query_dynamic_capabilities / gain /
-        get_gain). SFNC permits a body to express Gain natively in dB -- such a
+        get_gain_db). SFNC permits a body to express Gain natively in dB -- such a
         body would be double-converted. This records the node's unit + range
         (run with -s to read them) and fails loudly if the body reports gain in
         dB, which is the exact signal to branch the conversion on the unit.
@@ -263,7 +263,7 @@ class TestIDS(unittest.TestCase):
             reported_db = f'<error: {e}>'
         print(
             f'[gain-node] selector={selector} unit={unit!r} value={value} '
-            f'min={minimum} max={maximum} get_gain()={reported_db} dB'
+            f'min={minimum} max={maximum} get_gain_db()={reported_db} dB'
         )
 
         # A unit string saying dB is the authoritative tell that the node is
@@ -272,7 +272,7 @@ class TestIDS(unittest.TestCase):
             self.fail(
                 f'Gain node reports unit {unit!r} (native dB): the driver applies '
                 '20*log10(factor) and would double-convert on this body -- branch '
-                'gain()/get_gain()/_query_dynamic_capabilities on the unit.'
+                'gain()/get_gain_db()/_query_dynamic_capabilities on the unit.'
             )
 
         # Structural backstop when no unit string is exposed: a linear analog

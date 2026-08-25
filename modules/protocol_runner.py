@@ -30,64 +30,43 @@ import typing
 
 import modules.common_utils as common_utils
 import modules.image_mode as image_mode_module
-from modules.exceptions import ConfigError
+from modules.exceptions import ConfigError, ProtocolRunRefusedError
 from modules.protocol import Protocol
 from modules.sequenced_capture_runner import SequencedCaptureRunner, SequencedCaptureRunMode
-from modules.sequential_io_executor import SequentialIOExecutor
-from modules.protocol_thread import ProtocolThread
 
 from lvp_logger import logger
 
 
 class ProtocolRunner:
-    """GUI-independent protocol runner wrapping SequencedCaptureRunner."""
+    """GUI-independent protocol runner wrapping the session's
+    SequencedCaptureRunner.
 
-    def __init__(
-        self,
-        session,
-        protocol_thread: ProtocolThread | None = None,
-        file_io_executor: SequentialIOExecutor | None = None,
-        autofocus_thread=None,
-    ):
+    One engine per session: the runner wraps the session-composed
+    instance rather than constructing a second one, so the GUI, L2, and
+    REST all drive (and observe) the same run state behind the same
+    claim.
+    """
+
+    def __init__(self, session):
         """
         Args:
-            session: ScopeSession instance providing scope, settings, executors
-            protocol_thread: ProtocolThread that drives the scan loop
-                (created if None; the caller owns lifecycle in that case).
-            file_io_executor: Executor for file I/O. Defaults to the session's
-                shared FILE executor; a fresh one is built only if the session
-                has none (no bundle).
-            autofocus_thread: AutofocusThread for running AF. If None, the
-                protocol may run only when no step requests autofocus;
-                an AF-bearing step raises at the producer site.
+            session: ScopeSession providing the composed engine, scope,
+                settings, and executors. Must carry a protocol thread
+                (the factories and the GUI host both compose one); a
+                bare session cannot drive a scan loop.
         """
+        if session.protocol_thread is None:
+            raise RuntimeError(
+                'ProtocolRunner requires a session composed with a protocol '
+                'thread; build the session via ScopeSession.create / '
+                'create_headless, or inject protocol_thread at session '
+                'construction.'
+            )
         self.session = session
-
-        self._protocol_thread = protocol_thread or ProtocolThread()
-        # Source the one shared FILE executor from the session bundle rather
-        # than constructing a duplicate -- two executors writing the same disk
-        # target compete and can starve each other. Construct fresh only when
-        # the session genuinely has none (no bundle, e.g. a bare test harness),
-        # where no duplicate can exist.
-        self._file_io_executor = (
-            file_io_executor or session.file_io_executor or SequentialIOExecutor(name='FILE')
-        )
-        self._autofocus_thread = autofocus_thread
-
+        self._protocol_thread = session.protocol_thread
+        self._file_io_executor = session.file_io_executor
         self._completion_event = threading.Event()
-
-        self._executor = SequencedCaptureRunner(
-            scope=session.scope,
-            stage_offset=session.settings.get('stage_offset', {}),
-            io_executor=session.io_executor,
-            protocol_thread=self._protocol_thread,
-            file_io_executor=self._file_io_executor,
-            camera_executor=session.camera_executor,
-            autofocus_thread=self._autofocus_thread,
-            activity_claim=session.activity_claim,
-        )
-
-        self._owned_resources_started = False
+        self._executor = session.sequenced_capture_runner
 
     @property
     def sequenced_capture_runner(self) -> SequencedCaptureRunner:
@@ -247,8 +226,6 @@ class ProtocolRunner:
                 "run's capture depth and save encoding are explicit."
             )
 
-        self._ensure_executors_started()
-
         if parent_dir is None:
             parent_dir = (
                 pathlib.Path(self.session.settings.get('live_folder', '.')).resolve()
@@ -281,7 +258,6 @@ class ProtocolRunner:
             if user_complete:
                 user_complete(**kwargs)
             self._completion_event.set()
-            self.session.protocol_running.clear()
 
         merged_callbacks['run_complete'] = _on_complete
 
@@ -316,18 +292,24 @@ class ProtocolRunner:
             **config_helpers.get_sequenced_run_settings(self.session.settings),
         )
 
-        # Commit caller-side running state only between a successful
-        # prepare and start: a refusal above raises before anything here
-        # is set, so there is no refusal-rollback path and
-        # wait_for_completion() can never wait on a run that was refused.
+        # Run-state truth is the session claim, committed inside
+        # start()'s gate-and-commit -- a refusal means no state changed.
+        # The completion event is caller convenience, re-armed here and
+        # restored on a start()-stage refusal: for the already-running
+        # race the prior state was cleared (a live rival run resolves it
+        # when its run_complete fires -- every _run wires the same
+        # shared event), and for a claim refusal (e.g. a recording
+        # holds the scope) the prior state was set, so restoring it lets
+        # wait_for_completion return immediately instead of hanging on a
+        # run that never started.
+        completion_was_set = self._completion_event.is_set()
         self._completion_event.clear()
-        self.session.protocol_running.set()
-        # No rollback on a start()-race refusal: the refusal means another
-        # run is LIVE, so protocol_running=True stays truthful, and the
-        # completion event resolves when that live run's run_complete fires
-        # (each _run wires the same shared event). Clearing here would
-        # falsely signal the live run's completion to its own waiters.
-        self._executor.start(plan)
+        try:
+            self._executor.start(plan)
+        except ProtocolRunRefusedError:
+            if completion_was_set:
+                self._completion_event.set()
+            raise
 
     # ------------------------------------------------------------------
     # Status
@@ -339,12 +321,75 @@ class ProtocolRunner:
     def run_dir(self) -> pathlib.Path | None:
         return self._executor.run_dir()
 
+    def run_trigger_source(self) -> 'str | None':
+        """The current (or, between runs, most recent) run's trigger kind."""
+        return self._executor.run_trigger_source()
+
+    def remaining_scans(self) -> int:
+        return self._executor.remaining_scans()
+
+    def protocol_interval(self):
+        """The loaded protocol's scan period; None before the first run."""
+        return self._executor.protocol_interval()
+
+    def current_step_color(self) -> 'str | None':
+        return self._executor.current_step_color()
+
+    def video_drain_busy(self) -> bool:
+        return self._executor.video_drain_busy()
+
+    def video_pending_writes(self) -> int:
+        return self._executor.video_pending_writes()
+
+    def discard_video_pending(self) -> None:
+        self._executor.discard_video_pending()
+
+    def prepare(self, **kwargs):
+        """Forward to the engine's prepare(); returns the RunPlan.
+
+        For callers that need the two-phase prepare/start seam directly
+        (run_single_scan / run_protocol wrap it with config assembly).
+        """
+        return self._executor.prepare(**kwargs)
+
+    def start(self, plan) -> None:
+        """Forward to the engine's start() -- the commitment point."""
+        self._executor.start(plan)
+
+    def reset(self) -> None:
+        """Unwind the current run without tearing the runner down.
+
+        Distinct from abort(): reset() leaves the completion event and
+        protocol thread alone (abort-and-continue); abort() also aborts
+        the scan loop and resolves waiters (abort-and-teardown for this
+        run's callers).
+        """
+        self._executor.reset()
+
+    def wait_for_run_idle(self, timeout_s: float) -> bool:
+        """Block until the engine's cleanup fully lands (claim released),
+        not merely until run_complete fires -- the completion-event wait
+        (wait_for_completion) resolves at the run-complete callback,
+        moments before cleanup's end."""
+        return self._executor.wait_for_run_idle(timeout_s)
+
+    def set_scope(self, scope) -> None:
+        """Rewire onto a new scope via the session's one bring-up seam.
+
+        The session services the new scope (executor registration,
+        bundle, source path) and rewires every holder; a pre-serviced
+        foreign scope carrying DIFFERENT executors is refused there --
+        a session and its scope must share one executor topology.
+        Refuses while an exclusive activity (run, recording incl. its
+        drain) owns the hardware.
+        """
+        self.session.set_scope(scope)
+
     def abort(self):
         """Abort the current run."""
         self._protocol_thread.abort()
         self._executor.reset()
         self._completion_event.set()
-        self.session.protocol_running.clear()
 
     def wait_for_completion(self, timeout: float | None = None) -> bool:
         """Block until the run completes. Returns True if completed, False on timeout."""
@@ -354,16 +399,7 @@ class ProtocolRunner:
     # Lifecycle
     # ------------------------------------------------------------------
 
-    def _ensure_executors_started(self):
-        """Start any resources we created if not already started."""
-        if not self._owned_resources_started:
-            self._protocol_thread.start()
-            self._file_io_executor.start()
-            self._owned_resources_started = True
-
     def shutdown(self):
-        """Shut down resources that we created."""
-        if self._owned_resources_started:
-            self._protocol_thread.stop(timeout=2.0)
-            self._file_io_executor.shutdown()
-            self._owned_resources_started = False
+        """Retained for callers that paired shutdown() with
+        create_protocol_runner(); the engine, threads, and executors are
+        session composition now, torn down by session.shutdown()."""

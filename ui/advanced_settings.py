@@ -137,7 +137,10 @@ class AdvancedSettings(Popup):
         mode = 'High' if state else 'Low'
 
         def _set_conversion_gain():
-            ctx.lumaview.scope.imaging.set_conversion_gain_mode(mode)
+            # Already on the camera worker: bind the impl -- the public
+            # dispatcher would re-enter this same lane and stall on its
+            # own queue slot.
+            ctx.lumaview.scope.imaging._set_conversion_gain_mode_impl(mode)
 
         ctx.camera_executor.put(IOTask(action=_set_conversion_gain))
 
@@ -149,7 +152,9 @@ class AdvancedSettings(Popup):
         settings.setdefault('camera', {})['line_noise_reduction'] = state
 
         def _set_line_noise():
-            ctx.lumaview.scope.imaging.set_line_noise_reduction(state)
+            # On the camera worker: bind the impl, never the dispatcher
+            # (self-dispatch on the single lane).
+            ctx.lumaview.scope.imaging._set_line_noise_reduction_impl(state)
 
         ctx.camera_executor.put(IOTask(action=_set_line_noise))
 
@@ -436,7 +441,7 @@ kv = Builder.load_string(
                         font_size: '12sp'
                     Spinner:
                         id: scope_spinner
-                        disabled: app.protocol_running
+                        disabled: app.run_lockout
                         sync_height: True
                         text: 'Select'
                         font_size: '12sp'
@@ -460,7 +465,7 @@ kv = Builder.load_string(
                         font_size: '12sp'
                     ModSlider:
                         id: acceleration_pct_slider
-                        disabled: app.protocol_running
+                        disabled: app.run_lockout
                         min: 1
                         max: 100
                         value: 100
@@ -473,7 +478,7 @@ kv = Builder.load_string(
                         on_release: root.acceleration_pct_slider()
                     TextInput:
                         id: acceleration_pct_text
-                        disabled: app.protocol_running
+                        disabled: app.run_lockout
                         size_hint_x: None
                         width: '40dp'
                         multiline: False
@@ -505,7 +510,7 @@ kv = Builder.load_string(
                         text_size: self.size
                     ToggleButton:
                         id: stimulation_settings_btn
-                        disabled: app.protocol_running
+                        disabled: app.run_lockout
                         size_hint: None, None
                         tooltip_text: 'Enable stimulation features globally'
                         width: '45dp'
@@ -541,7 +546,7 @@ kv = Builder.load_string(
                         text_size: self.size
                     CheckBox:
                         id: high_conversion_gain
-                        disabled: app.protocol_running
+                        disabled: app.run_lockout
                         size_hint_x: None
                         width: '25dp'
                         active: False
@@ -562,7 +567,7 @@ kv = Builder.load_string(
                         text_size: self.size
                     CheckBox:
                         id: line_noise_reduction
-                        disabled: app.protocol_running
+                        disabled: app.run_lockout
                         size_hint_x: None
                         width: '25dp'
                         active: False
@@ -581,7 +586,7 @@ kv = Builder.load_string(
                         font_size: '12sp'
                     TextInput:
                         id: video_max_fps_input
-                        disabled: app.protocol_running
+                        disabled: app.run_lockout
                         size_hint_x: None
                         width: '45dp'
                         multiline: False
@@ -599,14 +604,14 @@ kv = Builder.load_string(
                     height: '30dp'
                     Label:
                         text: 'Video Time Limit (s)'
-                        tooltip_text: 'Global maximum video length, in seconds.\\nManual recording auto-stops at this limit (press Record\\nagain to stop sooner); a protocol video Step longer than\\nthis is flagged. Memmap is sized for max_fps * limit frames.'
+                        tooltip_text: 'Global maximum video length, in seconds.\\nManual recording auto-stops at this limit (press Record\\nagain to stop sooner); a protocol video Step longer than\\nthis is flagged.'
                         halign: 'left'
                         valign: 'middle'
                         text_size: self.size
                         font_size: '12sp'
                     TextInput:
                         id: video_max_duration_input
-                        disabled: app.protocol_running
+                        disabled: app.run_lockout
                         size_hint_x: None
                         width: '45dp'
                         multiline: False
@@ -631,7 +636,7 @@ kv = Builder.load_string(
                         font_size: '12sp'
                     CheckBox:
                         id: video_timestamp_overlay_id
-                        disabled: app.protocol_running
+                        disabled: app.run_lockout
                         size_hint_x: None
                         width: '25dp'
                         active: True
@@ -650,7 +655,7 @@ kv = Builder.load_string(
                         font_size: '12sp'
                     ModSlider:
                         id: live_view_fps_slider
-                        disabled: app.protocol_running
+                        disabled: app.run_lockout
                         min: 5
                         max: 65
                         value: 30
@@ -693,7 +698,7 @@ kv = Builder.load_string(
                         text_size: self.size
                     ToggleButton:
                         id: protocol_led_on_btn
-                        disabled: app.protocol_running
+                        disabled: app.run_lockout
                         size_hint: None, None
                         tooltip_text: "Keep the step's LED on while manually navigating through protocol steps so you can preview the illumination. Does not affect LED behavior during a protocol scan."
                         size: '45dp', '30dp'
@@ -716,7 +721,7 @@ kv = Builder.load_string(
                         text_size: self.size
                     ToggleButton:
                         id: keep_led_between_steps_btn
-                        disabled: app.protocol_running
+                        disabled: app.run_lockout
                         size_hint: None, None
                         tooltip_text: "During a protocol scan, keep the LED on while the stage moves between steps instead of switching it off and back on. Speeds up brightfield scans; off by default."
                         size: '45dp', '30dp'
@@ -741,7 +746,7 @@ kv = Builder.load_string(
                         font_size: '12sp'
                     Spinner:
                         id: tiling_overlap_spinner
-                        disabled: app.protocol_running
+                        disabled: app.run_lockout
                         sync_height: True
                         text: '0%'
                         font_size: '12sp'
@@ -788,7 +793,7 @@ kv = Builder.load_string(
                         text_size: self.size
                     ToggleButton:
                         id: separate_folder_per_channel_id
-                        disabled: app.protocol_running
+                        disabled: app.run_lockout
                         size_hint: None, None
                         tooltip_text: "Save each channels' images in separate folders"
                         size: '45dp', '30dp'

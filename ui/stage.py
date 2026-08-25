@@ -13,7 +13,7 @@ from modules import gui_logger
 from modules.config_ui_getters import get_selected_labware
 from modules.sequential_io_executor import IOTask
 from ui.step_navigation import go_to_step
-from ui.ui_helpers import find_nearest_step, move_absolute_position
+from ui.ui_helpers import find_nearest_step, move_absolute
 
 logger = logging.getLogger('LVP.ui.stage')
 
@@ -43,14 +43,14 @@ class Stage(Widget):
         logger.debug('[LVP Main  ] Stage.__init__()')
         self.ROI_min = [0, 0]
         self.ROI_max = [0, 0]
-        # Two independent flags, deliberately separate:
-        #   _motion_enabled -- transient interaction lock; cleared while a
-        #     protocol/scan runs so stage clicks are blocked mid-run.
-        #   _has_xy_stage -- static scope capability. The crosshair indicates a
-        #     live XY position, so it is meaningless (and hidden) only on scopes
-        #     with no XY stage. It must NOT track the run lock, or the crosshair
-        #     vanishes whenever a protocol runs on a scope that has a stage.
-        self._motion_enabled = True
+        # _has_xy_stage -- static scope capability. The crosshair
+        # indicates a live XY position, so it is meaningless (and
+        # hidden) only on scopes with no XY stage. It must NOT track
+        # the run lock, or the crosshair vanishes whenever a protocol
+        # runs on a scope that has a stage. The interaction lock itself
+        # is not stored here: motion_capability() derives from the
+        # session (config declares a stage AND no run lockout), so
+        # there is no per-run write to strand or mis-restore.
         self._has_xy_stage = True
         self.ROIs = []
 
@@ -134,11 +134,9 @@ class Stage(Widget):
         self.ROI_max = [x_max, y_max]
         self.ROIs.append([self.ROI_min, self.ROI_max])
 
-    def set_motion_capability(self, enabled: bool):
-        self._motion_enabled = enabled
-
     def motion_capability(self) -> bool:
-        return self._motion_enabled
+        session = getattr(_app_ctx.ctx, 'session', None)
+        return session.motion_enabled if session is not None else True
 
     def set_xy_stage_capability(self, enabled: bool):
         self._has_xy_stage = enabled
@@ -146,7 +144,7 @@ class Stage(Widget):
     def on_touch_down(self, touch):
         logger.debug('[LVP Main  ] Stage.on_touch_down()')
 
-        if not self._motion_enabled:
+        if not self.motion_capability():
             return
 
         if self.collide_point(*touch.pos) and (touch.button == 'left' or touch.button == 'right'):
@@ -185,8 +183,8 @@ class Stage(Widget):
                     'STAGE_CLICK',
                     f'left plate=({plate_x:.2f},{plate_y:.2f}) stage=({stage_x:.0f},{stage_y:.0f})',
                 )
-                move_absolute_position('X', stage_x)
-                move_absolute_position('Y', stage_y)
+                move_absolute('X', stage_x)
+                move_absolute('Y', stage_y)
 
             elif touch.button == 'right':
                 try:
@@ -216,8 +214,8 @@ class Stage(Widget):
                     logger.info(f'[Stage   ] Successfully moved to step {step_idx}')
                 except Exception as e:
                     logger.error(f'[Stage   ] Error finding nearest step: {e}')
-            # move_absolute_position('X', stage_x)
-            # move_absolute_position('Y', stage_y)
+            # move_absolute('X', stage_x)
+            # move_absolute('Y', stage_y)
 
     def draw_labware(self, *args, full_redraw: bool = False):
         if self.parent is None:
@@ -807,7 +805,7 @@ class Stage(Widget):
 
             #  Red Crosshairs
             # ------------------
-            if self._motion_enabled:
+            if self.motion_capability():
                 io_executor.put(
                     IOTask(
                         action=self.motion_enabled_io,

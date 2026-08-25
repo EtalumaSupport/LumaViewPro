@@ -1,4 +1,5 @@
 %% Autofocus + Capture — Focus then acquire
+% DEFERRED: targets a REST API (/api/v1) that does not exist yet; rewrite rides REST Phase 1 against the real endpoints. Kept for the endpoint-sketch ideas it carries.
 %
 % Runs autofocus at the current position, then captures with the
 % best focus Z position.

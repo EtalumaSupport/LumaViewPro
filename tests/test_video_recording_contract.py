@@ -514,6 +514,21 @@ class TestExclusivity:
         with pytest.raises(RecordingRefusedError) as excinfo:
             engine.start(make_config(tmp_path, fps=5, duration_s=1))
         assert excinfo.value.reason == 'exclusive_activity_running'
+        # Busy-with-what rides the payload: the holder's kind always,
+        # and the holding run's trigger when a lookup is wired (none
+        # here, so it stays None rather than guessing).
+        assert excinfo.value.holder == 'protocol'
+        assert excinfo.value.holder_trigger is None
+
+    def test_claim_refusal_names_the_holding_runs_trigger(self, tmp_path):
+        claim = ClaimStub()
+        assert claim.try_claim('protocol')
+        engine, _writer, _clock, _ = make_engine(tmp_path, claim=claim)
+        engine._run_trigger_lookup = lambda: 'autofocus_scan'
+        with pytest.raises(RecordingRefusedError) as excinfo:
+            engine.start(make_config(tmp_path, fps=5, duration_s=1))
+        assert excinfo.value.holder == 'protocol'
+        assert excinfo.value.holder_trigger == 'autofocus_scan'
 
     def test_concurrent_starts_exactly_one_wins(self, tmp_path):
         claim = ClaimStub()

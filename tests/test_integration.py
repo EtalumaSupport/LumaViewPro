@@ -44,6 +44,7 @@ sys.modules.setdefault('modules.settings_init', _mock_settings_init)
 
 from modules.image_mode import ImageCaptureConfig
 from modules.lumascope_api import Lumascope
+from tests.scope_fakes import home_sim_scope
 from modules.sequential_io_executor import SequentialIOExecutor
 from modules.sequenced_capture_runner import SequencedCaptureRunner
 from modules.sequenced_capture_runner import SequencedCaptureRunMode
@@ -256,6 +257,7 @@ def scope():
     s._camera_driver.set_timing_mode('fast')
     # Camera must be grabbing for get_image to work
     s.imaging.start_streaming()
+    home_sim_scope(s)
     yield s
     s.imaging.stop_streaming()
     s.disconnect()
@@ -594,7 +596,7 @@ class TestIntegrationAutofocus:
 
         The bug: _iterate() cleared _af_in_progress before the finally
         block in _autofocus_loop() restored camera state. The protocol
-        worker saw AF as done, entered capture(), and set_gain() was a
+        worker saw AF as done, entered capture(), and set_gain_db() was a
         no-op (cache still showed AF scanning gain). Then the finally
         block restored the previous channel's gain, and the frame was
         grabbed with wrong settings.
@@ -612,8 +614,8 @@ class TestIntegrationAutofocus:
 
         # Simulate the multi-channel scenario: camera is at Green settings
         # when BF AF starts with its own explicit targets.
-        scope.imaging.set_gain(20.0)
-        scope.imaging.set_exposure_time(100.0)
+        scope.imaging.set_gain_db(20.0)
+        scope.imaging.set_exposure_ms(100.0)
 
         # Drive AF through AutofocusThread so the abort_event contract
         # is satisfied and the Future resolves when AFE.run()'s finally
@@ -643,8 +645,8 @@ class TestIntegrationAutofocus:
         # contract: explicit AF targets (the committed layer/step
         # values, 1.0 dB / 2.0 ms here) are KEPT after AF rather than
         # reverted to the pre-AF snapshot (20.0 / 100.0).
-        actual_gain = scope.imaging.get_gain()
-        actual_exp = scope.imaging.get_exposure_time()
+        actual_gain = scope.imaging.get_gain_db()
+        actual_exp = scope.imaging.get_exposure_ms()
         assert abs(actual_gain - 1.0) < 0.1, (
             f'Camera gain should remain at the committed AF target 1.0 '
             f'when the AF Future resolves, but got {actual_gain}'
@@ -869,9 +871,9 @@ class TestRestAPIPrep:
     """Verify REST API prep methods (P-1 through P-8)."""
 
     def test_get_pixel_format(self):
-        """get_pixel_format() should return format string from simulated camera."""
+        """_get_pixel_format() should return format string from simulated camera."""
         session = ScopeSession.create_headless()
-        fmt = session.scope.imaging.get_pixel_format()
+        fmt = session.scope.imaging._get_pixel_format()
         assert isinstance(fmt, str)
         assert fmt in ('Mono8', 'Mono10', 'Mono12')
 
@@ -880,7 +882,7 @@ class TestRestAPIPrep:
         session = ScopeSession.create_headless()
         result = session.scope.imaging.set_pixel_format('Mono12')
         assert result is True
-        assert session.scope.imaging.get_pixel_format() == 'Mono12'
+        assert session.scope.imaging._get_pixel_format() == 'Mono12'
 
     def test_set_pixel_format_invalid(self):
         """set_pixel_format() with an unsupported format raises the typed
@@ -904,7 +906,7 @@ class TestRestAPIPrep:
         """Pixel format methods should handle inactive camera gracefully."""
         session = ScopeSession.create_headless()
         session.scope._camera_driver = None
-        assert session.scope.imaging.get_pixel_format() is None
+        assert session.scope.imaging._get_pixel_format() is None
         assert session.scope.imaging.set_pixel_format('Mono8') is False
         assert session.scope.imaging.get_supported_pixel_formats() == ()
 
@@ -1095,6 +1097,8 @@ class TestRestAPIPrep:
         session = ScopeSession.create_headless()
         session.start_executors()
         session.scope.imaging.start_streaming()
+        # Autofocus drives Z; a headless session has not homed.
+        home_sim_scope(session.scope)
         try:
             runner = session.create_protocol_runner()
             af = runner.sequenced_capture_runner._autofocus_runner
@@ -1121,6 +1125,8 @@ class TestRestAPIPrep:
         session = ScopeSession.create_headless()
         session.start_executors()
         session.scope.imaging.start_streaming()
+        # Autofocus drives Z; a headless session has not homed.
+        home_sim_scope(session.scope)
         try:
             runner = session.create_protocol_runner()
             af = runner.sequenced_capture_runner._autofocus_runner

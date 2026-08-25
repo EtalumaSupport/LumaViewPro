@@ -23,7 +23,7 @@ tested where that lives.
 
 `start_application_session` is NOT covered, and the reason is a defect
 rather than a choice. It does `from ui.ui_helpers import move_home,
-move_absolute_position` -- a module reaching UP into the UI layer. Its
+move_absolute` -- a module reaching UP into the UI layer. Its
 own comment concedes the functions "operate on the scope and don't
 actually need a GUI surface," which is the admission that they are in
 the wrong layer. Because the test environment mocks Kivy, that import
@@ -168,19 +168,26 @@ class TestExecutorLifecycle:
 class TestIsProtocolRunning:
     """The canonical read for callers holding a session handle.
 
-    It must REFLECT the protocol-running Event, not hold a second copy
-    of the answer -- a duplicated flag is how "is a run in progress"
-    ends up with two disagreeing sources.
+    It must DERIVE from the exclusive-activity claim, not hold a second
+    copy of the answer -- a duplicated flag is how "is a run in
+    progress" ends up with two disagreeing sources.
     """
 
     def test_false_on_a_fresh_session(self, headless_session):
         assert headless_session.is_protocol_running is False
 
-    def test_tracks_the_event_in_both_directions(self, headless_session):
-        headless_session.protocol_running.set()
+    def test_tracks_the_claim_in_both_directions(self, headless_session):
+        assert headless_session.activity_claim.try_claim('protocol')
         assert headless_session.is_protocol_running is True
-        headless_session.protocol_running.clear()
+        headless_session.activity_claim.release('protocol')
         assert headless_session.is_protocol_running is False
+
+    def test_a_recording_claim_is_not_a_run(self, headless_session):
+        assert headless_session.activity_claim.try_claim('recording')
+        try:
+            assert headless_session.is_protocol_running is False
+        finally:
+            headless_session.activity_claim.release('recording')
 
     def test_is_read_only(self, headless_session):
         """No setter, so no second writer for run state."""

@@ -147,7 +147,7 @@ class ImageSettings(BoxLayout):
         """
 
         # Skip accordion toggling during protocol execution to prevent memory leaks
-        if _app_ctx.ctx.protocol_running.is_set():
+        if _app_ctx.ctx.session.run_lockout:
             return
 
         gui_logger.select('IMAGE_LAYER', layer)
@@ -446,7 +446,7 @@ class ImageSettings(BoxLayout):
         was hardcoded 0-48 dB in the kv regardless of camera -- that
         let LS620 users drag past the usable range and black out the
         image. `ctx.max_gain` is populated from
-        Lumascope.camera_max_gain in load_settings (and the same
+        Lumascope.max_gain_db_cached in load_settings (and the same
         default-fallback pattern as exposure).
         """
         ctx = _app_ctx.ctx
@@ -546,7 +546,7 @@ class ImageSettings(BoxLayout):
 
     # Hide (and unhide) main settings
     def toggle_settings(self):
-        if not _app_ctx.ctx.protocol_running.is_set():
+        if not _app_ctx.ctx.session.run_lockout:
             self.update_transmitted()
         # State after toggle reflects target visibility -- 'normal' = settings
         # tab going invisible (panel collapsing to side), 'down' = expanding.
@@ -635,12 +635,12 @@ class ImageSettings(BoxLayout):
         # Live-mode accordion switches whenever the user had previously
         # enabled Protocol LEDs On. Live-mode users then saw a
         # previously-enabled channel's LED stay lit until they enabled
-        # the new channel (issue #659). Gating on protocol_running.is_set
+        # the new channel (issue #659). Gating on the run lockout
         # collapses both checks and matches the original intent.
         # set_expanded_layer() already bails for programmatic paths; this
         # covers the user-click path so a mid-capture click doesn't kill
         # the running-step LED or apply a different layer's settings.
-        if ctx.protocol_running.is_set():
+        if ctx.session.run_lockout:
             return
 
         # Issue #637: opening/closing the drawer must not send anything to

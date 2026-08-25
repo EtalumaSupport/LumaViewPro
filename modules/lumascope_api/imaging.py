@@ -2,9 +2,8 @@
 """ImagingAPI -- sub-API for camera capture / image acquisition.
 
 ImagingAPI owns _camera_cache, _frame_buffer, _scale_bar,
-_capturing_event, _focusing_event, _camera_listeners,
-_camera_temp_event, _suppress_value_warnings,
-_capture_return, _autofocus_return, and the frame_validity instance.
+_focusing_event, _camera_listeners, _camera_temp_event,
+_suppress_value_warnings, and the frame_validity instance.
 """
 
 from __future__ import annotations
@@ -23,8 +22,9 @@ from lib import profile_trace
 from lvp_logger import logger
 import modules.common_utils as common_utils
 import modules.image_utils as image_utils
-from modules.exceptions import CameraSettingRejected
+from modules.exceptions import CameraSettingRejected, HardwareCommandRefusedError
 from modules.frame_validity import FrameValidity
+from modules.lumascope_api.illumination import live_lit_pairs
 from modules.notification_center import notifications
 from modules.sequential_io_executor import IOTask
 
@@ -158,12 +158,17 @@ class ImagingAPI:
         # IlluminationAPI._driver.
         del driver  # intentionally unused, kept for backward call sites
 
-        # State / camera locks. _state_lock guards _capture_return /
-        # _autofocus_return / _scale_bar; _cam_lock serializes
+        # State / camera locks. _state_lock guards _scale_bar;
+        # _cam_lock serializes
         # access to the camera driver itself (any path that touches
         # the SDK reads/writes goes through this lock).
         self._state_lock = threading.Lock()
         self._cam_lock = profile_trace.TimedLock(threading.RLock(), name='imaging._cam_lock')
+
+        # Once-per-episode latch for the enabled-but-no-objective scale-bar
+        # skip log; the gates run per displayed frame, so an unlatched
+        # warning would flood the log at display rate.
+        self._scale_bar_objective_skip_logged = False
 
         # Camera change listeners -- push-based UI update mechanism.
         # Each listener is called with (param: str, value: float) whenever
@@ -187,14 +192,11 @@ class ImagingAPI:
         self._frame_buffer = None
 
         # Boolean operation flags -- threading.Event for wait/signal.
-        self._capturing_event = threading.Event()  # set => capture in progress
         self._focusing_event = threading.Event()  # set => autofocus in progress
 
         # Capture / autofocus return slots. Reads/writes under
         # self._state_lock. Per the Sentinel-return contract: None
         # means "no result yet."
-        self._capture_return = None
-        self._autofocus_return = None
 
         # Evidence about the most recent capture_and_wait (hold duration,
         # drained frame count, chunk-verified exposure / gain). Read via
@@ -220,7 +222,10 @@ class ImagingAPI:
         self._camera_temp_unschedule_fn = None
 
         # Scale-bar overlay config -- defaults disabled; users opt in via
-        # set_scale_bar(...). Reads/writes under self._state_lock.
+        # set_scale_bar(...). Written from the GUI thread and read from the
+        # capture and live-view threads, so every access outside this
+        # constructor goes through self._state_lock, and readers take a
+        # snapshot rather than reading the fields one at a time.
         self._scale_bar = {
             'enabled': False,
             'color': None,
@@ -228,7 +233,7 @@ class ImagingAPI:
 
         # Camera state cache -- the single store every public camera getter
         # answers from. Updated when the camera connects, after every
-        # set_gain/set_exposure/etc. write-through, and by each getter's
+        # set_gain_db/set_exposure/etc. write-through, and by each getter's
         # validated live read. Every entry is either a validated hardware
         # reading or its seed below, and the seeds are the documented
         # camera-absent defaults -- so a driver failure sentinel can never
@@ -336,10 +341,10 @@ class ImagingAPI:
 
         try:
             self.get_binning_size()
-            self.get_gain()
-            self.get_exposure_time()
-            self.get_frame_size()
-            self.get_pixel_format()
+            self.get_gain_db()
+            self.get_exposure_ms()
+            self._get_frame_size()
+            self._get_pixel_format()
             self._get_max_frame_size()
             self._live_validated_read(
                 'min_frame_size',
@@ -374,7 +379,7 @@ class ImagingAPI:
         directly without going through this layer's cache, so when the
         auto cycle toggles off the cache may hold a stale pre-auto
         value. Without this refresh, the cache-equality skip at
-        ``set_gain`` / ``set_exposure_time`` short-circuits subsequent
+        ``set_gain_db`` / ``set_exposure_ms`` short-circuits subsequent
         setter calls and hardware silently stays at the converged auto
         value -- the user-visible failure shape was a protocol's first
         run capturing at an unintended exposure inherited from a
@@ -590,7 +595,7 @@ class ImagingAPI:
             _api_log.debug(f'camera {key} read failed: {cause}')
 
     # --- Setters ---
-    def set_gain(self, gain_db: float) -> None:
+    def _set_gain_db_impl(self, gain_db: float) -> None:
         """Set the camera gain.
 
         Args:
@@ -606,7 +611,7 @@ class ImagingAPI:
         # The driver compares against live hardware and skips a truly redundant
         # SDK write; the cache-equality check here gates only the UI listener +
         # info log, where a missed redundant update is harmless.
-        changed = abs(float(gain_db) - self.camera_gain) >= 0.001
+        changed = abs(float(gain_db) - self.gain_db_cached) >= 0.001
 
         def _write_gain():
             with self._cam_lock:
@@ -632,10 +637,10 @@ class ImagingAPI:
                 'the value is within the camera limits.',
             )
         elif changed:
-            _api_log.info(f'set_gain {gain_db}dB')
+            _api_log.info(f'set_gain_db {gain_db}dB')
             self._fire_camera_listeners('gain', float(gain_db))
 
-    def set_exposure_time(self, exposure_ms: float) -> None:
+    def _set_exposure_ms_impl(self, exposure_ms: float) -> None:
         """Set the camera exposure time.
 
         Args:
@@ -647,7 +652,7 @@ class ImagingAPI:
         # a cache desynced from hardware once short-circuited it, capturing a
         # frame at a stale exposure as valid. Always invalidate + drive the
         # setter; the cache-equality check gates only the UI listener + log.
-        changed = abs(float(exposure_ms) - self.camera_exposure_ms) >= 0.001
+        changed = abs(float(exposure_ms) - self.exposure_ms_cached) >= 0.001
         # Sanity-check threshold: 5 microseconds. Pylon physical
         # ExposureTime minimum across Basler USB3 sensors is 10-35 us;
         # below 5 us is impossible on any sensor we ship with and
@@ -659,7 +664,7 @@ class ImagingAPI:
 
             _caller = ''.join(traceback.format_stack(limit=6)[-4:-1]).strip()
             logger.warning(
-                f'[SCOPE API ] set_exposure_time({exposure_ms}ms) is below '
+                f'[SCOPE API ] set_exposure_ms({exposure_ms}ms) is below '
                 f'any Basler sensor physical minimum -- camera '
                 f'will clamp the request. Confirm the value is '
                 f'in milliseconds, not seconds or microseconds.\n'
@@ -698,7 +703,132 @@ class ImagingAPI:
             _api_log.info(f'set_exposure {exposure_ms}ms')
             self._fire_camera_listeners('exposure', float(exposure_ms))
 
+    # --- Public dispatch ---
+    # These three are what an external caller reaches: an SDK script, a REST
+    # handler, the GUI. Every internal caller binds the matching `_impl`
+    # instead, so nothing already running on an executor worker or on the
+    # protocol or autofocus thread ever arrives here.
+
+    # How long a dispatched camera write waits on the camera worker before
+    # giving up. A gain or exposure write is a short SDK call behind at most
+    # a few queued camera commands, so this is a liveness bound rather than
+    # a budget -- if it ever expires, the worker is wedged and the caller
+    # should hear about it instead of blocking forever. Deliberately not a
+    # public parameter: an external caller has no way to know what value
+    # would be right.
+    _CAMERA_WRITE_TIMEOUT_S = 5.0
+
+    # The geometry class (frame size, pixel format, binning) is slower
+    # than a value write: a large-frame resize on a Pylon body has been
+    # measured near 11 s, and the dispatcher's wait bounds QUEUE TIME
+    # plus execution -- a geometry write queued behind another one must
+    # not time out while both are healthy. The bound stays a liveness
+    # verdict, not a budget: `fut.result` ABANDONS on timeout without
+    # cancelling, so a timed-out write still lands later and the caller's
+    # view of the camera diverges -- which is why this must be sized so a
+    # healthy write can never hit it.
+    _CAMERA_GEOMETRY_TIMEOUT_S = 30.0
+
+    # The capture bound is wider, and it is a BASE: a dispatched capture
+    # legitimately spends time draining stale frames before it returns, and
+    # the dispatcher adds the caller's declared work on top -- the
+    # content-gate retry budget and the summed-frame time -- so a healthy
+    # long capture is never timed out by its own liveness bound.
+    _CAPTURE_WAIT_TIMEOUT_S = 30.0
+
+    # Budget for the capture drain-and-recheck deadline. The deadline bounds
+    # how long a capture keeps draining and re-grabbing while invalidations
+    # arrive; it is frozen at capture entry so a sustained invalidation
+    # stream extends the WORK but never the BUDGET -- recomputing it from
+    # the live validity counter is exactly the unbounded-drain failure the
+    # deadline exists to end. The floor absorbs one full grab timeout
+    # (>= 1.0 s) plus one re-check cycle at the deepest camera-source skip
+    # count (3 frames); the frame-period floor is conservative against the
+    # slowest observed sim frame period (~0.126 s) -- overestimating only
+    # widens the budget, never re-admits a live-lock, because the frame
+    # count is frozen; the margin covers frame-period jitter on top of that
+    # conservative floor.
+    _CAPTURE_DEADLINE_FLOOR_S = 3.0
+    _CAPTURE_DEADLINE_MIN_FRAME_PERIOD_S = 0.15
+    _CAPTURE_DEADLINE_MARGIN = 1.5
+
+    def _dispatch_camera(self, impl, name, args=(), kwargs=None, *, timeout_s):
+        """Run one camera command for an external caller, on the right thread.
+
+        Three outcomes. With no executor registered the body runs on the
+        calling thread -- a bare `Lumascope()` in a script or an example has
+        no executors and still has to drive hardware. With a live executor
+        the body runs on the camera worker, serialized against every other
+        camera-bus operation, and this blocks until it has. With an executor
+        that will not accept work the caller is told so, because the
+        alternative is `put` returning None and the command disappearing
+        with nothing raised and nothing logged.
+
+        The refusal asks only WHETHER work is accepted. A run disables the
+        camera executor outright (io and file are fenced instead), and `put`
+        reports both states the same way, so a branch that asked WHY would
+        need a list of executor states kept in sync with the executor.
+
+        Unlike the LED dispatcher there is no connected pre-check here: the
+        camera slot holds None when no camera is present -- there is no Null
+        camera object -- so each `_impl` opens with a live driver guard and
+        answers correctly on whichever thread it runs.
+        """
+        kwargs = kwargs or {}
+        ex = self._scope._camera_executor
+        if ex is None:
+            return impl(*args, **kwargs)
+        if not ex.accepts_work():
+            raise HardwareCommandRefusedError('exclusive_activity_running', name)
+        fut = ex.put(IOTask(action=impl, args=args, kwargs=kwargs), return_future=True)
+        if fut is None:
+            # A protocol fence can land between the check above and the
+            # submit; without this the race surfaces as an AttributeError on
+            # the missing future instead of the typed refusal.
+            raise HardwareCommandRefusedError('exclusive_activity_running', name)
+        return fut.result(timeout=timeout_s)
+
+    def set_gain_db(self, gain_db: float) -> None:
+        """Set the camera gain, and wait for it.
+
+        See ``_set_gain_db_impl`` for the value contract and the rejection
+        notification; this adds only the dispatch described on
+        ``_dispatch_camera``.
+        """
+        return self._dispatch_camera(
+            self._set_gain_db_impl,
+            'set_gain_db',
+            args=(gain_db,),
+            timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
+        )
+
+    def set_exposure_ms(self, exposure_ms: float) -> None:
+        """Set the camera exposure time, and wait for it.
+
+        See ``_set_exposure_ms_impl`` for the value contract and the
+        unit-confusion warning it carries.
+        """
+        return self._dispatch_camera(
+            self._set_exposure_ms_impl,
+            'set_exposure_ms',
+            args=(exposure_ms,),
+            timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
+        )
+
     def set_auto_gain(self, state: bool, settings: dict) -> None:
+        """Enable or disable automatic gain adjustment, and wait for it.
+
+        See ``_set_auto_gain_impl`` for the value contract; this adds
+        only the dispatch described on ``_dispatch_camera``.
+        """
+        return self._dispatch_camera(
+            self._set_auto_gain_impl,
+            'set_auto_gain',
+            args=(state, settings),
+            timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
+        )
+
+    def _set_auto_gain_impl(self, state: bool, settings: dict) -> None:
         """Enable or disable automatic gain adjustment.
 
         Args:
@@ -741,6 +871,19 @@ class ImagingAPI:
             self._refresh_cache_from_hardware_after_auto()
 
     def set_auto_exposure_time(self, state: bool = True) -> None:
+        """Enable or disable automatic exposure adjustment, and wait for it.
+
+        See ``_set_auto_exposure_time_impl`` for the value contract; this
+        adds only the dispatch described on ``_dispatch_camera``.
+        """
+        return self._dispatch_camera(
+            self._set_auto_exposure_time_impl,
+            'set_auto_exposure_time',
+            args=(state,),
+            timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
+        )
+
+    def _set_auto_exposure_time_impl(self, state: bool = True) -> None:
         """Enable or disable automatic exposure adjustment.
 
         Args:
@@ -778,6 +921,21 @@ class ImagingAPI:
         return CameraSettingRejected(setting, requested)
 
     def set_frame_size(self, w: int, h: int) -> dict | None:
+        """Set the camera frame size in pixels, and wait for it.
+
+        See ``_set_frame_size_impl`` for the delivered-geometry contract
+        and the rejection semantics; this adds only the dispatch
+        described on ``_dispatch_camera``, on the geometry timeout (a
+        large-frame resize is a slow write).
+        """
+        return self._dispatch_camera(
+            self._set_frame_size_impl,
+            'set_frame_size',
+            args=(w, h),
+            timeout_s=self._CAMERA_GEOMETRY_TIMEOUT_S,
+        )
+
+    def _set_frame_size_impl(self, w: int, h: int) -> dict | None:
         """Set the camera frame size in pixels.
 
         Success is observed by receiving the DELIVERED geometry; rejection
@@ -858,6 +1016,20 @@ class ImagingAPI:
         )
 
     def set_binning_size(self, size: int) -> bool:
+        """Set camera pixel binning size, and wait for it.
+
+        See ``_set_binning_size_impl`` for the apply/rejection contract;
+        this adds only the dispatch described on ``_dispatch_camera``,
+        on the geometry timeout (binning reallocates buffers).
+        """
+        return self._dispatch_camera(
+            self._set_binning_size_impl,
+            'set_binning_size',
+            args=(size,),
+            timeout_s=self._CAMERA_GEOMETRY_TIMEOUT_S,
+        )
+
+    def _set_binning_size_impl(self, size: int) -> bool:
         """Set camera pixel binning size.
 
         Args:
@@ -930,11 +1102,25 @@ class ImagingAPI:
             common_utils.is_valid_frame_size,
             lambda v: {'width': int(v['width']), 'height': int(v['height'])},
         )
-        self.get_frame_size()
+        self._get_frame_size()
         _api_log.info(f'set_binning {size}x{size} -> True')
         return True
 
     def set_pixel_format(self, pixel_format: str) -> bool:
+        """Set the camera pixel format, and wait for it.
+
+        See ``_set_pixel_format_impl`` for the apply/rejection contract;
+        this adds only the dispatch described on ``_dispatch_camera``,
+        on the geometry timeout (a format change reallocates geometry).
+        """
+        return self._dispatch_camera(
+            self._set_pixel_format_impl,
+            'set_pixel_format',
+            args=(pixel_format,),
+            timeout_s=self._CAMERA_GEOMETRY_TIMEOUT_S,
+        )
+
+    def _set_pixel_format_impl(self, pixel_format: str) -> bool:
         """Set the camera pixel format.
 
         Args:
@@ -986,6 +1172,19 @@ class ImagingAPI:
         return True
 
     def set_conversion_gain_mode(self, mode: str) -> bool:
+        """Set the camera sensor conversion gain mode, and wait for it.
+
+        See ``_set_conversion_gain_mode_impl`` for the mode contract;
+        this adds only the dispatch described on ``_dispatch_camera``.
+        """
+        return self._dispatch_camera(
+            self._set_conversion_gain_mode_impl,
+            'set_conversion_gain_mode',
+            args=(mode,),
+            timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
+        )
+
+    def _set_conversion_gain_mode_impl(self, mode: str) -> bool:
         """Set the camera sensor conversion gain mode.
 
         High conversion gain lowers the sensor read-noise floor (better
@@ -1029,6 +1228,19 @@ class ImagingAPI:
         return result
 
     def set_line_noise_reduction(self, enabled: bool) -> bool:
+        """Enable or disable the line-noise filter, and wait for it.
+
+        See ``_set_line_noise_reduction_impl`` for the contract; this
+        adds only the dispatch described on ``_dispatch_camera``.
+        """
+        return self._dispatch_camera(
+            self._set_line_noise_reduction_impl,
+            'set_line_noise_reduction',
+            args=(enabled,),
+            timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
+        )
+
+    def _set_line_noise_reduction_impl(self, enabled: bool) -> bool:
         """Enable or disable the camera line-noise reduction filter.
 
         A camera-side filter that smooths horizontal stripe artifacts in
@@ -1489,113 +1701,6 @@ class ImagingAPI:
             )
             raise
 
-    def set_gain_async(self, gain_db, *, callback=None, cb_kwargs=None) -> None:
-        """Submit ``set_gain`` to the camera_executor; return immediately.
-
-        Args:
-            gain_db: Gain value in dB.
-            callback: Optional completion callback.
-            cb_kwargs: Optional kwargs passed to the callback.
-        """
-        ex = self._scope._require_executor(self._scope._camera_executor, 'set_gain_async')
-        ex.put(
-            IOTask(
-                action=self.set_gain,
-                args=(gain_db,),
-                callback=callback,
-                cb_kwargs=cb_kwargs,
-            )
-        )
-
-    def set_gain_sync(self, gain_db, *, timeout_s: float = 5.0) -> None:
-        """Run ``set_gain`` through the camera_executor and block until done.
-
-        Args:
-            gain_db: Gain value in dB.
-            timeout_s: Max seconds to wait for completion.
-        """
-        ex = self._scope._require_executor(self._scope._camera_executor, 'set_gain_sync')
-        task = IOTask(action=self.set_gain, args=(gain_db,))
-        fut = ex.put(task, return_future=True)
-        if fut:
-            fut.result(timeout=timeout_s)
-
-    def set_exposure_time_async(self, exposure_ms, *, callback=None, cb_kwargs=None) -> None:
-        """Submit ``set_exposure_time`` to the camera_executor; return immediately.
-
-        Args:
-            exposure_ms: Exposure time in milliseconds.
-            callback: Optional completion callback.
-            cb_kwargs: Optional kwargs passed to the callback.
-        """
-        ex = self._scope._require_executor(self._scope._camera_executor, 'set_exposure_time_async')
-        ex.put(
-            IOTask(
-                action=self.set_exposure_time,
-                args=(exposure_ms,),
-                callback=callback,
-                cb_kwargs=cb_kwargs,
-            )
-        )
-
-    def set_exposure_sync(self, exposure_ms, *, timeout_s: float = 5.0) -> None:
-        """Run ``set_exposure_time`` through the camera_executor and block.
-
-        Args:
-            exposure_ms: Exposure time in milliseconds.
-            timeout_s: Max seconds to wait for completion.
-        """
-        ex = self._scope._require_executor(self._scope._camera_executor, 'set_exposure_sync')
-        task = IOTask(action=self.set_exposure_time, args=(exposure_ms,))
-        fut = ex.put(task, return_future=True)
-        if fut:
-            fut.result(timeout=timeout_s)
-
-    def set_max_acquisition_frame_rate(
-        self,
-        enabled: bool,
-        fps: float = 1.0,
-    ) -> None:
-        """Enable or disable the camera's acquisition frame-rate cap.
-
-        Passthrough to the camera driver's ``set_max_acquisition_frame_rate``.
-        When enabled, the camera will not produce frames faster than
-        ``fps`` regardless of sensor-readout capability. Used by the
-        manual-record path (#633 Stage 2C) to clamp video to the user's
-        requested FPS, and by char-tool crash protection.
-
-        Args:
-            enabled: True to cap frame rate, False to remove the cap.
-            fps: Target frame rate in fps when ``enabled=True``.
-                Ignored when ``enabled=False``.
-
-        Raises:
-            HardwareError: Underlying SDK call failed in the driver.
-        """
-        if not self._driver or not self._driver.active:
-            return
-        if not hasattr(self._driver, 'set_max_acquisition_frame_rate'):
-            logger.warning(
-                f'[SCOPE API ] set_max_acquisition_frame_rate: '
-                f'{type(self._driver).__name__} does not implement this method'
-            )
-            return
-        try:
-            self._driver.set_max_acquisition_frame_rate(enabled=enabled, fps=fps)
-        except Exception as ex:
-            logger.exception(f'[SCOPE API ] Error setting max_acquisition_frame_rate: {ex}')
-            from modules.notification_center import notifications
-
-            notifications.error(
-                'Camera',
-                'Frame-rate cap change failed',
-                f'Could not set frame-rate cap to enabled={enabled}, '
-                f'fps={fps}. Camera may still be at the previous setting. '
-                f'See the log for details.',
-            )
-            raise
-
-    # --- Getters ---
     def _live_validated_read(
         self,
         key: str,
@@ -1681,18 +1786,19 @@ class ImagingAPI:
         return cached if is_valid(cached) else absent
 
     def get_live_camera_settings(self) -> dict:
-        """Live-confirmed gain and exposure, omitting any field whose read
+        """Live-confirmed camera settings, omitting any field whose read
         did not just succeed.
 
         For consumers that record what the hardware was at a specific
         moment (saved-image metadata, state snapshots): the value getters
-        (get_gain / get_exposure_time) deliberately hide read failures
+        (get_gain_db / get_exposure_ms) deliberately hide read failures
         behind the last-known-good cache, which is right for control flow
         but would record a value the frame was not captured at. Here,
         unknown stays unknown.
 
         Returns:
-            dict: Zero, one, or both of 'gain_db' and 'exposure_ms' --
+            dict: Any of 'gain_db', 'exposure_ms', 'frame_size'
+                (``{'width': int, 'height': int}``), and 'pixel_format' --
                 only fields whose live driver read succeeded and
                 validated. Empty when no camera is active.
         """
@@ -1713,9 +1819,25 @@ class ImagingAPI:
         )
         if exposure is not None:
             settings['exposure_ms'] = exposure
+        frame_size = self._live_validated_read(
+            'frame_size',
+            lambda driver: driver.get_frame_size(),
+            common_utils.is_valid_frame_size,
+            lambda v: {'width': int(v['width']), 'height': int(v['height'])},
+        )
+        if frame_size is not None:
+            settings['frame_size'] = dict(frame_size)
+        pixel_format = self._live_validated_read(
+            'pixel_format',
+            lambda driver: driver.get_pixel_format(),
+            common_utils.is_valid_pixel_format,
+            str,
+        )
+        if pixel_format is not None:
+            settings['pixel_format'] = pixel_format
         return settings
 
-    def get_gain(self) -> float:
+    def get_gain_db(self) -> float:
         """Get the current camera gain.
 
         Returns:
@@ -1731,7 +1853,7 @@ class ImagingAPI:
             -1.0,
         )
 
-    def get_exposure_time(self) -> float:
+    def get_exposure_ms(self) -> float:
         """Get the current camera exposure time.
 
         Returns:
@@ -1747,7 +1869,7 @@ class ImagingAPI:
             0.0,
         )
 
-    def get_frame_size(self) -> dict | None:
+    def _get_frame_size(self) -> dict | None:
         """Get the current camera frame size.
 
         Returns:
@@ -1765,7 +1887,7 @@ class ImagingAPI:
         )
         return dict(frame_size) if frame_size is not None else None
 
-    def get_pixel_format(self) -> str | None:
+    def _get_pixel_format(self) -> str | None:
         """Get the current camera pixel format.
 
         Returns:
@@ -1793,28 +1915,6 @@ class ImagingAPI:
             None,
         )
 
-    def get_max_width(self) -> int:
-        """Get the maximum pixel width of the camera sensor.
-
-        Returns:
-            int: Max width in pixels -- last-known-good when the live read
-                fails. 0 when no camera is active or the value has never
-                been read.
-        """
-        max_frame_size = self._get_max_frame_size()
-        return int(max_frame_size['width']) if max_frame_size else 0
-
-    def get_max_height(self) -> int:
-        """Get the maximum pixel height of the camera sensor.
-
-        Returns:
-            int: Max height in pixels -- last-known-good when the live read
-                fails. 0 when no camera is active or the value has never
-                been read.
-        """
-        max_frame_size = self._get_max_frame_size()
-        return int(max_frame_size['height']) if max_frame_size else 0
-
     def get_width(self) -> int:
         """Get the current frame width setting.
 
@@ -1823,7 +1923,7 @@ class ImagingAPI:
                 read fails. 0 when no camera is active or the size has
                 never been read.
         """
-        frame_size = self.get_frame_size()
+        frame_size = self._get_frame_size()
         return int(frame_size['width']) if frame_size else 0
 
     def get_height(self) -> int:
@@ -1834,7 +1934,7 @@ class ImagingAPI:
                 read fails. 0 when no camera is active or the size has
                 never been read.
         """
-        frame_size = self.get_frame_size()
+        frame_size = self._get_frame_size()
         return int(frame_size['height']) if frame_size else 0
 
     def get_binning_size(self) -> int:
@@ -1883,9 +1983,10 @@ class ImagingAPI:
         """Return the sensor's physical unbinned resolution.
 
         This is the static per-model ceiling for the native (unbinned) ROI,
-        independent of the current binning factor (unlike get_max_width/height,
-        which reflect the max settable at the current binning). Empty dict if
-        no camera or the profile does not declare it.
+        independent of the current binning factor. For the sensor max as the
+        driver reports it at boot, see
+        ``scope.capabilities.camera_max_frame_size``. Empty dict if no
+        camera or the profile does not declare it.
 
         Returns:
             dict: ``{'width': int, 'height': int}`` or ``{}`` if unknown.
@@ -1920,11 +2021,11 @@ class ImagingAPI:
             return default
 
     # --- Capture ---
-    def capture_and_wait(
+    def _capture_and_wait_impl(
         self,
         force_to_8bit: bool = True,
         *,
-        dark_floor_check: bool,
+        accept_dark: bool = False,
         exclude_sources: tuple = (),
         all_ones_check: bool = False,
         earliest_image_ts: datetime.datetime | None = None,
@@ -1948,13 +2049,16 @@ class ImagingAPI:
             exclude_sources: Sources to ignore for validity (e.g. ('z_move',)
                 for autofocus where Z motion doesn't need to fully settle).
             all_ones_check: Reject all-max-value frames (camera hardware issue).
-            dark_floor_check: Required -- the caller must state whether
-                illumination is expected ON for this capture. True rejects
-                frames with essentially no lit pixel (see get_image);
-                False accepts dark frames (by-design-dark captures:
-                brightfield at illumination 0, luminescence, focus-score
-                grabs). Required rather than defaulted so a new capture
-                site cannot silently skip the decision.
+            accept_dark: Caller-intent override for the derived dark-floor
+                expectation. The capture derives whether illumination is
+                commanded ON from the illumination API itself (a channel
+                counts as lit only at strictly positive current, so an
+                enabled 0 mA channel is dark by design); when a channel is
+                lit, a frame with essentially no lit pixel is retried then
+                rejected loudly. accept_dark=True admits the dark frame
+                anyway -- for callers whose dark frames are legitimate
+                while lit: autofocus sweeps (an out-of-focus fluorescence
+                plane can carry no signal) and benchmark probes.
             earliest_image_ts: Reject frames captured before this timestamp.
                 Forwarded to the final get_image call; complements the
                 frame-validity drain for callers that also want a wall-clock
@@ -1966,10 +2070,33 @@ class ImagingAPI:
 
         Returns:
             numpy.ndarray | None: Captured image array on success, None
-                on camera-inactive or frame-drain failure. Per the
-                Sentinel-return contract: `if image is None: ...`.
+                on camera-inactive, frame-drain failure, or deadline
+                expiry. Per the Sentinel-return contract:
+                `if image is None: ...`.
+
+        The capture honors invalidation across its whole window: hardware
+        state changing between the drain's settle and the grab's return is
+        detected via the invalidation counters, and the capture re-drains,
+        re-derives its expectations (dark floor included), and re-grabs.
+        The drain-and-recheck deadline bounds that loop -- a sustained
+        invalidation stream produces a loud, distinctly-logged None in
+        bounded time instead of an open-ended hold. The deadline clock
+        suspends while commanded motion is still physically settling
+        (motion has its own authoritative completion signal, and a frame
+        budget must not out-vote it), and it governs only the drain and
+        re-check loops: the interior of one grab is bounded by
+        ``timeout_s`` and, for summed captures, the sum window itself.
+        The one state change no polling design can see is a driver write
+        whose invalidate has not yet landed when the grab returns; that
+        residual is microseconds wide and accepted.
         """
+        # Every exit -- including these not-ready sentinels -- records
+        # last_capture_info, so a consumer relaying the failure cause is
+        # always reading THIS attempt, never a stale dict from the
+        # previous capture.
         if not self._driver or not self._driver.active:
+            with self._state_lock:
+                self._last_capture_info = {'not_ready': True}
             return None
 
         # active (connected) is necessary but not sufficient to deliver a
@@ -1983,81 +2110,191 @@ class ImagingAPI:
                 '[SCOPE API ] capture_and_wait: no active grab (streaming not '
                 'started or stopped) -- returning None until the feed is running.'
             )
+            with self._state_lock:
+                self._last_capture_info = {'not_ready': True}
             return None
 
         hold_start = time.monotonic()
-        exposure_s = self.get_exposure_time() / 1000
+        exposure_s = self.get_exposure_ms() / 1000
         grab_timeout_s = max(exposure_s * 3, 1.0)
 
-        # Drain stale frames until all pending state changes have settled.
-        # Per-frame chunk metadata flows into count_frame so chunks short-
-        # circuit skip-frames for chunk-validatable sources (gain, exposure).
-        # Cameras without chunks return None and fall back to the existing
-        # skip-frames + settle-check path. Each drained grab passes its frame
-        # timestamp so a frame concurrently counted by the preview poller is
-        # not counted twice.
-        drain_iterations = 0
-        while self.frame_validity.frames_until_valid(exclude_sources=exclude_sources) > 0:
-            status, drain_frame_ts = self._driver.grab_new_capture(timeout_s=grab_timeout_s)
-            if status:
-                self.frame_validity.count_frame(
-                    chunk_data=self._get_latest_chunks(), frame_ts=drain_frame_ts
-                )
-                drain_iterations += 1
-            else:
-                remaining = self.frame_validity.frames_until_valid(exclude_sources=exclude_sources)
-                device_removed = (
-                    self._driver.is_device_removed()
-                    if self._driver and hasattr(self._driver, 'is_device_removed')
-                    else None
-                )
-                logger.warning(
-                    f'[SCOPE API ] capture_and_wait: frame drain failed -- '
-                    f'grab_new_capture returned status=False after '
-                    f'{grab_timeout_s:.1f}s timeout '
-                    f'(drained={drain_iterations}, frames_until_valid={remaining}, '
-                    f'device_removed={device_removed})'
-                )
-                # None is the contract's failure sentinel. A bool here
-                # slips every `is None` caller check: the stills leg
-                # skipped its capture strike -- and reset the accumulated
-                # counter -- on exactly this stalled-feed failure mode.
-                return None
-
-        image = self.get_image(
-            force_to_8bit=force_to_8bit,
-            earliest_image_ts=earliest_image_ts,
-            all_ones_check=all_ones_check,
-            dark_floor_check=dark_floor_check,
-            timeout_s=timeout_s,
-            sum_count=sum_count,
-            sum_delay_s=sum_delay_s,
-            sum_iteration_callback=sum_iteration_callback,
-            force_new_capture=True,
-            new_capture_timeout_s=grab_timeout_s,
-            verify_chunk_targets=True,
+        # The deadline is frozen at entry: the pending frame count and the
+        # exposure are read once and never re-raised, so invalidations
+        # arriving after entry extend the work but not the budget. The sum
+        # term mirrors the public dispatcher's liveness wait -- a long
+        # summed capture legitimately grinds for its whole sum window, and
+        # a re-grab repeats that window. Each frame is costed at the larger
+        # of the exposure and the conservative frame-period floor: a camera
+        # cannot deliver frames faster than its readout, whatever the
+        # exposure says.
+        n_entry = self.frame_validity.frames_until_valid(exclude_sources=exclude_sources)
+        frame_cost_s = max(exposure_s, self._CAPTURE_DEADLINE_MIN_FRAME_PERIOD_S)
+        deadline_s = (
+            self._CAPTURE_DEADLINE_FLOOR_S
+            + n_entry * frame_cost_s * self._CAPTURE_DEADLINE_MARGIN
+            + sum_count * (frame_cost_s + sum_delay_s)
         )
+        # Pause-and-resume accounting: an interval is charged to the budget
+        # only when no commanded motion was still settling at the check.
+        # Charging suspended intervals would expire the budget across one
+        # legitimate long stage move and fail a capture that motion's own
+        # completion signal is about to release.
+        _clock = {'last': hold_start, 'active': 0.0}
+
+        def _deadline_expired() -> bool:
+            now = time.monotonic()
+            if not self.frame_validity.unsettled_motion_sources(exclude_sources=exclude_sources):
+                _clock['active'] += now - _clock['last']
+            _clock['last'] = now
+            return _clock['active'] > deadline_s
+
+        def _record_capture_info(**extra) -> None:
+            with self._state_lock:
+                self._last_capture_info = {
+                    'hold_ms': (time.monotonic() - hold_start) * 1000.0,
+                    'drained': drain_iterations,
+                    'rechecks': recheck_cycles,
+                    'deadline_s': deadline_s,
+                    'n_entry': n_entry,
+                    'active_s': _clock['active'],
+                    **extra,
+                }
+
+        def _deadline_none(where: str):
+            logger.warning(
+                f'[SCOPE API ] capture_and_wait: capture DEADLINE EXPIRED '
+                f'({where}) -- active={_clock["active"]:.3f}s > '
+                f'deadline_s={deadline_s:.3f}s (n_entry={n_entry}, '
+                f'rechecks={recheck_cycles}, '
+                f'wall={time.monotonic() - hold_start:.3f}s); invalidation '
+                f'outran the capture budget. Distinct from grab failure.'
+            )
+            _record_capture_info(deadline_expired=True)
+            return None
+
+        # `drained` accumulates across every drain re-entry; `rechecks`
+        # counts how many times the window was dirtied and re-run.
+        drain_iterations = 0
+        recheck_cycles = 0
+        while True:
+            if _deadline_expired():
+                return _deadline_none('recheck-top')
+            # Grab plumbing is re-derived each cycle so a mid-window
+            # exposure change sizes the NEXT drain and grab for the state
+            # that now holds -- a grab timeout sized to a stale short
+            # exposure fails healthy long-exposure frames and reports the
+            # staleness as a drain failure. Plumbing only: the budget
+            # above stays frozen.
+            exposure_s = self.get_exposure_ms() / 1000
+            grab_timeout_s = max(exposure_s * 3, 1.0)
+
+            # Snapshot the invalidation counters BEFORE the drain: any
+            # invalidation landing after this line -- during the drain,
+            # the derivation, or the grab itself -- differs at the compare
+            # below, so no gap exists in which a change can hide. The
+            # counters are immune to frames settling the pending state
+            # (that erasure is exactly why pending-state snapshots cannot
+            # do this job).
+            counts_before = {
+                s: c
+                for s, c in self.frame_validity.invalidation_counts.items()
+                if s not in exclude_sources
+            }
+
+            # Drain stale frames until all pending state changes have
+            # settled. Per-frame chunk metadata flows into count_frame so
+            # chunks short-circuit skip-frames for chunk-validatable
+            # sources (gain, exposure). Cameras without chunks return None
+            # and fall back to the existing skip-frames + settle-check
+            # path. Each drained grab passes its frame timestamp so a
+            # frame concurrently counted by the preview poller is not
+            # counted twice.
+            while self.frame_validity.frames_until_valid(exclude_sources=exclude_sources) > 0:
+                if _deadline_expired():
+                    return _deadline_none('drain-loop')
+                status, drain_frame_ts = self._driver.grab_new_capture(timeout_s=grab_timeout_s)
+                if status:
+                    self.frame_validity.count_frame(
+                        chunk_data=self._get_latest_chunks(), frame_ts=drain_frame_ts
+                    )
+                    drain_iterations += 1
+                else:
+                    remaining = self.frame_validity.frames_until_valid(
+                        exclude_sources=exclude_sources
+                    )
+                    device_removed = (
+                        self._driver.is_device_removed()
+                        if self._driver and hasattr(self._driver, 'is_device_removed')
+                        else None
+                    )
+                    logger.warning(
+                        f'[SCOPE API ] capture_and_wait: frame drain failed -- '
+                        f'grab_new_capture returned status=False after '
+                        f'{grab_timeout_s:.1f}s timeout '
+                        f'(drained={drain_iterations}, frames_until_valid={remaining}, '
+                        f'device_removed={device_removed})'
+                    )
+                    # None is the contract's failure sentinel. A bool here
+                    # slips every `is None` caller check: the stills leg
+                    # skipped its capture strike -- and reset the accumulated
+                    # counter -- on exactly this stalled-feed failure mode.
+                    _record_capture_info(drain_failed=True)
+                    return None
+
+            # The dark-floor expectation is the API's own fact, derived
+            # after the drain settles -- never posted by callers -- so the
+            # value cannot drift from commanded state. A re-run of this
+            # loop re-derives it, because the state change that dirtied
+            # the window is exactly what makes the old derivation stale.
+            expected_lit = bool(live_lit_pairs(self._scope.illumination))
+
+            image = self._get_image_impl(
+                force_to_8bit=force_to_8bit,
+                earliest_image_ts=earliest_image_ts,
+                all_ones_check=all_ones_check,
+                dark_floor_check=expected_lit and not accept_dark,
+                timeout_s=timeout_s,
+                sum_count=sum_count,
+                sum_delay_s=sum_delay_s,
+                sum_iteration_callback=sum_iteration_callback,
+                force_new_capture=True,
+                new_capture_timeout_s=grab_timeout_s,
+                verify_chunk_targets=True,
+            )
+
+            # Post-grab compare: a changed counter means the window was
+            # dirtied and the frame (or failure) predates the state the
+            # caller commanded. The compare runs BEFORE any None
+            # propagates: a dirtied-window failure is recoverable -- it
+            # was caused by the very change this loop exists to honor --
+            # so only a clean-window None falls through as a genuine grab
+            # failure. Compare spans both key sets: a source's first-ever
+            # invalidation adds a key the snapshot lacks.
+            counts_after = {
+                s: c
+                for s, c in self.frame_validity.invalidation_counts.items()
+                if s not in exclude_sources
+            }
+            if counts_after != counts_before:
+                recheck_cycles += 1
+                continue
+            break
 
         # Record per-capture evidence for the caller's log line (protocol
         # captures log brightness + the chunk-verified settings per frame so
         # a support bundle shows what each saved frame was exposed with).
         chunks = self._get_latest_chunks() or {}
-        with self._state_lock:
-            self._last_capture_info = {
-                'hold_ms': (time.monotonic() - hold_start) * 1000.0,
-                'drained': drain_iterations,
-                'chunk_exposure_us': chunks.get('ExposureTime'),
-                'chunk_gain_db': chunks.get('Gain'),
-            }
+        _record_capture_info(
+            chunk_exposure_us=chunks.get('ExposureTime'),
+            chunk_gain_db=chunks.get('Gain'),
+        )
         return image
 
-    def capture_and_wait_async(
+    def capture_and_wait(
         self,
-        *,
-        callback=None,
-        cb_kwargs=None,
-        dark_floor_check: bool,
         force_to_8bit: bool = True,
+        *,
+        accept_dark: bool = False,
         exclude_sources: tuple = (),
         all_ones_check: bool = False,
         earliest_image_ts: datetime.datetime | None = None,
@@ -2065,103 +2302,54 @@ class ImagingAPI:
         sum_count: int = 1,
         sum_delay_s: float = 0,
         sum_iteration_callback=None,
-    ) -> None:
-        """Submit ``capture_and_wait`` to the camera_executor; return
-        immediately. The captured image is delivered via ``callback``.
-
-        Args:
-            callback: Completion callback; receives the captured array
-                (or ``None`` on capture failure) as the first arg.
-            cb_kwargs: Optional kwargs passed to the callback.
-            dark_floor_check: Required -- whether illumination is expected
-                ON for this capture (see capture_and_wait).
-            force_to_8bit: Convert to 8-bit output.
-            exclude_sources: Sources to ignore for validity (e.g. ('z_move',)).
-            all_ones_check: Reject all-max-value frames.
-            earliest_image_ts: Reject frames captured before this timestamp.
-            timeout_s: Timeout (seconds) for the final get_image call.
-            sum_count: Number of frames to sum for noise reduction.
-            sum_delay_s: Delay between summed frames.
-            sum_iteration_callback: Called after each summed frame.
-        """
-        ex = self._scope._require_executor(self._scope._camera_executor, 'capture_and_wait_async')
-        ex.put(
-            IOTask(
-                action=self.capture_and_wait,
-                kwargs={
-                    'dark_floor_check': dark_floor_check,
-                    'force_to_8bit': force_to_8bit,
-                    'exclude_sources': exclude_sources,
-                    'all_ones_check': all_ones_check,
-                    'earliest_image_ts': earliest_image_ts,
-                    'timeout_s': timeout_s,
-                    'sum_count': sum_count,
-                    'sum_delay_s': sum_delay_s,
-                    'sum_iteration_callback': sum_iteration_callback,
-                },
-                callback=callback,
-                cb_kwargs=cb_kwargs,
-            )
-        )
-
-    def capture_and_wait_sync(
-        self,
-        *,
-        timeout_s: float = 30.0,
-        dark_floor_check: bool,
-        grab_timeout_s: float = 0.0,
-        force_to_8bit: bool = True,
-        exclude_sources: tuple = (),
-        all_ones_check: bool = False,
-        earliest_image_ts: datetime.datetime | None = None,
-        sum_count: int = 1,
-        sum_delay_s: float = 0,
-        sum_iteration_callback=None,
     ) -> np.ndarray | None:
-        """Run ``capture_and_wait`` through the camera_executor and block.
+        """Capture a frame-valid image on the camera worker, and wait for it.
 
-        Args:
-            timeout_s: Max seconds to wait for completion (wraps the executor
-                Future.result wait, not the inner capture_and_wait grab).
-            dark_floor_check: Required -- whether illumination is expected
-                ON for this capture (see capture_and_wait).
-            grab_timeout_s: Retry budget (seconds) for the inner
-                capture_and_wait content gates (saturation, dark floor,
-                chunk verify) -- forwarded as its timeout_s. Distinct from
-                timeout_s above, which only bounds the executor wait; with
-                the default 0.0 a content-gated frame is judged on the
-                first grab with no retry window.
-            force_to_8bit: Convert to 8-bit output.
-            exclude_sources: Sources to ignore for validity (e.g. ('z_move',)).
-            all_ones_check: Reject all-max-value frames.
-            earliest_image_ts: Reject frames captured before this timestamp.
-            sum_count: Number of frames to sum for noise reduction.
-            sum_delay_s: Delay between summed frames.
-            sum_iteration_callback: Called after each summed frame.
-
-        Returns:
-            The captured image array, or None on failure (camera-inactive,
-            frame-drain failed, executor absent, or future not delivered).
+        See ``_capture_and_wait_impl`` for the argument contract, the
+        frame-drain behaviour, and the None-on-failure sentinel; this adds
+        only the dispatch described on ``_dispatch_camera``. ``timeout_s``
+        stays the content-gate retry budget the body reads; the executor
+        wait is bounded separately and internally.
         """
-        ex = self._scope._require_executor(self._scope._camera_executor, 'capture_and_wait_sync')
-        task = IOTask(
-            action=self.capture_and_wait,
+        # The executor wait is a liveness bound, not a budget, so it scales
+        # with the work the caller declared: the content-gate retry budget
+        # runs inside the body, and each summed frame costs an exposure plus
+        # the configured inter-frame delay. A flat bound times out a healthy
+        # long capture (large sum_count at long exposure -- luminescence)
+        # while the worker is still legitimately grinding. It also scales
+        # with the settle work already pending at submit, and must dominate
+        # the body's own drain-and-recheck deadline -- otherwise a deep
+        # legitimate drain (a 20-frame auto-gain settle at the luminescence
+        # exposure ceiling) surfaces to the caller as an executor
+        # TimeoutError instead of the body's loud, distinctly-logged None.
+        frame_cost_s = max(
+            self.exposure_ms_cached / 1000.0,
+            self._CAPTURE_DEADLINE_MIN_FRAME_PERIOD_S,
+        )
+        wait_s = (
+            self._CAPTURE_WAIT_TIMEOUT_S
+            + timeout_s
+            + sum_count * (frame_cost_s + sum_delay_s)
+            + self.frame_validity.frames_until_valid(exclude_sources=exclude_sources)
+            * frame_cost_s
+            * self._CAPTURE_DEADLINE_MARGIN
+        )
+        return self._dispatch_camera(
+            self._capture_and_wait_impl,
+            'capture_and_wait',
             kwargs={
-                'dark_floor_check': dark_floor_check,
-                'timeout_s': grab_timeout_s,
                 'force_to_8bit': force_to_8bit,
+                'accept_dark': accept_dark,
                 'exclude_sources': exclude_sources,
                 'all_ones_check': all_ones_check,
                 'earliest_image_ts': earliest_image_ts,
+                'timeout_s': timeout_s,
                 'sum_count': sum_count,
                 'sum_delay_s': sum_delay_s,
                 'sum_iteration_callback': sum_iteration_callback,
             },
+            timeout_s=wait_s,
         )
-        fut = ex.put(task, return_future=True)
-        if fut:
-            return fut.result(timeout=timeout_s)
-        return None
 
     # A frame at least this saturated is treated as blown -- a stale-gain
     # or over-exposure symptom. Set high so a legitimately bright field
@@ -2208,7 +2396,7 @@ class ImagingAPI:
         floor = full_scale * ImagingAPI._DARK_FLOOR_FRACTION
         return float(np.count_nonzero(arr > floor)) / arr.size
 
-    def get_image(
+    def _get_image_impl(
         self,
         force_to_8bit: bool = True,
         earliest_image_ts: datetime.datetime | None = None,
@@ -2241,10 +2429,10 @@ class ImagingAPI:
             all_ones_check: Reject saturated (all-max-value) frames.
             dark_floor_check: Reject frames with essentially no pixel above
                 the dark floor, retrying until a lit frame arrives or
-                timeout_s expires. Pass True only when the caller KNOWS
-                illumination is expected ON -- a brightfield step captured
-                with the LED intentionally off is dark by design and must
-                keep this False.
+                timeout_s expires. Internal transport of the value
+                capture_and_wait derives from commanded LED state; the
+                public get_image never sets it (probes and diagnostics
+                must see what the camera sees, dark or not).
             sum_count: Number of frames to sum for noise reduction.
             sum_delay_s: Delay in seconds between summed frames.
             sum_iteration_callback: Called after each summed frame.
@@ -2294,7 +2482,7 @@ class ImagingAPI:
 
             while True:
                 # Acquire cam_lock for camera grab -- prevents concurrent
-                # set_gain/set_exposure from another thread mid-frame.
+                # set_gain_db/set_exposure from another thread mid-frame.
                 with self._cam_lock:
                     if force_new_capture:
                         grab_status, grab_image_ts = self._driver.grab_new_capture(
@@ -2359,7 +2547,7 @@ class ImagingAPI:
                             )
                             retry_frame = self._driver.get_array()
                     # Saturation walk is outside cam_lock -- no camera state needed,
-                    # and the walk would otherwise block concurrent set_gain/set_exposure.
+                    # and the walk would otherwise block concurrent set_gain_db/set_exposure.
                     if retry_frame is not None and (
                         self._saturated_fraction(retry_frame, self.last_significant_bits)
                         < self._SATURATION_BLOWN_FRACTION
@@ -2487,9 +2675,11 @@ class ImagingAPI:
 
             image = np.clip(combined, None, max_value).astype(orig_dtype)
 
-        use_scale_bar = self._scale_bar['enabled']
-        if self._scope.runtime_state._objective is None:
-            use_scale_bar = False
+        # One snapshot for the whole overlay decision: enabled and color must
+        # come from the same configuration even if the GUI toggles mid-frame.
+        scale_bar = self.scale_bar_config
+        objective = self._scope.runtime_state.get_current_objective()
+        use_scale_bar = self._resolve_use_scale_bar(scale_bar['enabled'], objective)
 
         need_8bit = force_to_8bit and image.dtype != np.uint8
 
@@ -2506,9 +2696,9 @@ class ImagingAPI:
         if use_scale_bar:
             image = image_utils.add_scale_bar(
                 image=image,
-                objective=self._scope.runtime_state._objective,
+                objective=objective,
                 binning_size=self._binning_size,
-                color=self._scale_bar.get('color'),
+                color=scale_bar.get('color'),
                 significant_bits=significant_bits,
             )
 
@@ -2516,6 +2706,46 @@ class ImagingAPI:
             image = image_utils.convert_to_8bit(image, significant_bits)
 
         return image
+
+    def get_image(
+        self,
+        force_to_8bit: bool = True,
+        earliest_image_ts: datetime.datetime | None = None,
+        timeout_s: float = 5.0,
+        all_ones_check: bool = False,
+        sum_count: int = 1,
+        sum_delay_s: float = 0,
+        sum_iteration_callback=None,
+        force_new_capture: bool = False,
+        new_capture_timeout_s: float = 5.0,
+        verify_chunk_targets: bool = False,
+    ) -> np.ndarray | None:
+        """Grab and return an image from the camera -- the UNGATED primitive.
+
+        Never dark-rejects: liveness probes and diagnostics must see what
+        the camera sees, dark or not. For any frame you will SAVE or
+        MEASURE as truth, call capture_and_wait, which drains the camera
+        pipeline until the validity marker is GREEN and derives the
+        dark-floor expectation from commanded LED state.
+
+        Explicit parameters, never a **kwargs forward: the signature is a
+        pinned contract (introspected by tests), and a silent kwarg
+        pass-through would re-open the door this split closed.
+
+        See ``_get_image_impl`` for the full argument contract.
+        """
+        return self._get_image_impl(
+            force_to_8bit=force_to_8bit,
+            earliest_image_ts=earliest_image_ts,
+            timeout_s=timeout_s,
+            all_ones_check=all_ones_check,
+            sum_count=sum_count,
+            sum_delay_s=sum_delay_s,
+            sum_iteration_callback=sum_iteration_callback,
+            force_new_capture=force_new_capture,
+            new_capture_timeout_s=new_capture_timeout_s,
+            verify_chunk_targets=verify_chunk_targets,
+        )
 
     def get_image_from_buffer(
         self, force_to_8bit: bool = True, out_8bit: np.ndarray | None = None
@@ -2567,16 +2797,17 @@ class ImagingAPI:
         with self._state_lock:
             self._frame_buffer = tmp
 
-        use_scale_bar = self._scale_bar['enabled']
-        if self._scope.runtime_state._objective is None:
-            use_scale_bar = False
+        # Snapshot both fields together; see get_image for why.
+        scale_bar = self.scale_bar_config
+        objective = self._scope.runtime_state.get_current_objective()
+        use_scale_bar = self._resolve_use_scale_bar(scale_bar['enabled'], objective)
 
         if use_scale_bar:
             tmp = image_utils.add_scale_bar(
                 image=tmp,
-                objective=self._scope.runtime_state._objective,
+                objective=objective,
                 binning_size=self._binning_size,
-                color=self._scale_bar.get('color'),
+                color=scale_bar.get('color'),
                 significant_bits=frame_significant_bits,
             )
 
@@ -2607,7 +2838,7 @@ class ImagingAPI:
         driver = self._driver
         if driver is None:
             return 16
-        return driver.significant_bits_for_format(self.get_pixel_format())
+        return driver.significant_bits_for_format(self._get_pixel_format())
 
     @property
     def last_significant_bits(self) -> int:
@@ -2687,7 +2918,7 @@ class ImagingAPI:
     def is_streaming(self) -> bool:
         """Whether the camera is currently acquiring frames.
 
-        Queries the driver directly (unlike ``camera_active``, which reads
+        Queries the driver directly (unlike ``active_cached``, which reads
         the cached connected-state). False when no camera is attached.
         """
         driver = self._driver
@@ -2697,7 +2928,7 @@ class ImagingAPI:
 
     # --- State / lifecycle properties ---
     @property
-    def camera_active(self) -> bool:
+    def active_cached(self) -> bool:
         """Whether the camera is connected and active (reads cache).
 
         Returns:
@@ -2707,7 +2938,7 @@ class ImagingAPI:
             return self._camera_cache['active']
 
     @property
-    def camera_gain(self) -> float:
+    def gain_db_cached(self) -> float:
         """Current camera gain in dB (reads cache).
 
         Returns:
@@ -2717,7 +2948,7 @@ class ImagingAPI:
             return self._camera_cache['gain_db']
 
     @property
-    def camera_exposure_ms(self) -> float:
+    def exposure_ms_cached(self) -> float:
         """Current camera exposure time in ms (reads cache).
 
         Returns:
@@ -2727,7 +2958,7 @@ class ImagingAPI:
             return self._camera_cache['exposure_ms']
 
     @property
-    def camera_frame_size(self) -> dict:
+    def frame_size_cached(self) -> dict:
         """Current camera frame size as {'width': int, 'height': int} (reads cache).
 
         Returns:
@@ -2756,17 +2987,25 @@ class ImagingAPI:
         }
 
     @property
-    def camera_min_frame_size(self) -> dict:
-        """Minimum camera frame size (reads cache).
+    def min_frame_size_cached(self) -> dict | None:
+        """Minimum camera frame size, or None if no camera is connected.
+
+        Returns None (not a zero-sized dict) so callers can distinguish
+        "camera missing" from a real driver value -- the same contract as
+        its siblings max_exposure_ms_cached and max_gain_db_cached.
 
         Returns:
-            dict: Copy of the cached min frame size dict.
+            dict | None: Copy of the cached min frame size dict, or None
+                if unavailable.
         """
         with self._camera_cache_lock:
-            return dict(self._camera_cache['min_frame_size'])
+            value = dict(self._camera_cache['min_frame_size'])
+        if value.get('width', 0) <= 0 or value.get('height', 0) <= 0:
+            return None
+        return value
 
     @property
-    def camera_max_exposure(self) -> float | None:
+    def max_exposure_ms_cached(self) -> float | None:
         """Maximum camera exposure time in ms, or None if no camera is connected.
 
         Returns None (not a sentinel 0.0) so callers can distinguish
@@ -2782,10 +3021,10 @@ class ImagingAPI:
         return float(value)
 
     @property
-    def camera_max_gain(self) -> float | None:
+    def max_gain_db_cached(self) -> float | None:
         """Maximum camera gain in dB, or None if no camera is connected.
 
-        Parallel to camera_max_exposure -- lets the UI size the gain
+        Parallel to max_exposure_ms_cached -- lets the UI size the gain
         slider to the connected camera's profile-declared cap instead
         of a universal hardcoded 48 dB that can drive the image past
         the sensor's usable range (observed on LS620 2026-04-16).
@@ -2800,7 +3039,7 @@ class ImagingAPI:
         return float(value)
 
     @property
-    def camera_pixel_format(self) -> str | None:
+    def pixel_format_cached(self) -> str | None:
         """Current camera pixel format (e.g. 'Mono8', 'Mono12') (reads cache).
 
         Returns:
@@ -2830,7 +3069,7 @@ class ImagingAPI:
             dict: Snapshot suitable for passing to ``restore_camera_state``.
         """
         snapshot = {'tag': tag}
-        gain_db = self.get_gain()
+        gain_db = self.get_gain_db()
         if common_utils.is_valid_gain_db(gain_db):
             snapshot['gain_db'] = gain_db
         else:
@@ -2845,7 +3084,7 @@ class ImagingAPI:
                 f'been successfully read; snapshot omits it and the restore '
                 f'will leave gain unchanged'
             )
-        exposure_ms = self.get_exposure_time()
+        exposure_ms = self.get_exposure_ms()
         if common_utils.is_valid_exposure_ms(exposure_ms):
             snapshot['exposure_ms'] = exposure_ms
         else:
@@ -2904,12 +3143,34 @@ class ImagingAPI:
             f'exp={exposure_ms if exposure_known else "skipped"}'
         )
         if gain_known:
-            self.set_gain(gain_db)
+            self._set_gain_db_impl(gain_db)
         if exposure_known:
-            self.set_exposure_time(exposure_ms)
+            self._set_exposure_ms_impl(exposure_ms)
 
     # --- Camera config orchestration ---
     def apply_layer_camera_settings(
+        self,
+        gain_db: float,
+        exposure_ms: float,
+        auto_gain: bool = False,
+        auto_gain_settings: dict | None = None,
+    ) -> None:
+        """Apply per-layer camera settings in one batched call, and wait.
+
+        See ``_apply_layer_camera_settings_impl`` for the contract; this
+        adds only the dispatch described on ``_dispatch_camera``. The
+        batch is one dispatched task, so the three writes stay atomic on
+        the camera lane.
+        """
+        return self._dispatch_camera(
+            self._apply_layer_camera_settings_impl,
+            'apply_layer_camera_settings',
+            args=(gain_db, exposure_ms),
+            kwargs={'auto_gain': auto_gain, 'auto_gain_settings': auto_gain_settings},
+            timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
+        )
+
+    def _apply_layer_camera_settings_impl(
         self,
         gain_db: float,
         exposure_ms: float,
@@ -2931,15 +3192,29 @@ class ImagingAPI:
         if not self._driver or not self._driver.active:
             self._notify_camera_absent('gain / exposure')
             return
-        self.set_gain(gain_db)
-        self.set_exposure_time(exposure_ms)
+        self._set_gain_db_impl(gain_db)
+        self._set_exposure_ms_impl(exposure_ms)
         if auto_gain_settings is not None:
-            self.set_auto_gain(auto_gain, settings=auto_gain_settings)
+            self._set_auto_gain_impl(auto_gain, settings=auto_gain_settings)
         _api_log.info(
             f'apply_layer_camera_settings gain={gain_db}dB exp={exposure_ms}ms auto_gain={auto_gain}'
         )
 
     def update_auto_gain_target_brightness(self, target_brightness: float) -> None:
+        """Set the auto-gain target brightness, and wait for it.
+
+        See ``_update_auto_gain_target_brightness_impl`` for the settle
+        contract; this adds only the dispatch described on
+        ``_dispatch_camera``.
+        """
+        return self._dispatch_camera(
+            self._update_auto_gain_target_brightness_impl,
+            'update_auto_gain_target_brightness',
+            args=(target_brightness,),
+            timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
+        )
+
+    def _update_auto_gain_target_brightness_impl(self, target_brightness: float) -> None:
         """Set the auto-gain target brightness on the camera.
 
         Args:
@@ -2962,6 +3237,27 @@ class ImagingAPI:
         )
 
     def auto_gain_once(
+        self,
+        state: bool,
+        target_brightness: float,
+        min_gain_db: float,
+        max_gain_db: float,
+        ae_max_exposure_ms: float | None = None,
+    ) -> None:
+        """Run one-shot auto-gain, and wait for it.
+
+        See ``_auto_gain_once_impl`` for the settle contract; this adds
+        only the dispatch described on ``_dispatch_camera``.
+        """
+        return self._dispatch_camera(
+            self._auto_gain_once_impl,
+            'auto_gain_once',
+            args=(state, target_brightness, min_gain_db, max_gain_db),
+            kwargs={'ae_max_exposure_ms': ae_max_exposure_ms},
+            timeout_s=self._CAMERA_WRITE_TIMEOUT_S,
+        )
+
+    def _auto_gain_once_impl(
         self,
         state: bool,
         target_brightness: float,
@@ -3004,23 +3300,6 @@ class ImagingAPI:
         # converged value while LVP's cache is still pre-auto.
         self._refresh_cache_from_hardware_after_auto()
 
-    def update_camera_config(self) -> contextlib.AbstractContextManager[Any]:
-        """Context manager for batched camera config updates.
-
-        Usage::
-
-            with scope.imaging.update_camera_config():
-                scope.imaging.set_gain(5.0)
-                scope.imaging.set_exposure_time(100)
-
-        Returns:
-            A context manager. Falls back to ``contextlib.nullcontext()``
-            when no camera is active.
-        """
-        if not self._driver or not self._driver.active:
-            return contextlib.nullcontext()
-        return self._driver.update_camera_config()
-
     @contextlib.contextmanager
     def suppress_value_warnings(self) -> Iterator[None]:
         """Suppress programmatic value-range warnings (sub-0.1ms exposure
@@ -3046,25 +3325,12 @@ class ImagingAPI:
 
     # --- Operation flags ---
     @property
-    def is_capturing(self) -> bool:
-        """True while the microscope is capturing an image.
-
-        Returns:
-            bool: True if a capture is in progress.
-        """
-        return self._capturing_event.is_set()
-
-    @is_capturing.setter
-    def is_capturing(self, value: bool) -> None:
-        """Set the capture-in-progress flag."""
-        if value:
-            self._capturing_event.set()
-        else:
-            self._capturing_event.clear()
-
-    @property
     def is_focusing(self) -> bool:
         """True while the microscope is running autofocus.
+
+        Internal coordination flag -- set and read by the autofocus
+        machinery and not part of the L2 API surface (clients read the
+        session's run-state derivations).
 
         Returns:
             bool: True if an autofocus run is in progress.
@@ -3073,46 +3339,16 @@ class ImagingAPI:
 
     @is_focusing.setter
     def is_focusing(self, value: bool) -> None:
-        """Set the autofocus-in-progress flag."""
+        """Set the autofocus-in-progress flag.
+
+        Internal coordination flag -- set and read by the autofocus
+        machinery and not part of the L2 API surface (clients read the
+        session's run-state derivations).
+        """
         if value:
             self._focusing_event.set()
         else:
             self._focusing_event.clear()
-
-    @property
-    def capture_return(self) -> np.ndarray | None:
-        """Latest capture result (image array or None).
-
-        Returns:
-            Image array on success, or None when no capture has
-            completed yet. Per the Sentinel-return contract:
-            `if scope.imaging.capture_return is None: ...`.
-        """
-        with self._state_lock:
-            return self._capture_return
-
-    @capture_return.setter
-    def capture_return(self, value) -> None:
-        """Store the latest capture result."""
-        with self._state_lock:
-            self._capture_return = value
-
-    @property
-    def autofocus_return(self) -> Any | None:
-        """Latest autofocus result.
-
-        Returns:
-            The most recent autofocus return value (driver-defined), or
-            None if autofocus has not run.
-        """
-        with self._state_lock:
-            return self._autofocus_return
-
-    @autofocus_return.setter
-    def autofocus_return(self, value) -> None:
-        """Store the latest autofocus result."""
-        with self._state_lock:
-            self._autofocus_return = value
 
     # --- Frame validity ---
     @property
@@ -3142,16 +3378,12 @@ class ImagingAPI:
             exclude_sources=exclude_sources,
         )
 
-    def count_frame(self) -> None:
-        """Record that a frame was grabbed from the camera.
-
-        Delegates to frame_validity (no driver call).
-        """
-        self.frame_validity.count_frame()
-
     @property
     def last_capture_info(self) -> dict | None:
         """Evidence about the most recent capture_and_wait on this scope.
+
+        Internal evidence record -- consumed by the protocol file writer
+        and not part of the L2 API surface.
 
         Returns:
             dict | None: ``{'hold_ms', 'drained', 'chunk_exposure_us',
@@ -3163,25 +3395,40 @@ class ImagingAPI:
             return dict(self._last_capture_info) if self._last_capture_info else None
 
     # --- Scale bar ---
+    def _resolve_use_scale_bar(self, enabled: bool, objective) -> bool:
+        """Whether to draw the scale bar, loud once when it cannot be drawn.
+
+        The no-objective skip is by design -- without an objective there is
+        no pixel size, and a bar of invented length is a false measurement
+        claim -- but a user who ENABLED the bar deserves one log line saying
+        why it is not appearing. Latched once per no-objective episode
+        because the callers run per displayed frame.
+        """
+        if objective is not None:
+            self._scale_bar_objective_skip_logged = False
+            return enabled
+        if enabled and not self._scale_bar_objective_skip_logged:
+            self._scale_bar_objective_skip_logged = True
+            logger.warning(
+                '[SCOPE API ] Scale bar is enabled but no objective is '
+                'selected; skipping the bar until an objective is set.'
+            )
+        return False
+
     @property
     def scale_bar_config(self) -> dict:
         """Return a snapshot of scale bar settings.
+
+        The one read for this state: a defensive copy of the whole
+        ``{'enabled', 'color', ...}`` configuration, so a caller reading more
+        than one field sees a single consistent setting rather than fields
+        from either side of a concurrent ``set_scale_bar``.
 
         Returns:
             dict: Copy of the scale bar config (e.g. enabled, color).
         """
         with self._state_lock:
             return dict(self._scale_bar)
-
-    @property
-    def scale_bar_enabled(self) -> bool:
-        """Whether the scale bar overlay is enabled.
-
-        Returns:
-            bool: True if the scale bar is enabled.
-        """
-        with self._state_lock:
-            return bool(self._scale_bar.get('enabled', False))
 
     def set_scale_bar(self, enabled: bool, color: str | None = None) -> None:
         """Configure the scale bar overlay on captured images.
@@ -3190,42 +3437,36 @@ class ImagingAPI:
             enabled: Whether to draw the scale bar.
             color: Scale bar color (e.g. "white"). Uses default if None.
         """
-        self._scale_bar['enabled'] = enabled
-        if color is not None:
-            self._scale_bar['color'] = color
-
-    def get_scale_bar(self) -> dict:
-        """Get the full scale-bar configuration.
-
-        Companion getter to ``set_scale_bar``; ``scale_bar_enabled`` covers
-        just the on/off flag, but this returns the full
-        ``{'enabled', 'color', ...}`` snapshot so a caller can read what
-        was previously set.
-
-        Returns:
-            Snapshot dict (defensive copy) of the scale-bar state.
-        """
+        # One critical section for both fields: the capture path reads
+        # enabled and color as a pair, and a toggle landing between two
+        # separate writes would draw the bar in the previous colour.
         with self._state_lock:
-            return dict(self._scale_bar)
+            self._scale_bar['enabled'] = enabled
+            if color is not None:
+                self._scale_bar['color'] = color
 
     # --- Camera diagnostics (live in-flight only; data source = DiagnosticsAPI) ---
-    def log_camera_temps(self) -> None:
+    def _log_camera_temps(self) -> None:
         """Emit one INFO line per camera temperature sensor.
 
         No-op when no camera is connected. Called once on startup and
         periodically by ``start_camera_temp_logging``. Reads temperatures
-        through `scope.diagnostics.get_camera_temperatures` -- the canonical
+        through `scope.diagnostics.get_camera_temperatures_degc` -- the canonical
         camera-temp probe (cold probes live on DiagnosticsAPI).
         """
         if not self._scope.camera_connected:
             return
-        for source, temp in self._scope.diagnostics.get_camera_temperatures().items():
+        for source, temp in self._scope.diagnostics.get_camera_temperatures_degc().items():
             logger.info(f'[CAM Class ] Camera {source} Temperature : {temp:.2f} degC')
 
     def start_camera_temp_logging(
         self, schedule_interval_fn, unschedule_fn, *, interval_s: float = 14400.0
     ) -> None:
         """Own the periodic camera-temp logging schedule.
+
+        Internal metrics scheduling -- not part of the L2 API surface
+        (clients read ``get_camera_temperatures_degc`` and schedule their
+        own logging).
 
         Was previously a Clock.schedule_interval registered by the App
         and stored as a fresh attribute on the MainDisplay widget -- if
@@ -3249,24 +3490,27 @@ class ImagingAPI:
             self.stop_camera_temp_logging()
 
         self._camera_temp_unschedule_fn = unschedule_fn
-        self.log_camera_temps()  # one immediate sample
+        self._log_camera_temps()  # one immediate sample
 
         def _tick(_dt=0):
             # camera_connected is an instantaneous poll and a False can be
             # transient (a single flaky connectivity query), so the tick
-            # skips the sample (log_camera_temps guards internally) but
+            # skips the sample (_log_camera_temps guards internally) but
             # STAYS SCHEDULED -- self-unscheduling here permanently ended
             # temperature logging for the rest of a multi-day soak on one
             # transient False. Teardown belongs to the explicit owners:
             # stop_camera_temp_logging via the metrics logger stop and the
             # scope-swap path.
-            self.log_camera_temps()
+            self._log_camera_temps()
 
         self._camera_temp_event = schedule_interval_fn(_tick, interval_s)
         logger.info(f'[SCOPE API ] start_camera_temp_logging: interval={interval_s}s')
 
     def stop_camera_temp_logging(self, unschedule_fn=None) -> None:
         """Cancel the periodic camera-temp logger if active.
+
+        Internal metrics scheduling -- pair of
+        ``start_camera_temp_logging``; not part of the L2 API surface.
 
         Idempotent -- safe to call when no logger is running. The
         unschedule_fn arg is optional; falls back to the function passed
@@ -3290,7 +3534,7 @@ class ImagingAPI:
         It fires from the thread that caused the change, so listeners
         **must** schedule UI work via ``Clock.schedule_once``.
 
-        Note: this fires on set_gain/set_exposure_time (user actions),
+        Note: this fires on set_gain_db/set_exposure_ms (user actions),
         NOT on every camera frame grab -- zero overhead on display framerate.
 
         Args:

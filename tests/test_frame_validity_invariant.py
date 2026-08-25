@@ -4,7 +4,7 @@ must not be suppressed by a stale software cache.
 
 Bug shape (gain axis): a pre-scan live-mode auto-gain cycle drove
 hardware gain to ~10.8 dB while the API-layer ``_camera_cache`` still
-held the per-step ~0 dB. ``set_gain(0)`` hit a cache-equality
+held the per-step ~0 dB. ``set_gain_db(0)`` hit a cache-equality
 short-circuit that returned BEFORE ``frame_validity.invalidate('gain')``,
 so the marker never went RED and a stale-gain (saturated) frame was
 captured as valid. The cache-equality skip is removed: the setter
@@ -26,6 +26,7 @@ from drivers.simulated_camera import SimulatedCamera
 from modules.lumascope_api import Lumascope
 from modules.lumascope_api.imaging import ImagingAPI
 from modules.lumascope_api.motion import MotionAPI
+from tests.scope_fakes import home_sim_scope
 
 
 @pytest.fixture
@@ -37,6 +38,7 @@ def sim_imaging():
     cam.open_and_start()
     scope = Lumascope.__new__(Lumascope)
     scope._camera_driver = cam
+    scope._camera_executor = None
     scope._cam_lock = threading.RLock()
     scope._state_lock = threading.RLock()
     imaging = ImagingAPI(scope, cam)
@@ -50,27 +52,27 @@ class TestSetGainAlwaysInvalidatesDespiteStaleCache:
 
     def test_desynced_cache_still_drives_hardware(self, sim_imaging):
         imaging, cam = sim_imaging
-        imaging.set_gain(0.0)  # cache = 0, hw = 0
+        imaging.set_gain_db(0.0)  # cache = 0, hw = 0
         # Hardware drifts (a live-mode auto-gain cycle drove it) without
         # the cache being updated -- the desynced precondition.
         with cam._lock:
             cam._gain = 10.8
-        imaging.set_gain(0.0)  # request the per-step intended gain
+        imaging.set_gain_db(0.0)  # request the per-step intended gain
         assert cam.get_gain() == pytest.approx(0.0, abs=0.001), (
-            'set_gain must drive hardware to the requested value even '
+            'set_gain_db must drive hardware to the requested value even '
             f'when the cache already reads it; got {cam.get_gain()}'
         )
 
     def test_desynced_cache_still_turns_marker_red(self, sim_imaging):
         imaging, cam = sim_imaging
-        imaging.set_gain(0.0)
+        imaging.set_gain_db(0.0)
         imaging.frame_validity.reset()  # GREEN baseline
         assert imaging.frame_validity.is_valid
         with cam._lock:
             cam._gain = 10.8
-        imaging.set_gain(0.0)
+        imaging.set_gain_db(0.0)
         assert not imaging.frame_validity.is_valid, (
-            'set_gain must invalidate frame validity (marker RED) even '
+            'set_gain_db must invalidate frame validity (marker RED) even '
             'when the cache already reads the requested value'
         )
         assert 'gain' in imaging.frame_validity.pending_sources
@@ -81,25 +83,25 @@ class TestSetExposureAlwaysInvalidatesDespiteStaleCache:
 
     def test_desynced_cache_still_drives_hardware(self, sim_imaging):
         imaging, cam = sim_imaging
-        imaging.set_exposure_time(0.1)  # cache = 0.1, hw = 0.1
+        imaging.set_exposure_ms(0.1)  # cache = 0.1, hw = 0.1
         with cam._lock:
             cam._exposure_us = 14.0  # hw drifted to 0.014 ms
-        imaging.set_exposure_time(0.1)
+        imaging.set_exposure_ms(0.1)
         assert cam.get_exposure_t() == pytest.approx(0.1, abs=0.001), (
-            'set_exposure_time must drive hardware even when the cache '
+            'set_exposure_ms must drive hardware even when the cache '
             f'already reads the requested value; got {cam.get_exposure_t()}'
         )
 
     def test_desynced_cache_still_turns_marker_red(self, sim_imaging):
         imaging, cam = sim_imaging
-        imaging.set_exposure_time(0.1)
+        imaging.set_exposure_ms(0.1)
         imaging.frame_validity.reset()
         assert imaging.frame_validity.is_valid
         with cam._lock:
             cam._exposure_us = 14.0
-        imaging.set_exposure_time(0.1)
+        imaging.set_exposure_ms(0.1)
         assert not imaging.frame_validity.is_valid, (
-            'set_exposure_time must invalidate frame validity even when '
+            'set_exposure_ms must invalidate frame validity even when '
             'the cache already reads the requested value'
         )
         assert 'exposure' in imaging.frame_validity.pending_sources
@@ -112,7 +114,7 @@ class TestAutoGainOnceInvalidates:
 
     def test_auto_gain_once_turns_marker_red(self, sim_imaging):
         imaging, _cam = sim_imaging
-        imaging.set_gain(5.0)
+        imaging.set_gain_db(5.0)
         imaging.frame_validity.reset()
         assert imaging.frame_validity.is_valid
         imaging.auto_gain_once(
@@ -130,9 +132,8 @@ class TestAutoGainOnceInvalidates:
 
 
 class TestMotionValiditySources:
-    """Turret moves must record the 'turret' source (so the settle-check
-    gates on the turret reaching IDLE, not X/Y); xycenter must invalidate
-    at all."""
+    """Turret moves must record the 'turret' source, so the settle-check
+    gates on the turret reaching IDLE rather than on X/Y."""
 
     def test_turret_axis_maps_to_turret_source(self):
         assert MotionAPI._AXIS_VALIDITY_SOURCE.get('T', 'xy_move') == 'turret'
@@ -149,6 +150,9 @@ class TestMotionValiditySources:
         """Simulated scope whose frame_validity.invalidate records sources."""
         scope = Lumascope(simulate=True)
         scope._motion_driver.set_timing_mode('instant')
+        # Home before recording: the home's own invalidations are setup,
+        # not the transitions under test.
+        home_sim_scope(scope)
         recorded = []
         orig_invalidate = scope.imaging.frame_validity.invalidate
 
@@ -174,13 +178,13 @@ class TestMotionValiditySources:
         the settle-check cleared before the turret physically arrived."""
         scope, recorded = self._scope_with_invalidate_recorder()
         try:
-            scope.motion.move_absolute_position(axis, pos, wait_until_complete=True)
+            scope.motion.move_absolute(axis, pos, wait_until_complete=True)
             assert source in recorded, (
-                f'move_absolute_position({axis!r}) must invalidate {source!r}; recorded {recorded}'
+                f'move_absolute({axis!r}) must invalidate {source!r}; recorded {recorded}'
             )
             wrong = {'xy_move', 'z_move', 'turret'} - {source}
             assert not wrong.intersection(recorded), (
-                f'move_absolute_position({axis!r}) invalidated the wrong '
+                f'move_absolute({axis!r}) invalidated the wrong '
                 f'source(s) {wrong.intersection(recorded)}; recorded {recorded}'
             )
         finally:
@@ -193,20 +197,10 @@ class TestMotionValiditySources:
     def test_move_relative_invalidates_axis_source(self, axis, source):
         scope, recorded = self._scope_with_invalidate_recorder()
         try:
-            scope.motion.move_relative_position(axis, 100.0, wait_until_complete=True)
+            scope.motion.move_relative(axis, 100.0, wait_until_complete=True)
             assert source in recorded, (
-                f'move_relative_position({axis!r}) must invalidate {source!r}; recorded {recorded}'
+                f'move_relative({axis!r}) must invalidate {source!r}; recorded {recorded}'
             )
-        finally:
-            scope.disconnect()
-
-    def test_xycenter_invalidates_xy_move(self):
-        """xycenter physically moves X/Y; before the fix it recorded no
-        validity source at all."""
-        scope, recorded = self._scope_with_invalidate_recorder()
-        try:
-            scope.motion.xycenter()
-            assert 'xy_move' in recorded, f'xycenter must invalidate xy_move; recorded {recorded}'
         finally:
             scope.disconnect()
 
@@ -309,13 +303,15 @@ class TestRejectedSettingNotifiesAndKeepsCache:
             'modules.lumascope_api.imaging.notifications.error',
             lambda *a, **kw: captured.append(a),
         )
-        imaging.set_gain(2.0)  # establish a known cache value
+        imaging.set_gain_db(2.0)  # establish a known cache value
         monkeypatch.setattr(cam, 'gain', lambda v: False)
 
-        imaging.set_gain(7.0)
+        imaging.set_gain_db(7.0)
 
         assert captured, 'A confirmed gain rejection must notify the user'
-        assert imaging.camera_gain == 2.0, 'A rejected gain write must not be recorded in the cache'
+        assert imaging.gain_db_cached == 2.0, (
+            'A rejected gain write must not be recorded in the cache'
+        )
 
     def test_rejected_exposure_notifies_and_keeps_cache(self, sim_imaging, monkeypatch):
         imaging, cam = sim_imaging
@@ -324,12 +320,12 @@ class TestRejectedSettingNotifiesAndKeepsCache:
             'modules.lumascope_api.imaging.notifications.error',
             lambda *a, **kw: captured.append(a),
         )
-        imaging.set_exposure_time(20.0)  # establish a known cache value
+        imaging.set_exposure_ms(20.0)  # establish a known cache value
         monkeypatch.setattr(cam, 'exposure_t', lambda v: False)
 
-        imaging.set_exposure_time(50.0)
+        imaging.set_exposure_ms(50.0)
 
         assert captured, 'A confirmed exposure rejection must notify the user'
-        assert imaging.camera_exposure_ms == 20.0, (
+        assert imaging.exposure_ms_cached == 20.0, (
             'A rejected exposure write must not be recorded in the cache'
         )

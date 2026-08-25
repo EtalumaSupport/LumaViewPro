@@ -232,10 +232,11 @@ def test_oracle_catches_the_known_wrong_world_families(scope_surface):
             union |= set(dir(getattr(scope, sub_api)))
     finally:
         scope.disconnect()
-    assert 'led_on_fast' in union, (
-        'Premise check: led_on_fast is supposed to exist on a sub-API. If it '
-        'no longer does, the union-oracle hazard is gone and this assertion '
-        'should be retired.'
+    assert 'led_on' in union and 'led_on' not in set(dir(scope)), (
+        'Premise check: led_on is supposed to exist on a sub-API and NOT on '
+        'the scope itself, which is what makes the union oracle wrong. Was '
+        'led_on_fast until that tier was retired; if this pair ever collapses '
+        'the union-oracle hazard is gone and the assertion should be retired.'
     )
 
 

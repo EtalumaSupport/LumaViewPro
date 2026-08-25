@@ -55,7 +55,9 @@ def _drive_with_recorder(monkeypatch, focus_fn):
     runner, scope = af_runner_and_scope()
     recorder = _FocusFlagRecorder()
     recorder.inner.save_camera_state.return_value = {'gain_db': 1.0, 'exposure_ms': 10.0}
-    recorder.inner.capture_and_wait.return_value = scope.imaging.capture_and_wait.return_value
+    recorder.inner._capture_and_wait_impl.return_value = (
+        scope.imaging._capture_and_wait_impl.return_value
+    )
     scope.imaging = recorder
     recorder.runner_ref.append(runner)
     drive_af(runner)

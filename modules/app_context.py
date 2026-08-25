@@ -86,7 +86,8 @@ class AppContext:
     video_creation_controls: object = None
     zprojection_controls: object = None
     quick_enhance_controls: object = None
-    metrics_logger: object = None  # MetricsLogger (LVP-A-12)
+    # No metrics_logger field: it mirrored scope.metrics_logger and went
+    # stale at every reconnect; the session owns the metrics lifecycle.
     ui_listener_bridge: object = None  # UIListenerBridge (LVP-A-6)
 
     # Plugin platform: registry + entry-points discovery
@@ -94,7 +95,6 @@ class AppContext:
 
     # State
     protocol: object = None  # Protocol instance (canonical owner, not UI)
-    protocol_running: object = None  # threading.Event
     engineering_mode: bool = False
     no_engineering: bool = (
         False  # --no-engineering CLI flag; suppresses engineering plugin auto-enable

@@ -159,6 +159,31 @@ class RuntimeState:
         """
         return self._stage_offset
 
+    def stage_to_plate(self, sx: float, sy: float) -> tuple[float, float]:
+        """Convert a stage position (um) to plate coordinates (mm).
+
+        Uses the registered labware and stage offset -- the same
+        transform ``get_well_label`` performs before its label lookup,
+        exposed for consumers that need the coordinates themselves
+        (e.g. image metadata).
+
+        Args:
+            sx: Stage X position in um.
+            sy: Stage Y position in um.
+
+        Returns:
+            (px, py): Plate position in mm.
+
+        Raises:
+            NoLabwareSelectedError: If no labware is registered.
+        """
+        return self._coordinate_transformer.stage_to_plate(
+            labware=self.get_labware(),
+            stage_offset=self.get_stage_offset(),
+            sx=sx,
+            sy=sy,
+        )
+
     def get_well_label(self) -> str:
         """Get the well label for the current stage XY position.
 
@@ -176,7 +201,7 @@ class RuntimeState:
             Exception: Re-raises any error encountered reading target
                 position; logged before re-raise.
         """
-        labware = self._labware
+        labware = self.get_labware()
 
         try:
             x_target = self._scope.motion.get_target_position('X')
@@ -185,8 +210,6 @@ class RuntimeState:
             logger.exception('[LVP API  ] Error getting target position.')
             raise
 
-        x_target, y_target = self._coordinate_transformer.stage_to_plate(
-            labware=labware, stage_offset=self._stage_offset, sx=x_target, sy=y_target
-        )
+        x_target, y_target = self.stage_to_plate(sx=x_target, sy=y_target)
 
         return labware.get_well_label(x=x_target, y=y_target)

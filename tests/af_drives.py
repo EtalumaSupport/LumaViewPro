@@ -32,7 +32,10 @@ def af_runner_and_scope():
     scope.motion.get_current_position.return_value = AF_CENTER_Z
     scope.motion.get_target_position.return_value = 600.0
     scope.imaging.save_camera_state.return_value = {'gain_db': 1.0, 'exposure_ms': 10.0}
-    scope.imaging.capture_and_wait.return_value = np.full((40, 40), 50, dtype=np.uint8)
+    # AF binds the non-dispatching body (the public capture_and_wait would
+    # be refused while a run holds the executors), so the frame comes from
+    # the _impl seam.
+    scope.imaging._capture_and_wait_impl.return_value = np.full((40, 40), 50, dtype=np.uint8)
     runner = AutofocusRunner(
         scope=scope,
         camera_executor=MagicMock(),

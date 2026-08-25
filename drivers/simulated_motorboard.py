@@ -414,7 +414,7 @@ class SimulatedMotorBoard:
             return '30000'
 
         # Tech-support diagnostic commands. The Python-level helpers
-        # (get_voltage / get_current / get_motordetect / read_status)
+        # (get_current / get_motordetect / read_status)
         # already return realistic shapes -- but tech_support_report
         # talks to the board via raw exchange_command (LV-24 layer), so
         # the raw-text branches need to mirror the same content.
@@ -776,15 +776,28 @@ class SimulatedMotorBoard:
     def move(self, axis: str, steps: int) -> None:
         """Move an axis to an absolute microstep position.
 
+        Mirrors the production ``MotorBoard.move`` contract, including
+        the raise on an unanswered target write -- without it a test that
+        injects a dead board would watch the simulator report a move that
+        never happened, which is the exact defect the production raise
+        exists to surface.
+
         Args:
             axis: Axis letter ('X', 'Y', 'Z', 'T').
             steps: Target absolute microstep position. Negative values
                 are wrapped to two's-complement so the simulated firmware
                 accepts them as unsigned 32-bit integers.
+
+        Raises:
+            HardwareError: Simulated no-response to the target write.
         """
         if steps < 0:
             steps += 0x100000000
-        self.exchange_command(f'TARGET_W{axis}{steps}')
+        if self.exchange_command(f'TARGET_W{axis}{steps}') is None:
+            raise HardwareError(
+                f'move({axis}, {steps}): no response to the target write '
+                f'(timeout or disconnect); the move did not happen'
+            )
 
     def target_pos(self, axis: str) -> float | int:
         """Get the target position of an axis in user units.
@@ -1235,18 +1248,6 @@ class SimulatedMotorBoard:
             }
             for a in ['X', 'Y', 'Z', 'T']
         ]
-
-    def get_voltage(self) -> dict:
-        """Simulated VOLTAGE.
-
-        Returns:
-            dict: ``{'raw': str, '24V': 'OK'}``.
-        """
-        return {'raw': '24V=OK 5V=N/A 3V3=N/A 1V2=N/A', '24V': 'OK'}
-
-    def read_voltages(self) -> dict[str, float | None] | None:
-        """Simulated power-rail voltage diagnostic -- returns nominal values."""
-        return {'5V': 5.0, '3.3V': 3.3, '1.2V': 1.2, '24V': 24.0}
 
     def read_drv_status(self, axis: str) -> int | None:
         """Simulated TMC5072 DRV_STATUS register -- returns 0 (no fault flags)."""

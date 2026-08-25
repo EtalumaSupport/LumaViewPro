@@ -31,6 +31,7 @@ from modules.protocol import Protocol
 from modules.sequenced_capture_runner import SequencedCaptureRunner, SequencedCaptureRunMode
 from modules.sequential_io_executor import SequentialIOExecutor
 from modules.lumascope_api import Lumascope
+from tests.scope_fakes import home_sim_scope
 from unittest.mock import MagicMock
 
 
@@ -192,7 +193,7 @@ def _save_and_reload(protocol, tmp_path):
 
 @pytest.fixture
 def scope():
-    s = Lumascope(simulate=True)
+    s = home_sim_scope(Lumascope(simulate=True))
     s._led_driver.set_timing_mode('fast')
     s._motion_driver.set_timing_mode('fast')
     s._camera_driver.set_timing_mode('fast')
@@ -1549,7 +1550,7 @@ class TestRealPathExecution:
     and simulated MotorBoard. These catch init/config bugs that mocked tests miss.
 
     The axes_config AttributeError (2026-03-27) would have been caught here
-    because _default_move -> scope.move_absolute_position -> motion.move_abs_pos
+    because _default_move -> scope.move_absolute -> motion.move_abs_pos
     accesses self.axes_config, which must be initialized in __init__.
     """
 
@@ -2016,8 +2017,8 @@ class TestExecutorEdgeCases:
 
     def test_camera_settings_restored_after_protocol(self, real_executor, scope, tmp_path):
         """Camera gain and exposure are restored after protocol."""
-        original_gain = scope.imaging.get_gain()
-        original_exposure = scope.imaging.get_exposure_time()
+        original_gain = scope.imaging.get_gain_db()
+        original_exposure = scope.imaging.get_exposure_ms()
 
         proto = _build_protocol([_make_step(gain=5.0, exposure=50.0)])
         completed, _ = _run_and_wait(real_executor, proto, tmp_path)
@@ -2026,8 +2027,8 @@ class TestExecutorEdgeCases:
 
         time.sleep(0.5)
 
-        restored_gain = scope.imaging.get_gain()
-        restored_exposure = scope.imaging.get_exposure_time()
+        restored_gain = scope.imaging.get_gain_db()
+        restored_exposure = scope.imaging.get_exposure_ms()
         assert restored_gain == pytest.approx(original_gain, abs=0.1), (
             f'Gain not restored: {restored_gain} vs {original_gain}'
         )
@@ -2383,14 +2384,14 @@ class TestLumascapeAPIMotor:
     """Direct tests on Lumascope motor API with simulated hardware."""
 
     def test_move_absolute_z(self, scope):
-        scope.motion.move_absolute_position('Z', 3000.0)
+        scope.motion.move_absolute('Z', 3000.0)
         # Simulated motor moves instantly in fast mode
         pos = scope.motion.get_target_position('Z')
         assert pos == pytest.approx(3000.0, abs=1.0)
 
     def test_get_target_position_from_cache(self, scope):
         """get_target_position uses cache -- zero serial I/O."""
-        scope.motion.move_absolute_position('Z', 5000.0)
+        scope.motion.move_absolute('Z', 5000.0)
         pos = scope.motion.get_target_position('Z')
         assert pos == pytest.approx(5000.0, abs=1.0)
 
@@ -2416,17 +2417,17 @@ class TestLumascapeAPICamera:
         assert img.ndim == 2  # grayscale
 
     def test_set_gain(self, scope):
-        scope.imaging.set_gain(5.0)
-        assert scope.imaging.get_gain() == pytest.approx(5.0, abs=0.1)
+        scope.imaging.set_gain_db(5.0)
+        assert scope.imaging.get_gain_db() == pytest.approx(5.0, abs=0.1)
 
     def test_set_exposure(self, scope):
-        scope.imaging.set_exposure_time(25.0)
-        assert scope.imaging.get_exposure_time() == pytest.approx(25.0, abs=0.1)
+        scope.imaging.set_exposure_ms(25.0)
+        assert scope.imaging.get_exposure_ms() == pytest.approx(25.0, abs=0.1)
 
     def test_capture_and_wait(self, scope):
         import numpy as np
 
-        result = scope.imaging.capture_and_wait(dark_floor_check=False)
+        result = scope.imaging.capture_and_wait()
         assert isinstance(result, np.ndarray), f'capture_and_wait returned {type(result)}'
 
 
@@ -2731,7 +2732,7 @@ class TestFeedLossEndsVideoStep:
     """E2E: a silently dead feed ends a video step within the stall bound.
 
     Production-path injection: stop_streaming halts the sim camera's
-    callback pump WITHOUT flipping camera_active -- exactly the shape of
+    callback pump WITHOUT flipping active_cached -- exactly the shape of
     a feed that dies with no disconnect event. The run must survive (the
     step strikes, the run completes) and the recording's manifest must
     say camera_stalled.

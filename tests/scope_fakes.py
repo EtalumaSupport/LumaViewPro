@@ -69,6 +69,46 @@ def build_real_sim_scope():
     return Lumascope(simulate=True)
 
 
+def homed_sim_scope():
+    """A `Lumascope(simulate=True)` that has been homed, ready to move.
+
+    Axes start UNKNOWN, and the motion gate refuses to drive an axis
+    whose position is unknown -- so a test that commands a move without
+    homing first is asking for something production never does. The App
+    homes at startup before any protocol or jog is reachable; this is
+    that precondition, for the tests whose subject is something else
+    (LED ordering, protocol flow, frame validity) and for which motion
+    is only a fixture.
+
+    Homing runs the production body against the real simulated driver.
+    Only the simulator's artificial 3-second homing sleep is skipped --
+    that models how long a real stage takes to travel, not what any of
+    this does, and paying it once per test would cost minutes of suite
+    time. The scope's timing mode is left exactly as constructed.
+
+    The caller owns disconnecting it.
+    """
+    return home_sim_scope(build_real_sim_scope())
+
+
+def home_sim_scope(scope):
+    """Home an already-built simulated scope, and return it.
+
+    The same precondition as `homed_sim_scope`, for the fixtures that
+    build and configure their scope themselves. Restores the timing mode
+    it found, so a fixture that set one keeps it.
+    """
+    driver = scope._motion_driver
+    prior_timing = driver._timing_mode
+    driver.set_timing_mode('instant')
+    try:
+        if not scope.motion._home_impl():
+            raise AssertionError('the simulated scope failed to home')
+    finally:
+        driver.set_timing_mode(prior_timing)
+    return scope
+
+
 def spec_scope(**attrs):
     """A scope double specced against a real constructed Lumascope.
 

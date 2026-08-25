@@ -109,8 +109,8 @@ def test_writer_capture_paces_to_full_queue_without_drop_row(tmp_path, monkeypat
     record = MagicMock()
     writer = _bare_protocol_writer(file_io_executor=ex, execution_record=record)
     scope = writer._scope
-    scope.motion.has_turret.return_value = False
-    scope.imaging.capture_and_wait.return_value = np.zeros((4, 4), dtype=np.uint8)
+    scope.capabilities.has_turret = False
+    scope.imaging._capture_and_wait_impl.return_value = np.zeros((4, 4), dtype=np.uint8)
     scope.imaging.capture_frame_depth.return_value = 8
     protocol = MagicMock()
     protocol.capture_root.return_value = ''
@@ -210,8 +210,8 @@ def test_wedged_writer_declares_stall_notifies_and_aborts(tmp_path, monkeypatch)
         abort_fn=lambda: aborts.append(1),
     )
     scope = writer._scope
-    scope.motion.has_turret.return_value = False
-    scope.imaging.capture_and_wait.return_value = np.zeros((4, 4), dtype=np.uint8)
+    scope.capabilities.has_turret = False
+    scope.imaging._capture_and_wait_impl.return_value = np.zeros((4, 4), dtype=np.uint8)
     scope.imaging.capture_frame_depth.return_value = 8
     protocol = MagicMock()
     protocol.capture_root.return_value = ''
@@ -424,14 +424,15 @@ def test_prepare_refusal_names_stalled_writer(tmp_path):
 
 
 def test_session_recover_file_writer_passthrough():
-    """L2 parity: a Session that owns the executor bundle can recover a
-    wedged writer; a GUI-hosted session (no bundle) reports False."""
+    """L2 parity: a Session holding an executor bundle can recover a
+    wedged writer; a session with neither bundle nor file-io handle
+    reports False."""
     from types import SimpleNamespace
     from unittest.mock import MagicMock
 
     from modules.scope_session import ScopeSession
 
-    bundle = SimpleNamespace(file_io_executor=MagicMock())
+    bundle = SimpleNamespace(file_io_executor=MagicMock(), protocol_thread=MagicMock())
     session = ScopeSession(
         settings={},
         scope=MagicMock(),

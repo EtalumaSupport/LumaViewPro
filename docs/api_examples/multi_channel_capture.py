@@ -10,30 +10,15 @@ Demonstrates:
 
 import sys
 import pathlib
-from unittest.mock import MagicMock
 
-# Add parent directory to path so we can import lumascope_api
+# Make the repo root importable when run standalone
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 
-# Mock modules not needed for headless simulate mode
-_mock_logger = MagicMock()
-_mock_lvp_logger = MagicMock()
-_mock_lvp_logger.logger = _mock_logger
-_mock_lvp_logger.is_thread_paused = MagicMock(return_value=False)
-_mock_lvp_logger.unpause_thread = MagicMock()
-_mock_lvp_logger.pause_thread = MagicMock()
-
-sys.modules.setdefault('lvp_logger', _mock_lvp_logger)
-sys.modules.setdefault('platformdirs', MagicMock())
-sys.modules.setdefault('requests', MagicMock())
-sys.modules.setdefault('requests.structures', MagicMock())
-sys.modules.setdefault('pypylon', MagicMock())
-sys.modules.setdefault('pypylon.pylon', MagicMock())
-sys.modules.setdefault('pypylon.genicam', MagicMock())
-sys.modules.setdefault('ids_peak', MagicMock())
-sys.modules.setdefault('ids_peak.ids_peak', MagicMock())
-sys.modules.setdefault('ids_peak.ids_peak_ipl_extension', MagicMock())
-sys.modules.setdefault('ids_peak_ipl', MagicMock())
+# This example runs the SAME code path two ways:
+#   standalone: python3 docs/api_examples/multi_channel_capture.py  (the real installed deps)
+#   in-suite:   tests/test_api_examples.py runs main() under the heavy-dep
+#               mocks the test conftest installs before collection
+# The sys.path line serves the standalone form; in-suite it is a no-op.
 
 from modules.lumascope_api import Lumascope
 
@@ -64,13 +49,13 @@ def main():
         print(f'  LED on: {ch["mA"]} mA')
 
         # Set exposure time (ms)
-        scope.imaging.set_exposure_time(ch['exposure_ms'])
+        scope.imaging.set_exposure_ms(ch['exposure_ms'])
         print(f'  Exposure: {ch["exposure_ms"]} ms')
 
         # Capture a frame valid for the current LED + exposure state.
-        # dark_floor_check is required: True because this channel's LED
-        # is driven, so a frame with no lit pixel is a capture fault.
-        image = scope.imaging.capture_and_wait(force_to_8bit=True, dark_floor_check=True)
+        # This channel's LED is driven, so a frame with no lit pixel is
+        # rejected as a capture fault -- derived from commanded state.
+        image = scope.imaging.capture_and_wait(force_to_8bit=True)
         if image is None:
             print(f'  ERROR: Failed to capture {color} channel')
             continue

@@ -288,7 +288,7 @@ class TestOneRunOneEncoding:
     def test_still_and_video_legs_read_the_same_held_config(self, monkeypatch, tmp_path):
         config = ImageCaptureConfig.from_image_mode('12bit_scaled')
         writer = self._writer(config)
-        writer._scope.motion.has_turret.return_value = False
+        writer._scope.capabilities.has_turret = False
 
         # A live settings source that says 8-bit must have no say.
         monkeypatch.setattr(
@@ -493,8 +493,5 @@ class TestNoSilentHeadlessDefault:
             with pytest.raises(ConfigError, match='image_mode'):
                 runner.run_protocol(_build_protocol(), parent_dir=str(tmp_path))
             assert not runner.is_running(), 'a refused config-less run must not be running'
-            assert not runner._owned_resources_started, (
-                'the raise must precede executor startup -- nothing was committed'
-            )
         finally:
             session.shutdown_executors()

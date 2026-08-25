@@ -36,7 +36,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
             logger.info('[LVP Main  ] MainDisplay.cam_toggle()')
 
             scope_display = self.ids['viewer_id'].ids['scope_display_id']
-            if not self.scope.imaging.camera_active:
+            if not self.scope.imaging.active_cached:
                 gui_logger.button('CAM_TOGGLE', 'no-op (camera inactive)')
                 return
 
@@ -136,21 +136,16 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
     def _begin_recording_ui(self):
         """Main thread: recording is live -- start the status poll."""
         controller = _app_ctx.ctx.session.manual_recording
-        self._set_recording_active(True)
+        # The claim grant already notified the run-state listener, but
+        # the engine may not have been live yet at that instant; this
+        # level republish lands the recording mirror now that it is.
+        _app_ctx.ctx.session.notify_run_state()
         # Set immediately so "Open Last Save Folder" works during the
         # recording, not only after cleanup lands (issue #603's shape).
         if controller.save_folder is not None:
             set_last_save_folder(controller.save_folder)
         if self._recording_poll is None:
             self._recording_poll = Clock.schedule_interval(self._poll_recording_state, 0.1)
-
-    def _set_recording_active(self, value):
-        """Main-thread write of the app-level lock mirror (controls_locked)."""
-        from kivy.app import App
-
-        app = App.get_running_app()
-        if app is not None:
-            app.recording_active = value
 
     def _poll_recording_state(self, dt=None):
         """Main-thread poll: duration cap, titles, button state.
@@ -166,12 +161,13 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         if controller.is_recording:
             set_title_event_text(f'Recording Manual Video: {controller.elapsed_s:.1f}s')
             return
-        # Selection closed (Stop, duration cap, or budget full). Unlock
-        # the controls, reflect it on the button, and show drain
-        # progress until the writer lane empties. (The session claim is
-        # held until the drain ends, so a protocol start attempted
-        # during the drain still gets its loud refusal.)
-        self._set_recording_active(False)
+        # Selection closed (Stop, duration cap, or budget full). The
+        # live->drain flip has no claim transition of its own, so this
+        # poll is the edge that republishes the mirrors (unlocking the
+        # controls); the claim stays held until the drain ends, so a
+        # protocol start attempted during the drain still gets its loud
+        # refusal.
+        _app_ctx.ctx.session.notify_run_state()
         self._reset_record_button()
         if controller.is_draining:
             set_title_event_text(
@@ -189,7 +185,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         if self._recording_poll is not None:
             Clock.unschedule(self._recording_poll)
             self._recording_poll = None
-        self._set_recording_active(False)
+        _app_ctx.ctx.session.notify_run_state()
         controller = _app_ctx.ctx.session.manual_recording
         if controller.save_folder is not None:
             set_last_save_folder(controller.save_folder)
@@ -213,7 +209,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
     def fit_image(self):
         gui_logger.button('FIT_IMAGE')
         logger.info('[LVP Main  ] MainDisplay.fit_image()')
-        if not self.scope.imaging.camera_active:
+        if not self.scope.imaging.active_cached:
             return
         self.ids['viewer_id'].scale = 1
         self.ids['viewer_id'].pos = (0, 0)
@@ -222,7 +218,7 @@ class MainDisplay(CompositeCapture):  # i.e. global lumaview
         try:
             gui_logger.button('ONE_TO_ONE_IMAGE')
             logger.info('[LVP Main  ] MainDisplay.one2one_image()')
-            if not self.scope.imaging.camera_active:
+            if not self.scope.imaging.active_cached:
                 return
             scope = _app_ctx.ctx.scope
             w = self.width

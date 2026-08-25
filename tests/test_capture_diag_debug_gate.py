@@ -38,9 +38,9 @@ def _drive_capture(monkeypatch, debug_enabled):
         video_max_fps=0,
     )
     scope = writer._scope
-    scope.motion.has_turret.return_value = False
+    scope.capabilities.has_turret = False
     scope.led_connected = False
-    scope.imaging.capture_and_wait.return_value = np.zeros((4, 4), dtype=np.uint8)
+    scope.imaging._capture_and_wait_impl.return_value = np.zeros((4, 4), dtype=np.uint8)
 
     def quiet(*args, **kwargs):
         return None
@@ -85,20 +85,20 @@ def _drive_capture(monkeypatch, debug_enabled):
 
 def test_camera_reads_skipped_when_debug_disabled(monkeypatch):
     imaging = _drive_capture(monkeypatch, debug_enabled=False)
-    assert imaging.get_gain.call_count == 0, (
+    assert imaging.get_gain_db.call_count == 0, (
         'the diagnostic live gain read must not run when debug is off'
     )
-    assert imaging.get_exposure_time.call_count == 0, (
+    assert imaging.get_exposure_ms.call_count == 0, (
         'the diagnostic live exposure read must not run when debug is off'
     )
 
 
 def test_camera_reads_run_when_debug_enabled(monkeypatch):
     imaging = _drive_capture(monkeypatch, debug_enabled=True)
-    assert imaging.get_gain.call_count == 1, (
+    assert imaging.get_gain_db.call_count == 1, (
         'with debug on, the diagnostic must read the live gain '
         '(comparing intended vs actual is the whole point)'
     )
-    assert imaging.get_exposure_time.call_count == 1, (
+    assert imaging.get_exposure_ms.call_count == 1, (
         'with debug on, the diagnostic must read the live exposure'
     )

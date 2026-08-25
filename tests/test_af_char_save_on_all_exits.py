@@ -58,7 +58,7 @@ class TestSaveQueuedOnEveryExitPath:
         """The save fires from the finally path: an AF loop that raises
         must still queue the diagnostic save."""
         runner, scope = af_runner_and_scope()
-        scope.imaging.capture_and_wait.side_effect = RuntimeError('camera fault')
+        scope.imaging._capture_and_wait_impl.side_effect = RuntimeError('camera fault')
         with pytest.raises(RuntimeError, match='camera fault'):
             drive_af(runner, save_results_to_file=True, results_dir=tmp_path)
         assert self._queued_save_tasks(runner), (

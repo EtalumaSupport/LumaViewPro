@@ -58,13 +58,13 @@ def _video_step(monkeypatch, tmp_path, *, timestamp_overlay, false_color=False):
 
     scope = MagicMock()
     scope.imaging.frames_until_valid.return_value = 0
-    scope.imaging.camera_active = False  # wait loop exits on its first tick
+    scope.imaging.active_cached = False  # wait loop exits on its first tick
     scope.imaging.camera_identity = {
         'model': 'sim',
         'serial': '0',
         'timestamp_tick_frequency_hz': None,
     }
-    scope.imaging.camera_frame_size = {'width': 64, 'height': 48}
+    scope.imaging.frame_size_cached = {'width': 64, 'height': 48}
 
     capture_config = MagicMock()
     capture_config.capture_depth = 8

@@ -64,17 +64,38 @@ class TestDerivedLockProperty:
     def test_recording_mirror_property_exists(self):
         assert 'recording_active = BooleanProperty(False)' in APP_SRC
 
-    def test_controls_locked_derives_from_both_activities(self):
-        # The one derived lock: protocol OR recording, bound to both so
-        # kv re-evaluates when either flips.
-        assert 'controls_locked = AliasProperty(' in APP_SRC
-        assert "bind=['protocol_running', 'recording_active']" in APP_SRC
+    def test_controls_locked_is_listener_published(self):
+        # The derivation lives on the session; the App property is a
+        # plain mirror the one run-state listener writes. An
+        # AliasProperty here would re-derive from the OTHER mirrors and
+        # drift from session truth in the drain windows.
+        assert 'controls_locked = BooleanProperty(False)' in APP_SRC
+        assert 'AliasProperty' not in APP_SRC
+        assert 'def publish_run_state' in APP_SRC
 
-    def test_main_display_writes_the_mirror(self):
+    def test_publish_order_is_fail_safe(self):
+        # Kivy dispatches bindings synchronously inside each setattr; a
+        # torn observer must see OVER-locked, never under-locked: the
+        # tightening property (controls_locked) writes first on lock
+        # and last on unlock.
+        body = APP_SRC[APP_SRC.index('def publish_run_state') :]
+        body = body[: body.index('def on_start')]
+        lock_branch = body[body.index('if locked:') : body.index('else:')]
+        unlock_branch = body[body.index('else:') :]
+        assert lock_branch.index('controls_locked') < lock_branch.index('run_lockout'), (
+            'locking must write controls_locked first'
+        )
+        assert unlock_branch.index('run_lockout') < unlock_branch.index(
+            'controls_locked = False'
+        ), 'unlocking must write controls_locked last'
+
+    def test_main_display_republishes_the_mirror(self):
+        # The live->drain flip has no claim transition of its own, so
+        # the recording UI paths trigger the session republish; the
+        # listener derives recording_active from the engine phase.
         src = (REPO / 'ui' / 'main_display.py').read_text()
-        assert 'app.recording_active = value' in src
-        assert '_set_recording_active(True)' in src
-        assert '_set_recording_active(False)' in src
+        assert src.count('session.notify_run_state()') >= 3
+        assert 'app.recording_active = value' not in src
 
 
 class TestKvBindingTopology:
@@ -124,231 +145,105 @@ class TestKvBindingTopology:
         idx = KV_SRC.find('id: record_btn')
         assert idx > 0
         snippet = KV_SRC[idx : idx + 120]
-        assert 'disabled: app.protocol_running' in snippet
+        assert 'disabled: app.run_lockout' in snippet
         assert 'controls_locked' not in snippet
 
 
-class TestCommittedStartRestore:
-    """start() can refuse AFTER the UI commit (a rival claim held during
-    a recording's file drain, an already-running race). The boundary must
-    restore the pre-commit state or the lockout strands with no run live
-    -- the defect class confirmed live in the sim 2026-08-10."""
+class TestNoCallerSideRunStateCommit:
+    """Run-state truth is the session claim, committed inside start()
+    and mirrored by the session run-state listener. No UI code may
+    write the retired caller-side stores -- each reappearance is a
+    second store whose strand / mis-restore family this migration
+    retired (the refused-run wedge, the blanket motion re-enable on
+    stage-less scopes, the generation-token AF lockout)."""
 
-    def _wire_ctx(self, event_preset=False, motion=True):
-        import threading
-        import types
+    FORBIDDEN = (
+        'protocol_running.set()',
+        'protocol_running.clear()',
+        'publish_protocol_running(',
+        'run_committed_start(',
+        'set_motion_capability(',
+    )
 
-        import modules.app_context as _app_ctx
+    def test_no_ui_file_writes_run_state(self):
+        for path in [*sorted((REPO / 'ui').glob('*.py')), REPO / 'lumaviewpro.py']:
+            text = path.read_text()
+            for marker in self.FORBIDDEN:
+                assert marker not in text, (
+                    f'{path.name} contains "{marker}" -- run-state truth '
+                    'lives on the session; UI code reads the derivations '
+                    'and owns cosmetics only'
+                )
 
-        self._made_ctx = _app_ctx.ctx is None
-        if self._made_ctx:
-            _app_ctx.ctx = types.SimpleNamespace()
-        ctx = _app_ctx.ctx
-        self._saved = (getattr(ctx, 'protocol_running', None), getattr(ctx, 'stage', None))
-        ctx.protocol_running = threading.Event()
-        if event_preset:
-            ctx.protocol_running.set()
-
-        class _Stage:
-            def __init__(self, enabled):
-                self._enabled = enabled
-
-            def motion_capability(self):
-                return self._enabled
-
-            def set_motion_capability(self, enabled):
-                self._enabled = enabled
-
-        ctx.stage = _Stage(motion)
-        return ctx
-
-    def _unwire(self):
-        import modules.app_context as _app_ctx
-
-        if self._made_ctx:
-            _app_ctx.ctx = None
-            return
-        ctx = _app_ctx.ctx
-        ctx.protocol_running, ctx.stage = self._saved
-
-    def test_post_commit_refusal_restores_and_reraises(self):
-        import pytest
-
-        from modules.exceptions import ProtocolRunRefusedError
-        from ui.ui_helpers import run_committed_start
-
-        ctx = self._wire_ctx()
-        try:
-
-            def commit():
-                ctx.protocol_running.set()
-                ctx.stage.set_motion_capability(False)
-
-            def start():
-                raise ProtocolRunRefusedError('already_running', 't', 'm')
-
-            with pytest.raises(ProtocolRunRefusedError):
-                run_committed_start(commit, start)
-
-            assert not ctx.protocol_running.is_set(), 'stranded Event = stranded lockout'
-            assert ctx.stage.motion_capability() is True
-        finally:
-            self._unwire()
-
-    def test_rival_held_event_stays_held(self):
-        import pytest
-
-        from modules.exceptions import ProtocolRunRefusedError
-        from ui.ui_helpers import run_committed_start
-
-        ctx = self._wire_ctx(event_preset=True, motion=False)
-        try:
-
-            def start():
-                raise ProtocolRunRefusedError('exclusive_activity_running', 't', 'm')
-
-            with pytest.raises(ProtocolRunRefusedError):
-                run_committed_start(lambda: None, start)
-
-            assert ctx.protocol_running.is_set(), 'restore must not clear a rival-held Event'
-            assert ctx.stage.motion_capability() is False
-        finally:
-            self._unwire()
-
-    def test_successful_start_leaves_commit_in_place(self):
-        from ui.ui_helpers import run_committed_start
-
-        ctx = self._wire_ctx()
-        try:
-            run_committed_start(lambda: ctx.protocol_running.set(), lambda: None)
-            assert ctx.protocol_running.is_set()
-        finally:
-            self._unwire()
-
-    def test_both_start_sites_route_through_the_boundary(self):
-        src = (REPO / 'ui' / 'protocol_settings.py').read_text()
-        assert src.count('run_committed_start(') >= 2, (
-            'both commit sites (run_sequenced_capture + the AF-scan '
-            'closure) must commit through the restoring boundary'
+    def test_xystage_fact_write_targets_the_session(self):
+        src_text = (REPO / 'ui' / 'microscope_settings.py').read_text()
+        assert 'session.xystage_configured = ' in src_text, (
+            'the scope-config apply path must write the session fact motion_enabled derives from'
         )
 
 
 class TestStandaloneAfLockout:
-    """The standalone Autofocus button engages the full protocol guard
-    set for its duration (D16 ruling). Ownership is a generation token:
-    the exits (completion callback, abort cleanup, safety timer) may all
-    fire, in any order, possibly after a NEWER AF acquired -- only the
-    release carrying the current generation acts, exactly once, and it
-    restores the pre-acquire snapshot rather than clearing."""
+    """The standalone Autofocus button is a RUN through the sequenced-
+    capture engine: the claim inside start() commits run state, the
+    session listener mirrors it to kv, and the run lifecycle releases
+    it. The old wrapper machinery (generation-token lockout, direct
+    AF-thread dispatch, caller-side Event commit) must stay dead."""
 
-    def _ctx(self, event_preset=False, motion=True):
-        import threading
-        import types
+    @staticmethod
+    def _starter_def():
+        import ast
 
-        import modules.app_context as _app_ctx
+        import tests.ast_seams as ast_seams
 
-        self._made_ctx = _app_ctx.ctx is None
-        if self._made_ctx:
-            _app_ctx.ctx = types.SimpleNamespace()
-        ctx = _app_ctx.ctx
-        self._saved = (getattr(ctx, 'protocol_running', None), getattr(ctx, 'stage', None))
-        ctx.protocol_running = threading.Event()
-        if event_preset:
-            ctx.protocol_running.set()
+        node = ast_seams.find_def(
+            'ui/vertical_control.py', 'run_autofocus_from_ui', class_name='VerticalControl'
+        )
+        assert node is not None, 'run_autofocus_from_ui not found'
+        return ast, node
 
-        class _Stage:
-            def __init__(self, enabled):
-                self._enabled = enabled
-
-            def motion_capability(self):
-                return self._enabled
-
-            def set_motion_capability(self, enabled):
-                self._enabled = enabled
-
-        ctx.stage = _Stage(motion)
-        return ctx
-
-    def _unctx(self):
-        import modules.app_context as _app_ctx
-
-        if self._made_ctx:
-            _app_ctx.ctx = None
-            return
-        ctx = _app_ctx.ctx
-        ctx.protocol_running, ctx.stage = self._saved
-
-    def test_acquire_engages_release_restores(self):
-        from ui import vertical_control as vc
-
-        ctx = self._ctx()
-        try:
-            gen = vc._acquire_af_lockout()
-            assert ctx.protocol_running.is_set()
-            assert ctx.stage.motion_capability() is False
-            vc._release_af_lockout(gen)
-            assert not ctx.protocol_running.is_set()
-            assert ctx.stage.motion_capability() is True
-        finally:
-            self._unctx()
-
-    def test_stale_release_cannot_unlock_a_newer_af(self):
-        from ui import vertical_control as vc
-
-        ctx = self._ctx()
-        try:
-            gen1 = vc._acquire_af_lockout()
-            vc._release_af_lockout(gen1)
-            gen2 = vc._acquire_af_lockout()
-            vc._release_af_lockout(gen1)  # stale exit from AF #1
-            assert ctx.protocol_running.is_set(), 'stale release must not unlock AF #2'
-            vc._release_af_lockout(gen2)
-            assert not ctx.protocol_running.is_set()
-        finally:
-            self._unctx()
-
-    def test_double_release_is_single_shot(self):
-        from ui import vertical_control as vc
-
-        ctx = self._ctx()
-        try:
-            gen = vc._acquire_af_lockout()
-            vc._release_af_lockout(gen)
-            ctx.protocol_running.set()  # a rival acquires between the two exits
-            vc._release_af_lockout(gen)
-            assert ctx.protocol_running.is_set(), 'second release must no-op'
-        finally:
-            self._unctx()
-
-    def test_release_restores_a_rival_held_event(self):
-        from ui import vertical_control as vc
-
-        ctx = self._ctx(event_preset=True, motion=False)
-        try:
-            gen = vc._acquire_af_lockout()
-            vc._release_af_lockout(gen)
-            assert ctx.protocol_running.is_set(), 'restore must keep a rival-held Event held'
-            assert ctx.stage.motion_capability() is False
-        finally:
-            self._unctx()
-
-    def test_acquire_ordered_after_every_refusal_gate(self):
-        src = (REPO / 'ui' / 'vertical_control.py').read_text()
-        body = src[src.find('def run_autofocus_from_ui') :]
-        gates = body.find('run_in_progress()')
-        drain = body.find('require_file_writes_idle(')
-        acquire = body.find('_acquire_af_lockout()')
-        assert 0 < gates < drain < acquire, (
-            'the lockout must be acquired only after the protocol-running '
-            'and files-idle gates; an acquire before a refusal strands it'
+    def test_standalone_af_runs_through_the_engine(self):
+        ast, node = self._starter_def()
+        uses_run_mode = any(
+            isinstance(sub, ast.Attribute) and sub.attr == 'SINGLE_AUTOFOCUS_SCAN'
+            for sub in ast.walk(node)
+        )
+        assert uses_run_mode, (
+            'the standalone button must start a sequenced-capture run; '
+            'a direct AutofocusThread dispatch bypasses the claim, the '
+            'executor fencing, and the file queue the engineering '
+            'AF-data save rides on'
+        )
+        direct_dispatch = any(
+            isinstance(sub, ast.Call)
+            and isinstance(sub.func, ast.Attribute)
+            and sub.func.attr == 'run_autofocus'
+            for sub in ast.walk(node)
+        )
+        assert not direct_dispatch, (
+            'no direct AutofocusThread.run_autofocus dispatch from the standalone starter'
         )
 
-    def test_af_scan_commit_sets_the_event(self):
-        src = (REPO / 'ui' / 'protocol_settings.py').read_text()
-        body = src[src.find('def run_autofocus_scan_from_ui') :]
-        commit = body[body.find('def commit_ui_state') : body.find('settings = ')]
-        assert 'ctx.protocol_running.set()' in commit, (
-            'the AF scan commit must engage the worker-thread guard set, not only the kv mirror'
+    def test_start_ordered_after_every_refusal_gate(self):
+        ast, node = self._starter_def()
+        first_line: dict[str, int] = {}
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Call):
+                name = (
+                    sub.func.attr
+                    if isinstance(sub.func, ast.Attribute)
+                    else getattr(sub.func, 'id', '')
+                )
+                if name in ('run_in_progress', 'require_file_writes_idle', 'prepare'):
+                    first_line.setdefault(name, sub.lineno)
+        assert (
+            0
+            < first_line.get('run_in_progress', 0)
+            < first_line.get('require_file_writes_idle', 0)
+            < first_line.get('prepare', 0)
+        ), (
+            'the rival-run and files-idle gates must run before the '
+            'engine prepare; a cosmetics commit before a refusal shows '
+            'a mid-run button for a run that never started'
         )
 
 
@@ -370,7 +265,7 @@ class TestGestureMotionFunnel:
         self._locked_app(True)
         # No ctx is wired in this test process: reaching past the guard
         # would raise on ctx access, so returning cleanly IS the proof.
-        ui_helpers.move_relative_position('X', 5.0)
+        ui_helpers.move_relative('X', 5.0)
 
     def test_unlocked_app_reaches_for_the_scope(self):
         from ui import ui_helpers
@@ -388,13 +283,13 @@ class TestGestureMotionFunnel:
 
     def test_all_three_movers_guard(self):
         src = (REPO / 'ui' / 'ui_helpers.py').read_text()
-        for mover in ('move_relative_position', 'move_absolute_position', 'move_home'):
+        for mover in ('move_relative', 'move_absolute', 'move_home'):
             idx = src.find(f'def {mover}(')
             nxt = src.find('\ndef ', idx + 1)
             body = src[idx:nxt]
             assert '_user_motion_locked(' in body, f'{mover} must enforce the lock'
         # The protocol leg stays open: the protocol's own moves are not
         # user gestures.
-        idx = src.find('def move_absolute_position(')
+        idx = src.find('def move_absolute(')
         body = src[idx : src.find('\ndef ', idx + 1)]
         assert 'if not protocol and _user_motion_locked(' in body

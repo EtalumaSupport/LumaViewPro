@@ -26,10 +26,10 @@ FLUORESCENCE_MIN_EXPOSURE_MS = 1.0
 # AG can drive transmitted-channel exposure down to the camera's
 # physical minimum (Pylon ExposureTime.Min ~= 30 us = 0.030 ms on
 # common sensors). Sub-threshold values written back to settings via
-# update_auto_gain_cb then fire the set_exposure_time(<0.1ms)
+# update_auto_gain_cb then fire the set_exposure_ms(<0.1ms)
 # "value should be in milliseconds" warning on every subsequent
 # apply_settings (visible in beta9 logs as recurring WARNING spam).
-# The threshold matches set_exposure_time's internal warning gate so
+# The threshold matches set_exposure_ms's internal warning gate so
 # AG-feedback values can never trigger it; live AG can still drive
 # the camera lower (the floor applies only to the settings write-back
 # in update_auto_gain_cb).
@@ -299,8 +299,7 @@ class LayerControl(BoxLayout):
 
     def ill_slider(self):
         settings = _app_ctx.ctx.settings
-        protocol_running_global = _app_ctx.ctx.protocol_running
-        if protocol_running_global.is_set():
+        if _app_ctx.ctx.session.run_lockout:
             return
         # Early return on programmatic updates (#617): when another code
         # path sets ill_slider.value directly (load_settings, ill_text,
@@ -447,16 +446,13 @@ class LayerControl(BoxLayout):
             )
         )
 
-        # actual_gain = lumaview.scope.camera.get_gain()
-        # actual_exp = lumaview.scope.camera.get_exposure_t()
-
     def get_gain_exposure(self, init, state):
         ctx = _app_ctx.ctx
         # Read directly from camera hardware, not cache.
         # During auto-gain, the SDK adjusts gain/exposure but doesn't
         # update the cache -- cache still has the pre-auto-gain values.
-        actual_gain = ctx.scope.imaging.get_gain()
-        actual_exp = ctx.scope.imaging.get_exposure_time()
+        actual_gain = ctx.scope.imaging.get_gain_db()
+        actual_exp = ctx.scope.imaging.get_exposure_ms()
 
         return (init, state, actual_gain, actual_exp)
 
@@ -495,7 +491,7 @@ class LayerControl(BoxLayout):
                 # minimum (Pylon ~30us on bright samples); writing those
                 # raw values to settings produces (a) nearly-black images
                 # if the user creates protocol steps from these settings,
-                # and (b) recurring set_exposure_time(<0.1ms) WARNING spam
+                # and (b) recurring set_exposure_ms(<0.1ms) WARNING spam
                 # on every subsequent apply_settings. Fluorescence + lumi
                 # floor at 1ms (sub-ms never realistic in those modes);
                 # transmitted (BF/PC/DF) floor at 0.1ms (the warning
@@ -528,8 +524,7 @@ class LayerControl(BoxLayout):
 
     def gain_slider(self):
         settings = _app_ctx.ctx.settings
-        protocol_running_global = _app_ctx.ctx.protocol_running
-        if protocol_running_global.is_set():
+        if _app_ctx.ctx.session.run_lockout:
             return
         # See ill_slider -- programmatic updates must not re-enter (#617).
         if self._initializing:
@@ -568,8 +563,7 @@ class LayerControl(BoxLayout):
 
     def exp_slider(self):
         settings = _app_ctx.ctx.settings
-        protocol_running_global = _app_ctx.ctx.protocol_running
-        if protocol_running_global.is_set():
+        if _app_ctx.ctx.session.run_lockout:
             return
         # See ill_slider -- programmatic updates must not re-enter (#617).
         if self._initializing:
@@ -966,12 +960,12 @@ class LayerControl(BoxLayout):
 
     def execute_goto_focus(self):
         # See execute_save_focus comment for the pattern rationale.
-        from ui.ui_helpers import move_absolute_position
+        from ui.ui_helpers import move_absolute
 
         settings = _app_ctx.ctx.settings
         try:
             pos = settings[self.layer]['focus']
-            move_absolute_position('Z', pos)  # set current z height in usteps
+            move_absolute('Z', pos)  # set current z height in usteps
         except KeyError:
             logger.warning(f'[LVP Main  ] goto_focus: no saved focus for layer {self.layer}')
             try:
@@ -1223,7 +1217,6 @@ class LayerControl(BoxLayout):
             return
 
         settings = ctx.settings
-        protocol_running_global = ctx.protocol_running
         camera_executor = ctx.camera_executor
         from ui.image_settings import set_histogram_layer
 
@@ -1250,7 +1243,7 @@ class LayerControl(BoxLayout):
                 # the bus only for a layer that is actually on -- no cycle on
                 # a plain slider move, and this layer's own LED is never
                 # disturbed (its current is owned by update_led_state).
-                if not protocol_running_global.is_set():
+                if not ctx.session.run_lockout:
                     for layer in common_utils.get_layers():
                         if layer == self.layer:
                             continue
@@ -1281,7 +1274,7 @@ class LayerControl(BoxLayout):
                 finally:
                     LayerControl._suppressing_led_log = False
 
-        if protocol_running_global.is_set():
+        if ctx.session.run_lockout:
             # Protocol actively running -- capture() handles camera settings
             # per-step. Don't apply here to avoid duplicate commands (#587/#588).
             logger.debug(
@@ -1313,7 +1306,7 @@ class LayerControl(BoxLayout):
             set_histogram_layer(active_layer=self.layer)
 
         # Queue IO task and update UI after completing IO
-        if update_led and not protocol_running_global.is_set():
+        if update_led and not ctx.session.run_lockout:
             self.update_led_state(apply_settings=False)
 
         disable_leds_for_other_layers()
@@ -1324,7 +1317,7 @@ class LayerControl(BoxLayout):
         exposure = settings[self.layer]['exp_ms']
         gain = settings[self.layer]['gain_db']
 
-        if not protocol_running_global.is_set():
+        if not ctx.session.run_lockout:
             # Effective enable = saved preference gated by camera capability
             # (effective_auto_gain): on a camera without hardware AG/AE the
             # control is hidden, so a stored True must read as off here -- else
@@ -1357,7 +1350,10 @@ class LayerControl(BoxLayout):
                 autogain_settings['max_exposure_ms'] = get_ag_ae_max_exposure_ms(self.layer)
             camera_executor.put(
                 IOTask(
-                    action=lumaview.scope.imaging.apply_layer_camera_settings,
+                    # The task runs ON the camera worker: bind the impl --
+                    # the public dispatcher would self-dispatch on this
+                    # same lane and stall against its own queue slot.
+                    action=lumaview.scope.imaging._apply_layer_camera_settings_impl,
                     kwargs={
                         'gain_db': gain,
                         'exposure_ms': exposure,

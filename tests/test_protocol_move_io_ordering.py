@@ -3,7 +3,7 @@ executor instead of calling the scope primitive directly.
 
 During a protocol run the scan loop calls go_to_step on protocol_thread,
 which is a DIFFERENT thread from the io executor's single worker. If a
-move (or turret thome/tmove) is issued by calling the scope primitive
+move (or turret home/tmove) is issued by calling the scope primitive
 directly on protocol_thread, it races the leds_off/led_on that the
 capture path queues on the io worker -- when the move wins the race, the
 previous step's LED stays lit through the well-to-well move (the
@@ -33,7 +33,7 @@ for _kivy_submod in ('kivy.core', 'kivy.core.window', 'kivy.uix', 'kivy.uix.scro
 
 
 # ---------------------------------------------------------------------------
-# B-1: ui_helpers.move_absolute_position(protocol=True) -- behavioral
+# B-1: ui_helpers.move_absolute(protocol=True) -- behavioral
 # ---------------------------------------------------------------------------
 
 
@@ -53,21 +53,21 @@ def test_protocol_move_routes_through_io_executor(monkeypatch):
     # it a no-op so the test doesn't reach Kivy's Clock.
     monkeypatch.setattr(ui_helpers, '_schedule_ui', lambda *a, **k: None)
 
-    ui_helpers.move_absolute_position('X', 1234.0, protocol=True)
+    ui_helpers.move_absolute('X', 1234.0, protocol=True)
 
     # The move was queued exactly once on the protocol queue.
     ctx.io_executor.protocol_put.assert_called_once()
     task = ctx.io_executor.protocol_put.call_args.args[0]
-    assert task.action is ctx.scope.motion.move_absolute_position, (
-        'protocol-context move must enqueue the scope move primitive as the '
-        'IOTask action so it serializes on the io worker'
+    assert task.action is ctx.scope.motion._move_absolute_impl, (
+        'protocol-context move must enqueue the non-dispatching move body as '
+        'the IOTask action so it serializes on the io worker'
     )
     # The wrapper waits for completion (preserves the prior synchronous
     # semantics on protocol_thread).
     fut.result.assert_called_once()
     # It must NOT have been called directly on the calling thread -- that is
     # the bypass that races leds_off.
-    ctx.scope.motion.move_absolute_position.assert_not_called()
+    ctx.scope.motion._move_absolute_impl.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -75,7 +75,7 @@ def test_protocol_move_routes_through_io_executor(monkeypatch):
 #
 # turret_select is a method on a Kivy widget (debounced, schedules Clock
 # callbacks), so instantiating it for a behavioral assert is impractical.
-# Guard the structure instead: in the protocol branches thome/tmove must
+# Guard the structure instead: in the protocol branches the turret ops must
 # appear only as IOTask action references, never as direct calls.
 # ---------------------------------------------------------------------------
 
@@ -90,8 +90,8 @@ def _turret_select_node() -> ast.FunctionDef:
 
 
 def _direct_calls_to(node: ast.AST, names: set[str]) -> list[str]:
-    """Attribute calls like `scope.motion.thome()` -- the direct-call
-    bypass. A reference passed to IOTask (`IOTask(scope.motion.thome)`)
+    """Attribute calls like `scope.motion._thome_impl()` -- the direct-call
+    bypass. A reference passed to IOTask (`IOTask(scope.motion._thome_impl)`)
     is an ast.Attribute, not an ast.Call, so it is not flagged.
     """
     out: list[str] = []
@@ -102,10 +102,12 @@ def _direct_calls_to(node: ast.AST, names: set[str]) -> list[str]:
 
 
 def test_protocol_turret_ops_not_called_directly():
-    """thome/tmove must be routed through io_executor (referenced inside
-    IOTask), never invoked directly on protocol_thread.
+    """Turret homing/moves must be routed through io_executor (impl
+    references inside IOTask), never invoked directly on protocol_thread.
     """
-    direct = _direct_calls_to(_turret_select_node(), {'thome', 'tmove'})
+    direct = _direct_calls_to(
+        _turret_select_node(), {'home', 'tmove', '_thome_impl', '_tmove_impl'}
+    )
     assert not direct, (
         'turret_select calls these motion primitives directly -- they must '
         'be routed through io_executor.protocol_put(IOTask(...)) so the '
@@ -125,6 +127,6 @@ def test_protocol_turret_branch_uses_protocol_put():
         and n.func.attr == 'protocol_put'
     ]
     assert len(put_calls) >= 2, (
-        'turret_select must route both thome and tmove through '
-        f'io_executor.protocol_put in the protocol branch; found {len(put_calls)}'
+        'turret_select must route both the turret home and the turret move '
+        f'through io_executor.protocol_put in the protocol branch; found {len(put_calls)}'
     )

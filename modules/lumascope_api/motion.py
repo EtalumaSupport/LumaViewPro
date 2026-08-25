@@ -6,7 +6,7 @@ _arrival_events, _move_profile, _position_listeners, _motion_wake,
 _motion_monitor_stop, _motion_monitor_thread, _homing_event,
 _turreting_event) and the bodies of all stage / focus / turret
 methods. Lumascope keeps a small set of one-line method-name
-forwarders (zhome, home, thome, move_absolute_position, etc.) for
+forwarders (home, move_absolute, etc.) for
 production callers; those retire as production migrates.
 
 Constructor signature:
@@ -37,6 +37,7 @@ from collections.abc import Iterator
 from drivers.exceptions import HardwareError
 from lib import profile_trace
 from lvp_logger import logger
+from modules.exceptions import AxisStateUnknownError, HardwareCommandRefusedError
 from modules.notification_center import notifications
 
 # Match _lumascope.py's module-level _api_log channel so relocated
@@ -84,7 +85,7 @@ class MotionAPI:
         # Motion state slots.
         #
         # Locks and events are initialized here; per-axis dicts are
-        # populated by init_axes() called from Lumascope.__init__ after the
+        # populated by _init_axes() called from Lumascope.__init__ after the
         # motion driver is constructed and present_axes is known.
         # ------------------------------------------------------------------
         self._pos_cache_lock = threading.Lock()
@@ -116,25 +117,33 @@ class MotionAPI:
         self._position_listeners_lock = threading.Lock()
         self._position_listeners: list = []
 
-        # Lock for motion profile dict (built by init_axes, after driver init).
+        # Lock for motion profile dict (built by _init_axes, after driver init).
         self._move_profile_lock = threading.Lock()
 
         # Boolean operation flags use threading.Event for wait/signal.
         self._homing_event = threading.Event()  # set => homing in progress
         self._turreting_event = threading.Event()  # set => turret move in progress
 
-        # Motion monitor thread handle -- populated by start_monitor().
+        # Motion monitor thread handle -- populated by _start_monitor().
         # Not started at __init__ because the motion driver and per-axis
-        # dicts aren't ready yet; Lumascope.__init__ calls start_monitor()
-        # after init_axes().
+        # dicts aren't ready yet; Lumascope.__init__ calls _start_monitor()
+        # after _init_axes().
         self._motion_monitor_stop = threading.Event()
         self._motion_monitor_thread: threading.Thread | None = None
         # Per-axis monotonic timestamp first seen disconnected-while-moving;
         # used by the monitor to bound how long an axis stays MOVING after
         # the board vanishes. Only the monitor thread touches it.
         self._disconnect_since: dict[str, float] = {}
+        # Per-axis monotonic timestamp the current move was first observed
+        # MOVING with the board connected; bounds a connected-but-stalled
+        # axis the same way _disconnect_since bounds a vanished board.
+        # Without it, a move whose position_reached never fires wedges
+        # every state-reader -- capture settle-checks, is_moving pollers --
+        # forever, while only explicit waiters carry their own timeout.
+        # Only the monitor thread touches it.
+        self._moving_since: dict[str, float] = {}
 
-        # Per-axis state dicts -- empty until init_axes() fills them.
+        # Per-axis state dicts -- empty until _init_axes() fills them.
         self._pos_cache: dict = {}
         self._axis_state: dict = {}
         self._arrival_events: dict = {}
@@ -145,7 +154,7 @@ class MotionAPI:
         # so the first tmove() always goes through to the firmware.
         self._last_turret_position: int | None = None
 
-    def init_axes(self, present_axes: list[str]) -> None:
+    def _init_axes(self, present_axes: list[str]) -> None:
         """Populate per-axis state dicts from the list of detected axes.
 
         Called from Lumascope.__init__ (and create_diagnostic) after the
@@ -163,10 +172,10 @@ class MotionAPI:
             ev.set()  # Start as "arrived" (not moving)
         self._move_profile = dict.fromkeys(present_axes)
 
-    def start_monitor(self) -> None:
+    def _start_monitor(self) -> None:
         """Spawn the motion monitor thread.
 
-        Called from Lumascope.__init__ after init_axes() so the thread
+        Called from Lumascope.__init__ after _init_axes() so the thread
         always sees fully populated state dicts. Separate from __init__
         so create_diagnostic can control the spawn sequence.
         """
@@ -178,7 +187,7 @@ class MotionAPI:
         )
         self._motion_monitor_thread.start()
 
-    def disconnect(self) -> None:
+    def _disconnect(self) -> None:
         """Stop the motion monitor and reset axis states.
 
         Called from Lumascope.disconnect() before the motor driver is
@@ -201,46 +210,197 @@ class MotionAPI:
         return self._scope._motion_driver
 
     # ------------------------------------------------------------------
+    # Position-knowledge authority.
+    #
+    # _axis_state is the ONE store for "is this axis position known."
+    # Three producers write UNKNOWN into it -- a failed home, the
+    # disconnect fault, the stall fault -- and everything that asks the
+    # question reads it here, so a new producer is automatically honored
+    # by every consumer.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _position_known(state: str) -> bool:
+        """Whether an axis in ``state`` has a valid reference position.
+
+        IDLE and MOVING both have one: a move in flight knows what frame
+        it is moving in, it just does not know the instantaneous
+        position. HOMING does not have one yet -- the reference is being
+        established -- and UNKNOWN has lost it.
+        """
+        return state in (AxisState.IDLE, AxisState.MOVING)
+
+    def _fault_axis(self, axis: str) -> None:
+        """Record that a commanded move failed at the driver.
+
+        The axis keeps whatever state it held before the attempt unless
+        something says otherwise -- commonly IDLE, which reads as
+        "arrived" to every consumer, for a move that never happened. The
+        driver call precedes the MOVING transition deliberately (a
+        previously-observed arrival bit could otherwise be mistaken for
+        this move's), so on a raise control never reaches that write and
+        this is where the state has to be corrected. Nothing about the
+        ordering needs to change.
+
+        Notifies once. The user asked for motion and did not get it;
+        without a word, the stage simply appears to ignore them.
+        """
+        self._set_axis_state(axis, AxisState.UNKNOWN)
+        notifications.error(
+            'Motion',
+            'Move Failed',
+            f'The {axis} move did not complete. That axis position is now '
+            f'unknown -- home the scope before moving it again.',
+        )
+
+    def _pre_drive(self, axis: str, force: bool = False) -> None:
+        """Refuse to drive an axis whose position is not known.
+
+        Every commanded move passes through here before it reaches the
+        driver, so the refusal cannot be reintroduced by a new move
+        caller that forgets to check -- there is no per-call-site check
+        to forget.
+
+        Only UNKNOWN refuses. HOMING is not a refusal: the home itself
+        has to be able to drive the axis it is establishing.
+
+        This raises without notifying. The failure that made the axis
+        UNKNOWN already notified when it happened (a failed home pops
+        its own error), and the caller that provoked THIS refusal owns
+        the response -- a REST client needs a status code, the GUI
+        surfaces the executor's task failure. Notifying here would
+        double the popup on the startup path.
+
+        Args:
+            axis: Axis the caller is about to drive.
+            force: Skip the check. The recovery paths pass True: the
+                turret-safety Z-retract and a deliberate re-home jog
+                must move an axis that is legitimately still unknown,
+                and a gate that blocked them would deadlock the only
+                operations that can clear the state it guards.
+
+        Raises:
+            AxisStateUnknownError: The axis position is unknown and the
+                caller did not pass ``force=True``.
+        """
+        if force:
+            return
+        with self._axis_state_lock:
+            state = self._axis_state.get(axis)
+        # An axis the board does not have has no state to be unknown;
+        # the move paths already no-op it further down.
+        if state == AxisState.UNKNOWN:
+            raise AxisStateUnknownError(axis)
+
+    # ------------------------------------------------------------------
     # Stateless method bodies.
     #
     # Order mirrors _lumascope.py source order.
     # ------------------------------------------------------------------
 
+    def _submit_motion(
+        self,
+        action,
+        name,
+        *,
+        kwargs=None,
+        callback=None,
+        cb_args=None,
+        cb_kwargs=None,
+        slow_task_threshold_sec=None,
+        wait_timeout=None,
+    ):
+        """Submit one motion body to the io executor.
+
+        With no executor registered the task runs on the calling thread --
+        a bare `Lumascope()` in a script has none and still has to drive
+        hardware; one rule for the whole surface. Running the TASK rather
+        than the bare action keeps the callback and error reporting on the
+        production path. A submit the executor drops is recorded rather
+        than vanishing: fire-and-forget callers cannot be handed an
+        exception -- every UI callsite would need a handler for a state it
+        cannot prevent.
+
+        Args:
+            wait_timeout: None (the default) submits fire-and-forget and
+                returns None. A number blocks for up to that many seconds
+                and returns what the body returned, so a caller that must
+                branch on the outcome -- startup deciding whether the
+                reference frame is good enough to keep going -- can. The
+                waiter is the one this already claims; only discarding it
+                was the difference. Never pass this from the io worker
+                itself: it would wait on the thread that has to run the
+                work.
+
+        Returns:
+            The body's return value when ``wait_timeout`` is set,
+            otherwise None. Also None when the executor declined the
+            task, which a waiting caller must read as "did not run".
+        """
+        from modules.sequential_io_executor import IOTask  # local-import: avoid cycle
+
+        task = IOTask(
+            action=action,
+            kwargs=kwargs,
+            callback=callback,
+            cb_args=cb_args,
+            cb_kwargs=cb_kwargs,
+            slow_task_threshold_sec=slow_task_threshold_sec,
+        )
+        ex = self._scope._io_executor
+        if ex is None:
+            # run() renames the current thread to the task's name (normally
+            # the worker's); an unnamed task would blank the CALLING
+            # thread's name here, so hand it the name it already has.
+            task.set_name(threading.current_thread().name)
+            result, exception = task.run()
+            task.on_complete(result, exception)
+            if exception is not None:
+                raise exception
+            return result
+        waiter = ex.put(task, return_future=True)
+        if waiter is None:
+            logger.warning(
+                f'[SCOPE API ] {name} dropped: the io executor is not accepting '
+                f'work (disabled, or fenced by a running protocol)'
+            )
+            return None
+        if wait_timeout is None:
+            return None
+        return waiter.result(timeout=wait_timeout)
+
     def move_absolute_async(
         self,
         axis,
-        pos,
+        position,
         *,
         wait_until_complete=False,
         overshoot_enabled=True,
         callback=None,
         cb_kwargs=None,
     ) -> None:
-        """Submit ``move_absolute_position`` to the io_executor.
+        """Submit the absolute move to the io_executor; return immediately.
 
         Args:
             axis: Axis name ("X", "Y", "Z", "T").
-            pos: Target position in um.
-            wait_until_complete: If True, block until move finishes.
+            position: Target position -- um for X/Y/Z; turret slot (1-4) for T.
+            wait_until_complete: If True, the WORKER blocks until the move
+                finishes; this call still returns immediately.
             overshoot_enabled: Allow Z overshoot for backlash compensation.
             callback: Optional completion callback.
             cb_kwargs: Optional kwargs passed to the callback.
         """
-        from modules.sequential_io_executor import IOTask  # local-import: avoid cycle
-
-        ex = self._scope._require_executor(self._scope._io_executor, 'move_absolute_async')
-        ex.put(
-            IOTask(
-                action=self.move_absolute_position,
-                kwargs={
-                    'axis': axis,
-                    'pos': pos,
-                    'wait_until_complete': wait_until_complete,
-                    'overshoot_enabled': overshoot_enabled,
-                },
-                callback=callback,
-                cb_kwargs=cb_kwargs,
-            )
+        self._submit_motion(
+            self._move_absolute_impl,
+            'move_absolute_async',
+            kwargs={
+                'axis': axis,
+                'position': position,
+                'wait_until_complete': wait_until_complete,
+                'overshoot_enabled': overshoot_enabled,
+            },
+            callback=callback,
+            cb_kwargs=cb_kwargs,
         )
 
     def stop_motion(self) -> None:
@@ -323,16 +483,14 @@ class MotionAPI:
         Returns:
             int | None: Turret position (1-4), or None if not found.
         """
-        if (
-            persisted_position is not None
-            and self._scope.runtime_state._turret_config.get(persisted_position) == objective_id
-        ):
+        turret_config = self._scope.runtime_state.get_turret_config()
+        if persisted_position is not None and turret_config.get(persisted_position) == objective_id:
             return persisted_position
 
         if prefer_current:
             try:
                 current_pos = self.get_current_position(axis='T')
-                if self._scope.runtime_state._turret_config.get(current_pos) == objective_id:
+                if turret_config.get(current_pos) == objective_id:
                     return current_pos
             except Exception:
                 pass
@@ -340,7 +498,7 @@ class MotionAPI:
         for (
             turret_position,
             turret_objective_id,
-        ) in self._scope.runtime_state._turret_config.items():
+        ) in turret_config.items():
             if objective_id == turret_objective_id:
                 return turret_position
 
@@ -354,7 +512,7 @@ class MotionAPI:
                 objective ID; False if the slot is unconfigured.
         """
         position = self.get_current_position(axis='T')
-        return self._scope.runtime_state._turret_config[position] is not None
+        return self._scope.runtime_state.get_turret_config()[position] is not None
 
     def get_axes_config(self) -> dict:
         """Get the axis configuration from the motion board.
@@ -365,10 +523,10 @@ class MotionAPI:
         return self._driver.get_axes_config()
 
     @contextlib.contextmanager
-    def reference_position_logger(self) -> Iterator[None]:
+    def _reference_position_logger(self) -> Iterator[None]:
         """Context manager that logs limit-switch status before and after homing.
 
-        Use as ``with scope.motion.reference_position_logger(): ... home ...``.
+        Use as ``with scope.motion._reference_position_logger(): ... home ...``.
         Emits forced-INFO log lines so the limit-switch state pre/post
         homing is preserved for diagnostics.
         """
@@ -378,7 +536,7 @@ class MotionAPI:
         after = self.get_limit_switch_status_all_axes()
         logger.info(f'Limit switch status after homing: {after}', extra={'force_error': True})
 
-    def home(self) -> bool:
+    def _home_impl(self) -> bool:
         """Home every axis the motor board has.
 
         This is the unified "home everything" entry point used by
@@ -427,9 +585,9 @@ class MotionAPI:
             self._scope.imaging.frame_validity.invalidate('xy_move')
         if 'T' in present_axes:
             self._scope.imaging.frame_validity.invalidate('turret')
-        self.is_homing = True
+        self._is_homing = True
         try:
-            with self.reference_position_logger():
+            with self._reference_position_logger():
                 result = self._driver.home()
             if result is False:
                 logger.error('[SCOPE API ] Homing failed')
@@ -441,7 +599,7 @@ class MotionAPI:
                 return False
             for ax in present_axes:
                 self._set_axis_state(ax, AxisState.IDLE)
-            self.refresh_position_cache()
+            self._refresh_position_cache()
             # The firmware homes the turret to position 1, so seed the cache.
             # Without this it stays None and a subsequent tmove(1) -- e.g. the
             # startup select-position-1 -- can't recognize the turret is
@@ -458,15 +616,15 @@ class MotionAPI:
             )
             return False
         finally:
-            self.is_homing = False
+            self._is_homing = False
             _api_log.info('home DONE')
 
     @contextlib.contextmanager
-    def safe_turret_move(self, restore_z: bool = True) -> Iterator[None]:
+    def _safe_turret_move(self, restore_z: bool = True) -> Iterator[None]:
         """Context manager that lowers Z to 0 before turret motion and restores after.
 
-        Use as ``with scope.motion.safe_turret_move(): ... move turret ...``.
-        Sets ``is_turreting`` for the duration and restores the original
+        Use as ``with scope.motion._safe_turret_move(): ... move turret ...``.
+        Sets ``_is_turreting`` for the duration and restores the original
         Z position even if the body raises.
 
         Args:
@@ -477,31 +635,42 @@ class MotionAPI:
                 step's target -- the restore is wasted motion). When
                 False, Z is left at 0 and the caller is responsible for
                 the next Z move. Standalone callers (UI turret button,
-                thome) leave the default True.
+                the turret-home body) leave the default True.
         """
         # Save off current Z position before moving Z to 0
         logger.info('[SCOPE API ] Moving Z to 0', extra={'force_error': True})
         initial_z = self.get_current_position(axis='Z')
-        self.move_absolute_position('Z', pos=0, wait_until_complete=True)
-        self.is_turreting = True
+        # force: this retract is the turret-safety move, and it is also
+        # the first motion of the turret-home recovery -- the case where
+        # Z is legitimately still unknown because the home that would
+        # have established it is the operation being recovered. Refusing
+        # here would mean an UNKNOWN Z could never be re-homed without
+        # restarting the application.
+        self._move_absolute_impl('Z', position=0, wait_until_complete=True, force=True)
+        self._is_turreting = True
         try:
             yield
         finally:
             # Always clear the flag, even if the body raised (e.g. driver
-            # HardwareError from thome). Without this, a failed turret
-            # home would leave is_turreting=True and the stage stuck at
+            # HardwareError from the turret home). Without this, a failed turret
+            # home would leave _is_turreting=True and the stage stuck at
             # Z=0.
-            self.is_turreting = False
+            self._is_turreting = False
             if restore_z:
                 logger.info(f'[SCOPE API ] Restoring Z to {initial_z}', extra={'force_error': True})
-                self.move_absolute_position('Z', pos=initial_z, wait_until_complete=True)
+                # force for the same reason as the retract: this is the
+                # other half of one recovery, and refusing it would park
+                # the stage at Z=0 with no way back.
+                self._move_absolute_impl(
+                    'Z', position=initial_z, wait_until_complete=True, force=True
+                )
             else:
                 logger.info(
                     '[SCOPE API ] Skipping Z restore -- caller will overwrite Z next',
                     extra={'force_error': True},
                 )
 
-    def thome(self) -> bool:
+    def _thome_impl(self) -> bool:
         """Home the turret axis. Moves Z to 0 during turret motion for safety.
 
         Returns:
@@ -513,11 +682,11 @@ class MotionAPI:
                 the bool.
         """
         # Short-circuit on disconnected motor -- same rationale as
-        # home() above. Without this, thome dispatches into the driver
+        # home() above. Without this, the turret home dispatches into the driver
         # where exchange_command burns its 15s timeout doing failed
         # auto-reconnect attempts. Fire one clean notification.
         if not self._scope.motor_connected:
-            logger.warning('[SCOPE API ] thome() called with motor not connected')
+            logger.warning('[SCOPE API ] turret home requested with motor not connected')
             if not getattr(self._scope, 'no_hardware', False):
                 notifications.error(
                     'Motion',
@@ -530,10 +699,10 @@ class MotionAPI:
 
         # Move turret -- set HOMING after Z is safe, not before.
         # Setting T to HOMING clears its arrival event, which would block
-        # wait_until_finished_moving() inside safe_turret_move's Z move.
-        _api_log.info('thome START')
+        # wait_until_finished_moving() inside _safe_turret_move's Z move.
+        _api_log.info('T home START')
         try:
-            with self.reference_position_logger(), self.safe_turret_move():
+            with self._reference_position_logger(), self._safe_turret_move():
                 self._set_axis_state('T', AxisState.HOMING)
                 self._scope.imaging.frame_validity.invalidate('turret')
                 result = False
@@ -541,7 +710,7 @@ class MotionAPI:
                     result = self._driver.thome()
                 finally:
                     # Transition T out of HOMING on EVERY exit, including a
-                    # raised driver call, BEFORE safe_turret_move's finally
+                    # raised driver call, BEFORE _safe_turret_move's finally
                     # restores Z via wait_until_complete=True. That restore
                     # calls wait_until_finished_moving, which iterates EVERY
                     # axis arrival event; a still-HOMING T has a cleared event
@@ -557,12 +726,12 @@ class MotionAPI:
                     'Motion', 'Homing Failed', 'Turret homing failed. Position is unknown.'
                 )
                 return False
-            self.refresh_position_cache()
+            self._refresh_position_cache()
             # Turret homes to position 1; seed the cache so a following
             # tmove(1) is a no-op rather than a redundant Z-retract / rotate /
             # restore (see home() for the full rationale).
             self._last_turret_position = 1
-            _api_log.info('thome DONE')
+            _api_log.info('T home DONE')
             return True
         except Exception:
             logger.exception('[SCOPE API ] Turret homing exception')
@@ -570,18 +739,30 @@ class MotionAPI:
             notifications.error(
                 'Motion', 'Homing Error', 'Turret homing encountered an error. Position is unknown.'
             )
-            _api_log.info('thome DONE')
+            _api_log.info('T home DONE')
             return False
 
     def has_thomed(self) -> bool:
-        """Check if the turret has been homed since startup.
+        """Whether the turret has a known reference position.
+
+        Answers from the axis state rather than the driver's homing
+        latch. The latch records only that a THOME once succeeded and
+        clears only on physical disconnect, so a stall or a mid-move
+        board dropout leaves it True while the turret's real reference
+        is gone -- and the caller that asks this question asks it to
+        decide whether driving the turret is safe.
 
         Returns:
-            bool: True if turret homing has been performed.
+            bool: True if the turret position is known. On a board with
+                no turret there is nothing to home, so this follows the
+                stage answer, matching what the driver latch reported.
         """
-        return self._driver.has_thomed()
+        if 'T' not in self._axis_state:
+            return self.has_homed()
+        with self._axis_state_lock:
+            return self._position_known(self._axis_state['T'])
 
-    def tmove(self, position: int, restore_z: bool = True) -> None:
+    def _tmove_impl(self, position: int, restore_z: bool = True) -> None:
         """Move the turret to a specific position. Skips if already there.
 
         Args:
@@ -592,30 +773,34 @@ class MotionAPI:
                 value (e.g. protocol step navigation moves T then Z to
                 the new step's target -- restoring Z first is wasted
                 motion).
+
+        Raises:
+            AxisStateUnknownError: The turret position is unknown.
         """
+        # Refuse BEFORE the safety Z-retract below, not inside it. The
+        # retract is real motion; gating only the inner turret move would
+        # drop Z to 0 against an unknown reference and refuse afterwards.
+        #
+        # This also precedes the same-position short-circuit: once the
+        # turret reference is gone, the cache saying "already at 3" is a
+        # claim about a physical position nothing can still vouch for,
+        # and honoring it would report success for a turret that may be
+        # anywhere.
+        self._pre_drive('T')
+
         # Commanding a move of the T axis is slow, even if the move is to the current position.
         # Use caching to determine if T is requested to move to it's current position, and bypass the
         # move altogether if it is.
         if self._last_turret_position == position:
             return
 
-        with self.safe_turret_move(restore_z=restore_z):
+        with self._safe_turret_move(restore_z=restore_z):
             logger.info(f'[SCOPE API ] Moving T to position {position}')
-            self.move_absolute_position('T', position, wait_until_complete=True)
+            self._move_absolute_impl('T', position, wait_until_complete=True)
             self._last_turret_position = position
 
-    def has_turret(self) -> bool:
-        """Check if the microscope has a turret axis.
-
-        Thin wrapper over ``self.capabilities.has_turret``.
-
-        Returns:
-            bool: True if the scope reports a turret axis.
-        """
-        return self._scope.capabilities.has_turret
-
     def get_actual_position(self, axis: str) -> float:
-        """Query the actual hardware position via serial (not cached).
+        """Query the actual hardware position via serial (not cached); um for X/Y/Z, turret slot for T.
 
         Unlike get_current_position() which returns the last commanded
         target, this queries the motor controller for where it actually is
@@ -651,34 +836,6 @@ class MotionAPI:
             return
         self._driver.set_precision_mode(axis, enabled)
 
-    def get_home_status(self, axis: str) -> bool:
-        """Check if an axis is at its home position.
-
-        Args:
-            axis: Axis name ("X", "Y", "Z", "T").
-
-        Returns:
-            bool: True if the axis is homed, False otherwise or on error.
-        """
-        if not self._scope.motor_connected:
-            # Disconnected is an expected degradation, not an error -- the
-            # motion monitor polls this; provoking + tracing a per-poll
-            # HardwareError floods the log on a mid-move USB yank (#539).
-            return False
-        try:
-            status = self._driver.home_status(axis)
-            return status
-        except HardwareError as e:
-            # Typed disconnect/timeout at the moment of unplug (before
-            # motor_connected flips). Expected; log without the traceback.
-            logger.warning(f'[SCOPE API ] get_home_status({axis}): {e}; treating as not home')
-            return False
-        except Exception as e:
-            logger.exception(
-                f'[SCOPE API ] get_home_status({axis}) failed; treating as not home: {e}'
-            )
-            return False
-
     def get_target_status(self, axis: str) -> bool:
         """Check if an axis has reached its target position.
 
@@ -689,9 +846,10 @@ class MotionAPI:
             bool: True if at target (always True for T if no turret present).
         """
         if not self._scope.motor_connected:
-            # See get_home_status: disconnected is an expected degradation;
-            # the motion monitor polls this, so don't provoke + trace a
-            # per-poll HardwareError on a mid-move USB yank (#539).
+            # Disconnected is an expected degradation, not a fault: the
+            # motion monitor polls this on a timer, so provoking the driver
+            # would trace a HardwareError on every poll after a mid-move USB
+            # yank. Answer False and stay quiet.
             return False
 
         # Handle case where we want to know if turret has reached its target, but there is no turret
@@ -714,25 +872,20 @@ class MotionAPI:
             )
             return False
 
-    def get_reference_status(self, axis: str) -> str:
-        """Get reference status register bits for an axis.
-
-        Args:
-            axis: Axis name ("X", "Y", "Z", "T").
-
-        Returns:
-            str: 32-character binary string of register bits (MSB first).
-        """
-        return self._driver.reference_status(axis=axis)
-
     def get_limit_switch_status(self, axis: str) -> tuple[int, int]:
         """Get the limit switch status for an axis.
 
+        Tells a caller WHY a move stopped short: an axis that reached a limit
+        reports it here rather than raising, so the difference between "the
+        move finished" and "the stage ran out of travel" is only visible by
+        asking.
+
         Args:
             axis: Axis name ("X", "Y", "Z", "T").
 
         Returns:
-            Limit switch state for the specified axis (driver-defined).
+            tuple[int, int]: ``(left, right)``, each 1 when that switch is
+            engaged, 0 when clear, and -1 when the state could not be read.
         """
         return self._driver.limit_switch_status(axis=axis)
 
@@ -740,14 +893,16 @@ class MotionAPI:
         """Get limit switch status for all axes.
 
         Returns:
-            dict: Mapping of axis name to limit switch state.
+            dict: Axis name -> the ``(left, right)`` pair described on
+            ``get_limit_switch_status``. Covers only the axes the board
+            reports, so a scope without a turret has no "T" key.
         """
         resp = {}
         for axis in self._scope.capabilities.axes:
             resp[axis] = self.get_limit_switch_status(axis=axis)
         return resp
 
-    def get_overshoot(self) -> bool:
+    def _get_overshoot(self) -> bool:
         """Check if the Z axis is currently in overshoot (backlash compensation) mode.
 
         Returns:
@@ -766,7 +921,7 @@ class MotionAPI:
         """
         if self.is_any_axis_moving():
             return True
-        return bool(self.get_overshoot())
+        return bool(self._get_overshoot())
 
     def set_acceleration_limit(self, val_pct: int) -> None:
         """Set the motor controller acceleration limit (percent of max).
@@ -793,7 +948,7 @@ class MotionAPI:
     # --- CR-2: Thread-safe properties for shared state ---
 
     @property
-    def is_homing(self) -> bool:
+    def _is_homing(self) -> bool:
         """True while the microscope is homing.
 
         Returns:
@@ -801,8 +956,8 @@ class MotionAPI:
         """
         return self._homing_event.is_set()
 
-    @is_homing.setter
-    def is_homing(self, value: bool) -> None:
+    @_is_homing.setter
+    def _is_homing(self, value: bool) -> None:
         """Set the homing-in-progress flag."""
         if value:
             self._homing_event.set()
@@ -810,7 +965,7 @@ class MotionAPI:
             self._homing_event.clear()
 
     @property
-    def is_turreting(self) -> bool:
+    def _is_turreting(self) -> bool:
         """True while the turret is moving.
 
         Returns:
@@ -818,80 +973,98 @@ class MotionAPI:
         """
         return self._turreting_event.is_set()
 
-    @is_turreting.setter
-    def is_turreting(self, value: bool) -> None:
+    @_is_turreting.setter
+    def _is_turreting(self, value: bool) -> None:
         """Set the turret-motion-in-progress flag."""
         if value:
             self._turreting_event.set()
         else:
             self._turreting_event.clear()
 
-    def move_absolute_sync(
-        self, axis, pos, *, wait_until_complete=True, overshoot_enabled=True, timeout_s=30
-    ) -> None:
-        """Run ``move_absolute_position`` through the io_executor and block.
-
-        Blocks until both the IOTask completes and (when
-        ``wait_until_complete``) the stage has physically arrived.
-
-        Args:
-            axis: Axis name ("X", "Y", "Z", "T").
-            pos: Target position in um.
-            wait_until_complete: If True, block until move finishes.
-            overshoot_enabled: Allow Z overshoot for backlash compensation.
-            timeout_s: Max seconds to wait for completion.
-        """
-        from modules.sequential_io_executor import IOTask  # local-import: avoid cycle
-
-        ex = self._scope._require_executor(self._scope._io_executor, 'move_absolute_sync')
-        task = IOTask(
-            action=self.move_absolute_position,
-            kwargs={
-                'axis': axis,
-                'pos': pos,
-                'wait_until_complete': wait_until_complete,
-                'overshoot_enabled': overshoot_enabled,
-            },
-        )
-        fut = ex.put(task, return_future=True)
-        if fut:
-            fut.result(timeout=timeout_s)
-
     def move_relative_async(
         self,
         axis,
-        um,
+        distance,
         *,
         wait_until_complete=False,
         overshoot_enabled=True,
         callback=None,
         cb_kwargs=None,
     ) -> None:
-        """Submit ``move_relative_position`` to the io_executor.
+        """Submit ``move_relative`` to the io_executor.
 
         Args:
             axis: Axis name ("X", "Y", "Z", "T").
-            um: Distance to move in um.
+            distance: Distance to move -- um for X/Y/Z; turret slots for T.
             wait_until_complete: If True, block until move finishes.
             overshoot_enabled: Allow Z overshoot for backlash compensation.
             callback: Optional completion callback.
             cb_kwargs: Optional kwargs passed to the callback.
         """
-        from modules.sequential_io_executor import IOTask  # local-import: avoid cycle
+        self._submit_motion(
+            self._move_relative_impl,
+            'move_relative_async',
+            kwargs={
+                'axis': axis,
+                'distance': distance,
+                'wait_until_complete': wait_until_complete,
+                'overshoot_enabled': overshoot_enabled,
+            },
+            callback=callback,
+            cb_kwargs=cb_kwargs,
+        )
 
-        ex = self._scope._require_executor(self._scope._io_executor, 'move_relative_async')
-        ex.put(
-            IOTask(
-                action=self.move_relative_position,
-                kwargs={
-                    'axis': axis,
-                    'um': um,
-                    'wait_until_complete': wait_until_complete,
-                    'overshoot_enabled': overshoot_enabled,
-                },
-                callback=callback,
-                cb_kwargs=cb_kwargs,
+    def _home_action_for(self, axis):
+        """Resolve the home body an axis selector names, or None.
+
+        Shared by the async and waiting entry points so the selector
+        vocabulary ('Z', 'T', 'ALL', legacy 'XY') has one definition.
+        """
+        a = axis.upper()
+        if a == 'Z':
+            return self._zhome_impl
+        if a in ('ALL', 'XY'):
+            return self._home_impl
+        if a == 'T':
+            return self._thome_impl
+        logger.warning(f'[SCOPE API ] Unknown home axis: {axis}')
+        return None
+
+    def move_home_and_wait(self, axis, *, timeout=None) -> bool:
+        """Home an axis (or the whole scope) and report whether it worked.
+
+        The async form has no return channel, so a caller that must know
+        -- startup deciding whether to keep driving the stage -- had no
+        way to ask. Without this the failure is discarded and the next
+        commanded move runs against a reference frame the home just
+        failed to establish.
+
+        Must not be called from the io worker: it waits on the thread
+        that would run the work.
+
+        Args:
+            axis: Same vocabulary as ``move_home_async``.
+            timeout: Seconds to wait. Defaults to the published motion
+                settle bound.
+
+        Returns:
+            bool: True only if the home actually ran and succeeded. An
+                unknown axis selector, a refused submit, and a failed
+                home are all False -- the caller's question is "can I
+                trust the reference frame", and the answer to all three
+                is no.
+        """
+        action = self._home_action_for(axis)
+        if action is None:
+            return False
+        return (
+            self._submit_motion(
+                action,
+                'move_home_and_wait',
+                slow_task_threshold_sec=self._MOTION_SETTLE_TIMEOUT_S,
+                wait_timeout=self._MOTION_SETTLE_TIMEOUT_S if timeout is None else timeout,
             )
+            is True
         )
 
     def move_home_async(self, axis, *, callback=None, cb_args=None) -> None:
@@ -904,44 +1077,20 @@ class MotionAPI:
             callback: Optional completion callback.
             cb_args: Optional positional args passed to the callback.
         """
-        from modules.sequential_io_executor import IOTask  # local-import: avoid cycle
-
-        ex = self._scope._require_executor(self._scope._io_executor, 'move_home_async')
-        a = axis.upper()
-        # Homing legitimately takes 10-60+ seconds depending on travel
-        # distance and starting position -- well above the 5 sec default
-        # slow-task threshold. Bump to 120s; only a true stall warrants
-        # a warning here.
-        HOME_THRESHOLD = 120.0
-        if a == 'Z':
-            ex.put(
-                IOTask(
-                    action=self.zhome,
-                    callback=callback,
-                    cb_args=cb_args,
-                    slow_task_threshold_sec=HOME_THRESHOLD,
-                )
-            )
-        elif a in ('ALL', 'XY'):
-            ex.put(
-                IOTask(
-                    action=self.home,
-                    callback=callback,
-                    cb_args=cb_args,
-                    slow_task_threshold_sec=HOME_THRESHOLD,
-                )
-            )
-        elif a == 'T':
-            ex.put(
-                IOTask(
-                    action=self.thome,
-                    callback=callback,
-                    cb_args=cb_args,
-                    slow_task_threshold_sec=HOME_THRESHOLD,
-                )
-            )
-        else:
-            logger.warning(f'[SCOPE API ] Unknown home axis: {axis}')
+        action = self._home_action_for(axis)
+        if action is None:
+            return
+        self._submit_motion(
+            action,
+            'move_home_async',
+            callback=callback,
+            cb_args=cb_args,
+            # Homing legitimately takes 10-60+ seconds depending on travel
+            # distance and starting position -- well above the 5 sec default
+            # slow-task threshold. Only a true stall warrants a slow-task
+            # warning here.
+            slow_task_threshold_sec=self._MOTION_SETTLE_TIMEOUT_S,
+        )
 
     def get_axis_state(self, axis: str) -> str:
         """Get the current state of an axis.
@@ -1009,7 +1158,7 @@ class MotionAPI:
             return any(s in (AxisState.MOVING, AxisState.HOMING) for s in self._axis_state.values())
 
     def get_axis_limits(self, axis: str) -> dict | None:
-        """Get the travel limits for an axis.
+        """Get the travel limits for an axis, in um.
 
         Args:
             axis: Axis name ("X", "Y", "Z", or "T").
@@ -1021,20 +1170,36 @@ class MotionAPI:
         """
         return self._driver.get_axis_limits(axis=axis)
 
-    def zhome(self) -> bool:
+    def _zhome_impl(self) -> bool:
         """Home the Z axis (focus).
 
         Returns:
-            bool: True on successful Z homing. False if the driver
-                returned False or raised (e.g. HardwareError on
-                no-response / firmware-error). The user is notified on
-                failure; programmatic callers can branch on the bool.
+            bool: True on successful Z homing. False if the motor is not
+                connected, the driver returned False, or the driver
+                raised (e.g. HardwareError on no-response /
+                firmware-error). The user is notified on failure;
+                programmatic callers can branch on the bool.
         """
-        _api_log.info('zhome START')
+        # Short-circuit on disconnected motor -- same rationale as the
+        # full-home body: without this, the driver's exchange_command
+        # burns its auto-reconnect timeout and the user sees a hang
+        # instead of the actual cause. Fire one clean notification.
+        if not self._scope.motor_connected:
+            logger.warning('[SCOPE API ] Z home requested with motor not connected')
+            if not getattr(self._scope, 'no_hardware', False):
+                notifications.error(
+                    'Motion',
+                    'Motor Not Connected',
+                    'Cannot home Z -- motor controller is not connected. '
+                    'Check the USB cable and that no other program '
+                    '(Thonny, mpremote, etc.) is holding the port.',
+                )
+            return False
+        _api_log.info('Z home START')
         self._set_axis_state('Z', AxisState.HOMING)
         self._scope.imaging.frame_validity.invalidate('z_move')
         try:
-            with self.reference_position_logger():
+            with self._reference_position_logger():
                 result = self._driver.zhome()
             if result is False:
                 logger.error('[SCOPE API ] Z homing failed')
@@ -1044,8 +1209,8 @@ class MotionAPI:
                 self._set_axis_state('Z', AxisState.UNKNOWN)
                 return False
             self._set_axis_state('Z', AxisState.IDLE)
-            self.refresh_position_cache()
-            _api_log.info('zhome DONE')
+            self._refresh_position_cache()
+            _api_log.info('Z home DONE')
             return True
         except Exception:
             logger.exception('[SCOPE API ] Z homing exception')
@@ -1053,30 +1218,34 @@ class MotionAPI:
             notifications.error(
                 'Motion', 'Homing Error', 'Z axis homing encountered an error. Position is unknown.'
             )
-            _api_log.info('zhome DONE')
+            _api_log.info('Z home DONE')
             return False
 
     def has_homed(self) -> bool:
-        """Check if the scope has been homed since startup.
+        """Whether the stage / focus axes have a known reference position.
+
+        Answers from the axis state rather than the driver's homing
+        latch, for the same reason as ``has_thomed``: the latch survives
+        every fault short of a physical disconnect, so it keeps
+        reporting "homed" after a stall or a dropout has already
+        invalidated the reference frame.
+
+        The turret is excluded -- it has its own reference and its own
+        question. A scope whose turret faulted has not lost its stage
+        coordinates.
 
         Returns:
-            bool: True if home() has succeeded at least once.
+            bool: True if every non-turret axis the board has knows its
+                position. False on a board with no such axes, which is
+                what the driver latch reported for the no-motor case.
         """
-        return self._driver.has_homed()
+        with self._axis_state_lock:
+            stage_states = [state for axis, state in self._axis_state.items() if axis != 'T']
+        if not stage_states:
+            return False
+        return all(self._position_known(state) for state in stage_states)
 
-    def xycenter(self) -> None:
-        """Move the XY stage to center position."""
-        self._set_axis_state('X', AxisState.MOVING)
-        self._set_axis_state('Y', AxisState.MOVING)
-        self._driver.xycenter()
-        self._set_axis_state('X', AxisState.IDLE)
-        self._set_axis_state('Y', AxisState.IDLE)
-        # XY field of view changed -- the camera pipeline still holds
-        # frames from the old position; hold capture until they flush.
-        self._scope.imaging.frame_validity.invalidate('xy_move')
-        self.refresh_position_cache()
-
-    def refresh_position_cache(self) -> None:
+    def _refresh_position_cache(self) -> None:
         """Fetch all axis positions from hardware and update the cache.
 
         Called after homing completes to sync the cache with actual hardware
@@ -1113,7 +1282,7 @@ class MotionAPI:
             return self._pos_cache.get(axis, 0.0)
 
     def get_target_position(self, axis: str | None = None) -> float | dict | None:
-        """Get the target position for an axis (where it is commanded to go).
+        """Get the target position for an axis (where it is commanded to go); um for X/Y/Z, turret slot for T.
 
         During MOVING: returns the target captured in _move_profile when the
         move was commanded. This is what the host told the chip; no serial
@@ -1145,7 +1314,7 @@ class MotionAPI:
         return self._read_position_cache(axis)
 
     def get_current_position(self, axis: str | None = None) -> float | dict:
-        """Get the current position for an axis.
+        """Get the current position for an axis; um for X/Y/Z, turret slot (1-4) for T.
 
         Reads from the in-memory position cache. During MOVING the cache
         is refreshed by _motion_monitor_loop polling the motor's actual
@@ -1237,33 +1406,38 @@ class MotionAPI:
         s = max(0.0, min(s, distance))
         return start_pos + direction * s
 
-    def move_absolute_position(
+    def _move_absolute_impl(
         self,
         axis: str,
-        pos: float,
+        position: float,
         wait_until_complete: bool = False,
         overshoot_enabled: bool = True,
         ignore_limits: bool = False,
+        force: bool = False,
     ) -> None:
         """Move an axis to an absolute position.
 
         Args:
             axis (str): Axis name ("X", "Y", "Z", "T").
-            pos (float): Target position in um.
+            position (float): Target position -- um for X/Y/Z; turret slot (1-4) for T.
             wait_until_complete: If True, block until move finishes.
             overshoot_enabled: Allow Z overshoot for backlash compensation.
             ignore_limits: If True, skip software limit checks.
+            force: Drive even when the axis position is unknown. For the
+                recovery paths only -- see ``_pre_drive``.
 
         Raises:
-            ValueError: If axis is invalid or pos is not numeric / out of bounds.
+            ValueError: If axis is invalid or position is not numeric / out of bounds.
+            AxisStateUnknownError: The axis position is unknown and
+                ``force`` is False.
         """
         if axis not in _VALID_AXIS_NAMES:
             raise ValueError(f'Axis must be one of {_VALID_AXIS_NAMES}, got {axis!r}')
-        if not isinstance(pos, (int, float)):
-            raise ValueError(f'Position must be numeric, got {type(pos).__name__}')
-        if abs(pos) > MOTOR_POSITION_LIMIT:
+        if not isinstance(position, (int, float)):
+            raise ValueError(f'Position must be numeric, got {type(position).__name__}')
+        if abs(position) > MOTOR_POSITION_LIMIT:
             raise ValueError(
-                f'Position {pos} um exceeds safety limit of +/-{MOTOR_POSITION_LIMIT} um'
+                f'Position {position} um exceeds safety limit of +/-{MOTOR_POSITION_LIMIT} um'
             )
 
         # Silently no-op for axes that aren't present on this hardware.
@@ -1272,6 +1446,8 @@ class MotionAPI:
         if axis not in self._arrival_events:
             _api_log.debug(f'move_abs ignored: {axis} not present on this scope')
             return
+
+        self._pre_drive(axis, force=force)
 
         # Capture start_pos + ramp before driving. start_time is captured
         # AFTER the driver call returns -- the serial round-trip to write
@@ -1301,17 +1477,18 @@ class MotionAPI:
         # motion monitor polls until real arrival.
         try:
             self._driver.move_abs_pos(
-                axis, pos, overshoot_enabled=overshoot_enabled, ignore_limits=ignore_limits
+                axis, position, overshoot_enabled=overshoot_enabled, ignore_limits=ignore_limits
             )
         except Exception:
-            _api_log.error(f'move_abs {axis}={pos:.1f}um FAILED')
+            _api_log.error(f'move_abs {axis}={position:.1f}um FAILED')
+            self._fault_axis(axis)
             raise
         if ramp:
             with self._move_profile_lock:
                 self._move_profile[axis] = {
                     'start_time': time.monotonic(),
                     'start_pos': start_pos,
-                    'target_pos': float(pos),
+                    'target_pos': float(position),
                     'ramp': ramp,
                 }
         self._set_axis_state(axis, AxisState.MOVING)
@@ -1323,16 +1500,16 @@ class MotionAPI:
         self._scope.imaging.frame_validity.invalidate(
             self._AXIS_VALIDITY_SOURCE.get(axis, 'xy_move')
         )
-        _api_log.info(f'move_abs {axis}={pos:.1f}um{" wait" if wait_until_complete else ""}')
+        _api_log.info(f'move_abs {axis}={position:.1f}um{" wait" if wait_until_complete else ""}')
 
         if wait_until_complete is True:
             self.wait_until_finished_moving()
             self._set_axis_state(axis, AxisState.IDLE)
 
-    def move_relative_position(
+    def _move_relative_impl(
         self,
         axis: str,
-        um: float,
+        distance: float,
         wait_until_complete: bool = False,
         overshoot_enabled: bool = False,
     ) -> None:
@@ -1340,30 +1517,41 @@ class MotionAPI:
 
         Args:
             axis (str): Axis name ("X", "Y", "Z", "T").
-            um (float): Distance to move in um.
+            distance (float): Distance to move -- um for X/Y/Z; turret slots for T.
             wait_until_complete: If True, block until move finishes.
             overshoot_enabled: Allow Z overshoot for backlash compensation.
 
         Raises:
-            ValueError: If axis is invalid or um is not numeric / out of bounds.
+            ValueError: If axis is invalid or distance is not numeric / out of bounds.
+            AxisStateUnknownError: The axis position is unknown.
+
+        There is deliberately no ``force`` hatch here. Every caller is a
+        user jog or an autofocus sweep, and none of them is a recovery
+        path -- the recovery that must move an unknown axis is the
+        turret-safety Z-park, which is an absolute move. A hatch with no
+        caller is just an opt-out waiting to be reached for.
         """
         if axis not in _VALID_AXIS_NAMES:
             raise ValueError(f'Axis must be one of {_VALID_AXIS_NAMES}, got {axis!r}')
-        if not isinstance(um, (int, float)):
-            raise ValueError(f'Distance must be numeric, got {type(um).__name__}')
-        if abs(um) > MOTOR_POSITION_LIMIT:
+        if not isinstance(distance, (int, float)):
+            raise ValueError(f'Distance must be numeric, got {type(distance).__name__}')
+        if abs(distance) > MOTOR_POSITION_LIMIT:
             raise ValueError(
-                f'Distance {um} um exceeds safety limit of +/-{MOTOR_POSITION_LIMIT} um'
+                f'Distance {distance} um exceeds safety limit of +/-{MOTOR_POSITION_LIMIT} um'
             )
 
         # Silently no-op for axes that aren't present on this hardware.
-        # See move_absolute_position for the rationale.
+        # See move_absolute for the rationale.
         if axis not in self._arrival_events:
             _api_log.debug(f'move_rel ignored: {axis} not present on this scope')
             return
 
+        # This path does NOT route through the absolute one -- it calls
+        # move_rel_pos directly -- so it needs the gate of its own.
+        self._pre_drive(axis)
+
         # Capture start_pos + ramp before driving. start_time is captured
-        # AFTER the driver call returns -- mirrors move_absolute_position.
+        # AFTER the driver call returns -- mirrors move_absolute.
         # The ~50 ms serial round-trip to write the hardware target precedes
         # any physical motion; capturing start_time before that would make
         # _predicted_position's elapsed-since-arm lead the motor's real
@@ -1383,18 +1571,19 @@ class MotionAPI:
         else:
             with self._pos_cache_lock:
                 start_pos = self._pos_cache.get(axis, 0.0)
-        target_pos = start_pos + float(um)
+        target_pos = start_pos + float(distance)
         try:
             ramp = self._driver.motorconfig.ramp_params(axis)
         except Exception:
             ramp = None
 
         # Write hardware target BEFORE transitioning axis to MOVING --
-        # same race fix as move_absolute_position (#618).
+        # same race fix as move_absolute (#618).
         try:
-            self._driver.move_rel_pos(axis, um, overshoot_enabled=overshoot_enabled)
+            self._driver.move_rel_pos(axis, distance, overshoot_enabled=overshoot_enabled)
         except Exception:
-            _api_log.error(f'move_rel {axis}={um:+.1f}um FAILED')
+            _api_log.error(f'move_rel {axis}={distance:+.1f}um FAILED')
+            self._fault_axis(axis)
             raise
         if ramp:
             with self._move_profile_lock:
@@ -1413,11 +1602,166 @@ class MotionAPI:
         self._scope.imaging.frame_validity.invalidate(
             self._AXIS_VALIDITY_SOURCE.get(axis, 'xy_move')
         )
-        _api_log.info(f'move_rel {axis}={um:+.1f}um{" wait" if wait_until_complete else ""}')
+        _api_log.info(f'move_rel {axis}={distance:+.1f}um{" wait" if wait_until_complete else ""}')
 
         if wait_until_complete is True:
             self.wait_until_finished_moving()
             self._set_axis_state(axis, AxisState.IDLE)
+
+    # --- Public dispatch ---
+    # These six are what an external caller reaches: an SDK script, a REST
+    # handler, the GUI. Every internal caller binds the matching `_impl`
+    # instead, so nothing already running on an executor worker or on the
+    # protocol or autofocus thread ever arrives here.
+
+    # Base liveness margin for a dispatched motion command: queue residence
+    # plus the serial round-trips, with headroom. The per-command wait adds
+    # the body's own declared motion time on top, so a long but correct move
+    # or home is never timed out by its own liveness bound.
+    _MOTION_WAIT_BASE_S = 30.0
+
+    # One physically-waited motion's own bound: what
+    # wait_until_finished_moving allows a single move, and what the homing
+    # routine legitimately takes on long travel.
+    _MOTION_SETTLE_TIMEOUT_S = 120.0
+
+    def _dispatch_motion(self, impl, name, args=(), kwargs=None, *, timeout_s):
+        """Run one motion command for an external caller, on the right thread.
+
+        Three outcomes. With no executor registered the body runs on the
+        calling thread -- a bare `Lumascope()` in a script or an example has
+        no executors and still has to drive hardware. With a live executor
+        the body runs on the io worker, serialized against every other
+        hardware write, and this blocks until it has. With an executor that
+        will not accept work the caller is told so, because the alternative
+        is `put` returning None and the command disappearing with nothing
+        raised and nothing logged.
+
+        The refusal asks only WHETHER work is accepted, and asks twice: once
+        before submitting, and again on `put` returning None -- a protocol
+        fence can land between the check and the submit, and without the
+        second check that race surfaces as an AttributeError on the missing
+        future instead of the typed refusal.
+        """
+        from modules.sequential_io_executor import IOTask  # local-import: avoid cycle
+
+        kwargs = kwargs or {}
+        ex = self._scope._io_executor
+        if ex is None:
+            return impl(*args, **kwargs)
+        if not ex.accepts_work():
+            raise HardwareCommandRefusedError('exclusive_activity_running', name)
+        fut = ex.put(IOTask(action=impl, args=args, kwargs=kwargs), return_future=True)
+        if fut is None:
+            raise HardwareCommandRefusedError('exclusive_activity_running', name)
+        return fut.result(timeout=timeout_s)
+
+    def move_absolute(
+        self,
+        axis: str,
+        position: float,
+        wait_until_complete: bool = False,
+        overshoot_enabled: bool = True,
+        ignore_limits: bool = False,
+    ) -> None:
+        """Move an axis to an absolute position (um for X/Y/Z; turret slot 1-4 for T).
+
+        Waits for the command. See ``_move_absolute_impl`` for the argument contract and
+        the errors it raises; this adds only the dispatch described on
+        ``_dispatch_motion``. With ``wait_until_complete`` the wait bound
+        also covers the physical motion the body waits out.
+        """
+        return self._dispatch_motion(
+            self._move_absolute_impl,
+            'move_absolute',
+            args=(axis, position),
+            kwargs={
+                'wait_until_complete': wait_until_complete,
+                'overshoot_enabled': overshoot_enabled,
+                'ignore_limits': ignore_limits,
+            },
+            timeout_s=self._MOTION_WAIT_BASE_S
+            + (self._MOTION_SETTLE_TIMEOUT_S if wait_until_complete else 0.0),
+        )
+
+    def move_relative(
+        self,
+        axis: str,
+        distance: float,
+        wait_until_complete: bool = False,
+        overshoot_enabled: bool = False,
+    ) -> None:
+        """Move an axis by a relative distance (um for X/Y/Z; turret slots for T).
+
+        Waits for the command. See ``_move_relative_impl`` for the argument contract.
+        """
+        return self._dispatch_motion(
+            self._move_relative_impl,
+            'move_relative',
+            args=(axis, distance),
+            kwargs={
+                'wait_until_complete': wait_until_complete,
+                'overshoot_enabled': overshoot_enabled,
+            },
+            timeout_s=self._MOTION_WAIT_BASE_S
+            + (self._MOTION_SETTLE_TIMEOUT_S if wait_until_complete else 0.0),
+        )
+
+    def home(self, axis: str = 'ALL') -> bool:
+        """Home the given axis set, and wait for it.
+
+        Args:
+            axis: ``'Z'`` homes the Z axis only. ``'T'`` homes the turret
+                (parks Z at 0, homes T, restores Z -- three
+                physically-waited motions, so its wait bound is three
+                settle windows). ``'ALL'`` (default) homes every axis the
+                board has; the firmware routine homes Z, then T, then X/Y.
+                Same vocabulary as ``move_home_async``, minus its legacy
+                ``'XY'`` alias.
+
+        See the ``_home_impl`` / ``_zhome_impl`` / ``_thome_impl``
+        docstrings for the per-axis notify-on-failure contracts.
+
+        Returns:
+            bool: True on success (full or partial for ``'ALL'``; a
+                no-turret board is success for ``'T'``); False when the
+                motor is not connected, the driver reported failure, or
+                it raised.
+
+        Raises:
+            ValueError: on an unknown axis. A blocking member returning
+                bool must not turn a typo'd axis into a falsy return
+                indistinguishable from a real homing failure (the async
+                twin, fire-and-forget, warns instead).
+        """
+        a = axis.upper()
+        if a == 'Z':
+            impl, settle_windows = self._zhome_impl, 1
+        elif a == 'T':
+            impl, settle_windows = self._thome_impl, 3
+        elif a == 'ALL':
+            impl, settle_windows = self._home_impl, 1
+        else:
+            raise ValueError(f"Unknown home axis {axis!r}: expected 'Z', 'T', or 'ALL'")
+        return self._dispatch_motion(
+            impl,
+            'home',
+            timeout_s=self._MOTION_WAIT_BASE_S + settle_windows * self._MOTION_SETTLE_TIMEOUT_S,
+        )
+
+    def tmove(self, position: int, restore_z: bool = True) -> None:
+        """Move the turret to a position, and wait for it. See ``_tmove_impl``.
+
+        The wait bound covers three physically-waited motions: the Z park,
+        the turret move itself, and the Z restore.
+        """
+        return self._dispatch_motion(
+            self._tmove_impl,
+            'tmove',
+            args=(position,),
+            kwargs={'restore_z': restore_z},
+            timeout_s=self._MOTION_WAIT_BASE_S + 3 * self._MOTION_SETTLE_TIMEOUT_S,
+        )
 
     def wait_until_finished_moving(self, timeout_s: float = 120.0) -> bool:
         """Block until all axes have reached their target positions.
@@ -1461,8 +1805,8 @@ class MotionAPI:
 
         Silently no-ops for axes that are not present on this hardware.
         Per-axis dicts are sized to detect_present_axes() at init, so
-        hardcoded callers like xycenter() (X/Y) and thome() (T)
-        automatically degrade to no-ops on scopes that lack those axes.
+        hardcoded callers like the turret-home path (T) automatically
+        degrade to no-ops on scopes that lack those axes.
         """
         if axis not in self._arrival_events:
             return
@@ -1517,6 +1861,13 @@ class MotionAPI:
                     moving_axes = [
                         ax for ax, st in self._axis_state.items() if st == AxisState.MOVING
                     ]
+
+                # A stall clock left over from a finished move would fault
+                # the axis's NEXT move at whatever time the old entry says,
+                # so the clock tracks only axes moving RIGHT NOW.
+                for ax in list(self._moving_since):
+                    if ax not in moving_axes:
+                        self._moving_since.pop(ax, None)
 
                 if not moving_axes:
                     # Also check overshoot -- if overshoot is active,
@@ -1590,9 +1941,41 @@ class MotionAPI:
                         try:
                             if self.get_target_status(ax):
                                 self._set_axis_state(ax, AxisState.IDLE)
+                                # Cleared here, not only by the prune above: a
+                                # back-to-back move landing within one poll
+                                # interval must start its own stall clock, not
+                                # inherit the finished move's.
+                                self._moving_since.pop(ax, None)
                             else:
-                                # Still moving -- propagate the refreshed
-                                # cache value to UI listeners.
+                                # Still moving per firmware. A connected axis
+                                # that stays not-arrived past the published
+                                # motion bound is stalled: position_reached
+                                # will never fire, so nothing else can ever
+                                # clear it. Fault it to UNKNOWN (terminal;
+                                # fires the arrival event so waiters and
+                                # state-readers unblock, and the settle-check
+                                # treats UNKNOWN as settled) and tell the user
+                                # once -- the same shape as the disconnect
+                                # fault. The clock lives HERE, after the
+                                # arrival check, so an arriving report always
+                                # wins over the stall verdict.
+                                moving_first = self._moving_since.setdefault(ax, time.monotonic())
+                                if time.monotonic() - moving_first > self._MOTION_SETTLE_TIMEOUT_S:
+                                    self._set_axis_state(ax, AxisState.UNKNOWN)
+                                    self._moving_since.pop(ax, None)
+                                    notifications.error(
+                                        'Motion',
+                                        'Motor axis stalled',
+                                        f'Axis {ax} did not reach its target '
+                                        f'within '
+                                        f'{self._MOTION_SETTLE_TIMEOUT_S:.0f}s; '
+                                        f'the move was abandoned. Check for an '
+                                        f'obstruction, then home the axis and '
+                                        f'retry.',
+                                    )
+                                    continue
+                                # Propagate the refreshed cache value to UI
+                                # listeners.
                                 self._fire_position_listeners(ax)
                         except Exception as e:
                             logger.warning(

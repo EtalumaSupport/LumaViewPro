@@ -1,20 +1,20 @@
 """Regression test: do not wrap self-dispatching motion wrappers in IOTask.
 
-The UI helpers ``ui_helpers.move_absolute_position``, ``move_relative_position``,
+The UI helpers ``ui_helpers.move_absolute``, ``move_relative``,
 and ``move_home`` already submit their hardware call to the io_executor via the
 ``*_async`` API (``move_absolute_async`` -> ``ex.put(IOTask(...))``). Wrapping
-them in an outer ``IOTask(action=move_absolute_position, ...)`` causes TWO
+them in an outer ``IOTask(action=move_absolute, ...)`` causes TWO
 trips through the executor for one hardware move -- redundant queue puts,
 context switches, and callback dispatches.
 
 The correct pattern is to call the wrapper directly from any non-io_executor
 thread (UI thread, session init, REST handler):
 
-    move_absolute_position('X', stage_x)   # wrapper internally dispatches
+    move_absolute('X', stage_x)   # wrapper internally dispatches
 
 Not:
 
-    io_executor.put(IOTask(action=move_absolute_position, args=('X', stage_x)))
+    io_executor.put(IOTask(action=move_absolute, args=('X', stage_x)))
 """
 
 from __future__ import annotations
@@ -26,8 +26,8 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 SELF_DISPATCHING_WRAPPERS = frozenset(
     {
-        'move_absolute_position',
-        'move_relative_position',
+        'move_absolute',
+        'move_relative',
         'move_home',
     }
 )

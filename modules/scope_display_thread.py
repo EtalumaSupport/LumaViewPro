@@ -120,6 +120,15 @@ class ScopeDisplayThread:
         self._min_frame_interval: float = 1.0 / 30
         self._protocol_hold_until: float = 0.0
 
+        # Wall-clock the loop deliberately spent NOT rendering (protocol /
+        # derived-image holds, user pause) since the last _render_one_frame
+        # call. Handed to the widget so its timing instruments (slow-frame
+        # spike WARN, frame-interval histogram) can exclude intended waits
+        # instead of reporting a deliberate on-screen freeze as latency.
+        # Measured actual wait, not requested hold -- re-bumped holds overlap.
+        # Loop-thread-only state; no lock.
+        self._intentional_wait_s: float = 0.0
+
         # Generation counter increments on start(); resume() does NOT
         # bump by default (so pause/resume preserves the visual frame).
         self._generation: int = 0
@@ -280,8 +289,10 @@ class ScopeDisplayThread:
             # busy-looping. _stop_event.wait returns True if stop was
             # signalled; break out of pause + loop on that.
             if self._paused.is_set():
+                pause_wait_start = time.monotonic()
                 if self._stop_event.wait(timeout=0.05):
                     return
+                self._intentional_wait_s += time.monotonic() - pause_wait_start
                 continue
 
             # ctx / widget not ready (early boot, between disconnect /
@@ -308,9 +319,15 @@ class ScopeDisplayThread:
             if hold_until > now:
                 if self._stop_event.wait(timeout=hold_until - now):
                     return
+                self._intentional_wait_s += time.monotonic() - now
                 continue
 
             cycle_start = time.monotonic()
+
+            # Drain the intended-wait accumulator into this render call; the
+            # wait belongs to exactly one iteration's interval.
+            intentional_wait_ms = self._intentional_wait_s * 1000.0
+            self._intentional_wait_s = 0.0
 
             # Render one frame. The widget owns the rendering state;
             # we just call its body.
@@ -321,6 +338,7 @@ class ScopeDisplayThread:
                     open_layer=open_layer,
                     dispatch_time=cycle_start,
                     generation=self._generation,
+                    intentional_wait_ms=intentional_wait_ms,
                 )
             except Exception:
                 logger.exception('scope_display_thread iteration error')
@@ -374,10 +392,10 @@ class ScopeDisplayThread:
         # Only watch while the camera is meant to be streaming. Disconnect
         # is surfaced elsewhere (recovery contract); don't double-warn.
         try:
-            camera_active = ctx.scope.imaging.camera_active
+            active_cached = ctx.scope.imaging.active_cached
         except Exception:
-            camera_active = False
-        if not camera_active:
+            active_cached = False
+        if not active_cached:
             self._last_ok_monotonic = None
             self._stall_warned = False
             return
@@ -402,7 +420,7 @@ class ScopeDisplayThread:
             logger.warning(
                 f'Live-view frames stalled: no new frame for {elapsed:.1f}s '
                 f'(warn threshold {STALL_WARN_SECONDS:.0f}s). '
-                f'camera_connected={connected} camera_active={camera_active} '
+                f'camera_connected={connected} active_cached={active_cached} '
                 f'last_status={status} generation={self._generation} '
                 f'fps_cap={self._fps} delivered_fps=0 paused={self._paused.is_set()}'
             )

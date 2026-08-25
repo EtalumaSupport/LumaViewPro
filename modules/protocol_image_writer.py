@@ -538,8 +538,8 @@ class ProtocolImageWriter:
             # even though the line is dropped in normal operation.
             if logger.isEnabledFor(logging.DEBUG):
                 _ag = step['Auto_Gain']
-                _curr_gain = self._scope.imaging.get_gain()
-                _curr_exp = self._scope.imaging.get_exposure_time()
+                _curr_gain = self._scope.imaging.get_gain_db()
+                _curr_exp = self._scope.imaging.get_exposure_ms()
                 logger.debug(
                     f'[CAPTURE DIAG] step={step.get("Name", "?")} color={step["Color"]} '
                     f'Auto_Gain={_ag!r} (type={type(_ag).__name__}) '
@@ -551,8 +551,8 @@ class ProtocolImageWriter:
                 logger.debug(
                     f'[CAPTURE DIAG] Applying step camera settings: gain={step["Gain"]}, exp={step["Exposure"]}'
                 )
-                # STALL-1 fix: removed the `with self._scope.imaging.update_camera_config():`
-                # wrapper that was here. update_camera_config() does StopGrabbing +
+                # Deliberately NOT wrapped in the driver's camera-config context
+                # manager. That manager does StopGrabbing +
                 # StartGrabbing, which Pylon SDK only requires for buffer-geometry
                 # changes (Width/Height/PixelFormat/Binning/Offset) -- NOT for Gain
                 # or ExposureTime, which are live-updateable. The wrapper was
@@ -570,8 +570,11 @@ class ProtocolImageWriter:
                 # SDK/firmware combo -- revert this change and add a
                 # `requires_buffer_realloc=True` audit. Per Basler convention
                 # both should be live-changeable.
-                self._scope.imaging.set_gain(step['Gain'])
-                self._scope.imaging.set_exposure_time(step['Exposure'])
+                # The non-dispatching bodies: this runs on the protocol
+                # thread while the run has the camera executor disabled, so
+                # the public dispatchers would refuse every per-step write.
+                self._scope.imaging._set_gain_db_impl(step['Gain'])
+                self._scope.imaging._set_exposure_ms_impl(step['Exposure'])
             else:
                 # Auto_Gain step: scan_iterate already lit the LED and armed AG
                 # against the lit scene; the apply is skipped here to avoid
@@ -585,7 +588,7 @@ class ProtocolImageWriter:
 
             # Objective short name for filename
             objective_short_name = None
-            if self._scope.motion.has_turret():
+            if self._scope.capabilities.has_turret:
                 obj_info = self._scope.runtime_state.get_objective_info(
                     objective_id=step['Objective']
                 )
@@ -610,7 +613,7 @@ class ProtocolImageWriter:
 
             turret_pos = None
             engineering_mode = getattr(_app_ctx_im.ctx, 'engineering_mode', False)
-            if engineering_mode and self._scope.motion.has_turret():
+            if engineering_mode and self._scope.capabilities.has_turret:
                 try:
                     turret_pos = int(self._scope.motion.get_current_position('T'))
                 except Exception as e:
@@ -734,17 +737,16 @@ class ProtocolImageWriter:
                     return False
 
                 else:
-                    # Frame validity drains stale frames, then grabs a valid one.
-                    # dark_floor_check: a step that drives its LED must never
-                    # save a black frame (stale pre-LED integration, or an
-                    # external consumer starving the feed); a step with
-                    # illumination 0, or a colour the scope drives no LED
-                    # for (luminescence), is dark by design.
-                    captured_image = self._scope.imaging.capture_and_wait(
+                    # Frame validity drains stale frames, then grabs a valid
+                    # one. The dark-floor expectation is derived inside the
+                    # capture from commanded LED state -- the writer commands
+                    # the step's LED and posts nothing back, so a lit step
+                    # that delivers a black frame fails loudly while an
+                    # illumination-0 or luminescence step stays dark by
+                    # design.
+                    captured_image = self._scope.imaging._capture_and_wait_impl(
                         force_to_8bit=capture_depth == 8,
                         all_ones_check=True,
-                        dark_floor_check=step['Illumination'] > 0
-                        and step['Color'] in common_utils.get_layers_with_led(),
                         timeout_s=1.0,
                         sum_count=sum_count,
                         sum_delay_s=step['Exposure'] / 1000,
@@ -752,6 +754,18 @@ class ProtocolImageWriter:
                     )
 
                     if captured_image is None:
+                        # The cause relays what the capture actually recorded:
+                        # a deadline expiry (state changes outran the budget)
+                        # reads very differently in a support bundle than a
+                        # camera that delivered nothing, and a hardcoded cause
+                        # here once mislabeled every failure as the latter.
+                        info = self._scope.imaging.last_capture_info or {}
+                        if info.get('deadline_expired'):
+                            cause = 'capture deadline expired -- invalidation outran the budget'
+                        elif info.get('drain_failed'):
+                            cause = 'frame drain failed -- camera delivered no frame'
+                        else:
+                            cause = 'camera inactive or not grabbing'
                         self._note_capture_failure(
                             step=step,
                             curr_step=curr_step,
@@ -759,7 +773,7 @@ class ProtocolImageWriter:
                             name=name,
                             enable_image_saving=enable_image_saving,
                             separate_folder_per_channel=separate_folder_per_channel,
-                            cause='camera inactive or frame drain failed',
+                            cause=cause,
                         )
                         _proto_outcome = 'capture_failed'
                         return False

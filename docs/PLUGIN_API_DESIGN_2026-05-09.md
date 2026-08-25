@@ -102,7 +102,7 @@ lock.
 - Limits / status: `get_home_status`, `get_target_status`,
   `get_reference_status`, `get_limit_switch_status`,
   `get_limit_switch_status_all_axes`, `get_overshoot`
-- Turret: `safe_turret_mover`, `tmove`, `has_turret`,
+- Turret: `safe_turret_move`, `tmove`, `has_turret`,
   `is_current_turret_position_objective_set`,
   `get_turret_position_for_objective_id`
 - Motion monitor lifecycle: `_motion_monitor_loop`,

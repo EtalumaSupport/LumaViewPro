@@ -15,8 +15,6 @@ from modules.config_ui_getters import (
     get_auto_gain_settings,
     get_binning_from_ui,
     get_current_frame_dimensions,
-    get_current_objective_info,
-    get_current_plate_position,
     get_image_capture_config_from_ui,
     get_selected_labware,
     get_sequenced_capture_config_from_ui,
@@ -152,7 +150,7 @@ class ZStack(FloatLayout):
             config = get_sequenced_capture_config_from_ui()
 
             labware_id, _ = get_selected_labware()
-            objective_id, _ = get_current_objective_info()
+            objective_id, _ = ctx.session.get_current_objective_info()
             zstack_positions_valid, _ = get_zstack_positions()
             zstack_params = get_zstack_params()
             active_layer, active_layer_config = get_active_layer_config()
@@ -177,7 +175,7 @@ class ZStack(FloatLayout):
                 run_not_started_func()
                 return
 
-            curr_position = get_current_plate_position()
+            curr_position = ctx.session.get_current_plate_position()
             curr_position.update({'name': 'ZStack'})
 
             positions = [
@@ -249,7 +247,7 @@ class ZStack(FloatLayout):
 
             parent_dir = pathlib.Path(settings['live_folder']).resolve() / 'Manual' / 'Z-Stacks'
 
-            initial_position = get_current_plate_position()
+            initial_position = ctx.session.get_current_plate_position()
             image_capture_config = get_image_capture_config_from_ui()
 
             def prepare_and_start():

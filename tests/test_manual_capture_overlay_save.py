@@ -80,7 +80,7 @@ def capture_ctx(tmp_path):
     )
     ctx.scope_display.use_bullseye = False
     ctx.scope_display.use_crosshairs = False
-    ctx.scope.imaging.capture_and_wait.return_value = np.zeros((4, 4), dtype=np.uint8)
+    ctx.scope.imaging._capture_and_wait_impl.return_value = np.zeros((4, 4), dtype=np.uint8)
     ctx.scope.imaging.last_significant_bits = 8
     ctx.scope.imaging.capture_frame_depth.return_value = 8
     ctx.scope_display.add_crosshairs.side_effect = lambda img: img
@@ -177,7 +177,7 @@ class TestSummingSurvivesAnOverlay:
 
         _run_capture(sum_count=3)
 
-        kwargs = capture_ctx.scope.imaging.capture_and_wait.call_args.kwargs
+        kwargs = capture_ctx.scope.imaging._capture_and_wait_impl.call_args.kwargs
         assert kwargs['sum_count'] == 3, (
             'the overlay path grabbed its frame without the configured frame '
             'count, so an overlay silently reduced a summed capture to one frame'

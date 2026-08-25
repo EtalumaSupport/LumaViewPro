@@ -128,6 +128,19 @@ class ManualRecordingController:
         self._last_disk_check_ts = 0.0
         self._on_complete: Callable[[], None] | None = None
         self._finish_thread: threading.Thread | None = None
+        # Set by the composing session: the engine's claim refusal
+        # names the holding run's trigger through this.
+        self.run_trigger_lookup = None
+
+    def set_scope(self, scope: Any) -> None:
+        """Rewire onto a NEW scope after a reconnect.
+
+        Callers must not swap the scope while a recording is active --
+        the frame listener and camera identity of a live recording
+        belong to the scope it started on. The session's set_scope
+        guards that; this method only carries the handle swap.
+        """
+        self._scope = scope
 
     # ------------------------------------------------------------------
     # Status surface (GUI polls these; all None-safe)
@@ -247,7 +260,7 @@ class ManualRecordingController:
         settings = self._settings
         scope = self._scope
 
-        if not scope.imaging.camera_active:
+        if not scope.imaging.active_cached:
             raise RecordingRefusedError(
                 reason='camera_inactive',
                 title='Camera Not Active',
@@ -255,7 +268,7 @@ class ManualRecordingController:
                 'Check the camera connection and try again.',
             )
 
-        exposure = scope.imaging.camera_exposure_ms
+        exposure = scope.imaging.exposure_ms_cached
         # The exposure cache seeds 0.0 and keeps the prior value when a
         # read fails, so a camera whose exposure was never successfully
         # read reports 0 here; the recording rate derives from it, so
@@ -348,7 +361,7 @@ class ManualRecordingController:
 
         resolved_layer = self._resolve_channel_identity(layer)
 
-        frame_size = scope.imaging.camera_frame_size
+        frame_size = scope.imaging.frame_size_cached
         manifest_extra = {
             # RENDERING, not identity: the video builder reads this back to
             # decide whether to false-color a rebuild, so a mono recording
@@ -425,6 +438,7 @@ class ManualRecordingController:
             claim=self._claim,
             clock=self._clock,
             notify=notifications,
+            run_trigger_lookup=self.run_trigger_lookup,
         )
         # Engine start is the commit point: it acquires the claim or
         # raises. Assign controller state only after it succeeds.
@@ -534,7 +548,7 @@ class ManualRecordingController:
             if self._clock() - self._start_ts >= self._config.duration_s:
                 self.stop(reason='duration_elapsed')
                 return
-            if not self._scope.imaging.camera_active:
+            if not self._scope.imaging.active_cached:
                 self._stop_for_camera_loss(reason='camera_disconnected')
                 return
             if self._stall_watch is not None and self._stall_watch.stalled(
@@ -754,7 +768,7 @@ class ManualRecordingController:
         df = pd.DataFrame(self._hyperstack_rows)
         output = plan.save_folder / MANUAL_HYPERSTACK_FILENAME
         result = StackBuilder(
-            has_turret=self._scope.motion.has_turret()
+            has_turret=self._scope.capabilities.has_turret
         ).create_single_recording_stack(
             df=df,
             path=plan.save_folder,

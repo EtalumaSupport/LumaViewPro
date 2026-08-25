@@ -259,7 +259,7 @@ class ProtocolVideoStep:
 
         scope = self._scope
         identity = scope.imaging.camera_identity
-        frame_size = scope.imaging.camera_frame_size
+        frame_size = scope.imaging.frame_size_cached
         self._tick_freq_hz = identity['timestamp_tick_frequency_hz']
         # One scale snapshot per step, alongside the other start-of-recording
         # camera facts: the objective cannot change while a step records.
@@ -420,8 +420,11 @@ class ProtocolVideoStep:
         time.sleep(max(step['Exposure'] / 1000, 0.05))
 
         if step['Auto_Gain']:
-            scope.imaging.set_auto_gain(state=False, settings=self._autogain_settings)
-            scope.imaging.auto_gain_once(
+            # Run-internal camera writes bind the impls: the camera lane
+            # is disabled for the whole run, so the public dispatchers
+            # would refuse their own run's work.
+            scope.imaging._set_auto_gain_impl(state=False, settings=self._autogain_settings)
+            scope.imaging._auto_gain_once_impl(
                 state=True,
                 target_brightness=self._autogain_settings['target_brightness'],
                 min_gain_db=self._autogain_settings['min_gain_db'],
@@ -447,7 +450,7 @@ class ProtocolVideoStep:
         order is the precedence: Stop always wins, the disconnect latch
         is the fast camera-death path, and the stall watch catches the
         feed that dies without an event -- delivery just stops while
-        ``camera_active`` stays True.
+        ``active_cached`` stays True.
         """
         start_ts = self._clock()
         last_title_ts = 0.0
@@ -459,7 +462,7 @@ class ProtocolVideoStep:
             if self._stop_requested():
                 outcome, end_reason = CANCELLED, 'run_stop'
                 break
-            if not self._scope.imaging.camera_active:
+            if not self._scope.imaging.active_cached:
                 logger.warning(
                     '[PROTOCOL-VIDEO] Camera went inactive mid-step; ending the recording'
                 )

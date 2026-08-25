@@ -30,10 +30,11 @@ logger = logging.getLogger('LVP.modules.config_ui_getters')
 def _live_capabilities():
     """The capability surface of the LIVE scope, or None if not built yet.
 
-    Reads ``ctx.lumaview.scope`` -- the reference ``reconnect()`` rebuilds on a
-    scope change -- NOT the ``ctx.scope`` registry field, which is a build-time
-    reference reconnect never refreshes. Every capability gate must resolve
-    through here so a reconnect is reflected and the gates can't drift apart.
+    Reads ``ctx.lumaview.scope`` -- the reference ``reconnect()`` rebuilds
+    first on a scope change (the ``ctx.scope`` registry field is a copy,
+    refreshed later in the same handler). Every capability gate must
+    resolve through here so a reconnect is reflected and the gates can't
+    drift apart.
     """
     lumaview = getattr(_app_ctx.ctx, 'lumaview', None)
     scope = getattr(lumaview, 'scope', None)
@@ -183,16 +184,6 @@ def get_enabled_stim_configs() -> dict:
 # ---------------------------------------------------------------------------
 
 
-def get_current_plate_position():
-    ctx = _app_ctx.ctx
-    return config_helpers.get_current_plate_position(
-        scope=ctx.scope,
-        settings=ctx.settings,
-        coordinate_transformer=ctx.coordinate_transformer,
-        wellplate_loader=ctx.wellplate_loader,
-    )
-
-
 def get_current_frame_dimensions() -> dict:
     microscope_settings = _app_ctx.ctx.motion_settings.ids['microscope_settings_id']
     try:
@@ -206,28 +197,20 @@ def get_current_frame_dimensions() -> dict:
 
 
 def get_selected_labware() -> tuple[str | None, labware.WellPlate | None]:
-    """Read the currently-selected labware from the spinner UI.
+    """The currently-selected labware, read from SETTINGS.
 
-    Falls back to settings['protocol']['labware'] if the spinner text is empty
-    (e.g. before the spinner has been populated from settings on startup).
+    Settings is the single labware store: the spinner writes through on
+    every selection (select_labware persists the choice), so a
+    spinner-first read here would only re-open the divergence -- a
+    settings write that bypassed the spinner (protocol load) used to
+    make the GUI and headless paths answer differently.
 
-    Returns (labware_id, wellplate_obj). On UI/spinner read failure
-    returns (None, None); the labware lookup itself never returns None
-    (the headless helper falls back to the shipped default or first
-    available plate, and only raises ConfigError if the wellplate
-    loader is completely empty).
+    Returns (labware_id, wellplate_obj); the lookup falls back to the
+    shipped default or first available plate and only raises
+    ConfigError if the wellplate loader is completely empty.
     """
-    try:
-        protocol_settings = _app_ctx.ctx.motion_settings.ids['protocol_settings_id']
-        labware_id = protocol_settings.ids['labware_spinner'].text
-        if not labware_id:
-            labware_id = _app_ctx.ctx.settings.get('protocol', {}).get('labware', '')
-    except Exception:
-        logger.exception('LVP Main: Failed to read labware id from UI/settings')
-        return None, None
-
     return config_helpers.get_selected_labware_from_settings(
-        {'protocol': {'labware': labware_id}},
+        _app_ctx.ctx.settings,
         _app_ctx.ctx.wellplate_loader,
     )
 
@@ -251,7 +234,7 @@ def get_image_capture_config_from_ui() -> ImageCaptureConfig:
 
 
 def get_sequenced_capture_config_from_ui() -> dict:
-    objective_id, _ = get_current_objective_info()
+    objective_id, _ = _app_ctx.ctx.session.get_current_objective_info()
     time_params = get_protocol_time_params()
     labware_id, _ = get_selected_labware()
     protocol_settings = _app_ctx.ctx.motion_settings.ids['protocol_settings_id']
@@ -292,12 +275,6 @@ def get_auto_gain_settings() -> dict:
 
 def get_ag_ae_max_exposure_ms(layer: str) -> float:
     return config_helpers.get_ag_ae_max_exposure_ms(layer, _app_ctx.ctx.settings)
-
-
-def get_current_objective_info() -> tuple[str, dict]:
-    return config_helpers.get_current_objective_info(
-        _app_ctx.ctx.settings, _app_ctx.ctx.objective_helper
-    )
 
 
 def get_protocol_time_params() -> dict:

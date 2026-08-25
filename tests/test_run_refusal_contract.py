@@ -276,6 +276,17 @@ def _wait_for_executors_out_of_protocol_mode(executor, timeout=5.0):
     return False
 
 
+def _wait_until_not_running(session, timeout=5.0):
+    """run_complete fires during cleanup; the claim (and with it
+    is_protocol_running) releases at cleanup END, moments later."""
+    deadline = time.monotonic() + timeout
+    while session.is_protocol_running:
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(0.02)
+    return True
+
+
 def _capture_notifications(monkeypatch):
     """Route both severities of the notification singleton to one list."""
     import modules.notification_center as notification_center
@@ -343,7 +354,7 @@ class TestHeadlessRefusalDoesNotHang:
             assert runner.wait_for_completion(timeout=COMPLETION_TIMEOUT), (
                 'wait_for_completion must report the completed first run'
             )
-            assert not session.is_protocol_running
+            assert _wait_until_not_running(session)
 
             # A refused run raises out of run_single_scan; nothing waits.
             with pytest.raises(ProtocolRunRefusedError):
@@ -354,7 +365,7 @@ class TestHeadlessRefusalDoesNotHang:
                     image_capture_config=runner.build_image_capture_config(image_mode='8bit'),
                 )
             assert not session.is_protocol_running, (
-                'a refused run must not leave session.protocol_running set'
+                'a refused run must not leave the session reporting a live run'
             )
             # The completion event was never re-armed for the refused run,
             # so a caller polling wait_for_completion returns immediately
@@ -384,7 +395,7 @@ class TestHeadlessRefusalDoesNotHang:
             assert done2.wait(timeout=COMPLETION_TIMEOUT), (
                 'a valid run after a refusal must start and complete'
             )
-            assert not session.is_protocol_running
+            assert _wait_until_not_running(session)
         finally:
             runner.shutdown()
             session.shutdown_executors()
@@ -493,7 +504,10 @@ class TestStartCannotSilentlyHalfStart:
 
         completions = []
         with monkeypatch.context() as mp:
-            mp.setattr(scope.imaging, 'update_auto_gain_target_brightness', _boom)
+            # The runner's commit-step write binds the impl (run-internal
+            # machinery never goes through the external dispatcher), so
+            # the fault is injected at the seam the runner actually calls.
+            mp.setattr(scope.imaging, '_update_auto_gain_target_brightness_impl', _boom)
             plan = _prepare(
                 executor,
                 _make_single_step_protocol(),

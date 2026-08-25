@@ -60,7 +60,7 @@ class AutofocusRunner:
 
         self._reset_state()
 
-        if not self._scope.imaging.camera_active:
+        if not self._scope.imaging.active_cached:
             return
 
         self._objective_loader = ObjectiveLoader()
@@ -118,7 +118,7 @@ class AutofocusRunner:
         z_min = max(0, center - range)
         z_max = center + range
         resolution = self._objective['AF_max']
-        exposure = self._scope.imaging.get_exposure_time()
+        exposure = self._scope.imaging.get_exposure_ms()
 
         self._params = {
             'center': center,
@@ -128,11 +128,6 @@ class AutofocusRunner:
             'resolution': resolution,
             'exposure': exposure,
         }
-
-    def _led_off(self):
-        """Turn off only the LED(s) that AF owns (not all LEDs)."""
-        if self._led_color is not None and self._scope.led_connected:
-            self._scope.illumination.leds_off_owned('autofocus')
 
     def run(
         self,
@@ -257,9 +252,9 @@ class AutofocusRunner:
         # Apply the step's camera settings so AF scans with correct gain
         # and exposure rather than inheriting the prior step's values.
         if self._camera_gain is not None:
-            self._scope.imaging.set_gain(self._camera_gain)
+            self._scope.imaging._set_gain_db_impl(self._camera_gain)
         if self._camera_exposure is not None:
-            self._scope.imaging.set_exposure_time(self._camera_exposure)
+            self._scope.imaging._set_exposure_ms_impl(self._camera_exposure)
         last_gc_time = time.monotonic()
         completed_successfully = False
         try:
@@ -326,7 +321,7 @@ class AutofocusRunner:
                 self._scope.motion.set_precision_mode('Z', False)
             except Exception as e:
                 logger.debug(f'[AF] Could not drop precision mode for coarse passes: {e}')
-            self._move_absolute_position(pos=self._params['z_min'])
+            self._move_absolute_position(position=self._params['z_min'])
 
             while (
                 self._af_in_progress.is_set()
@@ -407,7 +402,10 @@ class AutofocusRunner:
                 logger.debug('[AF] precision restore in finally failed', exc_info=True)
             if not completed_successfully and self._saved_z_position is not None:
                 try:
-                    self._scope.motion.move_absolute_position('Z', self._saved_z_position)
+                    # The non-dispatching body: AF runs while the executors
+                    # are held by the run, so the public dispatcher would
+                    # refuse this restore.
+                    self._scope.motion._move_absolute_impl('Z', self._saved_z_position)
                     _af_log.info(
                         f'[AF DIAG] Non-success exit: restored Z to '
                         f'pre-AF position {self._saved_z_position:.2f}'
@@ -467,8 +465,8 @@ class AutofocusRunner:
                 self._scope.imaging.restore_camera_state(restore)
             _af_log.info(
                 f'[AF DIAG] Clearing _af_in_progress -- '
-                f'camera now at gain={self._scope.imaging.get_gain()} '
-                f'exp={self._scope.imaging.get_exposure_time()}'
+                f'camera now at gain={self._scope.imaging.get_gain_db()} '
+                f'exp={self._scope.imaging.get_exposure_ms()}'
             )
             self._af_in_progress.clear()
             # Clear the public ImagingAPI mirror AFTER camera/LED/Z restore
@@ -542,11 +540,15 @@ class AutofocusRunner:
         num_retries = 5
         count = 0
         while True:
-            # dark_floor_check stays False: AF consumes focus scores, not
-            # saved truth, and a hard dark-reject mid-sweep would stall the
-            # scan; the mean-intensity retry below handles dark frames.
-            image = self._scope.imaging.capture_and_wait(
-                dark_floor_check=False, exclude_sources=('z_move',)
+            # accept_dark: AF consumes focus scores, not saved truth,
+            # and a hard dark-reject mid-sweep would stall the scan; the
+            # mean-intensity retry below handles dark frames.
+            # The non-dispatching body, not the public capture_and_wait: AF
+            # runs while the camera executor is disabled by the run, so the
+            # dispatcher would refuse every grab; the body must run on this
+            # thread.
+            image = self._scope.imaging._capture_and_wait_impl(
+                accept_dark=True, exclude_sources=('z_move',)
             )
             count += 1
             if isinstance(image, np.ndarray):
@@ -563,14 +565,17 @@ class AutofocusRunner:
 
         # Detect dark/blank frames -- would score 0, corrupting the curve.
         # Retry once; if still dark, accept (may be genuinely dark sample).
-        # capture_and_wait's required dark_floor_check is False here for the
-        # same reason as the grab loop above: AF must accept a genuinely dark
-        # sample rather than reject the frame.
+        # accept_dark here for the same reason as the grab loop above:
+        # AF must accept a genuinely dark sample rather than reject the
+        # frame.
         mean_intensity = float(np.mean(image))
         if mean_intensity < 1.0:
             _af_log.warning(f'  DARK FRAME: mean={mean_intensity:.2f}, retrying')
-            retry = self._scope.imaging.capture_and_wait(
-                dark_floor_check=False, exclude_sources=('z_move',)
+            # Non-dispatching body for the same reason as the grab loop
+            # above: the camera executor is disabled during the run, so the
+            # public dispatcher would refuse this retry.
+            retry = self._scope.imaging._capture_and_wait_impl(
+                accept_dark=True, exclude_sources=('z_move',)
             )
             if isinstance(retry, np.ndarray):
                 image = retry
@@ -628,12 +633,12 @@ class AutofocusRunner:
                         _af_log.info(
                             f'  EXTEND: peak at edge, extending z_max to {self._params["z_max"]:.1f}'
                         )
-                        self._move_relative_position(pos=resolution)
+                        self._move_relative_position(distance=resolution)
                         return
 
         # Measure next step?
         if next_target <= self._params['z_max']:
-            self._move_relative_position(pos=resolution)
+            self._move_relative_position(distance=resolution)
             return
 
         # Pass is complete
@@ -687,7 +692,9 @@ class AutofocusRunner:
             # Move just below the best position so the final approach
             # is upward; this side of the curve is the one the fine
             # pass measured most densely.
-            self._move_absolute_position(pos=(best_focus_position - self._params['resolution']))
+            self._move_absolute_position(
+                position=(best_focus_position - self._params['resolution'])
+            )
 
             af_elapsed = (time.monotonic() - self._af_start_time) * 1000
             _af_log.info(
@@ -697,7 +704,7 @@ class AutofocusRunner:
                 f'({af_elapsed:.0f}ms) ---'
             )
 
-            self._move_absolute_position(pos=best_focus_position)
+            self._move_absolute_position(position=best_focus_position)
 
             if self.ui_update_func is not None:
                 _schedule_ui(lambda dt: self.ui_update_func(pos=float(best_focus_position)), 0)
@@ -726,7 +733,7 @@ class AutofocusRunner:
         self._params['z_min'] = best_focus_position - prev_resolution
         self._params['z_max'] = best_focus_position + prev_resolution
 
-        self._move_absolute_position(pos=self._params['z_min'])
+        self._move_absolute_position(position=self._params['z_min'])
         self._last_progress_ts = time.monotonic()
 
         if self._params['resolution'] == af_min:
@@ -739,15 +746,22 @@ class AutofocusRunner:
     def best_focus_position(self) -> float | None:
         return self._best_focus_position
 
-    def _move_absolute_position(self, pos):
-        self._scope.motion.move_absolute_position('Z', pos)
+    def _move_absolute_position(self, position):
+        # Internal-caller contract of the motion API: the public members are
+        # dispatchers that serialize EXTERNAL callers onto the io worker,
+        # and every internal caller already on a managed thread binds the
+        # body directly -- the same contract the AF camera grabs above and
+        # the protocol writer follow.
+        self._scope.motion._move_absolute_impl('Z', position)
         with self._callbacks_lock:
             cb = self._callbacks.get('move_position')
         if cb is not None:
             _schedule_ui(lambda dt: cb('Z'))
 
-    def _move_relative_position(self, pos):
-        self._scope.motion.move_relative_position('Z', pos)
+    def _move_relative_position(self, distance):
+        # Internal-caller contract of the motion API -- see
+        # _move_absolute_position above.
+        self._scope.motion._move_relative_impl('Z', distance)
         with self._callbacks_lock:
             cb = self._callbacks.get('move_position')
         if cb is not None:

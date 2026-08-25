@@ -144,8 +144,8 @@ class TestLumascopeHome:
         )
         assert received, 'home() short-circuit must still fire the Rule 14 notification.'
 
-    def test_thome_short_circuits_on_disconnected_motor(self):
-        """Same contract as home() -- thome must fail-fast with a clear
+    def test_home_axis_t_short_circuits_on_disconnected_motor(self):
+        """Same contract as home() -- home(axis='T') must fail-fast with a clear
         notification rather than letting exchange_command burn its
         15s timeout."""
         import time
@@ -155,15 +155,84 @@ class TestLumascopeHome:
         scope._motion_driver = NullMotionBoard()
 
         t0 = time.monotonic()
-        scope.motion.thome()
+        scope.motion.home(axis='T')
         elapsed = time.monotonic() - t0
 
         assert elapsed < 0.5, (
-            f'thome() on disconnected motor took {elapsed:.2f}s -- must be < 0.5s.'
+            f"home(axis='T') on disconnected motor took {elapsed:.2f}s -- must be < 0.5s."
         )
         assert any('Motor Not Connected' in n.title for n in received), (
-            f"thome() must notify 'Motor Not Connected', got: {[n.title for n in received]}"
+            f"home(axis='T') must notify 'Motor Not Connected', got: {[n.title for n in received]}"
         )
+
+    def test_home_axis_z_short_circuits_on_disconnected_motor(self):
+        """home(axis='Z') fails fast with the Motor Not Connected
+        notification, like its full-home and turret siblings. The Z body
+        historically lacked this short-circuit, so a disconnected motor
+        burned the driver's auto-reconnect timeout (the beachball shape)."""
+        import time
+
+        received = self._capture_errors()
+        scope = Lumascope(simulate=True)
+        scope._motion_driver = NullMotionBoard()
+
+        t0 = time.monotonic()
+        result = scope.motion.home(axis='Z')
+        elapsed = time.monotonic() - t0
+
+        assert result is False
+        assert elapsed < 0.5, (
+            f"home(axis='Z') on disconnected motor took {elapsed:.2f}s -- must be < 0.5s."
+        )
+        assert any('Motor Not Connected' in n.title for n in received), (
+            f"home(axis='Z') must notify 'Motor Not Connected', got: {[n.title for n in received]}"
+        )
+
+    def test_home_unknown_axis_raises_valueerror(self):
+        """A blocking bool member must not turn a typo'd axis into a
+        falsy return indistinguishable from a homing failure. The legacy
+        'XY' alias of the async form is deliberately not accepted: a new
+        parameter has no legacy callers to serve."""
+        scope = Lumascope(simulate=True)
+        with pytest.raises(ValueError):
+            scope.motion.home(axis='Q')
+        with pytest.raises(ValueError):
+            scope.motion.home(axis='XY')
+
+    def test_home_axis_vocabulary_selects_the_right_body(self):
+        """'Z' | 'T' | 'ALL' route to the Z / turret / full-home bodies
+        (the same selector vocabulary as move_home_async)."""
+        scope = Lumascope(simulate=True)
+        ran = []
+        scope.motion._zhome_impl = lambda: ran.append('Z') or True
+        scope.motion._thome_impl = lambda: ran.append('T') or True
+        scope.motion._home_impl = lambda: ran.append('ALL') or True
+
+        assert scope.motion.home(axis='Z') is True
+        assert scope.motion.home(axis='T') is True
+        assert scope.motion.home() is True
+        assert ran == ['Z', 'T', 'ALL']
+
+    def test_home_axis_t_waits_three_settle_windows(self):
+        """The turret home is three physically-waited motions (Z park,
+        turret home, Z restore), so its dispatch wait bound carries three
+        settle windows; 'Z' and 'ALL' carry one."""
+        scope = Lumascope(simulate=True)
+        timeouts = {}
+        base = scope.motion._MOTION_WAIT_BASE_S
+        settle = scope.motion._MOTION_SETTLE_TIMEOUT_S
+
+        def record(impl, name, timeout_s):
+            timeouts[len(timeouts)] = timeout_s
+            return True
+
+        scope.motion._dispatch_motion = record
+        scope.motion.home(axis='Z')
+        scope.motion.home(axis='T')
+        scope.motion.home()
+        assert timeouts[0] == base + settle
+        assert timeouts[1] == base + 3 * settle
+        assert timeouts[2] == base + settle
 
     def test_home_on_z_only_board_marks_z_idle(self):
         """LS820 (Z-only): the driver recognizes the 'X not present'
@@ -379,7 +448,7 @@ class TestMotorBoardHomePartialResponse:
 
 class TestFrameValidityDuringHoming:
     """Issue #609: the frame valid marker was showing green during homing
-    because zhome/home/thome never called frame_validity.invalidate().
+    because the homing bodies never called frame_validity.invalidate().
     The settle-check callback correctly rejects HOMING state, but only if
     the source is actually in _pending -- which requires invalidate().
 
@@ -400,11 +469,11 @@ class TestFrameValidityDuringHoming:
 
         scope._motion_driver.zhome = fake_zhome
 
-        scope.motion.zhome()
+        scope.motion.home(axis='Z')
 
         assert captured['z_state'] == AxisState.HOMING
         assert 'z_move' in captured['pending'], (
-            "zhome() must invalidate 'z_move' so frame_validity "
+            "home(axis='Z') must invalidate 'z_move' so frame_validity "
             'can consult the settle-check callback (#609)'
         )
         assert captured['is_valid'] is False, (
@@ -473,7 +542,7 @@ class TestFrameValidityDuringHoming:
 
     def test_thome_marks_frame_invalid_during_motion(self):
         # Must use a turret-equipped sim (LS850T) since post-B4 the
-        # default LS850 sim has no T axis and `thome()` correctly
+        # default LS850 sim has no T axis and `home(axis='T')` correctly
         # no-ops there. The phantom-T behavior the original test relied
         # on is gone.
         from drivers.simulated_motorboard import SimulatedMotorBoard
@@ -500,11 +569,11 @@ class TestFrameValidityDuringHoming:
 
         scope._motion_driver.thome = spy_thome
 
-        scope.motion.thome()
+        scope.motion.home(axis='T')
 
         assert captured['t_state'] == AxisState.HOMING
         assert 'turret' in captured['pending'], (
-            "thome() must invalidate 'turret' so the frame valid marker "
+            "home(axis='T') must invalidate 'turret' so the frame valid marker "
             'goes red while the turret is rotating (#609)'
         )
         assert captured['is_valid'] is False
@@ -711,7 +780,7 @@ class TestPerAxisDictsFromDriver:
 
     def test_move_absolute_on_absent_axis_is_silent_noop_rule_8(self):
         """Rule 8: API silently no-ops for absent axes. An LS820 user
-        calling move_absolute_position('X', 0) gets a silent no-op, not
+        calling move_absolute('X', 0) gets a silent no-op, not
         a ValueError or HardwareError, regardless of whether they thought
         to call has_axis() first."""
         scope = Lumascope(simulate=True)
@@ -724,14 +793,14 @@ class TestPerAxisDictsFromDriver:
             ev.set()
         scope.motion._move_profile = dict.fromkeys(present)
 
-        scope.motion.move_absolute_position('X', 100)
-        scope.motion.move_absolute_position('Y', 100)
-        scope.motion.move_absolute_position('T', 0)
+        scope.motion.move_absolute('X', 100)
+        scope.motion.move_absolute('Y', 100)
+        scope.motion.move_absolute('T', 0)
         assert 'X' not in scope.motion._pos_cache
         assert 'Y' not in scope.motion._pos_cache
         assert 'T' not in scope.motion._pos_cache
 
-        scope.motion.move_relative_position('X', 50)
+        scope.motion.move_relative('X', 50)
         assert 'X' not in scope.motion._pos_cache
 
     def test_move_on_null_motor_is_silent_noop_rule_8(self):
@@ -746,18 +815,18 @@ class TestPerAxisDictsFromDriver:
         scope.motion._arrival_events = {}
         scope.motion._move_profile = {}
 
-        scope.motion.move_absolute_position('Z', 100)
-        scope.motion.move_absolute_position('X', 0)
-        scope.motion.move_relative_position('Z', 10)
+        scope.motion.move_absolute('Z', 100)
+        scope.motion.move_absolute('X', 0)
+        scope.motion.move_relative('Z', 10)
 
     def test_move_with_invalid_axis_name_still_raises(self):
         """Input sanity check still rejects non-axis names. _VALID_AXIS_NAMES
         is the input vocabulary; axes_present() is the capability query."""
         scope = Lumascope(simulate=True)
         with pytest.raises(ValueError, match=r'Axis must be one of'):
-            scope.motion.move_absolute_position('Q', 0)
+            scope.motion.move_absolute('Q', 0)
         with pytest.raises(ValueError, match=r'Axis must be one of'):
-            scope.motion.move_relative_position('Q', 0)
+            scope.motion.move_relative('Q', 0)
 
     def test_no_hardcoded_VALID_AXES_constant(self):
         """The misnamed `VALID_AXES` class constant has been deleted.
@@ -855,13 +924,13 @@ class TestRunGrabLifecycleBenchmark:
         and 4.0 dB (odd cycles)."""
         scope = self._scope_with_camera()
         gain_calls = []
-        original_set_gain = scope.imaging.set_gain
+        original_set_gain = scope.imaging.set_gain_db
 
         def _track(gain):
             gain_calls.append(gain)
             return original_set_gain(gain)
 
-        scope.imaging.set_gain = _track
+        scope.imaging.set_gain_db = _track
 
         scope.diagnostics.run_grab_lifecycle_benchmark(
             num_cycles=4, inter_cycle_delay_ms=0, vary_settings=True
@@ -1084,15 +1153,6 @@ class TestScopeCapabilities:
         with pytest.raises(dataclasses.FrozenInstanceError):
             scope.capabilities.axes = ('X',)  # type: ignore[misc]
 
-    def test_motion_has_turret_matches_capabilities(self):
-        """motion.has_turret() must match capabilities.has_turret. The
-        axes_present / has_axis wrappers were retired per audit F9; the
-        prior wrapper-equivalence test is obsolete. This narrow check
-        on motion.has_turret remains because that method is still a
-        live wrapper (not retired)."""
-        scope = Lumascope(simulate=True)
-        assert scope.motion.has_turret() == scope.capabilities.has_turret
-
     def test_motor_connected_stays_live_not_in_capabilities(self):
         """Runtime connection state must NOT be a field on capabilities --
         it needs to reflect disconnects at runtime, which a frozen
@@ -1118,7 +1178,7 @@ def dataclasses_fields(cls):
 
 
 class TestSetExposureTimeValueWarningSuppression:
-    """`set_exposure_time` warns at < 0.005 ms (5us) exposures -- the
+    """`set_exposure_ms` warns at < 0.005 ms (5us) exposures -- the
     Basler sensor physical minimum. Sub-5us requests indicate a
     unit-confusion bug (seconds-as-ms, ms-as-us). Bright-field at
     0.03 ms is legitimate, so the threshold sits below that range.
@@ -1138,7 +1198,7 @@ class TestSetExposureTimeValueWarningSuppression:
     def _patch_logger(self, monkeypatch):
         from unittest.mock import MagicMock
 
-        # Phase 4d relocated set_exposure_time's body to imaging.py; the
+        # Phase 4d relocated set_exposure_ms's body to imaging.py; the
         # warning is now emitted via imaging.py's `logger` import.
         import modules.lumascope_api.imaging as imaging_mod
 
@@ -1149,10 +1209,10 @@ class TestSetExposureTimeValueWarningSuppression:
     def test_warning_fires_by_default_at_sub_0_005_ms(self, monkeypatch):
         mock_logger = self._patch_logger(monkeypatch)
         scope = Lumascope(simulate=True)
-        scope.imaging.set_exposure_time(0.003)
+        scope.imaging.set_exposure_ms(0.003)
         # Find the warning among any other logger calls
         warn_msgs = [str(c) for c in mock_logger.warning.call_args_list]
-        assert any('set_exposure_time(0.003ms)' in m and 'below' in m for m in warn_msgs), (
+        assert any('set_exposure_ms(0.003ms)' in m and 'below' in m for m in warn_msgs), (
             f'expected sub-0.005ms warning but got: {warn_msgs}'
         )
 
@@ -1160,9 +1220,9 @@ class TestSetExposureTimeValueWarningSuppression:
         mock_logger = self._patch_logger(monkeypatch)
         scope = Lumascope(simulate=True)
         with scope.imaging.suppress_value_warnings():
-            scope.imaging.set_exposure_time(0.003)
+            scope.imaging.set_exposure_ms(0.003)
         warn_msgs = [str(c) for c in mock_logger.warning.call_args_list]
-        assert not any('set_exposure_time(0.003ms)' in m for m in warn_msgs), (
+        assert not any('set_exposure_ms(0.003ms)' in m for m in warn_msgs), (
             f'expected no sub-0.005ms warning inside context, got: {warn_msgs}'
         )
 
@@ -1195,8 +1255,8 @@ class TestSetExposureTimeValueWarningSuppression:
     def test_warning_does_not_fire_at_or_above_threshold(self, monkeypatch):
         mock_logger = self._patch_logger(monkeypatch)
         scope = Lumascope(simulate=True)
-        scope.imaging.set_exposure_time(0.5)
-        scope.imaging.set_exposure_time(20.0)
+        scope.imaging.set_exposure_ms(0.5)
+        scope.imaging.set_exposure_ms(20.0)
         warn_msgs = [str(c) for c in mock_logger.warning.call_args_list]
         assert not any('very low' in m for m in warn_msgs), (
             f'no sub-0.1ms warning expected, got: {warn_msgs}'

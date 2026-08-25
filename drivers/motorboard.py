@@ -883,6 +883,8 @@ class MotorBoard(SerialBoard):
         Raises:
             ValueError: ``axis`` is invalid or ``steps`` exceeds the
                 32-bit range.
+            HardwareError: The board did not answer the target write, so
+                the move did not happen.
         """
         if axis not in ('X', 'Y', 'Z', 'T'):
             raise ValueError(f'Invalid axis {axis!r}')
@@ -892,7 +894,15 @@ class MotorBoard(SerialBoard):
             raise ValueError(f'Steps {steps} exceeds 32-bit range for axis {axis}')
         response = self.exchange_command('TARGET_W' + axis + str(steps))
         if response is None:
-            logger.warning(f'[XYZ Class ] move({axis}, {steps}) got no response')
+            # An unanswered target write means the move did not happen.
+            # Returning quietly made that indistinguishable from a move
+            # that did, so every layer above recorded an arrival that
+            # never occurred -- the axis stayed at its last known state
+            # while the stage was somewhere else entirely.
+            raise HardwareError(
+                f'move({axis}, {steps}): no response to the target write '
+                f'(timeout or disconnect); the move did not happen'
+            )
 
         # while int(target_pos) != desired_target:
         #     self.exchange_command('TARGET_W' + axis + str(steps))
@@ -1029,8 +1039,7 @@ class MotorBoard(SerialBoard):
         """Move an axis by a relative offset in user units.
 
         Reads the current target, adds ``um``, and dispatches an
-        absolute move. Logs a warning and skips when the target read
-        fails.
+        absolute move.
 
         Args:
             axis: Axis letter ('X', 'Y', 'Z', 'T').
@@ -1038,15 +1047,22 @@ class MotorBoard(SerialBoard):
                 offset for T.
             overshoot_enabled: When True, apply Z backlash compensation
                 during the underlying absolute move.
+
+        Raises:
+            HardwareError: The current target could not be read, so
+                there is no basis to move relative to.
         """
 
         # Read target position in um
         pos = self.target_pos(axis)
         if pos is None:
-            logger.warning(
-                f'[XYZ Class ] move_rel_pos({axis}): cannot read position, skipping move'
+            # A relative move is defined against the current target; if
+            # that cannot be read there is nothing to add to. Skipping
+            # quietly reported success for a jog that never moved.
+            raise HardwareError(
+                f'move_rel_pos({axis}): cannot read the current target '
+                f'position; the move did not happen'
             )
-            return
         self.move_abs_pos(axis, pos + um, overshoot_enabled=overshoot_enabled)
 
     # ----------------------------------------------------------
@@ -1122,9 +1138,9 @@ class MotorBoard(SerialBoard):
 
         When uncached, the probe sends a real STOP: harmless while
         motors are idle (STOP sets target=actual on every axis) and
-        idempotent. ScopeCapabilities.from_drivers probes at boot,
-        before any motion is commanded, so steady-state motor_stop
-        calls never re-probe.
+        idempotent. In practice motor_stop's own first send doubles as
+        the probe (it interprets and caches the response), so this
+        predicate rarely pays a wire exchange of its own.
         """
         return self._command_supported('STOP', '_supports_stop_cached')
 
@@ -1391,25 +1407,6 @@ class MotorBoard(SerialBoard):
             results.append(entry)
         return results
 
-    def get_voltage(self) -> dict:
-        """Send VOLTAGE and return parsed voltage rail info.
-
-        Returns:
-            dict: ``raw`` plus per-rail keys (``24V``, ``5V``, ``3V3``,
-                ``1V2``) when matched. Empty dict on failure.
-        """
-        resp = self.exchange_command('VOLTAGE', timeout=5)
-        if resp is None:
-            return {}
-        result = {'raw': resp}
-        import re as _re
-
-        for key in ('24V', '5V', '3V3', '1V2'):
-            m = _re.search(rf'{key}[=:]\s*([\d.]+|HIGH|LOW|OK)', resp)
-            if m:
-                result[key] = m.group(1)
-        return result
-
     def wait_for_position(self, axis: str, timeout: float = 5.0) -> bool:
         """Wait until an axis reaches its target position.
 
@@ -1548,43 +1545,6 @@ class MotorBoard(SerialBoard):
             )
             return None
         return resp
-
-    def read_voltages(self) -> dict[str, float | None] | None:
-        """Read power-rail voltage tolerance diagnostic.
-
-        Returns a dict mapping rail label ('5V', '3.3V', '1.2V', '24V')
-        to the measured voltage in volts, or None for any rail whose
-        firmware reading was non-numeric (e.g. 'OK', 'N/A', 'MISSING').
-        Returns None for the whole call when the firmware does not
-        support the VOLTAGE command (legacy firmware predating
-        diagnostic queries). Callers should distinguish:
-            None              -> INCONCLUSIVE: firmware does not support
-            {rail: None, ...} -> INCONCLUSIVE: per-rail unparseable
-            {rail: float}     -> measurement available
-        """
-        raw = self._diagnostic_query('VOLTAGE')
-        if raw is None:
-            return None
-        # Firmware response shape: '24V=OK 5V=5.18 3V3=3.31 1V2=1.24'
-        # (or 'N/A' / 'MISSING' / 'ERROR' in the value slot).
-        # Normalize '3V3' -> '3.3V' and '1V2' -> '1.2V' so caller
-        # comparison against VOLTAGE_NOMINAL keys lines up.
-        rail_rename = {'3V3': '3.3V', '1V2': '1.2V'}
-        non_numeric = {'OK', 'N/A', 'MISSING', 'ERROR'}
-        rails: dict[str, float | None] = {}
-        for token in raw.split():
-            if '=' not in token:
-                continue
-            key, _, value = token.partition('=')
-            label = rail_rename.get(key, key)
-            if value in non_numeric:
-                rails[label] = None
-                continue
-            try:
-                rails[label] = float(value.rstrip('V'))
-            except ValueError:
-                rails[label] = None
-        return rails
 
     def read_drv_status(self, axis: str) -> int | None:
         """Read TMC5072 DRV_STATUS register for an axis.

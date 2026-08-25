@@ -4,7 +4,7 @@ E2E: a manual recording on the real simulated stack ends within the
 stall bound when the feed silently dies.
 
 Production-path injection: stop_streaming halts the sim camera's
-callback pump WITHOUT flipping camera_active -- the silent-stall shape.
+callback pump WITHOUT flipping active_cached -- the silent-stall shape.
 The controller's tick (the GUI's poll stand-in here) must stop the
 recording, keep the frames, and record camera_stalled in the manifest.
 """

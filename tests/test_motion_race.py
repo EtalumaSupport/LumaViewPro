@@ -1,11 +1,11 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
-"""Regression tests for issue #618 -- move_absolute_position race condition.
+"""Regression tests for issue #618 -- move_absolute race condition.
 
 Original report: backlash characterization script's upwards pass captured
 images at wildly wrong Z positions, intermittently. Same image (stddev=4.35)
 returned for every dropout, downwards pass unaffected.
 
-Root cause: `Lumascope.move_absolute_position` used to call
+Root cause: `Lumascope.move_absolute` used to call
 `_set_axis_state(axis, MOVING)` BEFORE `motion.move_abs_pos`. The state
 change cleared the per-axis arrival event and woke the motion monitor
 thread. The motion monitor then acquired the serial lock and polled
@@ -25,7 +25,7 @@ Fix: write the hardware target first, THEN transition the axis to MOVING.
 By the time `_set_axis_state(MOVING)` clears the arrival event, the new
 XTARGET is already on the hardware, so any subsequent `position_reached`
 poll reflects the new (correct) target -- guaranteed False until real
-arrival. The same fix was applied to `move_relative_position`.
+arrival. The same fix was applied to `move_relative`.
 
 Side effect: the same race affected `AutofocusRunner._iterate()`, which
 checks `scope.is_moving()` before capturing each focus-curve sample. AF
@@ -34,6 +34,8 @@ race. The fix resolves both #618 and the latent AF issue.
 """
 
 import pytest
+
+from tests.scope_fakes import home_sim_scope
 
 # Heavy deps are mocked by tests/conftest.py at module-import time.
 
@@ -81,13 +83,13 @@ class TestRuntimeOrder_618:
         scope.motion._set_axis_state = track_set_state
         return call_order
 
-    def test_move_absolute_position_order_z(self):
+    def test_move_absolute_order_z(self):
         from modules.lumascope_api import Lumascope
 
-        scope = Lumascope(simulate=True)
+        scope = home_sim_scope(Lumascope(simulate=True))
         scope._motion_driver.set_timing_mode('fast')
         call_order = self._track_calls(scope, 'Z')
-        scope.motion.move_absolute_position('Z', 5000.0, wait_until_complete=False)
+        scope.motion.move_absolute('Z', 5000.0, wait_until_complete=False)
         # The hardware write must come before the MOVING transition
         assert 'motion.move_abs_pos' in call_order
         assert 'set_state_MOVING' in call_order
@@ -97,13 +99,13 @@ class TestRuntimeOrder_618:
             f'motion.move_abs_pos must precede _set_axis_state(MOVING). Got order: {call_order}'
         )
 
-    def test_move_relative_position_order_z(self):
+    def test_move_relative_order_z(self):
         from modules.lumascope_api import Lumascope
 
-        scope = Lumascope(simulate=True)
+        scope = home_sim_scope(Lumascope(simulate=True))
         scope._motion_driver.set_timing_mode('fast')
         call_order = self._track_calls(scope, 'Z')
-        scope.motion.move_relative_position('Z', 100.0, wait_until_complete=False)
+        scope.motion.move_relative('Z', 100.0, wait_until_complete=False)
         assert 'motion.move_rel_pos' in call_order
         assert 'set_state_MOVING' in call_order
         move_idx = call_order.index('motion.move_rel_pos')
@@ -130,7 +132,7 @@ class TestRaceSimulation_618:
         already-set arrival event -- that's the race signature."""
         from modules.lumascope_api import Lumascope, AxisState
 
-        scope = Lumascope(simulate=True)
+        scope = home_sim_scope(Lumascope(simulate=True))
         scope._motion_driver.set_timing_mode('fast')
 
         # Hook motion.move_abs_pos to inspect state during the call
@@ -153,11 +155,11 @@ class TestRaceSimulation_618:
         scope._motion_driver.move_abs_pos = observe_during_move
 
         # Prime: do one move to set Z to a known IDLE state
-        scope.motion.move_absolute_position('Z', 1000.0, wait_until_complete=True)
+        scope.motion.move_absolute('Z', 1000.0, wait_until_complete=True)
         observations.clear()  # reset after the priming move
 
         # Now do a back-to-back move
-        scope.motion.move_absolute_position('Z', 5000.0, wait_until_complete=False)
+        scope.motion.move_absolute('Z', 5000.0, wait_until_complete=False)
 
         assert len(observations) == 1, (
             f'motion.move_abs_pos should be called once, got {len(observations)}'
@@ -183,38 +185,38 @@ class TestRaceSimulation_618:
 class TestBackToBackMoves_618:
     """Smoke test: rapid back-to-back wait_until_complete moves through
     the simulated motor must each leave the axis at the requested target.
-    Catches gross regressions of the move_absolute_position contract."""
+    Catches gross regressions of the move_absolute contract."""
 
     def test_two_back_to_back_z_moves_end_at_correct_targets(self):
         from modules.lumascope_api import Lumascope
 
-        scope = Lumascope(simulate=True)
+        scope = home_sim_scope(Lumascope(simulate=True))
         scope._motion_driver.set_timing_mode('fast')
 
-        scope.motion.move_absolute_position('Z', 2000.0, wait_until_complete=True)
+        scope.motion.move_absolute('Z', 2000.0, wait_until_complete=True)
         pos1 = scope._motion_driver.current_pos('Z')
         assert abs(pos1 - 2000.0) < 5.0, f'first move ended at {pos1}, expected ~2000'
 
-        scope.motion.move_absolute_position('Z', 8000.0, wait_until_complete=True)
+        scope.motion.move_absolute('Z', 8000.0, wait_until_complete=True)
         pos2 = scope._motion_driver.current_pos('Z')
         assert abs(pos2 - 8000.0) < 5.0, f'second move ended at {pos2}, expected ~8000'
 
     def test_many_rapid_moves_end_at_correct_targets(self):
         from modules.lumascope_api import Lumascope
 
-        scope = Lumascope(simulate=True)
+        scope = home_sim_scope(Lumascope(simulate=True))
         scope._motion_driver.set_timing_mode('fast')
 
         # 20 rapid back-to-back moves, alternating direction
         targets = [3000.0, 7000.0] * 10
         for target in targets:
-            scope.motion.move_absolute_position('Z', target, wait_until_complete=True)
+            scope.motion.move_absolute('Z', target, wait_until_complete=True)
             actual = scope._motion_driver.current_pos('Z')
             assert abs(actual - target) < 5.0, f'move to {target} ended at {actual}'
 
 
 # ---------------------------------------------------------------------------
-# Issue #674: move_relative_position must write _move_profile so the
+# Issue #674: move_relative must write _move_profile so the
 # position predictor can animate the crosshair during relative moves.
 # ---------------------------------------------------------------------------
 
@@ -223,14 +225,14 @@ class TestMoveRelProfile_674:
     """Regression for #674 crosshair-prediction during relative moves.
 
     Original bug (bench bundle SN12062-2026-05-22-182105.zip):
-    `move_relative_position` did NOT write `_move_profile[axis]`. State
+    `move_relative` did NOT write `_move_profile[axis]`. State
     still transitioned to MOVING, so `get_current_position` routed through
     `_predicted_position` -- which returned None for a missing profile and
     fell through to `_read_position_cache`. But `_pos_cache[axis]` had
     just been updated to the target, so the crosshair jumped to the
     target instead of animating along the ramp.
 
-    Initial fix: mirror move_absolute_position's profile-write block.
+    Initial fix: mirror move_absolute's profile-write block.
 
     H3 refinement (bench 2026-05-26 -- this commit): profile-write must
     happen AFTER the driver call returns, not before. The serial round-
@@ -250,10 +252,10 @@ class TestMoveRelProfile_674:
         the driver call so start_time captures post-serial-RT timing."""
         from modules.lumascope_api import Lumascope
 
-        scope = Lumascope(simulate=True)
+        scope = home_sim_scope(Lumascope(simulate=True))
         scope._motion_driver.set_timing_mode('fast')
 
-        scope.motion.move_absolute_position('X', 1000.0, wait_until_complete=True)
+        scope.motion.move_absolute('X', 1000.0, wait_until_complete=True)
 
         observed = {}
         orig_move_abs = scope._motion_driver.move_abs_pos
@@ -267,17 +269,17 @@ class TestMoveRelProfile_674:
 
         scope._motion_driver.move_abs_pos = snapshot_at_driver_return
 
-        scope.motion.move_absolute_position('X', 1400.0, wait_until_complete=False)
+        scope.motion.move_absolute('X', 1400.0, wait_until_complete=False)
 
         assert observed.get('profile_at_driver_return') is None, (
             'profile must be UNSET when move_abs_pos returns -- the outer '
-            'move_absolute_position writes it AFTER the driver returns. '
+            'move_absolute writes it AFTER the driver returns. '
             f'Observed: {observed.get("profile_at_driver_return")!r}'
         )
         with scope.motion._move_profile_lock:
             profile = scope.motion._move_profile.get('X')
         assert profile is not None, (
-            '_move_profile[X] must be written by the time move_absolute_position returns'
+            '_move_profile[X] must be written by the time move_absolute returns'
         )
         assert profile['target_pos'] == pytest.approx(1400.0, abs=5.0)
 
@@ -288,10 +290,10 @@ class TestMoveRelProfile_674:
         moving axis and the crosshair falls through to the cache."""
         from modules.lumascope_api import AxisState, Lumascope
 
-        scope = Lumascope(simulate=True)
+        scope = home_sim_scope(Lumascope(simulate=True))
         scope._motion_driver.set_timing_mode('fast')
 
-        scope.motion.move_absolute_position('X', 1000.0, wait_until_complete=True)
+        scope.motion.move_absolute('X', 1000.0, wait_until_complete=True)
 
         observed = {}
         orig_set_state = scope.motion._set_axis_state
@@ -306,9 +308,9 @@ class TestMoveRelProfile_674:
         scope.motion._set_axis_state = snapshot_at_moving
 
         if move == 'absolute':
-            scope.motion.move_absolute_position('X', 1400.0, wait_until_complete=False)
+            scope.motion.move_absolute('X', 1400.0, wait_until_complete=False)
         else:
-            scope.motion.move_relative_position('X', 400.0, wait_until_complete=False)
+            scope.motion.move_relative('X', 400.0, wait_until_complete=False)
 
         assert 'profile_at_moving' in observed, 'the move must transition X to MOVING'
         assert observed['profile_at_moving'] is not None, (
@@ -318,17 +320,17 @@ class TestMoveRelProfile_674:
 
     def test_runtime_profile_set_after_driver_returns(self):
         """Production path: profile must be present + populated correctly
-        right after move_relative_position returns. Hooked at the driver
+        right after move_relative returns. Hooked at the driver
         call's RETURN moment (still inside move_rel_pos, before the outer
         method writes profile), profile should be UNSET -- proves the
         write is positioned after the driver call returns."""
         from modules.lumascope_api import Lumascope
 
-        scope = Lumascope(simulate=True)
+        scope = home_sim_scope(Lumascope(simulate=True))
         scope._motion_driver.set_timing_mode('fast')
 
         # Prime: move to a known non-zero start; wait_until_complete clears profile.
-        scope.motion.move_absolute_position('X', 1000.0, wait_until_complete=True)
+        scope.motion.move_absolute('X', 1000.0, wait_until_complete=True)
         with scope.motion._move_profile_lock:
             assert scope.motion._move_profile.get('X') is None, (
                 'profile should be cleared after IDLE transition'
@@ -351,21 +353,21 @@ class TestMoveRelProfile_674:
         scope._motion_driver.move_rel_pos = snapshot_at_driver_return
 
         delta = 300.0
-        scope.motion.move_relative_position('X', delta, wait_until_complete=False)
+        scope.motion.move_relative('X', delta, wait_until_complete=False)
 
         # H3 invariant: profile not yet written at driver-return.
         assert observed.get('profile_at_driver_return') is None, (
             'profile must be UNSET when the driver call returns -- the outer '
-            'move_relative_position writes it AFTER the driver returns so '
+            'move_relative writes it AFTER the driver returns so '
             'start_time captures post-serial-RT timing (H3 refinement). '
             f'Observed: {observed.get("profile_at_driver_return")!r}'
         )
 
-        # Sanity: profile IS set by the time move_relative_position returns.
+        # Sanity: profile IS set by the time move_relative returns.
         with scope.motion._move_profile_lock:
             profile = scope.motion._move_profile.get('X')
         assert profile is not None, (
-            '_move_profile[X] must be written by the time move_relative_position '
+            '_move_profile[X] must be written by the time move_relative '
             'returns (still required for the predictor when state is MOVING)'
         )
         assert profile['start_pos'] == pytest.approx(1000.0, abs=5.0)
@@ -373,18 +375,18 @@ class TestMoveRelProfile_674:
         assert profile['ramp'] and profile['ramp'].get('vmax', 0) > 0
 
     def test_runtime_predictor_returns_non_none_during_move(self):
-        """End-to-end: after move_relative_position returns and state is
+        """End-to-end: after move_relative returns and state is
         MOVING, _predicted_position must return a value. This is the
         crosshair-animation precondition (regardless of pre-H3 vs post-H3
         positioning of the profile-write -- by the time the outer method
         returns, profile must be set)."""
         from modules.lumascope_api import AxisState, Lumascope
 
-        scope = Lumascope(simulate=True)
+        scope = home_sim_scope(Lumascope(simulate=True))
         scope._motion_driver.set_timing_mode('fast')
 
-        scope.motion.move_absolute_position('X', 1000.0, wait_until_complete=True)
-        scope.motion.move_relative_position('X', 500.0, wait_until_complete=False)
+        scope.motion.move_absolute('X', 1000.0, wait_until_complete=True)
+        scope.motion.move_relative('X', 500.0, wait_until_complete=False)
 
         # Observation AFTER the move method returns: profile must be set,
         # state must be MOVING (or just transitioned), and predictor must
@@ -411,10 +413,10 @@ class TestMoveRelProfile_674:
 
         from modules.lumascope_api import Lumascope
 
-        scope = Lumascope(simulate=True)
+        scope = home_sim_scope(Lumascope(simulate=True))
         scope._motion_driver.set_timing_mode('fast')
 
-        scope.motion.move_absolute_position('X', 1000.0, wait_until_complete=True)
+        scope.motion.move_absolute('X', 1000.0, wait_until_complete=True)
 
         DELAY_S = (
             0.040  # 40 ms -- well above scheduler jitter; below an arrow's perception threshold
@@ -428,7 +430,7 @@ class TestMoveRelProfile_674:
         scope._motion_driver.move_rel_pos = slow_driver
 
         t_before = _time.monotonic()
-        scope.motion.move_relative_position('X', 300.0, wait_until_complete=False)
+        scope.motion.move_relative('X', 300.0, wait_until_complete=False)
         t_after = _time.monotonic()
 
         with scope.motion._move_profile_lock:

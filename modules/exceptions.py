@@ -38,13 +38,29 @@ class ProtocolRunRefusedError(ProtocolError):
             refusals to responses (REST status codes, UI branches).
         title: The notification title already shown to the user.
         message: The notification body already shown to the user.
+        holder: The exclusive-activity claim owner at refusal time
+            ('protocol' or 'recording'), or None when the refusal is
+            not claim-shaped (validation, hardware, file drain).
+        holder_trigger: Busy-with-what for run-shaped holders: the
+            holding (or, for a file-drain refusal, the just-finished)
+            run's run_trigger_source. None when the holder is not a
+            run -- a recording has no trigger; its kind IS the holder.
     """
 
-    def __init__(self, reason: str, title: str, message: str):
+    def __init__(
+        self,
+        reason: str,
+        title: str,
+        message: str,
+        holder: 'str | None' = None,
+        holder_trigger: 'str | None' = None,
+    ):
         super().__init__(f'{reason}: {message}')
         self.reason = reason
         self.title = title
         self.message = message
+        self.holder = holder
+        self.holder_trigger = holder_trigger
 
 
 class RecordingRefusedError(CaptureError):
@@ -64,13 +80,85 @@ class RecordingRefusedError(CaptureError):
             refusals to responses (REST status codes, UI branches).
         title: Short user-facing refusal title.
         message: One-sentence user-facing refusal body.
+        holder: The exclusive-activity claim owner at refusal time, or
+            None when the refusal is not claim-shaped.
+        holder_trigger: The holding run's run_trigger_source when the
+            holder is 'protocol'; a recording holder has no trigger.
     """
 
-    def __init__(self, reason: str, title: str, message: str):
+    def __init__(
+        self,
+        reason: str,
+        title: str,
+        message: str,
+        holder: 'str | None' = None,
+        holder_trigger: 'str | None' = None,
+    ):
         super().__init__(f'{reason}: {message}')
         self.reason = reason
         self.title = title
         self.message = message
+        self.holder = holder
+        self.holder_trigger = holder_trigger
+
+
+class HardwareCommandRefusedError(Exception):
+    """A hardware command was refused: an exclusive activity holds the executor.
+
+    Raised by the public hardware members (LED, camera and motion commands)
+    when the executor that would carry the work will not accept it -- because
+    a protocol run fenced it, or because the run disabled it outright. Both
+    executor states make ``put()`` return None, and the caller cannot tell
+    which one applies; asking whether work is accepted covers both, while
+    asking why would need a list of reasons kept in sync with the executor.
+
+    Distinct from the run and recording refusals, which are raised when an
+    ACTIVITY is refused at start and which carry the title and body already
+    shown to the user. This refusal reaches an external API caller that no
+    notification path serves, so it carries no user-facing strings -- the
+    caller that provoked it owns the response. Without it the command would
+    be dropped silently, which is how a fenced write reaches no hardware and
+    reports success.
+
+    Attributes:
+        reason: Machine-readable refusal code for callers that map refusals
+            to responses (REST status codes, SDK branches).
+        member: The public member that was refused, for the log and message.
+    """
+
+    def __init__(self, reason: str, member: str):
+        super().__init__(f'{member} refused: {reason}')
+        self.reason = reason
+        self.member = member
+
+
+class AxisStateUnknownError(Exception):
+    """A move was commanded on an axis whose position is not known.
+
+    Raised by the motion pre-drive gate when the target axis is UNKNOWN:
+    a home failed, the board vanished mid-move, or a move stalled out.
+    An absolute move against an unknown reference frame is never a valid
+    request -- there is no frame for it to be absolute in -- so refusing
+    it discards nothing legitimate and makes the failure loud instead of
+    letting the stage travel somewhere nobody asked for.
+
+    The recovery paths that must move a still-unknown axis (lowering Z
+    for turret safety, a deliberate re-home jog) pass ``force=True``
+    rather than pre-checking state, so the gate can never deadlock the
+    operation that would clear the state it guards.
+
+    Attributes:
+        axis: The axis that was refused, for callers that map refusals
+            to responses (REST status codes, SDK branches) and for the
+            user-facing message.
+    """
+
+    def __init__(self, axis: str):
+        super().__init__(
+            f'{axis} position is unknown -- home the scope before moving it, '
+            f'or pass force=True to move anyway'
+        )
+        self.axis = axis
 
 
 class AutofocusAborted(Exception):  # noqa: N818 -- cancellation/abort signal, not an error; non-Error suffix is intentional

@@ -502,7 +502,7 @@ class FileChooseBTN(HoverBehavior, Button):
             gui_logger.select('FILE_CHOOSE', f'context={self.context} path={self.selection[0]}')
         ctx = _app_ctx.ctx
 
-        if self.context in _POST_PROCESSING_FILE_CONTEXTS and ctx.protocol_running.is_set():
+        if self.context in _POST_PROCESSING_FILE_CONTEXTS and ctx.session.run_lockout:
             from modules.notification_center import notifications
 
             notifications.warning(
@@ -565,7 +565,7 @@ class FileOrFolderChooseBTN(HoverBehavior, Button):
         path = pathlib.Path(self.selection[0])
         gui_logger.select('FILE_OR_FOLDER_CHOOSE', f'context={self.context} path={path}')
         ctx = _app_ctx.ctx
-        if ctx.protocol_running.is_set():
+        if ctx.session.run_lockout:
             from modules.notification_center import notifications
 
             notifications.warning(
@@ -652,7 +652,7 @@ class FolderChooseBTN(HoverBehavior, Button):
         else:
             return
 
-        if self.context in _POST_PROCESSING_CONTEXTS and ctx.protocol_running.is_set():
+        if self.context in _POST_PROCESSING_CONTEXTS and ctx.session.run_lockout:
             from modules.notification_center import notifications
 
             notifications.warning(

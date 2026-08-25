@@ -1,5 +1,7 @@
 # MATLAB Integration Examples
 
+> **DEFERRED**: these examples target a REST API (`/api/v1`) that does not exist yet; the rewrite rides REST Phase 1 against the real endpoints. Kept for the endpoint-sketch ideas they carry.
+
 These examples show how to control an Etaluma microscope from MATLAB using the LumaViewPro REST API.
 
 ## Prerequisites

@@ -68,6 +68,12 @@ class _FourColourRecordingBoard:
     def __init__(self):
         self.commands = []
 
+    def is_connected(self):
+        # A double standing in for a present board has to answer this: the
+        # API asks it to tell a real board from the Null one, and a double
+        # that omits it is treated as absent rather than failing loudly.
+        return True
+
     def color2ch(self, color):
         return self._COLOR_TO_CH.get(color)
 
@@ -204,7 +210,7 @@ class TestDarkFloorKeysOnLedDrivability:
 
         writer = _bare_protocol_writer()
         scope = writer._scope
-        scope.motion.has_turret.return_value = False
+        scope.capabilities.has_turret = False
         scope.led_connected = False
         if writer_setup is not None:
             writer_setup(writer, scope)
@@ -217,17 +223,18 @@ class TestDarkFloorKeysOnLedDrivability:
             protocol=protocol,
             enable_image_saving=True,
         )
-        return scope.imaging.capture_and_wait.call_args.kwargs, scope, writer
+        return scope.imaging._capture_and_wait_impl.call_args.kwargs, scope, writer
 
-    def test_lumi_protocol_step_dark_floor_disabled(self):
+    def test_lumi_protocol_step_posts_no_dark_floor_fact(self):
+        # The capture path derives dark-by-design from commanded state (a
+        # luminescence step commands no LED); the writer posting the fact
+        # back would recreate the mirror the fold retired.
         kwargs, _, _ = self._run_capture({'Color': 'Lumi', 'Illumination': 50.0})
-        assert kwargs['dark_floor_check'] is False, (
-            'a luminescence step is dark by design even at nonzero illumination'
-        )
+        assert 'dark_floor_check' not in kwargs
 
-    def test_led_layer_step_dark_floor_enabled(self):
+    def test_led_layer_step_posts_no_dark_floor_fact(self):
         kwargs, _, _ = self._run_capture({'Color': 'BF', 'Illumination': 50.0})
-        assert kwargs['dark_floor_check'] is True
+        assert 'dark_floor_check' not in kwargs
 
     def test_composite_loop_gates_led_and_dark_floor_together(self):
         # Source pins (reformat-tolerant single-line fragments): the
@@ -236,18 +243,24 @@ class TestDarkFloorKeysOnLedDrivability:
         assert 'led_driven = layer in common_utils.get_layers_with_led() and illumination > 0' in (
             src
         ), 'composite loop must compute LED drivability once'
-        assert 'dark_floor_check=led_driven' in src, (
-            'composite grab must expect a dark frame exactly when no LED was driven'
+        assert 'dark_floor_check' not in src, (
+            'the composite must not post the dark-floor fact; the capture '
+            'derives it from commanded LED state'
         )
         assert 'if layer not in common_utils.get_transmitted_layers():' not in src, (
             'the vacuously-true not-transmitted guard must not gate led_on'
         )
 
-    def test_live_capture_predicate(self):
+    def test_live_capture_reads_no_settings_predicate(self):
+        # The manual live capture used to derive the dark-floor expectation
+        # from the SETTINGS store; the capture path now judges the frame
+        # against commanded state (a configured-but-unlit layer is a
+        # deliberate dark capture). The old predicate returning would
+        # recreate the settings/commanded divergence.
         src = ' '.join((REPO / 'ui' / 'composite_capture.py').read_text().split())
         assert (
             "layer in common_utils.get_layers_with_led() and layer_configs[layer]['illumination_ma'] > 0"
-        ) in src, 'manual live capture must exempt LED-less channels from dark-floor rejection'
+        ) not in src, 'the settings-store dark-floor predicate must stay retired'
 
 
 class TestCaptureAbortWording:
@@ -270,10 +283,10 @@ class TestCaptureAbortWording:
         )
         writer = _bare_protocol_writer()
         scope = writer._scope
-        scope.motion.has_turret.return_value = False
+        scope.capabilities.has_turret = False
         scope.led_connected = led_connected
         scope.illumination.color2ch.return_value = channel
-        scope.imaging.capture_and_wait.return_value = None
+        scope.imaging._capture_and_wait_impl.return_value = None
         writer._consecutive_capture_failures = writer._MAX_CONSECUTIVE_CAPTURE_FAILURES - 1
         protocol = MagicMock()
         protocol.capture_root.return_value = ''

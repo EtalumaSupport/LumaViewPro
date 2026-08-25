@@ -143,10 +143,8 @@ class ProtocolStepRunner:
                     f'(well {_af_well}) ({type(_af_exc).__name__}: {_af_exc}) -- '
                     f'capturing at fallback Z and continuing'
                 )
-            _cam_gain = p._scope.imaging.get_gain() if p._scope.imaging.camera_active else '?'
-            _cam_exp = (
-                p._scope.imaging.get_exposure_time() if p._scope.imaging.camera_active else '?'
-            )
+            _cam_gain = p._scope.imaging.get_gain_db() if p._scope.imaging.active_cached else '?'
+            _cam_exp = p._scope.imaging.get_exposure_ms() if p._scope.imaging.active_cached else '?'
             logger.info(
                 f'[SCAN DIAG] AF gate passed: future.done()=True '
                 f'camera_gain={_cam_gain} camera_exp={_cam_exp} step={p._curr_step}'
@@ -296,7 +294,12 @@ class ProtocolStepRunner:
             )
             fut = p._io_executor.protocol_put(
                 IOTask(
-                    action=p._scope.imaging.apply_layer_camera_settings,
+                    # Run-internal machinery binds the impl per the
+                    # dispatch contract: the public member is the
+                    # external-caller surface (SDK/REST), and internal
+                    # callers already inside the run's serialization
+                    # use the body directly.
+                    action=p._scope.imaging._apply_layer_camera_settings_impl,
                     kwargs={
                         'gain_db': step['Gain'],
                         'exposure_ms': step['Exposure'],
@@ -506,7 +509,7 @@ class ProtocolStepRunner:
         Each axis move is submitted through ``io_executor.protocol_put``
         and the protocol thread waits on the future, so all motor I/O
         is serialized to one worker. Calling
-        ``scope.motion.move_absolute_position`` directly from PROTOCOL_WORKER
+        ``scope.motion.move_absolute`` directly from PROTOCOL_WORKER
         instead would let motor serial writes from this thread
         interleave with any io_executor-queued motor command (UI
         sliders, manual moves) mid-step.
@@ -538,37 +541,34 @@ class ProtocolStepRunner:
                 if p._callbacks.move_position:
                     _schedule_ui(lambda dt: p._callbacks.move_position('Z'), 0)
 
-    def _move_axis_through_io(
-        self,
-        axis: str,
-        pos,
-        *,
-        wait_until_complete: bool = False,
-        overshoot_enabled: bool = False,
-        timeout: float = 60.0,
-    ):
+    def _move_axis_through_io(self, axis: str, position):
         """Submit a single-axis move to io_executor and wait for completion.
 
-        Used by ``default_move`` and ``_grease_redist_w_pos`` to keep
-        motor writes off PROTOCOL_WORKER. Falls back to a direct call if
-        the executor isn't available (early init / standalone tests).
+        Used by ``default_move``, which runs on PROTOCOL_WORKER, to keep
+        motor writes off that thread. Falls back to a direct call if the
+        executor isn't available (early init / standalone tests).
+
+        Only a caller OFF the io worker may use this: the io worker cannot
+        reach a task queued behind the one it is running, so enqueue-and-
+        wait from the worker itself can never complete -- code already on
+        the worker (the grease routine) calls the move body directly.
         """
         p = self._p
         kwargs = {
             'axis': axis,
-            'pos': pos,
-            'wait_until_complete': wait_until_complete,
-            'overshoot_enabled': overshoot_enabled,
+            'position': position,
+            'wait_until_complete': False,
+            'overshoot_enabled': False,
         }
         if p._io_executor is None:
-            p._scope.motion.move_absolute_position(**kwargs)
+            p._scope.motion._move_absolute_impl(**kwargs)
             return
         fut = p._io_executor.protocol_put(
-            IOTask(action=p._scope.motion.move_absolute_position, kwargs=kwargs),
+            IOTask(action=p._scope.motion._move_absolute_impl, kwargs=kwargs),
             return_future=True,
         )
         if fut:
-            fut.result(timeout=timeout)
+            fut.result(timeout=60.0)
 
     def go_to_step(self, step_idx: int):
         """Move to the position for a given protocol step."""
@@ -619,23 +619,21 @@ class ProtocolStepRunner:
             # get_current_position is a cache read (a zero-serial-IO accessor);
             # safe to call directly from any thread that needs the live z position.
             z_orig = p._scope.motion.get_current_position(axis=axis)
-            self._move_axis_through_io(
-                axis,
-                0,
-                wait_until_complete=True,
-                overshoot_enabled=True,
-                timeout=120.0,
+            # This routine already RUNS on the io worker, so the moves run
+            # inline: enqueueing them back onto the single worker and waiting
+            # could never complete -- the worker cannot reach a task queued
+            # behind the one it is running, so the wait always expired, the
+            # queued Z->0 then ran out of band on unwind, and the restore to
+            # z_orig never enqueued at all.
+            p._scope.motion._move_absolute_impl(
+                axis, 0, wait_until_complete=True, overshoot_enabled=True
             )
 
             if p._callbacks.move_position:
                 _schedule_ui(lambda dt, a=axis: p._callbacks.move_position(a))
 
-            self._move_axis_through_io(
-                axis,
-                z_orig,
-                wait_until_complete=True,
-                overshoot_enabled=True,
-                timeout=120.0,
+            p._scope.motion._move_absolute_impl(
+                axis, z_orig, wait_until_complete=True, overshoot_enabled=True
             )
 
             if p._callbacks.move_position:
@@ -668,13 +666,13 @@ class ProtocolStepRunner:
         """
         p = self._p
         fut = p._io_executor.protocol_put(
-            IOTask(action=p._scope.illumination.leds_off), return_future=True
+            IOTask(action=p._scope.illumination._leds_off_impl), return_future=True
         )
         if fut:
             fut.result(timeout=30)
         else:
             try:
-                p._scope.illumination.leds_off()
+                p._scope.illumination._leds_off_impl()
             except Exception as ex:
                 logger.warning(f'[{p.LOGGER_NAME}] Direct leds_off fallback failed: {ex}')
         # LED observer handles UI sync -- no manual callback

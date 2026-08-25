@@ -105,7 +105,7 @@ def test_set_frame_size_rejection_raises_and_preserves_cache(notes):
     assert excinfo.value.setting == 'frame_size'
     assert excinfo.value.requested == {'width': 1900, 'height': 1900}
     assert len(notes.errors) == 1, notes.errors
-    assert imaging.camera_frame_size == {'width': 1936, 'height': 1216}, (
+    assert imaging.frame_size_cached == {'width': 1936, 'height': 1216}, (
         'a rejected resize must leave the cache at the geometry the hardware still holds'
     )
 
@@ -138,7 +138,7 @@ def test_set_pixel_format_rejection_raises_and_preserves_cache(notes):
     assert excinfo.value.setting == 'pixel_format'
     assert excinfo.value.requested == 'Mono8'
     assert len(notes.errors) == 1, notes.errors
-    assert imaging.camera_pixel_format == 'Mono12'
+    assert imaging.pixel_format_cached == 'Mono12'
 
 
 # --- B. Delivered geometry returned -------------------------------------------
@@ -154,7 +154,7 @@ def test_set_frame_size_returns_delivered_geometry_and_caches_it(notes):
     delivered = imaging.set_frame_size(1900, 1900)
 
     assert delivered == {'width': 1896, 'height': 1900}
-    assert imaging.camera_frame_size == {'width': 1896, 'height': 1900}
+    assert imaging.frame_size_cached == {'width': 1896, 'height': 1900}
     assert notes.errors == []
 
 
@@ -194,7 +194,7 @@ def test_set_pixel_format_driver_raise_becomes_typed_rejection(notes):
 
     assert isinstance(excinfo.value.__cause__, RuntimeError)
     assert len(notes.errors) == 1, notes.errors
-    assert imaging.camera_pixel_format == 'Mono12'
+    assert imaging.pixel_format_cached == 'Mono12'
 
 
 # --- D. Absent / inactive camera stays a quiet sentinel -------------------------
@@ -214,9 +214,9 @@ def test_absent_camera_setters_return_sentinels_and_notify(notes):
 
     assert notes.errors == []  # absent is the quiet shape, not the loud one
     # Nothing recorded in the cache: every entry still holds its seed.
-    assert imaging.camera_frame_size == {'width': 0, 'height': 0}
+    assert imaging.frame_size_cached == {'width': 0, 'height': 0}
     assert imaging._binning_size == 1
-    assert imaging.camera_pixel_format is None
+    assert imaging.pixel_format_cached is None
 
 
 def test_inactive_driver_setters_return_sentinels_without_reaching_driver(notes):
@@ -271,18 +271,20 @@ def _drive_initialize(config, monkeypatch, *, no_camera: bool = False, prepare=N
     scope = Lumascope(simulate=True)
     saved_driver = scope._camera_driver
     try:
+        # initialize is bring-up and binds the impl seams (it runs before
+        # executor registration by design), so the spies sit there.
         applied_binnings = []
-        real_set_binning = scope.imaging.set_binning_size
+        real_set_binning = scope.imaging._set_binning_size_impl
         monkeypatch.setattr(
             scope.imaging,
-            'set_binning_size',
+            '_set_binning_size_impl',
             lambda size: applied_binnings.append(size) or real_set_binning(size),
         )
         applied_frames = []
-        real_set_frame = scope.imaging.set_frame_size
+        real_set_frame = scope.imaging._set_frame_size_impl
         monkeypatch.setattr(
             scope.imaging,
-            'set_frame_size',
+            '_set_frame_size_impl',
             lambda w, h: applied_frames.append((w, h)) or real_set_frame(w, h),
         )
         reached_end = []

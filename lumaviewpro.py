@@ -122,7 +122,6 @@ if __name__ == '__main__':
     from modules.autofocus_runner import AutofocusRunner
     from modules.autofocus_thread import AutofocusThread
     from modules.scope_session import ScopeSession
-    from modules.sequenced_capture_runner import SequencedCaptureRunner
 
     global profiling_helper
     profiling_helper = None
@@ -262,7 +261,6 @@ if __name__ == '__main__':
     from kivy.input.motionevent import MotionEvent
     from kivy.metrics import dp
     from kivy.properties import (
-        AliasProperty,
         BooleanProperty,
         ListProperty,
         ObjectProperty,
@@ -315,10 +313,9 @@ if __name__ == '__main__':
 
     # The executor handles are the single-source-of-truth on ctx: they are
     # locals in build() and read everywhere else (including shutdown) as
-    # ctx.<name>. executor_bundle is the one build()->on_start() handoff that
-    # is not a live executor read path -- created in build(), read once in
-    # on_start() to register the whole bundle -- so it stays a module global.
-    executor_bundle = None
+    # ctx.<name>. The bundle itself rides into the session at construction
+    # (which registers it on the scope), so no build()->on_start() handoff
+    # global exists anymore.
     ctx = None
 
 else:
@@ -433,29 +430,38 @@ class LumaViewProApp(TooltipMixin, App):
 
     kv_file = 'ui/lumaviewpro.kv'
 
-    # UI mirror of ctx.protocol_running (a worker-thread Event) so kv
-    # `disabled:` bindings can react to it -- a threading.Event cannot be
-    # bound in kv. The Event stays authoritative for worker-thread reads;
-    # this property is written only on the Kivy main thread when a run
-    # starts and stops, so widgets grey out for the duration of a scan.
-    protocol_running = BooleanProperty(False)
-
-    # UI mirror of the manual-recording controller's selection-open
-    # state, written only on the Kivy main thread (the session claim
-    # stays authoritative for worker-thread arbitration).
+    # kv mirrors of the session's run-state derivations, published by
+    # the ONE run-state listener below (worker-side truth lives on the
+    # session; a kv binding cannot read it directly). run_lockout
+    # carries the session derivation of the same name (a run or its
+    # post-run file drain); recording_active carries a LIVE manual
+    # recording; controls_locked is the full-surface lock. Never add a
+    # second per-site flag -- bind to these.
+    run_lockout = BooleanProperty(False)
     recording_active = BooleanProperty(False)
+    controls_locked = BooleanProperty(False)
 
-    def _get_controls_locked(self):
-        return self.protocol_running or self.recording_active
+    def publish_run_state(self, dt=0):
+        """Write the three kv mirrors from the session derivations.
 
-    # THE one derived lock every full-lockout kv binding reads: an
-    # exclusive activity (protocol run OR live recording) locks the
-    # control surface; only the record/stop toggle stays actionable
-    # during a recording. Never add a second per-site flag -- bind to
-    # this.
-    controls_locked = AliasProperty(
-        _get_controls_locked, None, bind=['protocol_running', 'recording_active']
-    )
+        One closure writes all three, in fail-safe order: Kivy
+        dispatches bindings synchronously inside each setattr, so a
+        handler observing a torn pair must see OVER-locked, never
+        under-locked -- the tightening property writes first on lock,
+        last on unlock.
+        """
+        session = ctx.session
+        run_lockout = session.run_lockout
+        recording = session.exclusive_activity == 'recording' and session.recording_capturing
+        locked = session.controls_locked
+        if locked:
+            self.controls_locked = True
+            self.run_lockout = run_lockout
+            self.recording_active = recording
+        else:
+            self.run_lockout = run_lockout
+            self.recording_active = recording
+            self.controls_locked = False
 
     def on_start(self) -> None:
         """Kivy lifecycle hook: fires after build() and before the main loop runs."""
@@ -473,6 +479,15 @@ class LumaViewProApp(TooltipMixin, App):
             ui_dispatcher=Clock.schedule_once,
         )
         ctx.ui_listener_bridge.register_all()
+
+        # The ONE run-state listener: session transitions (claim
+        # grant/release, file-drain exit, scope rebind) schedule a
+        # single main-thread closure that re-reads the derivations at
+        # fire time and writes the three kv mirrors. Level-read at
+        # fire time means out-of-order delivery degrades to bounded
+        # staleness, never a permanently wrong publish; registration
+        # itself level-syncs the mirrors to current truth.
+        ctx.session.add_run_state_listener(lambda: Clock.schedule_once(self.publish_run_state, 0))
 
         # Slow idle refresh (1Hz) for display elements that may change without motion
         # (e.g., labware selection, stage offset changes)
@@ -635,25 +650,14 @@ class LumaViewProApp(TooltipMixin, App):
         # the noise of repeating those facts every tick.
         config_helpers.log_environment_once()
 
-        # Lumascope.__init__ constructs the MetricsLogger so REST and headless
-        # callers share the same surface. Here we register the executor bundle and
-        # start the logger with a KivyClockScheduler; REST entry points wire a
-        # ThreadingTimerScheduler instead.
-        from modules.scheduler import KivyClockScheduler
-
-        lumaview.scope.register_executor_bundle(executor_bundle, settings)
-        ctx.metrics_logger = lumaview.scope.metrics_logger
-        if ctx.metrics_logger is not None:
-            # settings.profiling.metrics_interval_s overrides the default
-            # 3600 s cadence. Set to 30-60 s for short-soak leak hunts
-            # (gen2_depth + handle/thread counts are usable signals at
-            # sub-minute granularity; hourly is fine for production).
-            _prof = ctx.settings.get('profiling', {})
-            _metrics_interval = _prof.get('metrics_interval_s', None)
-            _start_kwargs = {}
-            if _metrics_interval is not None:
-                _start_kwargs['system_metrics_interval_s'] = float(_metrics_interval)
-            ctx.metrics_logger.start(KivyClockScheduler(Clock), **_start_kwargs)
+        # The session owns the metrics lifecycle (it holds the injected
+        # KivyClockScheduler and restarts metrics on the new scope at
+        # every reconnect); settings.profiling.metrics_interval_s
+        # overrides the default 3600 s cadence -- set 30-60 s for
+        # short-soak leak hunts (gen2_depth + handle/thread counts are
+        # usable signals at sub-minute granularity; hourly is fine for
+        # production).
+        ctx.session.start_metrics()
 
         # The atexit emergency-shutdown hook is registered in Lumascope.__init__
         # so every Lumascope user gets the same safety net automatically.
@@ -830,10 +834,11 @@ class LumaViewProApp(TooltipMixin, App):
         # lanes (plus stage and turret aliases) and the protocol_thread, then
         # starts them; every entry point shares this topology so the watchdog
         # snapshot and engineering plugin see one truth.
-        global executor_bundle
         # Clock.schedule_once is passed as the UI dispatcher so executors can post
         # callbacks to the Kivy main thread without importing Kivy themselves.
         from kivy.clock import Clock
+
+        from modules.scheduler import KivyClockScheduler
 
         _ui = Clock.schedule_once
 
@@ -858,32 +863,6 @@ class LumaViewProApp(TooltipMixin, App):
 
         sweep_recording_scratch(settings['live_folder'])
 
-        # GUI-independent scope session; persisted to ctx.session and
-        # ctx.protocol_running so other methods read off ctx.
-        protocol_running_global = threading.Event()
-        scope_session = ScopeSession(
-            settings=settings,
-            scope=lumaview.scope,
-            io_executor=io_executor,
-            camera_executor=camera_executor,
-            wellplate_loader=wellplate_loader,
-            coordinate_transformer=coordinate_transformer,
-            objective_helper=objective_helper,
-            source_path=source_path,
-        )
-        scope_session.protocol_running = protocol_running_global
-
-        # Register executors so scope.X_async / scope.X_sync methods can
-        # dispatch without callers passing executor handles.
-        lumaview.scope.register_executors(
-            camera_executor=camera_executor,
-            io_executor=io_executor,
-            file_io_executor=file_io_executor,
-        )
-        # Register source_path so the protocol constructors can resolve
-        # data/tiling.json without callers passing the path.
-        lumaview.scope.protocols.register_source_path(source_path)
-
         autofocus_runner = AutofocusRunner(
             scope=lumaview.scope,
             camera_executor=camera_executor,
@@ -902,21 +881,35 @@ class LumaViewProApp(TooltipMixin, App):
         )
         autofocus_thread.start()
 
-        sequenced_capture_runner = SequencedCaptureRunner(
+        # GUI-independent scope session; persisted to ctx.session so
+        # other methods read off ctx. The session composes the ONE
+        # sequenced-capture engine from the injected executors, AF
+        # pair, and protocol thread -- and its run-state derivations
+        # need the file-drain fact, so the FILE executor handle rides
+        # the injection list too. Constructing the session also services
+        # the scope (executor registration, bundle, source path) -- the
+        # session owns scope bring-up so a reconnect-built scope gets
+        # the identical servicing through set_scope. The bundle is
+        # handed over for that servicing only; this host keeps teardown
+        # (shutdown_threads), which is why owns_executors stays False.
+        scope_session = ScopeSession(
+            settings=settings,
             scope=lumaview.scope,
-            stage_offset=settings['stage_offset'],
-            autofocus_runner=autofocus_runner,
             io_executor=io_executor,
-            protocol_thread=protocol_thread,
-            file_io_executor=file_io_executor,
             camera_executor=camera_executor,
+            wellplate_loader=wellplate_loader,
+            coordinate_transformer=coordinate_transformer,
+            objective_helper=objective_helper,
+            source_path=source_path,
+            executor_bundle=executor_bundle,
+            file_io_executor=file_io_executor,
+            protocol_thread=protocol_thread,
+            autofocus_runner=autofocus_runner,
             autofocus_thread=autofocus_thread,
             z_ui_update_func=_handle_autofocus_ui,
-            # The session's compare-and-claim is the one arbitration point
-            # for protocol-XOR-recording exclusivity; a runner left on its
-            # private fallback claim would refuse nothing app-wide.
-            activity_claim=scope_session.activity_claim,
+            metrics_scheduler=KivyClockScheduler(Clock),
         )
+        sequenced_capture_runner = scope_session.sequenced_capture_runner
 
         # Create AppContext -- central service registry
         ctx = AppContext(
@@ -941,7 +934,6 @@ class LumaViewProApp(TooltipMixin, App):
             stage=stage,
             cell_count_content=cell_count_content,
             graphing_controls=graphing_controls,
-            protocol_running=protocol_running_global,
             engineering_mode=ENGINEERING_MODE,
             no_engineering=no_engineering,
             show_tooltips=show_tooltips,
@@ -1138,7 +1130,7 @@ class LumaViewProApp(TooltipMixin, App):
         Returns:
             True to prevent window close (popup shown); False to allow close.
         """
-        protocol_running = ctx.protocol_running.is_set()
+        protocol_running = ctx.session.run_lockout
         # Crash-forensics: log the close request to BOTH the main log
         # (so post-mortem can correlate against the shutdown sequence)
         # and the GUI interactions log (so the gui-log timeline names
@@ -1265,10 +1257,9 @@ class LumaViewProApp(TooltipMixin, App):
         # the camera-temp tick don't survive into shutdown and try to
         # log against torn-down hardware.
         try:
-            if ctx.metrics_logger is not None:
-                ctx.metrics_logger.stop()
+            ctx.session.stop_metrics()
         except Exception as e:  # grain: ignore NAKED_EXCEPT
-            logger.warning(f'[LVP Main  ] metrics_logger stop failed during shutdown: {e}')
+            logger.warning(f'[LVP Main  ] metrics stop failed during shutdown: {e}')
 
         ctx.motion_settings.ids['protocol_settings_id'].cancel_all_protocols()
         # The abort above only signals; the hardware teardown (LED off,
@@ -1310,7 +1301,7 @@ class LumaViewProApp(TooltipMixin, App):
 
             fut = (
                 ctx.io_executor.put(
-                    IOTask(action=lumaview.scope.illumination.leds_off),
+                    IOTask(action=lumaview.scope.illumination._leds_off_impl),
                     return_future=True,
                 )
                 if ctx.io_executor is not None

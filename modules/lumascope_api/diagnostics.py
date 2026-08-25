@@ -27,7 +27,7 @@ class DiagnosticsAPI:
         self._scope = scope
 
     # --- Camera probes ---
-    def get_camera_temperatures(self) -> dict:
+    def get_camera_temperatures_degc(self) -> dict:
         """Get all camera temperature sensor readings.
 
         Returns:
@@ -39,7 +39,7 @@ class DiagnosticsAPI:
         try:
             return self._scope._camera_driver.get_all_temperatures()
         except Exception as e:
-            logger.debug(f'[SCOPE API ] get_camera_temperatures failed: {e}')
+            logger.debug(f'[SCOPE API ] get_camera_temperatures_degc failed: {e}')
             return {}
 
     def get_camera_diagnostic_info(self) -> dict:
@@ -78,8 +78,8 @@ class DiagnosticsAPI:
         except Exception as e:
             info['resolution'] = f'Error: {e}'
 
-        _try('gain_db', lambda: self._scope.imaging.get_gain())
-        _try('exposure_ms', lambda: self._scope.imaging.get_exposure_time())
+        _try('gain_db', lambda: self._scope.imaging.get_gain_db())
+        _try('exposure_ms', lambda: self._scope.imaging.get_exposure_ms())
         _try('max_gain_db', lambda: self._scope._camera_driver.get_max_gain())
         _try('max_exposure_ms', lambda: self._scope._camera_driver.get_max_exposure())
 
@@ -90,7 +90,7 @@ class DiagnosticsAPI:
         # when unknown) -- a provenance label, not a control input.
         info['sdk_version'] = self._scope._camera_driver.get_sdk_info().get('version')
 
-        info['temperatures'] = self.get_camera_temperatures()
+        info['temperatures'] = self.get_camera_temperatures_degc()
         return info
 
     def run_camera_bandwidth_test(
@@ -312,11 +312,11 @@ class DiagnosticsAPI:
                     # not to dominate the cycle, large enough that GenICam
                     # node-map writes are real.
                     if i % 2 == 0:
-                        self._scope.imaging.set_gain(1.0)
-                        self._scope.imaging.set_exposure_time(10.0)
+                        self._scope.imaging.set_gain_db(1.0)
+                        self._scope.imaging.set_exposure_ms(10.0)
                     else:
-                        self._scope.imaging.set_gain(4.0)
-                        self._scope.imaging.set_exposure_time(50.0)
+                        self._scope.imaging.set_gain_db(4.0)
+                        self._scope.imaging.set_exposure_ms(50.0)
 
                 t1 = time.monotonic()
                 self._scope._camera_driver.start_grabbing()
@@ -351,9 +351,9 @@ class DiagnosticsAPI:
         # Restore caller's gain/exposure so vary_settings doesn't leak state.
         try:
             if vary_settings and original_gain is not None:
-                self._scope.imaging.set_gain(float(original_gain))
+                self._scope.imaging.set_gain_db(float(original_gain))
             if vary_settings and original_exposure is not None:
-                self._scope.imaging.set_exposure_time(float(original_exposure))
+                self._scope.imaging.set_exposure_ms(float(original_exposure))
         except Exception as e:
             results['errors'].append(f'Restore settings failed: {type(e).__name__}: {e}')
 
@@ -666,25 +666,13 @@ class DiagnosticsAPI:
             )
             return f'Error: {e}'
 
-    # --- Motor power / driver / fan diagnostics ---
+    # --- Motor driver / fan diagnostics ---
     # Each returns parsed values or None when the firmware does not
     # support the command (legacy 2024-09-10 firmware did not include
-    # VOLTAGE / DRVSTAT_<axis> / FANSPEED / FAN). Per Eric: the driver
+    # DRVSTAT_<axis> / FANSPEED / FAN). Per Eric: the driver
     # owns firmware-version gating; callers (TSR, future REST
     # diagnostic endpoint) read None as "INCONCLUSIVE -- firmware
     # does not support this probe."
-
-    def read_motor_voltages(self) -> dict | None:
-        """Read motor-board power rail tolerance diagnostic.
-
-        Returns a dict mapping rail label to volts (or None per rail
-        if unparseable), or None when the firmware does not implement
-        the VOLTAGE command. See MotorBoard.read_voltages.
-        """
-        drv = getattr(self._scope, '_motion_driver', None)
-        if drv is None or not hasattr(drv, 'read_voltages'):
-            return None
-        return drv.read_voltages()
 
     def read_motor_drv_status(self, axis: str) -> int | None:
         """Read TMC5072 DRV_STATUS register for an axis.
@@ -697,7 +685,7 @@ class DiagnosticsAPI:
             return None
         return drv.read_drv_status(axis)
 
-    def read_motor_fanspeed(self) -> int | None:
+    def read_motor_fan_rpm(self) -> int | None:
         """Read motor-board fan tachometer RPM.
 
         Returns RPM as int (0 if no tach wire) or None when firmware
@@ -858,7 +846,7 @@ class DiagnosticsAPI:
                 'gain_max_db': profile.gain.total_max_db,
                 'exposure_min_us': exposure_min_us,
                 'exposure_min_ms': exposure_min_ms,
-                'max_exposure_ms': self._scope.imaging.camera_max_exposure,
+                'max_exposure_ms': self._scope.imaging.max_exposure_ms_cached,
                 'binning_sizes': profile.binning_sizes,
             }
         except Exception as e:

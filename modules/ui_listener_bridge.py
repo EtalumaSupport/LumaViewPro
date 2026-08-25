@@ -56,9 +56,9 @@ class UIListenerBridge:
             scope: ``Lumascope`` API instance -- listener-add methods
                 are called on this.
             ctx: ``AppContext`` -- UI widget lookups (motion_settings,
-                image_settings) and runtime flags (ready, settings,
-                protocol_running) read from here so a widget rebuild
-                doesn't strand the bridge.
+                image_settings) and runtime state (ready, settings,
+                session) read from here so a widget rebuild doesn't
+                strand the bridge.
             stage: Stage widget -- the position listener calls
                 ``stage.draw_labware()`` on XY motion.
             ui_dispatcher: Callable matching
@@ -161,7 +161,7 @@ class UIListenerBridge:
         self._ui_dispatch(_reconcile, 0)
 
     def _on_camera_setting_changed(self, param, value):
-        """Camera listener -- fires on set_gain / set_exposure_time.
+        """Camera listener -- fires on set_gain_db / set_exposure_ms.
 
         Updates the OPEN tab's text fields with what the camera is
         actually running at (after AF, auto-gain, REST API, etc.).
@@ -177,7 +177,7 @@ class UIListenerBridge:
         def _update_camera_ui(dt, p=param, v=value):
             if not ctx.ready:
                 return
-            if ctx.protocol_running.is_set():
+            if ctx.session.is_protocol_running:
                 return
             opened_layer = common_utils.get_opened_layer(ctx.image_settings)
             if not opened_layer:
@@ -230,3 +230,23 @@ class UIListenerBridge:
         self._scope.illumination.add_led_listener(self._on_led_state_changed)
         self._scope.imaging.add_camera_listener(self._on_camera_setting_changed)
         logger.info('[UIListenerBridge] registered position + LED + camera listeners')
+
+    def rebind(self, scope) -> None:
+        """Move every listener registration onto a NEW scope.
+
+        A reconnect discards the old Lumascope and builds a fresh one;
+        listeners left registered on the discarded scope never fire
+        again (stage redraw, LED buttons, and gain/exposure text all go
+        silent until app restart), and they pin the dead scope in
+        memory. Unregister from the old scope first so a later reuse of
+        it cannot double-fire.
+        """
+        old = self._scope
+        old.motion.remove_position_listener(self._on_position_change)
+        old.illumination.remove_led_listener(self._on_led_state_changed)
+        old.imaging.remove_camera_listener(self._on_camera_setting_changed)
+        self._scope = scope
+        scope.motion.add_position_listener(self._on_position_change)
+        scope.illumination.add_led_listener(self._on_led_state_changed)
+        scope.imaging.add_camera_listener(self._on_camera_setting_changed)
+        logger.info('[UIListenerBridge] rebound position + LED + camera listeners to new scope')

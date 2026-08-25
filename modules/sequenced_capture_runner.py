@@ -108,6 +108,11 @@ class RunPlan:
     stage_offset: dict
 
 
+# Constructor sentinel: distinguishes "omitted -- build a local loader"
+# from an explicit (possibly None) session-owned handle.
+_BUILD_LOCALLY = object()
+
+
 class SequencedCaptureRunner:
     LOGGER_NAME = 'SeqCapExec'
     # Max time for ONE continuous stage motion to complete. The timer
@@ -131,9 +136,25 @@ class SequencedCaptureRunner:
         autofocus_runner: AutofocusRunner | None = None,
         z_ui_update_func: typing.Callable | None = None,
         activity_claim: ActivityClaim | None = None,
+        coordinate_transformer=_BUILD_LOCALLY,
+        wellplate_loader=_BUILD_LOCALLY,
     ):
-        self._coordinate_transformer = coord_transformations.CoordinateTransformer()
-        self._wellplate_loader = labware_loader.WellPlateLoader()
+        # The composing session passes its own loaders -- it owns the
+        # GUARDED construction, where a corrupt labware/coordinate
+        # config disables one feature with a notification instead of
+        # killing the whole composition (a session-passed None stays
+        # None and surfaces at use). Only a bare runner nobody composed
+        # builds its own.
+        self._coordinate_transformer = (
+            coord_transformations.CoordinateTransformer()
+            if coordinate_transformer is _BUILD_LOCALLY
+            else coordinate_transformer
+        )
+        self._wellplate_loader = (
+            labware_loader.WellPlateLoader()
+            if wellplate_loader is _BUILD_LOCALLY
+            else wellplate_loader
+        )
         # Hold stage_offset by reference so UI edits between runs are visible
         # to the next run; prepare() takes a deepcopy into the RunPlan so an
         # in-flight protocol's coordinate transforms are immune to mid-run
@@ -177,18 +198,10 @@ class SequencedCaptureRunner:
         self._grease_redistribution_event = threading.Event()
         self._grease_redistribution_event.set()
 
-        if autofocus_runner is None:
-            # Headless / test fallback. Caller may construct a private
-            # AFE that bypasses the AutofocusThread for unit tests that
-            # only need the protocol state machine.
-            self._autofocus_runner = AutofocusRunner(
-                scope=scope,
-                camera_executor=camera_executor,
-                io_executor=io_executor,
-                file_io_executor=file_io_executor,
-            )
-        else:
-            self._autofocus_runner = autofocus_runner
+        # May be None on a bare session: an AF-bearing step then fails
+        # loudly at its producer site rather than running against a
+        # half-wired private AFE nobody composed.
+        self._autofocus_runner = autofocus_runner
 
         self._scope = scope
         self._run_trigger_source = None
@@ -492,7 +505,10 @@ class SequencedCaptureRunner:
             writer.discard_video_pending()
 
     def protocol_interval(self):
-        return self._protocol.period()
+        # None before the first run: a status poller may ask before any
+        # protocol is loaded, and an AttributeError from a getter is a
+        # crash in a UI handler, not an answer.
+        return self._protocol.period() if self._protocol is not None else None
 
     def get_initial_autofocus_states(self, layer_configs: dict | None = None):
         states = {}
@@ -547,7 +563,13 @@ class SequencedCaptureRunner:
         return lease
 
     def _refuse(
-        self, reason: str, title: str, message: str, severity: str = 'warning'
+        self,
+        reason: str,
+        title: str,
+        message: str,
+        severity: str = 'warning',
+        holder: 'str | None' = None,
+        holder_trigger: 'str | None' = None,
     ) -> typing.NoReturn:
         """Log, notify once, and raise the typed refusal.
 
@@ -560,7 +582,13 @@ class SequencedCaptureRunner:
 
         notify = notifications.error if severity == 'error' else notifications.warning
         notify('Protocol', title, message)
-        raise ProtocolRunRefusedError(reason=reason, title=title, message=message)
+        raise ProtocolRunRefusedError(
+            reason=reason,
+            title=title,
+            message=message,
+            holder=holder,
+            holder_trigger=holder_trigger,
+        )
 
     def prepare(
         self,
@@ -612,6 +640,8 @@ class SequencedCaptureRunner:
                     reason='already_running',
                     title='Already Running',
                     message='A protocol run is already in progress.',
+                    holder='protocol',
+                    holder_trigger=self._run_trigger_source,
                 )
 
         if self.file_io_executor.is_protocol_queue_active():
@@ -620,6 +650,7 @@ class SequencedCaptureRunner:
             # itself lives with the UI gate helper and the Session method.
             if self.file_io_executor.protocol_drain_stalled(WRITE_STALL_FATAL_S):
                 self._refuse(
+                    holder_trigger=self._run_trigger_source,
                     reason='files_writing_stalled',
                     title='File Writer Stalled',
                     message=(
@@ -633,8 +664,13 @@ class SequencedCaptureRunner:
                 reason='files_writing',
                 title='Files Still Writing',
                 message="Previous run's files are still being written. Please wait.",
+                holder_trigger=self._run_trigger_source,
             )
 
+        # Nearly vestigial now that a standalone autofocus is itself a
+        # run (already_running fires first) -- kept deliberately for the
+        # abort-tail window where the AF thread is still winding down
+        # after the run flag clears.
         # A live interactive autofocus owns the Z axis and the LED lease;
         # starting a run under it would contest Z motion and steal
         # illumination mid-sweep (dark AF frames, garbage focus). An AF
@@ -833,6 +869,8 @@ class SequencedCaptureRunner:
                     reason='already_running',
                     title='Already Running',
                     message='A protocol run is already in progress.',
+                    holder='protocol',
+                    holder_trigger=self._run_trigger_source,
                 )
 
             if not self._activity_claim.try_claim('protocol'):
@@ -853,6 +891,8 @@ class SequencedCaptureRunner:
                     reason='exclusive_activity_running',
                     title=title,
                     message=message,
+                    holder=holder,
+                    holder_trigger=(self._run_trigger_source if holder == 'protocol' else None),
                 )
             self._activity_claim_held = True
 
@@ -978,8 +1018,10 @@ class SequencedCaptureRunner:
             self.camera_executor.disable()
             self._io_executor.protocol_start()
             self.file_io_executor.protocol_start()
-            # Not IO
-            self._scope.imaging.update_auto_gain_target_brightness(
+            # Not IO. The impl, not the dispatcher: the camera lane was
+            # disabled two lines up, so the public form would refuse the
+            # run's own bring-up write.
+            self._scope.imaging._update_auto_gain_target_brightness_impl(
                 self._autogain_settings['target_brightness']
             )
 
@@ -1161,7 +1203,7 @@ class SequencedCaptureRunner:
         run_dir = self._run_dir
         if run_dir is None:
             return None
-        has_turret = self._scope.motion.has_turret()
+        has_turret = self._scope.capabilities.has_turret
 
         def _wait_and_build():
             while self.file_io_executor.is_protocol_queue_active():

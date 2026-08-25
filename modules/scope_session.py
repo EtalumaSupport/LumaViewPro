@@ -16,20 +16,16 @@ Usage
     session = ScopeSession.create_headless(settings=settings)
 """
 
-import datetime
-import threading
 from typing import TYPE_CHECKING
 
 from lvp_logger import logger
 from modules.activity_claim import ActivityClaim
 from modules.manual_recording import ManualRecordingController
 
-# numpy and ProtocolRunner are referenced only in return annotations;
-# ProtocolRunner is imported function-locally to avoid a circular import.
-# Declare both here for the annotations without a runtime import.
+# ProtocolRunner is referenced only in a return annotation; it is
+# imported function-locally to avoid a circular import. Declare it here
+# for the annotation without a runtime import.
 if TYPE_CHECKING:
-    import numpy as np
-
     from modules.protocol_runner import ProtocolRunner
 
 
@@ -47,35 +43,72 @@ class ScopeSession:
         objective_helper=None,
         source_path: str = '.',
         executor_bundle=None,
+        file_io_executor=None,
+        protocol_thread=None,
+        autofocus_runner=None,
+        autofocus_thread=None,
+        z_ui_update_func=None,
+        owns_executors: bool = False,
+        metrics_scheduler=None,
     ):
         self.settings = settings
         self.scope = scope
+        # The MetricsLogger lives on the scope, but its scheduler is a
+        # host choice (Kivy Clock vs threading timers), so the host
+        # injects it here and the session owns start/stop/restart --
+        # including moving running metrics onto a new scope at
+        # set_scope. None (the factory default) means metrics never
+        # start: the pre-existing headless contract.
+        self._metrics_scheduler = metrics_scheduler
+        # The one store for "metrics are running"; start_metrics /
+        # stop_metrics are its only writers. Host-serialized (main
+        # thread in the GUI): a threaded host must serialize
+        # start_metrics / stop_metrics / set_scope itself.
+        self._metrics_started = False
         self.io_executor = io_executor
         self.camera_executor = camera_executor
         self.wellplate_loader = wellplate_loader
         self.coordinate_transformer = coordinate_transformer
         self.objective_helper = objective_helper
         self.source_path = source_path
-        # When ScopeSession.create* built the executors itself, the bundle
-        # is held here so headless callers can shut down protocol_thread /
-        # scope_display_thread cleanly. When lumaviewpro.py is the host,
-        # this is None -- the host owns the bundle on ctx.executor_bundle.
+        # Every host hands its bundle in (the session re-registers it on
+        # the scope at every rebind), so bundle-presence says nothing
+        # about who owns the executor topology's teardown -- that fact is
+        # owns_executors, passed True only by the factories that BUILT
+        # the topology. Deriving ownership from the bundle would let a
+        # host-composed session tear down its host's executors.
         self.executor_bundle = executor_bundle
+        self._owns_executors = owns_executors
         # The canonical file-IO executor lives on the bundle; expose it here
         # alongside io_executor / camera_executor so callers (e.g. ProtocolRunner)
         # source the one shared FILE executor instead of constructing a
-        # duplicate. None when no bundle was built (the GUI host owns its bundle).
-        self.file_io_executor = executor_bundle.file_io_executor if executor_bundle else None
+        # duplicate. A bundle-less host passes its handle in -- the session
+        # cannot read the file-drain fact without it.
+        self.file_io_executor = file_io_executor or (
+            executor_bundle.file_io_executor if executor_bundle else None
+        )
+        # Service the scope NOW, after the handle derivations above and
+        # before any collaborator is composed: a session-composed scope
+        # must never exist un-serviced, or its dispatch falls back to
+        # inline execution on the calling thread (unserialized, and a
+        # protocol fence cannot reach an inline task).
+        self._register_scope_services(scope)
 
-        self.protocol_running = threading.Event()
         self.focus_round = 0
+        # Run-state listeners: zero-argument callables notified on every
+        # run-state transition edge (claim grant/release, file-drain
+        # exit, scope rebind). They fire on the TRANSITIONING thread,
+        # possibly under engine locks, so a listener must only schedule
+        # or re-read the level-derivation properties below -- never
+        # acquire engine locks or trust edge context.
+        self._run_state_listeners: list = []
         # The single arbitration point for exclusive activities: a
         # protocol run and a video recording each claim here before
         # committing, so the two can never run concurrently. Enforcement
         # lives with the claimants (the sequenced-capture runner's
         # refusal gate and the recording engine's start), which take
         # this handle by injection.
-        self.activity_claim = ActivityClaim()
+        self.activity_claim = ActivityClaim(on_transition=self.notify_run_state)
         # Manual video recording, composed with the session claim so a
         # recording and a protocol run are mutually exclusive for every
         # caller tier (GUI, L2, REST).
@@ -84,15 +117,207 @@ class ScopeSession:
             settings=settings,
             activity_claim=self.activity_claim,
         )
+        # Whether the running configuration declares an XY stage. Written
+        # by the scope-config apply path; motion_enabled derives from it.
+        # Defaults True so bundle-less and headless hosts keep motion
+        # until a config says otherwise.
+        self.xystage_configured = True
+        if self.file_io_executor is not None:
+            self.file_io_executor.add_protocol_idle_listener(self.notify_run_state)
+
+        # The run engine and its autofocus pair are SESSION-composed:
+        # one SequencedCaptureRunner per session, shared by the GUI,
+        # ProtocolRunner, and (later) REST -- a second engine instance
+        # would duplicate run state beside the shared claim. Hosts
+        # inject their own AF pair / protocol thread; bundle-building
+        # factories construct real ones; a bare session composes an
+        # engine with what it has (an AF-bearing run then refuses or
+        # fails loudly at the producer site).
+        self.protocol_thread = protocol_thread or (
+            executor_bundle.protocol_thread if executor_bundle else None
+        )
+        self.autofocus_runner = autofocus_runner
+        self.autofocus_thread = autofocus_thread
+        self.z_ui_update_func = z_ui_update_func
+        from modules.sequenced_capture_runner import SequencedCaptureRunner
+
+        self.sequenced_capture_runner = SequencedCaptureRunner(
+            scope=scope,
+            stage_offset=settings.get('stage_offset', {}),
+            io_executor=io_executor,
+            protocol_thread=self.protocol_thread,
+            file_io_executor=self.file_io_executor,
+            camera_executor=camera_executor,
+            autofocus_thread=autofocus_thread,
+            autofocus_runner=autofocus_runner,
+            z_ui_update_func=z_ui_update_func,
+            activity_claim=self.activity_claim,
+            coordinate_transformer=coordinate_transformer,
+            wellplate_loader=wellplate_loader,
+        )
+        self._protocol_runner = None
+        # Refusals say busy-with-what: a recording refused by a running
+        # run names the run's trigger through this lookup.
+        self.manual_recording.run_trigger_lookup = self.sequenced_capture_runner.run_trigger_source
+
+    def _register_scope_services(self, scope) -> None:
+        """Register the session's services on a scope (the one bring-up).
+
+        Executors, the executor bundle, and the protocol source path all
+        live on the scope but belong to the session's composition; a
+        scope missing them dispatches inline (unserialized, unfenceable)
+        and its protocol constructors cannot resolve their data files.
+        Construction and set_scope both come through here so no scope
+        the session drives can be left un-serviced -- the bring-up steps
+        are spelled out exactly once.
+
+        The bundle is registered only when held: register_executor_bundle
+        overwrites the metrics logger's bundle unconditionally, so a
+        None-bundle call would blank a pre-wired scope's metrics wiring.
+        """
+        scope.register_executors(
+            camera_executor=self.camera_executor,
+            io_executor=self.io_executor,
+            file_io_executor=self.file_io_executor,
+        )
+        if self.executor_bundle is not None:
+            scope.register_executor_bundle(self.executor_bundle, settings=self.settings)
+        scope.protocols.register_source_path(self.source_path)
+
+    def set_scope(self, scope) -> None:
+        """Rewire this session onto a NEW scope after a reconnect.
+
+        The session and its recording controller each hold the scope by
+        reference; left unrewired after a reconnect they keep driving
+        the discarded, disconnected scope (start_application_session
+        homes it; a recording captures from it). The new scope is
+        serviced FIRST (executors, bundle, source path), before any
+        holder is rewired onto it, so nothing can dispatch against a
+        rewired-but-unserviced scope.
+
+        Raises:
+            RuntimeError: An exclusive activity still owns the hardware.
+                Both facts are checked -- the activity claim (a run mid
+                flight would mix two hardware identities in one run) AND
+                the recording controller's busy state, which outlives
+                the claim: the recording engine releases its claim
+                before the post-drain finish thread completes, and that
+                finish still touches the scope. The claim alone would
+                un-guard the drain window.
+        """
+        holder = self.activity_claim.owner
+        if self.manual_recording.is_busy or holder is not None:
+            busy_with = holder if holder is not None else 'a finishing recording'
+            raise RuntimeError(
+                f'ScopeSession.set_scope: refusing to swap the scope while '
+                f'{busy_with} owns the hardware; stop it and let it finish '
+                f'before reconnecting'
+            )
+        # Capture the OLD logger before the scope handle is reassigned:
+        # after the swap, self.scope.metrics_logger is the NEW one, and
+        # stopping that instead would leave the old ticks running
+        # beside the restarted logger (double-ticking).
+        old_metrics_logger = self.scope.metrics_logger if self._metrics_started else None
+        self._register_scope_services(scope)
+        self.scope = scope
+        self.manual_recording.set_scope(scope)
+        self.sequenced_capture_runner.set_scope(scope)
+        if self.autofocus_runner is not None:
+            self.autofocus_runner.set_scope(scope)
+        if old_metrics_logger is not None:
+            # Metrics were running: move them to the new scope with the
+            # same scheduler and cadence. The old logger's system and
+            # watchdog ticks survive a disconnect (they read
+            # host-lifetime objects), so they must be stopped here.
+            self._metrics_started = False
+            old_metrics_logger.stop()
+            self.start_metrics()
+        # Level republish: listeners registered before the swap re-read
+        # the derivations against the new scope's world.
+        self.notify_run_state()
 
     @property
     def is_protocol_running(self) -> bool:
-        """True while a protocol or scan is running.
+        """True while a protocol-class run holds the exclusive claim.
 
-        Canonical read of the protocol-running state for callers holding a
-        session handle, so they need not reach into the underlying Event.
+        Scans, full protocols, zstacks, and autofocus runs all hold the
+        'protocol' claim, so all read True here. The claim releases at
+        run-cleanup end; the post-run file drain is visible on
+        run_lockout / protocol_files_draining, not here.
         """
-        return self.protocol_running.is_set()
+        return self.activity_claim.owner == 'protocol'
+
+    # ------------------------------------------------------------------
+    # Run-state facts and derivations
+    #
+    # Each FACT has exactly one owner (the claim, the recording engine,
+    # the file writer, the scope config); everything a consumer needs is
+    # a synchronous DERIVATION over them. All reads are lock-free
+    # attribute/queue reads, so these properties are safe from any
+    # thread, including inside a transition listener.
+    # ------------------------------------------------------------------
+
+    @property
+    def exclusive_activity(self) -> 'str | None':
+        """The current exclusive-activity owner: None, 'protocol', or
+        'recording'."""
+        return self.activity_claim.owner
+
+    @property
+    def recording_capturing(self) -> bool:
+        """True while a manual recording is live (not its drain)."""
+        return self.manual_recording.is_recording
+
+    @property
+    def protocol_files_draining(self) -> bool:
+        """True while a run's file writer still holds pending work."""
+        file_io_executor = self.file_io_executor
+        return bool(file_io_executor is not None and file_io_executor.is_protocol_queue_active())
+
+    @property
+    def run_lockout(self) -> bool:
+        """True while a run OR its post-run file drain owns the scope.
+
+        The drain term encodes a deliberate asymmetry: a finished
+        protocol frees its claim while its files drain, but the control
+        surface stays locked until the queue empties.
+        """
+        return self.activity_claim.owner == 'protocol' or self.protocol_files_draining
+
+    @property
+    def controls_locked(self) -> bool:
+        """True while the full control surface locks: any run lockout,
+        or a LIVE manual recording (a draining recording frees the
+        controls while its claim still refuses new runs)."""
+        return self.run_lockout or (
+            self.activity_claim.owner == 'recording' and self.recording_capturing
+        )
+
+    @property
+    def motion_enabled(self) -> bool:
+        """True when user stage motion is allowed: the configuration
+        declares an XY stage and no run lockout holds. Evaluated at
+        read -- there is no cached copy to mis-restore."""
+        return self.xystage_configured and not self.run_lockout
+
+    def add_run_state_listener(self, listener) -> None:
+        """Register a run-state transition listener and level-sync it.
+
+        The immediate call is the level republish: transitions are
+        edges, and a listener registered after a grant would otherwise
+        never see it.
+        """
+        self._run_state_listeners.append(listener)
+        listener()
+
+    def notify_run_state(self) -> None:
+        """Notify every run-state listener (level semantics: listeners
+        re-read the derivations; an extra notification is harmless)."""
+        for listener in list(self._run_state_listeners):
+            try:
+                listener()
+            except Exception:
+                logger.exception('[ScopeSession] run-state listener failed')
 
     # ------------------------------------------------------------------
     # Factory helpers
@@ -151,22 +376,8 @@ class ScopeSession:
             if camera_executor is None:
                 camera_executor = SequentialIOExecutor(name='CAMERA')
 
-        # LAYER-A': register executors on the scope so scope.X_async /
-        # scope.X_sync can dispatch without callers passing executor handles.
-        # When the bundle was built, register file_io_executor too so
-        # protocol_image_writer + IOTask file-IO paths land on the dedicated
-        # queue instead of falling back to inline execution.
-        scope.register_executors(
-            camera_executor=camera_executor,
-            io_executor=io_executor,
-            file_io_executor=executor_bundle.file_io_executor if executor_bundle else None,
-        )
-        if executor_bundle is not None:
-            scope.register_executor_bundle(executor_bundle, settings=settings)
-        # Register source_path for the protocol constructors -- falls back
-        # to current working dir for the rare ScopeSession path that
-        # doesn't pass source_path.
-        scope.protocols.register_source_path(source_path)
+        # Service registration (executors, bundle, source path) happens in
+        # __init__ for every session-composed scope -- nothing here.
 
         # Optional helpers -- import and construct if available.
         # Every silent helper-init failure has a downstream AttributeError
@@ -231,6 +442,13 @@ class ScopeSession:
                 'Check that data/objectives.json exists and is valid.',
             )
 
+        autofocus_runner, autofocus_thread = cls._build_autofocus_pair(
+            scope=scope,
+            camera_executor=camera_executor,
+            io_executor=io_executor,
+            file_io_executor=executor_bundle.file_io_executor if executor_bundle else None,
+        )
+
         return cls(
             settings=settings,
             scope=scope,
@@ -241,6 +459,9 @@ class ScopeSession:
             objective_helper=objective_helper,
             source_path=source_path,
             executor_bundle=executor_bundle,
+            autofocus_runner=autofocus_runner,
+            autofocus_thread=autofocus_thread,
+            owns_executors=executor_bundle is not None,
         )
 
     @classmethod
@@ -291,19 +512,15 @@ class ScopeSession:
 
         executor_bundle = create_default(ui_dispatcher=None)
 
-        # LAYER-A': register all three executor handles on the scope so
-        # scope.X_async / scope.X_sync + protocol_image_writer file-IO
-        # paths land on the proper queues.
-        scope.register_executors(
+        # Service registration (executors, bundle, source path) happens in
+        # __init__ for every session-composed scope -- nothing here.
+
+        autofocus_runner, autofocus_thread = cls._build_autofocus_pair(
+            scope=scope,
             camera_executor=executor_bundle.camera_executor,
             io_executor=executor_bundle.io_executor,
             file_io_executor=executor_bundle.file_io_executor,
         )
-        # LVP-A-13: wire the bundle so metrics_logger.snapshot() reports
-        # all 4 executor queue depths instead of a degraded subset.
-        scope.register_executor_bundle(executor_bundle, settings=settings)
-        # Register source_path (defaults to "." in headless).
-        scope.protocols.register_source_path(source_path)
 
         return cls(
             settings=settings,
@@ -312,7 +529,27 @@ class ScopeSession:
             camera_executor=executor_bundle.camera_executor,
             source_path=source_path,
             executor_bundle=executor_bundle,
+            autofocus_runner=autofocus_runner,
+            autofocus_thread=autofocus_thread,
+            owns_executors=True,
         )
+
+    @staticmethod
+    def _build_autofocus_pair(*, scope, camera_executor, io_executor, file_io_executor):
+        """Real AF runner + started AF thread for a factory-built session,
+        so headless AF-bearing runs get the same wiring the GUI composes."""
+        from modules.autofocus_runner import AutofocusRunner
+        from modules.autofocus_thread import AutofocusThread
+
+        autofocus_runner = AutofocusRunner(
+            scope=scope,
+            camera_executor=camera_executor,
+            io_executor=io_executor,
+            file_io_executor=file_io_executor,
+        )
+        autofocus_thread = AutofocusThread(afe=autofocus_runner)
+        autofocus_thread.start()
+        return autofocus_runner, autofocus_thread
 
     # ------------------------------------------------------------------
     # Convenience wrappers (delegate to config_helpers / scope_commands)
@@ -359,23 +596,19 @@ class ScopeSession:
 
         return config_helpers.get_auto_gain_settings(self.settings)
 
-    def get_current_objective_info(self) -> dict:
+    def get_current_objective_info(self) -> 'tuple[str, dict]':
         import modules.config_helpers as config_helpers
 
         return config_helpers.get_current_objective_info(self.settings, self.objective_helper)
 
-    def set_objective(self, objective_id: str) -> None:
-        """Set the active objective by ID.
+    def get_objective_info(self, objective_id: str) -> dict:
+        """Objective metadata for an EXPLICIT id.
 
-        Thin Session-layer forwarder so L2 callers (REST / SDK /
-        MATLAB / micromanager) can drive objective selection without
-        reaching across to the composition root. Pairs with
-        ``get_current_objective_info()``.
-
-        Args:
-            objective_id: Objective identifier (e.g. "10x Oly").
+        Candidate lookups (turret assignment, settings load, FOV
+        refresh) read objectives the current selection does not name,
+        so a current-only getter cannot serve them.
         """
-        self.scope.runtime_state.set_objective(objective_id)
+        return self.objective_helper.get_objective_info(objective_id=objective_id)
 
     def get_current_plate_position(self) -> 'dict | None':
         import modules.config_helpers as config_helpers
@@ -387,211 +620,37 @@ class ScopeSession:
             self.wellplate_loader,
         )
 
-    def log_system_metrics(self) -> None:
-        import modules.config_helpers as config_helpers
-
-        config_helpers.log_system_metrics(self.settings)
-
-    # --- LED commands (thin shims around Lumascope's executor-backed API) ---
-    # All async-by-default; *_sync counterparts call the matching
-    # scope.illumination.*_sync method.
-
-    def leds_off_async(self, callback=None) -> None:
-        self.scope.illumination.leds_off_async(callback=callback)
-
-    def led_on_async(self, channel, mA, callback=None, cb_kwargs=None) -> None:
-        self.scope.illumination.led_on_async(
-            channel,
-            mA,
-            callback=callback,
-            cb_kwargs=cb_kwargs,
-        )
-
-    def led_off_async(self, channel, callback=None, cb_kwargs=None) -> None:
-        self.scope.illumination.led_off_async(
-            channel,
-            callback=callback,
-            cb_kwargs=cb_kwargs,
-        )
-
-    def led_on_sync(self, channel, mA, timeout_s=5) -> None:
-        self.scope.illumination.led_on_sync(channel, mA, timeout_s=timeout_s)
-
-    # --- Motion commands ---
-
-    def move_absolute_async(
-        self,
-        axis,
-        pos,
-        wait_until_complete=False,
-        overshoot_enabled=True,
-        callback=None,
-        cb_kwargs=None,
-    ) -> None:
-        self.scope.motion.move_absolute_async(
-            axis,
-            pos,
-            wait_until_complete=wait_until_complete,
-            overshoot_enabled=overshoot_enabled,
-            callback=callback,
-            cb_kwargs=cb_kwargs,
-        )
-
-    def move_relative_async(
-        self,
-        axis,
-        um,
-        wait_until_complete=False,
-        overshoot_enabled=True,
-        callback=None,
-        cb_kwargs=None,
-    ) -> None:
-        self.scope.motion.move_relative_async(
-            axis,
-            um,
-            wait_until_complete=wait_until_complete,
-            overshoot_enabled=overshoot_enabled,
-            callback=callback,
-            cb_kwargs=cb_kwargs,
-        )
-
-    def move_home_async(self, axis, callback=None, cb_args=None) -> None:
-        self.scope.motion.move_home_async(
-            axis,
-            callback=callback,
-            cb_args=cb_args,
-        )
-
-    # --- Imaging commands (symmetric with illumination + motion wrappers:
-    #     _async = queued + immediate return, _sync = queued + blocking on
-    #     result. Both route through camera_executor for serialization with
-    #     other camera-bus work.)
-
-    def set_gain_async(self, gain_db: float, callback=None, cb_kwargs=None) -> None:
-        """Submit ``set_gain`` to camera_executor; return immediately."""
-        self.scope.imaging.set_gain_async(
-            gain_db,
-            callback=callback,
-            cb_kwargs=cb_kwargs,
-        )
-
-    def set_gain_sync(self, gain_db: float, timeout_s: float = 5.0) -> None:
-        """Submit ``set_gain`` to camera_executor and block until done."""
-        self.scope.imaging.set_gain_sync(gain_db, timeout_s=timeout_s)
-
-    def set_exposure_time_async(
-        self,
-        exposure_ms: float,
-        callback=None,
-        cb_kwargs=None,
-    ) -> None:
-        """Submit ``set_exposure_time`` to camera_executor; return immediately."""
-        self.scope.imaging.set_exposure_time_async(
-            exposure_ms,
-            callback=callback,
-            cb_kwargs=cb_kwargs,
-        )
-
-    def set_exposure_time_sync(self, exposure_ms: float, timeout_s: float = 5.0) -> None:
-        """Submit ``set_exposure_time`` to camera_executor and block until done."""
-        self.scope.imaging.set_exposure_sync(exposure_ms, timeout_s=timeout_s)
-
-    def capture_and_wait_async(
-        self,
-        *,
-        callback=None,
-        cb_kwargs=None,
-        force_to_8bit: bool = True,
-        exclude_sources: tuple = (),
-        all_ones_check: bool = False,
-        dark_floor_check: bool = False,
-        earliest_image_ts: 'datetime.datetime | None' = None,
-        timeout_s: float = 0.0,
-        sum_count: int = 1,
-        sum_delay_s: float = 0,
-        sum_iteration_callback=None,
-    ) -> None:
-        """Submit ``capture_and_wait`` to camera_executor; image delivered via callback.
-
-        Explicit signature symmetric with set_gain_async / set_exposure_time_async
-        and with the underlying scope.imaging.capture_and_wait_async; L2 SDK
-        autocomplete sees every supported kwarg.
-
-        ``dark_floor_check=True`` rejects frames with essentially no lit
-        pixel (retried until ``timeout_s`` expires, then None); pass it when
-        your capture expects illumination ON. Defaults False at this L2
-        surface so existing scripts are behavior-identical. Unlike the sync
-        forwarder, ``timeout_s`` here IS the content-retry budget -- there
-        is no blocking executor wait to bound.
-        """
-        self.scope.imaging.capture_and_wait_async(
-            callback=callback,
-            cb_kwargs=cb_kwargs,
-            dark_floor_check=dark_floor_check,
-            force_to_8bit=force_to_8bit,
-            exclude_sources=exclude_sources,
-            all_ones_check=all_ones_check,
-            earliest_image_ts=earliest_image_ts,
-            timeout_s=timeout_s,
-            sum_count=sum_count,
-            sum_delay_s=sum_delay_s,
-            sum_iteration_callback=sum_iteration_callback,
-        )
-
-    def capture_and_wait_sync(
-        self,
-        *,
-        timeout_s: float = 30.0,
-        grab_timeout_s: float = 0.0,
-        force_to_8bit: bool = True,
-        exclude_sources: tuple = (),
-        all_ones_check: bool = False,
-        dark_floor_check: bool = False,
-        earliest_image_ts: 'datetime.datetime | None' = None,
-        sum_count: int = 1,
-        sum_delay_s: float = 0,
-        sum_iteration_callback=None,
-    ) -> 'np.ndarray | None':
-        """Submit ``capture_and_wait`` to camera_executor and block; return image.
-
-        Explicit signature symmetric with the other Session imaging forwarders.
-        Returns the captured image array, or None on failure (camera-inactive,
-        frame-drain failed, executor absent, or future not delivered).
-
-        ``dark_floor_check=True`` rejects frames with essentially no lit
-        pixel; pass it when your capture expects illumination ON. Defaults
-        False at this L2 surface so existing scripts are behavior-identical.
-        ``grab_timeout_s`` is the retry budget for the content checks (dark
-        floor, saturation, chunk verify): with the default 0.0 the first
-        grab is judged with no retry, so a transient dark frame fails
-        instead of healing. ``timeout_s`` only bounds the executor wait.
-        """
-        return self.scope.imaging.capture_and_wait_sync(
-            timeout_s=timeout_s,
-            grab_timeout_s=grab_timeout_s,
-            dark_floor_check=dark_floor_check,
-            force_to_8bit=force_to_8bit,
-            exclude_sources=exclude_sources,
-            all_ones_check=all_ones_check,
-            earliest_image_ts=earliest_image_ts,
-            sum_count=sum_count,
-            sum_delay_s=sum_delay_s,
-            sum_iteration_callback=sum_iteration_callback,
-        )
+    # --- Hardware commands: NOT forwarded ---
+    # The Session surface deliberately carries no hardware-command
+    # forwarders. L2 callers reach hardware through the composition
+    # root the Session exposes -- session.scope.illumination.*,
+    # session.scope.motion.*, session.scope.imaging.*,
+    # session.scope.runtime_state.* -- so every command has exactly one
+    # public spelling and the Session owns only what is session-scoped:
+    # lifecycle (create / start_executors / shutdown /
+    # start_application_session / start_metrics / stop_metrics), the
+    # protocol runner, run-state queries, and the settings-composition
+    # getters above.
 
     # ------------------------------------------------------------------
     # Protocol runner
     # ------------------------------------------------------------------
 
-    def create_protocol_runner(self, **kwargs) -> 'ProtocolRunner':
-        """Create a ProtocolRunner bound to this session.
+    def create_protocol_runner(self) -> 'ProtocolRunner':
+        """The session's one ProtocolRunner (memoized).
 
-        Returns a ProtocolRunner that can run scans and protocols
-        using this session's scope, settings, and executors.
+        Wraps the session-composed sequenced-capture engine; repeated
+        calls return the same instance. The accessor takes no
+        arguments: every dependency (engine, executors, autofocus
+        pair) is session composition, so there is nothing per-call to
+        configure -- and nothing for a second caller's differing
+        configuration to silently lose.
         """
         from modules.protocol_runner import ProtocolRunner
 
-        return ProtocolRunner(session=self, **kwargs)
+        if self._protocol_runner is None:
+            self._protocol_runner = ProtocolRunner(session=self)
+        return self._protocol_runner
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -602,6 +661,59 @@ class ScopeSession:
         self.io_executor.start()
         self.camera_executor.start()
 
+    def start_metrics(self) -> None:
+        """Start the scope's periodic metrics logging.
+
+        Uses the scheduler the host injected at construction (no
+        scheduler: no-op -- headless sessions never start metrics) and
+        the ``settings.profiling.metrics_interval_s`` cadence override
+        when present. A scope whose MetricsLogger failed to construct
+        (that failure is logged as a warning at construction) is
+        tolerated as a no-op: metrics are observability, not a reason
+        to fail the session lifecycle.
+
+        Raises:
+            RuntimeError: Metrics are already running. A second
+                ``MetricsLogger.start`` silently overwrites its
+                schedule handles and orphans the first set as
+                untracked, forever-ticking events -- so a double start
+                refuses loudly instead.
+        """
+        if self._metrics_scheduler is None:
+            return
+        if self._metrics_started:
+            raise RuntimeError(
+                'ScopeSession.start_metrics: metrics are already running; '
+                'a second start would orphan the existing schedule handles'
+            )
+        metrics_logger = self.scope.metrics_logger
+        if metrics_logger is None:
+            logger.warning(
+                '[ScopeSession] start_metrics: the scope has no MetricsLogger; '
+                'periodic metrics stay off'
+            )
+            return
+        start_kwargs = {}
+        interval_s = self.settings.get('profiling', {}).get('metrics_interval_s')
+        if interval_s is not None:
+            start_kwargs['system_metrics_interval_s'] = float(interval_s)
+        metrics_logger.start(self._metrics_scheduler, **start_kwargs)
+        self._metrics_started = True
+
+    def stop_metrics(self) -> None:
+        """Stop the scope's periodic metrics logging. Idempotent.
+
+        Never shuts the scheduler itself down -- a shut scheduler
+        refuses all future schedules, and set_scope must be able to
+        restart metrics on the next scope with the same instance.
+        """
+        if not self._metrics_started:
+            return
+        self._metrics_started = False
+        metrics_logger = self.scope.metrics_logger
+        if metrics_logger is not None:
+            metrics_logger.stop()
+
     def shutdown_executors(self) -> None:
         """Shut down the IO and camera executors."""
         self.io_executor.shutdown()
@@ -610,20 +722,27 @@ class ScopeSession:
     def shutdown(self) -> None:
         """Tear down everything this session constructed.
 
-        For a session that built its own executor bundle (create /
-        create_headless with no caller-supplied executors), stops the
-        long-lived consumer threads BEFORE the executor lanes they
-        consume -- a consumer mid-iteration that finds its lane already
-        shut down can hang on a dispatch that never fires.
-        scope_display_thread consumes camera_executor; protocol_thread
-        drives io + camera + file lanes. For a session running on a
-        caller's executors, only the handles the caller passed in are
-        stopped; the caller owns the rest of its topology.
+        Teardown scope follows the explicit ownership fact, never
+        bundle-presence: every host hands its bundle in for scope
+        servicing, so "holds a bundle" no longer means "built the
+        topology". A session that OWNS its executors (the factories)
+        stops the long-lived consumer threads BEFORE the executor lanes
+        they consume -- a consumer mid-iteration that finds its lane
+        already shut down can hang on a dispatch that never fires
+        (scope_display_thread consumes camera_executor; protocol_thread
+        drives io + camera + file lanes). A non-owning session still
+        stops the handles the caller passed in (io, camera, and the AF
+        thread) -- not-owner is not a no-op -- but never the host's
+        bundle. Running metrics stop first, or their ticks would
+        outlive the executors they snapshot.
         """
-        bundle = self.executor_bundle
-        if bundle is None:
+        self.stop_metrics()
+        if self.autofocus_thread is not None:
+            self.autofocus_thread.stop(timeout=2.0)
+        if not self._owns_executors:
             self.shutdown_executors()
             return
+        bundle = self.executor_bundle
         bundle.scope_display_thread.stop()
         bundle.protocol_thread.stop(timeout=2.0)
         bundle.io_executor.shutdown(wait=False)
@@ -646,7 +765,7 @@ class ScopeSession:
            Firmware homes Z, T, X, Y in one routine; on Z-only boards
            it homes what it has and reports the missing axes.
 
-        2. (when ``self.scope.motion.has_turret()`` is True) move T-axis
+        2. (when ``self.scope.capabilities.has_turret`` is True) move T-axis
            to the position that matches ``settings['objective_id']`` --
            falls back to position 1 if the objective isn't in the turret
            config. Updates ``settings['turret_position']`` so later code
@@ -663,14 +782,24 @@ class ScopeSession:
         """
         # Local import to avoid circular import at module load -- ui_helpers
         # imports many UI modules but the functions used here (move_home,
-        # move_absolute_position) operate on the scope and don't actually
+        # move_absolute) operate on the scope and don't actually
         # need a GUI surface.
-        from ui.ui_helpers import move_home, move_absolute_position
+        from ui.ui_helpers import move_home, move_absolute
 
-        if not disable_homing:
-            move_home('ALL')
+        # Wait for the home's result and honor it. Turret positioning is
+        # an absolute move against the reference frame the home was
+        # supposed to establish; running it after a failed home is the
+        # secondary cascade users report -- a second error on top of the
+        # home's own, for motion that could never have been correct. The
+        # home already notified, so this stays a log.
+        if not disable_homing and not move_home('ALL', wait=True):
+            logger.error(
+                'Homing did not succeed -- skipping startup turret '
+                'positioning; the stage reference is unknown'
+            )
+            return
 
-        if self.scope.motion.has_turret():
+        if self.scope.capabilities.has_turret:
             objective_id = self.settings.get('objective_id')
             turret_position = self.scope.motion.get_turret_position_for_objective_id(
                 objective_id=objective_id,
@@ -686,8 +815,8 @@ class ScopeSession:
                 turret_position = DEFAULT_POSITION
 
             self.settings['turret_position'] = turret_position
-            move_absolute_position(
+            move_absolute(
                 axis='T',
-                pos=turret_position,
+                position=turret_position,
                 wait_until_complete=True,
             )

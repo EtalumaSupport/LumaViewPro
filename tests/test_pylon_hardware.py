@@ -226,7 +226,7 @@ class TestPylon(unittest.TestCase):
         self.camera.gain(target_gain)
         time.sleep(0.5)  # let the new gain propagate
 
-        # Invalidate + record target the same way Lumascope.set_gain does.
+        # Invalidate + record target the same way Lumascope.set_gain_db does.
         fv.invalidate('gain')
         fv.set_target('gain', target_gain)
         pending_before = dict(fv.pending_sources)

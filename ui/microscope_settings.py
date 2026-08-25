@@ -192,6 +192,25 @@ class MicroscopeSettings(BoxLayout):
         ctx = _app_ctx.ctx
 
         gui_logger.button('RECONNECT_MICROSCOPE')
+
+        # Refuse BEFORE any teardown: the session's set_scope guard also
+        # refuses, but it fires only after disconnect() has already torn
+        # the camera down under whatever was using it -- too late to
+        # protect a live run or a recording still finishing its drain.
+        holder = ctx.session.exclusive_activity
+        if holder is not None or ctx.session.manual_recording.is_busy:
+            busy_with = holder if holder is not None else 'a finishing recording'
+            logger.warning(f'[LVP Main  ] Reconnect refused: {busy_with} owns the hardware')
+            from modules.notification_center import notifications
+
+            notifications.warning(
+                'Hardware',
+                'Reconnect refused',
+                f'The microscope is busy ({busy_with}). Stop it and let it '
+                'finish before reconnecting.',
+            )
+            return
+
         logger.info('[LVP Main  ] Reconnecting to microscope...')
 
         lumaview = ctx.lumaview
@@ -221,8 +240,17 @@ class MicroscopeSettings(BoxLayout):
         # it configured but not grabbing).
         lumaview.scope.imaging.start_streaming()
 
-        ctx.sequenced_capture_runner.set_scope(lumaview.scope)
-        ctx.autofocus_runner.set_scope(lumaview.scope)
+        # The stranded-reference cluster: every object holding the scope
+        # by reference must be rewired here, or it keeps driving the
+        # discarded scope. session.set_scope rewires everything the
+        # session composes (the sequenced-capture engine, the autofocus
+        # runner, the recording controller) and republishes run state;
+        # the push-listener bridge and the ctx registry field the
+        # display path renders from are host-owned, so they rewire
+        # here.
+        ctx.session.set_scope(lumaview.scope)
+        ctx.ui_listener_bridge.rebind(lumaview.scope)
+        ctx.scope = lumaview.scope
 
         # Restart display
 
@@ -429,7 +457,7 @@ class MicroscopeSettings(BoxLayout):
                 int(k): v for k, v in settings['turret_objectives'].items()
             }
 
-            if lumaview.scope.motion.has_turret():
+            if lumaview.scope.capabilities.has_turret:
                 turret_objectives = list(settings['turret_objectives'].values())
                 assigned = [obj for obj in turret_objectives if obj is not None]
                 if not assigned:
@@ -450,8 +478,7 @@ class MicroscopeSettings(BoxLayout):
             v_control_objective_spinner = vertical_control_id.ids['objective_spinner2']
             v_control_objective_spinner.text = objective_id
 
-            objective_helper = ctx.objective_helper
-            objective = objective_helper.get_objective_info(objective_id=objective_id)
+            objective = ctx.session.get_objective_info(objective_id=objective_id)
 
             # The objective already in place at launch never passes through
             # the selection handler, so without this a session that changed
@@ -479,7 +506,7 @@ class MicroscopeSettings(BoxLayout):
                 if objective_id is None:
                     button_text = f'{turret_pos}'
                 else:
-                    magnification = objective_helper.get_objective_info(objective_id=objective_id)[
+                    magnification = ctx.session.get_objective_info(objective_id=objective_id)[
                         'magnification'
                     ]
                     button_text = f'{magnification}x'
@@ -770,7 +797,9 @@ class MicroscopeSettings(BoxLayout):
             # The absent-camera False propagates to the callback so the
             # mode commit is reverted -- a format that never reached the
             # hardware must not stay recorded as the capture depth.
-            return imaging.set_pixel_format(target)
+            # This closure runs ON the camera worker: bind the impl, or
+            # the public dispatcher stalls against its own lane.
+            return imaging._set_pixel_format_impl(target)
 
         ctx.camera_executor.put(
             IOTask(
@@ -1217,7 +1246,12 @@ class MicroscopeSettings(BoxLayout):
             protocol_settings.select_labware(labware='Center Plate')
             ctx.motion_settings.ids['post_processing_id'].hide_stitch()
 
-        ctx.stage.set_motion_capability(enabled=selected_scope_config['XYStage'])
+        # The one writer of the XY-stage configuration fact; user stage
+        # motion derives from it (session.motion_enabled), so there is
+        # no per-run capability write to mis-restore on a stage-less
+        # scope. Republish so the derivation's consumers see the edge.
+        ctx.session.xystage_configured = selected_scope_config['XYStage']
+        ctx.session.notify_run_state()
         ctx.stage.set_xy_stage_capability(enabled=selected_scope_config['XYStage'])
 
         # Size the protocol-tab stage holder to its width-based aspect for
@@ -1310,9 +1344,10 @@ class MicroscopeSettings(BoxLayout):
         width = int(frame['width'])
         height = int(frame['height'])
         try:
-            min_frame_size = lumaview.scope.imaging.camera_min_frame_size
-            width = max(width, min_frame_size['width'])
-            height = max(height, min_frame_size['height'])
+            min_frame_size = lumaview.scope.imaging.min_frame_size_cached
+            if min_frame_size is not None:
+                width = max(width, min_frame_size['width'])
+                height = max(height, min_frame_size['height'])
         except Exception:
             logger.warning('[LVP Main  ] Could not clamp frame size to camera minimum.')
 
@@ -1369,7 +1404,9 @@ class MicroscopeSettings(BoxLayout):
         scope = getattr(_app_ctx.ctx.lumaview, 'scope', None)
         if scope is None:
             return None
-        delivered = scope.imaging.set_frame_size(*wh)
+        # Runs on the camera worker (apply_pending is camera-lane work):
+        # bind the impl, never the dispatcher.
+        delivered = scope.imaging._set_frame_size_impl(*wh)
         if not delivered:
             return None
         Clock.schedule_once(lambda dt: self._on_frame_size_applied(delivered), 0)
@@ -1393,7 +1430,7 @@ class MicroscopeSettings(BoxLayout):
         frame settings and the UI binning."""
         ctx = _app_ctx.ctx
         settings = ctx.settings
-        objective = ctx.objective_helper.get_objective_info(objective_id=settings['objective_id'])
+        objective = ctx.session.get_objective_info(objective_id=settings['objective_id'])
         fov_size = common_utils.get_field_of_view(
             focal_length=objective['focal_length'],
             frame_size=settings['frame'],

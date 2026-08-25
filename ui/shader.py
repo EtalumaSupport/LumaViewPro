@@ -123,8 +123,6 @@ void main (void) {
 
     def on_touch_down(self, touch, *args):
         logger.debug('[LVP Main  ] ShaderViewer.on_touch_down()')
-        from modules.config_ui_getters import get_current_objective_info
-
         ctx = _app_ctx.ctx
 
         ZOOM_BLOCKERS = [ctx.image_settings, ctx.motion_settings]
@@ -145,11 +143,11 @@ void main (void) {
             # event, so there is nothing to go stale.
             if 'ctrl' in Window.modifiers:
                 # Focus control -- accumulate scroll ticks, debounce into single move
-                if ctx.protocol_running.is_set():
+                if ctx.session.controls_locked:
                     return
 
                 try:
-                    _, objective = get_current_objective_info()
+                    _, objective = ctx.session.get_current_objective_info()
                 except Exception:
                     logger.debug('[LVP Main  ] Scroll-to-focus: objective info unavailable')
                     return
@@ -203,7 +201,7 @@ void main (void) {
 
     def _flush_scroll_z(self, dt):
         """Debounced scroll-to-focus: send one accumulated Z move."""
-        from ui.ui_helpers import move_relative_position
+        from ui.ui_helpers import move_relative
 
         delta = self._scroll_z_pending
         self._scroll_z_pending = 0.0
@@ -211,7 +209,7 @@ void main (void) {
         if delta == 0.0:
             return
 
-        move_relative_position('Z', delta, overshoot_enabled=False)
+        move_relative('Z', delta, overshoot_enabled=False)
 
     def _on_mouse_pos(self, window, pos):
         """Convert window mouse position to image pixel coordinates."""
@@ -276,12 +274,11 @@ void main (void) {
                     title += f'   |   Pixel: ({self._mouse_pixel_x}, {self._mouse_pixel_y})'
                     try:
                         from modules.config_ui_getters import (
-                            get_current_objective_info,
                             get_binning_from_ui,
                             get_selected_labware,
                         )
 
-                        _, objective = get_current_objective_info()
+                        _, objective = _app_ctx.ctx.session.get_current_objective_info()
                         pixel_size_um = common_utils.get_pixel_size(
                             focal_length=objective['focal_length'],
                             binning_size=get_binning_from_ui(),

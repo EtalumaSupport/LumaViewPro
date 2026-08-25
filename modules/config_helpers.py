@@ -734,8 +734,8 @@ def focus_log(positions, values, focus_round: int, source_path: str) -> int:
 # ---------------------------------------------------------------------------
 
 # Fallback exposure slider upper bound used when no camera is connected.
-# Lumascope.camera_max_exposure returns None in that case; callers pattern
-# is `scope.imaging.camera_max_exposure or DEFAULT_MAX_EXPOSURE_MS`. See #616.
+# Lumascope.max_exposure_ms_cached returns None in that case; callers pattern
+# is `scope.imaging.max_exposure_ms_cached or DEFAULT_MAX_EXPOSURE_MS`. See #616.
 DEFAULT_MAX_EXPOSURE_MS = 1000.0
 
 # Per-channel-class upper bound on the exposure AG/AE may drive to, in ms.
@@ -754,7 +754,7 @@ DEFAULT_AG_AE_MAX_EXPOSURE_MS = {
 # Fallback gain slider upper bound used when no camera is connected.
 # Matches the legacy kv default (48 dB); the actual per-camera cap is
 # derived from profile.gain.total_max_db and flows through
-# Lumascope.camera_max_gain at connect time.
+# Lumascope.max_gain_db_cached at connect time.
 DEFAULT_MAX_GAIN_DB = 48.0
 
 
@@ -775,14 +775,14 @@ def camera_max_exposure_for_ui(imaging) -> float:
     default. The single UI-facing resolver, so the connect (load_settings) and
     reconnect paths can't apply the fallback differently.
     """
-    return _camera_cap_for_ui(imaging.camera_max_exposure, DEFAULT_MAX_EXPOSURE_MS)
+    return _camera_cap_for_ui(imaging.max_exposure_ms_cached, DEFAULT_MAX_EXPOSURE_MS)
 
 
 def camera_max_gain_for_ui(imaging) -> float:
     """The gain-slider upper bound from the live camera, or the no-camera
     default. Parallel to camera_max_exposure_for_ui.
     """
-    return _camera_cap_for_ui(imaging.camera_max_gain, DEFAULT_MAX_GAIN_DB)
+    return _camera_cap_for_ui(imaging.max_gain_db_cached, DEFAULT_MAX_GAIN_DB)
 
 
 def get_binning_from_settings(settings: dict) -> int:

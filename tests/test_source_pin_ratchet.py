@@ -64,21 +64,25 @@ from tests.ast_seams import iter_package_modules
 #      real module under an alias was rejected because it installs a
 #      global sys.excepthook at import, which has already polluted one
 #      bench log. One read site serves all four assertions.
-# pin-justified: 365 -> 366 for the Enhance image/folder label guard
-# (test_enhance_file_or_folder.py), one site. What it asserts is the button
-# LABEL TEXT inside a function body ('Image' / 'Folder'), which has no AST
-# seam to assert instead -- ast_seams carries the def, not the literals in it.
-# MERGE NOTE: r2-api-optimize independently raises this same constant to 366
-# for test_api_doc_guard.py, so the comment block conflicts on merge. R2's
-# measured count is 365, not 366 -- it retired two sites while adding two.
-# Resolve by collapsing to ONE entry stating the merged actual (366), not by
-# keeping both lines, which would read as 367 against a real count of 366.
-_READ_TEXT_SITE_BUDGET = 366
+# pin-justified: 365 -> 367 for two independently-added sites that met at
+# the beta merge: the API doc guard (test_api_doc_guard.py) -- the guard's
+# SUBJECT is the text of LumascopeSkills.md, so there is no production seam
+# to assert instead (the doc-example case named above) -- and the Enhance
+# image/folder label guard (test_enhance_file_or_folder.py), which asserts
+# button LABEL TEXT inside a function body, where ast_seams carries the def
+# but not the literals in it. One site each; measured on the merged tree.
+_READ_TEXT_SITE_BUDGET = 367
 
 # Files containing at least one, recorded for the same reason.
 # pin-justified: raised 115 -> 122 by the same merge.
 # pin-justified: 122 -> 123 for test_build_dependency_and_identity.py.
-_READ_TEXT_FILE_BUDGET = 123
+# pin-justified: 123 -> 124 for test_api_doc_guard.py, same reason as the
+# site bump above.
+# pin-justified: 124 -> 125 for test_api_surface_polarity2.py -- the
+# other polarity of the same guard: its subject is ALSO the text of
+# LumascopeSkills.md (does every live public member appear in a checked
+# fence), so there is no AST seam to assert instead.
+_READ_TEXT_FILE_BUDGET = 125
 
 
 def _nodes_inside_iteration(tree):

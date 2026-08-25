@@ -1,6 +1,6 @@
-"""Regression tests for the set_exposure_time WARNING threshold.
+"""Regression tests for the set_exposure_ms WARNING threshold.
 
-Bug shape: ``set_exposure_time`` emitted a WARNING at threshold
+Bug shape: ``set_exposure_ms`` emitted a WARNING at threshold
 ``t < 0.1`` ms saying "image will be nearly black. Value should be in
 milliseconds." But Pylon physical ExposureTime minimum is 10-35 us
 across Basler USB3 sensors, and bright-field captures legitimately use
@@ -17,7 +17,7 @@ sensor physical minimum. The warning now fires only for genuinely
 impossible values (unit-confusion bugs). Wording corrected to name
 the actual behavior (clamping) and prompt the user to verify units.
 
-These tests drive set_exposure_time on a simulator-backed ImagingAPI
+These tests drive set_exposure_ms on a simulator-backed ImagingAPI
 with a recording logger (the shared lvp_logger is conftest-mocked, so
 caplog cannot observe it) and lock the no-warn/warn boundary plus the
 wording, so a threshold bump back toward 0.1 ms or a wording revert
@@ -30,7 +30,7 @@ from types import SimpleNamespace
 
 
 def _warnings_for(exposure_ms: float, monkeypatch) -> list:
-    """Call set_exposure_time on a sim-backed ImagingAPI; return the
+    """Call set_exposure_ms on a sim-backed ImagingAPI; return the
     warning messages the imaging module logged."""
     from drivers.simulated_camera import SimulatedCamera
     from modules.lumascope_api import Lumascope
@@ -40,6 +40,7 @@ def _warnings_for(exposure_ms: float, monkeypatch) -> list:
     cam.connect()
     scope = Lumascope.__new__(Lumascope)
     scope._camera_driver = cam
+    scope._camera_executor = None
     imaging = ImagingAPI(scope, cam)
 
     records = []
@@ -51,7 +52,7 @@ def _warnings_for(exposure_ms: float, monkeypatch) -> list:
         exception=lambda *a, **kw: None,
     )
     monkeypatch.setattr('modules.lumascope_api.imaging.logger', recorder)
-    imaging.set_exposure_time(exposure_ms)
+    imaging.set_exposure_ms(exposure_ms)
     return records
 
 

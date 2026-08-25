@@ -10,8 +10,6 @@ re-exports everything for existing callers.
 import logging
 import typing
 
-from kivy.app import App
-from kivy.clock import Clock
 from kivy.uix.scrollview import ScrollView
 from modules.kivy_utils import schedule_ui as _schedule_ui
 
@@ -23,52 +21,11 @@ from modules.sequential_io_executor import IOTask
 
 logger = logging.getLogger('LVP.modules.ui_helpers')
 
-
-def publish_protocol_running(running: bool) -> None:
-    """Mirror the protocol-running state onto the App ``protocol_running``
-    property so kv ``disabled:`` bindings react.
-
-    Written on the Kivy main thread (safe to call from any thread). The
-    ctx.protocol_running Event stays the authoritative store; this only
-    publishes a UI reflection of it.
-    """
-    app = App.get_running_app()
-    if app is None:
-        return
-    Clock.schedule_once(lambda dt: setattr(app, 'protocol_running', running), 0)
-
-
-def run_committed_start(
-    commit_fn: typing.Callable[[], None],
-    start_fn: typing.Callable[[], None],
-) -> None:
-    """Commit the running-UI state, then start -- restoring the
-    pre-commit state when start() still refuses.
-
-    start() can refuse AFTER a successful prepare() (a rival activity
-    claim, an already-running race); without the restore, the committed
-    state (the protocol_running Event, its kv mirror, the stage motion
-    lock) strands set with no run live and nothing scheduled to clear
-    it. The snapshot reads the EVENT, never the mirror property -- the
-    mirror publishes through Clock.schedule_once and can be one frame
-    stale; restore republishes the mirror from the snapshotted Event
-    value, and a rival's held Event stays held. Pre-commit refusals
-    raise out of prepare() before commit_fn runs and never reach here.
-    """
-    ctx = _app_ctx.ctx
-    event_was_set = ctx.protocol_running.is_set()
-    motion_was_enabled = ctx.stage.motion_capability()
-    commit_fn()
-    try:
-        start_fn()
-    except ProtocolRunRefusedError:
-        if event_was_set:
-            ctx.protocol_running.set()
-        else:
-            ctx.protocol_running.clear()
-        publish_protocol_running(event_was_set)
-        ctx.stage.set_motion_capability(motion_was_enabled)
-        raise
+# A turret move can carry a turret home in front of it (the widget homes
+# first when the turret reference is unknown), then a Z-retract, the
+# rotation, and a Z-restore. Sized for that whole chain rather than the
+# rotation alone, so a waiting caller does not give up mid-sequence.
+_TURRET_MOVE_TIMEOUT_S = 180.0
 
 
 def run_with_refusal_boundary(
@@ -137,7 +94,7 @@ def find_nearest_step(x, y, protocol):
 def scope_leds_off(no_callback: bool = False):
     """Turn off all LEDs. UI sync is handled by the LED observer."""
     ctx = _app_ctx.ctx
-    if ctx.protocol_running.is_set():
+    if ctx.session.run_lockout:
         return
 
     # LED observer handles UI button sync -- no manual callback needed.
@@ -207,9 +164,9 @@ def _user_motion_locked(axis: str) -> bool:
 # worker. A direct call would race them and leave the prior step's LED
 # lit through the move. Awaiting is deadlock-free: the caller is
 # protocol_thread, not the worker.
-def move_absolute_position(
+def move_absolute(
     axis: str,
-    pos: float,
+    position: float,
     wait_until_complete: bool = False,
     overshoot_enabled: bool = True,
     protocol: bool = False,
@@ -224,23 +181,30 @@ def move_absolute_position(
     if axis == 'T':
         # Turret moves go through the GUI widget which manages homing and objective settings
         if not protocol:
-            ctx.io_executor.put(
+            # wait_until_complete has to be honored here, not just accepted.
+            # Startup asks for it so the turret is in position before the
+            # first capture; submitting fire-and-forget returned control
+            # immediately and let the caller proceed mid-rotation.
+            waiter = ctx.io_executor.put(
                 IOTask(
                     action=ctx.motion_settings.ids['verticalcontrol_id'].turret_select,
-                    kwargs={'selected_position': pos},
+                    kwargs={'selected_position': position},
                     callback=_handle_ui_update_for_axis,
                     cb_kwargs={'axis': axis, 'vertical_control': vertical_control},
-                )
+                ),
+                return_future=wait_until_complete,
             )
+            if wait_until_complete and waiter is not None:
+                waiter.result(timeout=_TURRET_MOVE_TIMEOUT_S)
         else:
             ctx.motion_settings.ids['verticalcontrol_id'].turret_select(
-                selected_position=pos, protocol=True, restore_z=restore_z
+                selected_position=position, protocol=True, restore_z=restore_z
             )
     else:
         if not protocol:
             ctx.scope.motion.move_absolute_async(
                 axis,
-                pos,
+                position,
                 wait_until_complete=wait_until_complete,
                 overshoot_enabled=overshoot_enabled,
                 callback=_handle_ui_update_for_axis,
@@ -249,10 +213,10 @@ def move_absolute_position(
         else:
             fut = ctx.io_executor.protocol_put(
                 IOTask(
-                    action=ctx.scope.motion.move_absolute_position,
+                    action=ctx.scope.motion._move_absolute_impl,
                     kwargs={
                         'axis': axis,
-                        'pos': pos,
+                        'position': position,
                         'wait_until_complete': wait_until_complete,
                         'overshoot_enabled': overshoot_enabled,
                     },
@@ -265,15 +229,15 @@ def move_absolute_position(
         _schedule_ui(lambda dt: _handle_ui_update_for_axis(axis=axis), 0)
 
 
-def move_relative_position(
-    axis: str, um: float, wait_until_complete: bool = False, overshoot_enabled: bool = True
+def move_relative(
+    axis: str, distance: float, wait_until_complete: bool = False, overshoot_enabled: bool = True
 ):
     if _user_motion_locked(axis):
         return
     ctx = _app_ctx.ctx
     ctx.scope.motion.move_relative_async(
         axis,
-        um,
+        distance,
         wait_until_complete=wait_until_complete,
         overshoot_enabled=overshoot_enabled,
         callback=_handle_ui_update_for_axis,
@@ -281,13 +245,26 @@ def move_relative_position(
     )
 
 
-def move_home(axis: str):
+def move_home(axis: str, wait: bool = False):
+    """Home an axis. Returns whether it succeeded when ``wait`` is set.
+
+    The UI buttons leave ``wait`` off: they run on the UI thread, and
+    blocking it for the length of a home would freeze the window. The
+    startup orchestration passes it, because it has to know whether the
+    reference frame is good before it drives anything else.
+    """
     if _user_motion_locked(axis):
-        return
+        return False
     ctx = _app_ctx.ctx
     axis = axis.upper()
     set_title_event_text('Homing, please wait...')
-    ctx.scope.motion.move_home_async(axis, callback=move_home_cb, cb_args=(axis))
+    if not wait:
+        ctx.scope.motion.move_home_async(axis, callback=move_home_cb, cb_args=(axis))
+        return None
+    try:
+        return ctx.scope.motion.move_home_and_wait(axis)
+    finally:
+        move_home_cb(axis)
 
 
 # ============================================================================

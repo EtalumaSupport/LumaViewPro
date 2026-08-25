@@ -28,10 +28,10 @@ def go_to_step(
 ):
     from modules.config_ui_getters import get_selected_labware
 
-    # Deferred import: ui/ui_helpers.move_absolute_position wraps the
+    # Deferred import: ui/ui_helpers.move_absolute wraps the
     # API call with UI update callbacks. step_navigation still reaches
     # upward here -- tracked as part of LAYER-H/LV-13 follow-up.
-    from ui.ui_helpers import move_absolute_position
+    from ui.ui_helpers import move_absolute
     from modules.notification_center import notifications
 
     ctx = _app_ctx.ctx
@@ -68,7 +68,7 @@ def go_to_step(
         )
 
         turret_pos = None
-        if ctx.scope.motion.has_turret():
+        if ctx.scope.capabilities.has_turret:
             step_objective_id = step['Objective']
             turret_pos = ctx.scope.motion.get_turret_position_for_objective_id(
                 objective_id=step_objective_id,
@@ -87,31 +87,31 @@ def go_to_step(
         if ctx.scope.motor_connected:
             if not called_from_protocol:
                 if turret_pos is not None:
-                    move_absolute_position(axis='T', pos=turret_pos, protocol=False)
+                    move_absolute(axis='T', position=turret_pos, protocol=False)
                     _schedule_ui(
                         lambda dt: ctx.motion_settings.ids['verticalcontrol_id'].update_turret_gui(
                             turret_pos
                         ),
                         0,
                     )
-                move_absolute_position(axis='X', pos=sx, protocol=False)
-                move_absolute_position(axis='Y', pos=sy, protocol=False)
-                move_absolute_position(axis='Z', pos=step['Z'], protocol=False)
+                move_absolute(axis='X', position=sx, protocol=False)
+                move_absolute(axis='Y', position=sy, protocol=False)
+                move_absolute(axis='Z', position=step['Z'], protocol=False)
             else:
                 if turret_pos is not None:
                     # restore_z=False -- the Z move below overwrites Z with
-                    # step['Z'] immediately, so safe_turret_move's default
+                    # step['Z'] immediately, so _safe_turret_move's default
                     # Z-restore-after-T-move would be wasted motion (#524).
-                    move_absolute_position(axis='T', pos=turret_pos, protocol=True, restore_z=False)
+                    move_absolute(axis='T', position=turret_pos, protocol=True, restore_z=False)
                     _schedule_ui(
                         lambda dt: ctx.motion_settings.ids['verticalcontrol_id'].update_turret_gui(
                             turret_pos
                         ),
                         0,
                     )
-                move_absolute_position('X', sx, protocol=True)
-                move_absolute_position('Y', sy, protocol=True)
-                move_absolute_position('Z', step['Z'], protocol=True, wait_until_complete=True)
+                move_absolute('X', sx, protocol=True)
+                move_absolute('Y', sy, protocol=True)
+                move_absolute('Z', step['Z'], protocol=True, wait_until_complete=True)
         else:
             logger.warning('[LVP Main  ] Motion controller not available.')
 
@@ -135,17 +135,15 @@ def go_to_step(
         layer_obj = ctx.image_settings.layer_lookup(layer=color)
 
         # #610 diagnostic: trace what go_to_step does with camera settings
-        _curr_gain = ctx.scope.imaging.get_gain() if ctx.scope.imaging.camera_active else '?'
-        _curr_exp = (
-            ctx.scope.imaging.get_exposure_time() if ctx.scope.imaging.camera_active else '?'
-        )
+        _curr_gain = ctx.scope.imaging.get_gain_db() if ctx.scope.imaging.active_cached else '?'
+        _curr_exp = ctx.scope.imaging.get_exposure_ms() if ctx.scope.imaging.active_cached else '?'
         logger.debug(
             f'[GO_TO_STEP DIAG] step_idx={step_idx} color={color} '
             f'step_gain={step["Gain"]} step_exp={step["Exposure"]} '
             f'step_auto_gain={step["Auto_Gain"]!r} '
             f'camera_gain={_curr_gain} camera_exp={_curr_exp} '
             f'called_from_protocol={called_from_protocol} '
-            f'protocol_running={ctx.protocol_running.is_set()}'
+            f'protocol_running={ctx.session.is_protocol_running}'
         )
 
         if not called_from_protocol:
@@ -176,11 +174,11 @@ def go_to_step(
         # Capture called_from_protocol in the closure so the UI-thread
         # callback knows whether this is a protocol-cycle invocation
         # (skip accordion-open) or a manual-navigation one (do it).
-        # Reading ctx.protocol_running.is_set() inside the UI callback
-        # races at protocol-end: the last step's scheduled callback can
-        # fire AFTER cleanup clears protocol_running, see the cleared
-        # flag, and open the last-step's accordion (Red on a 4-channel
-        # protocol). Closure-capture is race-free.
+        # Reading the run-lockout state inside the UI callback races
+        # at protocol-end: the last step's scheduled callback can fire
+        # AFTER cleanup releases the lockout, see it clear, and open
+        # the last-step's accordion (Red on a 4-channel protocol).
+        # Closure-capture is race-free.
         _schedule_ui(
             lambda dt: go_to_step_update_ui(step, called_from_protocol=called_from_protocol),
             0,
@@ -265,7 +263,7 @@ def go_to_step_update_ui(step, called_from_protocol: bool = False):
     # visually expanded without this call. Protocol-cycle invocations
     # skip the call entirely (the in-protocol guard inside
     # set_expanded_layer has a race at protocol-end: the last step's
-    # UI-scheduled callback runs after protocol_running clears,
+    # UI-scheduled callback runs after the run lockout releases,
     # leaving the accordion stuck on the last step's color).
     if not called_from_protocol:
         ctx.image_settings.set_expanded_layer(layer=color)
@@ -288,8 +286,8 @@ def go_to_step_update_ui(step, called_from_protocol: bool = False):
     # executor. Outside a run the listener bridge is the sole button writer,
     # reflecting driver truth -- a forced 'down' here would go stale and any
     # later apply_settings(update_led=True) would re-light the channel.
-    # "During protocol" is the RUNNER's truth, not ctx.protocol_running: that
-    # lockout flag deliberately stays set through the post-run writing-files
+    # "During protocol" is the RUNNER's truth, not the run lockout: the
+    # lockout deliberately holds through the post-run writing-files
     # window, when stepping is manual and no LED event will ever correct a
     # forced 'down' left here.
     if ctx.sequenced_capture_runner.run_in_progress():

@@ -6,20 +6,20 @@ Bug
 When auto-gain runs on a bright transmitted sample (BF/PC/DF), the Pylon
 camera can drive ExposureTime to its physical minimum (~30 us = 0.030 ms
 on common sensors). update_auto_gain_cb then reads that value via
-get_exposure_time() and writes it to settings[layer]['exp_ms'] without an
+get_exposure_ms() and writes it to settings[layer]['exp_ms'] without an
 appropriate floor:
 
 - Fluorescence + luminescence already get a 1.0 ms floor via
   FLUORESCENCE_MIN_EXPOSURE_MS in the original conditional.
 - Transmitted (BF/PC/DF) had NO conditional floor; the slider's .kv
   default min is 0.01 ms, so np.clip(0.030, 0.01, max) returned 0.030.
-- The 0.030 ms write then fires set_exposure_time's <0.1 ms
+- The 0.030 ms write then fires set_exposure_ms's <0.1 ms
   "Value should be in milliseconds" WARNING on every subsequent
   apply_settings (visible in the beta tester's beta9 logs as recurring spam).
 
 Fix
 ---
-Add TRANSMITTED_MIN_EXPOSURE_MS = 0.1 (matching set_exposure_time's
+Add TRANSMITTED_MIN_EXPOSURE_MS = 0.1 (matching set_exposure_ms's
 internal warning gate) and apply it via an else branch on the existing
 get_image_layers conditional. Live AG output to the camera is untouched
 (the floor applies only to the settings write-back).
@@ -89,7 +89,7 @@ class TestExposureFloorSourceStructure:
             if line.startswith('TRANSMITTED_MIN_EXPOSURE_MS'):
                 assert '=' in line and '0.1' in line, (
                     f'TRANSMITTED_MIN_EXPOSURE_MS assignment must be 0.1, '
-                    f"got: {line!r}. The value matches set_exposure_time's "
+                    f"got: {line!r}. The value matches set_exposure_ms's "
                     f'internal <0.1ms warning gate; changing it changes '
                     f'which AG-feedback values fire the warning.'
                 )
@@ -198,7 +198,7 @@ class TestExposureFloorBehavior:
     def test_bf_ag_feedback_floored_to_transmitted_min(self, raw_exp_ms, expected_floor):
         """For BF (transmitted), AG-feedback exp values < 0.1 ms must be
         floored to 0.1 before being written to settings. Without this,
-        the next apply_settings fires the set_exposure_time(<0.1ms)
+        the next apply_settings fires the set_exposure_ms(<0.1ms)
         WARNING on every layer switch."""
         cb, app_ctx_stub = _compile_cb()
         app_ctx_stub.ctx.settings = {'BF': {'exp_ms': 999.0, 'gain_db': 0.0, 'auto_gain': True}}

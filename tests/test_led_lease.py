@@ -76,24 +76,11 @@ def test_child_acquire_with_stale_parent_refused(scope):
 def test_child_release_returns_control_to_parent(scope):
     parent = scope.illumination.acquire_led_lease('protocol', alive=lambda: True)
     child = parent.acquire_child('autofocus', alive=lambda: True)
-    assert scope.illumination.led_write_allowed('autofocus') is True
-    assert scope.illumination.led_write_allowed('protocol') is False
+    # Ownership is the observable: the innermost holder owns while it lives,
+    # and the parent does not get control back until the child releases.
+    assert scope.illumination.led_lease_owner == 'autofocus'
     child.release()
     assert scope.illumination.led_lease_owner == 'protocol'
-    assert scope.illumination.led_write_allowed('protocol') is True
-
-
-def test_led_write_allowed_open_when_unleased(scope):
-    # No lease held: any owner, including a bare UI click (empty owner), may write.
-    assert scope.illumination.led_write_allowed('autofocus') is True
-    assert scope.illumination.led_write_allowed('') is True
-
-
-def test_led_write_allowed_rejects_non_owner_when_leased(scope):
-    scope.illumination.acquire_led_lease('protocol', alive=lambda: True)
-    assert scope.illumination.led_write_allowed('protocol') is True
-    assert scope.illumination.led_write_allowed('autofocus') is False
-    assert scope.illumination.led_write_allowed('') is False
 
 
 def test_release_turns_owned_leds_off_by_default(scope):

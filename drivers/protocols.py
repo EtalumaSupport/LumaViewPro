@@ -71,8 +71,7 @@ class MotorBoardProtocol(Protocol):
 
     # --- Capability probes ---
     # Probe-and-cache whether the connected firmware implements a
-    # command family. ScopeCapabilities.from_drivers registers these
-    # at boot so callers gate on scope.capabilities.* instead of
+    # command family, so callers gate on the probe answer instead of
     # firmware version strings or per-call ERROR handling.
     def supports_motor_stop(self) -> bool: ...
     def supports_fan(self) -> bool: ...

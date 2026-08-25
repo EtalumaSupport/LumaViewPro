@@ -8,7 +8,7 @@ Collects what was previously scattered across lumaviewpro.py:
   ``config_helpers.log_system_metrics``.
 - 60 s executor queue depth snapshot + auto-prune of SCOPEDISPLAY
   backlog (was the ``_executor_watchdog`` closure).
-- 4 hr camera temperatures via ``Lumascope.log_camera_temps``.
+- 4 hr camera temperatures via ``Lumascope._log_camera_temps``.
 
 One module, one ``MetricsLogger`` class, three ``tick_*`` methods.
 Every entry point boots LVP through the same ``start(...)`` call so
@@ -78,7 +78,7 @@ class MetricsLogger:
 
         Args:
             scope: ``Lumascope`` API instance -- used by the camera-temp
-                tick (delegates to ``scope.imaging.log_camera_temps``) and any
+                tick (delegates to ``scope.imaging._log_camera_temps``) and any
                 future tick that needs hardware access.
             executor_bundle: ``modules.executor_registry.ExecutorBundle``
                 -- the executor watchdog reads ``.snapshot()`` and prunes
@@ -158,23 +158,20 @@ class MetricsLogger:
         every tick. It has never fired in the field.
 
         Arming it is one line; arming it CORRECTLY is not, which is why
-        it is still off:
+        it is still off: the fps value it compares against is read off
+        a UI widget's private attribute (see below), which is a module
+        reaching up into the view. Frame accounting belongs to the
+        imaging API; arming this activates the wrong read. (The other
+        historical blocker -- a reconnect leaving this logger pointed
+        at a dead scope -- is gone: the session stops the old scope's
+        logger and starts the new one's at every rebind, so a running
+        logger's scope is always the live one.)
 
-          * The probe asks about "the current camera." Today a reconnect
-            builds a new Lumascope and never re-points the logger, so an
-            armed detector would poll the DEAD scope after every
-            reconnect and report a stall that is really a stale handle.
-            Scope identity has to have one owner first.
-          * The fps value it compares against is read off a UI widget's
-            private attribute (see below), which is a module reaching
-            up into the view. Frame accounting belongs to the imaging
-            API; arming this activates the wrong read.
-
-        So the order is: fix scope identity, move fps accounting into
-        the API, then arm. Until then a False here is honest and a True
-        would be a guess. Whoever arms it should delete this note and
-        the matching entry in tests/test_capability_probe_reality.py,
-        which fails the moment `camera` becomes a real attribute.
+        So the order is: move fps accounting into the API, then arm.
+        Until then a False here is honest and a True would be a guess.
+        Whoever arms it should delete this note and the matching entry
+        in tests/test_capability_probe_reality.py, which fails the
+        moment `camera` becomes a real attribute.
         """
         try:
             cam = getattr(self._scope, 'camera', None)

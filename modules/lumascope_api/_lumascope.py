@@ -267,11 +267,11 @@ class Lumascope:
     # SoT with the same value.
     # LED channel set comes from self._led_driver.available_channels() -- varies by
     # Canonical home for these is `_constants.py`; alias on the class so
-    # existing callers (`scope._VALID_AXIS_NAMES`, `Lumascope.MOTOR_POSITION_LIMIT`)
+    # existing callers (`scope._VALID_AXIS_NAMES`, `Lumascope._MOTOR_POSITION_LIMIT`)
     # keep working. Sub-API modules import from `_constants.py` directly
     # to avoid a circular dep with this file.
     _VALID_AXIS_NAMES = _api_constants._VALID_AXIS_NAMES
-    MOTOR_POSITION_LIMIT = _api_constants.MOTOR_POSITION_LIMIT
+    _MOTOR_POSITION_LIMIT = _api_constants.MOTOR_POSITION_LIMIT
 
     def _init_minimal(self, simulated: bool) -> None:
         """Shared init for state slots both __init__ and create_diagnostic need.
@@ -365,8 +365,7 @@ class Lumascope:
         # IlluminationAPI.
 
         # Camera state slots (_camera_listeners + lock, _frame_buffer,
-        # _capturing_event, _focusing_event, _capture_return,
-        # _autofocus_return, _suppress_value_warnings, _scale_bar,
+        # _focusing_event, _suppress_value_warnings, _scale_bar,
         # _camera_cache + lock, _camera_temp_event,
         # _camera_temp_unschedule_fn, frame_validity) live on ImagingAPI.
 
@@ -392,16 +391,16 @@ class Lumascope:
 
         # ----- MotionAPI -----
         # Constructed AFTER the motion driver so _driver resolves correctly.
-        # init_axes() sizes per-axis dicts to detect_present_axes(); then
-        # start_monitor() spawns the background poll thread. NullMotionBoard
+        # _init_axes() sizes per-axis dicts to detect_present_axes(); then
+        # _start_monitor() spawns the background poll thread. NullMotionBoard
         # returns [] from detect_present_axes(), so a system with no motor
         # hardware ends up with empty dicts throughout.
         from modules.lumascope_api.motion import MotionAPI  # local-import: avoid cycle
 
         self.motion = MotionAPI(self, self._motion_driver)
         present_axes = self._motion_driver.detect_present_axes()
-        self.motion.init_axes(present_axes)
-        self.motion.start_monitor()
+        self.motion._init_axes(present_axes)
+        self.motion._start_monitor()
 
         # ----- LED Control Board -----
         # Same registry-based selection as motion.
@@ -462,7 +461,7 @@ class Lumascope:
 
         # ----- Sub-API wiring -----
         # motion was already constructed above (it needs earlier
-        # construction so init_axes / start_monitor can run before the
+        # construction so _init_axes / _start_monitor can run before the
         # LED/camera drivers are set up). Remaining sub-APIs:
         from modules.lumascope_api.illumination import IlluminationAPI
         from modules.lumascope_api.imaging import ImagingAPI
@@ -509,8 +508,8 @@ class Lumascope:
         # executor handles, source_path, and metrics_logger.
 
         # Frame validity, camera_cache, scale_bar, +
-        # _camera_listeners/_frame_buffer/_capturing_event/_focusing_event/
-        # _capture_return/_autofocus_return/_suppress_value_warnings/
+        # _camera_listeners/_frame_buffer/_focusing_event/
+        # _suppress_value_warnings/
         # _camera_temp_event init live on ImagingAPI.__init__.
         # _load_camera_timing + _populate_camera_cache are ImagingAPI
         # methods and run automatically during ImagingAPI.__init__.
@@ -543,7 +542,7 @@ class Lumascope:
         # creating Lumascope (e.g., backlash characterization).
         if self.motor_connected:
             try:
-                self.motion.refresh_position_cache()
+                self.motion._refresh_position_cache()
             except Exception:
                 pass  # OK -- cache stays at 0.0 if firmware unresponsive
 
@@ -559,8 +558,9 @@ class Lumascope:
         # for periodic work they don't want.
         #
         # metrics_logger + _executor_bundle slots defaulted to None in
-        # _init_minimal. The host calls register_executor_bundle() after
-        # the bundle exists, before calling metrics_logger.start.
+        # _init_minimal. The composing session calls
+        # register_executor_bundle() when it services the scope, before
+        # anything calls metrics_logger.start.
         if register_metrics:
             try:
                 from modules.metrics_logger import MetricsLogger
@@ -662,9 +662,17 @@ class Lumascope:
         # rejection is already logged AND notified at the API layer, and
         # every downstream consumer reads delivered geometry, never these
         # requests, so nothing is left believing a rejected value.
+        # Bring-up binds the impls: initialize runs before (or without)
+        # executor registration -- at reconnect, before set_scope services
+        # the new scope -- and these writes are the scope's own
+        # composition, not external commands, so they stay direct on the
+        # calling thread by design.
         for label, apply_fn in (
-            ('binning', lambda: self.imaging.set_binning_size(binning_size)),
-            ('frame size', lambda: self.imaging.set_frame_size(frame_width, frame_height)),
+            ('binning', lambda: self.imaging._set_binning_size_impl(binning_size)),
+            (
+                'frame size',
+                lambda: self.imaging._set_frame_size_impl(frame_width, frame_height),
+            ),
         ):
             try:
                 apply_fn()
@@ -685,7 +693,7 @@ class Lumascope:
         )
         if pixel_format is not None:
             try:
-                self.imaging.set_pixel_format(pixel_format)
+                self.imaging._set_pixel_format_impl(pixel_format)
             except CameraSettingRejected as ex:
                 logger.error(
                     f'[SCOPE API ] initialize: pixel format apply rejected by '
@@ -693,9 +701,11 @@ class Lumascope:
                     f'camera-held format'
                 )
         if self.capabilities.camera_supports_conversion_gain_mode:
-            self.imaging.set_conversion_gain_mode('High' if config.high_conversion_gain else 'Low')
+            self.imaging._set_conversion_gain_mode_impl(
+                'High' if config.high_conversion_gain else 'Low'
+            )
         if self.capabilities.camera_supports_line_noise_reduction:
-            self.imaging.set_line_noise_reduction(config.line_noise_reduction)
+            self.imaging._set_line_noise_reduction_impl(config.line_noise_reduction)
         self.runtime_state.set_stage_offset(config.stage_offset)
         self.imaging.set_scale_bar(enabled=config.scale_bar_enabled)
         self.motion.set_acceleration_limit(val_pct=config.acceleration_pct)
@@ -738,9 +748,12 @@ class Lumascope:
     # to pass an executor on every call (parallel-paths anti-pattern).
 
     def register_executors(
-        self, *, camera_executor=None, io_executor=None, file_io_executor=None
+        self, *, camera_executor=None, io_executor=None, file_io_executor=None, replace=False
     ) -> None:
         """Register the executor handles used by the X_async / X_sync command methods.
+
+        Internal session-composition wiring -- called by ScopeSession at
+        construction and not part of the L2 API surface.
 
         Call once at startup after the executors are constructed. Tests
         that don't drive the executor-backed API can skip this -- those
@@ -750,18 +763,47 @@ class Lumascope:
             camera_executor: Executor for camera-bound IOTasks.
             io_executor: Executor for general IO/motion IOTasks.
             file_io_executor: Executor for file-IO IOTasks.
+            replace: Allow replacing already-registered, different
+                handles. Without it a second registration against a live
+                scope raises instead of silently swapping the executors
+                out from under in-flight dispatch -- a swap that would
+                produce no symptom until a protocol fence is bypassed.
+                Re-registering the SAME handles is idempotent and always
+                allowed.
+
+        Raises:
+            RuntimeError: A different executor is already registered for
+                one of the slots and ``replace`` is False.
         """
+        if not replace:
+            for slot_name, existing, new in (
+                ('camera_executor', self._camera_executor, camera_executor),
+                ('io_executor', self._io_executor, io_executor),
+                ('file_io_executor', self._file_io_executor, file_io_executor),
+            ):
+                if existing is not None and existing is not new:
+                    raise RuntimeError(
+                        f'Lumascope.register_executors: {slot_name} is already '
+                        f'registered with a different executor. A silent swap '
+                        f'would strand in-flight dispatch on the old handle; '
+                        f'pass replace=True only when deliberately rewiring a '
+                        f'live scope.'
+                    )
         self._camera_executor = camera_executor
         self._io_executor = io_executor
         self._file_io_executor = file_io_executor
 
     def register_executor_bundle(self, executor_bundle, settings=None) -> None:
-        """LVP-A-13: register the ExecutorBundle + settings dict for MetricsLogger.
+        """Register the ExecutorBundle + settings dict for MetricsLogger.
+
+        Internal session-composition wiring -- called by ScopeSession at
+        construction and not part of the L2 API surface.
 
         Lumascope construction (__init__) creates a MetricsLogger but
-        cannot fill in the bundle yet -- the bundle is created later by
-        ExecutorRegistry.create_default in the host's startup path.
-        Call this once after the bundle exists, BEFORE calling
+        cannot fill in the bundle yet -- the bundle exists only once the
+        executor topology is built. The composing ScopeSession calls
+        this while servicing the scope (construction and every
+        set_scope rebind), BEFORE anything calls
         ``self.metrics_logger.start(scheduler)``. Settings dict is
         optional; defaults to ``{}`` if MetricsLogger was created with
         a placeholder.
@@ -847,6 +889,26 @@ class Lumascope:
         """
         logger.info('[SCOPE API ] Disconnecting from microscope...')
 
+        # Darken the LEDs before anything else is torn down. Closing the
+        # serial port does not turn a board off -- the channels hold their
+        # commanded current until something sends an off or power drops --
+        # so a teardown without this leaves the sample illuminated until the
+        # next connect's safety off, or indefinitely if there is no next
+        # connect. Same defense-in-depth argument as the motor stop below:
+        # every teardown path benefits without the caller having to
+        # remember, and it means no LED-specific member has to be public for
+        # a client to shut a scope down safely.
+        #
+        # Bounded acquire (the emergency variant) because an in-flight LED
+        # write holding the lock must not be able to wedge teardown; it runs
+        # first so the ordering the atexit hook relies on is unchanged.
+        # Best-effort like every other step here: a failure is logged and
+        # the port teardown still proceeds.
+        try:
+            self.illumination._leds_off_emergency()
+        except Exception as ex:
+            logger.exception(f'[SCOPE API ] LED shutoff during disconnect failed: {ex}')
+
         # LVP-A-1: stop motors before tearing down the serial port so we
         # don't leave a stage/turret moving against an end-stop after
         # the host stops responding to status polls. Defense in depth --
@@ -854,10 +916,10 @@ class Lumascope:
         # to remember.
         self.motion.stop_motion()
 
-        # Stop the motion monitor and reset axis states -- MotionAPI.disconnect()
+        # Stop the motion monitor and reset axis states -- MotionAPI._disconnect()
         # handles both: signals the monitor thread, waits for it, then resets
         # all axes to UNKNOWN and sets arrival events so waiters unblock.
-        self.motion.disconnect()
+        self.motion._disconnect()
 
         # Each sub-system: only attempt disconnect on a driver that
         # has one. Skips both the canonical no-op states (NullLEDBoard,
@@ -963,14 +1025,11 @@ class Lumascope:
         atexit completes cleanly even when the logging stack or hardware
         access is already torn down.
 
-        Uses `leds_off_emergency` (bounded `_led_lock` acquire) rather
-        than `leds_off` to avoid atexit deadlock when an in-flight LED
-        command holds the lock.
+        The LED shutoff is not repeated here: `disconnect()` performs it as
+        its first step, using the same bounded acquire, so there is one
+        place that darkens the channels on the way down rather than two
+        that have to be kept in agreement.
         """
-        try:
-            self.illumination.leds_off_emergency()
-        except Exception:
-            pass
         try:
             self.disconnect()
         except Exception:
@@ -1016,6 +1075,9 @@ class Lumascope:
     def create_diagnostic(cls) -> 'Lumascope':
         """Create a minimal Lumascope for diagnostics (no camera init).
 
+        Internal degraded-mode constructor for support reports -- not
+        part of the L2 API surface.
+
         Connects to LED and motor boards only. For use by tools like
         the tech support report that need board access without the full
         application stack.
@@ -1041,8 +1103,8 @@ class Lumascope:
 
         instance.motion = MotionAPI(instance, instance._motion_driver)
         present_axes = instance._motion_driver.detect_present_axes()
-        instance.motion.init_axes(present_axes)
-        instance.motion.start_monitor()
+        instance.motion._init_axes(present_axes)
+        instance.motion._start_monitor()
 
         instance.camera = None
         instance._frame_buffer = None

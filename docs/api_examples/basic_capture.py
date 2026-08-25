@@ -11,30 +11,15 @@ Demonstrates:
 
 import sys
 import pathlib
-from unittest.mock import MagicMock
 
-# Add parent directory to path so we can import lumascope_api
+# Make the repo root importable when run standalone
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent))
 
-# Mock modules not needed for headless simulate mode
-_mock_logger = MagicMock()
-_mock_lvp_logger = MagicMock()
-_mock_lvp_logger.logger = _mock_logger
-_mock_lvp_logger.is_thread_paused = MagicMock(return_value=False)
-_mock_lvp_logger.unpause_thread = MagicMock()
-_mock_lvp_logger.pause_thread = MagicMock()
-
-sys.modules.setdefault('lvp_logger', _mock_lvp_logger)
-sys.modules.setdefault('platformdirs', MagicMock())
-sys.modules.setdefault('requests', MagicMock())
-sys.modules.setdefault('requests.structures', MagicMock())
-sys.modules.setdefault('pypylon', MagicMock())
-sys.modules.setdefault('pypylon.pylon', MagicMock())
-sys.modules.setdefault('pypylon.genicam', MagicMock())
-sys.modules.setdefault('ids_peak', MagicMock())
-sys.modules.setdefault('ids_peak.ids_peak', MagicMock())
-sys.modules.setdefault('ids_peak.ids_peak_ipl_extension', MagicMock())
-sys.modules.setdefault('ids_peak_ipl', MagicMock())
+# This example runs the SAME code path two ways:
+#   standalone: python3 docs/api_examples/basic_capture.py  (the real installed deps)
+#   in-suite:   tests/test_api_examples.py runs main() under the heavy-dep
+#               mocks the test conftest installs before collection
+# The sys.path line serves the standalone form; in-suite it is a no-op.
 
 from modules.lumascope_api import Lumascope
 
@@ -47,12 +32,20 @@ def main():
     # Begin the live camera feed (required before capture on every backend).
     scope.imaging.start_streaming()
 
+    # Home before commanding any move. Until an axis has been homed its
+    # position is unknown, and a move against an unknown reference frame
+    # is refused with AxisStateUnknownError rather than driven blind.
+    if not scope.motion.move_home_and_wait('ALL'):
+        print('Homing failed -- cannot move safely')
+        scope.disconnect()
+        return
+
     # Set LED channel 0 (BF) to 100 mA
     scope.illumination.led_on(channel=0, mA=100)
     print('LED 0 set to 100 mA')
 
     # Move Z axis to 5000 um and wait for the move to complete
-    scope.motion.move_absolute_position('Z', 5000, wait_until_complete=True)
+    scope.motion.move_absolute('Z', 5000, wait_until_complete=True)
 
     # Read the target Z position (returns um). Zero serial I/O --
     # the API serves this from the push-based position cache.
@@ -60,10 +53,10 @@ def main():
     print(f'Z target position: {z_target} um')
 
     # Capture an image. capture_and_wait drains stale frames and
-    # returns a frame valid for the current LED + exposure state.
-    # dark_floor_check is required: True because the LED is on, so a
-    # frame with no lit pixel would be a capture fault, not data.
-    image = scope.imaging.capture_and_wait(force_to_8bit=True, dark_floor_check=True)
+    # returns a frame valid for the current LED + exposure state. The
+    # LED is on, so a frame with no lit pixel is rejected as a capture
+    # fault -- the dark-floor expectation is derived from commanded state.
+    image = scope.imaging.capture_and_wait(force_to_8bit=True)
     if image is None:
         print('Capture failed')
     else:
