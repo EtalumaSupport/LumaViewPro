@@ -194,6 +194,10 @@ def move_absolute(
                 ),
                 return_future=wait_until_complete,
             )
+            # `waiter` only holds a waiter when wait_until_complete asked for
+            # one; otherwise it is the ENQUEUED sentinel, which has no
+            # .result(). The first conjunct is what keeps that unreachable, so
+            # it must stay ahead of the None check rather than be folded into it.
             if wait_until_complete and waiter is not None:
                 waiter.result(timeout=_TURRET_MOVE_TIMEOUT_S)
         else:

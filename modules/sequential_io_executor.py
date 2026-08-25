@@ -47,6 +47,13 @@ PROTOCOL_ENQUEUED = object()
 # Sentinel returned by put() when a frame-carrying (droppable_live) task is
 # dropped because too many are already in flight on the single worker.
 LIVE_FRAME_DROPPED = object()
+# Sentinel returned from put() when a fire-and-forget task (return_future False)
+# DID enter the queue -- the default queue's counterpart to PROTOCOL_ENQUEUED,
+# and for the same reason: a no-future enqueue returned None, which is also what
+# a fenced or disabled executor returns, so a successful submit was reported to
+# its caller as a drop. Callers that must know whether the task will run check
+# `is ENQUEUED`.
+ENQUEUED = object()
 # Sentinel returned from protocol_put_wait when the blocking enqueue gave up:
 # the bounded queue stayed full past the caller's stall budget AND the worker
 # retired nothing in that window. Distinct from PROTOCOL_QUEUE_FULL (a
@@ -548,6 +555,21 @@ class SequentialIOExecutor:
         return not (self.protocol_running.is_set() and not self.protocol_finish.is_set())
 
     def put(self, task: IOTask, return_future: bool = False):
+        """Add an IOTask to the default execution queue.
+
+        Return value reports the enqueue outcome so a caller can tell whether
+        the task will actually run:
+
+        - return_future True, enqueued: the task's waiter (await its result).
+        - return_future False, enqueued: ENQUEUED.
+        - executor disabled or fenced by a running protocol: None (dropped).
+        - droppable_live task over the in-flight cap: LIVE_FRAME_DROPPED.
+
+        The two non-ENQUEUED / non-waiter outcomes both mean the task did not
+        enter the queue and will never run. Success and drop returned the same
+        None until the enqueued case got its own sentinel, so every successful
+        fire-and-forget submit was logged and reported as dropped.
+        """
         # Naming precedes every queue insertion below: once a task is on a
         # queue the worker may already be running it, and an unnamed task
         # renames its worker thread to the empty string.
@@ -594,7 +616,7 @@ class SequentialIOExecutor:
             task._queue_depth_at_enqueue = self.queue.qsize() + (1 if self._running_task else 0)
             task._queue_kind = 'default'
         self.queue.put(task)
-        return fut
+        return fut if return_future else ENQUEUED
 
     def _claim_protocol_future(self, task: IOTask, return_future: bool):
         """Register a per-thread reusable waiter for a protocol enqueue; see
