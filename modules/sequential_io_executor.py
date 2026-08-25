@@ -61,6 +61,18 @@ ENQUEUED = object()
 # the caller owns a loud user-facing abort/recovery decision.
 PROTOCOL_QUEUE_WEDGED = object()
 
+# Refusal-episode lanes. A disabled or fenced executor refuses every submit for
+# as long as the state lasts -- a protocol run can refuse tens of thousands --
+# so refusals are narrated per EPISODE (one line when the first task is lost,
+# one summary when work is accepted again) instead of per task. The two queues
+# refuse independently: during a run the default lane is fenced while the
+# protocol lane accepts, so they interleave, and a single shared tracker would
+# open and close an episode on every submit -- reproducing the per-task logging
+# the episode framing exists to remove. One tracker per lane, closed only by a
+# success on its OWN lane.
+_LANE_DEFAULT = 'default'
+_LANE_PROTOCOL = 'protocol'
+
 # Slot-poll interval for the blocking protocol enqueue. Short enough that an
 # abort signalled mid-wait is honored promptly; long enough that a full queue
 # does not busy-spin.
@@ -476,6 +488,13 @@ class SequentialIOExecutor:
 
         self._disable = False
 
+        # None, or {'cause': str, 'count': int} per lane. Opened lazily by the
+        # first refused submit, never by the state change that causes it: an
+        # executor nobody submits to while it is closed has cost no caller
+        # anything and says nothing.
+        self._refusal_episodes = {_LANE_DEFAULT: None, _LANE_PROTOCOL: None}
+        self._refusal_lock = threading.Lock()
+
         self.blocker = threading.Event()
         self.last_task_done_monotonic = time.monotonic()
         # Stamped by the worker when it starts a task, cleared with
@@ -536,6 +555,63 @@ class SequentialIOExecutor:
         self._disable = False
         self.blocker.set()
 
+    def _refuse_submit(self, lane: str, cause: str, task: IOTask):
+        """Narrate a refused submit at episode granularity; always returns None.
+
+        Every state-refusal exit routes through here so a drop cannot be added
+        without narration. The bare None these exits used to return is why a
+        refusal was invisible to everyone: it is also what a successful
+        fire-and-forget enqueue returned, so no caller could act on it and
+        almost none tried.
+
+        The task's action names the caller in the log -- the executor name
+        alone identifies the lane, not who lost work.
+        """
+        who = getattr(task.action, '__name__', None) or repr(task.action)
+        with self._refusal_lock:
+            episode = self._refusal_episodes[lane]
+            if episode is not None and episode['cause'] == cause:
+                episode['count'] += 1
+                return None
+            previous = episode
+            self._refusal_episodes[lane] = {'cause': cause, 'count': 1}
+        # Logged outside the lock: a handler that blocks on disk must not stall
+        # every other thread submitting to this executor.
+        if previous is not None:
+            self._log_episode_summary(previous)
+        logger.warning(
+            f'[{self.executor_name}] REFUSED {who} -- {cause}. Further '
+            f'refusals are counted, not logged, until work is accepted again'
+        )
+        return None
+
+    def _accept_submit(self, lane: str) -> None:
+        """Close an open refusal episode on this lane after a successful
+        enqueue, reporting what the episode cost.
+
+        Closing on the next success rather than from enable() / protocol_start()
+        / protocol end keeps the three lifecycle methods out of it: a hook is
+        three sites to keep in sync, and missing one leaves an episode open
+        forever. The one imperfect case is benign -- if nothing is ever
+        submitted again the summary never prints, and nothing further was lost
+        to report.
+        """
+        if self._refusal_episodes[lane] is None:
+            return
+        with self._refusal_lock:
+            episode = self._refusal_episodes[lane]
+            if episode is None:
+                return
+            self._refusal_episodes[lane] = None
+        self._log_episode_summary(episode)
+
+    def _log_episode_summary(self, episode: dict) -> None:
+        logger.warning(
+            f'[{self.executor_name}] Accepting work again -- '
+            f'{episode["count"]} task(s) were refused and never ran while '
+            f'{episode["cause"]}'
+        )
+
     def accepts_work(self) -> bool:
         """Whether a task submitted to ``put`` right now would be queued.
 
@@ -575,7 +651,16 @@ class SequentialIOExecutor:
         # renames its worker thread to the empty string.
         task.set_name(self.executor_name)
         if not self.accepts_work():
-            return None
+            # accepts_work stays the single written-down copy of the gate; the
+            # flag is read again only to attribute the cause, not to re-derive
+            # the condition.
+            return self._refuse_submit(
+                _LANE_DEFAULT,
+                'the executor is disabled'
+                if self._disable
+                else 'a protocol run has this lane fenced',
+                task,
+            )
 
         # Selective backpressure: cap in-flight frame-carrying tasks so a
         # stalled single worker can't pin GBs of frame buffers (the
@@ -616,6 +701,7 @@ class SequentialIOExecutor:
             task._queue_depth_at_enqueue = self.queue.qsize() + (1 if self._running_task else 0)
             task._queue_kind = 'default'
         self.queue.put(task)
+        self._accept_submit(_LANE_DEFAULT)
         return fut if return_future else ENQUEUED
 
     def _claim_protocol_future(self, task: IOTask, return_future: bool):
@@ -644,6 +730,7 @@ class SequentialIOExecutor:
         """Success tail shared by the drop-on-full and blocking enqueues."""
         # Early warning that file writes are falling behind, before the
         # bound is reached.
+        self._accept_submit(_LANE_PROTOCOL)
         depth = self.protocol_queue.qsize()
         if depth > 20 and depth % 10 == 0:
             logger.warning(
@@ -676,10 +763,10 @@ class SequentialIOExecutor:
         """
         task.set_name(self.executor_name)
         if self._disable:
-            return None
+            return self._refuse_submit(_LANE_PROTOCOL, 'the executor is disabled', task)
 
         if not self.protocol_running.is_set():
-            return None
+            return self._refuse_submit(_LANE_PROTOCOL, 'no protocol run is in session', task)
 
         fut = self._claim_protocol_future(task, return_future)
         if profile_trace.ENABLE_PROFILE_TRACE:
@@ -775,10 +862,10 @@ class SequentialIOExecutor:
         """
         task.set_name(self.executor_name)
         if self._disable:
-            return None
+            return self._refuse_submit(_LANE_PROTOCOL, 'the executor is disabled', task)
 
         if not self.protocol_running.is_set():
-            return None
+            return self._refuse_submit(_LANE_PROTOCOL, 'no protocol run is in session', task)
 
         fut = self._claim_protocol_future(task, return_future)
         if profile_trace.ENABLE_PROFILE_TRACE:
