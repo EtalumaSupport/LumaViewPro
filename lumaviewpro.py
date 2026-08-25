@@ -638,7 +638,20 @@ class LumaViewProApp(TooltipMixin, App):
 
         # ScopeSession owns startup orchestration so REST API, headless tools, and
         # the reconnect handler in ui/microscope_settings.py all hit the same path.
-        ctx.session.start_application_session(disable_homing=disable_homing)
+        # The GUI drives motion through the ui_helpers wrappers: they set the
+        # window title during the home, and the turret one goes through the
+        # widget that also reconciles the objective, spinner and button state.
+        # The Session's own defaults are the bare API calls, which is what a
+        # headless caller gets.
+        from ui.ui_helpers import move_home, move_absolute
+
+        ctx.session.start_application_session(
+            disable_homing=disable_homing,
+            home_fn=lambda axis: move_home(axis, wait=True),
+            turret_fn=lambda position: move_absolute(
+                axis='T', position=position, wait_until_complete=True
+            ),
+        )
 
         # Objective and LEDs are set by scope.initialize() during load_settings();
         # BF apply_settings fires from complete_initialization() -> accordion_collapse().

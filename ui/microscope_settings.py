@@ -262,7 +262,17 @@ class MicroscopeSettings(BoxLayout):
         # (ALL-axis home + turret-positioning) -- same path the App's
         # on_start uses. Pre-LVP-A-5 this block was open-coded here and
         # had subtly drifted from the App's version.
-        ctx.session.start_application_session(disable_homing=ctx.disable_homing)
+        # Same GUI motion wrappers the App's on_start passes -- see there for
+        # why the widget path rather than the Session's bare-API defaults.
+        from ui.ui_helpers import move_home, move_absolute
+
+        ctx.session.start_application_session(
+            disable_homing=ctx.disable_homing,
+            home_fn=lambda axis: move_home(axis, wait=True),
+            turret_fn=lambda position: move_absolute(
+                axis='T', position=position, wait_until_complete=True
+            ),
+        )
         # Resync the whole per-camera UI surface from the NEW camera: refresh
         # the slider caps first (reconnect previously left the gain cap stale,
         # a blackout risk on a lower-cap camera), then the per-layer ranges +

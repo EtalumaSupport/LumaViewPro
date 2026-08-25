@@ -771,7 +771,13 @@ class ScopeSession:
         bundle.file_io_executor.shutdown(wait=False)
         bundle.worker_pool.shutdown(wait=False)
 
-    def start_application_session(self, *, disable_homing: bool = False) -> None:
+    def start_application_session(
+        self,
+        *,
+        disable_homing: bool = False,
+        home_fn=None,
+        turret_fn=None,
+    ) -> None:
         """LVP-A-5: queue the standard startup home + turret-positioning sequence.
 
         Replaces the inline blocks in lumaviewpro.py:on_start AND
@@ -800,12 +806,27 @@ class ScopeSession:
             disable_homing: If True, skip the home step but still run
                 turret-positioning. Matches the App's ``--no-home``
                 CLI flag semantics.
+            home_fn: Callable taking an axis name and returning whether
+                the home succeeded. Defaults to the motion API.
+            turret_fn: Callable taking a turret position. Defaults to
+                the motion API.
+
+        The two motion callables are injected the same way the metrics
+        scheduler is: the hosting environment supplies its own, and the
+        API default is what everything else gets. The Kivy app passes
+        the ``ui_helpers`` wrappers, which drive the turret through the
+        widget that also reconciles the objective, spinner and button
+        state -- policy that lives in the UI and has no API equivalent
+        yet. Defaulting to the API instead of importing the UI is what
+        lets a headless caller run this at all: the widget path reaches
+        ``ctx.motion_settings``, which is None until a widget tree
+        exists, so before injection this method could not run outside
+        the GUI despite the docstring above promising it could.
         """
-        # Local import to avoid circular import at module load -- ui_helpers
-        # imports many UI modules but the functions used here (move_home,
-        # move_absolute) operate on the scope and don't actually
-        # need a GUI surface.
-        from ui.ui_helpers import move_home, move_absolute
+        if home_fn is None:
+            home_fn = lambda axis: self.scope.motion.move_home_and_wait(axis)
+        if turret_fn is None:
+            turret_fn = lambda position: self.scope.motion.tmove(position)
 
         # Wait for the home's result and honor it. Turret positioning is
         # an absolute move against the reference frame the home was
@@ -813,7 +834,7 @@ class ScopeSession:
         # secondary cascade users report -- a second error on top of the
         # home's own, for motion that could never have been correct. The
         # home already notified, so this stays a log.
-        if not disable_homing and not move_home('ALL', wait=True):
+        if not disable_homing and not home_fn('ALL'):
             logger.error(
                 'Homing did not succeed -- skipping startup turret '
                 'positioning; the stage reference is unknown'
@@ -836,8 +857,4 @@ class ScopeSession:
                 turret_position = DEFAULT_POSITION
 
             self.settings['turret_position'] = turret_position
-            move_absolute(
-                axis='T',
-                position=turret_position,
-                wait_until_complete=True,
-            )
+            turret_fn(turret_position)

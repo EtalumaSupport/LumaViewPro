@@ -22,14 +22,14 @@ the driver's real error handling runs rather than a replaced method.
 
 Two seams are substituted, both deliberately:
 
-* ``ui.ui_helpers.move_home`` / ``move_absolute`` in the startup test.
-  ``ScopeSession.start_application_session`` reaches UP into the UI
-  layer for these two (a known layering defect, tracked separately and
-  NOT fixed here), and they need a live Kivy app context. The
-  substitutes route straight to the production motion bodies and record
-  what the orchestrator attempted, so the decision under test -- does
-  startup attempt the turret move after a failed home? -- is observed
-  exactly, while the hardware underneath stays the real simulator.
+* The startup test's two motion calls, supplied through
+  ``start_application_session``'s ``home_fn`` / ``turret_fn`` parameters
+  -- the same seam the Kivy app uses to pass its widget-flavored
+  wrappers. The substitutes route straight to the production motion
+  bodies and record what the orchestrator attempted, so the decision
+  under test -- does startup attempt the turret move after a failed
+  home? -- is observed exactly, while the hardware underneath stays the
+  real simulator.
 * ``exchange_command`` returning None on a target write, for the
   dead-board move. That is the serial boundary, where Rule 11 puts the
   only permitted canned value.
@@ -233,14 +233,21 @@ def test_stage_fault_revokes_homed_state(scope):
 
 
 def _startup_session(scope, monkeypatch):
-    """Build a session and route its two UI-layer motion calls to the
-    production bodies, recording what startup attempted.
+    """Build a session and route its two motion calls to the production
+    bodies, recording what startup attempted.
 
     See the module docstring for why these two are substituted.
+
+    The substitutes go in through ``start_application_session``'s own
+    ``home_fn`` / ``turret_fn`` parameters -- the same seam the GUI uses
+    to supply its widget-flavored wrappers. An earlier version patched
+    ``ui.ui_helpers`` attributes instead, which pinned the substitution
+    MECHANISM rather than the invariant and stopped intercepting
+    anything the moment the Session took its motion callables by
+    injection.
     """
     from unittest.mock import MagicMock
 
-    import ui.ui_helpers
     from modules.scope_session import ScopeSession
 
     session = ScopeSession(
@@ -257,27 +264,26 @@ def _startup_session(scope, monkeypatch):
     # silently never happens, which is exactly the failure this file
     # exists to catch. Running the body inline keeps the sequence ordered
     # and the home's real result observable.
-    def _move_home(axis, wait=False):
+    def _home_fn(axis):
         attempts.append(('home', axis))
         return scope.motion._home_impl()
 
-    def _move_absolute(axis, position, **kwargs):
-        attempts.append(('move', axis, position))
-        scope.motion._move_absolute_impl(axis, position)
+    def _turret_fn(position):
+        attempts.append(('move', 'T', position))
+        scope.motion._move_absolute_impl('T', position)
 
-    monkeypatch.setattr(ui.ui_helpers, 'move_home', _move_home)
-    monkeypatch.setattr(ui.ui_helpers, 'move_absolute', _move_absolute)
-    return session, attempts
+    hooks = {'home_fn': _home_fn, 'turret_fn': _turret_fn}
+    return session, attempts, hooks
 
 
 def test_startup_skips_turret_positioning_after_failed_home(scope, monkeypatch):
     """The cascade in #702: startup homes, the home fails, and startup
     positions the turret anyway -- a real move against an unknown
     reference, and a second error popup on top of the home's own."""
-    session, attempts = _startup_session(scope, monkeypatch)
+    session, attempts, hooks = _startup_session(scope, monkeypatch)
     _fail_home(scope)
 
-    session.start_application_session()
+    session.start_application_session(**hooks)
 
     assert ('home', 'ALL') in attempts, 'startup must still attempt the home'
     turret_moves = [a for a in attempts if a[0] == 'move' and a[1] == 'T']
@@ -293,9 +299,9 @@ def test_startup_skips_turret_positioning_after_failed_home(scope, monkeypatch):
 def test_startup_positions_turret_after_successful_home(scope, monkeypatch):
     """The control: a good home must still position the turret. A gate
     that refuses everything would pass the test above."""
-    session, attempts = _startup_session(scope, monkeypatch)
+    session, attempts, hooks = _startup_session(scope, monkeypatch)
 
-    session.start_application_session()
+    session.start_application_session(**hooks)
 
     assert ('home', 'ALL') in attempts
     turret_moves = [a for a in attempts if a[0] == 'move' and a[1] == 'T']
