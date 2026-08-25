@@ -24,6 +24,65 @@ _REQUIRED_SETTINGS_KEYS = frozenset(
 )
 
 
+class SettingsFileError(ValueError):
+    """A settings file exists but could not be turned into a settings dict.
+
+    Subclasses ValueError deliberately: `load_lvp_settings` routes a bad
+    `current.json` to the shipped template by catching
+    `(JSONDecodeError, ValueError)`, and a sibling of that family would
+    escape the catch and turn every recoverable failure into a startup
+    crash.
+    """
+
+
+def read_settings_json(path, logger=None):
+    """Open and parse one settings file. THE one place these files are read.
+
+    Every reader of `current.json` / `settings.json` goes through here so
+    that "what counts as an unusable settings file" is decided once. What
+    each caller DOES about it still belongs to the caller -- they disagree
+    for good reasons (the bootstrap readers try the next file, the report
+    generator falls back to other directories, the GUI asks the user), so
+    this classifies and they choose.
+
+    No `encoding=` argument, deliberately. Every reader and the writer in
+    `microscope_settings.save_settings` use the platform default, which is
+    cp1252 on Windows. Reading as UTF-8 here would make a config that
+    Windows wrote with any non-ASCII byte -- a live_folder under an
+    accented user directory is the everyday case -- suddenly unparseable,
+    and the caller would then offer to reset it. Changing this means
+    migrating the read and the write together.
+
+    `logger` is optional because `load_debug_setting` runs during logger
+    bootstrap, before there is a logger to pass.
+
+    Raises:
+        FileNotFoundError: passed through untouched. Callers distinguish
+            "no file" from "bad file" -- a missing file is normal on a
+            fresh install, and at least one caller catches exactly this
+            type to substitute an empty config.
+        SettingsFileError: the file exists but did not yield a settings
+            dict -- unparseable, undecodable, unreadable, or valid JSON
+            that isn't an object (a top-level list used to raise
+            AttributeError deep in validation and kill startup).
+    """
+    try:
+        with open(path) as read_file:
+            parsed = json.load(read_file)
+    except FileNotFoundError:
+        raise
+    except json.JSONDecodeError as e:
+        raise SettingsFileError(f'{path}: not valid JSON ({e})') from e
+    except (OSError, UnicodeDecodeError) as e:
+        raise SettingsFileError(f'{path}: could not be read ({e})') from e
+
+    if not isinstance(parsed, dict):
+        raise SettingsFileError(f'{path}: expected a JSON object, got {type(parsed).__name__}')
+    if logger is not None:
+        logger.debug(f'[Settings ] read {path}')
+    return parsed
+
+
 def _validate_settings(settings: dict, filepath: str, logger) -> None:
     """Check that loaded settings contain all required keys and types.
 
@@ -92,10 +151,9 @@ def load_settings(logger, filename, lvp_appdata):
     # load settings JSON file
     filepath = os.path.join(lvp_appdata, filename) if not os.path.isabs(filename) else filename
     try:
-        with open(filepath) as read_file:
-            settings = json.load(read_file)
+        settings = read_settings_json(filepath, logger)
         _validate_settings(settings, filepath, logger)
-    except json.JSONDecodeError:
+    except SettingsFileError:
         logger.exception(f'[LVP Main  ] Incompatible JSON file for Microscope Settings: {filepath}')
         settings = None
         raise
@@ -202,8 +260,7 @@ def load_lvp_settings(logger, lvp_appdata):
         # This ensures new keys are available without losing user values.
         if settings is not None and os.path.exists(settings_path):
             try:
-                with open(settings_path) as f:
-                    defaults = json.load(f)
+                defaults = read_settings_json(settings_path, logger)
                 added = _deep_merge_defaults(settings, defaults, logger=logger)
                 if added:
                     logger.info(
@@ -244,8 +301,7 @@ def load_debug_setting(directory):
         filename = _resolve_settings_path(directory)
         debug_setting_source = os.path.basename(filename)
 
-        with open(filename) as read_file:
-            temp_settings = json.load(read_file)
+        temp_settings = read_settings_json(filename)
 
         debug_setting = temp_settings.get('debug_mode', False)
         return debug_setting
@@ -268,8 +324,7 @@ def load_profile_trace_setting(directory):
     """
     try:
         filename = _resolve_settings_path(directory)
-        with open(filename) as read_file:
-            temp_settings = json.load(read_file)
+        temp_settings = read_settings_json(filename)
     except Exception:
         return {'enabled': False, 'output_dir': None}
 
@@ -292,8 +347,7 @@ def load_tracemalloc_setting(directory):
     """
     try:
         filename = _resolve_settings_path(directory)
-        with open(filename) as read_file:
-            temp_settings = json.load(read_file)
+        temp_settings = read_settings_json(filename)
     except Exception:
         return False
 
@@ -316,8 +370,7 @@ def load_memory_profile_setting(directory):
     """
     try:
         filename = _resolve_settings_path(directory)
-        with open(filename) as read_file:
-            temp_settings = json.load(read_file)
+        temp_settings = read_settings_json(filename)
     except Exception:
         return {'enabled': False, 'interval_s': 5.0}
 
@@ -340,8 +393,7 @@ def load_fx2_debug_wire_setting(directory):
     """
     try:
         filename = _resolve_settings_path(directory)
-        with open(filename) as read_file:
-            temp_settings = json.load(read_file)
+        temp_settings = read_settings_json(filename)
     except Exception:
         return False
 

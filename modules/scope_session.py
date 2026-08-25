@@ -494,14 +494,14 @@ class ScopeSession:
                 # the same file the GUI reads (current.json first, then
                 # settings.json) so headless state matches the running app,
                 # instead of hardcoding settings.json and ignoring live state.
-                import json
-
-                from modules.settings_init import _resolve_settings_path
+                from modules.settings_init import (
+                    _resolve_settings_path,
+                    read_settings_json,
+                )
 
                 try:
                     settings_path = _resolve_settings_path(source_path)
-                    with open(settings_path) as f:
-                        settings = json.load(f)
+                    settings = read_settings_json(settings_path)
                 except FileNotFoundError:
                     settings = {}
 

@@ -150,14 +150,13 @@ def _get_capture_dir():
     """
     try:
         settings_file = settings_init._resolve_settings_path(str(_get_lvp_data_dir().parent))
-        with open(settings_file) as f:
-            settings = json.load(f)
+        settings = settings_init.read_settings_json(settings_file)
         live_folder = settings.get('live_folder', '')
         if live_folder:
             resolved = pathlib.Path(live_folder).resolve()
             if resolved.is_dir():
                 return resolved
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
+    except (FileNotFoundError, settings_init.SettingsFileError, OSError):
         pass
     # Fallback: common locations
     docs = _get_user_documents()
