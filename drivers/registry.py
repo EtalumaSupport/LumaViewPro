@@ -234,6 +234,13 @@ class DriverRegistry:
                         except Exception:
                             pass
                         continue
+                # Every rejection below is logged; without this the
+                # SUCCESS path was the only silent one, so which driver
+                # actually won could only be inferred from the ABSENCE
+                # of a fallback warning -- and the Null* drivers
+                # announce themselves at debug, so on a default-level
+                # field log it could not be inferred at all.
+                logger.info(f'[registry] {self._kind}: using {entry.cls.__name__}')
                 return instance
             except Exception as e:
                 last_error = e

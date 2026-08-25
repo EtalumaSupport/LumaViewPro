@@ -11,6 +11,7 @@ Lumascope.__init__. These tests cover:
      before the real FX2 driver lands in Stage 3.
 """
 
+import logging
 import threading
 
 # Heavy deps (lvp_logger, ...) are mocked by tests/conftest.py at
@@ -224,6 +225,29 @@ class TestDriverRegistryUnit:
 
         instance = reg.create('auto')
         assert isinstance(instance, Works)
+
+    def test_selected_driver_is_named_at_info(self, caplog):
+        """A driver that WINS says so at INFO.
+
+        Only the failure branches used to log, so the winner could be
+        identified only by the absence of a fallback warning -- and the
+        Null* drivers announce themselves at debug, so on a
+        default-level field log the selected driver was underivable.
+        """
+        reg = DriverRegistry('fake')
+
+        @reg.register('winner', priority=100)
+        class Winner:
+            def __init__(self, **kw):
+                pass
+
+        with caplog.at_level(logging.INFO):
+            reg.create('auto')
+
+        rendered = [r.getMessage() for r in caplog.records if r.levelno >= logging.INFO]
+        assert any('fake' in m and 'Winner' in m for m in rendered), (
+            f'selected driver not named at INFO; got: {rendered}'
+        )
 
     def test_simulate_mode_only_considers_simulators(self):
         reg = DriverRegistry('fake')
