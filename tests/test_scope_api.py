@@ -418,7 +418,7 @@ class TestLogSystemMetrics:
             import pathlib
 
             expected_path = str(pathlib.Path('/tmp').resolve())
-            mock_metrics.assert_called_once_with(path=expected_path)
+            mock_metrics.assert_called_once_with(path=expected_path, collect_open_files=False)
 
 
 # ===========================================================================

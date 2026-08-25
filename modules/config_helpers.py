@@ -334,7 +334,12 @@ def log_system_metrics(settings: dict):
         except Exception:
             resolved = pathlib.Path.home()  # Fallback to home dir for metrics
     path = str(resolved)
-    metrics = common_utils.system_metrics(path=path)
+    # `is True`, not truthiness: nothing validates the settings files, so a
+    # hand-edited value of the STRING "false" would otherwise read truthy and
+    # switch on a probe that can stall the process for hundreds of ms a tick.
+    # Any non-boolean reads as off, which is the safe direction.
+    collect_open_files = settings.get('profiling', {}).get('open_files_enabled') is True
+    metrics = common_utils.system_metrics(path=path, collect_open_files=collect_open_files)
     free_space = common_utils.check_disk_space(path=path)
 
     if free_space < 1024:  # Less than 1 GB
@@ -389,11 +394,17 @@ def log_system_metrics(settings: dict):
         )
 
     # OS handles + open files count. Watch for steady upward trend.
+    # Three states, three renderings: a count, -1 for a probe that ran and
+    # failed, and "off" for one nobody asked to run. Collapsing the last two
+    # onto -1 would make a deliberate configuration read as a malfunction in
+    # every log a reader ever opens.
     handles = metrics.get('os_handles', -1)
-    open_files = metrics.get('open_files_count', -1)
+    open_files_measured = 'open_files_count' in metrics
+    open_files = metrics['open_files_count'] if open_files_measured else -1
     if handles >= 0 or open_files >= 0:
         metrics_logger.info(
-            f'[HANDLE METRICS] handles={handles} | open_files={open_files}',
+            f'[HANDLE METRICS] handles={handles} | '
+            f'open_files={open_files if open_files_measured else "off"}',
         )
 
     # Thread count. Should plateau ~20-25; growth means executor leak.

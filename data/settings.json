@@ -213,6 +213,7 @@
         "stim_profiling": false,
         "handle_trace_enabled": false,
         "handle_trace_obj_sample_every": 1000,
+        "open_files_enabled": false,
         "metrics_interval_s": null
     },
     "scale_bar": {

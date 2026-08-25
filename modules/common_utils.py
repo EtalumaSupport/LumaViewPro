@@ -1283,13 +1283,18 @@ def _self_process():
     return _SELF_PROC
 
 
-def system_metrics(path='/'):
+def system_metrics(path='/', *, collect_open_files):
     """Return a one-shot snapshot of process and host resource state.
 
-    Used by `log_system_metrics()` (called hourly from `lumaviewpro.py`).
-    Failures on individual metrics return -1 / None / 0.0 so callers
-    can log "this metric isn't available on this platform" without the
-    whole snapshot blowing up.
+    Used by `log_system_metrics()`. Failures on individual metrics
+    return -1 / None / 0.0 so callers can log "this metric isn't
+    available on this platform" without the whole snapshot blowing up.
+
+    `collect_open_files` has no default on purpose. The per-handle
+    enumeration it controls is expensive enough to stall the whole
+    process (see its block below), so every caller states its choice
+    rather than inheriting one -- a silent default is how that
+    enumeration came to run unconditionally in the first place.
 
     Long-run leak detection: GDI/handle/thread/GC counts should plateau
     in steady state. A steady upward trend across hourly snapshots
@@ -1350,15 +1355,25 @@ def system_metrics(path='/'):
     except Exception:
         metrics['os_handles'] = -1
 
-    # --- Open files count ---
-    # Most actionable diagnostic when handles climb: tells you exactly
-    # which files are leaked. We log only the count here; if it crosses
-    # a threshold, the operator can dump the list manually via
-    # `psutil.Process().open_files()`.
-    try:
-        metrics['open_files_count'] = len(proc.open_files())
-    except Exception:
-        metrics['open_files_count'] = -1
+    # --- Open files count (opt-in; off unless a bench operator asks) ---
+    # Tells you which files are leaked when handles climb, but it costs
+    # one os.stat per open handle -- so it scales with the very quantity
+    # it exists to watch, and is most expensive during the leak it is
+    # meant to catch. On Windows it also enumerates through a
+    # C-extension call that holds the GIL, stalling every thread in the
+    # process, and a handle whose name query times out is silently
+    # skipped -- so the count reads LOW exactly when it matters. The
+    # flat-cost `os_handles` above is the trend indicator; this is the
+    # follow-up you switch on deliberately.
+    #
+    # Absent when off, never -1: -1 already means "ran and failed", and
+    # a chosen configuration must not be indistinguishable from a broken
+    # probe.
+    if collect_open_files:
+        try:
+            metrics['open_files_count'] = len(proc.open_files())
+        except Exception:
+            metrics['open_files_count'] = -1
 
     # --- Process I/O bytes (cumulative + rates, per-process) ---
     # Distinguishes "we wrote 50 GB this hour" from "Windows Defender did".

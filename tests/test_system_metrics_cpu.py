@@ -34,8 +34,8 @@ def test_system_metrics_uses_cached_process_not_a_fresh_one(monkeypatch):
 
     monkeypatch.setattr(common_utils.psutil, 'Process', _counting_process)
 
-    common_utils.system_metrics()
-    common_utils.system_metrics()
+    common_utils.system_metrics(collect_open_files=False)
+    common_utils.system_metrics(collect_open_files=False)
 
     # The handle is built once (first call), then reused -- not per snapshot.
     assert len(constructed) == 1
