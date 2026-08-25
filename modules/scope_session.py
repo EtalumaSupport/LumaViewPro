@@ -499,6 +499,11 @@ class ScopeSession:
                     read_settings_json,
                 )
 
+                # A missing file is normal (fresh install) and resolves to an
+                # empty config. An unusable one is not: the GUI answers that by
+                # asking the user, and there is nobody to ask here. Returning
+                # the template instead would hand an L2 caller a plausible
+                # config that is not theirs, so it surfaces.
                 try:
                     settings_path = _resolve_settings_path(source_path)
                     settings = read_settings_json(settings_path)

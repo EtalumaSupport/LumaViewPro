@@ -13,6 +13,7 @@ from kivy.properties import BooleanProperty, StringProperty
 from kivy.uix.boxlayout import BoxLayout
 
 import modules.app_context as _app_ctx
+import modules.settings_init as settings_init
 import modules.binning as binning
 import modules.common_utils as common_utils
 from modules import gui_logger
@@ -963,6 +964,21 @@ class MicroscopeSettings(BoxLayout):
         logger.info('[LVP Main  ] MicroscopeSettings.save_settings()')
         ctx = _app_ctx.ctx
         settings = ctx.settings
+
+        # Outside the force gate on purpose: force means "save even though no
+        # hardware was connected", not "save over a file we were told to leave
+        # alone". The settings in memory right now are the shipped template,
+        # loaded because the user's own file could not be read; writing them
+        # to current.json would replace their entire configuration with
+        # defaults. Resolved by retire_rejected_current_json() once the user
+        # has actually chosen to start over.
+        if settings_init.settings_are_provisional() and settings_init.targets_current_json(file):
+            logger.warning(
+                '[LVP Main  ] save_settings: skipped -- running on default '
+                'settings because current.json could not be read. Not '
+                'overwriting it until the user decides.'
+            )
+            return
 
         # LVP-A-4: hardware-presence gate.
         if not force:

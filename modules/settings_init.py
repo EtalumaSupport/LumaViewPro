@@ -1,6 +1,7 @@
 # Copyright (c) 2023-2026 Etaluma, Inc. MIT License. See LICENSE file.
 import os
 import json
+import time
 
 
 settings = None
@@ -231,8 +232,23 @@ def _migrate_video_settings(logger) -> None:
         logger.info('[Settings ] Renamed manual_video settings section to video')
 
 
+# Set when current.json could not be used and the app came up on the shipped
+# template instead. Holds the rejected file's path and why, until a human
+# decides what to do about it.
+#
+# Read it as `settings_init.rejected_current_json`, never via
+# `from modules.settings_init import rejected_current_json`. Several modules
+# import `settings` that second way, which copies the value at import time --
+# for a dict that is harmless, for a flag that changes during startup it would
+# freeze the answer to whatever it was before the settings even loaded.
+rejected_current_json = None
+
+
 def load_lvp_settings(logger, lvp_appdata):
-    global settings
+    global settings, rejected_current_json
+
+    # Reset per call: a second load (tests) must not inherit the first's verdict.
+    rejected_current_json = None
 
     current_path = os.path.join(lvp_appdata, 'data', 'current.json')
     settings_path = os.path.join(lvp_appdata, 'data', 'settings.json')
@@ -242,11 +258,20 @@ def load_lvp_settings(logger, lvp_appdata):
         try:
             load_settings(logger, current_path, lvp_appdata)
         except (json.JSONDecodeError, ValueError) as e:
-            # current.json is corrupt -- fall back to settings.json
-            logger.warning(f'[Settings ] {current_path} is corrupt, falling back to settings.json')
+            # current.json is unusable. Come up on the shipped template so the
+            # user gets a working app and a chance to decide -- but do NOT
+            # touch their file. It is the only copy of their configuration,
+            # and the running app is now holding template values that would
+            # overwrite it on the next save.
+            logger.error(
+                f'[Settings ] {current_path} could not be used ({e}); '
+                'starting from the shipped defaults. The file has NOT been '
+                'modified and no settings will be saved until this is resolved.'
+            )
             settings = None
             if os.path.exists(settings_path):
                 load_settings(logger, settings_path, lvp_appdata)
+                rejected_current_json = (current_path, str(e))
             else:
                 raise FileNotFoundError(
                     f'current.json corrupt and no settings.json fallback in {data_dir}'
@@ -278,6 +303,58 @@ def load_lvp_settings(logger, lvp_appdata):
             raise FileNotFoundError(f"Couldn't find 'data' directory at {data_dir}")
         else:
             raise FileNotFoundError(f'No settings files found in {data_dir}')
+
+
+def retire_rejected_current_json():
+    """Move the unusable current.json aside so a fresh one can take its place.
+
+    Renamed, never deleted: it is the user's only copy of their
+    configuration, and support can often read what they had out of it even
+    when the app could not. Returns the new path.
+
+    Called only after a human has chosen to start over -- the rename is the
+    point of no return for that file's role, and nothing should reach it by
+    timeout, by a dismissed dialog, or by any other default.
+    """
+    global rejected_current_json
+    if rejected_current_json is None:
+        return None
+    path, _reason = rejected_current_json
+    stamp = time.strftime('%Y%m%d-%H%M%S')
+    retired = f'{path}.rejected-{stamp}'
+    os.replace(path, retired)
+    rejected_current_json = None
+    return retired
+
+
+def settings_are_provisional():
+    """True while the app is running on defaults nobody has agreed to keep.
+
+    Writing current.json in this state would replace a user's whole
+    configuration with the template, so the writer refuses while it holds.
+    """
+    return rejected_current_json is not None
+
+
+def targets_current_json(file):
+    """Is this save aimed at the live user configuration?
+
+    Matched on the resolved basename rather than the literal argument: the
+    writer normalises its path afterwards (appends .json, absolutizes
+    against the source root), and a caller outside this repo may hand it an
+    absolute path to the same file. Comparing the string it was given would
+    let those through.
+
+    Lives here rather than beside the writer because which file holds the
+    user's configuration is a fact about settings, not about the GUI -- any
+    future writer needs the same answer.
+    """
+    if not isinstance(file, (str, os.PathLike)):
+        return False
+    name = os.fspath(file)
+    if name[-5:].lower() != '.json':
+        name += '.json'
+    return os.path.basename(name).lower() == 'current.json'
 
 
 def _resolve_settings_path(directory):

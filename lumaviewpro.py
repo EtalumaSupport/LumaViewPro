@@ -718,6 +718,61 @@ class LumaViewProApp(TooltipMixin, App):
 
         logger.info('[LVP Main  ] Threads shut down.')
 
+    def _ask_about_rejected_settings(self) -> None:
+        """Let the user choose what happens to a current.json we could not read.
+
+        Confirm is the destructive branch and cancel is the safe one, which
+        is not arbitrary: show_confirmation_popup treats a programmatic or
+        lifecycle dismiss as cancel, so anything that closes this dialog
+        without a human deciding must leave the file alone.
+
+        A failure to present the question is itself fatal. Carrying on would
+        mean running with saves silently disabled -- the user changes settings
+        all session and loses every one of them at exit, with nothing said.
+        """
+        import modules.settings_init as settings_init
+
+        if not settings_init.settings_are_provisional():
+            return
+
+        path, reason = settings_init.rejected_current_json
+
+        def _revert():
+            retired = settings_init.retire_rejected_current_json()
+            logger.warning(
+                f'[LVP Main  ] settings reset by user choice; previous file kept at {retired}'
+            )
+
+        def _quit():
+            logger.warning('[LVP Main  ] user chose to repair settings; exiting without saving')
+            self.stop()
+
+        try:
+            from ui.notification_popup import show_confirmation_popup
+
+            show_confirmation_popup(
+                title='Settings file could not be read',
+                message=(
+                    f'{path}\n\n{reason}\n\n'
+                    'LumaViewPro is running on default settings. Your file has '
+                    'not been changed, and nothing will be saved until you '
+                    'choose.\n\n'
+                    'Start over with defaults, and keep the old file alongside '
+                    'it for support? Or quit now so the file can be repaired?'
+                ),
+                confirm_text='Use defaults',
+                cancel_text='Quit and repair',
+                on_confirm=_revert,
+                on_cancel=_quit,
+            )
+        except Exception:
+            logger.critical(
+                '[LVP Main  ] could not ask about the unreadable settings '
+                'file; refusing to run with saving disabled',
+                exc_info=True,
+            )
+            self.stop()
+
     def build(self) -> 'MainDisplay':
         """Kivy lifecycle hook: construct the widget tree and return the root widget."""
         logger.info('[LVP Main  ] LumaViewProApp.build()', extra={'force_error': True})
@@ -788,6 +843,13 @@ class LumaViewProApp(TooltipMixin, App):
             min_severity=Severity.DEBUG if ENGINEERING_MODE else Severity.NOTICE,
         )
 
+        # If current.json could not be read, the app is running on template
+        # values right now and the user's file is untouched on disk. Ask what
+        # to do about it. Not through the notification bus above -- that is
+        # one-way and renders a single OK button, so a question posted there
+        # would be acknowledged and never answered, leaving settings unsaveable
+        # for the rest of the session and every session after it.
+        self._ask_about_rejected_settings()
         try:
             from kivy.core.window import Window
 
