@@ -240,19 +240,44 @@ class WinUsbDevice:
         pkt.Index = index
 
         transferred = c_ulong(0)
+        # The BOOL is the only failure signal this API gives. Discarding it
+        # made a failed transfer indistinguishable from a successful one --
+        # the OUT branch returned None either way, and the IN branch returned
+        # b'' because `transferred` stays 0 on failure. That silence reached
+        # the driver's short-write detector, which skips its check when the
+        # count is None, so a safety check disabled itself on this path.
+        # The two sibling transports (pyusb, libusb1) raise; matching them
+        # keeps one failure contract for all three rather than one per
+        # platform.
         if request_type & 0x80:  # IN transfer
             buf = create_string_buffer(length)
             pkt.Length = length
-            winusb.WinUsb_ControlTransfer(
+            ok = winusb.WinUsb_ControlTransfer(
                 self._iface_handle, pkt, buf, length, byref(transferred), None
             )
+            if not ok:
+                raise RuntimeError(
+                    f'ControlTransfer IN (request=0x{request:02X}, '
+                    f'value=0x{value:04X}, index=0x{index:04X}, '
+                    f'length={length}) failed: {kernel32.GetLastError()}'
+                )
             return bytes(buf[: transferred.value])
         else:  # OUT transfer
             pkt.Length = len(data)
             buf = ctypes.create_string_buffer(data) if data else None
-            winusb.WinUsb_ControlTransfer(
+            ok = winusb.WinUsb_ControlTransfer(
                 self._iface_handle, pkt, buf if buf else None, len(data), byref(transferred), None
             )
+            if not ok:
+                raise RuntimeError(
+                    f'ControlTransfer OUT (request=0x{request:02X}, '
+                    f'value=0x{value:04X}, index=0x{index:04X}, '
+                    f'len={len(data)}) failed: {kernel32.GetLastError()}'
+                )
+            # Bytes written, so the caller's `-> int` contract holds on this
+            # transport too. Returning None here is what silently switched
+            # off the short-write check downstream.
+            return transferred.value
 
     def abort_pipe(self, pipe_id):
         winusb.WinUsb_AbortPipe(self._iface_handle, c_ubyte(pipe_id))

@@ -25,7 +25,9 @@ without pyusb installed.
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 # Heavy deps (lvp_logger, kivy, usb, usb1, ...) are mocked by
@@ -788,3 +790,97 @@ class TestFX2ConnectionSingleton:
         ):
             fx2driver._FX2Connection.get()
         assert fx2driver._FX2Connection._instance is None
+
+
+# ---------------------------------------------------------------------------
+# WinUSB control-transfer failure contract
+# ---------------------------------------------------------------------------
+#
+# `WinUsbDevice.control_transfer` used to discard the BOOL that
+# WinUsb_ControlTransfer returns, so on the Windows streaming path a failed
+# vendor request was indistinguishable from a successful one: the OUT branch
+# returned None either way and the IN branch returned b'' because the
+# transferred count stays 0 on failure. That None reached `_led_write`'s
+# short-write detector, whose `result is not None` guard skipped the check --
+# a safety check silently disabling itself.
+#
+# These drive the seam the consumers use rather than the ctypes wrapper:
+# `drivers/winusb_iso.py` does `from ctypes import windll` at module scope and
+# cannot be imported off-Windows at all. `control_transfer_out` reaches the
+# transport through a plain `self._winusb_reader_for_ctrl.device` attribute,
+# so a stub substitutes for it on any platform.
+
+
+def _conn_on_winusb(device):
+    """A _FX2Connection routed through a stub WinUSB transport.
+
+    Built with __new__ rather than the real constructor so the test needs no
+    USB device; only the three attributes control_transfer_out reads to pick
+    its transport, plus the lock it takes.
+    """
+    conn = object.__new__(fx2driver._FX2Connection)
+    conn._lock = threading.Lock()
+    conn._iso_handle_for_ctrl = None  # not the libusb1 path
+    conn._winusb_reader_for_ctrl = SimpleNamespace(device=device)
+    return conn
+
+
+def test_a_failed_winusb_out_transfer_reaches_the_caller():
+    """The contract every consumer in this chain is written against."""
+
+    def refuse(*a, **kw):
+        raise RuntimeError('ControlTransfer OUT ... failed: 31')
+
+    conn = _conn_on_winusb(SimpleNamespace(control_transfer=refuse))
+    with pytest.raises(RuntimeError, match='failed'):
+        conn.control_transfer_out(fx2driver.VR_I2C_WRITE, index=0x42, data=b'\x01')
+
+
+def test_a_successful_winusb_out_transfer_returns_a_count_not_none():
+    """`control_transfer_out` is declared `-> int` and its docstring promises
+    bytes written. Returning None is what switched off the detector below."""
+    conn = _conn_on_winusb(SimpleNamespace(control_transfer=lambda *a, **kw: 1))
+    result = conn.control_transfer_out(fx2driver.VR_I2C_WRITE, index=0x42, data=b'\x01')
+    assert result == 1
+    assert result is not None
+
+
+def test_a_failed_winusb_in_transfer_reaches_the_caller():
+    def refuse(*a, **kw):
+        raise RuntimeError('ControlTransfer IN ... failed: 31')
+
+    conn = _conn_on_winusb(SimpleNamespace(control_transfer=refuse))
+    with pytest.raises(RuntimeError, match='failed'):
+        conn.control_transfer_in(fx2driver.VR_I2C_READ, index=0x42, length=2)
+
+
+def test_the_led_short_write_detector_fires_on_a_zero_byte_write():
+    """The test that would have failed for the whole life of the defect.
+
+    `_led_write` compares i2c_write's return against the 1 byte it expects,
+    but skips the comparison when the value is None -- which is all the
+    WinUSB transport ever returned. With a real count flowing, a zero-byte
+    write is caught.
+    """
+    led = object.__new__(fx2driver.FX2LEDController)
+    led._fx2 = SimpleNamespace(i2c_write=lambda addr, data: 0)  # wrote nothing
+    led._wire_debug_enabled = lambda: False
+
+    with patch.object(fx2driver, 'logger') as mock_logger:
+        led._led_write(channel=0, brightness=0x10)
+        warned = ' '.join(str(c) for c in mock_logger.warning.call_args_list)
+
+    assert 'short write' in warned, f'a 0-of-1-byte write was not reported: {warned!r}'
+
+
+def test_the_led_detector_stays_quiet_on_a_good_write():
+    """The converse -- the detector must not cry wolf on every LED command."""
+    led = object.__new__(fx2driver.FX2LEDController)
+    led._fx2 = SimpleNamespace(i2c_write=lambda addr, data: 1)
+    led._wire_debug_enabled = lambda: False
+
+    with patch.object(fx2driver, 'logger') as mock_logger:
+        led._led_write(channel=0, brightness=0x10)
+        warned = ' '.join(str(c) for c in mock_logger.warning.call_args_list)
+
+    assert 'short write' not in warned
