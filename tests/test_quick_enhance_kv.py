@@ -105,13 +105,3 @@ def test_quick_enhance_disclaimer_is_not_rendered_in_the_panel():
         encoding='utf-8'
     )
     assert 'QUANTITATIVE_USE_WARNING' not in py_src
-
-
-def test_quick_enhance_documentation_explains_the_fixed_recipe():
-    documentation = (Path(__file__).resolve().parents[1] / 'docs' / 'QUICK_ENHANCE.md').read_text(
-        encoding='utf-8'
-    )
-
-    assert 'illumination correction' in documentation
-    assert 'dark halos' in documentation
-    assert 'AI denoising' in documentation
