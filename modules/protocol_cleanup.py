@@ -267,13 +267,22 @@ def run_cleanup(
     try:
         if saved_camera_state:
             tag = saved_camera_state.get('tag', '?')
-            fut = camera_executor.protocol_put(
-                IOTask(
-                    action=scope.imaging.restore_camera_state,
-                    args=(saved_camera_state,),
-                ),
-                return_future=True,
-            )
+            # Ask before submitting. The disabled executor is the NORMAL
+            # state here -- cleanup runs after the run has closed it -- and a
+            # submit made anyway is refused, which the executor reports at
+            # WARNING because it cannot know this caller has an inline path.
+            # A warning on the expected route is one a reader has to learn to
+            # ignore. The second check below still catches the race, the same
+            # ask-twice shape the motion dispatcher uses.
+            fut = None
+            if camera_executor.accepts_work():
+                fut = camera_executor.protocol_put(
+                    IOTask(
+                        action=scope.imaging.restore_camera_state,
+                        args=(saved_camera_state,),
+                    ),
+                    return_future=True,
+                )
             if fut is not None:
                 # Reached only when the executor is still live -- a run that
                 # failed before the disable, or a caller driving cleanup
@@ -283,10 +292,10 @@ def run_cleanup(
                 )
                 fut.result(timeout=30)
             else:
-                # The normal path: the enqueue was refused because the camera
-                # executor is disabled, so restore inline on the cleanup
-                # thread. State still gets restored either way; the log says
-                # which thread did it so a trace of this run is readable.
+                # The normal path: the camera executor is disabled, so restore
+                # inline on the cleanup thread. State still gets restored
+                # either way; the log says which thread did it so a trace of
+                # this run is readable.
                 logger.info(
                     f'[{logger_name}] Cleanup: restoring camera state '
                     f'tag={tag} (direct -- camera executor disabled)'
