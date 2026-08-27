@@ -35,7 +35,7 @@ def _color(scope, ch):
 def test_restore_does_not_blink_channel_already_at_target(scope):
     """restore_led_state leaves a channel already at its snapshot target lit,
     without an off->on blink -- the autofocus scan-end case."""
-    scope.illumination.led_on(channel=0, mA=100, owner='autofocus')
+    scope.illumination.led_on(channel=0, illumination_ma=100, owner='autofocus')
     snapshot = scope.illumination.save_led_state('autofocus')
 
     events = []
@@ -49,7 +49,7 @@ def test_restore_does_not_blink_channel_already_at_target(scope):
 def test_restore_still_relights_a_channel_that_was_turned_off(scope):
     """The graceful path stays correct: a snapshot channel that is currently
     off is turned back on by restore."""
-    scope.illumination.led_on(channel=0, mA=100, owner='autofocus')
+    scope.illumination.led_on(channel=0, illumination_ma=100, owner='autofocus')
     snapshot = scope.illumination.save_led_state('autofocus')
     scope.illumination.leds_off_owned('autofocus')
     assert not scope.illumination.led_enabled(_color(scope, 0))
@@ -61,8 +61,8 @@ def test_restore_still_relights_a_channel_that_was_turned_off(scope):
 def test_restore_owner_scoped_leaves_other_channels_alone(scope):
     """restore with an owner only clears that owner's channels; another
     subsystem's channel is left untouched (preserves the existing contract)."""
-    scope.illumination.led_on(channel=0, mA=100, owner='ui')
-    scope.illumination.led_on(channel=1, mA=50, owner='autofocus')
+    scope.illumination.led_on(channel=0, illumination_ma=100, owner='ui')
+    scope.illumination.led_on(channel=1, illumination_ma=50, owner='autofocus')
     snapshot = scope.illumination.save_led_state('autofocus')
     scope.illumination.leds_off_owned('autofocus')
 
@@ -92,19 +92,19 @@ def _run_async(fn, *args, timeout=5, **kwargs):
     assert done.wait(timeout), 'async LED task did not complete in time'
 
 
-def _preview(scope_io, ch, mA):
+def _preview(scope_io, ch, illumination_ma):
     """Drive the production manual-nav preview path (apply_transition_async)."""
     _run_async(
         scope_io.illumination.apply_transition_async,
         LedTransition.MANUAL_STEP,
-        LedTransitionCtx(channel=ch, mA=mA, preview_on=True),
+        LedTransitionCtx(channel=ch, illumination_ma=illumination_ma, preview_on=True),
     )
 
 
 def test_manual_preview_async_skips_already_lit_channel(scope_io):
     """Manual-nav preview on a channel already at the target current emits
     no driver command -- the manual same-color step no longer blinks."""
-    scope_io.illumination.led_on(channel=3, mA=200, owner='ui')
+    scope_io.illumination.led_on(channel=3, illumination_ma=200, owner='ui')
 
     events = []
     scope_io.illumination.add_led_listener(lambda c, e, m, o: events.append((c, e)))
@@ -117,7 +117,7 @@ def test_manual_preview_async_skips_already_lit_channel(scope_io):
 def test_manual_preview_async_turns_off_other_channels(scope_io):
     """Manual-nav preview offs other lit channels and lights the target --
     the manual switch-to-a-new-color step."""
-    scope_io.illumination.led_on(channel=0, mA=100, owner='ui')
+    scope_io.illumination.led_on(channel=0, illumination_ma=100, owner='ui')
     _preview(scope_io, 3, 200)
 
     assert not scope_io.illumination.led_enabled(_color(scope_io, 0))

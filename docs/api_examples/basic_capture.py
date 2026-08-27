@@ -40,9 +40,12 @@ def main():
         scope.disconnect()
         return
 
-    # Set LED channel 0 (BF) to 100 mA
-    scope.illumination.led_on(channel=0, mA=100)
-    print('LED 0 set to 100 mA')
+    # Set the brightfield channel to 100 mA. Channels are named, not
+    # numbered: the name is the portable identity, and which number it maps
+    # to differs by board (an FX2 board carries four channels, an RP2040
+    # board six), so a literal channel number is not portable.
+    scope.illumination.led_on(channel='BF', illumination_ma=100)
+    print('BF LED set to 100 mA')
 
     # Move Z axis to 5000 um and wait for the move to complete
     scope.motion.move_absolute('Z', 5000, wait_until_complete=True)

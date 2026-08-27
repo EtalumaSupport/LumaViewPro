@@ -134,7 +134,7 @@ MOTION_ONLY_METHODS = frozenset(
         'get_target_status',
         'get_turret_position_for_objective_id',
         'has_homed',
-        'has_thomed',
+        'has_turret_homed',
         'home',
         '_init_axes',
         'is_any_axis_moving',
@@ -151,7 +151,7 @@ MOTION_ONLY_METHODS = frozenset(
         'set_acceleration_limit',
         'set_precision_mode',
         'stop_motion',
-        'tmove',
+        'move_turret',
         'wait_until_finished_moving',
     }
 )

@@ -826,7 +826,7 @@ class ScopeSession:
         if home_fn is None:
             home_fn = lambda axis: self.scope.motion.move_home_and_wait(axis)
         if turret_fn is None:
-            turret_fn = lambda position: self.scope.motion.tmove(position)
+            turret_fn = lambda position: self.scope.motion.move_turret(position)
 
         # Wait for the home's result and honor it. Turret positioning is
         # an absolute move against the reference frame the home was

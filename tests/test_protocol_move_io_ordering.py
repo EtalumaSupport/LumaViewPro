@@ -3,7 +3,7 @@ executor instead of calling the scope primitive directly.
 
 During a protocol run the scan loop calls go_to_step on protocol_thread,
 which is a DIFFERENT thread from the io executor's single worker. If a
-move (or turret home/tmove) is issued by calling the scope primitive
+move (or turret home/move_turret) is issued by calling the scope primitive
 directly on protocol_thread, it races the leds_off/led_on that the
 capture path queues on the io worker -- when the move wins the race, the
 previous step's LED stays lit through the well-to-well move (the
@@ -90,8 +90,8 @@ def _turret_select_node() -> ast.FunctionDef:
 
 
 def _direct_calls_to(node: ast.AST, names: set[str]) -> list[str]:
-    """Attribute calls like `scope.motion._thome_impl()` -- the direct-call
-    bypass. A reference passed to IOTask (`IOTask(scope.motion._thome_impl)`)
+    """Attribute calls like `scope.motion._home_turret_impl()` -- the direct-call
+    bypass. A reference passed to IOTask (`IOTask(scope.motion._home_turret_impl)`)
     is an ast.Attribute, not an ast.Call, so it is not flagged.
     """
     out: list[str] = []
@@ -106,7 +106,7 @@ def test_protocol_turret_ops_not_called_directly():
     references inside IOTask), never invoked directly on protocol_thread.
     """
     direct = _direct_calls_to(
-        _turret_select_node(), {'home', 'tmove', '_thome_impl', '_tmove_impl'}
+        _turret_select_node(), {'home', 'move_turret', '_home_turret_impl', '_move_turret_impl'}
     )
     assert not direct, (
         'turret_select calls these motion primitives directly -- they must '

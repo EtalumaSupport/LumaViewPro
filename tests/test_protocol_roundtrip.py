@@ -2341,20 +2341,20 @@ class TestLumascapeAPILed:
     """Direct tests on Lumascope LED API with simulated hardware."""
 
     def test_led_on_off(self, scope):
-        scope.illumination.led_on(channel=0, mA=100)
+        scope.illumination.led_on(channel=0, illumination_ma=100)
         assert scope.illumination.led_enabled('Blue')
         scope.illumination.led_off(channel=0)
         assert not scope.illumination.led_enabled('Blue')
 
     def test_led_on_by_color_name(self, scope):
-        scope.illumination.led_on(channel='Green', mA=200)
+        scope.illumination.led_on(channel='Green', illumination_ma=200)
         state = scope.illumination.get_led_state('Green')
         assert state['enabled']
         assert state['illumination_ma'] == 200
 
     def test_leds_off(self, scope):
-        scope.illumination.led_on(channel='BF', mA=50)
-        scope.illumination.led_on(channel='Red', mA=100)
+        scope.illumination.led_on(channel='BF', illumination_ma=50)
+        scope.illumination.led_on(channel='Red', illumination_ma=100)
         scope.illumination.leds_off()
         states = scope.illumination.get_led_states()
         for color, state in states.items():
@@ -2362,17 +2362,17 @@ class TestLumascapeAPILed:
 
     def test_led_current_validation(self, scope):
         with pytest.raises(ValueError):
-            scope.illumination.led_on(channel=0, mA=-1)
+            scope.illumination.led_on(channel=0, illumination_ma=-1)
         with pytest.raises(ValueError):
-            scope.illumination.led_on(channel=0, mA=1001)
+            scope.illumination.led_on(channel=0, illumination_ma=1001)
 
     def test_led_channel_validation(self, scope):
         with pytest.raises(ValueError):
-            scope.illumination.led_on(channel=99, mA=100)
+            scope.illumination.led_on(channel=99, illumination_ma=100)
 
     def test_led_states_snapshot(self, scope):
-        scope.illumination.led_on(channel='Green', mA=200)
-        scope.illumination.led_on(channel='Red', mA=150)
+        scope.illumination.led_on(channel='Green', illumination_ma=200)
+        scope.illumination.led_on(channel='Red', illumination_ma=150)
         states = scope.illumination.get_led_states()
         assert states['Green']['enabled']
         assert states['Green']['illumination_ma'] == 200

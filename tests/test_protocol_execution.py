@@ -2250,12 +2250,12 @@ class TestProtocolLedNoFlash:
         # A stray channel lit before the run (e.g. a Live-mode LED left on a
         # different color when the user pressed Scan).
         stray = scope.illumination.color2ch('Red')
-        scope.illumination.led_on(channel=stray, mA=80, owner='ui')
+        scope.illumination.led_on(channel=stray, illumination_ma=80, owner='ui')
         assert scope.illumination.led_enabled('Red')
 
         events = []
         scope.illumination.add_led_listener(
-            lambda color, enabled, mA, owner: events.append((color, enabled))
+            lambda channel, enabled, illumination_ma, owner: events.append((channel, enabled))
         )
 
         protocol = _make_single_step_protocol(color='Green', illumination=60.0)
@@ -2276,8 +2276,10 @@ class TestProtocolLedNoFlash:
         blink at run start. The pre-step nuclear leds_off used to clear the
         cache and force the re-light; this is the protocol/Z-stack flash.
         """
-        color, mA = 'Green', 60.0
-        scope.illumination.led_on(channel=scope.illumination.color2ch(color), mA=mA, owner='ui')
+        color, illumination_ma = 'Green', 60.0
+        scope.illumination.led_on(
+            channel=scope.illumination.color2ch(color), illumination_ma=illumination_ma, owner='ui'
+        )
         assert scope.illumination.led_enabled(color)
 
         events = []
@@ -2285,7 +2287,7 @@ class TestProtocolLedNoFlash:
             lambda c, enabled, m, owner: events.append((c, enabled))
         )
 
-        protocol = _make_single_step_protocol(color=color, illumination=mA)
+        protocol = _make_single_step_protocol(color=color, illumination=illumination_ma)
         completed, _ = _run_and_wait(executor, protocol, tmp_path)
         assert completed
 

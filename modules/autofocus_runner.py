@@ -312,7 +312,7 @@ class AutofocusRunner:
             )
             self._led_lease.apply(
                 LedTransition.AF_ENTER,
-                LedTransitionCtx(channel=af_channel, mA=self._led_illumination),
+                LedTransitionCtx(channel=af_channel, illumination_ma=self._led_illumination),
             )
             # Drop Z precision for the coarse passes; the fine pass restores
             # precision ON, and all exit paths (success, abort, exception)
@@ -447,7 +447,7 @@ class AutofocusRunner:
                     LedTransition.AF_TO_CAPTURE,
                     LedTransitionCtx(
                         channel=af_channel,
-                        mA=self._led_illumination,
+                        illumination_ma=self._led_illumination,
                         keep_led_on=keep_for_capture,
                         snapshot_lit=snapshot_lit,
                     ),

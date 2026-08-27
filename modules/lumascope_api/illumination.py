@@ -108,7 +108,7 @@ class LedTransitionCtx:
     """Primitives the LED authority needs to decide a transition's target set.
 
     Every field is a channel number, a current, a boolean, or a set of
-    (channel, mA) pairs -- never a protocol Step. The protocol-layer caller reads
+    (channel, illumination_ma) pairs -- never a protocol Step. The protocol-layer caller reads
     the Step and precomputes the booleans (same color as the next step, same
     z-stack group, the resolved across-move setting), then calls down with this
     context. Keeping the illumination layer free of Step parsing keeps it
@@ -119,7 +119,7 @@ class LedTransitionCtx:
     Fields:
         channel: The transition's primary channel (the step / AF / preview
             color), or None when the transition lights nothing.
-        mA: The primary channel's current, paired with ``channel``.
+        illumination_ma: The primary channel's current, paired with ``channel``.
         same_zstack_group: This step and the next are in one z-stack group, so
             illumination is held unconditionally across the boundary.
         same_color: This step and the next request the same color.
@@ -139,12 +139,12 @@ class LedTransitionCtx:
             not produce a visible end-of-acquire flicker. The hold derives from
             the run-end target itself, not a separately-computed flag.
         end_policy: The run's end-state when the run finishes.
-        snapshot_lit: The (channel, mA) pairs lit at the moment a snapshot was
+        snapshot_lit: The (channel, illumination_ma) pairs lit at the moment a snapshot was
             taken -- the pre-run / pre-autofocus live state to restore.
     """
 
     channel: int | None = None
-    mA: float | None = None
+    illumination_ma: float | None = None
     same_zstack_group: bool = False
     same_color: bool = False
     keep_led_across_moves: bool = False
@@ -251,14 +251,14 @@ class LedLease:
             ctx: The precomputed primitives for this transition.
 
         Returns:
-            The set of (channel, mA) pairs that should be lit afterward.
+            The set of (channel, illumination_ma) pairs that should be lit afterward.
 
         Raises:
             ValueError: If the transition is not one the authority handles.
         """
         primary: frozenset[tuple[int, float]] = (
-            frozenset({(ctx.channel, ctx.mA)})
-            if ctx.channel is not None and ctx.mA is not None
+            frozenset({(ctx.channel, ctx.illumination_ma)})
+            if ctx.channel is not None and ctx.illumination_ma is not None
             else frozenset()
         )
         if transition is LedTransition.STEP_LIGHT:
@@ -352,14 +352,14 @@ class LedLease:
 def _lit_channel_pairs(
     led_states: dict, color2ch, *, drop_nonpositive: bool
 ) -> frozenset[tuple[int, float]]:
-    """Build the lit (channel, mA) set from a color -> state mapping.
+    """Build the lit (channel, illumination_ma) set from a color -> state mapping.
 
     The single definition of "which channels count as lit" shared by the pre-run
     snapshot and the run-end restore, so the two cannot drift: if the lit
     criterion were tightened in one loop but not the other, the run-end restore
     could re-light a channel the snapshot treated as dark (or omit one it treated
     as lit). An enabled channel whose color maps to a real LED channel
-    contributes its (channel, mA) pair.
+    contributes its (channel, illumination_ma) pair.
 
     Args:
         led_states: color -> {'enabled': bool, 'illumination_ma': float | None}.
@@ -371,7 +371,7 @@ def _lit_channel_pairs(
             verbatim.
 
     Returns:
-        The (channel, mA) set of channels that should be lit.
+        The (channel, illumination_ma) set of channels that should be lit.
     """
     pairs = []
     for color, state in (led_states or {}).items():
@@ -381,17 +381,17 @@ def _lit_channel_pairs(
         if ch is None:
             continue
         if drop_nonpositive:
-            mA = state.get('illumination_ma') or 0
-            if mA <= 0:
+            illumination_ma = state.get('illumination_ma') or 0
+            if illumination_ma <= 0:
                 continue
         else:
-            mA = state['illumination_ma']
-        pairs.append((ch, mA))
+            illumination_ma = state['illumination_ma']
+        pairs.append((ch, illumination_ma))
     return frozenset(pairs)
 
 
 def live_lit_pairs(illumination) -> frozenset[tuple[int, float]]:
-    """The (channel, mA) set of channels commanded lit RIGHT NOW.
+    """The (channel, illumination_ma) set of channels commanded lit RIGHT NOW.
 
     The live-state counterpart of snapshot_lit_pairs: reads the
     illumination API's own state and channel mapping so no caller
@@ -404,7 +404,7 @@ def live_lit_pairs(illumination) -> frozenset[tuple[int, float]]:
 
 
 def snapshot_lit_pairs(led_states: dict, color2ch) -> frozenset[tuple[int, float]]:
-    """Convert a saved LED-state mapping to the authority's lit (channel, mA) set.
+    """Convert a saved LED-state mapping to the authority's lit (channel, illumination_ma) set.
 
     Mirrors the filter restore_led_state uses for its restore target: a channel
     counts as lit only if it is enabled with a positive current. Used to feed a
@@ -415,7 +415,7 @@ def snapshot_lit_pairs(led_states: dict, color2ch) -> frozenset[tuple[int, float
         color2ch: Callable mapping a color name to a channel number (or None).
 
     Returns:
-        The (channel, mA) set of channels that should be lit.
+        The (channel, illumination_ma) set of channels that should be lit.
     """
     return _lit_channel_pairs(led_states, color2ch, drop_nonpositive=True)
 
@@ -444,7 +444,7 @@ def resolve_end_state(
     Returns:
         (end_policy, snapshot_lit). end_policy is None for an unrecognized
         policy string -- the caller decides how to surface that. snapshot_lit is
-        the (channel, mA) set to restore, empty for the OFF policy.
+        the (channel, illumination_ma) set to restore, empty for the OFF policy.
     """
     if leds_state_at_end == 'off':
         return LedEndPolicy.OFF, frozenset()
@@ -502,7 +502,7 @@ class IlluminationAPI:
         del driver  # intentionally unused, kept for backward call sites
 
         # LED change listeners -- push-based UI update mechanism. Each
-        # listener is called with (color, enabled, mA, owner) whenever
+        # listener is called with (channel, enabled, illumination_ma, owner) whenever
         # any LED channel changes state. Fires from the thread that
         # caused the change, so listeners MUST schedule UI work via
         # Clock.schedule_once.
@@ -558,13 +558,18 @@ class IlluminationAPI:
 
     # --- Sync control ---
     def _led_on_impl(
-        self, channel, mA, block: bool = False, owner: str = '', _lease_owner: str | None = None
+        self,
+        channel,
+        illumination_ma,
+        block: bool = False,
+        owner: str = '',
+        _lease_owner: str | None = None,
     ) -> None:
         """Turn on an LED channel at the specified current.
 
         Args:
             channel: Channel number (0-5) or color name string.
-            mA: Illumination current in milliamps.
+            illumination_ma: Illumination current in milliamps.
             block: If True, wait for confirmation from the LED board.
             owner: Optional ownership tag (e.g. 'autofocus', 'protocol').
                 If set, only ``led_off`` / ``leds_off_owned`` with the same
@@ -577,7 +582,7 @@ class IlluminationAPI:
                 leave it unset.
 
         Raises:
-            ValueError: If channel or mA is out of range.
+            ValueError: If channel or illumination_ma is out of range.
             ConfigError: If a colour name this scope cannot drive is given.
         """
         if not self._driver:
@@ -589,8 +594,12 @@ class IlluminationAPI:
         if channel not in valid_channels:
             raise ValueError(f'LED channel must be one of {valid_channels}, got {channel}')
         led_max_ma = self._scope.capabilities.led_max_ma
-        if not isinstance(mA, (int, float)) or mA < 0 or mA > led_max_ma:
-            raise ValueError(f'LED current must be 0-{led_max_ma} mA, got {mA}')
+        if (
+            not isinstance(illumination_ma, (int, float))
+            or illumination_ma < 0
+            or illumination_ma > led_max_ma
+        ):
+            raise ValueError(f'LED current must be 0-{led_max_ma} mA, got {illumination_ma}')
 
         # Skip redundant command if channel is already on at the same current
         color_name = self.ch2color(channel)
@@ -604,7 +613,11 @@ class IlluminationAPI:
                 cached_entry = self._led_state.get(color_name)
                 is_enabled = self.led_enabled(color_name)
                 try:
-                    delta = None if current_ma is None else abs(float(mA) - float(current_ma))
+                    delta = (
+                        None
+                        if current_ma is None
+                        else abs(float(illumination_ma) - float(current_ma))
+                    )
                 except Exception:
                     delta = 'ERR'
                 _api_log.info(
@@ -612,8 +625,8 @@ class IlluminationAPI:
                     'new_mA=%r (type=%s) cached_mA=%r (type=%s) '
                     'delta=%r enabled=%s cache_entry=%r',
                     color_name,
-                    mA,
-                    type(mA).__name__,
+                    illumination_ma,
+                    type(illumination_ma).__name__,
                     current_ma,
                     type(current_ma).__name__,
                     delta,
@@ -622,7 +635,7 @@ class IlluminationAPI:
                 )
             if (
                 current_ma is not None
-                and abs(float(mA) - float(current_ma)) < 0.01
+                and abs(float(illumination_ma) - float(current_ma)) < 0.01
                 and self.led_enabled(color_name)
             ):
                 return
@@ -641,10 +654,10 @@ class IlluminationAPI:
             return
 
         with self._led_lock:
-            self._driver.led_on(channel, mA, block=block)
+            self._driver.led_on(channel, illumination_ma, block=block)
         self._notify_if_led_command_failed()
         self._scope.imaging.frame_validity.invalidate('led')
-        _api_log.info(f'led_on ch={channel} mA={mA} owner={owner!r}')
+        _api_log.info(f'led_on ch={channel} illumination_ma={illumination_ma} owner={owner!r}')
 
         # Update API-level state cache + ownership. Unconditional --
         # empty owner ('') is recorded too, so UI clicks (which arrive
@@ -654,11 +667,11 @@ class IlluminationAPI:
             with self._led_owner_lock:
                 self._led_state[color_name] = {
                     'enabled': True,
-                    'illumination_ma': float(mA),
+                    'illumination_ma': float(illumination_ma),
                     'owner': owner,
                 }
                 self._led_owners[color_name] = owner
-            self._fire_led_listeners(color_name, True, float(mA), owner)
+            self._fire_led_listeners(color_name, True, float(illumination_ma), owner)
 
     def _led_off_impl(self, channel, owner: str = '', _lease_owner: str | None = None) -> None:
         """Turn off an LED channel.
@@ -796,7 +809,12 @@ class IlluminationAPI:
         return fut.result(timeout=_LED_WRITE_TIMEOUT_S)
 
     def led_on(
-        self, channel, mA, block: bool = False, owner: str = '', _lease_owner: str | None = None
+        self,
+        channel,
+        illumination_ma,
+        block: bool = False,
+        owner: str = '',
+        _lease_owner: str | None = None,
     ) -> None:
         """Turn on an LED channel at the specified current, and wait for it.
 
@@ -806,7 +824,7 @@ class IlluminationAPI:
         return self._dispatch_led(
             self._led_on_impl,
             'led_on',
-            args=(channel, mA, block, owner, _lease_owner),
+            args=(channel, illumination_ma, block, owner, _lease_owner),
         )
 
     def led_off(self, channel, owner: str = '', _lease_owner: str | None = None) -> None:
@@ -1000,12 +1018,14 @@ class IlluminationAPI:
         if self._submit_io(self._leds_off_impl, 'leds_off_async', callback=callback):
             logger.info('[SCOPE API ] leds_off_async()')
 
-    def led_on_async(self, channel, mA, *, callback=None, cb_kwargs=None, owner: str = '') -> None:
-        """Submit ``led_on(channel, mA)`` to the io_executor.
+    def led_on_async(
+        self, channel, illumination_ma, *, callback=None, cb_kwargs=None, owner: str = ''
+    ) -> None:
+        """Submit ``led_on(channel, illumination_ma)`` to the io_executor.
 
         Args:
             channel: Channel number or color name.
-            mA: LED current in milliamps.
+            illumination_ma: LED current in milliamps.
             callback: Optional completion callback.
             cb_kwargs: Optional kwargs passed to the callback.
             owner: Optional ownership tag for the LED state.
@@ -1014,7 +1034,7 @@ class IlluminationAPI:
         self._submit_io(
             self._led_on_impl,
             'led_on_async',
-            args=(channel, mA),
+            args=(channel, illumination_ma),
             kwargs=kwargs,
             callback=callback,
             cb_kwargs=cb_kwargs,
@@ -1042,28 +1062,28 @@ class IlluminationAPI:
         )
 
     # --- State ---
-    def get_led_ma(self, color: str) -> float | None:
+    def get_led_ma(self, channel: str) -> float | None:
         """Get the current illumination level for an LED channel.
 
         Reads from the API-level _led_state cache. Does NOT delegate
         to the driver -- the API layer is the single source of truth.
 
         Args:
-            color: Channel color name (e.g. "Blue", "Green", "Red", "BF").
+            channel: Channel name (e.g. "Blue", "Green", "Red", "BF").
 
         Returns:
             Illumination in milliamps when the channel has an active
             value set; None when the LED board is absent or the channel
-            is off / never set. Use ``led_enabled(color)`` to distinguish
+            is off / never set. Use ``led_enabled(channel)`` to distinguish
             "off but reachable" from "no LED board."
         """
         if not self._driver:
             return None
         with self._led_owner_lock:
-            entry = self._led_state.get(color)
+            entry = self._led_state.get(channel)
             return entry['illumination_ma'] if entry else None
 
-    def led_enabled(self, color: str) -> bool:
+    def led_enabled(self, channel: str) -> bool:
         """Whether a specific LED channel is currently on.
 
         Reads from the API-level _led_state cache. Prior behavior
@@ -1072,7 +1092,7 @@ class IlluminationAPI:
         complete no-op on FX2 cameras.
 
         Args:
-            color: Channel color name (e.g. "Blue", "Green", "Red", "BF").
+            channel: Channel name (e.g. "Blue", "Green", "Red", "BF").
 
         Returns:
             True if the channel is currently on.
@@ -1080,15 +1100,15 @@ class IlluminationAPI:
         if not self._driver:
             return False
         with self._led_owner_lock:
-            return self._led_state.get(color) is not None
+            return self._led_state.get(channel) is not None
 
-    def get_led_state(self, color: str) -> dict:
+    def get_led_state(self, channel: str) -> dict:
         """Get the on/off state, illumination, and owner for an LED channel.
 
         Reads from the API-level _led_state cache.
 
         Args:
-            color: Channel color name (e.g. "Blue", "Green", "Red", "BF").
+            channel: Channel name (e.g. "Blue", "Green", "Red", "BF").
 
         Returns:
             {'enabled': bool, 'illumination_ma': float | None, 'owner': str}.
@@ -1099,7 +1119,7 @@ class IlluminationAPI:
         if not self._driver:
             return {'enabled': False, 'illumination_ma': None, 'owner': ''}
         with self._led_owner_lock:
-            entry = self._led_state.get(color)
+            entry = self._led_state.get(channel)
             if entry is None:
                 return {'enabled': False, 'illumination_ma': None, 'owner': ''}
             return {
@@ -1198,14 +1218,19 @@ class IlluminationAPI:
 
         # Re-assert the target channels; led_on self-skips channels already at
         # their target mA, so this does not blink an already-correct channel.
-        for color, mA in target_on.items():
+        for color, illumination_ma in target_on.items():
             ch = self.color2ch(color)
             if ch is not None:
                 saved_owner = snapshot.get('owners', {}).get(color, '')
                 # The restored owner tag is the channel's original owner, but
                 # the lease check is on behalf of the restorer (e.g. AF
                 # re-asserting a pre-run UI channel).
-                self._led_on_impl(channel=ch, mA=mA, owner=saved_owner, _lease_owner=owner)
+                self._led_on_impl(
+                    channel=ch,
+                    illumination_ma=illumination_ma,
+                    owner=saved_owner,
+                    _lease_owner=owner,
+                )
 
     def leds_off_owned(self, owner: str) -> None:
         """Turn off only the LED channels owned by *owner*.
@@ -1472,8 +1497,8 @@ class IlluminationAPI:
             ch = self.color2ch(color)
             if ch is not None and ch not in target_channels:
                 self._led_off_impl(channel=ch, _lease_owner=owner)
-        for ch, mA in target:
-            self._led_on_impl(channel=ch, mA=mA, owner=owner, block=block)
+        for ch, illumination_ma in target:
+            self._led_on_impl(channel=ch, illumination_ma=illumination_ma, owner=owner, block=block)
 
     def _apply_transition_impl(
         self, transition: LedTransition, ctx: LedTransitionCtx, *, owner: str = ''
@@ -1582,13 +1607,13 @@ class IlluminationAPI:
     def add_led_listener(self, listener) -> None:
         """Register a callback for LED state changes.
 
-        The listener is called with ``(color, enabled, mA, owner)`` whenever
+        The listener is called with ``(channel, enabled, illumination_ma, owner)`` whenever
         any LED channel changes state.  It fires from the thread that caused
         the change, so listeners **must** schedule UI work via
         ``Clock.schedule_once``.
 
         Args:
-            listener: ``callable(color: str, enabled: bool, mA: float, owner: str)``
+            listener: ``callable(channel: str, enabled: bool, illumination_ma: float, owner: str)``
         """
         with self._led_listeners_lock:
             self._led_listeners.append(listener)
@@ -1606,12 +1631,14 @@ class IlluminationAPI:
             except ValueError:
                 pass
 
-    def _fire_led_listeners(self, color: str, enabled: bool, mA: float, owner: str = '') -> None:
-        """Notify all LED listeners of a state change on *color*."""
+    def _fire_led_listeners(
+        self, channel: str, enabled: bool, illumination_ma: float, owner: str = ''
+    ) -> None:
+        """Notify all LED listeners of a state change on *channel*."""
         with self._led_listeners_lock:
             listeners = list(self._led_listeners)
         for fn in listeners:
             try:
-                fn(color, enabled, mA, owner)
+                fn(channel, enabled, illumination_ma, owner)
             except Exception as ex:
                 _api_log.debug(f'led listener error: {ex}')

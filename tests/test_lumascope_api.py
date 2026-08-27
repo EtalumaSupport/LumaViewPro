@@ -205,7 +205,7 @@ class TestLumascopeHome:
         scope = Lumascope(simulate=True)
         ran = []
         scope.motion._zhome_impl = lambda: ran.append('Z') or True
-        scope.motion._thome_impl = lambda: ran.append('T') or True
+        scope.motion._home_turret_impl = lambda: ran.append('T') or True
         scope.motion._home_impl = lambda: ran.append('ALL') or True
 
         assert scope.motion.home(axis='Z') is True

@@ -56,7 +56,7 @@ def _metadata_scope(chunks, chunk_reads=None):
             get_motor_info=lambda: {'serial_number': 'SN1', 'firmware_version': 'fw'},
             get_camera_info=lambda: {'model': 'simcam'},
         ),
-        illumination=SimpleNamespace(get_led_ma=lambda color: 100.0),
+        illumination=SimpleNamespace(get_led_ma=lambda channel: 100.0),
         _camera_driver=SimpleNamespace(
             cam_image_handler=SimpleNamespace(get_last_chunks=get_last_chunks),
             timestamp_tick_frequency_hz=1_000_000_000,

@@ -497,9 +497,9 @@ class TestRegistryAccommodatesCompositeHardware:
                 self._conn = FakeConn.get()
                 self.found = True
 
-            def led_on(self, channel, mA, **kw):
+            def led_on(self, channel, illumination_ma, **kw):
                 with self._conn.lock:
-                    self._conn.commands_sent.append(('led', channel, mA))
+                    self._conn.commands_sent.append(('led', channel, illumination_ma))
 
         @local_cam_reg.register('fake_lvc', priority=50)
         class FakeLVCCamera:

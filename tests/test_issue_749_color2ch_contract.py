@@ -86,8 +86,8 @@ class _FourColourRecordingBoard:
     def available_colors(self):
         return tuple(self._COLOR_TO_CH)
 
-    def led_on(self, channel, mA, **kwargs):
-        self.commands.append(('on', channel, mA))
+    def led_on(self, channel, illumination_ma, **kwargs):
+        self.commands.append(('on', channel, illumination_ma))
         return True
 
     def led_off(self, channel, **kwargs):
@@ -116,7 +116,7 @@ class TestSeamBehaviour:
         board = _FourColourRecordingBoard()
         sim_scope._led_driver = board
         with pytest.raises(ConfigError, match='Lumi'):
-            sim_scope.illumination.led_on(channel='Lumi', mA=50)
+            sim_scope.illumination.led_on(channel='Lumi', illumination_ma=50)
         assert board.commands == [], 'no command may reach the driver'
 
     def test_led_off_unknown_colour_is_noop(self, sim_scope):

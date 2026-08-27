@@ -40,9 +40,9 @@ class LedSubstream:
         self._events: list[tuple] = []
         self._lock = threading.Lock()
 
-    def __call__(self, color, enabled, mA, owner) -> None:
+    def __call__(self, color, enabled, illumination_ma, owner) -> None:
         with self._lock:
-            self._events.append((color, bool(enabled), mA, owner))
+            self._events.append((color, bool(enabled), illumination_ma, owner))
 
     @property
     def events(self) -> list[tuple]:
@@ -112,9 +112,9 @@ def _ch(scope, color: str) -> int:
     return scope.illumination.color2ch(color)
 
 
-def _ctx(scope, color: str, mA: float, **kwargs) -> LedTransitionCtx:
+def _ctx(scope, color: str, illumination_ma: float, **kwargs) -> LedTransitionCtx:
     """Build a ctx for a single primary channel, plus any overrides."""
-    return LedTransitionCtx(channel=_ch(scope, color), mA=mA, **kwargs)
+    return LedTransitionCtx(channel=_ch(scope, color), illumination_ma=illumination_ma, **kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -137,14 +137,14 @@ def _td(transition, **ctx_kwargs) -> frozenset:
 
 
 def test_target_step_light_is_exclusive_primary():
-    assert _td(LedTransition.STEP_LIGHT, channel=GREEN_CH, mA=GREEN_MA) == frozenset(
+    assert _td(LedTransition.STEP_LIGHT, channel=GREEN_CH, illumination_ma=GREEN_MA) == frozenset(
         {(GREEN_CH, GREEN_MA)}
     )
 
 
 def test_target_af_enter_off_when_no_color():
-    assert _td(LedTransition.AF_ENTER, channel=None, mA=None) == frozenset()
-    assert _td(LedTransition.AF_ENTER, channel=GREEN_CH, mA=GREEN_MA) == frozenset(
+    assert _td(LedTransition.AF_ENTER, channel=None, illumination_ma=None) == frozenset()
+    assert _td(LedTransition.AF_ENTER, channel=GREEN_CH, illumination_ma=GREEN_MA) == frozenset(
         {(GREEN_CH, GREEN_MA)}
     )
 
@@ -152,14 +152,14 @@ def test_target_af_enter_off_when_no_color():
 def test_target_af_to_capture_holds_or_restores():
     # keep_led_on: hold the AF channel for the capture.
     assert _td(
-        LedTransition.AF_TO_CAPTURE, channel=GREEN_CH, mA=GREEN_MA, keep_led_on=True
+        LedTransition.AF_TO_CAPTURE, channel=GREEN_CH, illumination_ma=GREEN_MA, keep_led_on=True
     ) == frozenset({(GREEN_CH, GREEN_MA)})
     # interactive AF: restore the pre-AF snapshot instead.
     assert (
         _td(
             LedTransition.AF_TO_CAPTURE,
             channel=GREEN_CH,
-            mA=GREEN_MA,
+            illumination_ma=GREEN_MA,
             keep_led_on=False,
             snapshot_lit=SNAPSHOT,
         )
@@ -172,14 +172,14 @@ def test_target_step_boundary_zstack_always_holds():
     assert _td(
         LedTransition.STEP_BOUNDARY,
         channel=GREEN_CH,
-        mA=GREEN_MA,
+        illumination_ma=GREEN_MA,
         same_zstack_group=True,
         keep_led_across_moves=False,
     ) == frozenset({(GREEN_CH, GREEN_MA)})
 
 
 def test_target_step_boundary_across_move_is_opt_in():
-    base = {'channel': GREEN_CH, 'mA': GREEN_MA, 'same_color': True}
+    base = {'channel': GREEN_CH, 'illumination_ma': GREEN_MA, 'same_color': True}
     # Default (opt-in OFF): extinguish on the stage move (photobleaching-safe).
     assert _td(LedTransition.STEP_BOUNDARY, **base, keep_led_across_moves=False) == frozenset()
     # Opt-in ON + same color: hold across the move.
@@ -191,7 +191,7 @@ def test_target_step_boundary_across_move_is_opt_in():
         _td(
             LedTransition.STEP_BOUNDARY,
             channel=GREEN_CH,
-            mA=GREEN_MA,
+            illumination_ma=GREEN_MA,
             same_color=False,
             keep_led_across_moves=True,
         )
@@ -206,7 +206,7 @@ def test_target_step_boundary_scan_boundary_forces_off():
         _td(
             LedTransition.STEP_BOUNDARY,
             channel=GREEN_CH,
-            mA=GREEN_MA,
+            illumination_ma=GREEN_MA,
             same_zstack_group=True,
             same_color=True,
             keep_led_across_moves=True,
@@ -223,7 +223,7 @@ def test_target_step_boundary_run_end_boundary_holds_relit_channel():
     assert _td(
         LedTransition.STEP_BOUNDARY,
         channel=GREEN_CH,
-        mA=GREEN_MA,
+        illumination_ma=GREEN_MA,
         is_run_end_boundary=True,
         end_policy=LedEndPolicy.RETURN_TO_ORIGINAL,
         snapshot_lit=frozenset({(GREEN_CH, GREEN_MA)}),
@@ -233,7 +233,7 @@ def test_target_step_boundary_run_end_boundary_holds_relit_channel():
         _td(
             LedTransition.STEP_BOUNDARY,
             channel=GREEN_CH,
-            mA=GREEN_MA,
+            illumination_ma=GREEN_MA,
             is_run_end_boundary=True,
             end_policy=LedEndPolicy.OFF,
         )
@@ -245,7 +245,7 @@ def test_target_step_boundary_run_end_boundary_holds_relit_channel():
         _td(
             LedTransition.STEP_BOUNDARY,
             channel=GREEN_CH,
-            mA=GREEN_MA,
+            illumination_ma=GREEN_MA,
             is_run_end_boundary=True,
             end_policy=LedEndPolicy.RETURN_TO_ORIGINAL,
             snapshot_lit=frozenset({(RED_CH, RED_MA)}),
@@ -257,7 +257,7 @@ def test_target_step_boundary_run_end_boundary_holds_relit_channel():
         _td(
             LedTransition.STEP_BOUNDARY,
             channel=GREEN_CH,
-            mA=GREEN_MA,
+            illumination_ma=GREEN_MA,
             is_run_end_boundary=True,
             end_policy=LedEndPolicy.RETURN_TO_ORIGINAL,
             snapshot_lit=frozenset({(GREEN_CH, GREEN_MA)}),
@@ -359,10 +359,10 @@ def test_lit_pairs_shared_helper_snapshot_and_restore_agree():
 
 def test_target_manual_step_preview_gate():
     assert _td(
-        LedTransition.MANUAL_STEP, channel=GREEN_CH, mA=GREEN_MA, preview_on=True
+        LedTransition.MANUAL_STEP, channel=GREEN_CH, illumination_ma=GREEN_MA, preview_on=True
     ) == frozenset({(GREEN_CH, GREEN_MA)})
     assert (
-        _td(LedTransition.MANUAL_STEP, channel=GREEN_CH, mA=GREEN_MA, preview_on=False)
+        _td(LedTransition.MANUAL_STEP, channel=GREEN_CH, illumination_ma=GREEN_MA, preview_on=False)
         == frozenset()
     )
 

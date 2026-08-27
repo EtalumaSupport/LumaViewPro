@@ -97,8 +97,8 @@ class TestSimulatedLEDBoard:
         # All LEDs should be off after all toggles complete; check the
         # driver-internal cache (now Phase-3d.5 dead state) directly
         # since the protocol-level reader was retired.
-        for color, mA in board.led_ma.items():
-            assert mA == -1, f'{color} not reset after concurrent toggle'
+        for color, illumination_ma in board.led_ma.items():
+            assert illumination_ma == -1, f'{color} not reset after concurrent toggle'
 
 
 # ---------------------------------------------------------------------------

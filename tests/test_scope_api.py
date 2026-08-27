@@ -448,7 +448,7 @@ class TestLumascopeLedAPI:
 
     def test_led_on_async_dispatches(self):
         scope, io_ex, _ = _make_real_scope_with_recording_executors()
-        scope.illumination.led_on_async(channel=2, mA=100)
+        scope.illumination.led_on_async(channel=2, illumination_ma=100)
         task = io_ex.submitted[0]
         assert task.action == scope.illumination._led_on_impl
         assert task.args == (2, 100)
@@ -485,7 +485,7 @@ class TestLumascopeLedAPI:
         # assertion -- a dispatcher that submitted without waiting would
         # find the channel still dark.
         scope, io_ex, _ = _make_real_scope_with_recording_executors()
-        scope.illumination.led_on(channel=1, mA=75)
+        scope.illumination.led_on(channel=1, illumination_ma=75)
         assert len(io_ex.submitted) == 1
         color = scope.illumination.ch2color(1)
         assert scope.illumination.get_led_ma(color) == 75.0
@@ -510,7 +510,7 @@ class TestLumascopeLedAPI:
         form."""
         scope = lumascope_api.Lumascope(simulate=True)
         try:
-            scope.illumination.led_on_async(channel=0, mA=30)
+            scope.illumination.led_on_async(channel=0, illumination_ma=30)
             color = scope.illumination.ch2color(0)
             assert scope.illumination.get_led_ma(color) == 30.0
             scope.illumination.leds_off_async()
@@ -577,7 +577,7 @@ class TestLumascopeMotionAPI:
         scope, io_ex, _ = _make_real_scope_with_recording_executors()
         scope.motion.move_home_async('T')
         task = io_ex.submitted[0]
-        assert task.action == scope.motion._thome_impl
+        assert task.action == scope.motion._home_turret_impl
 
     def test_move_home_async_with_callback(self):
         scope, io_ex, _ = _make_real_scope_with_recording_executors()

@@ -177,7 +177,7 @@ class TestShutdownSuppression:
         received = []
         nc.add_listener(lambda n: received.append(n))
         nc.set_shutting_down(True)
-        nc.error('Task', 'IO Task Failed', 'tmove failed')
+        nc.error('Task', 'IO Task Failed', 'move_turret failed')
         nc.error('Task', 'IO Task Failed', 'get_xy_targets failed')
         assert received == []
 
@@ -185,7 +185,7 @@ class TestShutdownSuppression:
         nc = NotificationCenter()
         nc.set_shutting_down(True)
         with caplog.at_level('ERROR'):
-            nc.error('Task', 'IO Task Failed', 'tmove failed')
+            nc.error('Task', 'IO Task Failed', 'move_turret failed')
         # Message landed in the log even though listeners didn't fire.
         assert any('IO Task Failed' in rec.message for rec in caplog.records)
 

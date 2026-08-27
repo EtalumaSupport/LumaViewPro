@@ -85,7 +85,7 @@ def test_child_release_returns_control_to_parent(scope):
 
 def test_release_turns_owned_leds_off_by_default(scope):
     lease = scope.illumination.acquire_led_lease('protocol', alive=lambda: True)
-    scope.illumination.led_on(channel=0, mA=100, owner='protocol')
+    scope.illumination.led_on(channel=0, illumination_ma=100, owner='protocol')
     assert _lit(scope, 0)
     lease.release()
     assert not _lit(scope, 0)
@@ -93,7 +93,7 @@ def test_release_turns_owned_leds_off_by_default(scope):
 
 def test_release_leave_on_keeps_leds_lit(scope):
     lease = scope.illumination.acquire_led_lease('protocol', alive=lambda: True)
-    scope.illumination.led_on(channel=0, mA=100, owner='protocol')
+    scope.illumination.led_on(channel=0, illumination_ma=100, owner='protocol')
     lease.release(leave_on=True)
     assert _lit(scope, 0)
 
@@ -104,7 +104,7 @@ def test_double_release_is_noop(scope):
     # A second release must not raise and must not turn off a LED a later
     # owner has since lit.
     second = scope.illumination.acquire_led_lease('autofocus', alive=lambda: True)
-    scope.illumination.led_on(channel=0, mA=100, owner='autofocus')
+    scope.illumination.led_on(channel=0, illumination_ma=100, owner='autofocus')
     lease.release()
     assert _lit(scope, 0)
     assert scope.illumination.led_lease_owner == 'autofocus'
@@ -113,7 +113,7 @@ def test_double_release_is_noop(scope):
 
 def test_force_off_bypasses_lease_and_logs(scope, caplog):
     scope.illumination.acquire_led_lease('protocol', alive=lambda: True)
-    scope.illumination.led_on(channel=0, mA=100, owner='protocol')
+    scope.illumination.led_on(channel=0, illumination_ma=100, owner='protocol')
     with caplog.at_level(logging.WARNING, logger='LVP.api'):
         scope.illumination.force_off()
     assert not _lit(scope, 0)
@@ -157,7 +157,7 @@ def test_owner_emit_diff_does_not_self_violate(scope, caplog):
     # owner-less off whose lease check is tagged with the holder; that must
     # NOT be flagged as a violation of the holder's own lease.
     scope.illumination.acquire_led_lease('protocol', alive=lambda: True)
-    scope.illumination.led_on(channel=0, mA=100, owner='protocol')
+    scope.illumination.led_on(channel=0, illumination_ma=100, owner='protocol')
     with caplog.at_level(logging.WARNING, logger='LVP.api'):
         scope.illumination._emit_led_diff(frozenset({(3, 200.0)}), owner='protocol', block=False)
     assert not any('holds the lease' in r.message for r in caplog.records)
@@ -167,7 +167,7 @@ def test_external_led_on_during_lease_is_refused(scope, caplog):
     # A live UI write (empty owner) while a run owns the LEDs is rejected.
     scope.illumination.acquire_led_lease('protocol', alive=lambda: True)
     with caplog.at_level(logging.WARNING, logger='LVP.api'):
-        scope.illumination.led_on(channel=0, mA=100, owner='')
+        scope.illumination.led_on(channel=0, illumination_ma=100, owner='')
     assert not _lit(scope, 0)
     assert any('refused' in r.message for r in caplog.records)
 
@@ -176,20 +176,20 @@ def test_external_led_off_during_lease_is_refused(scope):
     # The autofocus-LED-killed shape: a UI off must not turn off a channel a
     # run owns. The protocol lit the channel; a bare UI off is refused.
     scope.illumination.acquire_led_lease('protocol', alive=lambda: True)
-    scope.illumination.led_on(channel=0, mA=100, owner='protocol')
+    scope.illumination.led_on(channel=0, illumination_ma=100, owner='protocol')
     scope.illumination.led_off(channel=0, owner='')  # live UI off
     assert _lit(scope, 0)
 
 
 def test_owner_write_during_own_lease_is_allowed(scope):
     scope.illumination.acquire_led_lease('protocol', alive=lambda: True)
-    scope.illumination.led_on(channel=0, mA=100, owner='protocol')
+    scope.illumination.led_on(channel=0, illumination_ma=100, owner='protocol')
     assert _lit(scope, 0)
 
 
 def test_force_off_still_works_under_enforcement(scope):
     scope.illumination.acquire_led_lease('protocol', alive=lambda: True)
-    scope.illumination.led_on(channel=0, mA=100, owner='protocol')
+    scope.illumination.led_on(channel=0, illumination_ma=100, owner='protocol')
     scope.illumination.force_off()
     assert not _lit(scope, 0)
 
@@ -199,7 +199,7 @@ def test_leds_off_turns_off_during_a_held_lease(scope):
     # owner's lit channel off even while a run holds the lease, so closing the
     # app mid-run cannot leave an LED stuck on.
     scope.illumination.acquire_led_lease('protocol', alive=lambda: True)
-    scope.illumination.led_on(channel=0, mA=100, owner='protocol')
+    scope.illumination.led_on(channel=0, illumination_ma=100, owner='protocol')
     assert _lit(scope, 0)
     scope.illumination.leds_off()
     assert not _lit(scope, 0)

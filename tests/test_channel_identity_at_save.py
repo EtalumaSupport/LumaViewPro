@@ -177,7 +177,7 @@ def test_manual_capture_stamps_the_acquiring_layer(
 
     The toggle moves the photometric interpretation and never the name.
     """
-    identity_scope.illumination.led_on(channel=LAYER, mA=100)
+    identity_scope.illumination.led_on(channel=LAYER, illumination_ma=100)
 
     written = _run_manual_capture(
         tmp_path,
@@ -202,7 +202,7 @@ def test_manual_capture_records_the_real_drive_current(identity_scope, tmp_path)
     """Metadata looks up the LED current for the channel it is told. Asking for
     brightfield's current while a fluorescence LED was lit recorded 0 mA on
     every manual capture -- a zero that was never measured."""
-    identity_scope.illumination.led_on(channel=LAYER, mA=100)
+    identity_scope.illumination.led_on(channel=LAYER, illumination_ma=100)
 
     written = _run_manual_capture(
         tmp_path, identity_scope, false_color_active=False, use_crosshairs=False

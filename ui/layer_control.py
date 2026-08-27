@@ -1248,7 +1248,7 @@ class LayerControl(BoxLayout):
                         if layer == self.layer:
                             continue
                         try:
-                            state = ctx.scope.illumination.get_led_state(color=layer)
+                            state = ctx.scope.illumination.get_led_state(channel=layer)
                             if state.get('enabled', False):
                                 ctx.scope.illumination.led_off_async(layer)
                         except Exception as e:

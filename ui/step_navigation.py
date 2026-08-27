@@ -215,7 +215,7 @@ def _apply_manual_nav_outcome(
     if step_changed:
         led_ctx = LedTransitionCtx(
             channel=ctx.scope.illumination.color2ch(color),
-            mA=step['Illumination'],
+            illumination_ma=step['Illumination'],
             preview_on=settings['protocol_led_on'],
         )
         ctx.scope.illumination.apply_transition_async(LedTransition.MANUAL_STEP, led_ctx)

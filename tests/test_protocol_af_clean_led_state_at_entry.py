@@ -133,7 +133,7 @@ class TestAutofocusRunnerExclusiveIlluminationAtRunStart:
             for c in af_lease.apply.call_args_list
             if c.args and c.args[0] is LedTransition.AF_ENTER
         )
-        assert enter_ctx.mA == 42.0
+        assert enter_ctx.illumination_ma == 42.0
         # The pre-AF snapshot must precede the AF_ENTER illuminate, or the exit
         # restore would capture the already-changed (post-illuminate) state.
         ordered = [name for name, args, kwargs in scope.mock_calls]

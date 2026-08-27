@@ -6,7 +6,7 @@ Bug
 ---
 The firmware homes the turret to position 1 (home() homes Z -> T -> X/Y, and
 home(axis='T') homes T), but Lumascope.motion never seeded _last_turret_position --
-it stayed None. The existing idempotent skip in tmove() ("if
+it stayed None. The existing idempotent skip in move_turret() ("if
 _last_turret_position == position: return") therefore could not fire, so the
 startup select-position-1 ran a full Z-retract -> rotate -> Z-restore even
 though the turret was already at 1.
@@ -14,7 +14,7 @@ though the turret was already at 1.
 Fix
 ---
 home() (when T is present) and home(axis='T') seed _last_turret_position = 1 on
-success, so a following tmove(1) is a no-op.
+success, so a following move_turret(1) is a no-op.
 """
 
 from modules.lumascope_api import Lumascope
@@ -35,7 +35,7 @@ def test_thome_seeds_turret_position_one():
 
 
 def test_tmove_to_one_after_home_is_noop():
-    """tmove(1) right after homing must skip the move (and its Z bounce)."""
+    """move_turret(1) right after homing must skip the move (and its Z bounce)."""
     scope = Lumascope(simulate=True)
     assert scope.capabilities.has_turret
     scope.motion.home()
@@ -43,7 +43,7 @@ def test_tmove_to_one_after_home_is_noop():
     original = scope.motion.move_absolute
     scope.motion.move_absolute = lambda *a, **k: moves.append((a, k))
     try:
-        scope.motion.tmove(1)
+        scope.motion.move_turret(1)
     finally:
         scope.motion.move_absolute = original
-    assert moves == [], f'tmove(1) after home should be a no-op; issued moves: {moves}'
+    assert moves == [], f'move_turret(1) after home should be a no-op; issued moves: {moves}'

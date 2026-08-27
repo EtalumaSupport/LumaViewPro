@@ -410,7 +410,7 @@ def generate_image_metadata(scope: Lumascope, channel, x, y, z) -> dict:
         **_frame_settings,
         'illumination_ma': (
             round(_ma, common_utils.max_decimal_precision('illumination'))
-            if (_ma := scope.illumination.get_led_ma(color=channel)) is not None
+            if (_ma := scope.illumination.get_led_ma(channel=channel)) is not None
             else 0
         ),
         'binning_size': scope.imaging._binning_size,

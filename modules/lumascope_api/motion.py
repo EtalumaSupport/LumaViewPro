@@ -149,9 +149,9 @@ class MotionAPI:
         self._arrival_events: dict = {}
         self._move_profile: dict = {}
 
-        # Last turret position cache -- tmove() short-circuits a same-
+        # Last turret position cache -- move_turret() short-circuits a same-
         # position request to avoid a no-op move command. Defaults to None
-        # so the first tmove() always goes through to the firmware.
+        # so the first move_turret() always goes through to the firmware.
         self._last_turret_position: int | None = None
 
     def _init_axes(self, present_axes: list[str], homed_axes: list[str]) -> None:
@@ -619,7 +619,7 @@ class MotionAPI:
                 self._set_axis_state(ax, AxisState.IDLE)
             self._refresh_position_cache()
             # The firmware homes the turret to position 1, so seed the cache.
-            # Without this it stays None and a subsequent tmove(1) -- e.g. the
+            # Without this it stays None and a subsequent move_turret(1) -- e.g. the
             # startup select-position-1 -- can't recognize the turret is
             # already there, and runs a redundant Z-retract / rotate / restore.
             if 'T' in present_axes:
@@ -688,7 +688,7 @@ class MotionAPI:
                     extra={'force_error': True},
                 )
 
-    def _thome_impl(self) -> bool:
+    def _home_turret_impl(self) -> bool:
         """Home the turret axis. Moves Z to 0 during turret motion for safety.
 
         Returns:
@@ -746,7 +746,7 @@ class MotionAPI:
                 return False
             self._refresh_position_cache()
             # Turret homes to position 1; seed the cache so a following
-            # tmove(1) is a no-op rather than a redundant Z-retract / rotate /
+            # move_turret(1) is a no-op rather than a redundant Z-retract / rotate /
             # restore (see home() for the full rationale).
             self._last_turret_position = 1
             _api_log.info('T home DONE')
@@ -760,7 +760,7 @@ class MotionAPI:
             _api_log.info('T home DONE')
             return False
 
-    def has_thomed(self) -> bool:
+    def has_turret_homed(self) -> bool:
         """Whether the turret has a known reference position.
 
         Answers from the axis state rather than the driver's homing
@@ -780,7 +780,7 @@ class MotionAPI:
         with self._axis_state_lock:
             return self._position_known(self._axis_state['T'])
 
-    def _tmove_impl(self, position: int, restore_z: bool = True) -> None:
+    def _move_turret_impl(self, position: int, restore_z: bool = True) -> None:
         """Move the turret to a specific position. Skips if already there.
 
         Args:
@@ -820,10 +820,11 @@ class MotionAPI:
     def get_actual_position(self, axis: str) -> float:
         """Query the actual hardware position via serial (not cached); um for X/Y/Z, turret slot for T.
 
-        Unlike get_current_position() which returns the last commanded
-        target, this queries the motor controller for where it actually is
-        right now. Use during continuous motion sweeps where the stage is
-        moving and the cache doesn't reflect the true position.
+        Unlike get_current_position(), which serves the in-memory cache,
+        this asks the motor controller directly. Use during continuous
+        motion sweeps where the stage is moving and the cache doesn't
+        reflect the true position. The commanded target is a third thing
+        again -- get_target_position() answers that.
 
         Costs one serial round-trip (~5ms).
 
@@ -1044,7 +1045,7 @@ class MotionAPI:
         if a in ('ALL', 'XY'):
             return self._home_impl
         if a == 'T':
-            return self._thome_impl
+            return self._home_turret_impl
         logger.warning(f'[SCOPE API ] Unknown home axis: {axis}')
         return None
 
@@ -1243,7 +1244,7 @@ class MotionAPI:
         """Whether the stage / focus axes have a known reference position.
 
         Answers from the axis state rather than the driver's homing
-        latch, for the same reason as ``has_thomed``: the latch survives
+        latch, for the same reason as ``has_turret_homed``: the latch survives
         every fault short of a physical disconnect, so it keeps
         reporting "homed" after a stall or a dropout has already
         invalidated the reference frame.
@@ -1737,7 +1738,7 @@ class MotionAPI:
                 Same vocabulary as ``move_home_async``, minus its legacy
                 ``'XY'`` alias.
 
-        See the ``_home_impl`` / ``_zhome_impl`` / ``_thome_impl``
+        See the ``_home_impl`` / ``_zhome_impl`` / ``_home_turret_impl``
         docstrings for the per-axis notify-on-failure contracts.
 
         Returns:
@@ -1756,7 +1757,7 @@ class MotionAPI:
         if a == 'Z':
             impl, settle_windows = self._zhome_impl, 1
         elif a == 'T':
-            impl, settle_windows = self._thome_impl, 3
+            impl, settle_windows = self._home_turret_impl, 3
         elif a == 'ALL':
             impl, settle_windows = self._home_impl, 1
         else:
@@ -1767,15 +1768,15 @@ class MotionAPI:
             timeout_s=self._MOTION_WAIT_BASE_S + settle_windows * self._MOTION_SETTLE_TIMEOUT_S,
         )
 
-    def tmove(self, position: int, restore_z: bool = True) -> None:
-        """Move the turret to a position, and wait for it. See ``_tmove_impl``.
+    def move_turret(self, position: int, restore_z: bool = True) -> None:
+        """Move the turret to a position, and wait for it. See ``_move_turret_impl``.
 
         The wait bound covers three physically-waited motions: the Z park,
         the turret move itself, and the Z restore.
         """
         return self._dispatch_motion(
-            self._tmove_impl,
-            'tmove',
+            self._move_turret_impl,
+            'move_turret',
             args=(position,),
             kwargs={'restore_z': restore_z},
             timeout_s=self._MOTION_WAIT_BASE_S + 3 * self._MOTION_SETTLE_TIMEOUT_S,

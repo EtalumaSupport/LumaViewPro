@@ -428,7 +428,7 @@ scope.motion.home(axis='T')                      # turret only (parks Z at 0, ho
 # and move_home_and_wait(axis) share the same 'Z' | 'T' | 'ALL' vocabulary.
 scope.motion.move_home_and_wait('ALL')           # blocks; True only if the home ran AND succeeded
 scope.motion.has_homed()                         # True if the stage/focus axes know where they are
-scope.motion.has_thomed()                        # turret-specific
+scope.motion.has_turret_homed()                  # turret-specific
 
 # Homing is REQUIRED, not advisory. A commanded move on an axis whose
 # position is unknown raises AxisStateUnknownError instead of driving --
@@ -440,7 +440,7 @@ scope.motion.has_thomed()                        # turret-specific
 #   if not scope.motion.move_home_and_wait('ALL'):
 #       ...  # do not command moves; the reference frame is not established
 #
-# has_homed() / has_thomed() answer from that same live state, so they
+# has_homed() / has_turret_homed() answer from that same live state, so they
 # report False after a fault revokes a reference that was previously
 # good -- not merely "a home once succeeded".
 
@@ -474,7 +474,7 @@ scope.motion.get_limit_switch_status_all_axes()  # dict of axis -> that pair, fo
 
 # Turret
 scope.capabilities.has_turret                    # turret presence probe
-scope.motion.tmove(2)                            # turret position 2
+scope.motion.move_turret(2)                      # turret position 2
 
 # Stage
 scope.motion.get_axis_limits('Z')                # {'min': 0, 'max': 14000}
@@ -517,13 +517,20 @@ scope.motion.remove_position_listener(on_position)
 
 Channels available depend on the scope — always check `scope.capabilities.led_colors`.
 
+**A channel is named, never numbered.** `'BF'`, `'PC'`, `'DF'`, `'Blue'`,
+`'Green'`, `'Red'` — the name is the portable identity. The number behind it is
+a driver detail and is NOT portable: an FX2 board carries four channels and an
+RP2040 board six, so the same integer means different LEDs, or none, depending
+on the board. Ask `caps.led_colors` for what a given scope can actually drive.
+Passing an integer still works today as a legacy compatibility form, but it is
+not the supported contract and will not be part of the REST surface.
+
 **Colours the scope cannot drive**: `led_on` with a colour name the scope has no LED channel for raises `ConfigError` naming the colour (it never maps to a substitute channel); `led_off` with such a colour is an idempotent no-op — a channel the scope does not have is already off. Numeric channel arguments are always range-checked and raise `ValueError` when invalid.
 
 **Luminescence** (`Lumi`): not an LED channel. In luminescence mode, all LEDs must be off — the image captures emitted light only.
 
 ```python
 scope.illumination.led_on('Blue', 200)                 # Blue LED at 200 mA
-scope.illumination.led_on(0, 200)                      # same, by channel number
 scope.illumination.led_on('Blue', 200, block=True)     # wait for firmware confirmation
 scope.illumination.led_off('Blue')
 scope.illumination.leds_off()                          # turn off all LEDs
@@ -535,7 +542,8 @@ scope.illumination.led_on_async('Red', 100)
 scope.illumination.led_off_async('Red')
 scope.illumination.leds_off_async()
 
-# Channel mapping
+# Channel mapping. Numbers are a DRIVER detail -- these exist to read the
+# board's own wire vocabulary, not to address channels from L2.
 scope.illumination.color2ch('Blue')                    # 0  (or None if the scope doesn't have this color)
 scope.illumination.ch2color(0)                         # 'Blue'
 
@@ -587,8 +595,8 @@ scope.illumination.restore_led_state(snapshot, owner='autofocus')  # Red back on
 Prefer listeners over polling. Listeners fire on every LED state change (enable, disable, illumination change, ownership change) with no serial I/O cost:
 
 ```python
-def on_led(color: str, enabled: bool, mA: float, owner: str):
-    print(f"{color} {'ON' if enabled else 'OFF'} {mA}mA owner={owner!r}")
+def on_led(channel: str, enabled: bool, illumination_ma: float, owner: str):
+    print(f"{channel} {'ON' if enabled else 'OFF'} {illumination_ma}mA owner={owner!r}")
 
 scope.illumination.add_led_listener(on_led)
 # ... later ...
@@ -669,7 +677,9 @@ image = scope.imaging.capture_and_wait(
     force_to_8bit=True,
     accept_dark=False,                     # True admits a dark frame while lit
     all_ones_check=True,                   # detect saturated frames
-    sum_count=4,                           # average 4 frames
+    sum_count=4,                           # SUM 4 frames (not an average); a
+                                           # summed capture is promoted to a
+                                           # 16-bit container and clipped there
     sum_delay_s=0.05,                      # delay between sum frames
     exclude_sources=('z_move',),           # don't wait for this source (AF uses this)
     earliest_image_ts=None,                # optional wall-clock lower bound on returned frame
@@ -819,7 +829,7 @@ The four listener families each pass a different callback signature -- register 
 | Listener | Register via | Callback signature |
 |---|---|---|
 | Motion / position | `scope.motion.add_position_listener` | `on_position(axis: str, target: float, state: str)` |
-| LED / illumination | `scope.illumination.add_led_listener` | `on_led(color: str, enabled: bool, mA: float, owner: str)` |
+| LED / illumination | `scope.illumination.add_led_listener` | `on_led(channel: str, enabled: bool, illumination_ma: float, owner: str)` |
 | Camera params | `scope.imaging.add_camera_listener` | `on_camera(param: str, value: float)` |
 | Live frame | `scope.imaging.add_frame_listener` | `on_frame(image, timestamp, chunks)` |
 
@@ -1251,16 +1261,16 @@ from modules.composite_builder import build_composite
 from modules.image_save import save_image
 
 channel_images = {}
-for color, mA, exp_ms, gain_db in [
+for channel, illumination_ma, exp_ms, gain_db in [
     ('Blue',  200, 100, 15),
     ('Green', 150,  80, 12),
     ('Red',   180,  90, 10),
 ]:
     scope.imaging.set_exposure_ms(exp_ms)
     scope.imaging.set_gain_db(gain_db)
-    scope.illumination.led_on(color, mA)
-    channel_images[color] = scope.imaging.capture_and_wait()
-    scope.illumination.led_off(color)
+    scope.illumination.led_on(channel, illumination_ma)
+    channel_images[channel] = scope.imaging.capture_and_wait()
+    scope.illumination.led_off(channel)
 
 # Transmitted (brightfield) base image
 scope.imaging.set_exposure_ms(2.0)

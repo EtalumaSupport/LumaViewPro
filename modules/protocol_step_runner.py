@@ -396,7 +396,7 @@ class ProtocolStepRunner:
                 # is nothing to keep lit anyway.
                 boundary_ctx = LedTransitionCtx(
                     channel=p._scope.illumination.color2ch(step['Color']),
-                    mA=step['Illumination'],
+                    illumination_ma=step['Illumination'],
                     same_color=same_color,
                     same_zstack_group=same_zstack_group,
                     keep_led_across_moves=p._keep_led_between_steps,
@@ -731,7 +731,7 @@ class ProtocolStepRunner:
             LedTransition.STEP_LIGHT,
             LedTransitionCtx(
                 channel=p._scope.illumination.color2ch(step['Color']),
-                mA=step['Illumination'],
+                illumination_ma=step['Illumination'],
             ),
         )
         time.sleep(0.005)

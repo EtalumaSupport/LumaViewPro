@@ -243,21 +243,21 @@ class TestLedOnValidation:
 
     def test_rejects_channel_out_of_range(self, sim_scope):
         with pytest.raises(ValueError, match='channel'):
-            sim_scope.illumination.led_on(channel=99, mA=10)
+            sim_scope.illumination.led_on(channel=99, illumination_ma=10)
 
     def test_rejects_negative_current(self, sim_scope):
         with pytest.raises(ValueError, match='current'):
-            sim_scope.illumination.led_on(channel=0, mA=-1)
+            sim_scope.illumination.led_on(channel=0, illumination_ma=-1)
 
     def test_rejects_current_above_max(self, sim_scope):
         with pytest.raises(ValueError, match='current'):
             sim_scope.illumination.led_on(
                 channel=0,
-                mA=sim_scope.capabilities.led_max_ma + 1,
+                illumination_ma=sim_scope.capabilities.led_max_ma + 1,
             )
 
     def test_accepts_valid_input(self, sim_scope):
-        sim_scope.illumination.led_on(channel=0, mA=50)
+        sim_scope.illumination.led_on(channel=0, illumination_ma=50)
 
 
 class TestMoveAbsolutePositionValidation:
@@ -4096,7 +4096,7 @@ class TestFrameValidity_AllLedMutatorsInvalidate:
             # The API-level *_fast tier is gone; the driver keeps its own
             # *_fast methods, which do not touch frame validity because
             # they never reach this layer.
-            'led_on': lambda: illum.led_on(channel=0, mA=10),
+            'led_on': lambda: illum.led_on(channel=0, illumination_ma=10),
             'led_off': lambda: illum.led_off(channel=0),
             'leds_off': lambda: illum.leds_off(),
         }
@@ -9357,7 +9357,7 @@ class TestSessionLedOnArgNameIsMa:
         # proving the value reaches the LED state.
         color = sim_scope.illumination.ch2color(0)
         for method_name in ('led_on', 'led_on_async'):
-            getattr(sim_scope.illumination, method_name)(channel=0, mA=42.0)
+            getattr(sim_scope.illumination, method_name)(channel=0, illumination_ma=42.0)
             assert sim_scope.illumination.get_led_ma(color) == 42.0, (
                 f'illumination.{method_name} must accept mA by keyword and apply it'
             )
@@ -9664,7 +9664,7 @@ class TestLedMaxMaCanonicalHomeIsCapabilities:
 
         sim_scope.capabilities = replace(sim_scope.capabilities, led_max_ma=50)
         with _pytest.raises(ValueError, match='current'):
-            sim_scope.illumination.led_on(channel=0, mA=51)
+            sim_scope.illumination.led_on(channel=0, illumination_ma=51)
 
 
 class TestRuntimeStateSetObjective:
@@ -10211,7 +10211,7 @@ class TestLumascopeSkillsApiPluginDocBatch:
         doc = self._doc()
         for sig in (
             'on_position(axis',
-            'on_led(color',
+            'on_led(channel',
             'on_camera(param',
             'on_frame(image',
         ):
@@ -10250,7 +10250,7 @@ class TestGetLedStateShape:
 
     def test_get_led_state_on_includes_owner(self):
         scope = self._scope()
-        scope.illumination.led_on(channel='Green', mA=125.0, owner='audit_test')
+        scope.illumination.led_on(channel='Green', illumination_ma=125.0, owner='audit_test')
         state = scope.illumination.get_led_state('Green')
         assert state['enabled'] is True
         assert state['illumination_ma'] == 125.0
@@ -10269,7 +10269,7 @@ class TestGetLedStateShape:
 
     def test_get_led_states_on_channel_carries_owner(self):
         scope = self._scope()
-        scope.illumination.led_on(channel='Red', mA=42.5, owner='restore_pre')
+        scope.illumination.led_on(channel='Red', illumination_ma=42.5, owner='restore_pre')
         states = scope.illumination.get_led_states()
         assert states['Red']['enabled'] is True
         assert states['Red']['illumination_ma'] == 42.5
@@ -12159,7 +12159,7 @@ class TestEmergencyShutdownBoundedLeds_F6:
         is not the observable -- the hardware-off command is."""
         illum = sim_scope.illumination
         driver = sim_scope._led_driver
-        illum.led_on(channel=0, mA=10)
+        illum.led_on(channel=0, illumination_ma=10)
         assert any(ma > 0 for ma in driver._channel_states.values()), (
             'precondition: at least one LED on at the driver'
         )

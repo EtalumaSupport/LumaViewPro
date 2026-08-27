@@ -99,16 +99,16 @@ class UIListenerBridge:
             if z_ctrl:
                 self._ui_dispatch(lambda dt: z_ctrl._update_z_text(target), 0)
 
-    def _on_led_state_changed(self, color, enabled, mA, owner):
-        """LED listener -- coalesces rapid stim pulses to one UI update per color per Kivy frame.
+    def _on_led_state_changed(self, channel, enabled, illumination_ma, owner):
+        """LED listener -- coalesces rapid stim pulses to one UI update per channel per Kivy frame.
 
         Replaces all manual ``update_led_toggle_ui()`` calls.
         """
-        if color in self._pending_led_updates:
+        if channel in self._pending_led_updates:
             return  # Already scheduled, will pick up latest state
-        self._pending_led_updates[color] = True
+        self._pending_led_updates[channel] = True
 
-        def _update_led_ui(dt, c=color):
+        def _update_led_ui(dt, c=channel):
             self._pending_led_updates.pop(c, None)
             self._write_led_button_from_driver(color=c)
 
@@ -134,7 +134,7 @@ class UIListenerBridge:
             from ui.layer_control import LayerControl
 
             self._LayerControl = LayerControl
-        state = self._scope.illumination.get_led_state(color=color)
+        state = self._scope.illumination.get_led_state(channel=color)
         target = 'down' if state.get('enabled', False) else 'normal'
         if layer_obj.ids['enable_led_btn'].state != target:
             self._LayerControl._suppressing_led_log = True

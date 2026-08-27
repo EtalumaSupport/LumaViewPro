@@ -565,7 +565,7 @@ class VerticalControl(BoxLayout):
 
         ctx.io_executor.put(
             IOTask(
-                action=ctx.lumaview.scope.motion._thome_impl,
+                action=ctx.lumaview.scope.motion._home_turret_impl,
                 callback=_on_turret_homed,
             )
         )
@@ -657,16 +657,16 @@ class VerticalControl(BoxLayout):
                 gui_logger.button(f'TURRET_POS_{selected_position}')
             ctx = _app_ctx.ctx
             settings = ctx.settings
-            if not ctx.lumaview.scope.motion.has_thomed():
+            if not ctx.lumaview.scope.motion.has_turret_homed():
                 if not protocol:
-                    ctx.io_executor.put(IOTask(ctx.lumaview.scope.motion._thome_impl))
+                    ctx.io_executor.put(IOTask(ctx.lumaview.scope.motion._home_turret_impl))
                 else:
                     # Protocol context runs on protocol_thread, not the io
                     # worker -- route the turret home through the protocol queue so it
-                    # stays ordered ahead of the subsequent tmove/X/Y/Z and
+                    # stays ordered ahead of the subsequent move_turret/X/Y/Z and
                     # behind the prior step's leds_off on the single worker.
                     fut = ctx.io_executor.protocol_put(
-                        IOTask(ctx.lumaview.scope.motion._thome_impl), return_future=True
+                        IOTask(ctx.lumaview.scope.motion._home_turret_impl), return_future=True
                     )
                     if fut:
                         fut.result(timeout=120)
@@ -680,18 +680,18 @@ class VerticalControl(BoxLayout):
             if not protocol:
                 ctx.io_executor.put(
                     IOTask(
-                        ctx.lumaview.scope.motion._tmove_impl,
+                        ctx.lumaview.scope.motion._move_turret_impl,
                         kwargs={'position': selected_position},
                     )
                 )
             else:
                 # See the turret-home branch above: route the protocol-context
-                # tmove through the protocol queue so it serializes with the
+                # move_turret through the protocol queue so it serializes with the
                 # step's other moves and LED ops on the single io worker
                 # instead of racing them from protocol_thread.
                 fut = ctx.io_executor.protocol_put(
                     IOTask(
-                        ctx.lumaview.scope.motion._tmove_impl,
+                        ctx.lumaview.scope.motion._move_turret_impl,
                         kwargs={'position': selected_position, 'restore_z': restore_z},
                     ),
                     return_future=True,

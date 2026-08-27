@@ -91,7 +91,7 @@ def test_preview_on_nav_fires_one_authority_transition_and_no_button_read():
     assert transition is LedTransition.MANUAL_STEP
     assert led_ctx.preview_on is True
     assert led_ctx.channel == 7
-    assert led_ctx.mA == 250.0
+    assert led_ctx.illumination_ma == 250.0
     assert ill.led_off_async.call_count == 0, 'nav must not queue its own led_off'
     # The one settings apply carries the no-button-LED contract; nothing
     # else on the layer object is touched (no enable_led_btn read).
