@@ -266,20 +266,22 @@ class VerticalControl(BoxLayout):
                 gui_logger.select('OBJECTIVE', objective_id)
             logger.info('[LVP Main  ] VerticalControl.select_objective()')
 
-            # With a turret, the objective must be assigned to a turret position
-            # before it can be selected; warn (but still allow) if it is not.
+            # Selecting an objective the turret does not hold is a normal step
+            # of assigning it: the user picks the objective, then presses Set to
+            # bind it to the current position. Interrupting the first half to
+            # complain about the second is why this used to pop a dialog saying
+            # the selection had been refused -- which it never was; the write
+            # below always happened. Logged, not raised: the moments where an
+            # unassigned objective actually blocks something (creating,
+            # modifying, adding to and running a protocol) each refuse there,
+            # and those refusals are real.
             if ctx.lumaview.scope.capabilities.has_turret:
                 turret_objectives = list(settings.get('turret_objectives', {}).values())
                 assigned = [obj for obj in turret_objectives if obj is not None]
                 if assigned and objective_id not in assigned:
-                    from modules.notification_center import notifications
-
-                    notifications.warning(
-                        'Objective',
-                        'Objective Not in Turret',
-                        f"[Objective] Cannot select '{objective_id}' -- not assigned "
-                        f'to any turret position. Assign it in Objective Control > '
-                        f'Turret before using.',
+                    logger.info(
+                        f'[LVP Main  ] Objective {objective_id!r} selected with no turret '
+                        f'position assigned; assigned objectives are {assigned}'
                     )
 
             # Update objective stored in settings
@@ -602,9 +604,13 @@ class VerticalControl(BoxLayout):
             # Change turret text
             selected_turret_id.text = f'{magnification}x'
 
-            # Update settings
+            # Update settings. The slot key is the STRING form: this dict is
+            # loaded from JSON, whose object keys are always strings, while
+            # range() hands out ints. Writing the int added a second entry
+            # beside the string one, so every reader keyed by string kept
+            # seeing the old value and the saved file carried a duplicate key.
             with _app_ctx.ctx.settings_lock:
-                settings['turret_objectives'][selected_turret] = desired_objective_id
+                settings['turret_objectives'][str(selected_turret)] = desired_objective_id
 
             # Push the new assignment to the microscope -- the settings write
             # alone does not reach hardware (mirrors select_objective).
@@ -635,9 +641,11 @@ class VerticalControl(BoxLayout):
             # Change turret text
             selected_turret_id.text = str(selected_turret)
 
-            # Update settings
+            # Update settings -- string key, for the reason in
+            # set_turret_objective: an int key writes a second entry instead of
+            # clearing the one readers look at.
             with _app_ctx.ctx.settings_lock:
-                settings['turret_objectives'][selected_turret] = None
+                settings['turret_objectives'][str(selected_turret)] = None
 
             # Push the cleared slot to the microscope -- the settings write
             # alone does not reach hardware (mirrors select_objective).

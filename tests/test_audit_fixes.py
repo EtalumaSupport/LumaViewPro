@@ -1266,13 +1266,36 @@ class TestIssue606_TurretObjectiveValidation:
     Fix: warn on select, block protocol run.
     """
 
-    def test_select_objective_validates_turret(self):
-        """select_objective source must check turret assignments."""
-        import pathlib
+    def test_select_objective_detects_unassigned_turret_objective(self):
+        """select_objective must still DETECT the condition.
 
-        source = pathlib.Path('ui/vertical_control.py').read_text()
-        assert 'Objective Not in Turret' in source, (
-            'select_objective must warn when objective not in turret (#606)'
+        It no longer raises a dialog for it. Selecting an objective the
+        turret does not hold is the first half of assigning it -- the user
+        picks the objective, then presses Set -- so the dialog interrupted
+        the workflow that resolves the condition, and said the selection had
+        been refused when the write below it always went through.
+
+        The half of #606 that prevents harm is the protocol-run block, pinned
+        by the sibling test below: an unassigned objective still cannot reach
+        a run.
+        """
+        import ast
+        import inspect
+        import textwrap
+
+        import ui.vertical_control as vc
+
+        # Round-tripped through the AST so the assertion sees CODE, not
+        # prose: a raw source match here failed on a comment that happened
+        # to contain the word it was looking for.
+        src = ast.unparse(
+            ast.parse(textwrap.dedent(inspect.getsource(vc.VerticalControl.select_objective)))
+        )
+        assert 'turret_objectives' in src, (
+            'select_objective must still detect an objective with no turret position'
+        )
+        assert 'notifications.warning' not in src, (
+            'detection must reach the log, not a dialog: this fires mid-assignment'
         )
 
     def test_is_protocol_valid_checks_turret(self):
