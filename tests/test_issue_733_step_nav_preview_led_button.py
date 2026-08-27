@@ -31,10 +31,10 @@ from modules.lumascope_api.illumination import LedTransition
 GREEN_LAYER_SETTINGS = {
     'autofocus': False,
     'false_color': True,
-    'ill_ma': 0.0,
+    'illumination_ma': 0.0,
     'gain_db': 0.0,
     'auto_gain': False,
-    'exp_ms': 10.0,
+    'exposure_ms': 10.0,
     'sum': 1,
     'acquire': True,
     'focus': 0.0,

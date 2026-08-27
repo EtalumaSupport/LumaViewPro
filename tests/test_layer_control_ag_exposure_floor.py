@@ -6,7 +6,7 @@ Bug
 When auto-gain runs on a bright transmitted sample (BF/PC/DF), the Pylon
 camera can drive ExposureTime to its physical minimum (~30 us = 0.030 ms
 on common sensors). update_auto_gain_cb then reads that value via
-get_exposure_ms() and writes it to settings[layer]['exp_ms'] without an
+get_exposure_ms() and writes it to settings[layer]['exposure_ms'] without an
 appropriate floor:
 
 - Fluorescence + luminescence already get a 1.0 ms floor via
@@ -183,7 +183,7 @@ def _make_fake_layer(layer: str, slider_min: float, slider_max: float = 1000.0):
 
 class TestExposureFloorBehavior:
     """Behavioral verification that AG-feedback writes are floored before
-    landing in settings[layer]['exp_ms']."""
+    landing in settings[layer]['exposure_ms']."""
 
     @pytest.mark.parametrize(
         'raw_exp_ms,expected_floor',
@@ -201,13 +201,15 @@ class TestExposureFloorBehavior:
         the next apply_settings fires the set_exposure_ms(<0.1ms)
         WARNING on every layer switch."""
         cb, app_ctx_stub = _compile_cb()
-        app_ctx_stub.ctx.settings = {'BF': {'exp_ms': 999.0, 'gain_db': 0.0, 'auto_gain': True}}
+        app_ctx_stub.ctx.settings = {
+            'BF': {'exposure_ms': 999.0, 'gain_db': 0.0, 'auto_gain': True}
+        }
         fake = _make_fake_layer('BF', slider_min=0.01)  # .kv default for transmitted
 
         # AG-off callback: init=False, state=False (read from toggle), gain, exp.
         cb(fake, result=(False, False, 0.0, raw_exp_ms))
 
-        stored = app_ctx_stub.ctx.settings['BF']['exp_ms']
+        stored = app_ctx_stub.ctx.settings['BF']['exposure_ms']
         assert stored == expected_floor, (
             f'BF AG-feedback raw_exp={raw_exp_ms}ms should floor to '
             f'{expected_floor}ms, got {stored}ms. See class docstring '
@@ -230,12 +232,14 @@ class TestExposureFloorBehavior:
         behavior; this test locks it against accidental regression
         during the transmitted-floor refactor."""
         cb, app_ctx_stub = _compile_cb()
-        app_ctx_stub.ctx.settings = {'Blue': {'exp_ms': 999.0, 'gain_db': 0.0, 'auto_gain': True}}
+        app_ctx_stub.ctx.settings = {
+            'Blue': {'exposure_ms': 999.0, 'gain_db': 0.0, 'auto_gain': True}
+        }
         fake = _make_fake_layer('Blue', slider_min=1.0)  # set_layer_exposure_ranges value
 
         cb(fake, result=(False, False, 0.0, raw_exp_ms))
 
-        stored = app_ctx_stub.ctx.settings['Blue']['exp_ms']
+        stored = app_ctx_stub.ctx.settings['Blue']['exposure_ms']
         assert stored == expected_floor, (
             f'Blue AG-feedback raw_exp={raw_exp_ms}ms should floor to '
             f'{expected_floor}ms (FLUORESCENCE_MIN_EXPOSURE_MS), '
@@ -246,38 +250,44 @@ class TestExposureFloorBehavior:
         """PC is in the transmitted class (not in get_image_layers).
         Must use the 0.1 floor, not the 1.0 floor."""
         cb, app_ctx_stub = _compile_cb()
-        app_ctx_stub.ctx.settings = {'PC': {'exp_ms': 999.0, 'gain_db': 0.0, 'auto_gain': True}}
+        app_ctx_stub.ctx.settings = {
+            'PC': {'exposure_ms': 999.0, 'gain_db': 0.0, 'auto_gain': True}
+        }
         fake = _make_fake_layer('PC', slider_min=0.01)
         cb(fake, result=(False, False, 0.0, 0.050))
-        assert app_ctx_stub.ctx.settings['PC']['exp_ms'] == 0.1
+        assert app_ctx_stub.ctx.settings['PC']['exposure_ms'] == 0.1
 
     def test_df_uses_transmitted_floor(self):
         """DF is in the transmitted class (not in get_image_layers).
         Must use the 0.1 floor, not the 1.0 floor."""
         cb, app_ctx_stub = _compile_cb()
-        app_ctx_stub.ctx.settings = {'DF': {'exp_ms': 999.0, 'gain_db': 0.0, 'auto_gain': True}}
+        app_ctx_stub.ctx.settings = {
+            'DF': {'exposure_ms': 999.0, 'gain_db': 0.0, 'auto_gain': True}
+        }
         fake = _make_fake_layer('DF', slider_min=0.01)
         cb(fake, result=(False, False, 0.0, 0.050))
-        assert app_ctx_stub.ctx.settings['DF']['exp_ms'] == 0.1
+        assert app_ctx_stub.ctx.settings['DF']['exposure_ms'] == 0.1
 
     def test_lumi_uses_fluorescence_floor(self):
         """Lumi (luminescence) is in get_image_layers; must use the 1.0
         floor like fluorescence, not the 0.1 transmitted floor."""
         cb, app_ctx_stub = _compile_cb()
-        app_ctx_stub.ctx.settings = {'Lumi': {'exp_ms': 999.0, 'gain_db': 0.0, 'auto_gain': True}}
+        app_ctx_stub.ctx.settings = {
+            'Lumi': {'exposure_ms': 999.0, 'gain_db': 0.0, 'auto_gain': True}
+        }
         fake = _make_fake_layer('Lumi', slider_min=1.0)
         cb(fake, result=(False, False, 0.0, 0.5))
-        assert app_ctx_stub.ctx.settings['Lumi']['exp_ms'] == 1.0
+        assert app_ctx_stub.ctx.settings['Lumi']['exposure_ms'] == 1.0
 
     def test_unknown_exposure_keeps_previous_settings(self):
         """A non-physical exposure reading (nothing was ever successfully
         read from the camera) must not overwrite the layer's stored
         exposure -- the previous value is the best truth available."""
         cb, app_ctx_stub = _compile_cb()
-        app_ctx_stub.ctx.settings = {'BF': {'exp_ms': 42.0, 'gain_db': 7.0, 'auto_gain': True}}
+        app_ctx_stub.ctx.settings = {'BF': {'exposure_ms': 42.0, 'gain_db': 7.0, 'auto_gain': True}}
         fake = _make_fake_layer('BF', slider_min=0.01)
         cb(fake, result=(False, False, 3.0, 0.0))
-        assert app_ctx_stub.ctx.settings['BF']['exp_ms'] == 42.0
+        assert app_ctx_stub.ctx.settings['BF']['exposure_ms'] == 42.0
         # The valid gain reading in the same callback still lands.
         assert app_ctx_stub.ctx.settings['BF']['gain_db'] == 3.0
 
@@ -286,8 +296,8 @@ class TestExposureFloorBehavior:
         stored gain, while a valid exposure in the same callback still
         floors and lands."""
         cb, app_ctx_stub = _compile_cb()
-        app_ctx_stub.ctx.settings = {'BF': {'exp_ms': 42.0, 'gain_db': 7.0, 'auto_gain': True}}
+        app_ctx_stub.ctx.settings = {'BF': {'exposure_ms': 42.0, 'gain_db': 7.0, 'auto_gain': True}}
         fake = _make_fake_layer('BF', slider_min=0.01)
         cb(fake, result=(False, False, -1.0, 5.0))
         assert app_ctx_stub.ctx.settings['BF']['gain_db'] == 7.0
-        assert app_ctx_stub.ctx.settings['BF']['exp_ms'] == 5.0
+        assert app_ctx_stub.ctx.settings['BF']['exposure_ms'] == 5.0

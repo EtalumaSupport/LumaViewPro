@@ -597,8 +597,8 @@ class MicroscopeSettings(BoxLayout):
                         'composite_brightness_threshold'
                     ]
 
-                if 'ill_ma' in settings[layer]:
-                    layer_obj.ids['ill_slider'].value = settings[layer]['ill_ma']
+                if 'illumination_ma' in settings[layer]:
+                    layer_obj.ids['ill_slider'].value = settings[layer]['illumination_ma']
 
                 # Size the sliders to the camera caps BEFORE setting the value
                 # (the Kivy slider clamps the displayed value to its max). The
@@ -608,7 +608,7 @@ class MicroscopeSettings(BoxLayout):
                 layer_obj.ids['gain_slider'].max = max_gain
                 layer_obj.ids['gain_slider'].value = settings[layer]['gain_db']
                 layer_obj.ids['exp_slider'].max = max_exposure
-                layer_obj.ids['exp_slider'].value = settings[layer]['exp_ms']
+                layer_obj.ids['exp_slider'].value = settings[layer]['exposure_ms']
 
                 layer_obj.ids['false_color'].active = settings[layer]['false_color']
 
@@ -655,9 +655,11 @@ class MicroscopeSettings(BoxLayout):
                     stim_config = settings[layer]['stim_config']
                     layer_obj.ids['stim_enable_btn'].active = stim_config['enabled']
                     layer_obj.ids['stim_disable_btn'].active = not stim_config['enabled']
-                    layer_obj.ids['stim_ill_text'].text = str(stim_config.get('illumination', 100))
+                    layer_obj.ids['stim_ill_text'].text = str(
+                        stim_config.get('illumination_ma', 100)
+                    )
                     layer_obj.ids['stim_ill_slider'].value = float(
-                        stim_config.get('illumination', 100)
+                        stim_config.get('illumination_ma', 100)
                     )
                     layer_obj.ids['stim_freq_text'].text = str(stim_config['frequency'])
                     layer_obj.ids['stim_freq_slider'].value = float(stim_config['frequency'])

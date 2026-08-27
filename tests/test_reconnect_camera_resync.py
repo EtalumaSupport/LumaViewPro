@@ -20,7 +20,7 @@ The fix:
     applied two different ways.
   - ImageSettings.sync_camera_capability_ranges groups the per-layer setters
     (exposure + gain ranges + autogain gate) AND clamp_layer_settings_to_caps,
-    which reconciles each layer's stored gain_db/exp_ms down to the new caps
+    which reconciles each layer's stored gain_db/exposure_ms down to the new caps
     (the blackout fix, matching load_settings); _init_ui (connect) and reconnect
     call the SAME grouping.
   - reconnect refreshes ctx.max_* then re-applies the VISIBLE layer
@@ -105,7 +105,7 @@ class TestSyncGrouping:
             assert _attr_calls(method, setter), f'sync_camera_capability_ranges must call {setter}.'
 
     def test_clamp_reconciles_stored_gain_and_exposure_to_caps(self):
-        # The blackout fix: a stored gain_db/exp_ms above the new camera's cap
+        # The blackout fix: a stored gain_db/exposure_ms above the new camera's cap
         # must be brought down to the cap (and persisted) for every layer, so a
         # downshift reconnect can't push an over-cap value that blacks out.
         method = _method_node(IMAGE_SETTINGS_PATH, 'clamp_layer_settings_to_caps')
@@ -116,11 +116,11 @@ class TestSyncGrouping:
             for t in node.targets
             if isinstance(t, ast.Subscript)
             and isinstance(t.slice, ast.Constant)
-            and t.slice.value in ('gain_db', 'exp_ms')
+            and t.slice.value in ('gain_db', 'exposure_ms')
         }
-        assert clamped == {'gain_db', 'exp_ms'}, (
+        assert clamped == {'gain_db', 'exposure_ms'}, (
             'clamp_layer_settings_to_caps must reconcile both stored gain_db and '
-            'exp_ms down to the camera caps.'
+            'exposure_ms down to the camera caps.'
         )
 
     def test_init_ui_uses_the_grouping(self):
@@ -198,9 +198,9 @@ class TestReconnectResync:
             for t in node.targets
             if isinstance(t, ast.Subscript)
             and isinstance(t.slice, ast.Constant)
-            and t.slice.value in ('gain_db', 'exp_ms')
+            and t.slice.value in ('gain_db', 'exposure_ms')
         ]
         assert not inline, (
-            'load_settings must not carry an inline gain_db/exp_ms clamp-persist '
+            'load_settings must not carry an inline gain_db/exposure_ms clamp-persist '
             '(it duplicates clamp_layer_settings_to_caps).'
         )

@@ -122,10 +122,10 @@ def go_to_step(
                 {
                     'autofocus': step['Auto_Focus'],
                     'false_color': step['False_Color'],
-                    'ill_ma': step['Illumination'],
+                    'illumination_ma': step['Illumination'],
                     'gain_db': step['Gain'],
                     'auto_gain': step['Auto_Gain'],
-                    'exp_ms': step['Exposure'],
+                    'exposure_ms': step['Exposure'],
                     'sum': step['Sum'],
                     'acquire': step['Acquire'],
                     'focus': step['Z'],  # Keep per-layer focus in sync with step (#535)

@@ -36,6 +36,69 @@ class SettingsFileError(ValueError):
     """
 
 
+# Layer sub-keys whose names changed when the storage dict became the L2 API
+# surface. Old name -> new name. `stim_config.illumination` lives one level
+# down and is handled alongside; only Blue/Green/Red carry a stim_config.
+_RENAMED_LAYER_KEYS = {
+    'ill_ma': 'illumination_ma',
+    'exp_ms': 'exposure_ms',
+}
+_RENAMED_STIM_KEYS = {
+    'illumination': 'illumination_ma',
+}
+
+
+def _migrate_renamed_keys(container: dict, mapping: dict) -> bool:
+    """Move any old-named keys in one dict to their new names.
+
+    ASSIGNS rather than setdefault, and that is the whole point. A build
+    carrying this function never WRITES an old name, so finding one proves
+    an older build wrote this file more recently than whatever new-named
+    value sits beside it -- which happens when a user downgrades, changes a
+    value, and upgrades again. Keeping the new-named value there would
+    silently discard the edit they just made.
+    """
+    moved = False
+    for old_name, new_name in mapping.items():
+        if old_name not in container:
+            continue
+        container[new_name] = container.pop(old_name)
+        moved = True
+    return moved
+
+
+def migrate_layer_key_names_dict(settings_dict: dict) -> bool:
+    """Carry per-layer illumination and exposure keys to their unit-suffixed names.
+
+    `settings[layer]['ill_ma'/'exp_ms']` -> `illumination_ma`/`exposure_ms`,
+    and `stim_config['illumination']` -> `illumination_ma`. The storage dict
+    is the L2 API surface, so its keys are the names callers write; these
+    spellings had to match what `get_layer_configs` already emitted.
+
+    Must run before the settings.json default-merge: the merge only ADDS
+    missing keys, so without this fold an install carrying ill_ma = 150
+    would get the shipped illumination_ma = 5.0 merged in beside it and
+    come up on the default while the real value sat unread.
+
+    Layers are found by SHAPE, not by importing get_layers: this runs during
+    logger bootstrap, where importing modules.common_utils raises
+    `cannot import name 'get_layers' from partially initialized module`.
+
+    Returns:
+        True when at least one key was moved.
+    """
+    moved = False
+    for value in settings_dict.values():
+        if not isinstance(value, dict):
+            continue
+        if _migrate_renamed_keys(value, _RENAMED_LAYER_KEYS):
+            moved = True
+        stim = value.get('stim_config')
+        if isinstance(stim, dict) and _migrate_renamed_keys(stim, _RENAMED_STIM_KEYS):
+            moved = True
+    return moved
+
+
 def read_settings_json(path, logger=None):
     """Open and parse one settings file. THE one place these files are read.
 
@@ -79,6 +142,14 @@ def read_settings_json(path, logger=None):
 
     if not isinstance(parsed, dict):
         raise SettingsFileError(f'{path}: expected a JSON object, got {type(parsed).__name__}')
+    # Every reader lands here, which is why the key migration lives here and
+    # not in load_settings: the GUI bootstrap, ScopeSession.create_headless
+    # (which reads the file itself and never calls load_settings), the
+    # support-report generator and app_config all go through this function.
+    # Running before the caller's validation also means validation never
+    # sees, or warns about, the old spellings.
+    if migrate_layer_key_names_dict(parsed) and logger is not None:
+        logger.info(f'[Settings ] {path}: carried layer keys to their unit-suffixed names')
     if logger is not None:
         logger.debug(f'[Settings ] read {path}')
     return parsed
@@ -117,9 +188,9 @@ def _validate_settings(settings: dict, filepath: str, logger) -> None:
     from modules.common_utils import get_layers
 
     _REQUIRED_LAYER_FIELDS = {
-        'ill_ma': (int, float),
+        'illumination_ma': (int, float),
         'gain_db': (int, float),
-        'exp_ms': (int, float),
+        'exposure_ms': (int, float),
         'acquire': (str, type(None)),
         'autofocus': bool,
         'false_color': (bool, list),

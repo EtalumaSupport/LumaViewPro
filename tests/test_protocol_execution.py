@@ -1236,7 +1236,7 @@ class TestVideoWithStimulation:
         stim_config = {
             'Blue': {
                 'enabled': True,
-                'illumination': 100,
+                'illumination_ma': 100,
                 'frequency': 10,
                 'pulse_width': 50,
                 'pulse_count': 3,
@@ -1255,7 +1255,7 @@ class TestVideoWithStimulation:
         stim_config = {
             'Blue': {
                 'enabled': False,
-                'illumination': 100,
+                'illumination_ma': 100,
                 'frequency': 10,
                 'pulse_width': 50,
                 'pulse_count': 3,

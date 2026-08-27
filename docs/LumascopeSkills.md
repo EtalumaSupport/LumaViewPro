@@ -1261,12 +1261,12 @@ from modules.composite_builder import build_composite
 from modules.image_save import save_image
 
 channel_images = {}
-for channel, illumination_ma, exp_ms, gain_db in [
+for channel, illumination_ma, exposure_ms, gain_db in [
     ('Blue',  200, 100, 15),
     ('Green', 150,  80, 12),
     ('Red',   180,  90, 10),
 ]:
-    scope.imaging.set_exposure_ms(exp_ms)
+    scope.imaging.set_exposure_ms(exposure_ms)
     scope.imaging.set_gain_db(gain_db)
     scope.illumination.led_on(channel, illumination_ma)
     channel_images[channel] = scope.imaging.capture_and_wait()

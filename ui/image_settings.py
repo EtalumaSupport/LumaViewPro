@@ -496,7 +496,7 @@ class ImageSettings(BoxLayout):
     def clamp_layer_settings_to_caps(self):
         """Bring every layer's stored gain/exposure within the live camera caps.
 
-        A camera swap can leave a layer's persisted gain_db/exp_ms above the new
+        A camera swap can leave a layer's persisted gain_db/exposure_ms above the new
         body's physical maximum; applying that value blacks the channel out (and
         it would persist to current.json on the next save). Reconcile the stored
         value -- and its slider -- down to the cap for every layer, the same
@@ -510,8 +510,8 @@ class ImageSettings(BoxLayout):
             if settings[layer]['gain_db'] > ctx.max_gain:
                 settings[layer]['gain_db'] = ctx.max_gain
                 layer_obj.ids['gain_slider'].value = ctx.max_gain
-            if settings[layer]['exp_ms'] > ctx.max_exposure:
-                settings[layer]['exp_ms'] = ctx.max_exposure
+            if settings[layer]['exposure_ms'] > ctx.max_exposure:
+                settings[layer]['exposure_ms'] = ctx.max_exposure
                 layer_obj.ids['exp_slider'].value = ctx.max_exposure
 
     def open_or_default_layer(self):

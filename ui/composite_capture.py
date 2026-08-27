@@ -267,8 +267,8 @@ class CompositeCapture(FloatLayout):
             ls = settings.get(layer, {})
             if ls.get('acquire') == 'image':
                 logger.info(
-                    f'[COMPOSITE ] {layer}: gain={ls.get("gain_db")}, exp={ls.get("exp_ms")}ms, '
-                    f'ill={ls.get("ill_ma")}mA, sum={ls.get("sum", 1)}, '
+                    f'[COMPOSITE ] {layer}: gain={ls.get("gain_db")}, exp={ls.get("exposure_ms")}ms, '
+                    f'ill={ls.get("illumination_ma")}mA, sum={ls.get("sum", 1)}, '
                     f'threshold={ls.get("composite_brightness_threshold", "?")}%'
                 )
 
@@ -415,9 +415,9 @@ class CompositeCapture(FloatLayout):
                 gain = layer_settings[trans_layer]['gain_db']
                 # On-worker camera writes bind _impl, as with the move above.
                 ctx.scope.imaging._set_gain_db_impl(gain)
-                exposure = layer_settings[trans_layer]['exp_ms']
+                exposure = layer_settings[trans_layer]['exposure_ms']
                 ctx.scope.imaging._set_exposure_ms_impl(exposure)
-                illumination = layer_settings[trans_layer]['ill_ma']
+                illumination = layer_settings[trans_layer]['illumination_ma']
 
                 # Colour string to the seam unmapped: an undrivable colour
                 # fails with the colour named, never a sentinel channel.
@@ -477,7 +477,7 @@ class CompositeCapture(FloatLayout):
                 gain = layer_settings[layer]['gain_db']
                 # On-worker camera writes bind _impl, as above.
                 ctx.scope.imaging._set_gain_db_impl(gain)
-                exposure = layer_settings[layer]['exp_ms']
+                exposure = layer_settings[layer]['exposure_ms']
                 ctx.scope.imaging._set_exposure_ms_impl(exposure)
                 sum_count = layer_settings[layer]['sum']
                 # Stage B1: see comment above; update_scopedisplay retired.
@@ -489,7 +489,7 @@ class CompositeCapture(FloatLayout):
                     layer_settings[layer]['composite_brightness_threshold'] / 100 * 255
                 )
 
-                illumination = layer_settings[layer]['ill_ma']
+                illumination = layer_settings[layer]['illumination_ma']
 
                 # Only channels the scope drives an LED for get lit;
                 # luminescence channels have no LED and their frames are

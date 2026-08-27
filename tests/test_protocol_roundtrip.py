@@ -61,21 +61,21 @@ def _default_stim_config():
     return {
         'Red': {
             'enabled': False,
-            'illumination': 100.0,
+            'illumination_ma': 100.0,
             'frequency': 1.0,
             'pulse_width': 10,
             'pulse_count': 100,
         },
         'Green': {
             'enabled': False,
-            'illumination': 100.0,
+            'illumination_ma': 100.0,
             'frequency': 1.0,
             'pulse_width': 10,
             'pulse_count': 100,
         },
         'Blue': {
             'enabled': False,
-            'illumination': 100.0,
+            'illumination_ma': 100.0,
             'frequency': 1.0,
             'pulse_width': 10,
             'pulse_count': 100,
@@ -88,7 +88,7 @@ def _stim_config_enabled(channels=('Green',)):
     cfg = _default_stim_config()
     for ch in channels:
         cfg[ch]['enabled'] = True
-        cfg[ch]['illumination'] = 200.0
+        cfg[ch]['illumination_ma'] = 200.0
         cfg[ch]['frequency'] = 5.0
         cfg[ch]['pulse_width'] = 20
         cfg[ch]['pulse_count'] = 50
@@ -433,7 +433,7 @@ class TestRoundTripBasic:
 
         assert isinstance(step['Stim_Config'], dict)
         assert step['Stim_Config']['Green']['enabled'] is True
-        assert step['Stim_Config']['Green']['illumination'] == 500.0
+        assert step['Stim_Config']['Green']['illumination_ma'] == 500.0
         assert step['Stim_Config']['Green']['frequency'] == 0.8
         assert step['Stim_Config']['Green']['pulse_count'] == 10
         assert step['Stim_Config']['Red']['enabled'] is False

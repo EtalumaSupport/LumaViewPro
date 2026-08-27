@@ -1970,21 +1970,21 @@ class Protocol:
         DEFAULT_STIM_CONFIG = {
             'Red': {
                 'enabled': False,
-                'illumination': 100,
+                'illumination_ma': 100,
                 'frequency': 1,
                 'pulse_width': 10,
                 'pulse_count': 100,
             },
             'Green': {
                 'enabled': False,
-                'illumination': 100,
+                'illumination_ma': 100,
                 'frequency': 1,
                 'pulse_width': 10,
                 'pulse_count': 100,
             },
             'Blue': {
                 'enabled': False,
-                'illumination': 100,
+                'illumination_ma': 100,
                 'frequency': 1,
                 'pulse_width': 10,
                 'pulse_count': 100,
@@ -1995,6 +1995,23 @@ class Protocol:
             logger.info(
                 f'Converting loaded protocol from {config["version"]} to {cls.CURRENT_VERSION}'
             )
+
+        def _carry_stim_key_names(stim_config):
+            """Carry a saved stim config's illumination key to its unit-suffixed name.
+
+            The sub-key moved when the settings dict became the L2 API
+            surface, but protocols saved before that carry the old spelling
+            inside the Stim_Config column. Every reader takes it with a
+            default -- `stim.get('illumination_ma', 100)` -- so without this
+            an older protocol would load silently at 100 mA instead of the
+            current the run was actually set up for.
+            """
+            if not isinstance(stim_config, dict):
+                return stim_config
+            for layer_stim in stim_config.values():
+                if isinstance(layer_stim, dict) and 'illumination' in layer_stim:
+                    layer_stim['illumination_ma'] = layer_stim.pop('illumination')
+            return stim_config
 
         def _parse_config_per_row(row, column, default):
             """Parse a config string for a single row.
@@ -2064,7 +2081,9 @@ class Protocol:
         else:
             # Parse per-row so one corrupt row doesn't wipe all configs
             protocol_df['Stim_Config'] = protocol_df.apply(
-                lambda row: _parse_config_per_row(row, 'Stim_Config', DEFAULT_STIM_CONFIG),
+                lambda row: _carry_stim_key_names(
+                    _parse_config_per_row(row, 'Stim_Config', DEFAULT_STIM_CONFIG)
+                ),
                 axis=1,
             )
 

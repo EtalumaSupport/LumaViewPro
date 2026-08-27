@@ -912,9 +912,9 @@ class ProtocolSettings(FloatLayout):
             layer['acquire'] = acquire
 
         for col, key, caster in (
-            ('Illumination', 'ill_ma', _as_float),
+            ('Illumination', 'illumination_ma', _as_float),
             ('Gain', 'gain_db', _as_float),
-            ('Exposure', 'exp_ms', _as_float),
+            ('Exposure', 'exposure_ms', _as_float),
             ('Sum', 'sum', _as_int),
         ):
             raw = vals.get(col, '')
@@ -959,10 +959,10 @@ class ProtocolSettings(FloatLayout):
             row = {
                 'Layer': layer_name,
                 'Acquire': acquire,
-                'Illumination': layer.get('ill_ma', ''),
+                'Illumination': layer.get('illumination_ma', ''),
                 'Gain': layer.get('gain_db', ''),
                 'Auto_Gain': layer.get('auto_gain', ''),
-                'Exposure': layer.get('exp_ms', ''),
+                'Exposure': layer.get('exposure_ms', ''),
                 'False_Color': layer.get('false_color', ''),
                 'Sum': layer.get('sum', ''),
                 'Stim_Enabled': '',
@@ -1330,7 +1330,7 @@ class ProtocolSettings(FloatLayout):
                     logger.warning(
                         f'[UI] Stim channel {stim_color}: exposure is 0. This may produce no visible pulses.'
                     )
-                illum = sc.get('illumination', 0)
+                illum = sc.get('illumination_ma', 0)
                 if isinstance(illum, (int, float)) and illum <= 0 and sc.get('enabled', False):
                     logger.warning(
                         f'[UI] Stim channel {stim_color}: illumination {illum} mA is invalid (must be > 0). Disabling channel.'

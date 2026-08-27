@@ -34,10 +34,10 @@ def _make_layer_settings(**overrides):
         'video_config': {'enabled': False},
         'autofocus': False,
         'false_color': [1, 1, 1, 1],
-        'ill_ma': 50.123456,
+        'illumination_ma': 50.123456,
         'gain_db': 1.23456,
         'auto_gain': False,
-        'exp_ms': 10.56789,
+        'exposure_ms': 10.56789,
         'sum': 1,
         'focus': 0.0,
     }
@@ -58,7 +58,7 @@ def _make_settings(layers=None, with_stim=False):
         if with_stim:
             s['stim_config'] = {
                 'enabled': True,
-                'illumination': 0,
+                'illumination_ma': 0,
                 'frequency': 1,
             }
         settings[layer] = s
@@ -213,19 +213,19 @@ class TestGetLayerConfigs:
     def test_stim_config_illumination_independent(self):
         """Stim illumination is independent from imaging illumination.
 
-        The stim brightness slider controls stim_config['illumination']
+        The stim brightness slider controls stim_config['illumination_ma']
         directly -- it is NOT force-synced to the layer's imaging illumination.
-        Stim config key stays bare 'illumination' (pre-freeze defer per
-        units audit; stim is on its own evolution track).
+        Both carry the _ma suffix because both are LED current in milliamps;
+        they are the same unit on independent controls, not the same value.
         """
         settings = _make_settings(with_stim=True)
         # Set stim illumination to a different value than layer illumination
         for layer in settings:
             if isinstance(settings[layer], dict) and 'stim_config' in settings[layer]:
-                settings[layer]['stim_config']['illumination'] = 200
+                settings[layer]['stim_config']['illumination_ma'] = 200
         configs = config_helpers.get_layer_configs(settings)
         for cfg in configs.values():
-            assert cfg['stim_config']['illumination'] == 200
+            assert cfg['stim_config']['illumination_ma'] == 200
             # Layer illumination is different (50.123456 rounded)
             assert cfg['illumination_ma'] != 200
 

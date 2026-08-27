@@ -208,7 +208,7 @@ class UIListenerBridge:
                     layer_obj.ids['gain_text'].text = text
             elif p == 'exposure':
                 rounded = round(v, 2)
-                expected = settings[opened_layer]['exp_ms']
+                expected = settings[opened_layer]['exposure_ms']
                 if abs(rounded - expected) > 0.5:
                     return
                 text = str(rounded)
