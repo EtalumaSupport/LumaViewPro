@@ -533,7 +533,15 @@ class VerticalControl(BoxLayout):
                     autogain_settings=get_auto_gain_settings(),
                     callbacks=callbacks,
                     update_z_pos_from_autofocus=False,
-                    leds_state_at_end='off',
+                    # A standalone autofocus is a one-shot at the field the
+                    # user is already watching, so it ends by putting the live
+                    # view back exactly as they had it, illumination included.
+                    # Ending dark is the right policy for an acquisition that
+                    # traverses the plate (the sample must not be left lit
+                    # between positions), and the wrong one for a run that
+                    # never leaves the current position. A fatal abort still
+                    # forces dark regardless of this policy.
+                    leds_state_at_end='return_to_original',
                     video_as_frames=settings['video_as_frames'],
                 )
                 runner.start(plan)
