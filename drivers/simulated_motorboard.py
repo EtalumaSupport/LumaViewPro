@@ -1165,6 +1165,24 @@ class SimulatedMotorBoard:
             axes.append('T')
         return axes
 
+    def detect_homed_axes(self) -> list:
+        """Return the axes the simulated board reports as homed.
+
+        The simulator is its own firmware, so the homing flags it keeps
+        ARE the flags a real board would report -- a test that wants a
+        scope which was already homed before this process attached sets
+        them directly, the same state a powered bench scope presents.
+        """
+        return [
+            axis
+            for axis in self.detect_present_axes()
+            if (
+                self.initial_homing_complete or self.initial_t_homing_complete
+                if axis == 'T'
+                else self.initial_homing_complete
+            )
+        ]
+
     def current_pos_steps(self, axis: str) -> int:
         """Get current position in raw microsteps.
 

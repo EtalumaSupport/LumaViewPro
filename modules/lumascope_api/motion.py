@@ -154,19 +154,37 @@ class MotionAPI:
         # so the first tmove() always goes through to the firmware.
         self._last_turret_position: int | None = None
 
-    def _init_axes(self, present_axes: list[str]) -> None:
-        """Populate per-axis state dicts from the list of detected axes.
+    def _init_axes(self, present_axes: list[str], homed_axes: list[str]) -> None:
+        """Populate per-axis state dicts from the detected axes.
 
         Called from Lumascope.__init__ (and create_diagnostic) after the
         motion driver's detect_present_axes() has run. NullMotionBoard
         returns [] so a system with no motor hardware ends up with empty
         dicts -- all state-touching methods handle that via no-ops.
 
+        An axis the hardware reports homed starts IDLE, not UNKNOWN.
+        Seeding every axis UNKNOWN meant a fresh process was blind to a
+        scope that was already homed and still powered, so the pre-drive
+        gate refused it -- correct for a scope that has never been homed,
+        wrong for one whose reference frame is live. The GUI never saw
+        this because it homes at startup; every headless caller saw it
+        always, and the only fixes available to them were to re-home
+        (destroying the position they attached to measure) or to bypass
+        the gate. Neither is acceptable, so the state store is told the
+        truth instead.
+
+        homed_axes is required rather than defaulted: a caller that
+        forgets it would silently reintroduce the blind seeding, and
+        that failure is invisible until a headless run is refused.
+
         Args:
             present_axes: List of axis names the hardware actually has.
+            homed_axes: Those axes the hardware reports as already homed.
         """
         self._pos_cache = dict.fromkeys(present_axes, 0.0)
-        self._axis_state = dict.fromkeys(present_axes, AxisState.UNKNOWN)
+        self._axis_state = {
+            ax: (AxisState.IDLE if ax in homed_axes else AxisState.UNKNOWN) for ax in present_axes
+        }
         self._arrival_events = {ax: threading.Event() for ax in present_axes}
         for ev in self._arrival_events.values():
             ev.set()  # Start as "arrived" (not moving)

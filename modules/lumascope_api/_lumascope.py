@@ -391,7 +391,8 @@ class Lumascope:
 
         # ----- MotionAPI -----
         # Constructed AFTER the motion driver so _driver resolves correctly.
-        # _init_axes() sizes per-axis dicts to detect_present_axes(); then
+        # _init_axes() sizes per-axis dicts to detect_present_axes() and seeds
+        # each axis known/unknown from detect_homed_axes(); then
         # _start_monitor() spawns the background poll thread. NullMotionBoard
         # returns [] from detect_present_axes(), so a system with no motor
         # hardware ends up with empty dicts throughout.
@@ -399,7 +400,7 @@ class Lumascope:
 
         self.motion = MotionAPI(self, self._motion_driver)
         present_axes = self._motion_driver.detect_present_axes()
-        self.motion._init_axes(present_axes)
+        self.motion._init_axes(present_axes, self._motion_driver.detect_homed_axes())
         self.motion._start_monitor()
 
         # ----- LED Control Board -----
@@ -1120,7 +1121,7 @@ class Lumascope:
 
         instance.motion = MotionAPI(instance, instance._motion_driver)
         present_axes = instance._motion_driver.detect_present_axes()
-        instance.motion._init_axes(present_axes)
+        instance.motion._init_axes(present_axes, instance._motion_driver.detect_homed_axes())
         instance.motion._start_monitor()
 
         instance.camera = None
