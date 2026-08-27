@@ -1196,36 +1196,15 @@ A worked plugin example ships in `etaluma-engineering/`; see its `pyproject.toml
 
 ## REST surface reference
 
-> **Status (2026-08):** Not yet in the tree. REST lands as its own phase after the 4.0 API-surface work completes; when it ships it will be **disabled by default** — customers enable per-deployment via a feature flag. Treat the sketch below as design preview, not yet-callable code.
+REST is **not implemented**. There is no server, no endpoints, and no wire
+format — nothing in this repo answers HTTP. Endpoints will be documented here
+when REST actually ships, against the real implementation.
 
-HTTP endpoints wrap the Python API. Control the microscope from any language — MATLAB, LabVIEW, JavaScript, curl.
-
-```
-GET  /api/status                    → system status
-POST /api/led/on    {color, mA}     → turn on LED
-POST /api/led/off                   → turn off all LEDs
-POST /api/move      {axis, pos}     → move stage
-POST /api/capture                   → capture image, returns file path
-GET  /api/live/frame                → grab live frame (binary)
-POST /api/protocol/run              → run a protocol file
-POST /api/protocol/abort            → abort running protocol
-```
-
-**MATLAB example (preview — API not yet live):**
-
-```matlab
-url = "http://localhost:8000/api";
-
-webwrite(url + "/move", struct('axis','Z','pos',5000,'wait',true));
-webwrite(url + "/led/on", struct('color','BF','mA',100));
-result = webwrite(url + "/capture", struct('format','tiff'));
-
-img = imread(result.file_path);
-imshow(img);
-
-webwrite(url + "/led/off", struct());
-```
-
+Nothing about a future REST surface is specified anywhere in this document. An
+earlier revision carried a sketch of endpoint shapes and a MATLAB client; both
+predated the 4.0 API-surface work, were never built, and were removed once they
+started being read as a contract that constrained that work. `git log` has them
+if the ideas are ever wanted.
 ---
 
 ## Common patterns
