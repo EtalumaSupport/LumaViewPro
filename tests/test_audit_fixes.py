@@ -10399,6 +10399,40 @@ class TestPreReleaseFutureWarning:
             f'saw {len(future_warnings)} for 3 Lumascope constructions.'
         )
 
+    def test_app_owned_construction_does_not_warn(self):
+        """The warning tells a caller its code may break under a future
+        release. LumaViewPro's own GUI ships in the same commit as the API,
+        so it has no such exposure -- and the warning reached the user's
+        console on every launch instead."""
+        import warnings
+        from modules.lumascope_api import Lumascope
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            Lumascope(simulate=True, warn_pre_release=False)
+        future_warnings = [w for w in caught if issubclass(w.category, FutureWarning)]
+        assert not future_warnings, (
+            'an app-owned construction must not fire the SDK pre-release warning'
+        )
+
+    def test_opting_out_does_not_disarm_the_warning_for_others(self):
+        """The once-per-process latch must not be spent by the opt-out. The
+        GUI constructs a scope at startup; if that consumed the latch, an
+        in-process SDK consumer afterwards would never be warned -- the
+        opt-out would silently become a global disable."""
+        import warnings
+        from modules.lumascope_api import Lumascope
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            Lumascope(simulate=True, warn_pre_release=False)
+            Lumascope(simulate=True)
+        future_warnings = [w for w in caught if issubclass(w.category, FutureWarning)]
+        assert len(future_warnings) == 1, (
+            f'an SDK consumer after an app-owned construction must still be '
+            f'warned exactly once; saw {len(future_warnings)}'
+        )
+
     def test_scope_session_create_headless_fires_warning(self):
         import warnings
         from modules.scope_session import ScopeSession

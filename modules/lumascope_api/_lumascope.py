@@ -320,6 +320,7 @@ class Lumascope:
         register_atexit: bool = True,
         register_metrics: bool = True,
         sim_model: str | None = None,
+        warn_pre_release: bool = True,
     ):
         """Initialize Microscope.
 
@@ -352,8 +353,18 @@ class Lumascope:
                 no turret, an LS850T does -- so capabilities.axes reflect
                 the chosen model end to end. Ignored when simulate is
                 False; defaults to the 'microscope' setting then 'LS850T'.
+            warn_pre_release: Whether this construction should fire the
+                PRE-RELEASE FutureWarning. The warning tells a caller its
+                code may break under a future release, which is only
+                meaningful for callers that ship SEPARATELY from this API
+                -- scripts, examples, integrations. LumaViewPro's own GUI
+                moves with the API in the same commit, so the warning
+                tells it nothing and reaches the user as noise on every
+                launch. Defaults True: a new caller that has not thought
+                about it is warned.
         """
-        _fire_pre_release_warning()
+        if warn_pre_release:
+            _fire_pre_release_warning()
 
         # Shared state-slot init (audit #35) -- transformers, locks,
         # camera cache, objective/turret state, executor slot defaults.

@@ -228,7 +228,9 @@ class MicroscopeSettings(BoxLayout):
         import modules.lumascope_api as lumascope_api
 
         lumaview.scope = lumascope_api.Lumascope(
-            camera_type=settings['camera_type'], simulate=ctx.simulate_mode
+            camera_type=settings['camera_type'],
+            simulate=ctx.simulate_mode,
+            warn_pre_release=False,
         )
         _labware_id, labware = get_selected_labware()
 
