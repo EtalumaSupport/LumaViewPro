@@ -39,6 +39,24 @@ from lib import profile_trace
 from lvp_logger import logger
 from modules.exceptions import AxisStateUnknownError, HardwareCommandRefusedError
 from modules.notification_center import notifications
+from modules.sequential_io_executor import IOTask, slow_task_budget
+
+# Declared costs, module-level because the @slow_task_budget decorators run at
+# class-body time and cannot reach a class attribute defined further down.
+#
+# Homing legitimately takes 10-60+ seconds depending on travel distance and
+# starting position. Deliberately NOT _MOTION_SETTLE_TIMEOUT_S even though both
+# are 120: that one is how long ONE motion may take to settle, this is how long
+# the homing command may run before the elapsed-time warning means anything.
+# Two facts that happen to share a number drift apart the moment one is tuned.
+_HOMING_SLOW_TASK_S = 120.0
+
+# A turret move is three physically-waited motions (Z park, turret, Z restore),
+# so it runs past a threshold written for one and warned on every successful
+# move. Measured 5.2s on an LS850T between adjacent positions; this is ~3x
+# that, the "unusual" bound rather than the hung bound. Budget row:
+# Firmware docs/PERFORMANCE_BUDGETS.md, turret move.
+_TURRET_MOVE_SLOW_TASK_S = 15.0
 
 # Match _lumascope.py's module-level _api_log channel so relocated
 # bodies log to the same handler chain.
@@ -355,8 +373,6 @@ class MotionAPI:
             otherwise None. Also None when the executor declined the
             task, which a waiting caller must read as "did not run".
         """
-        from modules.sequential_io_executor import IOTask  # local-import: avoid cycle
-
         task = IOTask(
             action=action,
             kwargs=kwargs,
@@ -554,6 +570,7 @@ class MotionAPI:
         after = self.get_limit_switch_status_all_axes()
         logger.info(f'Limit switch status after homing: {after}', extra={'force_error': True})
 
+    @slow_task_budget(_HOMING_SLOW_TASK_S)
     def _home_impl(self) -> bool:
         """Home every axis the motor board has.
 
@@ -688,6 +705,7 @@ class MotionAPI:
                     extra={'force_error': True},
                 )
 
+    @slow_task_budget(_HOMING_SLOW_TASK_S)
     def _home_turret_impl(self) -> bool:
         """Home the turret axis. Moves Z to 0 during turret motion for safety.
 
@@ -780,6 +798,7 @@ class MotionAPI:
         with self._axis_state_lock:
             return self._position_known(self._axis_state['T'])
 
+    @slow_task_budget(_TURRET_MOVE_SLOW_TASK_S)
     def _move_turret_impl(self, position: int, restore_z: bool = True) -> None:
         """Move the turret to a specific position. Skips if already there.
 
@@ -1080,7 +1099,6 @@ class MotionAPI:
             self._submit_motion(
                 action,
                 'move_home_and_wait',
-                slow_task_threshold_sec=self._MOTION_SETTLE_TIMEOUT_S,
                 wait_timeout=self._MOTION_SETTLE_TIMEOUT_S if timeout is None else timeout,
             )
             is True
@@ -1104,11 +1122,6 @@ class MotionAPI:
             'move_home_async',
             callback=callback,
             cb_args=cb_args,
-            # Homing legitimately takes 10-60+ seconds depending on travel
-            # distance and starting position -- well above the 5 sec default
-            # slow-task threshold. Only a true stall warrants a slow-task
-            # warning here.
-            slow_task_threshold_sec=self._MOTION_SETTLE_TIMEOUT_S,
         )
 
     def get_axis_state(self, axis: str) -> str:
@@ -1189,6 +1202,7 @@ class MotionAPI:
         """
         return self._driver.get_axis_limits(axis=axis)
 
+    @slow_task_budget(_HOMING_SLOW_TASK_S)
     def _zhome_impl(self) -> bool:
         """Home the Z axis (focus).
 
@@ -1644,13 +1658,6 @@ class MotionAPI:
     # routine legitimately takes on long travel.
     _MOTION_SETTLE_TIMEOUT_S = 120.0
 
-    # A turret move is three physically-waited motions (Z park, turret, Z
-    # restore), so it runs past a threshold written for one and warned on
-    # every successful move. Measured 5.2s on an LS850T between adjacent
-    # positions; this is ~3x that, the "unusual" bound rather than the hung
-    # bound. Budget row: Firmware docs/PERFORMANCE_BUDGETS.md, turret move.
-    _TURRET_MOVE_SLOW_TASK_S = 15.0
-
     def _dispatch_motion(
         self, impl, name, args=(), kwargs=None, *, timeout_s, slow_task_threshold_sec=None
     ):
@@ -1678,8 +1685,6 @@ class MotionAPI:
         succeeds. Distinct from timeout_s, which is the hung bound: this one
         is "unusually slow, look at it", that one is "definitively stuck".
         """
-        from modules.sequential_io_executor import IOTask  # local-import: avoid cycle
-
         kwargs = kwargs or {}
         ex = self._scope._io_executor
         if ex is None:
@@ -1804,7 +1809,6 @@ class MotionAPI:
             args=(position,),
             kwargs={'restore_z': restore_z},
             timeout_s=self._MOTION_WAIT_BASE_S + 3 * self._MOTION_SETTLE_TIMEOUT_S,
-            slow_task_threshold_sec=self._TURRET_MOVE_SLOW_TASK_S,
         )
 
     def wait_until_finished_moving(self, timeout_s: float = 120.0) -> bool:

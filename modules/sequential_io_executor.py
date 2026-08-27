@@ -211,13 +211,59 @@ IOTask
 """
 
 
+SLOW_TASK_BUDGET_ATTR = 'slow_task_budget_s'
+
+
+def slow_task_budget(seconds: float):
+    """Declare, at the def site, how long this command may legitimately run.
+
+    A command that physically takes longer than the default -- full homing, a
+    turret move that parks and restores Z, an AF scan -- trips the "Slow task"
+    WARNING on every SUCCESS unless something says otherwise. Saying it here
+    rather than at the submission site is what makes it hold: an impl is
+    reachable through several wrappers (a dispatcher, a hand-built IOTask on
+    the UI thread, a protocol-queue submit), and a budget attached to one
+    wrapper is silently absent from the others. That is a shipped defect, not
+    a hypothetical -- a turret budget declared on the dispatcher never reached
+    the GUI path, which warns on every successful move.
+
+    The cost is a property of the command; the wrapper is just how it got
+    queued. An explicit ``slow_task_threshold_sec`` still wins, for a caller
+    that knows more than the command does about a particular submission.
+    """
+
+    def _declare(fn):
+        setattr(fn, SLOW_TASK_BUDGET_ATTR, seconds)
+        return fn
+
+    return _declare
+
+
 class IOTask:
     # Default threshold beyond which a task triggers the "Slow task"
-    # WARNING log line. Tasks that legitimately take longer than this
-    # (protocol run_loop, full homing, AF scans, etc.) should override
-    # via the `slow_task_threshold_sec` __init__ kwarg so the warning
-    # only fires when something actually unusual happens.
+    # WARNING log line. Commands that legitimately take longer declare it at
+    # their def site with @slow_task_budget; a caller may still override per
+    # submission via the `slow_task_threshold_sec` __init__ kwarg.
     DEFAULT_SLOW_TASK_THRESHOLD_SEC = 5.0
+
+    def declared_slow_task_budget(self) -> float | None:
+        """What anyone actually said about this task's cost, or None.
+
+        Per-submission value first, then whatever the command declared about
+        itself. Kept separate from the resolved threshold because callers
+        that must distinguish "nobody declared anything" from "the default
+        applies" exist -- the stuck-worker bar raises itself only on a real
+        declaration, and folding the default in would move that bar for every
+        task in the system.
+        """
+        if self.slow_task_threshold_sec is not None:
+            return self.slow_task_threshold_sec
+        return getattr(self.action, SLOW_TASK_BUDGET_ATTR, None)
+
+    def resolve_slow_task_threshold(self) -> float:
+        """Seconds this task may run before "Slow task" means anything."""
+        declared = self.declared_slow_task_budget()
+        return declared if declared is not None else self.DEFAULT_SLOW_TASK_THRESHOLD_SEC
 
     def __init__(
         self,
@@ -286,11 +332,7 @@ class IOTask:
             t_start = time.monotonic()
             res = self.action(*self.args, **self.kwargs)
             elapsed = time.monotonic() - t_start
-            threshold = (
-                self.slow_task_threshold_sec
-                if self.slow_task_threshold_sec is not None
-                else self.DEFAULT_SLOW_TASK_THRESHOLD_SEC
-            )
+            threshold = self.resolve_slow_task_threshold()
             if elapsed > threshold:
                 action_name = getattr(self.action, '__name__', str(self.action))
                 logger.warning(
@@ -805,13 +847,15 @@ class SequentialIOExecutor:
     def _stall_threshold_s(self, floor_s: float) -> float:
         """Seconds an in-flight task may run before it counts as stuck.
 
-        Per-task-aware: a running task that declared its own
-        slow_task_threshold_sec (a whole-recording video write can
-        legitimately run for minutes) raises the bar to that value, so a
-        healthy long write is never declared a wedge by a flat constant.
+        Per-task-aware: a running task that declared its own cost (a
+        whole-recording video write can legitimately run for minutes) raises
+        the bar to that value, so a healthy long write is never declared a
+        wedge by a flat constant. The declaration is read through the task so
+        a budget stated at the command's def site counts here too -- reading
+        the submission kwarg alone would see only half of them.
         """
         task = self.running_task
-        declared = getattr(task, 'slow_task_threshold_sec', None) if task is not None else None
+        declared = task.declared_slow_task_budget() if task is not None else None
         return max(floor_s, declared or 0.0)
 
     def _running_task_in_flight_s(self) -> float | None:
