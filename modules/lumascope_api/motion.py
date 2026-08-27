@@ -1644,7 +1644,16 @@ class MotionAPI:
     # routine legitimately takes on long travel.
     _MOTION_SETTLE_TIMEOUT_S = 120.0
 
-    def _dispatch_motion(self, impl, name, args=(), kwargs=None, *, timeout_s):
+    # A turret move is three physically-waited motions (Z park, turret, Z
+    # restore), so it runs past a threshold written for one and warned on
+    # every successful move. Measured 5.2s on an LS850T between adjacent
+    # positions; this is ~3x that, the "unusual" bound rather than the hung
+    # bound. Budget row: Firmware docs/PERFORMANCE_BUDGETS.md, turret move.
+    _TURRET_MOVE_SLOW_TASK_S = 15.0
+
+    def _dispatch_motion(
+        self, impl, name, args=(), kwargs=None, *, timeout_s, slow_task_threshold_sec=None
+    ):
         """Run one motion command for an external caller, on the right thread.
 
         Three outcomes. With no executor registered the body runs on the
@@ -1661,6 +1670,13 @@ class MotionAPI:
         fence can land between the check and the submit, and without the
         second check that race surfaces as an AttributeError on the missing
         future instead of the typed refusal.
+
+        slow_task_threshold_sec declares how long this command may take
+        before the elapsed-time WARNING means anything. Left None the task
+        inherits IOTask's default, which describes a SINGLE motion -- a
+        command that physically performs several will trip it every time it
+        succeeds. Distinct from timeout_s, which is the hung bound: this one
+        is "unusually slow, look at it", that one is "definitively stuck".
         """
         from modules.sequential_io_executor import IOTask  # local-import: avoid cycle
 
@@ -1670,7 +1686,15 @@ class MotionAPI:
             return impl(*args, **kwargs)
         if not ex.accepts_work():
             raise HardwareCommandRefusedError('exclusive_activity_running', name)
-        fut = ex.put(IOTask(action=impl, args=args, kwargs=kwargs), return_future=True)
+        fut = ex.put(
+            IOTask(
+                action=impl,
+                args=args,
+                kwargs=kwargs,
+                slow_task_threshold_sec=slow_task_threshold_sec,
+            ),
+            return_future=True,
+        )
         if fut is None:
             raise HardwareCommandRefusedError('exclusive_activity_running', name)
         return fut.result(timeout=timeout_s)
@@ -1780,6 +1804,7 @@ class MotionAPI:
             args=(position,),
             kwargs={'restore_z': restore_z},
             timeout_s=self._MOTION_WAIT_BASE_S + 3 * self._MOTION_SETTLE_TIMEOUT_S,
+            slow_task_threshold_sec=self._TURRET_MOVE_SLOW_TASK_S,
         )
 
     def wait_until_finished_moving(self, timeout_s: float = 120.0) -> bool:
