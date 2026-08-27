@@ -29,7 +29,6 @@ scripts/appBuild/buildvenv/
 scripts/appBuild/.build_config
 .claude/
 .venv/
-data/
 generated_tiles_current_compare/
 results_current_compare/
 grids/
