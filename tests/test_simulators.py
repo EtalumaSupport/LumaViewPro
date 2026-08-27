@@ -1182,6 +1182,56 @@ class TestSimulatedCamera:
         assert cam.is_grabbing() is False
 
 
+class TestSpecimenCycleFrames:
+    """The fallback cycle frames must drift, not strobe.
+
+    The cycle advances once per generated frame, so four unrelated patterns
+    flash at frame rate -- the earlier horizontal-ramp / vertical-ramp /
+    bullseye / checkerboard set did exactly that, and it was unwatchable in
+    simulate mode. These pin the properties that make the replacement calm:
+    neighbouring frames stay close, none is fully black or blown out, and the
+    wrap back to the first frame is the same size step as the others.
+    """
+
+    def test_frames_are_distinct_so_a_live_stream_is_visible(self):
+        frames = SimulatedCamera._make_specimen_frames(600, 800)
+        assert len(frames) == 4
+        assert len({f.tobytes() for f in frames}) == 4, (
+            'identical frames make a running stream indistinguishable from a frozen one'
+        )
+
+    def test_consecutive_frames_stay_close_including_the_wrap(self):
+        frames = SimulatedCamera._make_specimen_frames(600, 800)
+        deltas = [
+            float(np.abs(frames[i].astype(int) - frames[(i + 1) % len(frames)].astype(int)).mean())
+            for i in range(len(frames))
+        ]
+        # Calibrated against the live display, not against the old patterns:
+        # an 8 px sampling offset (~12 grey levels) was rejected as looking
+        # like the sample being jostled, and 1 px (~1.6) was accepted. The
+        # ceiling sits between 1 px and 2 px so a creeping increase trips it
+        # while the accepted setting has ~2x headroom for frame-size variation.
+        # The wrap is included deliberately: sampling around a circle is what
+        # keeps the last->first step the same size as the others.
+        assert max(deltas) < 3.0, f'frames too far apart, this reads as jostling: {deltas}'
+        assert min(deltas) > 1.0, f'frames too similar to read as motion: {deltas}'
+
+    def test_never_fully_black_or_blown_out(self):
+        for frame in SimulatedCamera._make_specimen_frames(600, 800):
+            assert frame.min() > 0, 'a crushed frame reads as a dead camera'
+            assert frame.max() < 255, 'a blown frame hides the exposure control'
+
+    def test_deterministic_for_a_fixed_seed(self):
+        first = SimulatedCamera._make_specimen_frames(600, 800)
+        second = SimulatedCamera._make_specimen_frames(600, 800)
+        assert all(np.array_equal(a, b) for a, b in zip(first, second, strict=True))
+
+    def test_matches_requested_frame_size(self):
+        for frame in SimulatedCamera._make_specimen_frames(1200, 1920):
+            assert frame.shape == (1200, 1920)
+            assert frame.dtype == np.uint8
+
+
 class TestCameraProfiles:
     """Tests for drivers/camera_profiles.py lookup and defaults."""
 
