@@ -3,13 +3,13 @@
 
 Each run-state FACT has exactly one owner -- the activity claim
 (arbitration), the recording engine (live-vs-drain), the file writer
-(pending work), the scope config (XY stage) -- and every consumer
+(pending work), the motion driver (XY stage) -- and every consumer
 truth is a synchronous derivation over them:
 
     is_protocol_running = owner == 'protocol'
     run_lockout         = owner == 'protocol' or protocol_files_draining
     controls_locked     = run_lockout or (owner == 'recording' and recording_capturing)
-    motion_enabled      = xystage_configured and not run_lockout
+    motion_enabled      = capabilities.has_xy_stage and not run_lockout
 
 The drain terms encode today's documented asymmetry: a draining
 recording HOLDS its claim while the controls free; a finished protocol
@@ -24,12 +24,16 @@ from unittest.mock import MagicMock
 from tests.scope_fakes import spec_scope
 
 
-def _make_session(file_io_executor=None):
+def _make_session(file_io_executor=None, has_xy_stage=True):
     from modules.scope_session import ScopeSession
 
+    # motion_enabled reads the XY fact off the live scope, so the double
+    # has to carry it explicitly rather than leaving it to autospec truthiness.
+    scope = spec_scope()
+    scope.capabilities.has_xy_stage = has_xy_stage
     return ScopeSession(
         settings={},
-        scope=spec_scope(),
+        scope=scope,
         io_executor=MagicMock(),
         camera_executor=MagicMock(),
         file_io_executor=file_io_executor,
@@ -87,8 +91,7 @@ class TestDerivations:
         assert session.controls_locked is False
 
     def test_no_xystage_disables_motion_even_unlocked(self):
-        session = _make_session(_file_executor(active=False))
-        session.xystage_configured = False
+        session = _make_session(_file_executor(active=False), has_xy_stage=False)
         assert session.run_lockout is False
         assert session.motion_enabled is False
 

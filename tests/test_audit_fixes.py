@@ -2737,28 +2737,38 @@ class TestIssue710_LumiLS820PlateViewRestored:
         )
 
     def test_crosshair_gated_on_xy_stage_capability(self):
-        # The restored plate graphic must NOT show a crosshair on XYStage=false
-        # scopes -- there is no live XY position to indicate. The per-frame
-        # crosshair update is gated on the static self._has_xy_stage capability,
-        # NOT on self._motion_enabled (the transient run/interaction lock) --
-        # otherwise the crosshair vanishes whenever a protocol runs.
+        # The restored plate graphic must NOT show a crosshair on a scope with
+        # no XY stage -- there is no live XY position to indicate. What this
+        # pins is where the gate's truth COMES FROM: the driver capability,
+        # read live. A gate fed from a copy is how a scope-model change once
+        # put a crosshair on a stage-less scope.
         import ast
         import pathlib
 
         tree = ast.parse(pathlib.Path('ui/stage.py').read_text())
-        found = False
-        for node in ast.walk(tree):
-            if (
-                isinstance(node, ast.If)
-                and 'self._has_xy_stage' in ast.unparse(node.test)
-                and '_crosshair_h_line' in '\n'.join(ast.unparse(s) for s in node.body)
-                and 'h_line_points' in '\n'.join(ast.unparse(s) for s in node.body)
-            ):
-                found = True
-                break
-        assert found, (
-            'the per-frame crosshair update must be gated on self._has_xy_stage '
-            'so XYStage=false scopes show no crosshair'
+        # The crosshair sits inside an outer `if position_available:`, so every
+        # enclosing If also contains the body markers -- collect them all and
+        # require that ONE of the nested gates is the capability check.
+        gates = [
+            ast.unparse(node.test)
+            for node in ast.walk(tree)
+            if isinstance(node, ast.If)
+            and '_crosshair_h_line' in '\n'.join(ast.unparse(s) for s in node.body)
+            and 'h_line_points' in '\n'.join(ast.unparse(s) for s in node.body)
+        ]
+        assert gates, 'the per-frame crosshair update is no longer a gated If'
+        assert any('_xy_stage_present()' in gate for gate in gates), (
+            f'the crosshair gate must derive from the scope XY capability; found {gates!r}'
+        )
+
+        helper = next(
+            n
+            for n in ast.walk(tree)
+            if isinstance(n, ast.FunctionDef) and n.name == '_xy_stage_present'
+        )
+        assert 'capabilities.has_xy_stage' in ast.unparse(helper), (
+            '_xy_stage_present must read the capability off the live scope, so a '
+            'reconnect onto different hardware cannot leave a stale answer behind'
         )
 
     def test_crosshair_not_gated_on_run_lock(self):
@@ -2766,7 +2776,7 @@ class TestIssue710_LumiLS820PlateViewRestored:
         # self._motion_enabled. That flag is cleared while a protocol/scan runs
         # (the interaction lock), so gating the crosshair on it makes the
         # crosshair disappear during a Protocol Run on a scope that has an XY
-        # stage. The crosshair gate belongs to the static stage capability.
+        # stage. The crosshair gate belongs to the XY stage capability.
         import ast
         import pathlib
 
@@ -2780,7 +2790,7 @@ class TestIssue710_LumiLS820PlateViewRestored:
                 raise AssertionError(
                     'the live crosshair update must not be gated on '
                     'self._motion_enabled (the transient run lock); gate it on '
-                    'self._has_xy_stage so it stays visible during a run'
+                    'the XY stage capability so it stays visible during a run'
                 )
 
     def test_lumi_and_ls820_have_xystage_false(self):

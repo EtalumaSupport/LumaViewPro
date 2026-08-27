@@ -253,6 +253,12 @@ class MicroscopeSettings(BoxLayout):
         ctx.ui_listener_bridge.rebind(lumaview.scope)
         ctx.scope = lumaview.scope
 
+        # Re-gate the UI against the scope that is now attached. The control
+        # visibility comes from the drivers, so a reconnect onto different
+        # hardware leaves the previous scope's controls on screen until this
+        # runs -- there is no second store to fall back on.
+        self.reconfigure_for_scope()
+
         # Restart display
 
         ctx.scope_display.stop()
@@ -1242,11 +1248,21 @@ class MicroscopeSettings(BoxLayout):
 
         microscope_settings.current_scope_model = settings['microscope']
 
+        # Which motion hardware exists is asked of the drivers, never of the
+        # selected model. scopes.json describes the model picked in Advanced
+        # Settings, and that selection is editable while the app runs -- gate
+        # the controls on it and the UI offers an XY stage on a scope that has
+        # none, after which a protocol images a single position while
+        # labelling every file with a different well.
+        # The Layers block below still reads scopes.json: no capability
+        # describes which illumination modalities a scope exposes.
+        caps = ctx.lumaview.scope.capabilities
+
         motion_settings = ctx.motion_settings
-        motion_settings.set_turret_control_visibility(visible=selected_scope_config['Turret'])
-        motion_settings.set_xystage_control_visibility(visible=selected_scope_config['XYStage'])
-        motion_settings.set_tiling_control_visibility(visible=selected_scope_config['XYStage'])
-        motion_settings.set_objective_control_visibility(visible=selected_scope_config['Focus'])
+        motion_settings.set_turret_control_visibility(visible=caps.has_turret)
+        motion_settings.set_xystage_control_visibility(visible=caps.has_xy_stage)
+        motion_settings.set_tiling_control_visibility(visible=caps.has_xy_stage)
+        motion_settings.set_objective_control_visibility(visible=caps.has_focus)
 
         image_settings = ctx.image_settings
         layers_config = selected_scope_config['Layers']
@@ -1260,27 +1276,26 @@ class MicroscopeSettings(BoxLayout):
         )
 
         protocol_settings = ctx.motion_settings.ids['protocol_settings_id']
-        protocol_settings.set_labware_selection_visibility(visible=selected_scope_config['XYStage'])
+        protocol_settings.set_labware_selection_visibility(visible=caps.has_xy_stage)
 
         ctx.motion_settings.ids['post_processing_id'].ids[
             'stitch_controls_id'
-        ].set_button_enabled_state(state=selected_scope_config['XYStage'])
+        ].set_button_enabled_state(state=caps.has_xy_stage)
 
-        if selected_scope_config['XYStage'] is False:
-            # XYStage=False scopes (Lumi, LS820) keep a single-plate
+        if not caps.has_xy_stage:
+            # Stage-less scopes (Lumi, LS820) keep a single-plate
             # ("Center Plate") graphic in the protocol tab so the crosshair
             # position is visible; only the XY motion capability is disabled
             # (set below). Stitch is hidden -- it needs tiling.
             protocol_settings.select_labware(labware='Center Plate')
             ctx.motion_settings.ids['post_processing_id'].hide_stitch()
 
-        # The one writer of the XY-stage configuration fact; user stage
-        # motion derives from it (session.motion_enabled), so there is
-        # no per-run capability write to mis-restore on a stage-less
-        # scope. Republish so the derivation's consumers see the edge.
-        ctx.session.xystage_configured = selected_scope_config['XYStage']
+        # Nothing to write: session.motion_enabled and the stage crosshair
+        # each ask the drivers for the XY fact at read time, so there is no
+        # copy here to keep in step. Run state is still republished -- the
+        # derivation's consumers are edge-driven, and a scope change can
+        # move motion_enabled.
         ctx.session.notify_run_state()
-        ctx.stage.set_xy_stage_capability(enabled=selected_scope_config['XYStage'])
 
         # Size the protocol-tab stage holder to its width-based aspect for
         # every scope. The plate graphic now renders on XYStage=False scopes

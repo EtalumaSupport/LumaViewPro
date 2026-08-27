@@ -119,11 +119,6 @@ class ScopeSession:
             settings=settings,
             activity_claim=self.activity_claim,
         )
-        # Whether the running configuration declares an XY stage. Written
-        # by the scope-config apply path; motion_enabled derives from it.
-        # Defaults True so bundle-less and headless hosts keep motion
-        # until a config says otherwise.
-        self.xystage_configured = True
         if self.file_io_executor is not None:
             self.file_io_executor.add_protocol_idle_listener(self.notify_run_state)
 
@@ -297,10 +292,16 @@ class ScopeSession:
 
     @property
     def motion_enabled(self) -> bool:
-        """True when user stage motion is allowed: the configuration
-        declares an XY stage and no run lockout holds. Evaluated at
-        read -- there is no cached copy to mis-restore."""
-        return self.xystage_configured and not self.run_lockout
+        """True when user stage motion is allowed: the scope actually has
+        an XY stage and no run lockout holds. Evaluated at read -- there
+        is no cached copy to mis-restore.
+
+        The stage fact is read from the driver rather than from the
+        configured scope model. The model is user-editable while the
+        app runs, so a copy of it kept here goes stale the moment
+        someone selects a different scope, and then reports stage
+        motion available on a scope that has no stage."""
+        return self.scope.capabilities.has_xy_stage and not self.run_lockout
 
     def add_run_state_listener(self, listener) -> None:
         """Register a run-state transition listener and level-sync it.

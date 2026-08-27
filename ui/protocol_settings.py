@@ -702,14 +702,12 @@ class ProtocolSettings(FloatLayout):
         self.go_to_step(step_idx=0, protocol=False)
 
     def _validate_labware(self, labware: str):
-        settings = _app_ctx.ctx.settings
         ctx = _app_ctx.ctx
 
-        scope_configs = ctx.motion_settings.ids['microscope_settings_id'].scopes
-        selected_scope_config = scope_configs[settings['microscope']]
-
+        # Asked of the drivers rather than the selected scope model, which a
+        # user can change mid-session -- see set_ui_features_for_scope.
         # If XY motion is available, any type of labware is acceptable
-        if selected_scope_config['XYStage'] is True:
+        if ctx.lumaview.scope.capabilities.has_xy_stage:
             return True, labware
 
         # If XY motion is not available, only Center Plate
@@ -812,11 +810,9 @@ class ProtocolSettings(FloatLayout):
         duration = round(self._protocol.duration().total_seconds() / 3600, 6)
         labware = self._protocol.labware()
 
-        scope_configs = ctx.motion_settings.ids['microscope_settings_id'].scopes
-        selected_scope_config = scope_configs[settings['microscope']]
-
-        # If the scope has no XY stage, then don't allow the protocol to modify the labware
-        if not selected_scope_config['XYStage']:
+        # If the scope has no XY stage, then don't allow the protocol to modify
+        # the labware. The drivers answer that, not the selected scope model.
+        if not ctx.lumaview.scope.capabilities.has_xy_stage:
             labware = 'Center Plate'
 
         self.ids['capture_period'].text = str(period)

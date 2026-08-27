@@ -175,10 +175,18 @@ class TestNoCallerSideRunStateCommit:
                     'and owns cosmetics only'
                 )
 
-    def test_xystage_fact_write_targets_the_session(self):
-        src_text = (REPO / 'ui' / 'microscope_settings.py').read_text()
-        assert 'session.xystage_configured = ' in src_text, (
-            'the scope-config apply path must write the session fact motion_enabled derives from'
+    def test_xystage_fact_is_derived_not_written(self):
+        # The UI used to push the XY fact onto the session, which made the
+        # session's copy only as fresh as the last apply. motion_enabled now
+        # reads the driver, so there is no write for the UI to get wrong.
+        ui_src = (REPO / 'ui' / 'microscope_settings.py').read_text()
+        assert 'xystage_configured' not in ui_src, (
+            'the UI must not write an XY capability fact onto the session; '
+            'motion_enabled derives it from the drivers'
+        )
+        session_src = (REPO / 'modules' / 'scope_session.py').read_text()
+        assert 'capabilities.has_xy_stage' in session_src, (
+            'motion_enabled must derive the XY fact from the live scope'
         )
 
 
