@@ -198,6 +198,7 @@ class DriverRegistry:
         last_error: Exception | None = None
         found_false_names: list[str] = []
         not_connected_names: list[str] = []
+        not_responsive_names: list[str] = []
         for entry in real_candidates:
             try:
                 instance = entry.cls(**kwargs)
@@ -246,6 +247,39 @@ class DriverRegistry:
                         except Exception:
                             pass
                         continue
+                # Open-but-mute -- the port opened and stayed open, so
+                # is_connected() above is true, but the board returned zero
+                # bytes to the whole connect-time reset sequence and will
+                # reject every command until a hardware power cycle. Without
+                # this check the driver is selected anyway and the operator
+                # gets one failure notification per command for the rest of
+                # the session instead of a single refusal here. Same
+                # rejection shape as found=False: fall through to the null
+                # fallback, which at least reports the subsystem as absent.
+                if hasattr(instance, 'is_responsive'):
+                    try:
+                        responsive = instance.is_responsive()
+                    except Exception as e:
+                        logger.debug(
+                            f'[registry] {self._kind}: {entry.cls.__name__} '
+                            f'is_responsive() raised ({type(e).__name__}: {e}); '
+                            f'treating as not-responsive'
+                        )
+                        responsive = False
+                    if not responsive:
+                        not_responsive_names.append(entry.cls.__name__)
+                        logger.warning(
+                            f'[registry] {self._kind}: {entry.cls.__name__} '
+                            f'connected but not responding (zero bytes to the '
+                            f'connect sequence); refusing it. The board needs a '
+                            f'power cycle.'
+                        )
+                        try:
+                            if hasattr(instance, 'disconnect'):
+                                instance.disconnect()
+                        except Exception:
+                            pass
+                        continue
                 # Every rejection below is logged; without this the
                 # SUCCESS path was the only silent one, so which driver
                 # actually won could only be inferred from the ABSENCE
@@ -286,6 +320,15 @@ class DriverRegistry:
                     f'[registry] {self._kind}: all real drivers failed, '
                     f'falling back to {entry.cls.__name__}. '
                     f'Last error: {type(last_error).__name__}: {last_error}'
+                )
+            elif not_responsive_names:
+                logger.warning(
+                    f'[registry] {self._kind}: all real drivers connected but '
+                    f'returned zero bytes to the connect sequence -- the board '
+                    f'is powered and enumerated but its firmware is not '
+                    f'answering, which needs a power cycle. Tried: '
+                    f'{", ".join(not_responsive_names)}. '
+                    f'Falling back to {entry.cls.__name__}'
                 )
             elif not_connected_names:
                 logger.warning(

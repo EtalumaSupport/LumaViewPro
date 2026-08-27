@@ -169,6 +169,95 @@ class TestDriverRegistryUnit:
         # Best-effort cleanup must run on the rejected candidate.
         assert disconnect_called == [True]
 
+    def test_auto_skips_connected_but_unresponsive_drivers(self):
+        """A board whose port opened but which answers nothing must not be
+        selected. is_connected() stays True for a board that returned zero
+        bytes to the whole connect-time reset, so without a responsiveness
+        gate the registry hands back a driver that rejects every command
+        until a hardware power cycle -- one user-visible failure per command
+        for the rest of the session.
+        """
+        reg = DriverRegistry('fake')
+
+        disconnect_called = []
+
+        @reg.register('mute', priority=100)
+        class Mute:
+            def __init__(self, **kw):
+                self.found = True
+
+            def is_connected(self) -> bool:
+                return True
+
+            def is_responsive(self) -> bool:
+                return False
+
+            def disconnect(self):
+                disconnect_called.append(True)
+
+        @reg.register('works', priority=50)
+        class Works:
+            def __init__(self, **kw):
+                self.found = True
+
+            def is_connected(self) -> bool:
+                return True
+
+            def is_responsive(self) -> bool:
+                return True
+
+        instance = reg.create('auto')
+        assert isinstance(instance, Works)
+        assert disconnect_called == [True]
+
+    def test_auto_falls_back_to_null_when_all_real_unresponsive(self):
+        """Every real driver connected-but-mute must reach the null
+        fallback, so the subsystem reports as absent rather than as a board
+        that fails every command it is given.
+        """
+        reg = DriverRegistry('fake')
+
+        @reg.register('mute', priority=100)
+        class Mute:
+            def __init__(self, **kw):
+                self.found = True
+
+            def is_connected(self) -> bool:
+                return True
+
+            def is_responsive(self) -> bool:
+                return False
+
+            def disconnect(self):
+                pass
+
+        @reg.register('null', priority=0)
+        class Null:
+            def __init__(self, **kw):
+                pass
+
+            def is_connected(self) -> bool:
+                return False
+
+        instance = reg.create('auto')
+        assert isinstance(instance, Null)
+
+    def test_driver_without_is_responsive_is_still_selected(self):
+        """The hook is optional: a driver that does not implement it (every
+        camera driver today) must not be rejected for its absence.
+        """
+        reg = DriverRegistry('fake')
+
+        @reg.register('legacy', priority=100)
+        class Legacy:
+            def __init__(self, **kw):
+                self.found = True
+
+            def is_connected(self) -> bool:
+                return True
+
+        assert isinstance(reg.create('auto'), Legacy)
+
     def test_auto_falls_back_to_null_when_all_real_disconnected(self):
         """When every real driver is found-but-not-connected (e.g. all
         ports held by Thonny) the registry must reach the null fallback,

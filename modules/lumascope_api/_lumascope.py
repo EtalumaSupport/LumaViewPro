@@ -499,6 +499,23 @@ class Lumascope:
             logger.warning(
                 '[SCOPE API ] No hardware detected (LED, motor, and camera all failed to initialize)'
             )
+        elif not simulate and isinstance(self._led_driver, NullLEDBoard):
+            # Illumination is gone but the rest of the scope came up, so the
+            # consolidated no-hardware popup above stays silent and nothing
+            # else would tell the operator. Without this the first symptom is
+            # a sample under a dark objective and controls that appear to do
+            # nothing. Say it once here rather than once per failed command.
+            logger.warning(
+                '[SCOPE API ] LED board unavailable; illumination controls will not work'
+            )
+            notifications.warning(
+                'Illumination',
+                'LED Board Unavailable',
+                'The LED control board did not respond, so illumination is '
+                'not available this session. The rest of the microscope is '
+                'working. Power-cycle the microscope and restart LumaViewPro '
+                'to restore illumination.',
+            )
 
         # Most per-instance state lives on the sub-APIs: imaging owns
         # camera-stream state + locks, motion owns per-axis state +

@@ -210,6 +210,16 @@ class SimulatedMotorBoard:
         """
         return self.driver is not None
 
+    def is_responsive(self) -> bool:
+        """Whether the board answers commands, as distinct from merely
+        having an open port. The simulator has no firmware that can go
+        mute, so a connected simulated board always answers.
+
+        Returns:
+            bool: True whenever the board is connected.
+        """
+        return self.is_connected()
+
     def motor_stop(self) -> bool:
         """Simulator answers True (sim firmware always supports STOP).
         Mirrors the production MotorBoard method so
