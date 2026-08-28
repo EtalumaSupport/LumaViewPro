@@ -92,8 +92,10 @@ class SimulatedCamera(Camera):
         self._pump_stop = threading.Event()
 
         # Synthetic image state -- can be set externally for test scenarios
-        # 'gradient', 'black', 'white', 'noise', 'focus_target', 'image_cycle'
-        self._test_pattern = 'gradient'
+        # 'specimen', 'black', 'white', 'noise', 'focus_target', 'image_cycle'
+        # 'specimen' is the no-pattern-requested state; anything unrecognized
+        # renders it too, with a warning.
+        self._test_pattern = 'specimen'
 
         # Image cycling: load real images from data/sim_images/ and cycle through
         self._cycle_images = []  # List of numpy arrays (grayscale)
@@ -761,6 +763,35 @@ class SimulatedCamera(Camera):
         blurred = uniform_filter(img.astype(np.float32), size=filter_size)
         return np.clip(blurred, 0, max_val)
 
+    def _render_cycle_frame(self, h, w, dtype, max_val, brightness) -> np.ndarray:
+        """Render the current specimen frame, resized and scaled to ``dtype``.
+
+        Shared by the explicit ``image_cycle`` pattern and the
+        no-pattern-requested fallback so the two cannot drift. A second copy
+        of this is how the uint16 scaling below gets left out: without it a
+        Mono10/Mono12 frame renders nearly black, because the source tops out
+        at 255 against a max_val of 1023 or 4095.
+
+        Frames are built on demand -- both callers are reachable before
+        ``load_cycle_images()`` has run, and a camera-init failure skips that
+        call entirely.
+        """
+        if not self._cycle_images:
+            self._cycle_images = self._make_specimen_frames(h, w)
+        src = self._cycle_images[self._cycle_index % len(self._cycle_images)]
+        self._cycle_index += 1
+        # Resize if binning changed since load -- nearest-neighbor via slicing
+        if src.shape != (h, w):
+            src_h, src_w = src.shape
+            y_idx = np.linspace(0, src_h - 1, h, dtype=int)
+            x_idx = np.linspace(0, src_w - 1, w, dtype=int)
+            src = src[np.ix_(y_idx, x_idx)]
+        # Floor so the field stays visible at the short default exposures
+        brightness = max(0.5, brightness)
+        if dtype == np.uint16:
+            return (src.astype(np.float32) / 255.0 * max_val * brightness).astype(dtype)
+        return (src.astype(np.float32) * brightness).clip(0, max_val).astype(dtype)
+
     def _generate_image(self) -> np.ndarray:
         """Generate a synthetic image based on current settings."""
         h = self._height
@@ -776,27 +807,8 @@ class SimulatedCamera(Camera):
         # Scale brightness by exposure and gain
         raw = (self._exposure_us / 1_000_000.0) * max(1.0, self._gain) * 10.0
         brightness = min(1.0, raw)
-        # For image cycling, apply a floor so patterns are visible even at
-        # short default exposures (2ms -> raw=0.02, floor lifts to 0.5)
         if self._test_pattern == 'image_cycle':
-            brightness = max(0.5, brightness)
-
-        if self._test_pattern == 'image_cycle' and self._cycle_images:
-            # Cycle through loaded/generated images
-            src = self._cycle_images[self._cycle_index % len(self._cycle_images)]
-            self._cycle_index += 1
-            # Resize if binning changed since load
-            if src.shape != (h, w):
-                # Simple nearest-neighbor resize via slicing
-                src_h, src_w = src.shape
-                y_idx = np.linspace(0, src_h - 1, h, dtype=int)
-                x_idx = np.linspace(0, src_w - 1, w, dtype=int)
-                src = src[np.ix_(y_idx, x_idx)]
-            # Scale to target dtype and apply brightness
-            if dtype == np.uint16:
-                img = (src.astype(np.float32) / 255.0 * max_val * brightness).astype(dtype)
-            else:
-                img = (src.astype(np.float32) * brightness).clip(0, max_val).astype(dtype)
+            img = self._render_cycle_frame(h, w, dtype, max_val, brightness)
         elif self._test_pattern == 'black':
             img = np.zeros((h, w), dtype=dtype)
         elif self._test_pattern == 'white':
@@ -808,9 +820,18 @@ class SimulatedCamera(Camera):
             img = self._apply_defocus_blur(base * brightness, max_val)
             img = img.astype(dtype)
         else:
-            # Default gradient -- also apply defocus blur if Z tracking is active
-            row = np.linspace(0, max_val * brightness, w, dtype=np.float32)
-            img = np.tile(row, (h, 1)).astype(dtype)
+            # No specific pattern was asked for. Render the same specimen field
+            # the cycle uses rather than a column ramp: a ramp is not what a
+            # sample looks like, and reaching this branch used to undo the
+            # cycle for the rest of the session. Built lazily because this
+            # branch is reachable before load_cycle_images() has run -- a
+            # camera-init failure skips that call entirely.
+            if self._test_pattern != 'specimen':
+                logger.warning(
+                    f'[SimCamera ] Unknown test pattern '
+                    f'{self._test_pattern!r} -- rendering the specimen field'
+                )
+            img = self._render_cycle_frame(h, w, dtype, max_val, brightness)
 
         return img
 
@@ -1067,7 +1088,8 @@ class SimulatedCamera(Camera):
         """Enable or disable the simulator's test pattern generator.
 
         Args:
-            enabled: True to enable the pattern, False to revert to ``'gradient'``.
+            enabled: True to enable the pattern, False to revert to the
+                specimen field the live view normally shows.
             pattern: Pattern name (case-insensitive). Common values:
                 ``'black'``, ``'white'``, ``'noise'``, ``'focus_target'``,
                 ``'image_cycle'``.
@@ -1075,4 +1097,6 @@ class SimulatedCamera(Camera):
         if enabled:
             self._test_pattern = pattern.lower()
         else:
-            self._test_pattern = 'gradient'
+            # Back to the specimen field, not a static ramp: turning a test
+            # pattern OFF must restore what the view showed before it went on.
+            self._test_pattern = 'specimen'

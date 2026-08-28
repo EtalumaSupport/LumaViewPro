@@ -11,6 +11,7 @@ Verifies that simulators are drop-in replacements for real hardware:
 
 import ast
 import inspect
+import itertools
 import pytest
 import threading
 import time
@@ -817,14 +818,81 @@ class TestSimulatedCamera:
         # Noise should have some variance
         assert cam.array.std() > 0
 
-    def test_disable_pattern_returns_gradient(self):
+    def test_disable_pattern_returns_the_specimen(self):
         cam = SimulatedCamera()
         cam.open_and_start()
         cam.set_test_pattern(enabled=True, pattern='Black')
         cam.set_test_pattern(enabled=False)
         cam.grab()
-        # Gradient should have variation across columns
+        # The specimen field has variation; the black pattern it replaced does not
         assert cam.array.std() > 0
+
+
+class TestNoPatternRequestedRendersTheSpecimen:
+    """Turning a test pattern off, or never asking for one, must show the
+    specimen field -- not the static ramp the cycle was built to replace.
+
+    The ramp was reachable three ways: the constructor default, the
+    disable path, and any unrecognized pattern name. Landing on it undid
+    the cycle for the rest of the session.
+    """
+
+    def test_disabling_a_pattern_restores_the_moving_specimen(self):
+        cam = SimulatedCamera()
+        cam.open_and_start()
+        cam.set_test_pattern(enabled=True, pattern='Black')
+        cam.set_test_pattern(enabled=False)
+        frames = [np.asarray(cam._generate_image(), dtype=float) for _ in range(4)]
+        spread = max(f.max() for f in frames) - min(f.min() for f in frames)
+        diffs = [float(np.mean(np.abs(a - b))) for a, b in itertools.pairwise(frames)]
+        assert spread > 0
+        assert max(diffs) > 0, 'consecutive frames are identical -- this is a static image'
+
+    def test_a_fresh_camera_renders_the_specimen_without_load_cycle_images(self):
+        cam = SimulatedCamera()
+        frames = [np.asarray(cam._generate_image(), dtype=float) for _ in range(4)]
+        diffs = [float(np.mean(np.abs(a - b))) for a, b in itertools.pairwise(frames)]
+        assert max(diffs) > 0, 'the constructor default is a static image'
+
+    def test_an_unknown_pattern_name_warns_and_still_renders(self):
+        # The suite mocks lvp_logger, so the driver's `logger` is a MagicMock
+        # and no handler or caplog capture can see the call -- assert on the
+        # mock, which is how the rest of the suite checks driver logging.
+        import drivers.simulated_camera as sim_cam
+
+        cam = SimulatedCamera()
+        cam.open_and_start()
+        cam.set_test_pattern(enabled=True, pattern='NotAPattern')
+        sim_cam.logger.warning.reset_mock()
+        img = np.asarray(cam._generate_image(), dtype=float)
+
+        assert img.std() > 0, 'a bad name must still produce a usable frame'
+        sim_cam.logger.warning.assert_called()
+        # set_test_pattern lowercases the name, so the message carries it lowercased
+        emitted = ' '.join(str(c) for c in sim_cam.logger.warning.call_args_list).lower()
+        assert 'notapattern' in emitted, (
+            'an unrecognized pattern name must say so, not fall back silently'
+        )
+
+    def test_the_fallback_scales_for_16_bit_pixel_formats(self):
+        """Mono12 renders against a 4095 range while the source frames top out
+        at 255. Without the uint16 scaling the fallback comes out nearly black,
+        which is exactly what a second copy of the render path drops."""
+        cam = SimulatedCamera()
+        cam.set_test_pattern(enabled=False)
+        cam._pixel_format = 'Mono12'
+        img = np.asarray(cam._generate_image(), dtype=float)
+        assert img.max() > 255, (
+            f'12-bit fallback peaks at {img.max()} -- not scaled to the 4095 range'
+        )
+
+    def test_disabling_a_pattern_does_not_enable_exposure_pacing(self):
+        """grab() paces frame delivery on exposure ONLY for 'image_cycle'.
+        The disable path must not borrow that behaviour by reusing the name."""
+        cam = SimulatedCamera()
+        cam.open_and_start()
+        cam.set_test_pattern(enabled=False)
+        assert cam._test_pattern != 'image_cycle'
 
     # -- Grabbing state --
 
