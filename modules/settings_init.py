@@ -396,6 +396,27 @@ def _load_and_validate(logger, filepath: str) -> dict:
     return loaded
 
 
+def _normalize_turret_slot_keys(settings: dict) -> None:
+    """Turret slot keys become ints, because a turret position is a number.
+
+    JSON object keys are strings whether the value is a number or not, so a
+    position round-trips through the file as "1" and has to be converted back
+    on the way in. Every consumer downstream works in ints -- the motion API
+    subscripts the config with a live motor position, and its type hint says
+    dict[int, str] -- so this is the single boundary where the storage type
+    becomes the runtime type.
+
+    It lives here rather than in the GUI's settings load because a headless or
+    REST caller runs this pipeline and never runs that widget: with the
+    conversion in the widget the two hosts disagreed about the key type, which
+    put duplicate keys in the saved file and raised KeyError off the GUI.
+    """
+    slots = settings.get('turret_objectives')
+    if not isinstance(slots, dict):
+        return
+    settings['turret_objectives'] = {int(k): v for k, v in slots.items()}
+
+
 def prepare_settings(logger, directory, *, fall_back_to_template: bool) -> tuple:
     """Read the settings file and make it USABLE. Every host runs this.
 
@@ -462,11 +483,14 @@ def prepare_settings(logger, directory, *, fall_back_to_template: bool) -> tuple
             except Exception:
                 logger.warning('[Settings ] Could not load settings.json for default merge')
 
+        _normalize_turret_slot_keys(prepared)
+
         return prepared, rejected
 
     if os.path.exists(template_path):
         prepared = _load_and_validate(logger, template_path)
         _apply_load_migrations(logger, prepared)
+        _normalize_turret_slot_keys(prepared)
         return prepared, None
 
     if not os.path.isdir(data_dir):

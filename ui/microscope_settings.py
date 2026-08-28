@@ -460,11 +460,6 @@ class MicroscopeSettings(BoxLayout):
 
             objective_id = settings['objective_id']
 
-            # Mutate turret config keys from str to int for cleaner handling
-            settings['turret_objectives'] = {
-                int(k): v for k, v in settings['turret_objectives'].items()
-            }
-
             if lumaview.scope.capabilities.has_turret:
                 turret_objectives = list(settings['turret_objectives'].values())
                 assigned = [obj for obj in turret_objectives if obj is not None]

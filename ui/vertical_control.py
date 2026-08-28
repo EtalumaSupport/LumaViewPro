@@ -610,7 +610,7 @@ class VerticalControl(BoxLayout):
             # beside the string one, so every reader keyed by string kept
             # seeing the old value and the saved file carried a duplicate key.
             with _app_ctx.ctx.settings_lock:
-                settings['turret_objectives'][str(selected_turret)] = desired_objective_id
+                settings['turret_objectives'][selected_turret] = desired_objective_id
 
             # Push the new assignment to the microscope -- the settings write
             # alone does not reach hardware (mirrors select_objective).
@@ -645,7 +645,7 @@ class VerticalControl(BoxLayout):
             # set_turret_objective: an int key writes a second entry instead of
             # clearing the one readers look at.
             with _app_ctx.ctx.settings_lock:
-                settings['turret_objectives'][str(selected_turret)] = None
+                settings['turret_objectives'][selected_turret] = None
 
             # Push the cleared slot to the microscope -- the settings write
             # alone does not reach hardware (mirrors select_objective).
