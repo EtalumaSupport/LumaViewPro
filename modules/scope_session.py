@@ -16,11 +16,18 @@ Usage
     session = ScopeSession.create_headless(settings=settings)
 """
 
+import copy
+import json
+import os
+import threading
+import time
 from typing import TYPE_CHECKING
 
 import modules.app_context as _app_ctx
+import modules.settings_init as settings_init
 from lvp_logger import logger
 from modules.activity_claim import ActivityClaim
+from modules.common_utils import CustomJSONizer
 from modules.manual_recording import ManualRecordingController
 from modules.metrics_logger import ENGINEERING_METRICS_INTERVAL_S
 
@@ -52,8 +59,19 @@ class ScopeSession:
         z_ui_update_func=None,
         owns_executors: bool = False,
         metrics_scheduler=None,
+        settings_saved_hook=None,
     ):
         self.settings = settings
+        # The lock lives with the dict it guards. Every host hands the same
+        # dict to whatever else it composes, so a lock held anywhere else
+        # can only guard one of the aliases -- which is no guard at all.
+        # Readers on other threads take a snapshot; writers use
+        # update_settings.
+        self.settings_lock = threading.Lock()
+        # Fired after a successful save, with the snapshot that was
+        # written. The GUI passes its plugin notifier; a headless host
+        # passes nothing, because there is no plugin registry to notify.
+        self._settings_saved_hook = settings_saved_hook
         self.scope = scope
         # The MetricsLogger lives on the scope, but its scheduler is a
         # host choice (Kivy Clock vs threading timers), so the host
@@ -495,19 +513,20 @@ class ScopeSession:
                 # the same file the GUI reads (current.json first, then
                 # settings.json) so headless state matches the running app,
                 # instead of hardcoding settings.json and ignoring live state.
-                from modules.settings_init import (
-                    _resolve_settings_path,
-                    read_settings_json,
-                )
-
+                # The same preparation the GUI runs -- shape check, folds,
+                # repairs, default merge -- not just the file read. Reading
+                # alone yields a dict that parses and is silently missing
+                # whatever newer releases added to the template.
+                #
                 # A missing file is normal (fresh install) and resolves to an
                 # empty config. An unusable one is not: the GUI answers that by
                 # asking the user, and there is nobody to ask here. Returning
                 # the template instead would hand an L2 caller a plausible
                 # config that is not theirs, so it surfaces.
                 try:
-                    settings_path = _resolve_settings_path(source_path)
-                    settings = read_settings_json(settings_path)
+                    settings, _rejected = settings_init.prepare_settings(
+                        logger, source_path, fall_back_to_template=False
+                    )
                 except FileNotFoundError:
                     settings = {}
 
@@ -603,6 +622,86 @@ class ScopeSession:
         import modules.config_helpers as config_helpers
 
         return config_helpers.get_auto_gain_settings(self.settings)
+
+    def get_settings_snapshot(self) -> dict:
+        """A deep copy of the settings dict, taken under the lock.
+
+        A worker thread takes one of these at task entry and reads from it
+        for the rest of the task, rather than reading a dict another
+        thread may be part-way through rewriting.
+        """
+        with self.settings_lock:
+            return copy.deepcopy(self.settings)
+
+    def update_settings(self, key, value) -> None:
+        """Write one top-level settings key under the lock.
+
+        The write path for any caller that is not on the host's own
+        thread. Reads may go straight to `settings`; a write that skips
+        this can tear a snapshot being taken concurrently.
+        """
+        with self.settings_lock:
+            self.settings[key] = value
+
+    def save_settings(self, file: str = './data/current.json', *, force: bool = False) -> None:
+        """Write the settings dict to disk as JSON.
+
+        Skipped by default when no hardware was connected this session:
+        with no camera or stage attached the sliders sit at their
+        defaults (0.01 ms exposure and the like), and writing those over
+        a user's real per-channel values silently loses them. A caller
+        that means the save regardless passes force=True -- an API write
+        has no slider behind it to misread.
+        """
+        logger.info('[Session  ] save_settings()')
+
+        # Outside the force gate on purpose: force means "save even though no
+        # hardware was connected", not "save over a file we were told to leave
+        # alone". The settings in memory right now are the shipped template,
+        # loaded because the user's own file could not be read; writing them
+        # to current.json would replace their entire configuration with
+        # defaults. Resolved by retire_rejected_current_json() once the user
+        # has actually chosen to start over.
+        if settings_init.settings_are_provisional() and settings_init.targets_current_json(file):
+            logger.warning(
+                '[Session  ] save_settings: skipped -- running on default '
+                'settings because current.json could not be read. Not '
+                'overwriting it until the user decides.'
+            )
+            return
+
+        if not force:
+            scope = self.scope
+            had_hardware = bool(
+                scope and (scope.camera_connected or scope.motor_connected or scope.led_connected)
+            )
+            if not had_hardware:
+                logger.info(
+                    '[Session  ] save_settings: skipped -- no hardware was '
+                    'connected this session (would overwrite real per-channel '
+                    'values with slider defaults). Pass force=True to override.'
+                )
+                return
+
+        if isinstance(file, str) and (file[-5:].lower() != '.json'):
+            file = file + '.json'
+
+        t0 = time.monotonic()
+        settings_snapshot = self.get_settings_snapshot()
+        # Resolve relative paths against source_path instead of relying on CWD
+        if not os.path.isabs(file):
+            file = os.path.join(self.source_path, file)
+        with open(file, 'w') as write_file:
+            json.dump(settings_snapshot, write_file, indent=4, cls=CustomJSONizer)
+        dt = time.monotonic() - t0
+        if dt > 0.1:
+            logger.warning(f'[Session  ] save_settings took {dt * 1000:.0f}ms')
+
+        if self._settings_saved_hook is not None:
+            try:
+                self._settings_saved_hook(settings_snapshot)
+            except Exception:
+                logger.exception('[Session  ] save_settings: saved-hook failed')
 
     def get_current_objective_info(self) -> 'tuple[str, dict]':
         import modules.config_helpers as config_helpers

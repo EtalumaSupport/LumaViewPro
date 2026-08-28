@@ -78,7 +78,7 @@ from tests.ast_seams import iter_package_modules
 # the XY fact have not come back. ast_seams asserts that a seam EXISTS with
 # a given shape; it has no way to say a name is gone or that a body stopped
 # reading something, which is the whole content of these guards.
-_READ_TEXT_SITE_BUDGET = 370
+_READ_TEXT_SITE_BUDGET = 374
 
 # Files containing at least one, recorded for the same reason.
 # pin-justified: raised 115 -> 122 by the same merge.
@@ -91,7 +91,12 @@ _READ_TEXT_SITE_BUDGET = 370
 # fence), so there is no AST seam to assert instead.
 # pin-justified: 125 -> 126 for test_capability_gating_ssot.py, same reason
 # as the site bump above: absence assertions have no seam to assert.
-_READ_TEXT_FILE_BUDGET = 126
+# pin-justified: 126 -> 128 for test_settings_preparation_shared.py and
+# test_session_save_settings.py. Neither reads SOURCE: both write a settings
+# file into tmp_path and read its bytes back to assert the file on disk was
+# or was not modified. "The user's only copy was left exactly as it was" is
+# a claim about a file, so there is no AST seam to assert instead.
+_READ_TEXT_FILE_BUDGET = 128
 
 
 def _nodes_inside_iteration(tree):

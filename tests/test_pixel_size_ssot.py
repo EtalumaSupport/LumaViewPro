@@ -8,6 +8,7 @@ the scope's optics declare. These pin the corrected resolution order
 value, the LS850T no-op, and the honest-None degradation on the save path.
 """
 
+import threading
 from types import SimpleNamespace
 
 import numpy as np
@@ -81,7 +82,14 @@ class TestEffectivePixelSize:
                 pixel_size_um=pixel_size_um, lens_focal_length_mm=lens_focal_length_mm
             )
         )
-        monkeypatch.setattr(app_context, 'ctx', app_context.AppContext(scope=scope))
+        monkeypatch.setattr(
+            app_context,
+            'ctx',
+            app_context.AppContext(
+                scope=scope,
+                session=SimpleNamespace(settings={}, settings_lock=threading.Lock()),
+            ),
+        )
 
     def test_ls620_effective_pixel_size_at_20x(self, monkeypatch):
         # The bench-measured value: 2.2 / (47.8 / 9.0) = 0.41423 at 20x

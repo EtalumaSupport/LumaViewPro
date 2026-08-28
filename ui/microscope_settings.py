@@ -1,19 +1,16 @@
 # Copyright Etaluma, Inc.
-import copy
 import datetime
 import json
 import logging
 import os
 import pathlib
 import threading
-import time
 
 from kivy.clock import Clock
 from kivy.properties import BooleanProperty, StringProperty
 from kivy.uix.boxlayout import BoxLayout
 
 import modules.app_context as _app_ctx
-import modules.settings_init as settings_init
 import modules.binning as binning
 import modules.common_utils as common_utils
 from modules import gui_logger
@@ -27,7 +24,6 @@ from modules.config_ui_getters import (
     get_current_frame_dimensions,
     get_selected_labware,
 )
-from modules.common_utils import CustomJSONizer
 from modules.path_utils import resolve_data_file
 from modules.scope_init_config import ScopeInitConfig
 from modules.memory_profiler import MemoryLeakProfiler
@@ -421,16 +417,9 @@ class MicroscopeSettings(BoxLayout):
             self.ids['jpg_quality_value_label'].text = str(jpg_quality)
             self.select_live_image_output_format()
 
-            # Migrate legacy 'ImageJ Hyperstack' spinner value to the
-            # honest 'OME-TIFF Hyperstack' label. The underlying file
-            # format never changed (always OME-TIFF); only the label
-            # was misleading. Migrating on load means existing user
-            # settings.json files keep working without manual edits.
-            sequenced_fmt = settings['image_output_format']['sequenced']
-            if sequenced_fmt == 'ImageJ Hyperstack':
-                sequenced_fmt = image_mode.OUTPUT_FORMAT_HYPERSTACK
-                settings['image_output_format']['sequenced'] = sequenced_fmt
-            self.ids['sequenced_image_output_format_spinner'].text = sequenced_fmt
+            self.ids['sequenced_image_output_format_spinner'].text = settings[
+                'image_output_format'
+            ]['sequenced']
             self.select_sequenced_image_output_format()
 
             # The exposure/gain slider caps from the live camera (the resolver
@@ -591,9 +580,6 @@ class MicroscopeSettings(BoxLayout):
                 settings['stimulation_enabled'] = False
             self.apply_stimulation_support()
 
-            # Protocol accordions are permanently disabled (no longer a setting)
-            settings.pop('disable_protocol_accordions', None)
-
             for layer in common_utils.get_layers():
                 layer_obj = ctx.image_settings.layer_lookup(layer=layer)
 
@@ -630,24 +616,9 @@ class MicroscopeSettings(BoxLayout):
                 elif settings[layer]['acquire'] == 'video':
                     layer_obj.ids['acquire_video'].active = True
                 else:
-                    settings[layer]['acquire'] = None
                     layer_obj.ids['acquire_none'].active = True
 
                 video_config = settings[layer]['video_config']
-                DEFAULT_VIDEO_DURATION_SEC = 5
-                DEFAULT_VIDEO_FPS = 30
-
-                if video_config is None:
-                    video_config = {}
-
-                if 'duration' not in video_config:
-                    video_config['duration'] = DEFAULT_VIDEO_DURATION_SEC
-
-                if 'fps' not in video_config or video_config['fps'] <= 0:
-                    video_config['fps'] = DEFAULT_VIDEO_FPS
-
-                settings[layer]['video_config'] = video_config
-
                 layer_obj.ids['video_duration_text'].text = str(video_config['duration'])
                 layer_obj.ids['video_duration_slider'].value = video_config['duration']
 
@@ -959,87 +930,6 @@ class MicroscopeSettings(BoxLayout):
                             settings[layer]['stim_config']['enabled'] = False
 
     # Save settings to JSON file
-    def save_settings(self, file='./data/current.json', *, force=False):
-        """Save the current settings dict to disk as JSON.
-
-        LVP-A-4: when ``force=False`` (default), the save is skipped if
-        no hardware was connected during the session -- without hardware
-        the slider defaults (0.01ms exposure, etc.) would overwrite the
-        user's real per-channel settings in current.json. The gate
-        previously lived inline in ``lumaviewpro.py:on_stop``; lifted
-        here so every caller (engineering plugin save-on-quit, REST
-        endpoint, scheduled save, future CLI tools) gets the same
-        guard.
-
-        Pass ``force=True`` only when the caller really does want the
-        save regardless of hardware presence (rare; e.g. an explicit
-        "save folder paths only" path that doesn't touch per-channel
-        values).
-
-        TODO 4.1: split by section so non-hardware values (folder
-        paths, protocol config) are always saved while hardware values
-        (gain, exposure) are gated. Until then, all-or-nothing on
-        hardware presence.
-        """
-        logger.info('[LVP Main  ] MicroscopeSettings.save_settings()')
-        ctx = _app_ctx.ctx
-        settings = ctx.settings
-
-        # Outside the force gate on purpose: force means "save even though no
-        # hardware was connected", not "save over a file we were told to leave
-        # alone". The settings in memory right now are the shipped template,
-        # loaded because the user's own file could not be read; writing them
-        # to current.json would replace their entire configuration with
-        # defaults. Resolved by retire_rejected_current_json() once the user
-        # has actually chosen to start over.
-        if settings_init.settings_are_provisional() and settings_init.targets_current_json(file):
-            logger.warning(
-                '[LVP Main  ] save_settings: skipped -- running on default '
-                'settings because current.json could not be read. Not '
-                'overwriting it until the user decides.'
-            )
-            return
-
-        # LVP-A-4: hardware-presence gate.
-        if not force:
-            scope = ctx.lumaview.scope if ctx.lumaview else None
-            had_hardware = bool(
-                scope and (scope.camera_connected or scope.motor_connected or scope.led_connected)
-            )
-            if not had_hardware:
-                logger.info(
-                    '[LVP Main  ] save_settings: skipped -- no hardware was '
-                    'connected this session (would overwrite real per-channel '
-                    'values with slider defaults). Pass force=True to override.'
-                )
-                return
-
-        if isinstance(file, str) and (file[-5:].lower() != '.json'):
-            file = file + '.json'
-
-        t0 = time.monotonic()
-        with ctx.settings_lock:
-            settings_snapshot = copy.deepcopy(settings)
-        # Resolve relative paths against source_path instead of relying on CWD
-        if not os.path.isabs(file):
-            file = os.path.join(ctx.source_path, file)
-        with open(file, 'w') as write_file:
-            json.dump(settings_snapshot, write_file, indent=4, cls=CustomJSONizer)
-        dt = time.monotonic() - t0
-        if dt > 0.1:
-            logger.warning(f'[LVP Main  ] save_settings took {dt * 1000:.0f}ms')
-
-        # Dispatch on_settings_changed to plugins whose subscribes_to
-        # prefix-matches the keys that diffed since the last save.
-        # The first call after startup caches the baseline without
-        # firing; subsequent saves fire only when actual values change.
-        try:
-            from modules.plugins import fire_settings_save_hooks
-
-            fire_settings_save_hooks(ctx, settings_snapshot)
-        except Exception:
-            logger.exception('[LVP Main  ] save_settings: plugin notification failed')
-
     def load_binning_sizes(self):
         spinner = self.ids['binning_spinner']
         # Use Lumascope API to get available binning sizes

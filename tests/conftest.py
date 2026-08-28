@@ -329,6 +329,7 @@ def scale_ctx(monkeypatch):
     reports one. The values match Etaluma's Classic optics so geometry
     assertions written against the previous default stay valid.
     """
+    import threading
     from types import SimpleNamespace
 
     import modules.app_context as app_context
@@ -338,6 +339,14 @@ def scale_ctx(monkeypatch):
     )
     # A real AppContext (not a bare namespace) so code paths that gate on
     # "ctx is not None" -- e.g. the save-encoding resolver's settings_lock --
-    # find the services they expect, not a half-built stand-in.
-    monkeypatch.setattr(app_context, 'ctx', app_context.AppContext(scope=scope))
+    # find the services they expect, not a half-built stand-in. The settings
+    # store lives on the session, so the context needs one to reach it.
+    monkeypatch.setattr(
+        app_context,
+        'ctx',
+        app_context.AppContext(
+            scope=scope,
+            session=SimpleNamespace(settings={}, settings_lock=threading.Lock()),
+        ),
+    )
     return scope

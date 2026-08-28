@@ -412,36 +412,69 @@ from modules.app_context import AppContext
 
 
 class TestSettingsSnapshot:
-    """Verify thread-safe settings access on AppContext."""
+    """Thread-safe settings access, on the session that owns the store.
+
+    The dict and the lock live together on the session; the app context
+    forwards to it rather than holding a second pair.
+    """
+
+    def _session(self, settings):
+        from modules.scope_session import ScopeSession
+
+        return ScopeSession.create_headless(settings=settings)
 
     def test_snapshot_is_deep_copy(self):
-        ctx = AppContext(settings={'display': {'brightness': 80}})
-        snap = ctx.get_settings_snapshot()
+        session = self._session({'display': {'brightness': 80}})
+        snap = session.get_settings_snapshot()
 
         snap['display']['brightness'] = 999
         snap['new_key'] = True
 
-        assert ctx.settings['display']['brightness'] == 80
-        assert 'new_key' not in ctx.settings
+        assert session.settings['display']['brightness'] == 80
+        assert 'new_key' not in session.settings
 
     def test_update_settings_writes_value(self):
-        ctx = AppContext(settings={})
-        ctx.update_settings('live_folder', '/tmp/test')
-        assert ctx.settings['live_folder'] == '/tmp/test'
+        session = self._session({})
+        session.update_settings('live_folder', '/tmp/test')
+        assert session.settings['live_folder'] == '/tmp/test'
 
     def test_update_settings_overwrites_existing(self):
-        ctx = AppContext(settings={'live_folder': '/old'})
-        ctx.update_settings('live_folder', '/new')
-        assert ctx.settings['live_folder'] == '/new'
+        session = self._session({'live_folder': '/old'})
+        session.update_settings('live_folder', '/new')
+        assert session.settings['live_folder'] == '/new'
 
     def test_snapshot_after_update(self):
-        ctx = AppContext(settings={})
-        ctx.update_settings('key', 'value1')
-        snap = ctx.get_settings_snapshot()
-        ctx.update_settings('key', 'value2')
+        session = self._session({})
+        session.update_settings('key', 'value1')
+        snap = session.get_settings_snapshot()
+        session.update_settings('key', 'value2')
 
         assert snap['key'] == 'value1'
-        assert ctx.settings['key'] == 'value2'
+        assert session.settings['key'] == 'value2'
+
+    def test_context_forwards_to_the_session_store(self):
+        """One dict and one lock -- reachable two ways, stored once.
+
+        A second store on the context would drift from the session's the
+        moment either side wrote, and nothing would report the mismatch.
+        """
+        session = self._session({'live_folder': '/x'})
+        ctx = AppContext(session=session)
+
+        assert ctx.settings is session.settings
+        assert ctx.settings_lock is session.settings_lock
+
+        ctx.update_settings('live_folder', '/y')
+        assert session.settings['live_folder'] == '/y'
+
+    def test_context_without_a_session_refuses_rather_than_defaulting(self):
+        """An empty dict here would read as "nothing configured" and be wrong."""
+        ctx = AppContext()
+
+        with pytest.raises(AttributeError, match='no session'):
+            _ = ctx.settings
+        with pytest.raises(AttributeError, match='no session'):
+            _ = ctx.settings_lock
 
 
 # ===========================================================================
@@ -11066,6 +11099,7 @@ class TestHeadlessSettingsResolutionMatchesGui:
         matches the running app."""
         import importlib.util
         import json
+        import pathlib
 
         import modules.settings_init as settings_init
         from modules.scope_session import ScopeSession
@@ -11087,8 +11121,17 @@ class TestHeadlessSettingsResolutionMatchesGui:
 
         monkeypatch.setattr(settings_init, 'settings', None)
         (tmp_path / 'data').mkdir()
-        (tmp_path / 'data' / 'current.json').write_text(json.dumps({'marker': 'from-current'}))
-        (tmp_path / 'data' / 'settings.json').write_text(json.dumps({'marker': 'from-settings'}))
+        # Both files are real settings files carrying a marker, not bare
+        # marker dicts: headless preparation validates and shape-checks the
+        # way the GUI's does, so a one-key stand-in is rejected before the
+        # resolution this test is about ever gets to matter.
+        shipped = pathlib.Path(__file__).resolve().parent.parent / 'data' / 'settings.json'
+        with open(shipped) as f:
+            template = json.load(f)
+        from_current = dict(template, marker='from-current')
+        from_settings = dict(template, marker='from-settings')
+        (tmp_path / 'data' / 'current.json').write_text(json.dumps(from_current))
+        (tmp_path / 'data' / 'settings.json').write_text(json.dumps(from_settings))
         session = ScopeSession.create_headless(source_path=str(tmp_path))
         assert session.settings.get('marker') == 'from-current', (
             'the headless fallback must pick current.json (live state) over '

@@ -216,24 +216,6 @@ def _validate_settings(settings: dict, filepath: str, logger) -> None:
             logger.warning(f'[Settings ] {filepath}: "motion" missing "acceleration_max_pct"')
 
 
-def load_settings(logger, filename, lvp_appdata):
-
-    global settings
-
-    # load settings JSON file
-    filepath = os.path.join(lvp_appdata, filename) if not os.path.isabs(filename) else filename
-    try:
-        settings = read_settings_json(filepath, logger)
-        _validate_settings(settings, filepath, logger)
-    except SettingsFileError:
-        logger.exception(f'[LVP Main  ] Incompatible JSON file for Microscope Settings: {filepath}')
-        settings = None
-        raise
-    except Exception:
-        logger.exception(f'[LVP Main  ] Unable to open file {filepath}')
-        raise
-
-
 def _check_container_shape(current, template, path=''):
     """Compare a loaded config against the shipped one, shape only.
 
@@ -289,27 +271,6 @@ def _deep_merge_defaults(current: dict, defaults: dict, path: str = '', logger=N
     return added
 
 
-def _migrate_image_mode_setting(logger) -> None:
-    """Fold the retiring capture/save toggles into image_mode on load.
-
-    Runs on the loaded dict before the settings.json default-merge so an
-    install carrying the old keys keeps its choice rather than picking up
-    the merged-in image_mode default.
-    """
-    global settings
-    if settings is None:
-        return
-    # Deferred to break an import cycle: lvp_logger imports load_debug_setting
-    # from this module at its module top (before lvp_logger.logger is defined),
-    # and image_mode imports lvp_logger.logger at its own top. load_debug_setting
-    # never touches image_mode, so importing it here -- only when a settings load
-    # actually migrates -- keeps the logger import safe.
-    from modules import image_mode
-
-    if image_mode.migrate_settings_dict(settings):
-        logger.info('[Settings ] Consolidated capture/save toggles into image_mode')
-
-
 def migrate_video_settings_dict(settings_dict: dict) -> bool:
     """Carry a configured manual_video section to its new name, video.
 
@@ -332,15 +293,6 @@ def migrate_video_settings_dict(settings_dict: dict) -> bool:
     return True
 
 
-def _migrate_video_settings(logger) -> None:
-    """Apply migrate_video_settings_dict to the loaded global settings."""
-    global settings
-    if settings is None:
-        return
-    if migrate_video_settings_dict(settings):
-        logger.info('[Settings ] Renamed manual_video settings section to video')
-
-
 # Set when current.json could not be used and the app came up on the shipped
 # template instead. Holds the rejected file's path and why, until a human
 # decides what to do about it.
@@ -351,6 +303,175 @@ def _migrate_video_settings(logger) -> None:
 # for a dict that is harmless, for a flag that changes during startup it would
 # freeze the answer to whatever it was before the settings even loaded.
 rejected_current_json = None
+
+
+# Written into a layer whose video_config arrived absent, null, or with a
+# rate the recorder cannot use. The shipped template carries the same pair,
+# so an untouched install never reaches these.
+DEFAULT_VIDEO_DURATION_SEC = 5
+DEFAULT_VIDEO_FPS = 30
+
+
+def normalize_loaded_settings(settings_dict: dict) -> bool:
+    """Repair loaded values the running version cannot use as written.
+
+    Distinct from the default merge, which only ADDS absent keys. These
+    keys are PRESENT and hold something the app would misread: a retired
+    spinner label, a per-layer acquire mode that is neither of the two the
+    capture code branches on, a video config written as null. The merge
+    cannot see any of them, because nothing is missing.
+
+    Returns:
+        True when at least one value was repaired.
+    """
+    # Deferred to break an import cycle: lvp_logger imports load_debug_setting
+    # from this module at its module top (before lvp_logger.logger is defined),
+    # and both of these import lvp_logger.logger at their own top.
+    from modules import image_mode
+    from modules.common_utils import get_layers
+
+    changed = False
+
+    output_format = settings_dict.get('image_output_format')
+    if isinstance(output_format, dict) and output_format.get('sequenced') == 'ImageJ Hyperstack':
+        # The file written never changed -- it was always OME-TIFF. Only the
+        # label did, because it named a reader instead of the format.
+        output_format['sequenced'] = image_mode.OUTPUT_FORMAT_HYPERSTACK
+        changed = True
+
+    # Protocol accordions are permanently enabled; a stored preference for
+    # the retired toggle would be read by nothing.
+    if settings_dict.pop('disable_protocol_accordions', None) is not None:
+        changed = True
+
+    for layer in get_layers():
+        layer_settings = settings_dict.get(layer)
+        if not isinstance(layer_settings, dict):
+            continue
+
+        # The capture path branches on exactly 'image' and 'video'; anything
+        # else has to mean "do not acquire", or it falls through both.
+        if layer_settings.get('acquire') not in ('image', 'video', None):
+            layer_settings['acquire'] = None
+            changed = True
+
+        video_config = layer_settings.get('video_config')
+        if not isinstance(video_config, dict):
+            video_config = {}
+            layer_settings['video_config'] = video_config
+            changed = True
+        if 'duration' not in video_config:
+            video_config['duration'] = DEFAULT_VIDEO_DURATION_SEC
+            changed = True
+        # A zero or negative rate would divide into the frame interval.
+        if video_config.get('fps', 0) <= 0:
+            video_config['fps'] = DEFAULT_VIDEO_FPS
+            changed = True
+
+    return changed
+
+
+def _apply_load_migrations(logger, settings_dict: dict) -> None:
+    """Every fold that must run on a loaded dict before the default merge.
+
+    Order matters against the merge, not among themselves: the merge only
+    ADDS missing keys, so a rename left unfolded here would get the shipped
+    default merged in beside the user's value and the real one would sit
+    unread.
+    """
+    from modules import image_mode
+
+    if image_mode.migrate_settings_dict(settings_dict):
+        logger.info('[Settings ] Consolidated capture/save toggles into image_mode')
+    if migrate_video_settings_dict(settings_dict):
+        logger.info('[Settings ] Renamed manual_video settings section to video')
+    if normalize_loaded_settings(settings_dict):
+        logger.info('[Settings ] Repaired stored values the running version cannot use')
+
+
+def _load_and_validate(logger, filepath: str) -> dict:
+    """Read one settings file and check it carries the keys the app needs."""
+    loaded = read_settings_json(filepath, logger)
+    _validate_settings(loaded, filepath, logger)
+    return loaded
+
+
+def prepare_settings(logger, directory, *, fall_back_to_template: bool) -> tuple:
+    """Read the settings file and make it USABLE. Every host runs this.
+
+    Reading the file is only the first step. A settings dict is not usable
+    until its shape has been checked against the shipped template, its
+    retired spellings folded forward, its unusable values repaired, and
+    the keys added by newer releases merged in. A host that runs only the
+    read gets a dict that parses and is silently missing everything the
+    running version added since the file was written.
+
+    ``fall_back_to_template`` answers the one question with no
+    host-independent answer: what to do when current.json exists and
+    cannot be used. The GUI comes up on the shipped defaults and asks the
+    user. A headless caller has nobody to ask, and handing it a plausible
+    configuration that is not the user's is worse than refusing, so it
+    gets the exception.
+
+    Returns:
+        (settings dict, rejected) where rejected is None, or
+        (path, reason) naming the user's file that was set aside.
+    """
+    current_path = os.path.join(directory, 'data', 'current.json')
+    template_path = os.path.join(directory, 'data', 'settings.json')
+    data_dir = os.path.join(directory, 'data')
+    rejected = None
+
+    if os.path.exists(current_path):
+        try:
+            prepared = _load_and_validate(logger, current_path)
+            _reject_if_misshapen(logger, prepared, template_path, current_path)
+        except (json.JSONDecodeError, ValueError) as e:
+            if not fall_back_to_template:
+                raise
+            # current.json is unusable. Come up on the shipped template so the
+            # user gets a working app and a chance to decide -- but do NOT
+            # touch their file. It is the only copy of their configuration,
+            # and the running app is now holding template values that would
+            # overwrite it on the next save.
+            logger.error(
+                f'[Settings ] {current_path} could not be used ({e}); '
+                'starting from the shipped defaults. The file has NOT been '
+                'modified and no settings will be saved until this is resolved.'
+            )
+            if not os.path.exists(template_path):
+                raise FileNotFoundError(
+                    f'current.json corrupt and no settings.json fallback in {data_dir}'
+                ) from e
+            prepared = _load_and_validate(logger, template_path)
+            rejected = (current_path, str(e))
+
+        _apply_load_migrations(logger, prepared)
+
+        # Merge missing keys from settings.json defaults into current.json.
+        # current.json drifts from settings.json as new features add keys.
+        # This ensures new keys are available without losing user values.
+        if os.path.exists(template_path):
+            try:
+                defaults = read_settings_json(template_path, logger)
+                added = _deep_merge_defaults(prepared, defaults, logger=logger)
+                if added:
+                    logger.info(
+                        f'[Settings ] Merged {len(added)} missing keys from settings.json: {added}'
+                    )
+            except Exception:
+                logger.warning('[Settings ] Could not load settings.json for default merge')
+
+        return prepared, rejected
+
+    if os.path.exists(template_path):
+        prepared = _load_and_validate(logger, template_path)
+        _apply_load_migrations(logger, prepared)
+        return prepared, None
+
+    if not os.path.isdir(data_dir):
+        raise FileNotFoundError(f"Couldn't find 'data' directory at {data_dir}")
+    raise FileNotFoundError(f'No settings files found in {data_dir}')
 
 
 def _reject_if_misshapen(logger, loaded, template_path, current_path):
@@ -385,65 +506,24 @@ def _reject_if_misshapen(logger, loaded, template_path, current_path):
 
 
 def load_lvp_settings(logger, lvp_appdata):
+    """Prepare the settings and publish them as this process's module state.
+
+    The preparation itself is prepare_settings, which every host shares.
+    What is specific to the app is the publishing: the GUI and the modules
+    it imports read `settings_init.settings` directly, so a load has to
+    land there as well as be returned.
+    """
     global settings, rejected_current_json
 
-    # Reset per call: a second load (tests) must not inherit the first's verdict.
+    # Reset per call: a second load (tests) must not inherit the first's
+    # verdict, and a load that raises must not leave the previous dict in
+    # place looking like a successful one.
+    settings = None
     rejected_current_json = None
 
-    current_path = os.path.join(lvp_appdata, 'data', 'current.json')
-    settings_path = os.path.join(lvp_appdata, 'data', 'settings.json')
-    data_dir = os.path.join(lvp_appdata, 'data')
-
-    if os.path.exists(current_path):
-        try:
-            load_settings(logger, current_path, lvp_appdata)
-            _reject_if_misshapen(logger, settings, settings_path, current_path)
-        except (json.JSONDecodeError, ValueError) as e:
-            # current.json is unusable. Come up on the shipped template so the
-            # user gets a working app and a chance to decide -- but do NOT
-            # touch their file. It is the only copy of their configuration,
-            # and the running app is now holding template values that would
-            # overwrite it on the next save.
-            logger.error(
-                f'[Settings ] {current_path} could not be used ({e}); '
-                'starting from the shipped defaults. The file has NOT been '
-                'modified and no settings will be saved until this is resolved.'
-            )
-            settings = None
-            if os.path.exists(settings_path):
-                load_settings(logger, settings_path, lvp_appdata)
-                rejected_current_json = (current_path, str(e))
-            else:
-                raise FileNotFoundError(
-                    f'current.json corrupt and no settings.json fallback in {data_dir}'
-                ) from e
-
-        _migrate_image_mode_setting(logger)
-        _migrate_video_settings(logger)
-
-        # Merge missing keys from settings.json defaults into current.json.
-        # current.json drifts from settings.json as new features add keys.
-        # This ensures new keys are available without losing user values.
-        if settings is not None and os.path.exists(settings_path):
-            try:
-                defaults = read_settings_json(settings_path, logger)
-                added = _deep_merge_defaults(settings, defaults, logger=logger)
-                if added:
-                    logger.info(
-                        f'[Settings ] Merged {len(added)} missing keys from settings.json: {added}'
-                    )
-            except Exception:
-                logger.warning('[Settings ] Could not load settings.json for default merge')
-
-    elif os.path.exists(settings_path):
-        load_settings(logger, settings_path, lvp_appdata)
-        _migrate_image_mode_setting(logger)
-        _migrate_video_settings(logger)
-    else:
-        if not os.path.isdir(data_dir):
-            raise FileNotFoundError(f"Couldn't find 'data' directory at {data_dir}")
-        else:
-            raise FileNotFoundError(f'No settings files found in {data_dir}')
+    settings, rejected_current_json = prepare_settings(
+        logger, lvp_appdata, fall_back_to_template=True
+    )
 
 
 def retire_rejected_current_json():

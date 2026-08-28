@@ -119,6 +119,7 @@ if __name__ == '__main__':
     import modules.objectives_loader as objectives_loader
     import modules.profiling_utils as profiling_utils
     from modules.app_context import AppContext
+    from modules.plugins import fire_settings_save_hooks
     from modules.autofocus_runner import AutofocusRunner
     from modules.autofocus_thread import AutofocusThread
     from modules.scope_session import ScopeSession
@@ -423,6 +424,17 @@ from ui.zstack import ZStack
 # would otherwise leave no runtime-state snapshot in a tech-support bundle,
 # so it is also flushed on this interval while the app runs.
 _CURRENT_JSON_FLUSH_INTERVAL_S = 300
+
+
+def _notify_plugins_of_settings_save(settings_snapshot: dict) -> None:
+    """Tell plugins the settings were just written to disk.
+
+    The session does the saving and knows nothing about the plugin
+    registry, which is a GUI-side service. Passing this down as a
+    callback keeps it that way: a headless session is simply handed no
+    hook, rather than reaching up for a registry that is not there.
+    """
+    fire_settings_save_hooks(app_context.ctx, settings_snapshot)
 
 
 class LumaViewProApp(TooltipMixin, App):
@@ -982,6 +994,7 @@ class LumaViewProApp(TooltipMixin, App):
             autofocus_thread=autofocus_thread,
             z_ui_update_func=_handle_autofocus_ui,
             metrics_scheduler=KivyClockScheduler(Clock),
+            settings_saved_hook=_notify_plugins_of_settings_save,
         )
         sequenced_capture_runner = scope_session.sequenced_capture_runner
 
@@ -989,7 +1002,6 @@ class LumaViewProApp(TooltipMixin, App):
         ctx = AppContext(
             scope=lumaview.scope,
             lumaview=lumaview,
-            settings=settings,
             session=scope_session,
             sequenced_capture_runner=sequenced_capture_runner,
             autofocus_runner=autofocus_runner,
@@ -1290,7 +1302,7 @@ class LumaViewProApp(TooltipMixin, App):
         slider defaults when no hardware was connected this session.
         """
         try:
-            ctx.motion_settings.ids['microscope_settings_id'].save_settings('./data/current.json')
+            ctx.session.save_settings('./data/current.json')
         except Exception:
             logger.exception('[LVP Main  ] periodic current.json flush failed')
 
@@ -1416,10 +1428,10 @@ class LumaViewProApp(TooltipMixin, App):
         # are consolidated into one teardown.
         lumaview.scope.motion.stop_motion()
 
-        # The hardware-presence gate lives inside MicroscopeSettings.save_settings
-        # now, so every caller (engineering plugin, REST, scheduled save) gets
-        # the same guard. Pass force=True only to override.
-        ctx.motion_settings.ids['microscope_settings_id'].save_settings('./data/current.json')
+        # The hardware-presence gate lives inside the session's save_settings,
+        # so every caller (engineering plugin, REST, scheduled save) gets the
+        # same guard. Pass force=True only to override.
+        ctx.session.save_settings('./data/current.json')
 
         logger.info('[LVP Main  ] lumaview.scope.disconnect()')
         lumaview.scope.disconnect()

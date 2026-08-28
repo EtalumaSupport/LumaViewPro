@@ -225,6 +225,36 @@ session.start_application_session(disable_homing=True)  # skip homing, still pos
 
 `start_application_session()` is the single source of truth for the standard startup orchestration the GUI runs on launch: it queues an all-axis `move_home` on the io_executor (firmware homes Z/T/X/Y in one routine; Z-only boards home what they have), then, when the scope has a turret, moves the T-axis to the position matching `settings['objective_id']` (falling back to position 1). Headless / REST callers should use this rather than open-coding the home + turret sequence. `disable_homing=True` skips the home step (matches the App's `--no-home` flag) but still positions the turret.
 
+### Reading and persisting configuration
+
+```python
+config = session.get_layer_configs()          # read, in API names
+session.settings['live_folder'] = '/data/run7'  # write, from the host's own thread
+session.update_settings('live_folder', '/data/run7')  # write, from any other thread
+snapshot = session.get_settings_snapshot()     # a consistent copy, taken under the lock
+session.save_settings(force=True)             # persist to data/current.json
+```
+
+The settings dict IS the configuration surface: its storage keys are the
+API names, so what you read is what you write. The session owns the dict
+and the lock that guards it.
+
+Reads may go straight to `session.settings`. A write from a thread other
+than the host's own goes through `update_settings()`, which takes the
+lock — a write that skips it can tear a snapshot another thread is taking
+concurrently. Long-running work should take one `get_settings_snapshot()`
+at entry and read from that rather than the live dict.
+
+`save_settings()` writes the dict to `data/current.json`. **It skips the
+write by default when no hardware was connected during the session**: with
+no camera attached the GUI's sliders sit at their defaults, and persisting
+those over a user's real per-channel values loses them. An API caller has
+no sliders behind it, so a deliberate persist passes `force=True` — without
+it, `save_settings()` on a hardware-less session succeeds and writes
+nothing. It also declines, `force` or not, when the app came up on the
+shipped template because `current.json` could not be read; that file is the
+user's only copy and is left untouched until they decide.
+
 ### Periodic metrics logging (optional)
 
 ```python
