@@ -37,3 +37,5 @@ generated_tiles_current_10x10/
 results_current_10x10/
 actual_tile_data/
 recent_issue/
+.hypothesis/
+.ruff_cache/

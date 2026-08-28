@@ -245,7 +245,11 @@ def _enable_driver_logging(config):
     real.propagate = False
     real.handlers.clear()
 
-    log_path = os.path.abspath(f'driver_test_{time.strftime("%Y-%m-%d_%H-%M-%S")}.log')
+    # Under logs/, which is gitignored -- writing to the repo root left these
+    # sitting beside the source tree, one per --driver-log run, forever.
+    log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'logs')
+    os.makedirs(log_dir, exist_ok=True)
+    log_path = os.path.join(log_dir, f'driver_test_{time.strftime("%Y-%m-%d_%H-%M-%S")}.log')
     file_handler = logging.FileHandler(log_path, mode='w')
     file_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
     real.addHandler(file_handler)
